@@ -1,0 +1,306 @@
+# omavless-routing-profile: roscomvpn-default
+# Policy based on the published RoscomVPN DEFAULT routing model.
+# Rule data stays remote and is maintained by hydraponique/roscomvpn-geosite
+# and hydraponique/roscomvpn-geoip. See THIRD_PARTY_NOTICES.md.
+
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+
+tun:
+  enable: true
+  stack: system
+  device: Meta
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-hijack:
+    - any:53
+  route-exclude-address:
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 224.0.0.0/3
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - rule-set:private-domains
+  default-nameserver:
+    - 77.88.8.8
+    - 8.8.8.8
+  proxy-server-nameserver:
+    - 77.88.8.8
+    - 1.1.1.1
+  direct-nameserver:
+    - https://77.88.8.8/dns-query
+  nameserver:
+    - https://8.8.8.8/dns-query#PROXY
+
+sniffer:
+  enable: true
+  override-destination: false
+  parse-pure-ip: true
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+  skip-dst-address:
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 224.0.0.0/3
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+proxies:
+{{OMAVLESS_PROXY}}
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    include-all: true
+
+rule-providers:
+  private-domains:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/private.mrs
+    path: ./ruleset/geosite-private.mrs
+    proxy: PROXY
+    interval: 2592000
+  category-ru:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ru.mrs
+    path: ./ruleset/category-ru.mrs
+    proxy: PROXY
+    interval: 86400
+  whitelist:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/whitelist.mrs
+    path: ./ruleset/whitelist.mrs
+    proxy: PROXY
+    interval: 86400
+  microsoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/microsoft.mrs
+    path: ./ruleset/microsoft.mrs
+    proxy: PROXY
+    interval: 86400
+  apple:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/apple.mrs
+    path: ./ruleset/apple.mrs
+    proxy: PROXY
+    interval: 86400
+  google-play:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/google-play.mrs
+    path: ./ruleset/google-play.mrs
+    proxy: PROXY
+    interval: 86400
+  epicgames:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/epicgames.mrs
+    path: ./ruleset/epicgames.mrs
+    proxy: PROXY
+    interval: 86400
+  origin:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/origin.mrs
+    path: ./ruleset/origin.mrs
+    proxy: PROXY
+    interval: 86400
+  riot:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/riot.mrs
+    path: ./ruleset/riot.mrs
+    proxy: PROXY
+    interval: 86400
+  escapefromtarkov:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/escapefromtarkov.mrs
+    path: ./ruleset/escapefromtarkov.mrs
+    proxy: PROXY
+    interval: 86400
+  steam:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/steam.mrs
+    path: ./ruleset/steam.mrs
+    proxy: PROXY
+    interval: 86400
+  twitch:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch.mrs
+    path: ./ruleset/twitch.mrs
+    proxy: PROXY
+    interval: 86400
+  pinterest:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/pinterest.mrs
+    path: ./ruleset/pinterest.mrs
+    proxy: PROXY
+    interval: 86400
+  faceit:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/faceit.mrs
+    path: ./ruleset/faceit.mrs
+    proxy: PROXY
+    interval: 86400
+  private-ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/private.mrs
+    path: ./ruleset/geoip-private.mrs
+    proxy: PROXY
+    interval: 2592000
+  direct-ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/direct.mrs
+    path: ./ruleset/direct-ips.mrs
+    proxy: PROXY
+    interval: 86400
+  github:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/github.mrs
+    path: ./ruleset/github.mrs
+    proxy: PROXY
+    interval: 86400
+  twitch-ads:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch-ads.mrs
+    path: ./ruleset/twitch-ads.mrs
+    proxy: PROXY
+    interval: 86400
+  youtube:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/youtube.mrs
+    path: ./ruleset/youtube.mrs
+    proxy: PROXY
+    interval: 86400
+  telegram:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/telegram.mrs
+    path: ./ruleset/telegram.mrs
+    proxy: PROXY
+    interval: 86400
+  win-spy:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/win-spy.mrs
+    path: ./ruleset/win-spy.mrs
+    proxy: PROXY
+    interval: 86400
+  torrent-domains:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/torrent.mrs
+    path: ./ruleset/torrent-domains.mrs
+    proxy: PROXY
+    interval: 86400
+  category-ads:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ads.mrs
+    path: ./ruleset/category-ads.mrs
+    proxy: PROXY
+    interval: 86400
+
+rules:
+  - RULE-SET,private-ips,DIRECT,no-resolve
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT-DROP
+  - RULE-SET,private-domains,DIRECT
+  - RULE-SET,category-ads,REJECT-DROP
+  - RULE-SET,win-spy,REJECT-DROP
+  - RULE-SET,torrent-domains,DIRECT
+  - RULE-SET,google-play,PROXY
+  - RULE-SET,twitch-ads,PROXY
+  - RULE-SET,youtube,PROXY
+  - RULE-SET,telegram,PROXY
+  - RULE-SET,github,PROXY
+  - RULE-SET,epicgames,DIRECT
+  - RULE-SET,origin,DIRECT
+  - RULE-SET,riot,DIRECT
+  - RULE-SET,escapefromtarkov,DIRECT
+  - RULE-SET,steam,DIRECT
+  - RULE-SET,faceit,DIRECT
+  - RULE-SET,twitch,DIRECT
+  - RULE-SET,microsoft,DIRECT
+  - RULE-SET,apple,DIRECT
+  - RULE-SET,pinterest,DIRECT
+  - RULE-SET,category-ru,DIRECT
+  - RULE-SET,whitelist,DIRECT
+  - PROCESS-NAME-REGEX,(?i)discord,PROXY
+  - PROCESS-NAME-REGEX,(?i)vesktop,PROXY
+  - RULE-SET,direct-ips,DIRECT
+  - MATCH,PROXY
