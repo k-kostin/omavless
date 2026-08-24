@@ -1163,7 +1163,12 @@ Panel {
               id: hero
               width: parent.width
               title: "OmaVLESS"
-              meta: vless.active ? "Connected: " + vless.activeNames.join(", ") : "Disconnected"
+              // PanelHero uses stock Text/AutoText for its metadata line.
+              // Keep provider-controlled profile names inert at this sink too,
+              // even though Service already normalizes its public model.
+              meta: vless.active
+                ? root.safeTooltip("Connected: " + vless.activeNames.join(", "), 220)
+                : "Disconnected"
               foreground: root.foreground
               fontFamily: root.fontFamily
               iconOpacity: vless.active ? 1.0 : 0.5
