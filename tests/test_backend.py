@@ -124,6 +124,60 @@ class BackendTests(unittest.TestCase):
         self.assertIn("path: \"/edge\"", yaml)
         self.assertIn("Host: \"cdn.example.com\"", yaml)
 
+    def test_vless_vision_udp443_variant_maps_to_mihomo_flow(self):
+        uri = REALITY_URI.replace(
+            "flow=xtls-rprx-vision", "flow=xtls-rprx-vision-udp443"
+        )
+        parsed = backend.parse_vless(uri)
+        self.assertEqual(parsed["flow"], "xtls-rprx-vision-udp443")
+        self.assertEqual(parsed["mihomo_flow"], "xtls-rprx-vision")
+        yaml = backend.proxy_yaml({"name": "Vision UDP443", "uri": uri})
+        self.assertIn('flow: "xtls-rprx-vision"', yaml)
+        self.assertNotIn("xtls-rprx-vision-udp443", yaml)
+
+    def test_vless_packet_encoding_is_bounded_to_mihomo_values(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        for value in ("xudp", "packetaddr"):
+            uri = f"{base}&packetEncoding={value}#{fragment}"
+            parsed = backend.parse_vless(uri)
+            self.assertEqual(parsed["packet_encoding"], value)
+            self.assertIn(
+                f'packet-encoding: "{value}"',
+                backend.proxy_yaml({"name": value, "uri": uri}),
+            )
+        with self.assertRaisesRegex(backend.BackendError, "packet encoding"):
+            backend.parse_vless(f"{base}&packetEncoding=made-up#{fragment}")
+
+    def test_vless_xhttp_mode_is_normalized_and_strict(self):
+        prefix = (
+            "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+            "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
+        )
+        for value in ("auto", "stream-one", "stream-up", "packet-up"):
+            uri = f"{prefix}&mode={value}#XHTTP"
+            self.assertEqual(backend.parse_vless(uri)["mode"], value)
+            self.assertIn(
+                f'mode: "{value}"',
+                backend.proxy_yaml({"name": value, "uri": uri}),
+            )
+        self.assertEqual(
+            backend.parse_vless(f"{prefix}&mode=STREAM-UP#XHTTP")["mode"],
+            "stream-up",
+        )
+        with self.assertRaisesRegex(backend.BackendError, "XHTTP mode"):
+            backend.parse_vless(f"{prefix}&mode=made-up#XHTTP")
+
+    def test_non_xhttp_mode_query_cannot_leak_into_generated_yaml(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        parsed = backend.parse_vless(f"{base}&mode=provider-metadata#{fragment}")
+        self.assertEqual(parsed["mode"], "")
+        self.assertNotIn(
+            "mode:",
+            backend.proxy_yaml({
+                "name": "TCP", "uri": f"{base}&mode=provider-metadata#{fragment}"
+            }),
+        )
+
     def test_unsupported_transport_options_are_not_silently_changed(self):
         with self.assertRaisesRegex(backend.BackendError, "Unsupported VLESS transport"):
             backend.parse_vless(REALITY_URI.replace("type=tcp", "type=httpupgrade"))
@@ -1687,6 +1741,8 @@ rules:
             backend.parse_vless(REALITY_URI.replace("encryption=none", "encryption=aes-128-gcm"))
         with self.assertRaisesRegex(backend.BackendError, "Unsupported VLESS flow"):
             backend.parse_vless(REALITY_URI.replace("xtls-rprx-vision", "made-up-flow"))
+        with self.assertRaisesRegex(backend.BackendError, "requires TLS or Reality"):
+            backend.parse_vless(REALITY_URI.replace("security=reality", "security=none"))
 
     def test_stdin_reader_is_utf8_and_byte_bounded(self):
         with mock.patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"ok"), encoding="utf-8")):
@@ -2030,24 +2086,40 @@ esac
             self.assertIn("Adapted from Omarchy VPN", source)
         self.assertIn("THIRD_PARTY_NOTICES.md", (ROOT / "install.sh").read_text(encoding="utf-8"))
 
-    def test_current_mihomo_accepts_generated_reality_config(self):
+    def test_current_mihomo_accepts_generated_vless_configs(self):
         configured = os.environ.get("OMAVLESS_TEST_MIHOMO", "").strip()
         if not configured:
             self.skipTest("set OMAVLESS_TEST_MIHOMO for the opt-in core integration test")
         core = Path(configured)
         template = (ROOT / "templates" / "default.yaml").read_text(encoding="utf-8")
-        config = template.replace(
-            backend.PROFILE_MARKER,
-            backend.proxy_yaml({"name": "VLESS", "uri": REALITY_URI}),
-        )
-        with tempfile.TemporaryDirectory() as temp:
-            config_path = Path(temp) / "config.yaml"
-            config_path.write_text(config, encoding="utf-8")
-            result = subprocess.run(
-                [str(core), "-t", "-d", temp, "-f", str(config_path)],
-                text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        base, fragment = REALITY_URI.split("#", 1)
+        profiles = {
+            "reality-vision": REALITY_URI,
+            "reality-vision-udp443-xudp": (
+                base.replace(
+                    "flow=xtls-rprx-vision", "flow=xtls-rprx-vision-udp443"
+                )
+                + "&packetEncoding=xudp#" + fragment
+            ),
+            "xhttp-packet-up": (
+                "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+                "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
+                "&mode=packet-up&packetEncoding=packetaddr#XHTTP"
+            ),
+        }
+        for name, uri in profiles.items():
+            with self.subTest(profile=name), tempfile.TemporaryDirectory() as temp:
+                config = template.replace(
+                    backend.PROFILE_MARKER,
+                    backend.proxy_yaml({"name": name, "uri": uri}),
+                )
+                config_path = Path(temp) / "config.yaml"
+                config_path.write_text(config, encoding="utf-8")
+                result = subprocess.run(
+                    [str(core), "-t", "-d", temp, "-f", str(config_path)],
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_uninstall_removes_only_runtime_integration_unless_purged(self):
         with tempfile.TemporaryDirectory() as temp:

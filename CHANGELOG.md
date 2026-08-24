@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Tightened VLESS compatibility boundaries: XUDP/PacketAddr encodings and
+  XHTTP modes are now normalized and strictly validated, while both Xray
+  Vision share-link variants map to Mihomo's single supported Vision flow
+  without hiding their different UDP/443 semantics.
 - Added multi-server favorites for both local and subscription-managed
   profiles. Active and pinned servers stay easy to reach without adding a
   permanent toolbar; pins survive subscription refreshes for retained nodes.

@@ -1495,11 +1495,29 @@ def parse_vless(uri: str) -> dict[str, Any]:
     encryption = first_query(query, "encryption", default="none") or "none"
     if encryption != "none":
         raise BackendError("VLESS encryption must be none")
-    flow = first_query(query, "flow")
-    if flow not in {"", "xtls-rprx-vision"}:
+    flow = first_query(query, "flow").lower()
+    if flow not in {"", "xtls-rprx-vision", "xtls-rprx-vision-udp443"}:
         raise BackendError(f"Unsupported VLESS flow: {flow}")
     if flow and network != "tcp":
         raise BackendError("VLESS Vision flow requires the TCP transport")
+    if flow and security not in {"tls", "reality"}:
+        raise BackendError("VLESS Vision flow requires TLS or Reality security")
+    # Mihomo exposes one Vision flow whose UDP/443 behavior corresponds to
+    # Xray's explicit `-udp443` variant. Preserve the source value for preview
+    # and compatibility reporting, but emit the only value Mihomo accepts.
+    mihomo_flow = "xtls-rprx-vision" if flow else ""
+    packet_encoding = first_query(query, "packetEncoding", "packet-encoding").lower()
+    if packet_encoding not in {"", "xudp", "packetaddr"}:
+        raise BackendError(f"Unsupported VLESS packet encoding: {packet_encoding}")
+    mode = first_query(query, "mode")
+    if network == "xhttp":
+        mode = mode.lower()
+        if mode not in {"", "auto", "stream-one", "stream-up", "packet-up"}:
+            raise BackendError(f"Unsupported VLESS XHTTP mode: {mode}")
+    else:
+        # Other transports use their own option names. Some providers retain
+        # an unrelated `mode` query field, which must not alter generated YAML.
+        mode = ""
     header_type = first_query(query, "headerType", "header-type").lower()
     if network == "tcp" and header_type not in {"", "none"}:
         raise BackendError(f"Unsupported VLESS TCP header type: {header_type}")
@@ -1507,17 +1525,17 @@ def parse_vless(uri: str) -> dict[str, Any]:
         "uri": uri, "uuid": user, "server": parsed.hostname, "port": port,
         "network": network, "security": security,
         "encryption": encryption,
-        "flow": flow, "servername": server_name,
+        "flow": flow, "mihomo_flow": mihomo_flow, "servername": server_name,
         "fingerprint": first_query(query, "fp", "fingerprint", "client-fingerprint"),
         "public_key": public_key, "short_id": first_query(query, "sid", "short-id"),
         "spider_x": first_query(query, "spx", "spider-x"),
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",
         "host": first_query(query, "host"),
         "service_name": first_query(query, "serviceName", "service-name"),
-        "mode": first_query(query, "mode"),
+        "mode": mode,
         "alpn": [part.strip() for part in first_query(query, "alpn").split(",") if part.strip()],
         "allow_insecure": query_bool(query, "allowInsecure", "skip-cert-verify"),
-        "packet_encoding": first_query(query, "packetEncoding", "packet-encoding"),
+        "packet_encoding": packet_encoding,
         "suggested_name": urllib.parse.unquote(parsed.fragment or "").strip(),
     }
 
@@ -1557,8 +1575,8 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
              f"  server: {y(server_override or node['server'])}", f"  port: {node['port']}",
              f"  uuid: {y(node['uuid'])}", "  udp: true",
              f"  network: {node['network']}", f"  encryption: {y(node['encryption'])}"]
-    if node["flow"]:
-        lines.append(f"  flow: {y(node['flow'])}")
+    if node["mihomo_flow"]:
+        lines.append(f"  flow: {y(node['mihomo_flow'])}")
     if node["packet_encoding"]:
         lines.append(f"  packet-encoding: {y(node['packet_encoding'])}")
     if node["security"] in {"tls", "reality"}:
