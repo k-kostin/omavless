@@ -1298,6 +1298,32 @@ rules:
             self.assertEqual(request.call_count, 2)
             self.assertEqual(backend.load_store(paths)["rulesUpdatedAt"], result["updatedAt"])
 
+    def test_full_vpn_selects_and_verifies_the_active_profile_privately(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", return_value=(204, {})
+        ) as request, mock.patch.object(
+            backend, "controller_json", return_value=(200, {"now": "Example"})
+        ) as readback:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        request.assert_called_once_with(
+            socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "Example"}
+        )
+        readback.assert_called_once_with(socket_path, "/proxies/GLOBAL", 5)
+
+    def test_full_vpn_rejects_a_selection_that_mihomo_did_not_retain(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", return_value=(204, {})
+        ), mock.patch.object(
+            backend, "controller_json", return_value=(200, {"now": "DIRECT"})
+        ), self.assertRaisesRegex(backend.BackendError, "did not retain"):
+            backend.select_global_proxy(mock.Mock(), "Example")
+
     def test_set_routing_mode_reconnects_and_rolls_back_on_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -1353,6 +1379,9 @@ rules:
         self.assertIn("RULE-SET,category-ru,DIRECT", text)
         self.assertIn("RULE-SET,youtube,PROXY", text)
         self.assertIn("MATCH,PROXY", text)
+        self.assertIn("include-all-proxies: true", text)
+        self.assertIn("- name: GLOBAL", text)
+        self.assertIn("default-selected: PROXY", text)
         defined = {
             match.group(1)
             for line in providers
@@ -1382,6 +1411,9 @@ rules:
                 self.assertIn(source, text)
                 self.assertIn("format: mrs", text)
                 self.assertIn("MATCH,PROXY", text)
+                self.assertIn("include-all-proxies: true", text)
+                self.assertIn("- name: GLOBAL", text)
+                self.assertIn("default-selected: PROXY", text)
                 defined = {
                     match.group(1)
                     for line in providers
@@ -2737,10 +2769,12 @@ rules:
                  mock.patch.object(backend, "render_config_mode", return_value="mode: global\n") as render, \
                  mock.patch.object(backend, "test_config", return_value=candidate), \
                  mock.patch.object(backend, "systemctl", return_value=ok) as systemctl, \
+                 mock.patch.object(backend, "select_global_proxy") as select_global, \
                  mock.patch.object(backend, "mark_active"):
                 backend.startup_connect(paths)
             render.assert_called_once_with(paths, mock.ANY, "global", mock.ANY)
             systemctl.assert_called_once_with("start", backend.SERVICE)
+            select_global.assert_called_once_with(paths, "Example")
             saved = backend.load_store(paths)
             self.assertEqual(saved["activeId"], profile_id)
             self.assertEqual(saved["lastId"], profile_id)
@@ -2768,6 +2802,45 @@ rules:
                 backend.stop_service(paths, profile_id)
             systemctl.assert_called_once_with("stop", backend.SERVICE, check=False)
             self.assertEqual(backend.load_store(paths)["activeId"], "")
+
+    def test_interactive_full_vpn_selects_the_active_profile_after_start(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
+            backend.save_store(paths, store)
+            paths.template.write_text(
+                "mode: global\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
+                encoding="utf-8",
+            )
+            candidate = paths.config_dir / ".candidate.yaml"
+            candidate.write_text("mode: global\n", encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                backend, "service_active", side_effect=[False, False, True]
+            ), mock.patch.object(
+                backend, "find_core", return_value=Path("/usr/bin/mihomo")
+            ), mock.patch.object(backend, "ensure_unit"), mock.patch.object(
+                backend, "render_config", return_value="mode: global\n"
+            ), mock.patch.object(
+                backend, "test_config", return_value=candidate
+            ), mock.patch.object(
+                backend, "systemctl", return_value=ok
+            ) as systemctl, mock.patch.object(
+                backend, "select_global_proxy"
+            ) as select_global, mock.patch.object(backend, "mark_active"):
+                backend.connect_profile(paths, profile_id)
+            systemctl.assert_called_once_with("start", backend.SERVICE)
+            select_global.assert_called_once_with(paths, "Example")
+            self.assertEqual(backend.load_store(paths)["activeId"], profile_id)
 
     def test_bundled_config_enables_rule_tun(self):
         template = (ROOT / "templates" / "default.yaml").read_text(encoding="utf-8")
@@ -3290,6 +3363,26 @@ esac
                         "protocol": backend.profile_protocol(uri),
                     }),
                 )
+                config_path = Path(temp) / "config.yaml"
+                config_path.write_text(config, encoding="utf-8")
+                result = subprocess.run(
+                    [str(core), "-t", "-d", temp, "-f", str(config_path)],
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_current_mihomo_accepts_every_bundled_global_selector(self):
+        configured = os.environ.get("OMAVLESS_TEST_MIHOMO", "").strip()
+        if not configured:
+            self.skipTest("set OMAVLESS_TEST_MIHOMO for the opt-in core integration test")
+        core = Path(configured)
+        rendered_profile = backend.profile_yaml({
+            "name": "Example", "uri": REALITY_URI, "protocol": "vless",
+        })
+        for template_name in ("default.yaml", "china.yaml", "iran.yaml"):
+            with self.subTest(template=template_name), tempfile.TemporaryDirectory() as temp:
+                template = (ROOT / "templates" / template_name).read_text(encoding="utf-8")
+                config = template.replace(backend.PROFILE_MARKER, rendered_profile)
                 config_path = Path(temp) / "config.yaml"
                 config_path.write_text(config, encoding="utf-8")
                 result = subprocess.run(
