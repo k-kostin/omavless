@@ -31,7 +31,7 @@ then hands the private import flow your first supported profile link. The
 guide never installs packages or runs privileged commands: every host setup
 step is shown as an explicit copy-to-terminal action. Before a key is stored,
 the import review shows its endpoint, transport, security and SNI while keeping
-the full access UUID and key parameters hidden.
+the complete access credential and key parameters hidden.
 
 ### 2. Prepare Mihomo
 
@@ -115,7 +115,11 @@ documented; the normal plugin installation does not exercise them silently.
   subscription membership, current selection or login target. This is a
   stable boundary shared by every supported protocol.
 
-- VLESS URI import from a file or the clipboard.
+- VLESS URI import from a file or the clipboard. Duplicate fields,
+  conflicting aliases, malformed booleans and unknown connection options fail
+  before storage. Recognized provider-only `concurrency` and `x-durev-*`
+  metadata remains private, is explicitly disclosed as unmapped during import
+  and is never copied into Mihomo YAML.
 - Experimental Trojan URI import for TCP, WebSocket and gRPC with TLS or the
   Mihomo-supported REALITY subset. Password, SNI, ALPN, certificate-check
   preference, uTLS fingerprint, WebSocket host/path, gRPC service name and
@@ -134,7 +138,11 @@ documented; the normal plugin installation does not exercise them silently.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
   and atomic refresh-all. Plain-text and standard/URL-safe base64 lists may mix
   VLESS, Trojan, Hysteria2 and TUIC links; unrelated protocols are ignored. Managed
-  servers stay collapsed under their provider until its row is opened.
+  servers stay collapsed under their provider until its row is opened. VLESS
+  row identity follows supported connection semantics rather than provider
+  labels, priority hints or query ordering; legacy identities migrate on the
+  next successful refresh without replacing IDs, favorites or active/last
+  selections.
 - Manual per-provider reachability tests try every working DNS-over-HTTPS
   resolver selected by the active routing policy, reject TUN fake-IP answers,
   resolve both IPv4 and IPv6, and fall back across up to four endpoint
@@ -374,7 +382,7 @@ command removes only the top-level proxy list and leaves groups, providers and
 rules in place:
 
 ```bash
-~/.config/omarchy/plugins/kdk.omavless/backend.sh adopt-template ~/routing.yaml
+~/.config/omarchy/plugins/kdk.omavless/backend.sh adopt-template -- ~/routing.yaml
 ```
 
 Existing installations keep their private routing template during plugin

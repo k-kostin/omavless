@@ -94,8 +94,24 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(backend.PLUGIN_VERSION, manifest["version"])
         self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
         self.assertEqual(manifest["entryPoints"]["barWidget"], "Panel.qml")
+        self.assertIn("experimental Trojan, Hysteria2 and TUIC", manifest["description"])
         panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
         self.assertIn('moduleName: "kdk.omavless"', panel)
+
+    def test_cli_file_paths_accept_an_explicit_option_boundary(self):
+        parser = backend.build_parser()
+        self.assertEqual(
+            parser.parse_args(["preview", "--", "--profile"]).file,
+            "--profile",
+        )
+        export = parser.parse_args([
+            "export-file", "--", "11111111-1111-4111-8111-111111111111", "--output",
+        ])
+        self.assertEqual(export.path, "--output")
+        self.assertEqual(
+            parser.parse_args(["diagnostics-export", "--", "--report"]).path,
+            "--report",
+        )
 
     def test_pointer_hover_never_scrolls_profile_lists(self):
         panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")

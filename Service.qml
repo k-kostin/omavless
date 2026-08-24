@@ -1519,7 +1519,7 @@ Item {
     _previewSuggested = String(suggestedName || "")
     previewProcess.stdinEnabled = sourceKind === "text"
     previewProcess.command = sourceKind === "file"
-      ? ["bash", backendPath, "preview", sourcePayload]
+      ? ["bash", backendPath, "preview", "--", sourcePayload]
       : ["bash", backendPath, "preview"]
     previewProcess.running = true
     return true
@@ -1637,7 +1637,7 @@ Item {
     lastError = ""
     _exportDest = dest
     actionStatus = "Exporting " + profile.name + "…"
-    exportProcess.command = ["bash", backendPath, "export-file", profile.uuid, dest]
+    exportProcess.command = ["bash", backendPath, "export-file", "--", profile.uuid, dest]
     exportProcess.running = true
     return true
   }
@@ -1909,7 +1909,7 @@ Item {
     "  exit 2\n" +
     "fi\n" +
     "[ -n \"$dest\" ] || exit 3\n" +
-    "exec bash \"$be\" diagnostics-export \"$dest\"\n"
+    "exec bash \"$be\" diagnostics-export -- \"$dest\"\n"
 
   property string _controlError: ""
   // Which backend command controlProcess is running: special exit codes
