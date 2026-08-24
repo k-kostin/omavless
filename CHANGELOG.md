@@ -22,6 +22,11 @@ All notable changes to OmaVLESS are documented here.
   `sockopt`, certificate material, recursive downloads and mode conflicts fail
   before storage, while the redacted preview reveals no download endpoint or
   nested credential.
+- Added experimental, bounded VLESS Encryption import for Mihomo's
+  `mlkem768x25519plus` client grammar and experimental REALITY
+  X25519-MLKEM768 metadata on upload/download endpoints. Preview reports only
+  fixed capability names and a fingerprint-dependent compatibility warning;
+  encryption strings and nested key material remain private.
 - Added multi-server favorites for both local and subscription-managed
   profiles. Active and pinned servers stay easy to reach without adding a
   permanent toolbar; pins survive subscription refreshes for retained nodes.

@@ -154,6 +154,16 @@ documented; the normal plugin installation does not exercise them silently.
   recognized for an honest import warning but is not copied into YAML because
   current Mihomo has no corresponding client option; Xray-only ML-DSA
   verification metadata is rejected instead of being silently ignored.
+- Experimental VLESS Encryption values in Mihomo's
+  `mlkem768x25519plus` client format. Mode, RTT, padding, token count, encoded
+  key length and total size are validated without reimplementing or exposing
+  the cryptography; the complete value remains private and import review shows
+  only an `experimental` marker.
+- Experimental REALITY `supportX25519MLKEM768` metadata for upload and XHTTP
+  download endpoints. It maps to Mihomo's `support-x25519mlkem768` flag and
+  produces a device-verification warning: the selected uTLS fingerprint still
+  has to offer the post-quantum group, so the flag alone is not a connection
+  guarantee.
 - Xray `packetEncoding=xudp` and `packetEncoding=packetaddr` UDP encodings.
   Other packet encodings are rejected instead of being copied into Mihomo
   configuration.

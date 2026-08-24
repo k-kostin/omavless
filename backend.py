@@ -47,6 +47,7 @@ CONFLICT_SERVICE = "mihomo.service"
 TUN_DEVICE = "Meta"
 STATUS_CACHE_SECONDS = 1.0
 MAX_VLESS_URI_BYTES = 16 * 1024
+MAX_VLESS_ENCRYPTION_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_ITEMS = 160
 MAX_XHTTP_EXTRA_DEPTH = 8
@@ -89,6 +90,10 @@ REALITY_SPX_COMPATIBILITY_NOTE = (
     "Mihomo does not use the Xray-only REALITY spider path (spx); "
     "the profile will be imported without it."
 )
+REALITY_PQ_COMPATIBILITY_NOTE = (
+    "REALITY post-quantum key exchange is experimental in Mihomo and depends "
+    "on the selected client fingerprint; verify this profile on the device."
+)
 PUBLIC_CAPABILITIES = {
     "subscriptions": True,
     "subscriptionSearch": True,
@@ -100,6 +105,8 @@ PUBLIC_CAPABILITIES = {
     "conflictDetection": True,
     "qr": True,
     "xhttpExtra": True,
+    "vlessEncryptionExperimental": True,
+    "realityPqExperimental": True,
     "protocols": ["vless"],
     "core": "mihomo",
 }
@@ -1457,6 +1464,25 @@ def query_bool(query: dict[str, list[str]], *names: str) -> bool:
     return first_query(query, *names).lower() in {"1", "true", "yes", "on"}
 
 
+def strict_query_bool(query: dict[str, list[str]], *names: str) -> tuple[bool, bool]:
+    lowered = {key.lower(): values for key, values in query.items()}
+    found: list[bool] = []
+    for name in names:
+        values = lowered.get(name.lower())
+        if not values:
+            continue
+        raw = values[0].lower()
+        if raw in {"1", "true", "yes", "on"}:
+            found.append(True)
+        elif raw in {"0", "false", "no", "off", ""}:
+            found.append(False)
+        else:
+            raise BackendError("VLESS Reality post-quantum flag must be true or false")
+    if found and any(value != found[0] for value in found[1:]):
+        raise BackendError("VLESS Reality post-quantum aliases conflict")
+    return (found[0] if found else False), bool(found)
+
+
 def validate_reality_public_key(value: str) -> None:
     """Match Mihomo's canonical raw URL-safe 32-byte X25519 key format."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", value):
@@ -1474,6 +1500,60 @@ def validate_reality_short_id(value: str) -> None:
     """Mihomo accepts an optional, even-length hexadecimal short ID up to 8 bytes."""
     if len(value) > 16 or len(value) % 2 or not re.fullmatch(r"[0-9A-Fa-f]*", value):
         raise BackendError("VLESS Reality short ID has an invalid format")
+
+
+def validate_vless_encryption(value: str) -> str:
+    """Validate Mihomo's client-side VLESS Encryption grammar without logging keys."""
+    if value in {"", "none"}:
+        return "none"
+    if len(value.encode("utf-8")) > MAX_VLESS_ENCRYPTION_BYTES:
+        raise BackendError("VLESS Encryption value is too large")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        raise BackendError("VLESS Encryption value has an invalid format")
+    parts = value.split(".")
+    if (len(parts) < 4 or len(parts) > 32
+            or parts[0] != "mlkem768x25519plus"
+            or parts[1] not in {"native", "xorpub", "random"}
+            or parts[2] not in {"1rtt", "0rtt"}):
+        raise BackendError("VLESS Encryption value is not supported by Mihomo")
+
+    key_count = 0
+    padding_count = 0
+    total_padding = 0
+    for token in parts[3:]:
+        if len(token) < 20:
+            match = re.fullmatch(r"([0-9]+)-([0-9]+)-([0-9]+)", token)
+            if not match:
+                raise BackendError("VLESS Encryption padding has an invalid format")
+            probability, minimum, maximum = map(int, match.groups())
+            if (not 0 <= probability <= 100 or minimum > maximum
+                    or maximum > 65_553):
+                raise BackendError("VLESS Encryption padding is outside the supported range")
+            if padding_count == 0 and (probability != 100 or minimum < 35):
+                raise BackendError("VLESS Encryption first padding range is too small")
+            if padding_count % 2 == 0:
+                total_padding += maximum
+            padding_count += 1
+            continue
+        try:
+            decoded = base64.b64decode(
+                token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
+            )
+        except binascii.Error as exc:
+            raise BackendError("VLESS Encryption key has an invalid format") from exc
+        canonical = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+        if canonical != token or len(decoded) not in {32, 1184}:
+            raise BackendError("VLESS Encryption key has an invalid format")
+        key_count += 1
+    if key_count == 0:
+        raise BackendError("VLESS Encryption requires at least one client key")
+    if total_padding > 65_553:
+        raise BackendError("VLESS Encryption total padding is too large")
+    return value
+
+
+def compatibility_text(*notes: str) -> str:
+    return " ".join(dict.fromkeys(note for note in notes if note))
 
 
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1775,7 +1855,8 @@ def parse_xhttp_download(value: Any, main_mode: str, main_security: str) -> tupl
             raise BackendError("VLESS XHTTP download realitySettings must be an object")
         allowed_reality = {
             "publicKey", "password", "shortId", "spiderX", "fingerprint",
-            "serverName", "mldsa65Verify", "show",
+            "serverName", "mldsa65Verify", "show", "supportX25519MLKEM768",
+            "support-x25519mlkem768",
         }
         if set(reality) - allowed_reality:
             raise BackendError("VLESS XHTTP download realitySettings contains unsupported fields")
@@ -1796,6 +1877,14 @@ def parse_xhttp_download(value: Any, main_mode: str, main_security: str) -> tupl
         reality_opts: dict[str, Any] = {"public-key": public_key}
         if short_id:
             reality_opts["short-id"] = short_id
+        pq_value = xhttp_alias(
+            reality, "supportX25519MLKEM768", "support-x25519mlkem768"
+        )
+        if pq_value is not None:
+            pq_enabled = xhttp_bool(pq_value, "download Reality post-quantum flag")
+            if pq_enabled:
+                reality_opts["support-x25519mlkem768"] = True
+                compatibility_note = REALITY_PQ_COMPATIBILITY_NOTE
         result["reality-opts"] = reality_opts
         result["tls"] = True
         server_name = xhttp_endpoint(reality.get("serverName"), "Reality server name")
@@ -1805,7 +1894,9 @@ def parse_xhttp_download(value: Any, main_mode: str, main_security: str) -> tupl
         if fingerprint:
             result["client-fingerprint"] = fingerprint
         if reality.get("spiderX") not in (None, ""):
-            compatibility_note = REALITY_SPX_COMPATIBILITY_NOTE
+            compatibility_note = compatibility_text(
+                REALITY_SPX_COMPATIBILITY_NOTE, compatibility_note
+            )
     elif security == "reality" and main_security != "reality":
         raise BackendError(
             "VLESS XHTTP download Reality requires realitySettings when upload is not Reality"
@@ -1917,6 +2008,8 @@ def parse_xhttp_extra(raw: str, main_mode: str, main_security: str) -> dict[str,
         result["download-settings"] = download
         if compatibility_note:
             result["_compatibility-note"] = compatibility_note
+        if download.get("reality-opts", {}).get("support-x25519mlkem768"):
+            result["_experimental-features"] = ["REALITY PQ"]
     headers = parse_xhttp_headers(data.get("headers"))
     if headers:
         result["headers"] = headers
@@ -2041,16 +2134,21 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         raise BackendError("Reality link requires both pbk/public-key and sni/servername")
     short_id = first_query(query, "sid", "short-id")
     spider_x = first_query(query, "spx", "spider-x")
+    reality_pq, reality_pq_present = strict_query_bool(
+        query, "supportX25519MLKEM768", "support-x25519mlkem768"
+    )
+    if reality_pq_present and security != "reality":
+        raise BackendError("VLESS Reality post-quantum flag requires Reality security")
+    if first_query(query, "mldsa65Verify", "mldsa65-verify"):
+        raise BackendError(
+            "VLESS Reality ML-DSA verification is not supported by Mihomo"
+        )
     if security == "reality":
         validate_reality_public_key(public_key)
         validate_reality_short_id(short_id)
-        if first_query(query, "mldsa65Verify", "mldsa65-verify"):
-            raise BackendError(
-                "VLESS Reality ML-DSA verification is not supported by Mihomo"
-            )
-    encryption = first_query(query, "encryption", default="none") or "none"
-    if encryption != "none":
-        raise BackendError("VLESS encryption must be none")
+    encryption = validate_vless_encryption(
+        first_query(query, "encryption", default="none") or "none"
+    )
     flow = first_query(query, "flow").lower()
     if flow not in {"", "xtls-rprx-vision", "xtls-rprx-vision-udp443"}:
         raise BackendError(f"Unsupported VLESS flow: {flow}")
@@ -2092,6 +2190,16 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
     header_type = first_query(query, "headerType", "header-type").lower()
     if network == "tcp" and header_type not in {"", "none"}:
         raise BackendError(f"Unsupported VLESS TCP header type: {header_type}")
+    xhttp_compatibility_note = str(xhttp_extra.pop("_compatibility-note", ""))
+    xhttp_experimental_features = xhttp_extra.pop("_experimental-features", [])
+    experimental_features: list[str] = []
+    if encryption != "none":
+        experimental_features.append("VLESS Encryption")
+    if reality_pq:
+        experimental_features.append("REALITY PQ")
+    for feature in xhttp_experimental_features:
+        if feature not in experimental_features:
+            experimental_features.append(feature)
     return {
         "uri": uri, "uuid": user, "server": parsed.hostname, "port": port,
         "network": network, "security": security,
@@ -2099,15 +2207,18 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         "flow": flow, "mihomo_flow": mihomo_flow, "servername": server_name,
         "fingerprint": first_query(query, "fp", "fingerprint", "client-fingerprint"),
         "public_key": public_key, "short_id": short_id,
+        "support_x25519mlkem768": reality_pq,
         # Xray share links commonly carry spx. Current Mihomo has no matching
         # proxy option, so keep only enough private parser state to report the
         # compatibility boundary; never copy it into generated configuration.
         "spider_x": spider_x,
-        "compatibility_note": (
+        "compatibility_note": compatibility_text(
             REALITY_SPX_COMPATIBILITY_NOTE
-            if security == "reality" and bool(spider_x)
-            else str(xhttp_extra.pop("_compatibility-note", ""))
+            if security == "reality" and bool(spider_x) else "",
+            REALITY_PQ_COMPATIBILITY_NOTE if reality_pq else "",
+            xhttp_compatibility_note,
         ),
+        "experimental_features": experimental_features,
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",
         "host": first_query(query, "host"),
         "service_name": first_query(query, "serviceName", "service-name"),
@@ -2133,6 +2244,8 @@ def preview_vless(text: str) -> dict[str, Any]:
         "flow": str(node["flow"])[:64],
         "insecure": bool(node["allow_insecure"]),
         "advancedXhttp": bool(node["xhttp_extra"]),
+        "experimental": bool(node["experimental_features"]),
+        "experimentalFeatures": list(node["experimental_features"]),
         "compatibilityNote": str(node["compatibility_note"]),
         # Four trailing characters help compare two keys without making this
         # preview a copyable credential source.
@@ -2196,6 +2309,8 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
         lines.extend(["  reality-opts:", f"    public-key: {y(node['public_key'])}"])
         if node["short_id"]:
             lines.append(f"    short-id: {y(node['short_id'])}")
+        if node["support_x25519mlkem768"]:
+            lines.append("    support-x25519mlkem768: true")
     if node["network"] == "ws":
         lines.extend(["  ws-opts:", f"    path: {y(node['path'])}"])
         if node["host"]:
