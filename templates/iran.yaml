@@ -1,0 +1,160 @@
+# omavless-routing-profile: iran-ir-direct
+# Mihomo-native Iran rule sets are maintained by Chocolate4U/Iran-clash-rules.
+# OmaVLESS supplies the policy ordering; see THIRD_PARTY_NOTICES.md.
+
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+
+tun:
+  enable: true
+  stack: system
+  device: Meta
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-hijack:
+    - any:53
+  route-exclude-address:
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 224.0.0.0/3
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - localhost
+  default-nameserver:
+    - 1.1.1.1
+    - 9.9.9.10
+  proxy-server-nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+  direct-nameserver:
+    - 8.8.8.8
+  nameserver:
+    - https://1.1.1.1/dns-query#PROXY
+
+sniffer:
+  enable: true
+  override-destination: false
+  parse-pure-ip: true
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+  skip-dst-address:
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 198.18.0.0/15
+    - 224.0.0.0/3
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+proxies:
+{{OMAVLESS_PROXY}}
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    include-all: true
+
+rule-providers:
+  private-ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/private.mrs
+    path: ./ruleset/iran-private.mrs
+    proxy: PROXY
+    interval: 604800
+  ir-domains:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/ir.mrs
+    path: ./ruleset/iran-domains.mrs
+    proxy: PROXY
+    interval: 86400
+  ir-ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/ircidr.mrs
+    path: ./ruleset/iran-ipcidr.mrs
+    proxy: PROXY
+    interval: 86400
+  category-ads:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/category-ads-all.mrs
+    path: ./ruleset/iran-category-ads-all.mrs
+    proxy: PROXY
+    interval: 86400
+  malware:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/malware.mrs
+    path: ./ruleset/iran-malware.mrs
+    proxy: PROXY
+    interval: 86400
+  phishing:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/phishing.mrs
+    path: ./ruleset/iran-phishing.mrs
+    proxy: PROXY
+    interval: 86400
+  cryptominers:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Chocolate4U/Iran-clash-rules/release/cryptominers.mrs
+    path: ./ruleset/iran-cryptominers.mrs
+    proxy: PROXY
+    interval: 86400
+
+rules:
+  - RULE-SET,private-ips,DIRECT,no-resolve
+  - RULE-SET,category-ads,REJECT-DROP
+  - RULE-SET,malware,REJECT-DROP
+  - RULE-SET,phishing,REJECT-DROP
+  - RULE-SET,cryptominers,REJECT-DROP
+  - RULE-SET,ir-domains,DIRECT
+  - RULE-SET,ir-ips,DIRECT,no-resolve
+  - MATCH,PROXY

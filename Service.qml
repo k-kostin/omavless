@@ -97,9 +97,49 @@ Item {
   property var routing: ({
     mode: "unknown",
     source: "unknown",
+    preset: "",
+    configured: false,
     ruleCount: 0,
     providerCount: 0
   })
+  readonly property var routingPresets: [
+    {
+      id: "roscomvpn-default",
+      country: "Russia",
+      name: "RoscomVPN Default",
+      shortName: "Russia",
+      summary: "RU/BY and selected local services direct · remaining traffic via VPN",
+      source: "hydraponique/roscomvpn-routing",
+      sourceUrl: "https://github.com/hydraponique/roscomvpn-routing"
+    },
+    {
+      id: "china-cn-direct",
+      country: "China",
+      name: "CN Direct",
+      shortName: "China",
+      summary: "Mainland China and private networks direct · remaining traffic via VPN",
+      source: "MetaCubeX/meta-rules-dat",
+      sourceUrl: "https://github.com/MetaCubeX/meta-rules-dat"
+    },
+    {
+      id: "iran-ir-direct",
+      country: "Iran",
+      name: "IR Direct",
+      shortName: "Iran",
+      summary: "Iran and private networks direct · remaining traffic via VPN",
+      source: "Chocolate4U/Iran-clash-rules",
+      sourceUrl: "https://github.com/Chocolate4U/Iran-clash-rules"
+    }
+  ]
+  function routingPresetById(value) {
+    var id = String(value || "")
+    for (var i = 0; i < routingPresets.length; i++) {
+      if (routingPresets[i].id === id) return routingPresets[i]
+    }
+    return null
+  }
+  readonly property var activeRoutingPreset: routingPresetById(routing.preset)
+  readonly property bool routingPresetConfigured: routing.configured === true
   readonly property string routingModeLabel: {
     if (routing.mode === "rule") return "Rule"
     if (routing.mode === "global") return "Global"
@@ -107,7 +147,10 @@ Item {
     return "Unknown"
   }
   readonly property string routingSourceLabel: {
+    if (activeRoutingPreset) return activeRoutingPreset.shortName
     if (routing.source === "roscomvpn") return "RoscomVPN"
+    if (routing.source === "china") return "China"
+    if (routing.source === "iran") return "Iran"
     if (routing.source === "custom") return "Custom"
     if (routing.source === "basic") return "Basic"
     if (routing.source === "none") return "No rules"
@@ -122,6 +165,10 @@ Item {
     if (routing.mode !== "rule") return "Could not read the effective routing policy"
     if (routing.source === "roscomvpn")
       return "RU/BY direct · selected services via VPN · " + routing.providerCount + " rule sets"
+    if (routing.source === "china")
+      return "Mainland China direct · remaining traffic via VPN · " + routing.providerCount + " rule sets"
+    if (routing.source === "iran")
+      return "Iran direct · remaining traffic via VPN · " + routing.providerCount + " rule sets"
     if (routing.source === "basic")
       return "Local networks direct · all internet via VPN · " + routing.ruleCount + " rules"
     if (routing.source === "custom")
@@ -129,6 +176,12 @@ Item {
     if (routing.source === "none") return "No rule list found · Mihomo fallback applies"
     return "Could not read the effective routing policy"
   }
+  readonly property string routingPresetName: activeRoutingPreset
+    ? activeRoutingPreset.name : routingSourceLabel
+  readonly property string routingSourceName: activeRoutingPreset
+    ? activeRoutingPreset.source : routingSourceLabel
+  readonly property string routingSourceUrl: activeRoutingPreset
+    ? activeRoutingPreset.sourceUrl : ""
   readonly property bool routingUnavailable: routing.mode === "unknown" || routing.source === "unknown"
   property var conflicts: []
   readonly property bool hasRoutingConflict: conflicts.length > 0
@@ -707,6 +760,8 @@ Item {
     }
     var route = payload.routing
     if (!route || typeof route.mode !== "string" || typeof route.source !== "string"
+        || typeof route.preset !== "string" || route.preset.length > 64
+        || typeof route.configured !== "boolean"
         || typeof route.ruleCount !== "number" || typeof route.providerCount !== "number"
         || !isFinite(route.ruleCount) || !isFinite(route.providerCount)
         || route.ruleCount < 0 || route.providerCount < 0)
@@ -791,6 +846,8 @@ Item {
     routing = {
       mode: route.mode,
       source: route.source,
+      preset: plainText(route.preset, 64),
+      configured: route.configured,
       ruleCount: Math.floor(route.ruleCount),
       providerCount: Math.floor(route.providerCount)
     }
@@ -918,6 +975,27 @@ Item {
       ? "Enabling routed VPN…"
       : (value === "global" ? "Sending all traffic through VPN…" : "Bypassing VPN…")
     runControl(["set-mode", value])
+    return true
+  }
+
+  function useRoutingPreset(profile, keepMode) {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    var value = String(profile || "")
+    if (!routingPresetById(value)) return rejectAction("unsupported routing preset")
+    if (routingPresetConfigured && routing.preset === value) {
+      if (keepMode || routing.mode === "rule") {
+        actionRejection = ""
+        lastError = ""
+        actionStatus = ""
+        return true
+      }
+      return setRoutingMode("rule")
+    }
+    actionRejection = ""
+    actionStatus = "Applying " + routingPresetById(value).name + "…"
+    var args = ["use-routing", value]
+    if (keepMode) args.push("--keep-mode")
+    runControl(args)
     return true
   }
 

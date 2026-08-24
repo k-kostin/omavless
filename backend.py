@@ -37,7 +37,7 @@ from typing import Any, Callable, Iterator
 
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-PLUGIN_VERSION = "0.6.2"
+PLUGIN_VERSION = "0.7.0"
 USER_AGENT = f"OmaVLESS/{PLUGIN_VERSION}"
 PROFILE_MARKER = "{{OMAVLESS_PROXY}}"
 SERVICE = "omavless.service"
@@ -67,6 +67,12 @@ PROBE_URLS = (
     "https://cp.cloudflare.com/generate_204",
     "https://www.google.com/generate_204",
 )
+ROUTING_PRESETS = {
+    "roscomvpn-default": PLUGIN_DIR / "templates" / "default.yaml",
+    "china-cn-direct": PLUGIN_DIR / "templates" / "china.yaml",
+    "iran-ir-direct": PLUGIN_DIR / "templates" / "iran.yaml",
+}
+ROUTING_PRESET_VALUES = frozenset((*ROUTING_PRESETS, "custom"))
 LOCK_TIMEOUT_SECONDS = 15.0
 COMMAND_TIMEOUT_SECONDS = 30.0
 PUBLIC_CAPABILITIES = {
@@ -238,7 +244,7 @@ def invalidate_status_cache(paths: Paths) -> None:
 def empty_store() -> dict[str, Any]:
     return {
         "version": 2, "activeId": "", "lastId": "",
-        "profiles": [], "subscriptions": [],
+        "profiles": [], "subscriptions": [], "routingPreset": "",
     }
 
 
@@ -339,6 +345,16 @@ def validate_store(data: Any) -> dict[str, Any]:
             # killed outside OmaVLESS or an interrupted old delete can leave
             # one stale; self-heal it instead of hiding every valid profile.
             data[key] = ""
+    # Releases before 0.7.0 always shipped the RoscomVPN template but did not
+    # remember whether the user had deliberately selected it. Existing stores
+    # with profiles are migrated to that historical choice; a new store has an
+    # explicit empty value and therefore gets the country prompt on the first
+    # Routing click.
+    if "routingPreset" not in data:
+        data["routingPreset"] = "roscomvpn-default" if profiles else ""
+    routing_preset = data["routingPreset"]
+    if not isinstance(routing_preset, str) or routing_preset not in ROUTING_PRESET_VALUES | {""}:
+        raise BackendError("VLESS profile store has an invalid routing preset")
     data["version"] = 2
     return data
 
@@ -1476,8 +1492,7 @@ def render_config(paths: Paths, profile: dict[str, Any]) -> str:
 
 
 def bundled_template(name: str) -> str:
-    templates = {"roscomvpn-default": PLUGIN_DIR / "templates" / "default.yaml"}
-    source = templates.get(name)
+    source = ROUTING_PRESETS.get(name)
     if source is None:
         raise BackendError(f"Unknown bundled routing profile: {name}")
     text = read_text_file(source, MAX_TEMPLATE_BYTES, "bundled routing template")
@@ -1486,27 +1501,50 @@ def bundled_template(name: str) -> str:
     return text
 
 
-def use_bundled_template(paths: Paths, name: str) -> None:
-    """Adopt a bundled policy and reconnect transactionally when active."""
+def use_bundled_template(paths: Paths, name: str, keep_mode: bool = False) -> None:
+    """Adopt a bundled policy and reconnect transactionally when active.
+
+    The first-run chooser activates Rule mode. Selecting a profile from the
+    settings page instead preserves Full VPN, Routing or Direct, so editing a
+    preference never changes the live routing mode as a side effect.
+    """
     previous = ensure_template(paths)
     replacement = bundled_template(name)
-    if replacement == previous:
-        return
     store = load_store(paths)
+    previous_store = json.loads(json.dumps(store))
+    if keep_mode:
+        previous_mode = yaml_top_level_scalar(previous, "mode")
+        if previous_mode in {"rule", "global", "direct"}:
+            replacement = template_with_mode(replacement, previous_mode)
+    store["routingPreset"] = name
+    if replacement == previous and previous_store.get("routingPreset") == name:
+        return
     running = service_active(SERVICE)
     active_id = str(store.get("activeId", "")) if running else ""
     if running and not active_id:
         raise BackendError("omavless.service is running without an active profile")
-    atomic_write(paths.template, replacement)
+    template_changed = replacement != previous
+    if template_changed:
+        atomic_write(paths.template, replacement)
     try:
-        if active_id:
+        save_store(paths, store)
+        if active_id and template_changed:
             connect_profile(paths, active_id)
     except Exception as exc:
+        rollback_errors: list[str] = []
         try:
-            atomic_write(paths.template, previous)
+            if template_changed:
+                atomic_write(paths.template, previous)
         except Exception as rollback_exc:
+            rollback_errors.append(f"template restore: {rollback_exc}")
+        try:
+            save_store(paths, previous_store)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"preference restore: {rollback_exc}")
+        if rollback_errors:
             raise BackendError(
-                f"{exc}; routing template rollback needs manual recovery ({rollback_exc})", 21
+                f"{exc}; routing preset rollback needs manual recovery ({'; '.join(rollback_errors)})",
+                21,
             ) from exc
         raise
 
@@ -1596,7 +1634,7 @@ def yaml_mapping_count(lines: list[str]) -> int:
     return sum(1 for indent, _ in candidates if indent == outer_indent)
 
 
-def routing_status(paths: Paths, running: bool) -> dict[str, Any]:
+def routing_status(paths: Paths, running: bool, store: dict[str, Any] | None = None) -> dict[str, Any]:
     """Describe the policy in the config that is (or will be) used.
 
     This deliberately exposes no server, profile or provider URL. It gives the
@@ -1611,8 +1649,8 @@ def routing_status(paths: Paths, running: bool) -> dict[str, Any]:
         else:
             text = ensure_template(paths)
     except BackendError:
-        return {"mode": "unknown", "source": "unknown", "ruleCount": 0,
-                "providerCount": 0}
+        return {"mode": "unknown", "source": "unknown", "preset": "",
+                "configured": False, "ruleCount": 0, "providerCount": 0}
 
     mode = yaml_top_level_scalar(text, "mode") or "unknown"
     rules = yaml_top_level_block(text, "rules")
@@ -1639,13 +1677,20 @@ def routing_status(paths: Paths, running: bool) -> dict[str, Any]:
         provider_count > 0 and "roscomvpn-geo" in lowered
     ):
         source = "roscomvpn"
+    elif marked == "china-cn-direct":
+        source = "china"
+    elif marked == "iran-ir-direct":
+        source = "iran"
     elif rule_count == 0:
         source = "none"
     elif provider_count == 0 and normalized_rules == basic_rules:
         source = "basic"
     else:
         source = "custom"
-    return {"mode": mode, "source": source, "ruleCount": rule_count,
+    selected = str((store if store is not None else load_store(paths)).get("routingPreset", ""))
+    effective_preset = selected if selected == "custom" or selected == marked else marked
+    return {"mode": mode, "source": source, "preset": effective_preset,
+            "configured": bool(selected), "ruleCount": rule_count,
             "providerCount": provider_count}
 
 
@@ -2094,7 +2139,7 @@ def status_text(paths: Paths) -> str:
                 store["subscriptions"], key=lambda item: str(item.get("name", "")).lower()
             )
         ],
-        "routing": routing_status(paths, running),
+        "routing": routing_status(paths, running, store),
         "uptimeSeconds": service_uptime_seconds(SERVICE, running),
         "conflicts": routing_conflicts(paths, running),
     }
@@ -2274,7 +2319,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("mark-active"); p.add_argument("id"); p.add_argument("observed", nargs="?")
     sub.add_parser("cleanup-runtime"); sub.add_parser("cleanup-qr")
     p = sub.add_parser("adopt-template"); p.add_argument("path")
-    p = sub.add_parser("use-routing"); p.add_argument("profile", choices=("roscomvpn-default",))
+    p = sub.add_parser("use-routing")
+    p.add_argument("profile", choices=tuple(ROUTING_PRESETS))
+    p.add_argument("--keep-mode", action="store_true")
     p = sub.add_parser("set-mode"); p.add_argument("mode", choices=("rule", "global", "direct"))
     p = sub.add_parser("subscription-save"); p.add_argument("name"); p.add_argument("id", nargs="?", default="")
     p = sub.add_parser("subscription-refresh"); p.add_argument("id")
@@ -2327,9 +2374,12 @@ def main() -> int:
             if candidate.count(PROFILE_MARKER) != 1:
                 raise BackendError(f"Route template must contain exactly one {PROFILE_MARKER}")
             atomic_write(paths.template, candidate)
+            store = load_store(paths)
+            store["routingPreset"] = "custom"
+            save_store(paths, store)
     elif args.command == "use-routing":
         with operation_lock(paths):
-            use_bundled_template(paths, args.profile)
+            use_bundled_template(paths, args.profile, keep_mode=args.keep_mode)
             invalidate_status_cache(paths)
     elif args.command == "set-mode":
         with operation_lock(paths):
