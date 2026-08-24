@@ -103,6 +103,13 @@ REALITY_PQ_COMPATIBILITY_NOTE = (
     "REALITY post-quantum key exchange is experimental in Mihomo and depends "
     "on the selected client fingerprint; verify this profile on the device."
 )
+VLESS_PROVIDER_METADATA_COMPATIBILITY_NOTE = (
+    "Provider-only VLESS metadata is not mapped to Mihomo; connectivity settings "
+    "remain unchanged."
+)
+VLESS_TRANSPORT_METADATA_COMPATIBILITY_NOTE = (
+    "A transport mode outside XHTTP is provider metadata and is not mapped to Mihomo."
+)
 PUBLIC_CAPABILITIES = {
     "subscriptions": True,
     "subscriptionSearch": True,
@@ -1479,36 +1486,77 @@ def delete_subscription(paths: Paths, subscription_id: str) -> None:
     save_store(paths, store)
 
 
-def first_query(query: dict[str, list[str]], *names: str, default: str = "") -> str:
-    lowered = {key.lower(): values for key, values in query.items()}
-    for name in names:
-        values = lowered.get(name.lower())
-        if values:
-            return values[0]
-    return default
+VLESS_QUERY_FIELDS = frozenset({
+    "type", "network", "security", "pbk", "publickey", "public-key",
+    "sni", "servername", "sid", "short-id", "spx", "spider-x",
+    "supportx25519mlkem768", "support-x25519mlkem768",
+    "mldsa65verify", "mldsa65-verify", "encryption", "flow",
+    "packetencoding", "packet-encoding", "mode", "extra", "headertype",
+    "header-type", "fp", "fingerprint", "client-fingerprint", "path",
+    "host", "servicename", "service-name", "alpn", "allowinsecure",
+    "skip-cert-verify",
+    # Observed provider presentation/tuning metadata. These fields are kept in
+    # the private source URI but deliberately never copied into Mihomo YAML.
+    "concurrency", "x-durev-block", "x-durev-prio",
+})
+VLESS_PROVIDER_METADATA_FIELDS = frozenset({
+    "concurrency", "x-durev-block", "x-durev-prio",
+})
 
 
-def query_bool(query: dict[str, list[str]], *names: str) -> bool:
-    return first_query(query, *names).lower() in {"1", "true", "yes", "on"}
+def parse_vless_query(query_text: str) -> dict[str, str]:
+    """Parse a bounded VLESS query without first-value-wins ambiguity."""
+    try:
+        pairs = urllib.parse.parse_qsl(
+            query_text, keep_blank_values=True, max_num_fields=128,
+            encoding="utf-8", errors="strict",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BackendError("Invalid VLESS query") from exc
+    query: dict[str, str] = {}
+    for key, value in pairs:
+        lowered = key.lower()
+        if lowered in query:
+            raise BackendError("VLESS link contains duplicate fields")
+        query[lowered] = value
+    if set(query) - VLESS_QUERY_FIELDS:
+        raise BackendError("VLESS link contains unsupported fields")
+    for name in VLESS_PROVIDER_METADATA_FIELDS & set(query):
+        value = query[name]
+        if (len(value.encode("utf-8")) > 128
+                or re.search(r"[\x00-\x1f\x7f]", value)):
+            raise BackendError("VLESS provider metadata has an invalid format")
+    return query
 
 
-def strict_query_bool(query: dict[str, list[str]], *names: str) -> tuple[bool, bool]:
-    lowered = {key.lower(): values for key, values in query.items()}
-    found: list[bool] = []
-    for name in names:
-        values = lowered.get(name.lower())
-        if not values:
-            continue
-        raw = values[0].lower()
-        if raw in {"1", "true", "yes", "on"}:
-            found.append(True)
-        elif raw in {"0", "false", "no", "off", ""}:
-            found.append(False)
-        else:
-            raise BackendError("VLESS Reality post-quantum flag must be true or false")
-    if found and any(value != found[0] for value in found[1:]):
-        raise BackendError("VLESS Reality post-quantum aliases conflict")
-    return (found[0] if found else False), bool(found)
+def first_query(query: dict[str, str], *names: str, default: str = "") -> str:
+    values = [query[name.lower()] for name in names if name.lower() in query]
+    if not values:
+        return default
+    if len(values) > 1:
+        raise BackendError("VLESS link contains conflicting field aliases")
+    return values[0]
+
+
+def query_bool(query: dict[str, str], *names: str) -> bool:
+    raw = first_query(query, *names)
+    if raw.lower() in {"1", "true", "yes", "on"}:
+        return True
+    if raw.lower() in {"", "0", "false", "no", "off"}:
+        return False
+    raise BackendError("VLESS boolean query field must be true or false")
+
+
+def strict_query_bool(query: dict[str, str], *names: str) -> tuple[bool, bool]:
+    present = any(name.lower() in query for name in names)
+    if not present:
+        return False, False
+    raw = first_query(query, *names).lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True, True
+    if raw in {"0", "false", "no", "off", ""}:
+        return False, True
+    raise BackendError("VLESS Reality post-quantum flag must be true or false")
 
 
 def validate_reality_public_key(value: str) -> None:
@@ -2157,10 +2205,7 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
     if not parsed.hostname or not port or not 1 <= port <= 65535:
         raise BackendError("VLESS server and port are required")
 
-    try:
-        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True, max_num_fields=128)
-    except ValueError as exc:
-        raise BackendError(f"Invalid VLESS query: {exc}") from exc
+    query = parse_vless_query(parsed.query)
     network = first_query(query, "type", "network", default="tcp").lower() or "tcp"
     network = {"raw": "tcp"}.get(network, network)
     if network not in {"tcp", "ws", "http", "h2", "grpc", "xhttp"}:
@@ -2204,6 +2249,7 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
     if packet_encoding not in {"", "xudp", "packetaddr"}:
         raise BackendError(f"Unsupported VLESS packet encoding: {packet_encoding}")
     mode = first_query(query, "mode")
+    non_xhttp_mode_metadata = bool(mode and network != "xhttp")
     raw_xhttp_extra = first_query(query, "extra")
     if network == "xhttp":
         mode = mode.lower()
@@ -2258,6 +2304,10 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
             if security == "reality" and bool(spider_x) else "",
             REALITY_PQ_COMPATIBILITY_NOTE if reality_pq else "",
             xhttp_compatibility_note,
+            VLESS_PROVIDER_METADATA_COMPATIBILITY_NOTE
+            if VLESS_PROVIDER_METADATA_FIELDS & set(query) else "",
+            VLESS_TRANSPORT_METADATA_COMPATIBILITY_NOTE
+            if non_xhttp_mode_metadata else "",
         ),
         "experimental_features": experimental_features,
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",

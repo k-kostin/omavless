@@ -533,7 +533,7 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(disabled["support_x25519mlkem768"])
         with self.assertRaisesRegex(backend.BackendError, "must be true or false"):
             backend.parse_vless(base + "&supportX25519MLKEM768=maybe#" + fragment)
-        with self.assertRaisesRegex(backend.BackendError, "aliases conflict"):
+        with self.assertRaisesRegex(backend.BackendError, "conflicting field aliases"):
             backend.parse_vless(
                 base + "&supportX25519MLKEM768=true"
                 "&support-x25519mlkem768=false#" + fragment
@@ -542,6 +542,39 @@ class BackendTests(unittest.TestCase):
             backend.parse_vless(
                 uri.replace("security=reality", "security=tls")
             )
+
+    def test_vless_query_rejects_duplicates_aliases_and_unknown_fields(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        cases = (
+            (base + "&security=tls#" + fragment, "duplicate fields"),
+            (base + "&network=grpc#" + fragment, "conflicting field aliases"),
+            (base + "&unknown=private-query-value#" + fragment, "unsupported fields"),
+            (base + "&allowInsecure=maybe#" + fragment, "must be true or false"),
+        )
+        for uri, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                    backend.BackendError, message) as caught:
+                backend.parse_vless(uri)
+            self.assertNotIn("private-query-value", str(caught.exception))
+
+    def test_vless_provider_metadata_is_explicit_but_never_mapped(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        uri = (
+            base + "&concurrency=4&x-durev-block=provider-value"
+            "&x-durev-prio=2#" + fragment
+        )
+        node = backend.parse_vless(uri)
+        self.assertIn(
+            backend.VLESS_PROVIDER_METADATA_COMPATIBILITY_NOTE,
+            node["compatibility_note"],
+        )
+        yaml = backend.proxy_yaml({"name": "Provider", "uri": uri})
+        self.assertNotIn("concurrency", yaml)
+        self.assertNotIn("x-durev", yaml)
+        preview = backend.preview_vless(uri)
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertIn("Provider-only VLESS metadata", public)
+        self.assertNotIn("provider-value", public)
 
     def test_ws_transport_maps_options(self):
         uri = (
@@ -1006,7 +1039,10 @@ rules:
                 "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
                 encoding="utf-8",
             )
-            with mock.patch.object(backend, "service_active", return_value=False):
+            with mock.patch.object(backend, "service_active", return_value=False), \
+                 mock.patch.object(backend, "core_setup_status", return_value={
+                     "installed": False, "tunReady": False, "path": "",
+                 }):
                 payload = json.loads(backend.status_text(paths))
             self.assertEqual(payload["routing"], {
                 "mode": "rule", "source": "custom", "preset": "",
@@ -2719,7 +2755,7 @@ rules:
     def test_vless_rejects_unbounded_query_and_unsupported_crypto(self):
         base, fragment = REALITY_URI.split("#", 1)
         many_fields = base + "&" + "&".join(f"x{i}=1" for i in range(130)) + "#" + fragment
-        with self.assertRaisesRegex(backend.BackendError, "Max number of fields exceeded"):
+        with self.assertRaisesRegex(backend.BackendError, "Invalid VLESS query"):
             backend.parse_vless(many_fields)
         with self.assertRaisesRegex(backend.BackendError, "not supported by Mihomo"):
             backend.parse_vless(REALITY_URI.replace("encryption=none", "encryption=aes-128-gcm"))
