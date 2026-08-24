@@ -112,7 +112,7 @@ documented; the normal plugin installation does not exercise them silently.
   parsing, redacted preview, Mihomo YAML generation, endpoint lookup and stable
   subscription identity. The private store migrates v1/v2 profiles to an
   explicit v3 `protocol` discriminator without changing their IDs, favorites,
-  subscription membership, current selection or login target. This is an
+  subscription membership, current selection or login target. This is a
   stable boundary shared by every supported protocol.
 
 - VLESS URI import from a file or the clipboard.
