@@ -212,7 +212,11 @@ rules:
                 "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
                 encoding="utf-8",
             )
-            with mock.patch.object(backend, "service_active", return_value=False):
+            # Status serialization must not depend on whether the developer's
+            # machine happens to have a Mihomo binary on PATH. Core discovery
+            # has its own focused tests; keep this fixture host-independent.
+            with mock.patch.object(backend, "service_active", return_value=False), \
+                 mock.patch.object(backend.shutil, "which", return_value=None):
                 payload = json.loads(backend.status_text(paths))
             self.assertEqual(payload["routing"], {
                 "mode": "rule", "source": "custom", "ruleCount": 1,
