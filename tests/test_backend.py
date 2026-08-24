@@ -94,9 +94,10 @@ class BackendTests(unittest.TestCase):
         for expected in (
             "type: vless", "flow: \"xtls-rprx-vision\"", "tls: true",
             "client-fingerprint: \"firefox\"", "reality-opts:",
-            "short-id: \"0123456789abcdef\"", "spider-x: \"/\"",
+            "short-id: \"0123456789abcdef\"",
         ):
             self.assertIn(expected, yaml)
+        self.assertNotIn("spider-x:", yaml)
 
     def test_vless_preview_is_useful_without_returning_reusable_secrets(self):
         preview = backend.preview_vless(REALITY_URI)
@@ -108,10 +109,35 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(preview["insecure"])
         self.assertEqual(preview["credentialHint"], "••••1111")
         self.assertEqual(preview["suggestedName"], "Example")
+        self.assertEqual(
+            preview["compatibilityNote"],
+            backend.REALITY_SPX_COMPATIBILITY_NOTE,
+        )
         encoded = json.dumps(preview, ensure_ascii=False)
         self.assertNotIn("11111111-1111-4111-8111-111111111111", encoded)
         self.assertNotIn("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", encoded)
         self.assertNotIn("vless://", encoded)
+        self.assertNotIn("spx", encoded.lower().replace("(spx)", ""))
+
+    def test_reality_fields_match_current_mihomo_schema(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        without_spx = base.replace("&spx=%2F", "") + "#" + fragment
+        self.assertEqual(backend.preview_vless(without_spx)["compatibilityNote"], "")
+
+        bad_public_key = REALITY_URI.replace(
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "not-a-public-key"
+        )
+        with self.assertRaisesRegex(backend.BackendError, "public key"):
+            backend.parse_vless(bad_public_key)
+        with self.assertRaisesRegex(backend.BackendError, "short ID"):
+            backend.parse_vless(REALITY_URI.replace("0123456789abcdef", "abc"))
+        with self.assertRaisesRegex(backend.BackendError, "short ID"):
+            backend.parse_vless(REALITY_URI.replace("0123456789abcdef", "not-hex"))
+
+        unsupported = base + "&mldsa65Verify=secret-verifier#" + fragment
+        with self.assertRaisesRegex(backend.BackendError, "not supported by Mihomo") as failure:
+            backend.parse_vless(unsupported)
+        self.assertNotIn("secret-verifier", str(failure.exception))
 
     def test_ws_transport_maps_options(self):
         uri = (
