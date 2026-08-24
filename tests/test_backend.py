@@ -1044,6 +1044,9 @@ rules:
                 "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
                 encoding="utf-8",
             )
+            # Status serialization must not depend on whether the developer's
+            # machine happens to have a Mihomo binary on PATH. Core discovery
+            # has its own focused tests; keep this fixture host-independent.
             with mock.patch.object(backend, "service_active", return_value=False), \
                  mock.patch.object(backend, "core_setup_status", return_value={
                      "installed": False, "tunReady": False, "path": "",
