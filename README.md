@@ -137,12 +137,12 @@ documented; the normal plugin installation does not exercise them silently.
   enables it.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
   and atomic refresh-all. Plain-text and standard/URL-safe base64 lists may mix
-  VLESS, Trojan, Hysteria2 and TUIC links; unrelated protocols are ignored. Managed
-  servers stay collapsed under their provider until its row is opened. VLESS
-  row identity follows supported connection semantics rather than provider
-  labels, priority hints or query ordering; legacy identities migrate on the
-  next successful refresh without replacing IDs, favorites or active/last
-  selections.
+  VLESS, Trojan, Hysteria2 and TUIC links; unrelated protocols are ignored.
+  Managed servers stay collapsed under their provider until its row is opened.
+  VLESS row identity follows supported connection semantics rather than
+  provider labels, priority hints or query ordering; legacy identities migrate
+  on the next successful refresh without replacing IDs, favorites or
+  active/last selections.
 - Manual per-provider reachability tests try every working DNS-over-HTTPS
   resolver selected by the active routing policy, reject TUN fake-IP answers,
   resolve both IPv4 and IPv6, and fall back across up to four endpoint

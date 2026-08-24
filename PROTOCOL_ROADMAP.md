@@ -1,12 +1,14 @@
 # OmaVLESS protocol roadmap
 
-Status: planning and integration guide, 2026-08-24.
+Status: 0.7.0 implementation baseline and forward roadmap, updated 2026-08-25.
 
-This document is the canonical order for extending OmaVLESS from its current
-VLESS focus into a Mihomo-native, multi-protocol client without expanding the
-compact bar widget or weakening credential handling. It also tells the agent
-running on the Omarchy machine which stacked pull requests must be verified and
-integrated first.
+This document records the protocol work included in the OmaVLESS 0.7.0
+release candidate and the
+remaining order for extending it as a Mihomo-native, multi-protocol client
+without expanding the compact bar widget or weakening credential handling.
+`Implemented` below means that the parser, redaction boundary, Mihomo mapping
+and automated tests are in `main`; experimental protocols still need broader
+independent server/provider interoperability before their label can be removed.
 
 ## Product direction
 
@@ -30,44 +32,23 @@ An experimental protocol must still pass the same security gates as VLESS:
 Experimental means that server and ecosystem compatibility is still being
 measured. It never means accepting arbitrary YAML or skipping validation.
 
-## Current integration queue
+## 0.7.0 implementation baseline
 
-The open work is a linear stack. Test and integrate it in this exact order:
+The original stacked sequence is complete: PRs
+[#1](https://github.com/k-kostin/omavless/pull/1) through
+[#16](https://github.com/k-kostin/omavless/pull/16) are merged into `main`.
+Together they delivered country routing and Settings, guided setup and login
+autoconnect, custom routing tools, favorites, redacted import/diagnostics,
+strict VLESS/REALITY/XHTTP handling, the protocol-neutral adapter boundary,
+experimental Trojan/Hysteria2/TUIC imports, and the marketplace security
+preflight. Later 0.7.0 hardening and UI fixes are documented in
+`CHANGELOG.md` and the merged pull-request history.
 
-1. [#1 — country routing presets and general Settings](https://github.com/k-kostin/omavless/pull/1)
-2. [#2 — guided setup and login autoconnect](https://github.com/k-kostin/omavless/pull/2), based on #1
-3. [#3 — custom routing tools and rule refresh](https://github.com/k-kostin/omavless/pull/3), based on #2
-4. [#4 — favorites, import review and safe diagnostics](https://github.com/k-kostin/omavless/pull/4), based on #3
-5. [#5 — protocol roadmap](https://github.com/k-kostin/omavless/pull/5), based on #4
-6. [#6 — strict VLESS semantics](https://github.com/k-kostin/omavless/pull/6), based on #5
-7. [#7 — REALITY compatibility](https://github.com/k-kostin/omavless/pull/7), based on #6
-8. [#8 — bounded XHTTP extras](https://github.com/k-kostin/omavless/pull/8), based on #7
-9. [#9 — XHTTP split-download settings](https://github.com/k-kostin/omavless/pull/9), based on #8
-10. [#10 — experimental VLESS Encryption and REALITY PQ](https://github.com/k-kostin/omavless/pull/10), based on #9
-11. [#11 — protocol-neutral profile adapters](https://github.com/k-kostin/omavless/pull/11), based on #10
-12. [#12 — experimental Trojan profiles](https://github.com/k-kostin/omavless/pull/12), based on #11
-13. [#13 — experimental Hysteria2 profiles](https://github.com/k-kostin/omavless/pull/13), based on #12
-14. [#14 — experimental TUIC v5 profiles](https://github.com/k-kostin/omavless/pull/14), based on #13
-15. [#15 — Mihomo 1.19.30 and AmneziaWG roadmap addendum](https://github.com/k-kostin/omavless/pull/15), based on #14
-16. [#16 — marketplace security preflight and tooltip hardening](https://github.com/k-kostin/omavless/pull/16), based on #15
-
-Later protocol PRs remain based on the preceding unmerged PR until the stack
-is integrated.
-
-For each stacked PR on the Omarchy machine:
-
-1. read its `Depends on` and live-test checklist;
-2. check out its head branch and run `bash tests/run.sh`;
-3. perform the listed Omarchy, systemd, TUN and real-Mihomo checks;
-4. leave failures on that PR instead of compensating in a later branch;
-5. merge its predecessor first;
-6. retarget the PR to `main` after its predecessor is in `main`;
-7. confirm that the retargeted diff contains only the intended isolated slice;
-8. merge it, then repeat for the next PR.
-
-Do not merge a later PR merely because its combined tip works: doing so would
-hide which slice introduced a live regression. Draft status is removed only
-after the Omarchy checks for that PR pass.
+The active roadmap starts with P4 below. Before implementing another protocol,
+keep the existing experimental adapters honest: validate representative
+generated configurations against an installed current Mihomo core and collect
+independent real server/provider results. Automated coverage is necessary but
+does not by itself promote an experimental protocol to stable.
 
 ## Mihomo source and release gate
 
@@ -124,6 +105,10 @@ is reserved for this class of problem after Mihomo-native support is mature.
 
 ## Phase V1 — strict VLESS semantics
 
+Status: implemented and merged in 0.7.0 through
+[#6](https://github.com/k-kostin/omavless/pull/6) and
+[#7](https://github.com/k-kostin/omavless/pull/7).
+
 Goal: make the existing supported subset explicit and deterministic before
 adding more fields.
 
@@ -159,6 +144,11 @@ Omarchy acceptance:
 
 ## Phase V2 — bounded XHTTP `extra`
 
+Status: implemented and merged in 0.7.0 through
+[#8](https://github.com/k-kostin/omavless/pull/8) and
+[#9](https://github.com/k-kostin/omavless/pull/9). Real-provider compatibility
+remains narrower than the automated schema coverage.
+
 Goal: translate the useful advanced XHTTP fields supported by Mihomo without
 turning a share link into arbitrary configuration input.
 
@@ -182,6 +172,10 @@ Omarchy acceptance requires real keys for each implemented XHTTP mode. At least
 one test must combine XHTTP with TLS and one with a compatible REALITY server.
 
 ## Phase V3 — experimental VLESS Encryption and REALITY PQ metadata
+
+Status: implemented and merged as an experimental 0.7.0 capability through
+[#10](https://github.com/k-kostin/omavless/pull/10). It remains experimental
+until independent compatible servers and fingerprints are verified.
 
 Goal: expose Mihomo capabilities which the current importer intentionally
 rejects, with an explicit experimental marker.
@@ -207,8 +201,9 @@ than a false diagnosis.
 
 ## Phase A1 — protocol-neutral profile adapters
 
-Status: implemented in the protocol-adapter PR after #10; pending Omarchy and
-real-Mihomo verification.
+Status: implemented and merged in 0.7.0 through
+[#11](https://github.com/k-kostin/omavless/pull/11). The adapter boundary is
+covered by the shared parser, preview, YAML, migration and identity tests.
 
 Goal: remove VLESS-only assumptions before exposing a second protocol.
 
@@ -237,8 +232,9 @@ This phase is deliberately user-visible only as clearer neutral wording such as
 
 ## Phase P1 — experimental Trojan
 
-Status: implemented in #12; pending Omarchy, current-Mihomo and independent
-server/provider verification.
+Status: implemented and merged as experimental in 0.7.0 through
+[#12](https://github.com/k-kostin/omavless/pull/12); independent
+server/provider interoperability remains pending.
 
 First additional protocol because its URI and Mihomo mapping are closest to the
 existing VLESS path.
@@ -269,8 +265,9 @@ independent servers and one subscription provider.
 
 ## Phase P2 — experimental Hysteria2
 
-Status: implemented in #13; pending Omarchy, current-Mihomo and independent
-server/provider verification on both UDP-friendly and UDP-restricted networks.
+Status: implemented and merged as experimental in 0.7.0 through
+[#13](https://github.com/k-kostin/omavless/pull/13); independent testing on
+both UDP-friendly and UDP-restricted networks remains pending.
 
 Initial scope:
 
@@ -314,8 +311,9 @@ improves the error experience rather than merely making failures slower.
 
 ## Phase P3 — experimental TUIC v5
 
-Status: implemented in #14; pending Omarchy, current-Mihomo and independent
-server/provider verification.
+Status: implemented and merged as experimental in 0.7.0 through
+[#14](https://github.com/k-kostin/omavless/pull/14); independent
+server/provider interoperability remains pending.
 
 Initial scope:
 
@@ -347,9 +345,10 @@ implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/t
 
 ## Phase P4 — experimental WireGuard and AmneziaWG import
 
-Status: planned after #14 is integrated and live-tested. The standard
-WireGuard subset can work with older Mihomo releases, but the target baseline
-for this phase is Mihomo 1.19.30 or newer: that release adds the WireGuard
+Status: planned after the 0.7.0 release and broader live validation of the
+existing experimental adapters. The standard WireGuard subset can work with
+older Mihomo releases, but the target baseline for this phase is Mihomo 1.19.30
+or newer: that release adds the WireGuard
 `ip-stack` block, AmneziaWG v3.0/v3.1 and the current MIPS congestion controls.
 OmaVLESS must read and compare the installed core version before accepting a
 profile which requires those fields.
