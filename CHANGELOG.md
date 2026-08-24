@@ -2,6 +2,24 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.7.0 — 2026-08-24
+
+- Reordered the compact routing controls to `Full VPN`, `Routing`, `Direct`.
+- Added a first-use Routing chooser for Russia, China and Iran. Existing
+  profile stores retain their historical routing behavior instead of being
+  interrupted by onboarding after an update.
+- Added a general gear-shaped Settings page for routing profiles, source
+  attribution, subscription management, monitoring context and privacy/panel
+  preferences without expanding the main connection view.
+- Kept RoscomVPN DEFAULT as the Russia baseline and added Mihomo-native China
+  and Iran profiles backed by MetaCubeX and Chocolate4U MRS rule data.
+- Made routing-profile changes persistent and transactional. A first-use
+  selection activates Routing; a later Settings change preserves the current
+  Full VPN/Routing/Direct mode, and a failed live reconnect restores both the
+  prior template and preference.
+- Extended the public routing status with credential-free preset/configuration
+  state and added backend/QML contracts for the new templates and onboarding.
+
 ## 0.6.2 — 2026-08-23
 
 - Finalized the pre-publication plugin ID as `kdk.omavless`, the maintainer

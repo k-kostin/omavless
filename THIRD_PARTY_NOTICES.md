@@ -44,6 +44,23 @@ the referenced `.mrs` files from
 separate MIT-licensed projects maintained by hydraponique. Those remote files
 remain subject to their own licenses and update lifecycle.
 
+## China routing data
+
+The China preset references Mihomo-native `.mrs` files published by
+[MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat). The
+rule databases are not bundled with OmaVLESS; Mihomo downloads them from the
+project's `meta` branch at runtime. The remote project and data are distributed
+under GPL-3.0 and remain subject to their own license and update lifecycle.
+
+## Iran routing data
+
+The Iran preset references Mihomo-native `.mrs` files published by
+[Chocolate4U/Iran-clash-rules](https://github.com/Chocolate4U/Iran-clash-rules).
+The rule databases are not bundled with OmaVLESS; Mihomo downloads them from
+the project's `release` branch at runtime. The remote project and data are
+distributed under GPL-3.0 and remain subject to their own license and update
+lifecycle.
+
 ## Design references
 
 [Mihoro](https://github.com/spencerwooo/mihoro) and

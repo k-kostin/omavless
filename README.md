@@ -67,9 +67,11 @@ installation itself is handled by the Omarchy CLI.
 ### 3. Add a connection
 
 Open OmaVLESS from the bar, then use `+` for one `vless://` profile or
-`Subscriptions…` for a provider URL. Choose `Routing`, `Full VPN` or `Direct`,
-select a profile and enable the hero switch. Profiles and subscription URLs
-are stored privately under `~/.config/omavless/`.
+`Subscriptions…` for a provider URL. Choose `Full VPN`, `Routing` or `Direct`,
+select a profile and enable the hero switch. The first Routing click asks for
+Russia, China or Iran; the choice can be changed later from the gear-shaped
+general Settings page. Profiles and subscription URLs are stored privately
+under `~/.config/omavless/`.
 
 ## Requirements and security model
 
@@ -131,13 +133,26 @@ documented; the normal plugin installation does not exercise them silently.
 - Best-effort detection of other TUN interfaces and common Mihomo/Xray clients
   such as Mihoro and V2RayN. It produces a neutral conflict hint only; OmaVLESS
   does not terminate or reconfigure another VPN.
-- Rule routing from a bundled, deterministic RoscomVPN-based TUN template. Its
-  23 maintained GeoSite/GeoIP sets send RU/BY, banks and selected local
-  services directly; YouTube, Telegram, GitHub and the remaining internet use
-  the selected VLESS profile; selected ad/telemetry domains are rejected.
+- Country routing presets for Russia, China and Iran. Russia follows the
+  bundled deterministic RoscomVPN DEFAULT policy. China uses Mihomo-native MRS
+  sets from MetaCubeX; Iran uses Mihomo-native MRS sets from Chocolate4U.
+  Mihomo downloads the selected preset's rule data at runtime and refreshes it
+  on the template's bounded intervals; OmaVLESS does not bundle those remote
+  databases.
+- The Russia preset's 23 maintained GeoSite/GeoIP sets send RU/BY, banks and
+  selected local services directly; YouTube, Telegram, GitHub and the
+  remaining internet use the selected VLESS profile; selected ad/telemetry
+  domains are rejected. China and Iran send their country and private-network
+  destinations directly and use the selected VLESS profile for the remaining
+  internet. China rejects the selected advertising category; Iran additionally
+  rejects malware, phishing and browser-mining domains.
   The panel always distinguishes the routing mode (`Rule`, `Global`, `Direct`)
-  from the policy source (`RoscomVPN`, `Custom`, `Basic`) and summarizes what
-  will happen before connecting as well as what is active afterward.
+  from the policy source and summarizes what will happen before connecting as
+  well as what is active afterward.
+- A gear-shaped entry opens general OmaVLESS settings instead of adding more
+  controls to the main connection view. It contains the routing-preset picker,
+  source links, subscription management, connection-monitoring context and
+  privacy/display switches.
 - A compatible custom Mihomo YAML can be adopted only through an explicit
   command; OmaVLESS never discovers or imports another client's active
   configuration automatically.
@@ -185,6 +200,7 @@ disconnected VPN stays off after reboot.
 | `i` | import a VLESS link file |
 | `v` | import a VLESS link from the clipboard |
 | `s` | open subscriptions |
+| `g` | open general settings |
 | `/` | search profiles, providers and endpoint hostnames |
 | `p` | test endpoints for the selected subscription |
 | `e` | edit the selected VLESS link |
@@ -219,20 +235,24 @@ rules in place:
 ```
 
 Existing installations keep their private routing template during plugin
-updates. Explicitly switch an older `Basic` template to the bundled policy;
-when a tunnel is active, the command validates the generated config and
-reconnects transactionally:
+updates. Explicitly switch an older `Basic` template to one of the bundled
+policies; when a tunnel is active, the command validates the generated config
+and reconnects transactionally:
 
 ```bash
 ~/.config/omarchy/plugins/kdk.omavless/backend.sh use-routing roscomvpn-default
+# or: china-cn-direct / iran-ir-direct
 ```
 
-The panel's three routing buttons change the same private template and persist
-across restarts: `Routing` applies its rule sets, `Full VPN` sends all traffic
-through the selected VLESS proxy, and `Direct` keeps the TUN service available
-while bypassing the proxy. Changing mode while connected validates the new
+The panel's three routing buttons are ordered `Full VPN`, `Routing`, `Direct`
+and change the same private template across restarts. `Full VPN` sends all
+traffic through the selected VLESS proxy, `Routing` applies the chosen country
+rule sets, and `Direct` keeps the TUN service available while bypassing the
+proxy. The first Routing click on a new installation opens a small country
+chooser. Later preset changes live in general Settings and deliberately retain
+the current mode. Changing a preset or mode while connected validates the new
 configuration and reconnects transactionally; a failed switch restores the
-previous mode and service state.
+previous template, preference, mode and service state.
 
 No file under `~/.config/mihoro*` or `~/.config/mihomo/` is read or written
 automatically. Passing such a file explicitly to `adopt-template` is a user
@@ -322,9 +342,13 @@ Justin Köstinger ([source](https://github.com/jkoestinger/omarchy-vpn)). Its
 copyright and MIT terms are preserved in `LICENSE`, in headers on the adapted
 QML files, and in `THIRD_PARTY_NOTICES.md`. The published
 [RoscomVPN Routing](https://github.com/hydraponique/roscomvpn-routing) policy
-model and its separately maintained GeoSite/GeoIP datasets provide the routing
-source. Mihoro and omarchy-mihoro informed Mihomo service/API behavior but
-their code is not bundled. OmaVLESS is MIT licensed; Mihomo and the referenced
-projects remain under their own licenses.
+model and its separately maintained GeoSite/GeoIP datasets provide the Russia
+routing source. China uses
+[MetaCubeX meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat), while
+Iran uses
+[Chocolate4U Iran-clash-rules](https://github.com/Chocolate4U/Iran-clash-rules).
+Mihoro and omarchy-mihoro informed Mihomo service/API behavior but their code
+is not bundled. OmaVLESS is MIT licensed; Mihomo, remote rule data and the
+referenced projects remain under their own licenses.
 
 Release notes are kept in [CHANGELOG.md](CHANGELOG.md).

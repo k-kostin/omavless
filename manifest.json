@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "kdk.omavless",
   "name": "OmaVLESS",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "author": "kdk",
   "license": "MIT",
-  "description": "Import, subscribe to and switch VLESS profiles from the Omarchy bar using a dedicated Mihomo TUN service, with grouped providers, endpoint latency, visible routing policy and live traffic.",
+  "description": "Import, subscribe to and switch VLESS profiles from the Omarchy bar using a dedicated Mihomo TUN service, with country routing presets, grouped providers, endpoint latency and live traffic.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "OmaVLESS",
-    "description": "Toggle, switch, import and subscribe to VLESS profiles backed by Mihomo. Shows the effective routing mode and ships a RoscomVPN-based split-routing policy.",
+    "description": "Toggle, switch, import and subscribe to VLESS profiles backed by Mihomo. Includes a general settings page and Russia, China and Iran routing presets.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",

@@ -191,6 +191,50 @@ Panel {
     subscriptionPrompt.dismiss()
   }
 
+  function openSettings() {
+    page = "settings"
+    cursorActive = false
+    if (settingsFlick) settingsFlick.contentY = 0
+  }
+
+  function closeSettings() {
+    page = "main"
+  }
+
+  function requestRoutingMode(mode) {
+    var value = String(mode || "")
+    if (value === "rule" && !vless.routingPresetConfigured) {
+      routingPresetPrompt.openWith(vless.routing.preset || "roscomvpn-default")
+      return
+    }
+    vless.setRoutingMode(value)
+  }
+
+  function applyFirstRoutingPreset(preset) {
+    routingPresetPrompt.dismiss()
+    vless.useRoutingPreset(preset, false)
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function setWidgetSetting(key, value, jsonValue) {
+    if (!bar || typeof bar.run !== "function") {
+      vless.lastError = "Omarchy bar settings are unavailable"
+      return false
+    }
+    var encoded = jsonValue ? JSON.stringify(value) : String(value)
+    var command = "omarchy bar set " + Util.shellQuote(root.moduleName)
+      + " " + Util.shellQuote(String(key)) + " " + Util.shellQuote(encoded)
+      + (jsonValue ? " --json" : "")
+    // Reflect the choice immediately; Omarchy persists the same value and
+    // reinjects the canonical settings object into the widget afterwards.
+    var updated = {}
+    for (var current in root.settings) updated[current] = root.settings[current]
+    updated[key] = value
+    root.settings = updated
+    bar.run(command)
+    return true
+  }
+
   function addSubscription() {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading) return
     vless.clearSubscriptionMessage()
@@ -682,6 +726,7 @@ Panel {
     pendingEdit = null
     editingSubscription = null
     subscriptionPrompt.dismiss()
+    routingPresetPrompt.dismiss()
     cancelImport()
     if (opened) {
       page = "main"
@@ -900,7 +945,8 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.page === "subscriptions" ? subscriptionsColumn.implicitHeight : column.implicitHeight,
+      root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+        : (root.page === "settings" ? settingsColumn.implicitHeight : column.implicitHeight),
       Style.space(600)
     )
 
@@ -909,7 +955,7 @@ Panel {
       anchors.fill: parent
       blocked: root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
-        || profileSearch.activeFocus
+        || routingPresetPrompt.visible || profileSearch.activeFocus
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
@@ -917,6 +963,7 @@ Panel {
       onActivateRequested: if (root.cursorActive) root.activateCursor()
       onCloseRequested: {
         if (root.page === "subscriptions") root.closeSubscriptions()
+        else if (root.page === "settings") root.closeSettings()
         else root.close()
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -929,6 +976,11 @@ Panel {
         }
       }
       onTextKey: function(t) {
+        if (root.page === "settings") {
+          if (t === "s" || t === "S") root.openSubscriptions()
+          else if (t === "r" || t === "R") vless.refresh()
+          return
+        }
         if (root.page === "subscriptions") {
           if (t === "a" || t === "A") root.addSubscription()
           else if (t === "r" || t === "R") vless.refreshAllSubscriptions()
@@ -941,6 +993,7 @@ Panel {
           return
         }
         if (t === "t" || t === "T") vless.toggle()
+        else if (t === "g" || t === "G") root.openSettings()
         else if (t === "/" && vless.supports("subscriptionSearch")) profileSearch.forceActiveFocus()
         else if (t === "r" || t === "R") vless.refresh()
         else if (t === "d" || t === "D") vless.disconnectAll()
@@ -1068,6 +1121,19 @@ Panel {
                       font.pixelSize: Style.font.body
                       font.bold: true
                     }
+                  }
+
+                  PanelActionButton {
+                    iconText: "󰒓"
+                    tooltipText: "OmaVLESS settings"
+                    anchors.verticalCenter: parent.verticalCenter
+                    foreground: hero.foreground
+                    bordered: true
+                    fontFamily: hero.fontFamily
+                    fontSize: Style.font.subtitle * 1.35
+                    enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
+                    onHovered: function(on) { if (on) header.focusHero() }
+                    onClicked: root.openSettings()
                   }
 
                   // The QR of the tunnel you are on, without going to its row
@@ -1234,8 +1300,8 @@ Panel {
 
               Repeater {
                 model: [
-                  { label: "Routing", mode: "rule" },
                   { label: "Full VPN", mode: "global" },
+                  { label: "Routing", mode: "rule" },
                   { label: "Direct", mode: "direct" }
                 ]
 
@@ -1269,7 +1335,7 @@ Panel {
                     enabled: parent.available && !parent.selected
                     hoverEnabled: enabled
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: vless.setRoutingMode(parent.modelData.mode)
+                    onClicked: root.requestRoutingMode(parent.modelData.mode)
                   }
                 }
               }
@@ -1628,6 +1694,209 @@ Panel {
       }
 
       Flickable {
+        id: settingsFlick
+        anchors.fill: parent
+        visible: root.page === "settings"
+        contentWidth: width
+        contentHeight: settingsColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        Column {
+          id: settingsColumn
+          width: Math.max(0, settingsFlick.width - root.scrollGutter)
+          spacing: Style.space(12)
+
+          RowLayout {
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelActionButton {
+              iconText: "󰁍"
+              tooltipText: "Back to profiles (Esc)"
+              foreground: root.foreground
+              hoverColor: Color.accent
+              fontFamily: root.fontFamily
+              onClicked: root.closeSettings()
+            }
+
+            ColumnLayout {
+              Layout.fillWidth: true
+              spacing: 0
+              PlainText {
+                Layout.fillWidth: true
+                text: "SETTINGS"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+              }
+              PlainText {
+                Layout.fillWidth: true
+                text: "Routing, connections, privacy and panel display"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          PlainText {
+            visible: vless.actionStatus !== "" || vless.lastError !== ""
+            width: parent.width
+            text: vless.actionStatus !== "" ? vless.actionStatus : vless.lastError
+            color: vless.lastError !== "" && vless.actionStatus === "" ? root.urgent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+          }
+
+          PanelSeparator { foreground: root.foreground }
+
+          PanelSectionHeader {
+            text: "ROUTING PROFILE"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          PlainText {
+            width: parent.width
+            text: !vless.routingPresetConfigured
+              ? "Choose a country preset before the first use of Routing."
+              : (vless.activeRoutingPreset
+                ? "Selected: " + vless.routingPresetName + ". Full VPN and Direct remain independent."
+                : "Current template: " + vless.routingSourceLabel
+                  + ". Choose a country preset below or keep the existing policy.")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Repeater {
+            model: vless.routingPresets
+
+            BorderSurface {
+              id: routingPresetCard
+              required property var modelData
+              readonly property bool selected: vless.routingPresetConfigured
+                && vless.routing.preset === modelData.id
+
+              width: settingsColumn.width
+              height: routingPresetContent.implicitHeight + Style.space(18)
+              color: selected ? Util.alpha(Color.foreground, 0.08) : "transparent"
+              borderSpec: Border.flat(selected ? Color.accent : Util.alpha(root.foreground, 0.30),
+                Style.normalBorderWidth)
+              radius: Style.cornerRadius
+
+              Column {
+                id: routingPresetContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(5)
+
+                RowLayout {
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  PlainText {
+                    Layout.fillWidth: true
+                    text: routingPresetCard.modelData.country + " · " + routingPresetCard.modelData.name
+                    color: routingPresetCard.selected ? Color.accent : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    elide: Text.ElideRight
+                  }
+
+                  Button {
+                    text: routingPresetCard.selected ? "Selected" : "Use"
+                    bordered: true
+                    enabled: !routingPresetCard.selected && !vless.busy
+                    foreground: enabled ? root.foreground : root.dim
+                    fontFamily: root.fontFamily
+                    onClicked: vless.useRoutingPreset(routingPresetCard.modelData.id, true)
+                  }
+                }
+
+                PlainText {
+                  width: parent.width
+                  text: routingPresetCard.modelData.summary
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+
+                Button {
+                  text: "Source · " + routingPresetCard.modelData.source
+                  tooltipText: "Open routing rule source"
+                  bordered: false
+                  foreground: root.dim
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  onClicked: Qt.openUrlExternally(routingPresetCard.modelData.sourceUrl)
+                }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: root.foreground }
+
+          PanelSectionHeader {
+            text: "CONNECTIONS"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          SettingsActionRow {
+            title: "Subscriptions"
+            description: root.plural(vless.subscriptions.length, "provider", "providers")
+              + " · updates remain manual"
+            actionText: "Manage"
+            onAction: root.openSubscriptions()
+          }
+
+          SettingsActionRow {
+            title: "Connection monitoring"
+            description: "Status every " + vless.refreshIntervalSec + "s · latency target "
+              + (vless.pingHost !== "" ? vless.pingHost : "disabled")
+            actionText: "Configured"
+            actionEnabled: false
+          }
+
+          PanelSeparator { foreground: root.foreground }
+
+          PanelSectionHeader {
+            text: "PRIVACY & PANEL"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          SettingsActionRow {
+            title: "Observed Exit IP"
+            description: "Show a bounded external path check in connection details"
+            actionText: vless.showExitIp ? "On" : "Off"
+            onAction: root.setWidgetSetting("showExitIp", !vless.showExitIp, true)
+          }
+
+          SettingsActionRow {
+            title: "Live throughput in bar"
+            description: "Keep the compact bar icon quiet unless explicitly enabled"
+            actionText: vless.showBarThroughput ? "On" : "Off"
+            onAction: root.setWidgetSetting("showBarThroughput", !vless.showBarThroughput, true)
+          }
+
+          Item { width: 1; height: Style.space(8) }
+        }
+      }
+
+      Flickable {
         id: subscriptionsFlick
         anchors.fill: parent
         visible: root.page === "subscriptions"
@@ -1747,6 +2016,21 @@ Panel {
             width: 1
             height: Style.space(8)
           }
+        }
+      }
+
+      RoutingPresetPrompt {
+        id: routingPresetPrompt
+        anchors.fill: parent
+        presets: vless.routingPresets
+        accepted: selectedPreset !== "" && !vless.busy
+        foreground: root.foreground
+        dim: root.dim
+        fontFamily: root.fontFamily
+        onConfirmed: function(preset) { root.applyFirstRoutingPreset(preset) }
+        onCanceled: {
+          dismiss()
+          Qt.callLater(function() { keyCatcher.forceActiveFocus() })
         }
       }
 
@@ -2043,6 +2327,61 @@ Panel {
       fontFamily: root.fontFamily
       Layout.alignment: Qt.AlignTop
       onClicked: vless.clearSubscriptionMessage()
+    }
+  }
+
+  component SettingsActionRow: BorderSurface {
+    id: settingRow
+
+    property string title: ""
+    property string description: ""
+    property string actionText: ""
+    property bool actionEnabled: true
+    signal action()
+
+    width: settingsColumn.width
+    height: settingContent.implicitHeight + Style.space(16)
+    color: "transparent"
+    borderSpec: Border.flat(Util.alpha(root.foreground, 0.28), Style.normalBorderWidth)
+    radius: Style.cornerRadius
+
+    RowLayout {
+      id: settingContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      spacing: Style.space(10)
+
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(2)
+        PlainText {
+          Layout.fillWidth: true
+          text: settingRow.title
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+        PlainText {
+          Layout.fillWidth: true
+          text: settingRow.description
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+      }
+
+      Button {
+        text: settingRow.actionText
+        bordered: true
+        enabled: settingRow.actionEnabled
+        foreground: enabled ? root.foreground : root.dim
+        fontFamily: root.fontFamily
+        onClicked: settingRow.action()
+      }
     }
   }
 

@@ -35,6 +35,7 @@ cp -a \
   "$plugin_dir/Sparkline.qml" \
   "$plugin_dir/NamePrompt.qml" \
   "$plugin_dir/SubscriptionPrompt.qml" \
+  "$plugin_dir/RoutingPresetPrompt.qml" \
   "$plugin_dir/RenameWindow.qml" \
   "$plugin_dir/QrWindow.qml" \
   "$plugin_dir/backend.sh" \

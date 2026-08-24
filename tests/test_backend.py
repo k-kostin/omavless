@@ -66,9 +66,9 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(manifest["id"], "kdk.omavless")
         self.assertEqual(manifest["name"], "OmaVLESS")
         self.assertEqual(manifest["barWidget"]["displayName"], "OmaVLESS")
-        self.assertEqual(manifest["version"], "0.6.2")
+        self.assertEqual(manifest["version"], "0.7.0")
         self.assertEqual(backend.PLUGIN_VERSION, manifest["version"])
-        self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.6.2")
+        self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
         self.assertEqual(manifest["entryPoints"]["barWidget"], "Panel.qml")
         panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
         self.assertIn('moduleName: "kdk.omavless"', panel)
@@ -145,8 +145,8 @@ rules:
 """
             paths.template.write_text(basic, encoding="utf-8")
             self.assertEqual(backend.routing_status(paths, False), {
-                "mode": "rule", "source": "basic", "ruleCount": 5,
-                "providerCount": 0,
+                "mode": "rule", "source": "basic", "preset": "",
+                "configured": False, "ruleCount": 5, "providerCount": 0,
             })
 
             roscomvpn = """# omavless-routing-profile: roscomvpn-default
@@ -166,9 +166,15 @@ rules:
 """
             paths.template.write_text(roscomvpn, encoding="utf-8")
             self.assertEqual(backend.routing_status(paths, False), {
-                "mode": "rule", "source": "roscomvpn", "ruleCount": 2,
-                "providerCount": 2,
+                "mode": "rule", "source": "roscomvpn",
+                "preset": "roscomvpn-default", "configured": False,
+                "ruleCount": 2, "providerCount": 2,
             })
+            selected = backend.routing_status(
+                paths, False, {"routingPreset": "roscomvpn-default"}
+            )
+            self.assertEqual(selected["preset"], "roscomvpn-default")
+            self.assertTrue(selected["configured"])
 
             paths.template.write_text(roscomvpn.replace("mode: rule", "mode: global"), encoding="utf-8")
             state = backend.routing_status(paths, False)
@@ -219,8 +225,8 @@ rules:
                  mock.patch.object(backend.shutil, "which", return_value=None):
                 payload = json.loads(backend.status_text(paths))
             self.assertEqual(payload["routing"], {
-                "mode": "rule", "source": "custom", "ruleCount": 1,
-                "providerCount": 0,
+                "mode": "rule", "source": "custom", "preset": "",
+                "configured": False, "ruleCount": 1, "providerCount": 0,
             })
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
             self.assertEqual(payload["capabilities"]["protocols"], ["vless"])
@@ -310,6 +316,76 @@ rules:
         }
         self.assertEqual(referenced - defined, set())
 
+    def test_country_templates_are_mihomo_native_and_self_consistent(self):
+        expected = {
+            "china.yaml": ("china-cn-direct", 5, 6, "MetaCubeX/meta-rules-dat"),
+            "iran.yaml": ("iran-ir-direct", 7, 8, "Chocolate4U/Iran-clash-rules"),
+        }
+        for filename, (preset, provider_count, rule_count, source) in expected.items():
+            with self.subTest(filename=filename):
+                text = (ROOT / "templates" / filename).read_text(encoding="utf-8")
+                self.assertEqual(text.count(backend.PROFILE_MARKER), 1)
+                providers = backend.yaml_top_level_block(text, "rule-providers")
+                rules = backend.yaml_top_level_block(text, "rules")
+                self.assertEqual(backend.yaml_mapping_count(providers), provider_count)
+                self.assertEqual(backend.yaml_sequence_count(rules), rule_count)
+                self.assertIn(f"# omavless-routing-profile: {preset}", text)
+                self.assertIn(source, text)
+                self.assertIn("format: mrs", text)
+                self.assertIn("MATCH,PROXY", text)
+                defined = {
+                    match.group(1)
+                    for line in providers
+                    if (match := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line))
+                }
+                referenced = {
+                    match.group(1)
+                    for line in rules
+                    if (match := re.search(r"RULE-SET,([^,]+),", line))
+                }
+                self.assertEqual(referenced - defined, set())
+
+    def test_settings_preset_change_preserves_the_current_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            current = backend.bundled_template("roscomvpn-default")
+            paths.template.write_text(
+                backend.template_with_mode(current, "global"), encoding="utf-8"
+            )
+            paths.store.write_text(json.dumps(backend.empty_store()), encoding="utf-8")
+            with mock.patch.object(backend, "service_active", return_value=False):
+                backend.use_bundled_template(paths, "china-cn-direct", keep_mode=True)
+            updated = paths.template.read_text(encoding="utf-8")
+            store = json.loads(paths.store.read_text(encoding="utf-8"))
+            self.assertEqual(backend.yaml_top_level_scalar(updated, "mode"), "global")
+            self.assertIn("# omavless-routing-profile: china-cn-direct", updated)
+            self.assertEqual(store["routingPreset"], "china-cn-direct")
+
+    def test_first_routing_preset_selection_activates_rule_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            current = backend.template_with_mode(
+                backend.bundled_template("roscomvpn-default"), "direct"
+            )
+            paths.template.write_text(current, encoding="utf-8")
+            paths.store.write_text(json.dumps(backend.empty_store()), encoding="utf-8")
+            with mock.patch.object(backend, "service_active", return_value=False):
+                backend.use_bundled_template(paths, "iran-ir-direct")
+            updated = paths.template.read_text(encoding="utf-8")
+            self.assertEqual(backend.yaml_top_level_scalar(updated, "mode"), "rule")
+            self.assertEqual(
+                json.loads(paths.store.read_text(encoding="utf-8"))["routingPreset"],
+                "iran-ir-direct",
+            )
+
     def test_use_bundled_routing_preserves_previous_template_if_reconnect_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -327,8 +403,10 @@ rules:
             with mock.patch.object(backend, "service_active", return_value=True), \
                  mock.patch.object(backend, "connect_profile", side_effect=backend.BackendError("nope")):
                 with self.assertRaisesRegex(backend.BackendError, "nope"):
-                    backend.use_bundled_template(paths, "roscomvpn-default")
+                    backend.use_bundled_template(paths, "china-cn-direct")
             self.assertEqual(paths.template.read_text(encoding="utf-8"), previous)
+            restored = json.loads(paths.store.read_text(encoding="utf-8"))
+            self.assertEqual(restored["routingPreset"], "roscomvpn-default")
 
     def test_store_is_private_and_status_has_no_uri(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -362,8 +440,13 @@ rules:
             "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
         })
         self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["routingPreset"], "roscomvpn-default")
         self.assertEqual(migrated["subscriptions"], [])
         self.assertNotIn("subscriptionId", migrated["profiles"][0])
+
+    def test_fresh_store_defers_routing_preset_choice(self):
+        fresh = backend.validate_store(backend.empty_store())
+        self.assertEqual(fresh["routingPreset"], "")
 
     def test_subscription_parser_accepts_raw_and_urlsafe_base64_lists(self):
         second = REALITY_URI.replace("example.com:443", "two.example:8443").replace(
@@ -1414,11 +1497,12 @@ esac
     def test_distribution_has_no_embedded_profile_or_implicit_mihoro_config(self):
         distributed = [
             ROOT / name for name in (
-                "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml", "RenameWindow.qml",
+                "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml",
+                "RoutingPresetPrompt.qml", "RenameWindow.qml",
                 "QrWindow.qml", "backend.py", "backend.sh", "install.sh",
                 "uninstall.sh",
                 "manifest.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
-                "templates/default.yaml",
+                "templates/default.yaml", "templates/china.yaml", "templates/iran.yaml",
             )
         ]
         texts = {path: path.read_text(encoding="utf-8") for path in distributed}
