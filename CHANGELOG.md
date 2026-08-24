@@ -4,6 +4,17 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Added a compact three-step first-run guide that checks Mihomo and required
+  TUN capabilities, offers a skippable country Routing profile, and reuses the
+  private VLESS import flow. Package and capability commands are copy-only and
+  are never executed by the plugin.
+- Added explicit login autoconnect settings for the last used or one fixed
+  server in Full VPN or Routing mode. New installs start manually; existing
+  installs retain their previous enabled-service behavior until this setting
+  is saved.
+- Split runtime and login responsibilities between `omavless.service` and a
+  small user-level `omavless-autostart.service`, with transactional validation,
+  rollback and uninstall cleanup for both units.
 - Reordered the compact routing controls to `Full VPN`, `Routing`, `Direct`.
 - Added a first-use Routing chooser for Russia, China and Iran. Existing
   profile stores retain their historical routing behavior instead of being

@@ -5,7 +5,7 @@
   "version": "0.7.0",
   "author": "kdk",
   "license": "MIT",
-  "description": "Import, subscribe to and switch VLESS profiles from the Omarchy bar using a dedicated Mihomo TUN service, with country routing presets, grouped providers, endpoint latency and live traffic.",
+  "description": "Import, subscribe to and switch VLESS profiles from the Omarchy bar using a dedicated Mihomo TUN service, with guided setup, login autoconnect and country routing presets.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "OmaVLESS",
-    "description": "Toggle, switch, import and subscribe to VLESS profiles backed by Mihomo. Includes a general settings page and Russia, China and Iran routing presets.",
+    "description": "Toggle, switch, import and subscribe to VLESS profiles backed by Mihomo. Includes first-run setup, login autoconnect and Russia, China and Iran routing presets.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",

@@ -230,6 +230,14 @@ rules:
             })
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
             self.assertEqual(payload["capabilities"]["protocols"], ["vless"])
+            self.assertEqual(payload["coreSetup"], {
+                "installed": False, "tunReady": False, "path": "",
+            })
+            self.assertEqual(payload["startup"], {
+                "enabled": False, "configured": True, "target": "last",
+                "profileId": "", "mode": "rule",
+            })
+            self.assertFalse(payload["onboardingComplete"])
             self.assertIn("uptimeSeconds", payload)
             self.assertIn("conflicts", payload)
             self.assertNotIn("vless://", json.dumps(payload))
@@ -1136,12 +1144,182 @@ rules:
                 backend.run(["mihomo", "-t"])
 
     def test_no_privileged_or_crontab_mutation_in_plugin_code(self):
-        executable_sources = "\n".join(
+        command_sources = "\n".join(
             (ROOT / name).read_text(encoding="utf-8")
-            for name in ("backend.py", "backend.sh", "install.sh", "uninstall.sh", "Service.qml", "Panel.qml")
+            for name in ("backend.py", "backend.sh", "install.sh", "uninstall.sh", "Service.qml")
         )
         for forbidden in ("NOPASSWD", "/etc/sudoers", "crontab", "pkexec", "sudo "):
-            self.assertNotIn(forbidden, executable_sources)
+            self.assertNotIn(forbidden, command_sources)
+        # The one privileged setup step is user-mediated text: the panel may
+        # copy it to the clipboard, but neither QML service nor backend can
+        # execute it on the user's behalf.
+        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        self.assertIn('mihomoCapabilityCommand: "sudo setcap ', panel)
+        self.assertIn("onCopyCommand: function(command) { vless.copyText(command) }", panel)
+        self.assertNotIn("runControl([root.mihomoCapabilityCommand", panel)
+
+    def test_new_and_migrated_stores_get_safe_setup_defaults(self):
+        fresh = backend.empty_store()
+        self.assertTrue(fresh["startupConfigured"])
+        self.assertFalse(fresh["startup"]["enabled"])
+        self.assertFalse(fresh["onboardingComplete"])
+
+        migrated = backend.validate_store({
+            "version": 1, "activeId": "", "lastId": "",
+            "profiles": [{
+                "id": "22222222-2222-4222-8222-222222222222",
+                "name": "Example", "uri": REALITY_URI,
+            }],
+        })
+        self.assertFalse(migrated["startupConfigured"])
+        self.assertFalse(migrated["startup"]["enabled"])
+        self.assertTrue(migrated["onboardingComplete"])
+
+    def test_core_setup_status_requires_all_tun_capabilities(self):
+        core = Path("/usr/bin/mihomo")
+        completed = subprocess.CompletedProcess(
+            [], 0,
+            "/usr/bin/mihomo cap_net_admin,cap_net_raw,cap_net_bind_service=ep\n",
+            "",
+        )
+        with mock.patch.object(backend, "find_core", return_value=core), \
+             mock.patch.object(backend.shutil, "which", return_value="/usr/bin/getcap"), \
+             mock.patch.object(backend, "run", return_value=completed):
+            self.assertEqual(backend.core_setup_status(self.paths_for(Path("/tmp"))), {
+                "installed": True, "tunReady": True, "path": str(core),
+            })
+        missing = subprocess.CompletedProcess([], 0, "/usr/bin/mihomo cap_net_admin=ep\n", "")
+        with mock.patch.object(backend, "find_core", return_value=core), \
+             mock.patch.object(backend.shutil, "which", return_value="/usr/bin/getcap"), \
+             mock.patch.object(backend, "run", return_value=missing):
+            self.assertFalse(backend.core_setup_status(self.paths_for(Path("/tmp")))["tunReady"])
+
+    def test_configure_startup_validates_and_enables_helper_transactionally(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["routingPreset"] = "roscomvpn-default"
+            backend.save_store(paths, store)
+            candidate = paths.config_dir / ".startup-candidate.yaml"
+            candidate.write_text("candidate", encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "service_enabled", side_effect=[True, False]), \
+                 mock.patch.object(backend, "core_setup_status", return_value={
+                     "installed": True, "tunReady": True, "path": "/usr/bin/mihomo",
+                 }), \
+                 mock.patch.object(backend, "find_core", return_value=Path("/usr/bin/mihomo")), \
+                 mock.patch.object(backend, "ensure_unit"), \
+                 mock.patch.object(backend, "ensure_startup_unit"), \
+                 mock.patch.object(backend, "test_config", return_value=candidate), \
+                 mock.patch.object(backend, "systemctl", return_value=ok) as systemctl:
+                backend.configure_startup(paths, True, "profile", profile_id, "rule")
+            saved = backend.load_store(paths)
+            self.assertEqual(saved["startup"], {
+                "enabled": True, "target": "profile", "profileId": profile_id,
+                "mode": "rule",
+            })
+            self.assertFalse(candidate.exists())
+            self.assertIn(mock.call("enable", backend.STARTUP_SERVICE, check=False), systemctl.call_args_list)
+            self.assertIn(mock.call("disable", backend.SERVICE, check=False), systemctl.call_args_list)
+
+    def test_disabling_startup_is_safe_before_core_or_main_unit_exists(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            backend.save_store(paths, backend.empty_store())
+            with mock.patch.object(backend, "service_enabled", return_value=False), \
+                 mock.patch.object(backend, "ensure_startup_unit"), \
+                 mock.patch.object(backend, "systemctl") as systemctl:
+                backend.configure_startup(paths, False, "last", "", "global")
+            systemctl.assert_not_called()
+            saved = backend.load_store(paths)
+            self.assertFalse(saved["startup"]["enabled"])
+            self.assertEqual(saved["startup"]["mode"], "global")
+
+    def test_first_profile_is_a_safe_last_used_fallback(self):
+        store = backend.empty_store()
+        profile_id = "22222222-2222-4222-8222-222222222222"
+        store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+        self.assertEqual(
+            backend.resolve_startup_profile(store, "last", "")["id"], profile_id
+        )
+
+    def test_configure_startup_rejects_routing_without_a_preset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            backend.save_store(paths, store)
+            with mock.patch.object(backend, "service_enabled", return_value=False):
+                with self.assertRaisesRegex(backend.BackendError, "country preset"):
+                    backend.configure_startup(paths, True, "profile", profile_id, "rule")
+
+    def test_startup_connect_uses_selected_profile_and_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["startup"] = {
+                "enabled": True, "target": "profile", "profileId": profile_id,
+                "mode": "global",
+            }
+            backend.save_store(paths, store)
+            candidate = paths.config_dir / ".startup-candidate.yaml"
+            candidate.write_text("mode: global\n", encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "service_active", side_effect=[False, False, True]), \
+                 mock.patch.object(backend, "find_core", return_value=Path("/usr/bin/mihomo")), \
+                 mock.patch.object(backend, "ensure_unit"), \
+                 mock.patch.object(backend, "render_config_mode", return_value="mode: global\n") as render, \
+                 mock.patch.object(backend, "test_config", return_value=candidate), \
+                 mock.patch.object(backend, "systemctl", return_value=ok) as systemctl, \
+                 mock.patch.object(backend, "mark_active"):
+                backend.startup_connect(paths)
+            render.assert_called_once_with(paths, mock.ANY, "global")
+            systemctl.assert_called_once_with("start", backend.SERVICE)
+            saved = backend.load_store(paths)
+            self.assertEqual(saved["activeId"], profile_id)
+            self.assertEqual(saved["lastId"], profile_id)
+            self.assertEqual(paths.config.read_text(encoding="utf-8"), "mode: global\n")
+
+    def test_explicit_startup_disconnect_stops_without_disabling_login(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["activeId"] = profile_id
+            store["lastId"] = profile_id
+            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            backend.save_store(paths, store)
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "mark_intent"), \
+                 mock.patch.object(backend, "systemctl", return_value=ok) as systemctl:
+                backend.stop_service(paths, profile_id)
+            systemctl.assert_called_once_with("stop", backend.SERVICE, check=False)
+            self.assertEqual(backend.load_store(paths)["activeId"], "")
 
     def test_bundled_config_enables_rule_tun(self):
         template = (ROOT / "templates" / "default.yaml").read_text(encoding="utf-8")
@@ -1264,6 +1442,29 @@ rules:
             with self.assertRaisesRegex(backend.BackendError, "symlinked systemd unit"):
                 backend.ensure_unit(paths, home / "mihomo")
         self.assertEqual(backend.systemd_quote('/tmp/100%/a"b'), '"/tmp/100%%/a\\"b"')
+
+    def test_startup_unit_is_user_scoped_and_refuses_symlinks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            helper = backend.startup_unit(paths)
+            helper.parent.mkdir(parents=True)
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "systemctl", return_value=ok):
+                backend.ensure_startup_unit(paths)
+            text = helper.read_text(encoding="utf-8")
+            self.assertIn("ExecStart=", text)
+            self.assertIn(" startup-connect", text)
+            self.assertIn("WantedBy=default.target", text)
+            self.assertNotIn("User=", text)
+            helper.unlink()
+            foreign = home / "foreign.service"
+            foreign.write_text("foreign", encoding="utf-8")
+            helper.symlink_to(foreign)
+            with self.assertRaisesRegex(backend.BackendError, "symlinked systemd unit"):
+                backend.ensure_startup_unit(paths)
 
     def test_stop_failure_preserves_active_state_and_clears_intent(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1498,7 +1699,8 @@ esac
         distributed = [
             ROOT / name for name in (
                 "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml",
-                "RoutingPresetPrompt.qml", "RenameWindow.qml",
+                "RoutingPresetPrompt.qml", "OnboardingWizard.qml", "StartupPrompt.qml",
+                "RenameWindow.qml",
                 "QrWindow.qml", "backend.py", "backend.sh", "install.sh",
                 "uninstall.sh",
                 "manifest.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
@@ -1557,10 +1759,12 @@ esac
             )
             systemctl.chmod(0o755)
             unit = home / ".config/systemd/user/omavless.service"
+            startup_unit = home / ".config/systemd/user/omavless-autostart.service"
             data = home / ".config/omavless"
             unit.parent.mkdir(parents=True)
             data.mkdir(parents=True)
             unit.write_text("unit", encoding="utf-8")
+            startup_unit.write_text("startup unit", encoding="utf-8")
             (data / "profiles.json").write_text("secret", encoding="utf-8")
             env = os.environ.copy()
             env.update({"HOME": str(home), "PATH": str(fake_bin) + os.pathsep + env["PATH"]})
@@ -1570,6 +1774,7 @@ esac
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(unit.exists())
+            self.assertFalse(startup_unit.exists())
             self.assertTrue(data.exists())
 
             result = subprocess.run(
