@@ -172,7 +172,7 @@ Item {
             PlainText {
               visible: prompt.profiles.length === 0
               width: parent.width
-              text: "Add a VLESS profile before enabling login autoconnect."
+              text: "Add a profile before enabling login autoconnect."
               color: prompt.urgent
               font.family: prompt.fontFamily
               font.pixelSize: Style.font.caption

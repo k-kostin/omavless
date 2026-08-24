@@ -11,7 +11,7 @@ import qs.Commons
 import qs.Ui
 
 // The QR code as a screen-centred window of its own, not an overlay inside
-// the bar popup: a VLESS URI can be several hundred bytes, so its code runs to
+// the bar popup: a profile URI can be several hundred bytes, so its code runs to
 // 80-100 modules a side and needs far more room than a panel-width card to
 // stay scannable. The panel closes as the window opens, so this surface is
 // also the only place a request can report progress or failure.
@@ -185,7 +185,7 @@ PanelWindow {
         PlainText {
           width: parent.width
           visible: root.showingCode
-          text: "Scan with a VLESS-compatible app. The code contains the complete access credential — share it only with devices you control."
+          text: "Scan with an app compatible with this profile. The code contains the complete access credential — share it only with devices you control."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

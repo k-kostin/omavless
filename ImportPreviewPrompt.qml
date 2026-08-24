@@ -10,11 +10,11 @@ import qs.Ui
 
 // Review only non-reusable connection facts before a credential is saved.
 // Parsing and redaction happen in the backend; this surface never receives a
-// full UUID, Reality key or complete VLESS URI in its preview model.
+// reusable password, full UUID, Reality key or complete URI in its preview model.
 Item {
   id: prompt
 
-  property string title: "Import VLESS profile"
+  property string title: "Import profile"
   property string confirmLabel: "Import"
   property string hint: ""
   property bool accepted: false
@@ -107,6 +107,7 @@ Item {
 
             Repeater {
               model: [
+                { label: "Protocol", value: String(prompt.preview.protocol || "") },
                 { label: "Endpoint", value: String(prompt.preview.server || "")
                     + ":" + String(prompt.preview.port || "") },
                 { label: "Connection", value: String(prompt.preview.transport || "")
@@ -147,7 +148,7 @@ Item {
 
         PlainText {
           width: parent.width
-          text: "The complete access UUID and key parameters are intentionally not shown. Nothing is stored until you press Import."
+          text: "The complete access credential and key parameters are intentionally not shown. Nothing is stored until you press Import."
           color: prompt.dim
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption

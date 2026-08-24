@@ -154,7 +154,7 @@ Panel {
       ? importNameCount + " profiles use the name " + importNameClean + " — pick another name"
       : (importReplaces
         ? "Replaces the existing profile " + (importReplaceTarget ? importReplaceTarget.name : importNameClean)
-        : "Imports as VLESS profile " + importNameClean))
+        : "Imports as profile " + importNameClean))
 
   // Rename touches the local display label only, so spaces are
   // fine. Duplicates are refused: every name-based entry point in the
@@ -169,7 +169,7 @@ Panel {
     ? "Use a non-empty name up to 80 characters"
     : (renameDuplicate
       ? "A profile named " + renameClean + " already exists"
-      : "The VLESS link remains unchanged")
+      : "The profile link remains unchanged")
 
   readonly property string subscriptionNameClean: subscriptionPrompt.nameValue.trim()
   readonly property string subscriptionUrlClean: subscriptionPrompt.urlValue.trim()
@@ -905,7 +905,7 @@ Panel {
     function routing(): string { return vless.routingTitle + " · " + vless.routingSummary }
     // Credential-free support snapshot. Names, ids, endpoints, provider URLs
     // and free-form error strings stay out because they can identify a user
-    // even when they do not contain the complete VLESS credential.
+    // even when they do not contain the complete profile credential.
     function diagnostics(): string {
       return JSON.stringify({
         active: vless.active,
@@ -1609,7 +1609,7 @@ Panel {
                 id: sectionLabel
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: "VLESS PROFILES"
+                text: "PROFILES"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
               }
@@ -1623,7 +1623,7 @@ Panel {
                 Button {
                   text: "Subscriptions…"
                   visible: vless.supports("subscriptions")
-                  tooltipText: "Manage VLESS subscriptions"
+                  tooltipText: "Manage profile subscriptions"
                   bordered: true
                   foreground: root.foreground
                   fontFamily: root.fontFamily
@@ -1638,7 +1638,7 @@ Panel {
                 // here too, or that row stays lit while the pointer is here.
                 PanelActionButton {
                   iconText: "󰐕"
-                  tooltipText: "Import a VLESS link file (i)"
+                  tooltipText: "Import a profile link file (i)"
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -1696,7 +1696,7 @@ Panel {
             PlainText {
               visible: vless.profiles.length === 0
               width: parent.width
-              text: "No VLESS profiles yet\nImport a link file with + or paste one from the clipboard with v"
+              text: "No profiles yet\nImport a link file with + or paste one from the clipboard with v"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -2003,7 +2003,7 @@ Panel {
             title: "Safe diagnostics"
             description: vless.diagnosticsStatus !== ""
               ? vless.diagnosticsStatus
-              : "No VLESS UUIDs, keys, server names or subscription URLs"
+              : "No profile credentials, keys, server names or subscription URLs"
             actionText: vless.diagnosticsExporting ? "Exporting…" : "Export"
             actionEnabled: !vless.diagnosticsExporting && !vless.busy
             onAction: vless.exportDiagnostics()
@@ -2090,7 +2090,7 @@ Panel {
 
             Button {
               text: "Add…"
-              tooltipText: "Add a VLESS subscription (a)"
+              tooltipText: "Add a profile subscription (a)"
               bordered: true
               foreground: root.foreground
               fontFamily: root.fontFamily
@@ -2101,7 +2101,7 @@ Panel {
 
           PlainText {
             width: parent.width
-            text: "Managed profiles update only when you ask. Test performs an end-to-end VLESS check through every server; results stay in this session."
+            text: "Managed profiles update only when you ask. Test performs an end-to-end proxy check through every server; results stay in this session."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -2117,7 +2117,7 @@ Panel {
           PlainText {
             visible: vless.subscriptions.length === 0
             width: parent.width
-            text: "No subscriptions yet\nAdd the URL supplied by your VLESS provider"
+            text: "No subscriptions yet\nAdd the URL supplied by your provider"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -2458,7 +2458,7 @@ Panel {
     }
   }
 
-  // Screen-centred, not panel-bound: a VLESS URI makes a far denser
+  // Screen-centred, not panel-bound: a profile URI makes a far denser
   // code than the popup can show at a scannable size. Closing it deletes
   // the PNG in XDG_RUNTIME_DIR.
   QrWindow {
@@ -2760,7 +2760,7 @@ Panel {
         iconSpinning: testing
         tooltipText: testing
           ? "Cancel this server test"
-          : "Run an end-to-end VLESS check through every server (p)"
+          : "Run an end-to-end proxy check through every server (p)"
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
@@ -3027,7 +3027,7 @@ Panel {
             iconSpinning: testing
             tooltipText: testing
               ? "Cancel this server test"
-              : "Run an end-to-end VLESS check through every server (p)"
+              : "Run an end-to-end proxy check through every server (p)"
             bordered: true
             foreground: root.foreground
             fontFamily: root.fontFamily

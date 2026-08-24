@@ -8,7 +8,7 @@ import qs.Ui
 
 // A deliberately short first-run path: make the external core usable, pick
 // an optional Routing policy, then hand the existing private import flow its
-// first VLESS key. Installation remains an explicit terminal action.
+// first supported profile. Installation remains an explicit terminal action.
 Item {
   id: wizard
 
@@ -170,7 +170,7 @@ Item {
 
             PlainText {
               width: parent.width
-              text: "Routing sends local destinations directly and the remaining traffic through VLESS. You can skip this and use Full VPN first."
+              text: "Routing sends local destinations directly and the remaining traffic through the selected profile. You can skip this and use Full VPN first."
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -239,9 +239,9 @@ Item {
             PlainText {
               width: parent.width
               text: wizard.profiles.length > 0
-                ? (wizard.profiles.length === 1 ? "Your first VLESS connection is ready."
-                  : wizard.profiles.length + " VLESS connections are ready.")
-                : "Paste a vless:// key from the clipboard or choose a file. The secret stays in OmaVLESS private storage."
+                ? (wizard.profiles.length === 1 ? "Your first connection is ready."
+                  : wizard.profiles.length + " connections are ready.")
+                : "Paste a vless:// or trojan:// link from the clipboard, or choose a file. The secret stays in OmaVLESS private storage."
               color: wizard.profiles.length > 0 ? Color.accent : wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -251,7 +251,7 @@ Item {
             Row {
               spacing: Style.space(8)
               Button {
-                text: "Paste VLESS"
+                text: "Paste link"
                 bordered: true
                 enabled: !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
