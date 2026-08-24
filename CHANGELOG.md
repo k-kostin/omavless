@@ -7,8 +7,11 @@ All notable changes to OmaVLESS are documented here.
 - Added a protocol-neutral profile adapter for import, preview, Mihomo output,
   probes and subscription identity. Private stores migrate in memory to v3
   with an explicit protocol discriminator while preserving profile IDs,
-  favorites, subscription links, active selection and autoconnect choices;
-  VLESS remains the only advertised protocol in this release.
+  favorites, subscription links, active selection and autoconnect choices.
+- Added experimental Trojan profiles for bounded `trojan://` manual import and
+  mixed VLESS/Trojan subscriptions. TCP, WebSocket and gRPC map to Mihomo with
+  TLS or the supported REALITY subset; unsupported share fields fail before
+  storage and public preview never receives the Trojan password.
 - Tightened VLESS compatibility boundaries: XUDP/PacketAddr encodings and
   XHTTP modes are now normalized and strictly validated, while both Xray
   Vision share-link variants map to Mihomo's single supported Vision flow

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 OmaVLESS contributors
-"""Secure VLESS profile manager for the OmaVLESS Omarchy widget."""
+"""Secure proxy profile manager for the OmaVLESS Omarchy widget."""
 
 from __future__ import annotations
 
@@ -47,6 +47,8 @@ CONFLICT_SERVICE = "mihomo.service"
 TUN_DEVICE = "Meta"
 STATUS_CACHE_SECONDS = 1.0
 MAX_VLESS_URI_BYTES = 16 * 1024
+MAX_TROJAN_URI_BYTES = 16 * 1024
+MAX_TROJAN_PASSWORD_BYTES = 1024
 MAX_VLESS_ENCRYPTION_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_ITEMS = 160
@@ -107,7 +109,8 @@ PUBLIC_CAPABILITIES = {
     "xhttpExtra": True,
     "vlessEncryptionExperimental": True,
     "realityPqExperimental": True,
-    "protocols": ["vless"],
+    "trojanExperimental": True,
+    "protocols": ["vless", "trojan"],
     "core": "mihomo",
 }
 
@@ -288,61 +291,61 @@ def validate_store(data: Any) -> dict[str, Any]:
     # plugin was upgraded.
     subscriptions = data.setdefault("subscriptions", [])
     if not isinstance(subscriptions, list):
-        raise BackendError("VLESS subscription store has an invalid format")
+        raise BackendError("Subscription store has an invalid format")
     if len(subscriptions) > MAX_SUBSCRIPTION_COUNT:
         raise BackendError(
-            f"VLESS subscription store contains more than {MAX_SUBSCRIPTION_COUNT} subscriptions"
+            f"Subscription store contains more than {MAX_SUBSCRIPTION_COUNT} subscriptions"
         )
     seen_subscription_ids: set[str] = set()
     seen_subscription_urls: set[str] = set()
     for index, subscription in enumerate(subscriptions, start=1):
         if not isinstance(subscription, dict):
-            raise BackendError(f"VLESS subscription #{index} has an invalid format")
+            raise BackendError(f"Subscription #{index} has an invalid format")
         subscription_id = subscription.get("id")
         name = subscription.get("name")
         url = subscription.get("url")
         updated_at = subscription.get("updatedAt", 0)
         if not isinstance(subscription_id, str) or not isinstance(name, str) or not isinstance(url, str):
-            raise BackendError(f"VLESS subscription #{index} is missing id, name or url")
+            raise BackendError(f"Subscription #{index} is missing id, name or url")
         try:
             uuidlib.UUID(subscription_id)
         except ValueError as exc:
-            raise BackendError(f"VLESS subscription #{index} has an invalid id") from exc
+            raise BackendError(f"Subscription #{index} has an invalid id") from exc
         if subscription_id in seen_subscription_ids:
-            raise BackendError(f"VLESS subscription store contains duplicate id: {subscription_id}")
+            raise BackendError(f"Subscription store contains duplicate id: {subscription_id}")
         seen_subscription_ids.add(subscription_id)
         if clean_name(name) != name:
-            raise BackendError(f"VLESS subscription #{index} has a non-canonical name")
+            raise BackendError(f"Subscription #{index} has a non-canonical name")
         canonical_url = validate_subscription_url(url)
         if canonical_url != url:
-            raise BackendError(f"VLESS subscription #{index} has a non-canonical URL")
+            raise BackendError(f"Subscription #{index} has a non-canonical URL")
         if canonical_url in seen_subscription_urls:
-            raise BackendError("VLESS subscription store contains a duplicate URL")
+            raise BackendError("Subscription store contains a duplicate URL")
         seen_subscription_urls.add(canonical_url)
         if not isinstance(updated_at, int) or isinstance(updated_at, bool) or updated_at < 0:
-            raise BackendError(f"VLESS subscription #{index} has an invalid update time")
+            raise BackendError(f"Subscription #{index} has an invalid update time")
         subscription["updatedAt"] = updated_at
     profiles = data["profiles"]
     if len(profiles) > MAX_PROFILE_COUNT:
-        raise BackendError(f"VLESS profile store contains more than {MAX_PROFILE_COUNT} profiles")
+        raise BackendError(f"Profile store contains more than {MAX_PROFILE_COUNT} profiles")
     seen_ids: set[str] = set()
     for index, profile in enumerate(profiles, start=1):
         if not isinstance(profile, dict):
-            raise BackendError(f"VLESS profile #{index} has an invalid format")
+            raise BackendError(f"Profile #{index} has an invalid format")
         profile_id = profile.get("id")
         name = profile.get("name")
         uri = profile.get("uri")
         if not isinstance(profile_id, str) or not isinstance(name, str) or not isinstance(uri, str):
-            raise BackendError(f"VLESS profile #{index} is missing id, name or uri")
+            raise BackendError(f"Profile #{index} is missing id, name or uri")
         try:
             uuidlib.UUID(profile_id)
         except ValueError as exc:
-            raise BackendError(f"VLESS profile #{index} has an invalid id") from exc
+            raise BackendError(f"Profile #{index} has an invalid id") from exc
         if profile_id in seen_ids:
-            raise BackendError(f"VLESS profile store contains duplicate id: {profile_id}")
+            raise BackendError(f"Profile store contains duplicate id: {profile_id}")
         seen_ids.add(profile_id)
         if clean_name(name) != name:
-            raise BackendError(f"VLESS profile #{index} has a non-canonical name")
+            raise BackendError(f"Profile #{index} has a non-canonical name")
         stored_protocol = profile.get("protocol")
         if version < 3 and stored_protocol is None:
             stored_protocol = profile_protocol(uri)
@@ -359,17 +362,17 @@ def validate_store(data: Any) -> dict[str, Any]:
         missing = profile.get("missing", False)
         favorite = profile.get("favorite", False)
         if not isinstance(subscription_id, str) or not isinstance(subscription_key, str):
-            raise BackendError(f"VLESS profile #{index} has invalid subscription metadata")
+            raise BackendError(f"Profile #{index} has invalid subscription metadata")
         if not isinstance(missing, bool):
-            raise BackendError(f"VLESS profile #{index} has an invalid missing flag")
+            raise BackendError(f"Profile #{index} has an invalid missing flag")
         if not isinstance(favorite, bool):
-            raise BackendError(f"VLESS profile #{index} has an invalid favorite flag")
+            raise BackendError(f"Profile #{index} has an invalid favorite flag")
         if bool(subscription_id) != bool(subscription_key):
-            raise BackendError(f"VLESS profile #{index} has incomplete subscription metadata")
+            raise BackendError(f"Profile #{index} has incomplete subscription metadata")
         if subscription_id and subscription_id not in seen_subscription_ids:
-            raise BackendError(f"VLESS profile #{index} references an unknown subscription")
+            raise BackendError(f"Profile #{index} references an unknown subscription")
         if subscription_key and not re.fullmatch(r"[0-9a-f]{64}", subscription_key):
-            raise BackendError(f"VLESS profile #{index} has an invalid subscription key")
+            raise BackendError(f"Profile #{index} has an invalid subscription key")
         if subscription_id:
             profile["subscriptionId"] = subscription_id
             profile["subscriptionKey"] = subscription_key
@@ -382,7 +385,7 @@ def validate_store(data: Any) -> dict[str, Any]:
     for key in ("activeId", "lastId"):
         value = data.setdefault(key, "")
         if not isinstance(value, str):
-            raise BackendError(f"VLESS profile store field {key} must be a string")
+            raise BackendError(f"Profile store field {key} must be a string")
         if value and value not in seen_ids:
             # These are convenience pointers, not credentials. A service
             # killed outside OmaVLESS or an interrupted old delete can leave
@@ -397,10 +400,10 @@ def validate_store(data: Any) -> dict[str, Any]:
         data["routingPreset"] = "roscomvpn-default" if profiles else ""
     routing_preset = data["routingPreset"]
     if not isinstance(routing_preset, str) or routing_preset not in ROUTING_PRESET_VALUES | {""}:
-        raise BackendError("VLESS profile store has an invalid routing preset")
+        raise BackendError("Profile store has an invalid routing preset")
     custom_rules = data.setdefault("customRules", [])
     if not isinstance(custom_rules, list) or len(custom_rules) > MAX_CUSTOM_RULE_COUNT:
-        raise BackendError("VLESS profile store has invalid custom routing rules")
+        raise BackendError("Profile store has invalid custom routing rules")
     seen_custom_rules: set[tuple[str, str]] = set()
     for index, rule in enumerate(custom_rules, start=1):
         if not isinstance(rule, dict):
@@ -423,12 +426,12 @@ def validate_store(data: Any) -> dict[str, Any]:
             raise BackendError(f"Custom routing rule #{index} has a non-canonical value")
         key = (kind, value)
         if key in seen_custom_rules:
-            raise BackendError("VLESS profile store contains a duplicate custom routing rule")
+            raise BackendError("Profile store contains a duplicate custom routing rule")
         seen_custom_rules.add(key)
     rules_updated_at = data.setdefault("rulesUpdatedAt", 0)
     if (not isinstance(rules_updated_at, int) or isinstance(rules_updated_at, bool)
             or rules_updated_at < 0):
-        raise BackendError("VLESS profile store has an invalid rule update time")
+        raise BackendError("Profile store has an invalid rule update time")
     # New installs start with login autoconnect off. Older stores keep the
     # exact systemd-enabled behavior they already had until the user saves an
     # explicit choice in Settings; startupConfigured distinguishes those two
@@ -440,20 +443,20 @@ def validate_store(data: Any) -> dict[str, Any]:
         data["startupConfigured"] = False
     startup_configured = data.setdefault("startupConfigured", True)
     if not isinstance(startup_configured, bool):
-        raise BackendError("VLESS profile store has invalid startup configuration state")
+        raise BackendError("Profile store has invalid startup configuration state")
     startup = data["startup"]
     if not isinstance(startup, dict):
-        raise BackendError("VLESS profile store has invalid startup settings")
+        raise BackendError("Profile store has invalid startup settings")
     startup_enabled = startup.get("enabled")
     startup_target = startup.get("target")
     startup_profile_id = startup.get("profileId", "")
     startup_mode = startup.get("mode")
     if not isinstance(startup_enabled, bool):
-        raise BackendError("VLESS profile store has an invalid startup enabled value")
+        raise BackendError("Profile store has an invalid startup enabled value")
     if startup_target not in {"last", "profile"}:
-        raise BackendError("VLESS profile store has an invalid startup target")
+        raise BackendError("Profile store has an invalid startup target")
     if not isinstance(startup_profile_id, str):
-        raise BackendError("VLESS profile store has an invalid startup profile")
+        raise BackendError("Profile store has an invalid startup profile")
     if startup_profile_id and startup_profile_id not in seen_ids:
         startup["enabled"] = False
         startup["profileId"] = ""
@@ -462,30 +465,30 @@ def validate_store(data: Any) -> dict[str, Any]:
     if startup_target == "last" and not profiles:
         startup["enabled"] = False
     if startup_mode not in {"rule", "global"}:
-        raise BackendError("VLESS profile store has an invalid startup routing mode")
+        raise BackendError("Profile store has an invalid startup routing mode")
     onboarding_complete = data.setdefault("onboardingComplete", bool(profiles))
     if not isinstance(onboarding_complete, bool):
-        raise BackendError("VLESS profile store has invalid onboarding state")
+        raise BackendError("Profile store has invalid onboarding state")
     data["version"] = 3
     return data
 
 
 def load_store(paths: Paths) -> dict[str, Any]:
     if paths.store.is_symlink():
-        raise BackendError(f"Refusing symlinked VLESS profile store: {paths.store}")
+        raise BackendError(f"Refusing symlinked profile store: {paths.store}")
     if not paths.store.exists():
         return empty_store()
     try:
-        data = json.loads(read_text_file(paths.store, MAX_STORE_BYTES, "VLESS profile store", private=True))
+        data = json.loads(read_text_file(paths.store, MAX_STORE_BYTES, "profile store", private=True))
     except json.JSONDecodeError as exc:
-        raise BackendError(f"Cannot read VLESS profiles: {exc}") from exc
+        raise BackendError(f"Cannot read profiles: {exc}") from exc
     return validate_store(data)
 
 
 def save_store(paths: Paths, store: dict[str, Any]) -> None:
     payload = json.dumps(validate_store(store), ensure_ascii=False, indent=2) + "\n"
     if len(payload.encode("utf-8")) > MAX_STORE_BYTES:
-        raise BackendError(f"VLESS profile store is too large (maximum {MAX_STORE_BYTES // 1024} KiB)")
+        raise BackendError(f"Profile store is too large (maximum {MAX_STORE_BYTES // 1024} KiB)")
     atomic_write(paths.store, payload)
     invalidate_status_cache(paths)
 
@@ -746,7 +749,7 @@ def unique_profile_name(desired: str, subscription_name: str, used: set[str]) ->
     # Provider labels are untrusted display data, not local form input. Strip
     # controls and truncate instead of rejecting a whole otherwise-valid feed
     # because one marketing-heavy node name exceeds the local UI limit.
-    base = re.sub(r"[\x00-\x1f\x7f]", "", desired).strip() or "VLESS"
+    base = re.sub(r"[\x00-\x1f\x7f]", "", desired).strip() or "Profile"
     base = base[:80]
     source_suffix = f" · {subscription_name[:76]}"
     choices = [base, clean_name(base[:max(1, 80 - len(source_suffix))] + source_suffix)]
@@ -767,7 +770,7 @@ def subscription_by_id(store: dict[str, Any], subscription_id: str) -> dict[str,
     for subscription in store["subscriptions"]:
         if subscription.get("id") == subscription_id:
             return subscription
-    raise BackendError("No such VLESS subscription")
+    raise BackendError("No such subscription")
 
 
 def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
@@ -1206,7 +1209,7 @@ def run_mihomo_probe(
         targets: list[dict[str, Any]],
         on_update: Callable[[dict[str, list[int]]], None] | None = None,
 ) -> dict[str, list[int]]:
-    """Run full VLESS handshakes and HTTP checks in an isolated no-TUN core."""
+    """Run full proxy handshakes and HTTP checks in an isolated no-TUN core."""
     if not targets:
         return {}
     core = find_core(paths)
@@ -2114,6 +2117,18 @@ def extract_vless_uri(text: str) -> str:
     raise BackendError("Input does not contain a VLESS link")
 
 
+def extract_trojan_uri(text: str) -> str:
+    for token in re.split(r"\s+", text.strip()):
+        if token.lower().startswith("trojan://"):
+            uri = token.strip()
+            if len(uri.encode("utf-8")) > MAX_TROJAN_URI_BYTES:
+                raise BackendError(
+                    f"Trojan link is too large (maximum {MAX_TROJAN_URI_BYTES // 1024} KiB)"
+                )
+            return uri
+    raise BackendError("Input does not contain a Trojan link")
+
+
 def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
     uri = extract_vless_uri(uri)
     try:
@@ -2354,6 +2369,265 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
     return "\n".join(lines)
 
 
+def _trojan_alias(query: dict[str, str], *names: str, default: str = "") -> str:
+    values = [query[name.lower()] for name in names if name.lower() in query]
+    if not values:
+        return default
+    if any(value != values[0] for value in values[1:]):
+        raise BackendError("Trojan link contains conflicting field aliases")
+    return values[0]
+
+
+def _trojan_bool(query: dict[str, str], label: str, *names: str,
+                 default: bool = False) -> bool:
+    raw = _trojan_alias(query, *names)
+    if raw == "":
+        return default
+    lowered = raw.lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    raise BackendError(f"Trojan {label} must be true or false")
+
+
+def _trojan_text(value: str, label: str, limit: int) -> str:
+    if (len(value.encode("utf-8")) > limit
+            or re.search(r"[\x00-\x1f\x7f]", value)):
+        raise BackendError(f"Trojan {label} has an invalid format")
+    return value
+
+
+def _trojan_alpn(value: str) -> list[str]:
+    if not value:
+        return []
+    result: list[str] = []
+    for item in value.split(","):
+        token = item.strip()
+        if (not re.fullmatch(r"[A-Za-z0-9._/-]{1,32}", token)
+                or token in result or len(result) >= 8):
+            raise BackendError("Trojan ALPN has an invalid format")
+        result.append(token)
+    return result
+
+
+def parse_trojan(uri: str, *, strict_transport: bool = True) -> dict[str, Any]:
+    """Parse the bounded Xray-style Trojan URI subset represented by Mihomo."""
+    del strict_transport  # Reserved by the common adapter contract.
+    uri = extract_trojan_uri(uri)
+    try:
+        parsed = urllib.parse.urlsplit(uri)
+        port = parsed.port
+    except ValueError as exc:
+        raise BackendError("Invalid Trojan link") from exc
+    if parsed.scheme.lower() != "trojan":
+        raise BackendError("Only trojan:// links are supported by this adapter")
+    if parsed.password is not None or parsed.path not in {"", "/"}:
+        raise BackendError("Trojan link has an invalid authority")
+    password = urllib.parse.unquote(parsed.username or "")
+    if (not password or len(password.encode("utf-8")) > MAX_TROJAN_PASSWORD_BYTES
+            or re.search(r"[\x00-\x1f\x7f]", password)):
+        raise BackendError("Trojan password has an invalid format")
+    if not parsed.hostname or not port or not 1 <= port <= 65535:
+        raise BackendError("Trojan server and port are required")
+
+    try:
+        raw_query = urllib.parse.parse_qs(
+            parsed.query, keep_blank_values=True, max_num_fields=128
+        )
+    except ValueError as exc:
+        raise BackendError("Invalid Trojan query") from exc
+    query: dict[str, str] = {}
+    for key, values in raw_query.items():
+        lowered = key.lower()
+        if lowered in query or len(values) != 1:
+            raise BackendError("Trojan link contains duplicate fields")
+        query[lowered] = values[0]
+    allowed = {
+        "type", "network", "security", "sni", "servername", "peer",
+        "alpn", "fp", "fingerprint", "client-fingerprint",
+        "allowinsecure", "skip-cert-verify", "udp", "host", "path",
+        "servicename", "service-name", "mode", "headertype", "header-type",
+        "encryption", "flow", "pbk", "publickey", "public-key", "sid",
+        "short-id", "spx", "spider-x", "mldsa65verify", "mldsa65-verify",
+        "supportx25519mlkem768", "support-x25519mlkem768",
+    }
+    if set(query) - allowed:
+        raise BackendError("Trojan link contains unsupported fields")
+
+    network = _trojan_alias(query, "type", "network", default="tcp").lower() or "tcp"
+    network = {"raw": "tcp"}.get(network, network)
+    if network not in {"tcp", "ws", "grpc"}:
+        raise BackendError("Trojan transport is not supported by Mihomo import")
+    security = _trojan_alias(query, "security", default="tls").lower() or "tls"
+    if security not in {"tls", "reality"}:
+        raise BackendError("Trojan security must be TLS or Reality")
+    server_name = _trojan_text(
+        _trojan_alias(query, "sni", "servername", "peer"), "SNI", 253
+    )
+    alpn = _trojan_alpn(_trojan_alias(query, "alpn"))
+    fingerprint = _trojan_alias(query, "fp", "fingerprint", "client-fingerprint")
+    fingerprint_map = {
+        "chrome": "chrome", "firefox": "firefox", "safari": "safari",
+        "ios": "iOS", "android": "android", "edge": "edge", "360": "360",
+        "qq": "qq", "random": "random",
+    }
+    if fingerprint:
+        fingerprint = fingerprint_map.get(fingerprint.lower(), "")
+        if not fingerprint:
+            raise BackendError("Trojan client fingerprint is not supported by Mihomo")
+    allow_insecure = _trojan_bool(
+        query, "certificate verification option", "allowInsecure", "skip-cert-verify"
+    )
+    udp = _trojan_bool(query, "UDP option", "udp", default=True)
+
+    if _trojan_alias(query, "encryption") not in {"", "none"}:
+        raise BackendError("Trojan link encryption metadata is not supported")
+    if _trojan_alias(query, "flow"):
+        raise BackendError("Trojan link flow metadata is not supported")
+    header_type = _trojan_alias(query, "headerType", "header-type").lower()
+    if header_type not in {"", "none"}:
+        raise BackendError("Trojan TCP header metadata is not supported")
+
+    host = _trojan_text(_trojan_alias(query, "host"), "WebSocket host", 253)
+    path = _trojan_text(_trojan_alias(query, "path"), "WebSocket path", 2048)
+    service_name = _trojan_text(
+        _trojan_alias(query, "serviceName", "service-name"), "gRPC service", 1024
+    )
+    mode = _trojan_alias(query, "mode").lower()
+    if network == "ws":
+        if service_name or mode:
+            raise BackendError("Trojan WebSocket link contains gRPC-only fields")
+        path = path or "/"
+    elif network == "grpc":
+        if host or path or mode not in {"", "gun"}:
+            raise BackendError("Trojan gRPC link contains unsupported transport fields")
+    elif host or path or service_name or mode:
+        raise BackendError("Trojan TCP link contains transport-only fields")
+
+    public_key = _trojan_alias(query, "pbk", "publickey", "public-key")
+    short_id = _trojan_alias(query, "sid", "short-id")
+    spider_x = _trojan_alias(query, "spx", "spider-x")
+    mldsa = _trojan_alias(query, "mldsa65Verify", "mldsa65-verify")
+    pq_present = any(name in query for name in {
+        "supportx25519mlkem768", "support-x25519mlkem768"
+    })
+    reality_pq = _trojan_bool(
+        query, "Reality post-quantum flag",
+        "supportX25519MLKEM768", "support-x25519mlkem768"
+    )
+    reality_metadata = bool(public_key or short_id or spider_x or mldsa or pq_present)
+    if security == "reality":
+        if network == "ws":
+            raise BackendError("Trojan Reality is not supported with WebSocket by Mihomo")
+        if not public_key or not server_name:
+            raise BackendError("Trojan Reality requires both a public key and SNI")
+        if mldsa:
+            raise BackendError("Trojan Reality ML-DSA verification is not supported by Mihomo")
+        validate_reality_public_key(public_key)
+        validate_reality_short_id(short_id)
+    elif reality_metadata:
+        raise BackendError("Trojan Reality fields require Reality security")
+
+    experimental_features = ["Trojan"]
+    if reality_pq:
+        experimental_features.append("REALITY PQ")
+    suggested = re.sub(
+        r"[\x00-\x1f\x7f]", "", urllib.parse.unquote(parsed.fragment or "")
+    ).strip()[:80]
+    return {
+        "protocol": "trojan", "uri": uri, "password": password,
+        "server": parsed.hostname, "port": port, "network": network,
+        "security": security, "servername": server_name, "alpn": alpn,
+        "fingerprint": fingerprint, "allow_insecure": allow_insecure,
+        "udp": udp, "host": host, "path": path,
+        "service_name": service_name, "public_key": public_key,
+        "short_id": short_id, "support_x25519mlkem768": reality_pq,
+        "compatibility_note": compatibility_text(
+            REALITY_SPX_COMPATIBILITY_NOTE if spider_x else "",
+            REALITY_PQ_COMPATIBILITY_NOTE if reality_pq else "",
+        ),
+        "experimental_features": experimental_features,
+        "suggested_name": suggested,
+    }
+
+
+def preview_trojan(text: str) -> dict[str, Any]:
+    """Return useful Trojan facts without returning its reusable password."""
+    node = parse_trojan(text)
+    return {
+        "version": 1, "protocol": "trojan",
+        "server": str(node["server"])[:253], "port": int(node["port"]),
+        "transport": str(node["network"]), "security": str(node["security"]),
+        "sni": str(node["servername"])[:253], "flow": "",
+        "insecure": bool(node["allow_insecure"]), "advancedXhttp": False,
+        "experimental": True,
+        "experimentalFeatures": list(node["experimental_features"]),
+        "compatibilityNote": str(node["compatibility_note"]),
+        "credentialHint": "••••",
+        "suggestedName": str(node["suggested_name"]),
+    }
+
+
+def trojan_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
+    node = parse_trojan(str(profile["uri"]))
+    y = yaml_value
+    lines = [
+        f"- name: {y(profile['name'])}", "  type: trojan",
+        f"  server: {y(server_override or node['server'])}",
+        f"  port: {node['port']}", f"  password: {y(node['password'])}",
+        f"  udp: {y(node['udp'])}", f"  network: {node['network']}",
+    ]
+    if node["servername"]:
+        lines.append(f"  sni: {y(node['servername'])}")
+    if node["alpn"]:
+        lines.append(f"  alpn: {json.dumps(node['alpn'], ensure_ascii=False)}")
+    if node["fingerprint"]:
+        lines.append(f"  client-fingerprint: {y(node['fingerprint'])}")
+    if node["allow_insecure"]:
+        lines.append("  skip-cert-verify: true")
+    if node["security"] == "reality":
+        lines.extend([
+            "  reality-opts:", f"    public-key: {y(node['public_key'])}",
+        ])
+        if node["short_id"]:
+            lines.append(f"    short-id: {y(node['short_id'])}")
+        if node["support_x25519mlkem768"]:
+            lines.append("    support-x25519mlkem768: true")
+    if node["network"] == "ws":
+        lines.extend(["  ws-opts:", f"    path: {y(node['path'])}"])
+        if node["host"]:
+            lines.extend(["    headers:", f"      Host: {y(node['host'])}"])
+    elif node["network"] == "grpc":
+        lines.append("  grpc-opts:")
+        lines.append(f"    grpc-service-name: {y(node['service_name'])}")
+    return "\n".join(lines)
+
+
+def _trojan_subscription_key(uri: str) -> str:
+    node = parse_trojan(uri)
+    parsed = urllib.parse.urlsplit(str(node["uri"]))
+    host = (parsed.hostname or "").lower()
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = f"{urllib.parse.quote(str(node['password']), safe='')}@{host}:{parsed.port}"
+    query = urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(
+        parsed.query, keep_blank_values=True, max_num_fields=128
+    )), doseq=True)
+    canonical = urllib.parse.urlunsplit(
+        (parsed.scheme.lower(), netloc, "", query, "")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _trojan_endpoint(uri: str) -> str:
+    return str(parse_trojan(uri)["server"])
+
+
+def _parse_trojan_adapter(uri: str, strict_transport: bool) -> dict[str, Any]:
+    return parse_trojan(uri, strict_transport=strict_transport)
+
+
 @dataclass(frozen=True)
 class ProfileAdapter:
     """Strict boundary between a share-link protocol and the common app flow."""
@@ -2386,7 +2660,20 @@ VLESS_ADAPTER = ProfileAdapter(
     endpoint=_vless_endpoint,
     subscription_identity=_vless_subscription_key,
 )
-PROFILE_ADAPTERS: dict[str, ProfileAdapter] = {VLESS_ADAPTER.protocol: VLESS_ADAPTER}
+TROJAN_ADAPTER = ProfileAdapter(
+    protocol="trojan",
+    schemes=("trojan",),
+    extract=extract_trojan_uri,
+    parse=_parse_trojan_adapter,
+    preview=preview_trojan,
+    render_yaml=trojan_yaml,
+    endpoint=_trojan_endpoint,
+    subscription_identity=_trojan_subscription_key,
+)
+PROFILE_ADAPTERS: dict[str, ProfileAdapter] = {
+    VLESS_ADAPTER.protocol: VLESS_ADAPTER,
+    TROJAN_ADAPTER.protocol: TROJAN_ADAPTER,
+}
 PROFILE_SCHEMES: dict[str, ProfileAdapter] = {
     scheme: adapter
     for adapter in PROFILE_ADAPTERS.values()
@@ -3382,7 +3669,7 @@ def profile_by_id(store: dict[str, Any], profile_id: str) -> dict[str, Any]:
     for profile in store["profiles"]:
         if str(profile.get("id", "")) == profile_id:
             return profile
-    raise BackendError("No such VLESS profile")
+    raise BackendError("No such profile")
 
 
 def mark_intent(paths: Paths, profile_id: str) -> None:
@@ -3670,7 +3957,7 @@ def stop_service(paths: Paths, expected_profile_id: str = "") -> None:
     store = load_store(paths)
     active_id = str(store.get("activeId", ""))
     if expected_profile_id and active_id != expected_profile_id:
-        raise BackendError("That VLESS profile is no longer active")
+        raise BackendError("That profile is no longer active")
     if active_id:
         mark_intent(paths, active_id)
     configured_startup = bool(store.get("startupConfigured", False))
@@ -3949,7 +4236,7 @@ def diagnostics_text(paths: Paths) -> str:
     # Defense in depth: future fields must not accidentally turn this support
     # file into a credential/profile export.
     forbidden = re.compile(
-        r"(?i)vless://|https?://|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+        r"(?i)(?:vless|trojan)://|https?://|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
     )
     if forbidden.search(text):
         raise BackendError("Refusing diagnostics containing a credential or private address")
@@ -4011,7 +4298,7 @@ def qr_png(paths: Paths, profile_id: str) -> None:
     if not qrencode:
         fail("qrencode is not installed", 2)
     profile = profile_by_id(load_store(paths), profile_id)
-    fd, name = tempfile.mkstemp(prefix=f"vless-qr.{os.getppid()}.", suffix=".png", dir=paths.runtime)
+    fd, name = tempfile.mkstemp(prefix=f"profile-qr.{os.getppid()}.", suffix=".png", dir=paths.runtime)
     os.close(fd)
     target = Path(name)
     try:
@@ -4032,7 +4319,7 @@ def edit_profile(paths: Paths, profile_id: str, name: str, seed: str) -> int:
     source = str(profile["uri"]) + "\n"
     ensure_runtime(paths)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=paths.runtime,
-                                     prefix=f"vless-edit.{os.getppid()}.") as handle:
+                                     prefix=f"profile-edit.{os.getppid()}.") as handle:
         handle.write(seed or source)
         filename = handle.name
     os.chmod(filename, 0o600)
@@ -4044,7 +4331,7 @@ def edit_profile(paths: Paths, profile_id: str, name: str, seed: str) -> int:
             return 3
         if len(result.stdout.encode("utf-8")) > MAX_IMPORT_BYTES:
             raise BackendError(
-                f"Edited VLESS input is too large (maximum {MAX_IMPORT_BYTES // 1024} KiB)"
+                f"Edited profile input is too large (maximum {MAX_IMPORT_BYTES // 1024} KiB)"
             )
         if result.stdout == source:
             return 4
@@ -4058,10 +4345,10 @@ def edit_profile(paths: Paths, profile_id: str, name: str, seed: str) -> int:
 def cleanup_runtime(paths: Paths) -> None:
     ensure_runtime(paths)
     now = time.time()
-    for pattern in ("vless-qr.*.png", "vless-edit.*"):
+    for pattern in ("profile-qr.*.png", "profile-edit.*", "vless-qr.*.png", "vless-edit.*"):
         for path in paths.runtime.glob(pattern):
             with contextlib.suppress(OSError):
-                match = re.match(r"^vless-(?:qr|edit)\.(\d+)\.", path.name)
+                match = re.match(r"^(?:profile|vless)-(?:qr|edit)\.(\d+)\.", path.name)
                 owner_pid = int(match.group(1)) if match else -1
                 # The current process is necessarily alive even in restricted
                 # containers where its own /proc entry can be transiently
@@ -4155,7 +4442,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("subscription-url"); p.add_argument("id")
     p = sub.add_parser("subscription-probe"); p.add_argument("id")
     p = sub.add_parser("subscription-probe-stream"); p.add_argument("id")
-    p = sub.add_parser("render-uri"); p.add_argument("name", nargs="?", default="VLESS")
+    p = sub.add_parser("render-uri"); p.add_argument("name", nargs="?", default="Profile")
     return result
 
 
@@ -4346,8 +4633,8 @@ def main() -> int:
                 set_profile_favorite(paths, args.id, args.enabled == "on")
             elif args.command == "import":
                 text = read_text_file(
-                    Path(args.file).expanduser(), MAX_IMPORT_BYTES, "VLESS import file"
-                ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "VLESS import")
+                    Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile import file"
+                ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "profile import")
                 import_profile(paths, args.name, args.old_id, text)
             invalidate_status_cache(paths)
     return 0

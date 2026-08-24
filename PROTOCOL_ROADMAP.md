@@ -45,6 +45,7 @@ The open work is a linear stack. Test and integrate it in this exact order:
 9. [#9 — XHTTP split-download settings](https://github.com/k-kostin/omavless/pull/9), based on #8
 10. [#10 — experimental VLESS Encryption and REALITY PQ](https://github.com/k-kostin/omavless/pull/10), based on #9
 11. [#11 — protocol-neutral profile adapters](https://github.com/k-kostin/omavless/pull/11), based on #10
+12. [#12 — experimental Trojan profiles](https://github.com/k-kostin/omavless/pull/12), based on #11
 
 Later protocol PRs remain based on the preceding unmerged PR until the stack
 is integrated.
@@ -197,6 +198,9 @@ This phase is deliberately user-visible only as clearer neutral wording such as
 
 ## Phase P1 — experimental Trojan
 
+Status: implemented in #12; pending Omarchy, current-Mihomo and independent
+server/provider verification.
+
 First additional protocol because its URI and Mihomo mapping are closest to the
 existing VLESS path.
 
@@ -207,6 +211,19 @@ Initial scope:
 - TLS, SNI, ALPN, uTLS fingerprint and Mihomo-supported REALITY fields;
 - password-safe preview, export, QR and diagnostics;
 - existing routing, favorites, probes and autoconnect without special cases.
+
+The implemented importer accepts the Xray-style fields which map directly to
+current Mihomo: password, endpoint, TCP/WebSocket/gRPC, SNI, ALPN, certificate
+verification, uTLS fingerprint, WebSocket host/path, gRPC service name and
+REALITY public key/short ID/PQ flag. Unknown and ambiguous query fields are
+rejected instead of being silently ignored. Current Mihomo's Trojan WebSocket
+path does not apply its REALITY config, so that combination is rejected; TCP
+and gRPC remain eligible for REALITY. The redacted preview contains no password
+hint or complete URI.
+
+Schema references: [Mihomo Trojan documentation](https://wiki.metacubex.one/en/config/proxies/trojan/),
+[shared TLS/REALITY options](https://wiki.metacubex.one/en/config/proxies/tls/)
+and the current [`TrojanOption` implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/trojan.go).
 
 Trojan can leave experimental status after successful tests against multiple
 independent servers and one subscription provider.

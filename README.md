@@ -1,12 +1,12 @@
-# OmaVLESS — VLESS profiles in the Omarchy bar
+# OmaVLESS — secure proxy profiles in the Omarchy bar
 
 OmaVLESS is an Omarchy bar plugin for importing, subscribing to, switching and
-monitoring `vless://` profiles. Its interaction model is based on
+monitoring VLESS profiles plus experimental Trojan profiles. Its interaction model is based on
 [Omarchy VPN](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn)
 ([source](https://github.com/jkoestinger/omarchy-vpn)): the same hero toggle,
 profile rows, import/edit/rename/QR/delete actions, keyboard navigation and IPC.
 
-The transport is different. VLESS is not a NetworkManager tunnel, so OmaVLESS
+These proxy protocols are not NetworkManager tunnels, so OmaVLESS
 uses the installed [Mihomo](https://github.com/MetaCubeX/mihomo) binary and owns
 a separate `omavless.service` plus a separate config root. It never rewrites
 or automatically reads Mihoro's files.
@@ -26,7 +26,7 @@ omarchy plugin add https://github.com/k-kostin/omavless --enable
 
 Open OmaVLESS from the bar. A three-step first-run guide checks Mihomo and its
 TUN capabilities, offers a Russia, China or Iran Routing profile (or a skip),
-then hands the existing private import flow your first `vless://` key. The
+then hands the private import flow your first `vless://` or `trojan://` link. The
 guide never installs packages or runs privileged commands: every host setup
 step is shown as an explicit copy-to-terminal action. Before a key is stored,
 the import review shows its endpoint, transport, security and SNI while keeping
@@ -74,7 +74,7 @@ community index; the installation itself is handled by the Omarchy CLI.
 
 ### 3. Connect and choose login behavior
 
-After the guide, use `+` for another `vless://` profile or `Subscriptions…`
+After the guide, use `+` for another supported profile or `Subscriptions…`
 for a provider URL. Choose `Full VPN`, `Routing` or `Direct`, select a profile
 and enable the hero switch. Profiles and subscription URLs are stored
 privately under `~/.config/omavless/`.
@@ -112,19 +112,23 @@ documented; the normal plugin installation does not exercise them silently.
   subscription identity. The private store migrates v1/v2 profiles to an
   explicit v3 `protocol` discriminator without changing their IDs, favorites,
   subscription membership, current selection or login target. This is an
-  architectural boundary only: VLESS remains the sole advertised protocol
-  until a later experimental protocol passes its own review and live tests.
+  stable boundary shared by every supported protocol.
 
 - VLESS URI import from a file or the clipboard.
+- Experimental Trojan URI import for TCP, WebSocket and gRPC with TLS or the
+  Mihomo-supported REALITY subset. Password, SNI, ALPN, certificate-check
+  preference, uTLS fingerprint, WebSocket host/path, gRPC service name and
+  bounded REALITY fields are translated explicitly. Unknown or unrepresentable
+  share fields are rejected, and the preview never receives the password.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
-  and atomic refresh-all. Plain-text and standard/URL-safe base64 lists of
-  `vless://` links are supported; unrelated protocols are ignored. Managed
+  and atomic refresh-all. Plain-text and standard/URL-safe base64 lists may mix
+  `vless://` and `trojan://` links; unrelated protocols are ignored. Managed
   servers stay collapsed under their provider until its row is opened.
 - Manual per-provider reachability tests try every working DNS-over-HTTPS
   resolver selected by the active routing policy, reject TUN fake-IP answers,
   resolve both IPv4 and IPv6, and fall back across up to four endpoint
   addresses. An isolated temporary Mihomo core with no TUN then pins each
-  candidate IP and performs full VLESS/TLS/Reality handshakes plus HTTP checks
+  candidate IP and performs full protocol/TLS/Reality handshakes plus HTTP checks
   against three independent connectivity targets. Its private Unix controller
   opens no TCP port, its routing mark bypasses an already active Mihomo TUN,
   and the process and credential-bearing `0600` config are removed after the
@@ -201,9 +205,9 @@ documented; the normal plugin installation does not exercise them silently.
   databases.
 - The Russia preset's 23 maintained GeoSite/GeoIP sets send RU/BY, banks and
   selected local services directly; YouTube, Telegram, GitHub and the
-  remaining internet use the selected VLESS profile; selected ad/telemetry
+  remaining internet use the selected profile; selected ad/telemetry
   domains are rejected. China and Iran send their country and private-network
-  destinations directly and use the selected VLESS profile for the remaining
+  destinations directly and use the selected profile for the remaining
   internet. China rejects the selected advertising category; Iran additionally
   rejects malware, phishing and browser-mining domains.
   The panel always distinguishes the routing mode (`Rule`, `Global`, `Direct`)
@@ -231,15 +235,15 @@ documented; the normal plugin installation does not exercise them silently.
   be handled by Mihomo itself.
 - A minimal first-run guide checks the external Mihomo binary and its TUN
   capabilities, offers a skippable country Routing choice and opens the
-  existing private VLESS import flow. Host-changing commands are copied for an
+  existing private profile import flow. Host-changing commands are copied for an
   explicit terminal action and are never executed by the plugin.
 - File and clipboard imports pass through a backend-parsed review before the
-  name is confirmed. The review never receives a complete VLESS UUID, Reality
-  public key or URI; it exposes only bounded connection facts and a four-
-  character credential hint to help distinguish similar keys.
+  name is confirmed. The review never receives a complete UUID, Trojan
+  password, Reality public key or URI; it exposes only bounded connection facts
+  and, where safe, a short credential hint to distinguish similar keys.
 - General Settings can export a `0600` JSON support snapshot containing plugin,
   core, service, routing and inventory state. It intentionally omits profile
-  and subscription identifiers, profile/provider/server names, VLESS links,
+  and subscription identifiers, profile/provider/server names, profile links,
   key material, local executable paths and subscription URLs.
 - A compatible custom Mihomo YAML can be adopted only through an explicit
   command; OmaVLESS never discovers or imports another client's active
@@ -294,14 +298,14 @@ new preference is saved once.
 | `j` / `k`, arrows | move between the hero switch and profiles |
 | `Enter`, `Space` | connect/disconnect a profile or expand/collapse a provider |
 | `t` | toggle the last used profile |
-| `i` | import a VLESS link file |
-| `v` | import a VLESS link from the clipboard |
+| `i` | import a supported profile-link file |
+| `v` | import a supported profile link from the clipboard |
 | `f` | pin or unpin the selected server |
 | `s` | open subscriptions |
 | `g` | open general settings |
 | `/` | search profiles, providers and endpoint hostnames |
 | `p` | test endpoints for the selected subscription |
-| `e` | edit the selected VLESS link |
+| `e` | edit the selected profile link |
 | `n` | rename the selected profile |
 | `q` | show the selected link, or the active profile from the header, as QR |
 | `x` | delete the selected profile |
@@ -335,7 +339,7 @@ plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
 ```
 
 The diagnostics command is deliberately separate from raw profile export and
-does not include VLESS UUIDs, keys or subscription URLs.
+does not include UUIDs, Trojan passwords, keys or subscription URLs.
 
 The same routing tools available in Settings have explicit backend commands
 for troubleshooting or scripting. Domain/range values use stdin so they do
@@ -374,7 +378,7 @@ and reconnects transactionally:
 
 The panel's three routing buttons are ordered `Full VPN`, `Routing`, `Direct`
 and change the same private template across restarts. `Full VPN` sends all
-traffic through the selected VLESS proxy, `Routing` applies the chosen country
+traffic through the selected proxy, `Routing` applies the chosen country
 rule sets, and `Direct` keeps the TUN service available while bypassing the
 proxy. The first Routing click on a new installation opens a small country
 chooser. Later preset changes live in general Settings and deliberately retain
@@ -406,7 +410,7 @@ subscription is refused while one of its managed profiles is active.
 Remote bearer URLs must use HTTPS; plain HTTP is accepted only for loopback
 development providers. Subscription refresh is intentionally manual in this release: login and an
 offline provider cannot delay tunnel startup. Clash/Mihomo YAML subscriptions
-are not parsed yet; use a provider's raw or base64 VLESS subscription URL.
+are not parsed yet; use a provider's raw or base64 supported-link subscription URL.
 
 Exit-IP display uses `checkip.amazonaws.com` with `api.ipify.org` as a fallback
 after a connection or routing-mode change and after an explicit active-tunnel
@@ -435,7 +439,7 @@ keeps both copies for explicit recovery.
 ## Troubleshooting
 
 Check the plugin-facing status and the dedicated service without exposing a
-stored VLESS link:
+stored profile link:
 
 ```bash
 omarchy-shell kdk.omavless status

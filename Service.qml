@@ -8,7 +8,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Headless state for the VLESS widget. backend.sh keeps private links in a
+// Headless state for the OmaVLESS widget. backend.sh keeps private links in a
 // 0600 store and runs a dedicated Mihomo user service.
 Item {
   id: root
@@ -270,7 +270,8 @@ Item {
     exitIp: showExitIp,
     conflictDetection: true,
     qr: true,
-    protocols: ["vless"],
+    trojanExperimental: true,
+    protocols: ["vless", "trojan"],
     core: "mihomo"
   })
 
@@ -283,7 +284,7 @@ Item {
 
   // Traffic sampling: byte counters from /sys for the active tunnels'
   // devices — readable without privilege. This is activity, not health:
-  // VLESS has no connection state, and a tunnel that is silent is not
+  // A proxy profile has no connection state, and a tunnel that is silent is not
   // thereby broken. Sampled on a short timer only while the panel is open.
   property bool trafficMonitoring: false
   property bool pingMonitoring: false
@@ -314,7 +315,7 @@ Item {
   }
 
   // The tunnel the detail grid describes — the first active profile in the
-  // sorted list, which is also the one the hero names first. VLESS can
+  // sorted list, which is also the one the hero names first. A profile can
   // run several at once; the rest keep their per-row traffic line, because
   // one endpoint, one address and one ping cannot describe two tunnels.
   readonly property var primaryProfile: {
@@ -494,7 +495,7 @@ Item {
 
   function sampleTraffic() {
     if (trafficProcess.running || activeDevices.length === 0) return
-    trafficProcess.command = ["bash", "-c", trafficScript, "vless"].concat(activeDevices)
+    trafficProcess.command = ["bash", "-c", trafficScript, "profile"].concat(activeDevices)
     trafficProcess.running = true
   }
 
@@ -536,7 +537,7 @@ Item {
     // The tunnel address is the fallback binding for kernels that refuse
     // SO_BINDTODEVICE to an unprivileged ping; without either, the probe
     // would measure the physical link and call it the tunnel's latency.
-    pingProcess.command = ["bash", "-c", pingScript, "vless",
+    pingProcess.command = ["bash", "-c", pingScript, "profile",
       primaryDevice, detail("address").split("/")[0], pingHost]
     pingProcess.running = true
   }
@@ -792,7 +793,7 @@ Item {
     var featureSource = payload.capabilities
     var featureNames = ["subscriptions", "subscriptionSearch", "routingModes",
       "connectionTest", "liveTraffic", "trafficHistory", "exitIp",
-      "conflictDetection", "qr"]
+      "conflictDetection", "qr", "trojanExperimental"]
     if (!featureSource || typeof featureSource.core !== "string"
         || featureSource.core.length > 32 || !Array.isArray(featureSource.protocols)
         || featureSource.protocols.length > 16)
@@ -1010,7 +1011,7 @@ Item {
   }
 
   function rejectStatus() {
-    lastError = "Failed to read VLESS status"
+    lastError = "Failed to read OmaVLESS status"
     _pollError = true
     return false
   }
@@ -1022,7 +1023,7 @@ Item {
   }
 
   function connectTo(profile) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
     actionStatus = "Connecting " + profile.name + "…"
@@ -1032,7 +1033,7 @@ Item {
   }
 
   function disconnectOne(profile) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
     actionStatus = "Disconnecting " + profile.name + "…"
@@ -1041,7 +1042,7 @@ Item {
   }
 
   function disconnectAll() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     actionRejection = ""
     actionStatus = "Disconnecting…"
     runControl(["down-all"])
@@ -1049,7 +1050,7 @@ Item {
   }
 
   function setRoutingMode(mode) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     var value = String(mode || "")
     if (value !== "rule" && value !== "global" && value !== "direct")
       return rejectAction("unsupported routing mode")
@@ -1069,7 +1070,7 @@ Item {
   }
 
   function useRoutingPreset(profile, keepMode) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     var value = String(profile || "")
     if (!routingPresetById(value)) return rejectAction("unsupported routing preset")
     if (routingPresetConfigured && routing.preset === value) {
@@ -1090,7 +1091,7 @@ Item {
   }
 
   function configureStartup(enabled, target, profileUuid, mode) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     var wantedTarget = String(target || "")
     var wantedProfile = String(profileUuid || "")
     var wantedMode = String(mode || "")
@@ -1110,7 +1111,7 @@ Item {
   }
 
   function completeOnboarding() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     actionRejection = ""
     actionStatus = "Finishing setup…"
     runControl(["onboarding-complete"])
@@ -1126,7 +1127,7 @@ Item {
   }
 
   function addCustomRule(kind, action, value) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     var matchKind = String(kind || "")
     var routeAction = String(action || "")
     var matchValue = String(value || "").trim()
@@ -1143,7 +1144,7 @@ Item {
   }
 
   function deleteCustomRule(rule) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!rule || !rule.id) return rejectAction("no such custom routing rule")
     routingToolError = ""
     routingToolStatus = "Removing custom rule…"
@@ -1152,7 +1153,7 @@ Item {
   }
 
   function refreshRuleProviders() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     routingToolError = ""
     routingToolStatus = "Refreshing remote rule data…"
     runControl(["rule-providers-refresh"])
@@ -1177,7 +1178,7 @@ Item {
   }
 
   function deleteConfig(profile) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
     actionStatus = "Deleting " + profile.name + "…"
@@ -1395,7 +1396,7 @@ Item {
   }
 
   function saveSubscription(name, uuid, url) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     var clean = String(name || "").trim()
     var target = String(uuid || "")
@@ -1410,7 +1411,7 @@ Item {
   }
 
   function refreshSubscription(subscription) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (!subscription || !subscription.uuid) return rejectAction("no such subscription")
     actionRejection = ""
@@ -1422,7 +1423,7 @@ Item {
   }
 
   function refreshAllSubscriptions() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (subscriptions.length === 0) return rejectAction("no subscriptions to update")
     actionRejection = ""
@@ -1434,7 +1435,7 @@ Item {
   }
 
   function deleteSubscription(subscription) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (!subscription || !subscription.uuid) return rejectAction("no such subscription")
     actionRejection = ""
@@ -1457,9 +1458,9 @@ Item {
     return true
   }
 
-  // Changes only the local display label; the VLESS link stays intact.
+  // Changes only the local display label; the profile link stays intact.
   function renameConfig(profile, newName) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     var value = String(newName || "").trim()
     if (!isValidName(value)) return rejectAction("use a non-empty name up to 80 characters")
@@ -1478,7 +1479,7 @@ Item {
   }
 
   function toggleFavorite(profile) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
     actionStatus = profile.favorite
@@ -1491,7 +1492,7 @@ Item {
   function toggle() {
     if (active) return disconnectAll()
     if (toggleProfile !== null) return connectTo(toggleProfile)
-    return rejectAction("no VLESS profile is available")
+    return rejectAction("no profile is available")
   }
 
   // Import: a picked file or pasted link becomes a private local profile
@@ -1499,14 +1500,14 @@ Item {
   signal importReady(string kind, string payload, string suggestedName)
 
   function previewImport(kind, payload, suggestedName) {
-    if (previewProcess.running) return rejectAction("another VLESS preview is already running")
+    if (previewProcess.running) return rejectAction("another profile preview is already running")
     var sourceKind = String(kind || "")
     var sourcePayload = String(payload || "")
     if ((sourceKind !== "file" && sourceKind !== "text") || sourcePayload === "")
-      return rejectAction("no VLESS input to preview")
+      return rejectAction("no profile input to preview")
     actionRejection = ""
     lastError = ""
-    actionStatus = "Checking VLESS link…"
+    actionStatus = "Checking profile link…"
     importPreview = ({})
     _previewKind = sourceKind
     _previewPayload = sourcePayload
@@ -1520,7 +1521,7 @@ Item {
   }
 
   function pickConfigFile() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (editProcess.running) return rejectAction("close the profile editor before importing")
     if (clipboardProcess.running) return rejectAction("clipboard import is already running")
     if (qrVisible) return rejectAction("close the QR code before importing")
@@ -1533,7 +1534,7 @@ Item {
   }
 
   function pasteConfig() {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (editProcess.running) return rejectAction("close the profile editor before importing")
     if (pickerProcess.running) return rejectAction("close the file picker before importing")
     if (qrVisible) return rejectAction("close the QR code before importing")
@@ -1568,7 +1569,7 @@ Item {
     return true
   }
 
-  // Opens the VLESS link in zenity's editable view.
+  // Opens the profile link in zenity's editable view.
   // Saving goes back through import, so an edit gets the same parsing and
   // validation as an import. Whether the tunnel comes back up is the
   // backend's call, made inside the replace transaction from what is active
@@ -1599,7 +1600,7 @@ Item {
     _editName = String(profile.name)
     if (!seedText) lastError = ""
     actionStatus = "Editing " + _editName + "…"
-    // The seed goes over stdin — it is a credential-bearing VLESS link,
+    // The seed goes over stdin — it is a credential-bearing profile link,
     // and argv is world-readable via /proc.
     _editSeed = String(seedText || "")
     editProcess.stdinEnabled = true
@@ -1608,7 +1609,7 @@ Item {
     return true
   }
 
-  // Export hands the credential-bearing VLESS link out of private storage.
+  // Export hands the credential-bearing profile link out of private storage.
   // File export is IPC-only (an explicit path in argv is already a
   // deliberate act); the QR is rendered by the backend into XDG_RUNTIME_DIR
   // and displayed by the centred QR window, which owns the PNG until closeQr.
@@ -1707,7 +1708,7 @@ Item {
     if (markActiveProcess.running || _markQueue.length === 0) return
     _markInFlight = _markQueue
     _markQueue = []
-    markActiveProcess.command = ["bash", "-c", markActiveScript, "vless", backendPath].concat(_markInFlight)
+    markActiveProcess.command = ["bash", "-c", markActiveScript, "profile", backendPath].concat(_markInFlight)
     markActiveProcess.running = true
   }
 
@@ -1727,7 +1728,7 @@ Item {
   // profile the user never pointed at. The panel blocks this earlier with a
   // clearer message; this is the backstop for the headless entry points.
   function importFile(path, name) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!path || !name) return rejectAction("a config path and name are required")
     if (countByName(name) > 1) {
       return rejectAction("several profiles use the name " + name + " — not replacing an ambiguous match")
@@ -1761,7 +1762,7 @@ Item {
   }
 
   function importText(text, name) {
-    if (busy) return rejectAction("another VLESS operation is already running")
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!text || !name) return rejectAction("config text and a name are required")
     if (countByName(name) > 1) {
       return rejectAction("several profiles use the name " + name + " — not replacing an ambiguous match")
@@ -1787,19 +1788,19 @@ Item {
   }
 
   function looksLikeConfig(text) {
-    return /(^|\s)vless:\/\//i.test(String(text || ""))
+    return /(^|\s)(vless|trojan):\/\//i.test(String(text || ""))
   }
 
   // QML deliberately does not parse a credential-bearing URI fragment.
   function suggestName() {
     for (var i = 0; i < 100; i++) {
-      var name = "VLESS " + (i + 1)
+      var name = "Profile " + (i + 1)
       if (!findByName(name)) return name
     }
-    return "VLESS"
+    return "Profile"
   }
 
-  // VLESS text rides on stdin, never in argv: anything in the command line
+  // Credential-bearing profile text rides on stdin, never in argv: anything in the command line
   // is world-readable through /proc/<pid>/cmdline for as long as the process
     // lives, and the URI contains the access credential.
   function runControl(args, stdinData) {
@@ -1823,12 +1824,12 @@ Item {
   // Cancel, which every one of these exits non-zero for.
   readonly property string pickScript:
     "if command -v zenity >/dev/null 2>&1; then\n" +
-    "  exec zenity --file-selection --title='Import VLESS link' \\\n" +
-    "    --file-filter='VLESS link | *.txt *.url *.conf' --file-filter='All files | *'\n" +
+    "  exec zenity --file-selection --title='Import profile link' \\\n" +
+    "    --file-filter='Profile link | *.txt *.url *.conf' --file-filter='All files | *'\n" +
     "elif command -v kdialog >/dev/null 2>&1; then\n" +
-    "  exec kdialog --getopenfilename \"$HOME\" '*.txt *.url *.conf|VLESS link'\n" +
+    "  exec kdialog --getopenfilename \"$HOME\" '*.txt *.url *.conf|Profile link'\n" +
     "elif command -v yad >/dev/null 2>&1; then\n" +
-    "  exec yad --file --title='Import VLESS link'\n" +
+    "  exec yad --file --title='Import profile link'\n" +
     "fi\n" +
     "exit 2\n"
 
@@ -2067,7 +2068,7 @@ Item {
       if (exitCode === 0 && root.applyStatus(statusStdout.text)) {
         root.statusFailureCount = 0
       } else {
-        root.lastError = root.elide(statusStderr.text || "Failed to read VLESS status")
+        root.lastError = root.elide(statusStderr.text || "Failed to read OmaVLESS status")
         root._pollError = true
         root.statusFailureCount = Math.min(root.statusFailureCount + 1, 5)
       }
@@ -2083,7 +2084,7 @@ Item {
   Process {
     id: pickerProcess
     running: false
-    command: ["bash", "-c", root.pickScript, "vless"]
+    command: ["bash", "-c", root.pickScript, "profile"]
     stdout: StdioCollector {
       id: pickerStdout
       waitForEnd: true
@@ -2142,7 +2143,7 @@ Item {
       }
       var text = String(editStdout.text || "")
       if (!root.looksLikeConfig(text)) {
-        root.retryEdit(uuid, name, text, "Not saved: that is not a VLESS link")
+        root.retryEdit(uuid, name, text, "Not saved: that is not a supported profile link")
         return
       }
       // Queued rather than written directly: busy only gates controlProcess,
@@ -2159,7 +2160,7 @@ Item {
   Process {
     id: clipboardProcess
     running: false
-    command: ["bash", "-c", root.clipboardScript, "vless"]
+    command: ["bash", "-c", root.clipboardScript, "profile"]
     stdout: StdioCollector {
       id: clipboardStdout
       waitForEnd: true
@@ -2180,7 +2181,7 @@ Item {
         return
       }
       if (!root.looksLikeConfig(text)) {
-        root.lastError = "Clipboard does not contain a VLESS link"
+        root.lastError = "Clipboard does not contain a supported profile link"
         return
       }
       root.previewImport("text", text, root.suggestName())
@@ -2213,15 +2214,17 @@ Item {
       root._previewSuggested = ""
       root.actionStatus = ""
       if (exitCode !== 0) {
-        root.lastError = root.elide(previewStderr.text || "Could not preview that VLESS link")
+        root.lastError = root.elide(previewStderr.text || "Could not preview that profile link")
         return
       }
       var value
       try { value = JSON.parse(String(previewStdout.text || "")) } catch (error) {
-        root.lastError = "VLESS preview returned invalid data"
+        root.lastError = "Profile preview returned invalid data"
         return
       }
       if (!value || value.version !== 1
+          || typeof value.protocol !== "string"
+          || root.capabilities.protocols.indexOf(value.protocol) < 0
           || typeof value.server !== "string" || value.server === ""
           || value.server.length > 253 || typeof value.port !== "number"
           || !isFinite(value.port) || value.port < 1 || value.port > 65535
@@ -2230,17 +2233,35 @@ Item {
           || typeof value.sni !== "string" || value.sni.length > 253
           || typeof value.flow !== "string" || value.flow.length > 64
           || typeof value.insecure !== "boolean"
+          || typeof value.advancedXhttp !== "boolean"
+          || typeof value.experimental !== "boolean"
+          || !Array.isArray(value.experimentalFeatures)
+          || value.experimentalFeatures.length > 8
+          || typeof value.compatibilityNote !== "string"
+          || value.compatibilityNote.length > 1000
           || typeof value.credentialHint !== "string"
-          || !/^••••[0-9a-f]{4}$/i.test(value.credentialHint)
+          || !/^••••(?:[0-9a-f]{4})?$/i.test(value.credentialHint)
           || typeof value.suggestedName !== "string" || value.suggestedName.length > 80) {
-        root.lastError = "VLESS preview returned invalid data"
+        root.lastError = "Profile preview returned invalid data"
         return
       }
+      var experimentalFeatures = []
+      for (var feature = 0; feature < value.experimentalFeatures.length; feature++) {
+        if (typeof value.experimentalFeatures[feature] !== "string"
+            || value.experimentalFeatures[feature].length > 64) {
+          root.lastError = "Profile preview returned invalid data"
+          return
+        }
+        experimentalFeatures.push(root.plainText(value.experimentalFeatures[feature], 64))
+      }
       root.importPreview = {
+        protocol: root.plainText(value.protocol, 32),
         server: root.plainText(value.server, 253), port: Math.floor(value.port),
         transport: value.transport, security: value.security,
         sni: root.plainText(value.sni, 253), flow: root.plainText(value.flow, 64),
-        insecure: value.insecure,
+        insecure: value.insecure, advancedXhttp: value.advancedXhttp,
+        experimental: value.experimental, experimentalFeatures: experimentalFeatures,
+        compatibilityNote: root.plainText(value.compatibilityNote, 1000),
         credentialHint: value.credentialHint,
         suggestedName: root.plainText(value.suggestedName, 80)
       }
@@ -2727,7 +2748,7 @@ Item {
         // 20/21 (connect only): the switch failed; the backend's stderr says
         // whether the previous tunnels were restored (20) or the rollback
         // itself failed (21). Either way the poll below shows what is up.
-        var reason = root.elide(root._controlError || "VLESS operation failed")
+        var reason = root.elide(root._controlError || "OmaVLESS operation failed")
         if (importStateUnknown) {
           root.lastError = reason
           root.editFailed(reason)

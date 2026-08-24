@@ -32,6 +32,17 @@ REALITY_URI = (
     "&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     "&sid=0123456789abcdef&spx=%2F#Example"
 )
+TROJAN_URI = (
+    "trojan://s3cr%3At%40value@example.com:443"
+    "?type=tcp&security=tls&sni=cdn.example.org&alpn=h2%2Chttp%2F1.1"
+    "&fp=chrome#Trojan%20TLS"
+)
+TROJAN_REALITY_URI = (
+    "trojan://reality-password@example.com:443"
+    "?type=grpc&security=reality&sni=reality.example.org&fp=firefox"
+    "&serviceName=edge&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "&sid=0123456789abcdef#Trojan%20Reality"
+)
 
 
 class BackendTests(unittest.TestCase):
@@ -118,6 +129,99 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", encoded)
         self.assertNotIn("vless://", encoded)
         self.assertNotIn("spx", encoded.lower().replace("(spx)", ""))
+
+    def test_trojan_tcp_ws_and_grpc_reality_map_to_mihomo(self):
+        tcp = backend.parse_profile(TROJAN_URI)
+        self.assertEqual(tcp["protocol"], "trojan")
+        self.assertEqual(tcp["password"], "s3cr:t@value")
+        self.assertEqual(tcp["alpn"], ["h2", "http/1.1"])
+        tcp_yaml = backend.profile_yaml({
+            "name": "Trojan TLS", "uri": TROJAN_URI, "protocol": "trojan",
+        })
+        for expected in (
+            "type: trojan", 'password: "s3cr:t@value"', "network: tcp",
+            'sni: "cdn.example.org"', 'client-fingerprint: "chrome"',
+        ):
+            self.assertIn(expected, tcp_yaml)
+
+        ws_uri = (
+            "trojan://ws-password@example.com:443?type=ws&security=tls"
+            "&sni=ws.example.org&host=edge.example.org&path=%2Fsocket&fp=safari#WS"
+        )
+        ws_yaml = backend.profile_yaml({
+            "name": "Trojan WS", "uri": ws_uri, "protocol": "trojan",
+        })
+        self.assertIn("network: ws", ws_yaml)
+        self.assertIn('path: "/socket"', ws_yaml)
+        self.assertIn('Host: "edge.example.org"', ws_yaml)
+
+        reality = backend.parse_profile(TROJAN_REALITY_URI)
+        self.assertEqual(reality["network"], "grpc")
+        self.assertEqual(reality["security"], "reality")
+        reality_yaml = backend.profile_yaml({
+            "name": "Trojan Reality", "uri": TROJAN_REALITY_URI,
+            "protocol": "trojan",
+        })
+        self.assertIn("reality-opts:", reality_yaml)
+        self.assertIn('grpc-service-name: "edge"', reality_yaml)
+        self.assertNotIn("tls: true", reality_yaml)
+
+        reality_base, reality_fragment = TROJAN_REALITY_URI.split("#", 1)
+        pq_uri = reality_base + "&supportX25519MLKEM768=true&spx=%2Fprivate#" \
+            + reality_fragment
+        pq_yaml = backend.profile_yaml({
+            "name": "Trojan PQ", "uri": pq_uri, "protocol": "trojan",
+        })
+        self.assertIn("support-x25519mlkem768: true", pq_yaml)
+        self.assertNotIn("spider-x", pq_yaml)
+        pq_preview = backend.preview_profile(pq_uri)
+        self.assertEqual(pq_preview["experimentalFeatures"], ["Trojan", "REALITY PQ"])
+        self.assertIn("spider path", pq_preview["compatibilityNote"])
+        self.assertNotIn("private", json.dumps(pq_preview))
+
+    def test_trojan_preview_and_errors_never_expose_the_password(self):
+        preview = backend.preview_profile(TROJAN_URI)
+        self.assertEqual(preview["protocol"], "trojan")
+        self.assertEqual(preview["credentialHint"], "••••")
+        self.assertTrue(preview["experimental"])
+        self.assertEqual(preview["experimentalFeatures"], ["Trojan"])
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("s3cr", public)
+        self.assertNotIn("trojan://", public)
+
+        secret_uri = TROJAN_URI.replace(
+            "&fp=chrome", "&fp=private-secret-fingerprint"
+        )
+        with self.assertRaises(backend.BackendError) as caught:
+            backend.parse_trojan(secret_uri)
+        self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_trojan_rejects_ambiguous_or_unrepresentable_share_fields(self):
+        tls_base, tls_fragment = TROJAN_URI.split("#", 1)
+        reality_ws = TROJAN_REALITY_URI.replace("type=grpc", "type=ws").replace(
+            "&serviceName=edge", ""
+        )
+        cases = (
+            ("trojan://@example.com:443", "password"),
+            ("trojan://user:password@example.com:443", "authority"),
+            (TROJAN_URI.replace("security=tls", "security=none"), "TLS or Reality"),
+            (TROJAN_URI.replace("type=tcp", "type=xhttp"), "transport"),
+            (tls_base + "&unknown=private-secret#" + tls_fragment, "unsupported fields"),
+            (TROJAN_URI.replace("type=tcp", "type=tcp&host=example.org"),
+             "transport-only"),
+            (tls_base + "&allowInsecure=maybe#" + tls_fragment,
+             "true or false"),
+            (reality_ws,
+             "not supported with WebSocket"),
+            (tls_base + "&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#"
+             + tls_fragment,
+             "require Reality"),
+        )
+        for uri, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                    backend.BackendError, message) as caught:
+                backend.parse_trojan(uri)
+            self.assertNotIn("private-secret", str(caught.exception))
 
     def test_reality_fields_match_current_mihomo_schema(self):
         base, fragment = REALITY_URI.split("#", 1)
@@ -697,7 +801,7 @@ rules:
                 "ruleUpdateAvailable": False,
             })
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
-            self.assertEqual(payload["capabilities"]["protocols"], ["vless"])
+            self.assertEqual(payload["capabilities"]["protocols"], ["vless", "trojan"])
             self.assertEqual(payload["coreSetup"], {
                 "installed": False, "tunReady": False, "path": "",
             })
@@ -1104,6 +1208,27 @@ rules:
             self.assertFalse(status["profiles"][0]["active"])
             self.assertNotIn("vless://", status_result.stdout)
 
+    def test_trojan_cli_import_keeps_password_out_of_public_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, _runtime = self.make_env(home)
+            imported = subprocess.run(
+                [str(ROOT / "backend.sh"), "import", "Trojan"],
+                input=TROJAN_URI, text=True, env=env, capture_output=True,
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            stored = json.loads(
+                (home / ".config" / "omavless" / "profiles.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(stored["profiles"][0]["protocol"], "trojan")
+            with mock.patch.object(backend, "service_active", return_value=False):
+                public = backend.status_text(self.paths_for(home, home / "runtime"))
+            self.assertNotIn("s3cr", public)
+            self.assertNotIn("trojan://", public)
+            self.assertEqual(json.loads(public)["profiles"][0]["protocol"], "trojan")
+
     def test_v1_store_migrates_in_memory_to_protocol_aware_v3(self):
         profile_id = "22222222-2222-4222-8222-222222222222"
         migrated = backend.validate_store({
@@ -1171,7 +1296,11 @@ rules:
         }
         with self.assertRaisesRegex(backend.BackendError, "missing its protocol"):
             backend.validate_store(json.loads(json.dumps(base)))
-        base["profiles"][0]["protocol"] = "trojan"
+        mismatch = json.loads(json.dumps(base))
+        mismatch["profiles"][0]["protocol"] = "trojan"
+        with self.assertRaisesRegex(backend.BackendError, "does not match"):
+            backend.validate_store(mismatch)
+        base["profiles"][0]["protocol"] = "wireguard"
         with self.assertRaisesRegex(backend.BackendError, "unsupported protocol"):
             backend.validate_store(base)
 
@@ -1191,7 +1320,7 @@ rules:
             backend._vless_subscription_key(REALITY_URI),
         )
         with self.assertRaisesRegex(backend.BackendError, "not supported") as caught:
-            backend.profile_protocol("trojan://a-secret@example.com:443")
+            backend.profile_protocol("unknown://a-secret@example.com:443")
         self.assertNotIn("a-secret", str(caught.exception))
 
     def test_fresh_store_defers_routing_preset_choice(self):
@@ -1202,7 +1331,7 @@ rules:
         second = REALITY_URI.replace("example.com:443", "two.example:8443").replace(
             "#Example", "#Second"
         )
-        raw = REALITY_URI + "\ntrojan://ignored\n" + second + "\n"
+        raw = REALITY_URI + "\nss://ignored\n" + second + "\n"
         profiles, skipped = backend.parse_subscription(raw)
         self.assertEqual(len(profiles), 2)
         self.assertEqual(skipped, 0)
@@ -1210,6 +1339,40 @@ rules:
         profiles64, skipped64 = backend.parse_subscription(encoded)
         self.assertEqual([item["key"] for item in profiles64], [item["key"] for item in profiles])
         self.assertEqual(skipped64, 0)
+
+    def test_subscription_parser_and_store_support_mixed_vless_trojan_profiles(self):
+        entries, skipped = backend.parse_subscription(REALITY_URI + "\n" + TROJAN_URI)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(
+            [entry["node"]["protocol"] for entry in entries], ["vless", "trojan"]
+        )
+        subscription_id = "33333333-3333-4333-8333-333333333333"
+        subscription = {
+            "id": subscription_id, "name": "Mixed provider",
+            "url": "https://provider.example/mixed", "updatedAt": 0,
+        }
+        store = backend.empty_store()
+        store["subscriptions"].append(subscription)
+        backend.sync_subscription_store(store, subscription, entries, 123)
+        self.assertEqual(
+            [profile["protocol"] for profile in store["profiles"]],
+            ["vless", "trojan"],
+        )
+        migrated = backend.validate_store(store)
+        self.assertEqual(migrated["version"], 3)
+
+    def test_trojan_subscription_identity_ignores_label_and_query_order(self):
+        base, _label = TROJAN_URI.split("#", 1)
+        parsed = urllib.parse.urlsplit(base)
+        reordered = urllib.parse.urlunsplit((
+            parsed.scheme, parsed.netloc, parsed.path,
+            urllib.parse.urlencode(list(reversed(urllib.parse.parse_qsl(parsed.query)))),
+            "Provider rename",
+        ))
+        self.assertEqual(
+            backend.profile_subscription_key(TROJAN_URI),
+            backend.profile_subscription_key(reordered),
+        )
 
     def test_subscription_identity_ignores_label_and_query_order(self):
         base, _label = REALITY_URI.split("#", 1)
@@ -2260,7 +2423,7 @@ rules:
             result = subprocess.CompletedProcess([], 0, "x" * (backend.MAX_IMPORT_BYTES + 1), "")
             with mock.patch.object(backend.shutil, "which", return_value="/usr/bin/zenity"), \
                  mock.patch.object(backend, "run", return_value=result):
-                with self.assertRaisesRegex(backend.BackendError, "Edited VLESS input is too large"):
+                with self.assertRaisesRegex(backend.BackendError, "Edited profile input is too large"):
                     backend.edit_profile(paths, profile_id, "Example", "")
 
     def test_running_service_without_profile_is_reported_as_inconsistent(self):
@@ -2554,7 +2717,9 @@ esac
             )
         ]
         texts = {path: path.read_text(encoding="utf-8") for path in distributed}
-        credential = re.compile(r"vless://[0-9a-fA-F-]{36}@")
+        credential = re.compile(
+            r"(?:vless://[0-9a-fA-F-]{36}|trojan://[^\s/@]+)@"
+        )
         for path, text in texts.items():
             self.assertIsNone(credential.search(text), f"embedded VLESS credential in {path}")
         backend_source = (ROOT / "backend.py").read_text(encoding="utf-8")
@@ -2577,7 +2742,7 @@ esac
             self.assertIn("Adapted from Omarchy VPN", source)
         self.assertIn("THIRD_PARTY_NOTICES.md", (ROOT / "install.sh").read_text(encoding="utf-8"))
 
-    def test_current_mihomo_accepts_generated_vless_configs(self):
+    def test_current_mihomo_accepts_generated_profile_configs(self):
         configured = os.environ.get("OMAVLESS_TEST_MIHOMO", "").strip()
         if not configured:
             self.skipTest("set OMAVLESS_TEST_MIHOMO for the opt-in core integration test")
@@ -2636,12 +2801,18 @@ esac
                 "?type=xhttp&security=tls&sni=example.com&path=%2Fup"
                 f"&mode=stream-up&extra={xhttp_download_extra}#XHTTP-split"
             ),
+            "trojan-tls": TROJAN_URI,
+            "trojan-reality-grpc": TROJAN_REALITY_URI,
         }
         for name, uri in profiles.items():
             with self.subTest(profile=name), tempfile.TemporaryDirectory() as temp:
                 config = template.replace(
                     backend.PROFILE_MARKER,
-                    backend.proxy_yaml({"name": name, "uri": uri}),
+                    backend.profile_yaml({
+                        "name": name,
+                        "uri": uri,
+                        "protocol": backend.profile_protocol(uri),
+                    }),
                 )
                 config_path = Path(temp) / "config.yaml"
                 config_path.write_text(config, encoding="utf-8")
