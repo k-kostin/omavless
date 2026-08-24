@@ -272,7 +272,8 @@ Item {
     qr: true,
     trojanExperimental: true,
     hysteria2Experimental: true,
-    protocols: ["vless", "trojan", "hysteria2"],
+    tuicExperimental: true,
+    protocols: ["vless", "trojan", "hysteria2", "tuic"],
     core: "mihomo"
   })
 
@@ -794,7 +795,8 @@ Item {
     var featureSource = payload.capabilities
     var featureNames = ["subscriptions", "subscriptionSearch", "routingModes",
       "connectionTest", "liveTraffic", "trafficHistory", "exitIp",
-      "conflictDetection", "qr", "trojanExperimental", "hysteria2Experimental"]
+      "conflictDetection", "qr", "trojanExperimental", "hysteria2Experimental",
+      "tuicExperimental"]
     if (!featureSource || typeof featureSource.core !== "string"
         || featureSource.core.length > 32 || !Array.isArray(featureSource.protocols)
         || featureSource.protocols.length > 16)
@@ -1789,7 +1791,7 @@ Item {
   }
 
   function looksLikeConfig(text) {
-    return /(^|\s)(vless|trojan|hysteria2|hy2):\/\//i.test(String(text || ""))
+    return /(^|\s)(vless|trojan|hysteria2|hy2|tuic):\/\//i.test(String(text || ""))
   }
 
   // QML deliberately does not parse a credential-bearing URI fragment.

@@ -1,7 +1,8 @@
 # OmaVLESS — secure proxy profiles in the Omarchy bar
 
 OmaVLESS is an Omarchy bar plugin for importing, subscribing to, switching and
-monitoring VLESS profiles plus experimental Trojan and Hysteria2 profiles. Its interaction model is based on
+monitoring VLESS profiles plus experimental Trojan, Hysteria2 and TUIC v5
+profiles. Its interaction model is based on
 [Omarchy VPN](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn)
 ([source](https://github.com/jkoestinger/omarchy-vpn)): the same hero toggle,
 profile rows, import/edit/rename/QR/delete actions, keyboard navigation and IPC.
@@ -125,9 +126,14 @@ documented; the normal plugin installation does not exercise them silently.
   verification and SHA-256 pinning, ECH, and `salamander`/`gecko` obfuscation
   map to bounded Mihomo fields. Realm mode is not yet supported, and provider
   links cannot set local bandwidth.
+- Experimental TUIC v5 `tuic://` import with strict UUID/password parsing,
+  SNI, ALPN, certificate verification, `native`/`quic` UDP relay and bounded
+  Mihomo congestion-control choices. TUIC v4 tokens and unknown connection
+  knobs are rejected; 0-RTT stays off unless a future explicit local setting
+  enables it.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
   and atomic refresh-all. Plain-text and standard/URL-safe base64 lists may mix
-  VLESS, Trojan and Hysteria2 links; unrelated protocols are ignored. Managed
+  VLESS, Trojan, Hysteria2 and TUIC links; unrelated protocols are ignored. Managed
   servers stay collapsed under their provider until its row is opened.
 - Manual per-provider reachability tests try every working DNS-over-HTTPS
   resolver selected by the active routing policy, reject TUN fake-IP answers,

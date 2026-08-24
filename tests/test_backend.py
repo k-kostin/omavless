@@ -50,6 +50,12 @@ HYSTERIA2_URI = (
     f"&insecure=1&pinSHA256={HYSTERIA2_PIN}&ech=AQIDBA%3D%3D"
     "#Hysteria%202"
 )
+TUIC_URI = (
+    "tuic://22222222-2222-4222-8222-222222222222:pass%3Asecret"
+    "@tuic.example.com:10443?congestion_control=bbr&udp_relay_mode=quic"
+    "&alpn=h3%2Chq-29&sni=edge.example.com&allow_insecure=0&disable_sni=0"
+    "#TUIC%20v5"
+)
 
 
 class BackendTests(unittest.TestCase):
@@ -321,6 +327,102 @@ class BackendTests(unittest.TestCase):
             backend.parse_profile(
                 "hysteria2+realm://token@realm.example/room?auth=private-secret"
             )
+
+    def test_tuic_v5_interoperable_uri_maps_to_current_mihomo_schema(self):
+        node = backend.parse_profile(TUIC_URI)
+        self.assertEqual(node["protocol"], "tuic")
+        self.assertEqual(node["uuid"], "22222222-2222-4222-8222-222222222222")
+        self.assertEqual(node["password"], "pass:secret")
+        self.assertEqual(node["server"], "tuic.example.com")
+        self.assertEqual(node["port"], 10443)
+        self.assertEqual(node["congestion_controller"], "bbr")
+        self.assertEqual(node["udp_relay_mode"], "quic")
+        self.assertEqual(node["alpn"], ["h3", "hq-29"])
+
+        yaml = backend.profile_yaml({
+            "name": "TUIC v5", "uri": TUIC_URI, "protocol": "tuic",
+        })
+        for expected in (
+            "type: tuic", 'server: "tuic.example.com"', "port: 10443",
+            'uuid: "22222222-2222-4222-8222-222222222222"',
+            'password: "pass:secret"', 'udp-relay-mode: "quic"',
+            'congestion-controller: "bbr"', 'alpn: ["h3", "hq-29"]',
+            'sni: "edge.example.com"',
+        ):
+            self.assertIn(expected, yaml)
+        self.assertNotIn("reduce-rtt", yaml)
+        self.assertNotIn("skip-cert-verify", yaml)
+
+    def test_tuic_preview_and_errors_do_not_expose_uuid_or_password(self):
+        preview = backend.preview_profile(TUIC_URI)
+        self.assertEqual(preview["protocol"], "tuic")
+        self.assertEqual(preview["transport"], "quic")
+        self.assertEqual(preview["credentialHint"], "••••")
+        self.assertEqual(preview["experimentalFeatures"], ["TUIC v5"])
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("22222222-2222-4222-8222-222222222222", public)
+        self.assertNotIn("pass:secret", public)
+        self.assertNotIn("tuic://", public)
+
+        private_uri = TUIC_URI.replace("bbr", "private-controller")
+        with self.assertRaisesRegex(backend.BackendError, "congestion controller") as caught:
+            backend.parse_tuic(private_uri)
+        self.assertNotIn("private-controller", str(caught.exception))
+
+    def test_tuic_accepts_v2rayn_encoded_userinfo_and_safe_defaults(self):
+        encoded_userinfo = urllib.parse.quote(
+            "33333333-3333-4333-8333-333333333333:p@ss:word", safe=""
+        )
+        node = backend.parse_profile(
+            f"tuic://{encoded_userinfo}@[2001:db8::2]:443/#Encoded"
+        )
+        self.assertEqual(node["uuid"], "33333333-3333-4333-8333-333333333333")
+        self.assertEqual(node["password"], "p@ss:word")
+        self.assertEqual(node["server"], "2001:db8::2")
+        self.assertEqual(node["congestion_controller"], "cubic")
+        self.assertEqual(node["udp_relay_mode"], "native")
+        yaml = backend.tuic_yaml({"name": "Default", "uri": node["uri"]})
+        self.assertIn('congestion-controller: "cubic"', yaml)
+        self.assertIn('udp-relay-mode: "native"', yaml)
+        self.assertNotIn("reduce-rtt", yaml)
+
+    def test_tuic_disable_sni_explains_mihomo_certificate_semantics(self):
+        uri = (
+            "tuic://44444444-4444-4444-8444-444444444444:password"
+            "@example.com:443?disable_sni=1"
+        )
+        node = backend.parse_tuic(uri)
+        self.assertTrue(node["disable_sni"])
+        preview = backend.preview_tuic(uri)
+        self.assertTrue(preview["insecure"])
+        self.assertEqual(
+            preview["compatibilityNote"], backend.TUIC_DISABLE_SNI_COMPATIBILITY_NOTE
+        )
+        self.assertIn("disable-sni: true", backend.tuic_yaml({
+            "name": "No SNI", "uri": uri,
+        }))
+
+    def test_tuic_rejects_v4_and_unrepresentable_or_ambiguous_fields(self):
+        base = "tuic://22222222-2222-4222-8222-222222222222:private-secret@example.com:443"
+        cases = (
+            ("tuic://v4-token@example.com:443", "requires a UUID and password"),
+            (base.replace("22222222-2222-4222-8222-222222222222", "not-a-uuid"),
+             "valid UUID"),
+            (base.replace(":private-secret@", ":@"), "password"),
+            (base + "?congestion_control=reno", "congestion controller"),
+            (base + "?udp_relay_mode=lossy", "UDP relay mode"),
+            (base + "?allow_insecure=true", "0 or 1"),
+            (base + "?disable_sni=1&sni=example.com", "cannot set both"),
+            (base + "?zero_rtt_handshake=1", "unsupported fields"),
+            (base + "?token=private-secret", "unsupported fields"),
+            (base + "?sni=a&sni=b", "duplicate fields"),
+            (base + "/private", "invalid authority"),
+        )
+        for uri, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                    backend.BackendError, message) as caught:
+                backend.parse_tuic(uri)
+            self.assertNotIn("private-secret", str(caught.exception))
 
     def test_reality_fields_match_current_mihomo_schema(self):
         base, fragment = REALITY_URI.split("#", 1)
@@ -902,7 +1004,7 @@ rules:
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
             self.assertEqual(
                 payload["capabilities"]["protocols"],
-                ["vless", "trojan", "hysteria2"],
+                ["vless", "trojan", "hysteria2", "tuic"],
             )
             self.assertEqual(payload["coreSetup"], {
                 "installed": False, "tunReady": False, "path": "",
@@ -1354,6 +1456,28 @@ rules:
                 json.loads(public)["profiles"][0]["protocol"], "hysteria2"
             )
 
+    def test_tuic_cli_import_keeps_uuid_and_password_out_of_public_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, _runtime = self.make_env(home)
+            imported = subprocess.run(
+                [str(ROOT / "backend.sh"), "import", "TUIC"],
+                input=TUIC_URI, text=True, env=env, capture_output=True,
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            stored = json.loads(
+                (home / ".config" / "omavless" / "profiles.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(stored["profiles"][0]["protocol"], "tuic")
+            with mock.patch.object(backend, "service_active", return_value=False):
+                public = backend.status_text(self.paths_for(home, home / "runtime"))
+            self.assertNotIn("22222222-2222-4222-8222-222222222222", public)
+            self.assertNotIn("pass%3Asecret", public)
+            self.assertNotIn("tuic://", public)
+            self.assertEqual(json.loads(public)["profiles"][0]["protocol"], "tuic")
+
     def test_v1_store_migrates_in_memory_to_protocol_aware_v3(self):
         profile_id = "22222222-2222-4222-8222-222222222222"
         migrated = backend.validate_store({
@@ -1466,13 +1590,13 @@ rules:
         self.assertEqual(skipped64, 0)
 
     def test_subscription_parser_and_store_supports_all_profile_adapters(self):
-        entries, skipped = backend.parse_subscription(
-            REALITY_URI + "\n" + TROJAN_URI + "\n" + HYSTERIA2_URI
-        )
+        entries, skipped = backend.parse_subscription("\n".join(
+            (REALITY_URI, TROJAN_URI, HYSTERIA2_URI, TUIC_URI)
+        ))
         self.assertEqual(skipped, 0)
         self.assertEqual(
             [entry["node"]["protocol"] for entry in entries],
-            ["vless", "trojan", "hysteria2"],
+            ["vless", "trojan", "hysteria2", "tuic"],
         )
         subscription_id = "33333333-3333-4333-8333-333333333333"
         subscription = {
@@ -1484,7 +1608,7 @@ rules:
         backend.sync_subscription_store(store, subscription, entries, 123)
         self.assertEqual(
             [profile["protocol"] for profile in store["profiles"]],
-            ["vless", "trojan", "hysteria2"],
+            ["vless", "trojan", "hysteria2", "tuic"],
         )
         migrated = backend.validate_store(store)
         self.assertEqual(migrated["version"], 3)
@@ -1511,6 +1635,22 @@ rules:
         ))
         self.assertEqual(
             backend.profile_subscription_key(HYSTERIA2_URI),
+            backend.profile_subscription_key(reordered),
+        )
+
+    def test_tuic_subscription_identity_ignores_userinfo_encoding_label_and_query_order(self):
+        parsed = urllib.parse.urlsplit(TUIC_URI)
+        userinfo, endpoint = parsed.netloc.rsplit("@", 1)
+        encoded_userinfo = urllib.parse.quote(
+            urllib.parse.unquote(userinfo), safe=""
+        )
+        reordered = urllib.parse.urlunsplit((
+            parsed.scheme, encoded_userinfo + "@" + endpoint, parsed.path,
+            urllib.parse.urlencode(list(reversed(urllib.parse.parse_qsl(parsed.query)))),
+            "Provider rename",
+        ))
+        self.assertEqual(
+            backend.profile_subscription_key(TUIC_URI),
             backend.profile_subscription_key(reordered),
         )
 
@@ -2859,7 +2999,7 @@ esac
         texts = {path: path.read_text(encoding="utf-8") for path in distributed}
         credential = re.compile(
             r"(?:vless://[0-9a-fA-F-]{36}|trojan://[^\s/@]+|"
-            r"(?:hysteria2|hy2)://[^\s/@]+)@"
+            r"(?:hysteria2|hy2)://[^\s/@]+|tuic://[^\s/@]+)@"
         )
         for path, text in texts.items():
             self.assertIsNone(credential.search(text), f"embedded VLESS credential in {path}")
@@ -2945,6 +3085,7 @@ esac
             "trojan-tls": TROJAN_URI,
             "trojan-reality-grpc": TROJAN_REALITY_URI,
             "hysteria2-gecko-port-hopping": HYSTERIA2_URI,
+            "tuic-v5": TUIC_URI,
         }
         for name, uri in profiles.items():
             with self.subTest(profile=name), tempfile.TemporaryDirectory() as temp:

@@ -54,6 +54,8 @@ MAX_HYSTERIA2_AUTH_BYTES = 1024
 MAX_HYSTERIA2_OBFS_PASSWORD_BYTES = 1024
 MAX_HYSTERIA2_PORT_SPEC_BYTES = 2048
 MAX_HYSTERIA2_ECH_BYTES = 8 * 1024
+MAX_TUIC_URI_BYTES = 16 * 1024
+MAX_TUIC_PASSWORD_BYTES = 1024
 MAX_VLESS_ENCRYPTION_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_ITEMS = 160
@@ -116,7 +118,8 @@ PUBLIC_CAPABILITIES = {
     "realityPqExperimental": True,
     "trojanExperimental": True,
     "hysteria2Experimental": True,
-    "protocols": ["vless", "trojan", "hysteria2"],
+    "tuicExperimental": True,
+    "protocols": ["vless", "trojan", "hysteria2", "tuic"],
     "core": "mihomo",
 }
 
@@ -2900,6 +2903,223 @@ def _parse_hysteria2_adapter(uri: str, strict_transport: bool) -> dict[str, Any]
     return parse_hysteria2(uri, strict_transport=strict_transport)
 
 
+TUIC_DISABLE_SNI_COMPATIBILITY_NOTE = (
+    "Disabling SNI also disables certificate verification in Mihomo; "
+    "use it only when the server explicitly requires an empty SNI."
+)
+
+
+def extract_tuic_uri(text: str) -> str:
+    for token in re.split(r"\s+", text.strip()):
+        if token.lower().startswith("tuic://"):
+            uri = token.strip()
+            if len(uri.encode("utf-8")) > MAX_TUIC_URI_BYTES:
+                raise BackendError(
+                    f"TUIC link is too large (maximum {MAX_TUIC_URI_BYTES // 1024} KiB)"
+                )
+            return uri
+    raise BackendError("Input does not contain a TUIC link")
+
+
+def _tuic_text(value: str, label: str, limit: int, *, empty: bool = True) -> str:
+    if ((not empty and not value) or len(value.encode("utf-8")) > limit
+            or re.search(r"[\x00-\x1f\x7f]", value)):
+        raise BackendError(f"TUIC {label} has an invalid format")
+    return value
+
+
+def _tuic_host(value: str) -> str:
+    if (not value or len(value.encode("utf-8")) > 1024
+            or re.search(r"[\x00-\x20\x7f/?#@]", value)):
+        raise BackendError("TUIC server has an invalid format")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        pass
+    try:
+        host = value.rstrip(".").encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise BackendError("TUIC server is not valid IDNA") from exc
+    if (not host or len(host) > 253 or any(
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in host.split("."))):
+        raise BackendError("TUIC server has an invalid format")
+    return host
+
+
+def _tuic_bool(query: dict[str, str], name: str) -> bool:
+    raw = query.get(name, "0")
+    if raw not in {"0", "1"}:
+        raise BackendError(f"TUIC {name} must be 0 or 1")
+    return raw == "1"
+
+
+def _tuic_alpn(value: str) -> list[str]:
+    if not value:
+        return []
+    result: list[str] = []
+    for item in value.split(","):
+        token = item.strip()
+        if (not re.fullmatch(r"[A-Za-z0-9._/-]{1,32}", token)
+                or token in result or len(result) >= 8):
+            raise BackendError("TUIC ALPN has an invalid format")
+        result.append(token)
+    return result
+
+
+def parse_tuic(uri: str, *, strict_transport: bool = True) -> dict[str, Any]:
+    """Parse the interoperable dae/v2rayN TUIC v5 URI subset for Mihomo."""
+    del strict_transport  # Reserved by the common adapter contract.
+    uri = extract_tuic_uri(uri)
+    try:
+        parsed = urllib.parse.urlsplit(uri)
+    except ValueError as exc:
+        raise BackendError("Invalid TUIC link") from exc
+    if parsed.scheme.lower() != "tuic":
+        raise BackendError("Only tuic:// links are supported by this adapter")
+    if parsed.path not in {"", "/"} or not parsed.netloc or parsed.netloc.count("@") != 1:
+        raise BackendError("TUIC link has an invalid authority")
+    encoded_userinfo, endpoint = parsed.netloc.rsplit("@", 1)
+    try:
+        userinfo = urllib.parse.unquote_to_bytes(encoded_userinfo).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BackendError("TUIC credential is not valid UTF-8") from exc
+    if ":" not in userinfo:
+        raise BackendError("TUIC v5 requires a UUID and password")
+    uuid_text, password = userinfo.split(":", 1)
+    try:
+        canonical_uuid = str(uuidlib.UUID(uuid_text))
+    except ValueError as exc:
+        raise BackendError("TUIC user id is not a valid UUID") from exc
+    _tuic_text(password, "password", MAX_TUIC_PASSWORD_BYTES, empty=False)
+
+    try:
+        endpoint_parts = urllib.parse.urlsplit("//" + endpoint)
+        port = endpoint_parts.port
+    except ValueError as exc:
+        raise BackendError("TUIC server and port are invalid") from exc
+    if (endpoint_parts.username is not None or endpoint_parts.password is not None
+            or not endpoint_parts.hostname or not port or not 1 <= port <= 65535):
+        raise BackendError("TUIC server and port are required")
+    server = _tuic_host(endpoint_parts.hostname)
+
+    try:
+        pairs = urllib.parse.parse_qsl(
+            parsed.query, keep_blank_values=True, max_num_fields=128,
+            encoding="utf-8", errors="strict",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BackendError("Invalid TUIC query") from exc
+    query: dict[str, str] = {}
+    for key, value in pairs:
+        lowered = key.lower()
+        if lowered in query:
+            raise BackendError("TUIC link contains duplicate fields")
+        query[lowered] = value
+    allowed = {
+        "congestion_control", "udp_relay_mode", "alpn", "sni",
+        "allow_insecure", "disable_sni",
+    }
+    if set(query) - allowed:
+        raise BackendError("TUIC link contains unsupported fields")
+
+    congestion = query.get("congestion_control", "cubic").lower() or "cubic"
+    if congestion not in {"cubic", "new_reno", "bbr"}:
+        raise BackendError("TUIC congestion controller is not supported by Mihomo")
+    udp_relay_mode = query.get("udp_relay_mode", "native").lower() or "native"
+    if udp_relay_mode not in {"native", "quic"}:
+        raise BackendError("TUIC UDP relay mode is not supported by Mihomo")
+    alpn = _tuic_alpn(query.get("alpn", ""))
+    sni = _tuic_text(query.get("sni", ""), "SNI", 253)
+    allow_insecure = _tuic_bool(query, "allow_insecure")
+    disable_sni = _tuic_bool(query, "disable_sni")
+    if disable_sni and sni:
+        raise BackendError("TUIC link cannot set both SNI and disable_sni=1")
+
+    suggested = re.sub(
+        r"[\x00-\x1f\x7f]", "", urllib.parse.unquote(parsed.fragment or "")
+    ).strip()[:80]
+    return {
+        "protocol": "tuic", "uri": uri, "uuid": canonical_uuid,
+        "password": password, "server": server, "port": port,
+        "servername": sni, "alpn": alpn, "allow_insecure": allow_insecure,
+        "disable_sni": disable_sni, "udp_relay_mode": udp_relay_mode,
+        "congestion_controller": congestion,
+        # QUIC 0-RTT is intentionally not inferred from a provider link. The
+        # current Mihomo default (reduce-rtt omitted/false) avoids replay risk.
+        "compatibility_note": TUIC_DISABLE_SNI_COMPATIBILITY_NOTE if disable_sni else "",
+        "experimental_features": ["TUIC v5"], "suggested_name": suggested,
+    }
+
+
+def preview_tuic(text: str) -> dict[str, Any]:
+    """Return TUIC connection facts without its UUID or password."""
+    node = parse_tuic(text)
+    return {
+        "version": 1, "protocol": "tuic",
+        "server": str(node["server"])[:253], "port": int(node["port"]),
+        "transport": "quic", "security": "tls",
+        "sni": str(node["servername"])[:253], "flow": "",
+        "insecure": bool(node["allow_insecure"] or node["disable_sni"]),
+        "advancedXhttp": False, "experimental": True,
+        "experimentalFeatures": list(node["experimental_features"]),
+        "compatibilityNote": str(node["compatibility_note"]),
+        "credentialHint": "••••", "suggestedName": str(node["suggested_name"]),
+    }
+
+
+def tuic_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
+    node = parse_tuic(str(profile["uri"]))
+    y = yaml_value
+    lines = [
+        f"- name: {y(profile['name'])}", "  type: tuic",
+        f"  server: {y(server_override or node['server'])}",
+        f"  port: {node['port']}", f"  uuid: {y(node['uuid'])}",
+        f"  password: {y(node['password'])}",
+        f"  udp-relay-mode: {y(node['udp_relay_mode'])}",
+        f"  congestion-controller: {y(node['congestion_controller'])}",
+    ]
+    if node["alpn"]:
+        lines.append(f"  alpn: {json.dumps(node['alpn'], ensure_ascii=False)}")
+    if node["servername"]:
+        lines.append(f"  sni: {y(node['servername'])}")
+    if node["allow_insecure"]:
+        lines.append("  skip-cert-verify: true")
+    if node["disable_sni"]:
+        lines.append("  disable-sni: true")
+    return "\n".join(lines)
+
+
+def _tuic_subscription_key(uri: str) -> str:
+    node = parse_tuic(uri)
+    host = str(node["server"]).lower()
+    if ":" in host:
+        host = f"[{host}]"
+    userinfo = urllib.parse.quote(
+        f"{node['uuid']}:{node['password']}", safe=""
+    )
+    query_values = {
+        "congestion_control": str(node["congestion_controller"]),
+        "udp_relay_mode": str(node["udp_relay_mode"]),
+        "alpn": ",".join(node["alpn"]), "sni": str(node["servername"]),
+        "allow_insecure": "1" if node["allow_insecure"] else "0",
+        "disable_sni": "1" if node["disable_sni"] else "0",
+    }
+    query = urllib.parse.urlencode(sorted(query_values.items()))
+    canonical = urllib.parse.urlunsplit((
+        "tuic", f"{userinfo}@{host}:{node['port']}", "", query, "",
+    ))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _tuic_endpoint(uri: str) -> str:
+    return str(parse_tuic(uri)["server"])
+
+
+def _parse_tuic_adapter(uri: str, strict_transport: bool) -> dict[str, Any]:
+    return parse_tuic(uri, strict_transport=strict_transport)
+
+
 @dataclass(frozen=True)
 class ProfileAdapter:
     """Strict boundary between a share-link protocol and the common app flow."""
@@ -2952,10 +3172,21 @@ HYSTERIA2_ADAPTER = ProfileAdapter(
     endpoint=_hysteria2_endpoint,
     subscription_identity=_hysteria2_subscription_key,
 )
+TUIC_ADAPTER = ProfileAdapter(
+    protocol="tuic",
+    schemes=("tuic",),
+    extract=extract_tuic_uri,
+    parse=_parse_tuic_adapter,
+    preview=preview_tuic,
+    render_yaml=tuic_yaml,
+    endpoint=_tuic_endpoint,
+    subscription_identity=_tuic_subscription_key,
+)
 PROFILE_ADAPTERS: dict[str, ProfileAdapter] = {
     VLESS_ADAPTER.protocol: VLESS_ADAPTER,
     TROJAN_ADAPTER.protocol: TROJAN_ADAPTER,
     HYSTERIA2_ADAPTER.protocol: HYSTERIA2_ADAPTER,
+    TUIC_ADAPTER.protocol: TUIC_ADAPTER,
 }
 PROFILE_SCHEMES: dict[str, ProfileAdapter] = {
     scheme: adapter
@@ -4519,7 +4750,7 @@ def diagnostics_text(paths: Paths) -> str:
     # Defense in depth: future fields must not accidentally turn this support
     # file into a credential/profile export.
     forbidden = re.compile(
-        r"(?i)(?:vless|trojan|hysteria2|hy2)://|https?://|"
+        r"(?i)(?:vless|trojan|hysteria2|hy2|tuic)://|https?://|"
         r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
     )
     if forbidden.search(text):
