@@ -17,6 +17,11 @@ All notable changes to OmaVLESS are documented here.
   oversized, deeply nested, server-only and unknown fields are rejected; old
   stores remain readable even when a previously ignored field needs manual
   compatibility review before reconnecting.
+- Added bounded XHTTP `downloadSettings` for a second Mihomo endpoint with
+  independent path, host, headers, reuse and TLS/Reality metadata. Unmapped
+  `sockopt`, certificate material, recursive downloads and mode conflicts fail
+  before storage, while the redacted preview reveals no download endpoint or
+  nested credential.
 - Added multi-server favorites for both local and subscription-managed
   profiles. Active and pinned servers stay easy to reach without adding a
   permanent toolbar; pins survive subscription refreshes for retained nodes.

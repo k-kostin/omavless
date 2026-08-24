@@ -143,6 +143,11 @@ documented; the normal plugin installation does not exercise them silently.
   depth, count, ranges, header syntax and field names are constrained; raw or
   unknown configuration is never copied into YAML. Advanced contents stay out
   of the public preview, which reports only that advanced XHTTP is present.
+  XHTTP upload/download separation can use one bounded second endpoint with
+  independent path, host, headers, XMUX and TLS or Reality connection
+  settings. Mihomo uses the upload mode for both directions, so a conflicting
+  nested mode is rejected; nested `sockopt`, certificates and unsupported
+  transport overrides are not imported.
 - None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk` and
   `sid` URI parameters. Reality public keys and short IDs are checked against
   Mihomo's accepted formats before storage. Xray's `spx` spider path is
