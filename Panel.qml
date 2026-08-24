@@ -40,7 +40,8 @@ Panel {
   property var pendingDelete: null
   property var pendingSubscriptionDelete: null
   property var editingSubscription: null
-  // Incoming config awaiting a name; "file" | "text" | "" (no prompt open).
+  // Incoming config already parsed into a redacted preview and awaiting a
+  // name; "file" | "text" | "" (no prompt open).
   property string importKind: ""
   property string importPayload: ""
   // Profile ({uuid, name}) awaiting a new display name; non-null while the
@@ -325,6 +326,14 @@ Panel {
     return count + " " + (count === 1 ? singular : pluralForm)
   }
 
+  function favoriteCount(profiles) {
+    var count = 0
+    for (var i = 0; i < profiles.length; i++) {
+      if (profiles[i].favorite) count++
+    }
+    return count
+  }
+
   function subscriptionMessageText() {
     if (vless.subscriptionError !== "") return vless.subscriptionError
     if (vless.subscriptionStatus === "") return ""
@@ -380,6 +389,7 @@ Panel {
       // A connected profile stays first in every order: the live tunnel is
       // stronger information than a transient endpoint test.
       if (a.active !== b.active) return a.active ? -1 : 1
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
       if (sortMode === "default")
         return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0)
       var ar = vless.probeResult(a.uuid)
@@ -447,7 +457,10 @@ Panel {
     for (var i = 0; i < vless.profiles.length; i++) {
       var profile = vless.profiles[i]
       if (!profile.managed && profileMatches(profile, null, query)) {
-        top.push({ kind: "profile", profile: profile, active: profile.active, name: profile.name })
+        top.push({
+          kind: "profile", profile: profile, active: profile.active,
+          favorite: profile.favorite, name: profile.name
+        })
       }
     }
     for (var s = 0; s < vless.subscriptions.length; s++) {
@@ -466,11 +479,13 @@ Panel {
       top.push({
         kind: "subscription", subscription: subscription,
         profiles: query === "" ? allProfiles : visibleProfiles,
-        active: activeProfile !== null, name: subscription.name
+        active: activeProfile !== null, favorite: favoriteCount(allProfiles) > 0,
+        name: subscription.name
       })
     }
     top.sort(function(a, b) {
       if (a.active !== b.active) return a.active ? -1 : 1
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
       return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0)
     })
     var rows = []
@@ -888,16 +903,21 @@ Panel {
     }
     function status(): string { return vless.statusText }
     function routing(): string { return vless.routingTitle + " · " + vless.routingSummary }
-    // Credential-free support snapshot. This is intentionally small enough to
-    // paste into an issue and never includes a VLESS URI or endpoint.
+    // Credential-free support snapshot. Names, ids, endpoints, provider URLs
+    // and free-form error strings stay out because they can identify a user
+    // even when they do not contain the complete VLESS credential.
     function diagnostics(): string {
       return JSON.stringify({
         active: vless.active,
         profiles: vless.profiles.length,
-        routing: vless.routing,
+        favorites: vless.favoriteProfileCount,
+        subscriptions: vless.subscriptions.length,
+        routingMode: vless.routing.mode,
+        routingSource: vless.routing.source,
+        coreInstalled: vless.coreSetup.installed,
+        tunReady: vless.coreSetup.tunReady,
         statusFailures: vless.statusFailureCount,
-        statusRunning: vless.statusProcessRunning,
-        error: vless.lastError
+        statusRunning: vless.statusProcessRunning
       })
     }
     // The connection grid without the panel. Rates and ping only move while
@@ -1052,6 +1072,11 @@ Panel {
         else if (t === "d" || t === "D") vless.disconnectAll()
         else if (t === "i" || t === "I") vless.pickConfigFile()
         else if (t === "v" || t === "V") vless.pasteConfig()
+        else if (t === "f" || t === "F") {
+          var favoriteProfile = root.selectedProfile()
+          if (root.cursorActive && root.focusSection === "configs" && favoriteProfile)
+            vless.toggleFavorite(favoriteProfile)
+        }
         else if ((t === "s" || t === "S") && vless.supports("subscriptions")) root.openSubscriptions()
         else if (t === "p" || t === "P") {
           var row = root.selectedRow()
@@ -1975,6 +2000,16 @@ Panel {
           }
 
           SettingsActionRow {
+            title: "Safe diagnostics"
+            description: vless.diagnosticsStatus !== ""
+              ? vless.diagnosticsStatus
+              : "No VLESS UUIDs, keys, server names or subscription URLs"
+            actionText: vless.diagnosticsExporting ? "Exporting…" : "Export"
+            actionEnabled: !vless.diagnosticsExporting && !vless.busy
+            onAction: vless.exportDiagnostics()
+          }
+
+          SettingsActionRow {
             title: "Observed Exit IP"
             description: "Show a bounded external path check in connection details"
             actionText: vless.showExitIp ? "On" : "Off"
@@ -2207,14 +2242,13 @@ Panel {
         }
       }
 
-      // Name prompt for an incoming config, shared by both import paths.
-      // The local name is derived from the filename where possible and also
-      // doubles as the replace-or-not decision.
-      NamePrompt {
+      // Backend-parsed, redacted preview shared by file and clipboard import.
+      // The raw URI never becomes a displayed QML property.
+      ImportPreviewPrompt {
         id: importDialog
         anchors.fill: parent
         title: root.importSourceLabel
-        placeholder: "Profile name"
+        preview: vless.importPreview
         hint: root.importHintText
         accepted: root.importAccepted
         confirmLabel: root.importReplaces ? "Replace" : "Import"
@@ -2692,6 +2726,8 @@ Panel {
           text: {
             if (!groupRow.subscription) return ""
             var line = root.plural(groupRow.profiles.length, "server", "servers")
+            var pinned = root.favoriteCount(groupRow.profiles)
+            if (pinned > 0) line += " · " + root.plural(pinned, "pinned", "pinned")
             if (groupRow.activeProfile) line += " · connected: " + groupRow.activeProfile.name
             if (groupRow.probeSummary.tested > 0) {
               var age = root.probeAge(groupRow.subscription.uuid)
@@ -2811,6 +2847,17 @@ Panel {
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
+      }
+      PanelActionButton {
+        iconText: serverRow.profile && serverRow.profile.favorite ? "󰓎" : "󰓒"
+        tooltipText: (serverRow.profile && serverRow.profile.favorite ? "Unpin " : "Pin ")
+          + (serverRow.profile ? serverRow.profile.name : "profile")
+        foreground: serverRow.profile && serverRow.profile.favorite ? Color.accent : root.dim
+        hoverColor: Color.accent
+        fontFamily: root.fontFamily
+        enabled: !vless.busy && serverRow.profile !== null
+        visible: serverRow.hasCursor || (serverRow.profile && serverRow.profile.favorite)
+        onClicked: vless.toggleFavorite(serverRow.profile)
       }
     }
   }
@@ -3131,6 +3178,19 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         Layout.alignment: Qt.AlignVCenter
+      }
+
+      PanelActionButton {
+        iconText: configRow.profile && configRow.profile.favorite ? "󰓎" : "󰓒"
+        tooltipText: (configRow.profile && configRow.profile.favorite ? "Unpin " : "Pin ")
+          + (configRow.profile ? configRow.profile.name : "profile")
+        foreground: configRow.profile && configRow.profile.favorite ? Color.accent : root.dim
+        hoverColor: Color.accent
+        fontFamily: root.fontFamily
+        enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
+        visible: configRow.hasCursor || (configRow.profile && configRow.profile.favorite)
+        Layout.alignment: Qt.AlignVCenter
+        onClicked: vless.toggleFavorite(configRow.profile)
       }
 
       PanelActionButton {

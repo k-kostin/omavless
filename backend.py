@@ -328,10 +328,13 @@ def validate_store(data: Any) -> dict[str, Any]:
         subscription_id = profile.get("subscriptionId", "")
         subscription_key = profile.get("subscriptionKey", "")
         missing = profile.get("missing", False)
+        favorite = profile.get("favorite", False)
         if not isinstance(subscription_id, str) or not isinstance(subscription_key, str):
             raise BackendError(f"VLESS profile #{index} has invalid subscription metadata")
         if not isinstance(missing, bool):
             raise BackendError(f"VLESS profile #{index} has an invalid missing flag")
+        if not isinstance(favorite, bool):
+            raise BackendError(f"VLESS profile #{index} has an invalid favorite flag")
         if bool(subscription_id) != bool(subscription_key):
             raise BackendError(f"VLESS profile #{index} has incomplete subscription metadata")
         if subscription_id and subscription_id not in seen_subscription_ids:
@@ -346,6 +349,7 @@ def validate_store(data: Any) -> dict[str, Any]:
             profile.pop("subscriptionId", None)
             profile.pop("subscriptionKey", None)
             profile.pop("missing", None)
+        profile["favorite"] = favorite
     for key in ("activeId", "lastId"):
         value = data.setdefault(key, "")
         if not isinstance(value, str):
@@ -1515,6 +1519,26 @@ def parse_vless(uri: str) -> dict[str, Any]:
         "allow_insecure": query_bool(query, "allowInsecure", "skip-cert-verify"),
         "packet_encoding": first_query(query, "packetEncoding", "packet-encoding"),
         "suggested_name": urllib.parse.unquote(parsed.fragment or "").strip(),
+    }
+
+
+def preview_vless(text: str) -> dict[str, Any]:
+    """Return useful import facts without returning reusable credentials."""
+    node = parse_vless(text)
+    suggested = re.sub(r"[\x00-\x1f\x7f]", "", str(node["suggested_name"])).strip()[:80]
+    return {
+        "version": 1,
+        "server": str(node["server"])[:253],
+        "port": int(node["port"]),
+        "transport": str(node["network"]),
+        "security": str(node["security"]),
+        "sni": str(node["servername"])[:253],
+        "flow": str(node["flow"])[:64],
+        "insecure": bool(node["allow_insecure"]),
+        # Four trailing characters help compare two keys without making this
+        # preview a copyable credential source.
+        "credentialHint": "••••" + str(node["uuid"])[-4:],
+        "suggestedName": suggested,
     }
 
 
@@ -2889,6 +2913,13 @@ def rename_profile(paths: Paths, profile_id: str, new_name: str) -> None:
             raise
 
 
+def set_profile_favorite(paths: Paths, profile_id: str, enabled: bool) -> None:
+    store = load_store(paths)
+    profile = profile_by_id(store, profile_id)
+    profile["favorite"] = enabled
+    save_store(paths, store)
+
+
 def delete_profile(paths: Paths, profile_id: str) -> None:
     store = load_store(paths)
     profile = profile_by_id(store, profile_id)
@@ -2910,7 +2941,11 @@ def status_text(paths: Paths) -> str:
     if running and not stored_active_id:
         raise BackendError("omavless.service is running without an active profile")
     active_id = stored_active_id if running else ""
-    profiles = sorted(store["profiles"], key=lambda p: (p.get("id") != active_id, str(p.get("name", "")).lower()))
+    profiles = sorted(store["profiles"], key=lambda p: (
+        p.get("id") != active_id,
+        not bool(p.get("favorite", False)),
+        str(p.get("name", "")).lower(),
+    ))
     subscriptions = {str(item["id"]): item for item in store["subscriptions"]}
     endpoints: dict[str, str] = {}
     for profile in profiles:
@@ -2933,6 +2968,7 @@ def status_text(paths: Paths) -> str:
                     str(profile.get("subscriptionId", "")), {}
                 ).get("name", "")),
                 "missing": bool(profile.get("missing", False)),
+                "favorite": bool(profile.get("favorite", False)),
                 "server": endpoints.get(str(profile["id"]), ""),
             }
             for profile in profiles
@@ -2986,6 +3022,90 @@ def status(paths: Paths) -> None:
             text = status_text(paths)
             atomic_write(cache, text)
     print(text, end="")
+
+
+def diagnostics_payload(paths: Paths) -> dict[str, Any]:
+    """Build a support snapshot from counts and booleans, never raw profiles."""
+    store = load_store(paths)
+    running = service_active(SERVICE)
+    routing = routing_status(paths, running, store)
+    setup = core_setup_status(paths)
+    startup = startup_status(store, str(routing["mode"]))
+    latest_subscription_update = max(
+        (int(item.get("updatedAt", 0)) for item in store["subscriptions"]),
+        default=0,
+    )
+    return {
+        "schemaVersion": 1,
+        "generatedAt": time.time_ns() // 1_000_000,
+        "plugin": {"id": "kdk.omavless", "version": PLUGIN_VERSION},
+        "environment": {
+            "platform": sys.platform,
+            "python": ".".join(str(part) for part in sys.version_info[:3]),
+        },
+        "core": {
+            "installed": bool(setup["installed"]),
+            "tunReady": bool(setup["tunReady"]),
+            "controllerReady": controller_socket(paths).exists(),
+        },
+        "service": {
+            "active": running,
+            "enabled": service_enabled(SERVICE),
+            "loginAutoconnectEnabled": service_enabled(STARTUP_SERVICE),
+            "stateConsistent": not running or bool(store.get("activeId", "")),
+        },
+        "inventory": {
+            "profiles": len(store["profiles"]),
+            "favorites": sum(bool(item.get("favorite", False)) for item in store["profiles"]),
+            "subscriptions": len(store["subscriptions"]),
+            "customRules": len(store["customRules"]),
+        },
+        "routing": {
+            "mode": str(routing["mode"]),
+            "source": str(routing["source"]),
+            "preset": str(routing["preset"]),
+            "configured": bool(routing["configured"]),
+            "rules": int(routing["ruleCount"]),
+            "providers": int(routing["providerCount"]),
+            "lastManualRuleUpdate": int(routing["rulesUpdatedAt"]),
+        },
+        "startup": {
+            "configured": bool(startup["configured"]),
+            "enabled": bool(startup["enabled"]),
+            "target": str(startup["target"]),
+            "mode": str(startup["mode"]),
+        },
+        "updates": {"latestSubscription": latest_subscription_update},
+        "files": {
+            "store": paths.store.is_file() and not paths.store.is_symlink(),
+            "template": paths.template.is_file() and not paths.template.is_symlink(),
+            "generatedConfig": paths.config.is_file() and not paths.config.is_symlink(),
+            "serviceUnit": paths.unit.is_file() and not paths.unit.is_symlink(),
+        },
+        "conflictCount": len(routing_conflicts(paths, running)),
+    }
+
+
+def diagnostics_text(paths: Paths) -> str:
+    text = json.dumps(
+        diagnostics_payload(paths), ensure_ascii=False, indent=2, sort_keys=True
+    ) + "\n"
+    # Defense in depth: future fields must not accidentally turn this support
+    # file into a credential/profile export.
+    forbidden = re.compile(
+        r"(?i)vless://|https?://|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+    )
+    if forbidden.search(text):
+        raise BackendError("Refusing diagnostics containing a credential or private address")
+    return text
+
+
+def export_diagnostics(paths: Paths, destination: str) -> Path:
+    target = Path(destination).expanduser()
+    if not target.name:
+        raise BackendError("Choose a diagnostics file destination")
+    atomic_write(target, diagnostics_text(paths), 0o600)
+    return target
 
 
 def interface_addresses(device: str) -> list[str]:
@@ -3142,8 +3262,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("down-all")
     p = sub.add_parser("delete"); p.add_argument("id")
     p = sub.add_parser("rename"); p.add_argument("id"); p.add_argument("name")
+    p = sub.add_parser("favorite"); p.add_argument("id"); p.add_argument("enabled", choices=("on", "off"))
     p = sub.add_parser("import"); p.add_argument("name"); p.add_argument("old_id", nargs="?", default=""); p.add_argument("file", nargs="?")
+    p = sub.add_parser("preview"); p.add_argument("file", nargs="?")
     p = sub.add_parser("export-file"); p.add_argument("id"); p.add_argument("path")
+    sub.add_parser("diagnostics")
+    p = sub.add_parser("diagnostics-export"); p.add_argument("path")
     p = sub.add_parser("qr-png"); p.add_argument("id")
     p = sub.add_parser("edit"); p.add_argument("id"); p.add_argument("name")
     p = sub.add_parser("notify-drop"); p.add_argument("id"); p.add_argument("name")
@@ -3187,6 +3311,17 @@ def main() -> int:
         migrate_legacy_data(paths)
     if args.command == "status":
         status(paths)
+    elif args.command == "preview":
+        text = read_text_file(
+            Path(args.file).expanduser(), MAX_IMPORT_BYTES, "VLESS preview file"
+        ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "VLESS preview")
+        print(json.dumps(preview_vless(text), ensure_ascii=False, separators=(",", ":")))
+    elif args.command == "diagnostics":
+        with operation_lock(paths):
+            print(diagnostics_text(paths), end="")
+    elif args.command == "diagnostics-export":
+        with operation_lock(paths):
+            print(export_diagnostics(paths, args.path))
     elif args.command == "details":
         details(paths, args.id, args.device)
     elif args.command == "export-file":
@@ -3346,6 +3481,8 @@ def main() -> int:
                 delete_profile(paths, args.id)
             elif args.command == "rename":
                 rename_profile(paths, args.id, args.name)
+            elif args.command == "favorite":
+                set_profile_favorite(paths, args.id, args.enabled == "on")
             elif args.command == "import":
                 text = read_text_file(
                     Path(args.file).expanduser(), MAX_IMPORT_BYTES, "VLESS import file"

@@ -34,6 +34,7 @@ cp -a \
   "$plugin_dir/PlainText.qml" \
   "$plugin_dir/Sparkline.qml" \
   "$plugin_dir/NamePrompt.qml" \
+  "$plugin_dir/ImportPreviewPrompt.qml" \
   "$plugin_dir/SubscriptionPrompt.qml" \
   "$plugin_dir/RoutingPresetPrompt.qml" \
   "$plugin_dir/OnboardingWizard.qml" \
