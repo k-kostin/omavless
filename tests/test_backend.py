@@ -143,6 +143,23 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn("vless://", encoded)
         self.assertNotIn("spx", encoded.lower().replace("(spx)", ""))
 
+    def test_vless_ipv6_and_percent_encoded_label_map_without_downgrade(self):
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@[2001:db8::1]:443"
+            "?type=ws&security=tls&sni=ipv6.example.org"
+            "&host=cdn.example.org&path=%2Fedge#A%20%26%20B%20%3E%20C"
+        )
+        parsed = backend.parse_vless(uri)
+        self.assertEqual(parsed["server"], "2001:db8::1")
+        self.assertEqual(parsed["suggested_name"], "A & B > C")
+        rendered = backend.proxy_yaml({"name": "IPv6", "uri": uri})
+        self.assertIn('server: "2001:db8::1"', rendered)
+        self.assertIn('path: "/edge"', rendered)
+        self.assertIn('Host: "cdn.example.org"', rendered)
+        preview = backend.preview_vless(uri)
+        self.assertEqual(preview["server"], "2001:db8::1")
+        self.assertEqual(preview["suggestedName"], "A & B > C")
+
     def test_trojan_tcp_ws_and_grpc_reality_map_to_mihomo(self):
         tcp = backend.parse_profile(TROJAN_URI)
         self.assertEqual(tcp["protocol"], "trojan")
@@ -2227,6 +2244,43 @@ rules:
         self.assertIn('runControl(["subscription-save"', service)
         self.assertIn('read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")', backend_source)
 
+    def test_profile_credential_is_absent_from_live_process_argv_and_environment(self):
+        if not Path("/proc/self/cmdline").is_file():
+            self.skipTest("process inspection requires procfs")
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, _ = self.make_env(home)
+            process = subprocess.Popen(
+                [str(ROOT / "backend.sh"), "preview"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, env=env,
+            )
+            try:
+                proc = Path("/proc") / str(process.pid)
+                command = b""
+                for _ in range(100):
+                    command = (proc / "cmdline").read_bytes()
+                    if b"backend.py" in command:
+                        break
+                    time.sleep(0.01)
+                environment = (proc / "environ").read_bytes()
+                for private in (
+                    b"vless://",
+                    b"11111111-1111-4111-8111-111111111111",
+                    b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                ):
+                    self.assertNotIn(private, command)
+                    self.assertNotIn(private, environment)
+                stdout, stderr = process.communicate(REALITY_URI, timeout=10)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertNotIn(REALITY_URI, stdout)
+            self.assertNotIn("11111111-1111-4111-8111-111111111111", stdout)
+            self.assertNotIn("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", stdout)
+
     def test_legacy_store_template_and_last_selection_migrate(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -3067,6 +3121,11 @@ esac
         }, separators=(",", ":")))
         profiles = {
             "reality-vision": REALITY_URI,
+            "vless-ipv6-ws": (
+                "vless://11111111-1111-4111-8111-111111111111@[2001:db8::1]:443"
+                "?type=ws&security=tls&sni=ipv6.example.org"
+                "&host=cdn.example.org&path=%2Fedge#IPv6"
+            ),
             "reality-pq-flag": base + "&supportX25519MLKEM768=true#" + fragment,
             "vless-encryption": REALITY_URI.replace(
                 "encryption=none",
