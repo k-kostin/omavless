@@ -4,6 +4,15 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Added multi-server favorites for both local and subscription-managed
+  profiles. Active and pinned servers stay easy to reach without adding a
+  permanent toolbar; pins survive subscription refreshes for retained nodes.
+- Added a redacted review step before file or clipboard import. Parsing remains
+  in the backend and the GUI receives no complete VLESS UUID, Reality key or
+  URI.
+- Added a Settings export for private-permission JSON diagnostics built only
+  from bounded counts and states, without profile/subscription identifiers,
+  key material, names, endpoints, executable paths or subscription URLs.
 - Added Settings-only custom routing rules for exact domains, domain suffixes
   and IPv4/IPv6 ranges, with VPN, Direct and Block actions evaluated before the
   selected country preset.

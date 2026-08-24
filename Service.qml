@@ -69,6 +69,13 @@ Item {
     }
     return count
   }
+  readonly property int favoriteProfileCount: {
+    var count = 0
+    for (var i = 0; i < profiles.length; i++) {
+      if (profiles[i].favorite) count++
+    }
+    return count
+  }
   readonly property double latestSubscriptionUpdatedAt: {
     var latest = 0
     for (var i = 0; i < subscriptions.length; i++)
@@ -84,8 +91,12 @@ Item {
   readonly property bool pickingFile: pickerProcess.running
   readonly property bool readingClipboard: clipboardProcess.running
   readonly property bool editing: editProcess.running
-  readonly property bool importSourceBusy: pickingFile || readingClipboard
+  readonly property bool importSourceBusy: pickingFile || readingClipboard || importPreviewLoading
   readonly property bool exporting: exportProcess.running
+  readonly property bool importPreviewLoading: previewProcess.running
+  property var importPreview: ({})
+  readonly property bool diagnosticsExporting: diagnosticsProcess.running
+  property string diagnosticsStatus: ""
   readonly property bool copying: copyProcess.running
   readonly property bool messageDismissible:
     lastError !== "" && actionStatus === "" ||
@@ -870,10 +881,11 @@ Item {
       var sourceName = source.sourceName === undefined ? "" : source.sourceName
       var server = source.server === undefined ? "" : source.server
       var missing = source.missing === undefined ? false : source.missing
+      var favorite = source.favorite === undefined ? false : source.favorite
       if (typeof subscriptionId !== "string" || subscriptionId.length > 64
           || typeof sourceName !== "string" || sourceName.length > 80
           || typeof server !== "string" || server.length > 253
-          || typeof missing !== "boolean"
+          || typeof missing !== "boolean" || typeof favorite !== "boolean"
           || (subscriptionId !== "" && subscriptionIds[subscriptionId] === undefined))
         return rejectStatus()
       var entry = {
@@ -886,6 +898,7 @@ Item {
         subscriptionUuid: subscriptionId,
         sourceName: plainText(sourceName, 80),
         missing: missing,
+        favorite: favorite,
         managed: subscriptionId !== ""
       }
       list.push(entry)
@@ -967,6 +980,7 @@ Item {
     // so an otherwise unchanged list never reshuffles.
     list.sort(function(a, b) {
       if (a.active !== b.active) return a.active ? -1 : 1
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
       return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0)
     })
     profiles = list
@@ -1459,6 +1473,17 @@ Item {
     return true
   }
 
+  function toggleFavorite(profile) {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    if (!profile || !profile.uuid) return rejectAction("no such profile")
+    actionRejection = ""
+    actionStatus = profile.favorite
+      ? "Unpinning " + profile.name + "…"
+      : "Pinning " + profile.name + "…"
+    runControl(["favorite", profile.uuid, profile.favorite ? "off" : "on"])
+    return true
+  }
+
   function toggle() {
     if (active) return disconnectAll()
     if (toggleProfile !== null) return connectTo(toggleProfile)
@@ -1468,6 +1493,27 @@ Item {
   // Import: a picked file or pasted link becomes a private local profile
   // entry. The status poll picks it up on the next tick.
   signal importReady(string kind, string payload, string suggestedName)
+
+  function previewImport(kind, payload, suggestedName) {
+    if (previewProcess.running) return rejectAction("another VLESS preview is already running")
+    var sourceKind = String(kind || "")
+    var sourcePayload = String(payload || "")
+    if ((sourceKind !== "file" && sourceKind !== "text") || sourcePayload === "")
+      return rejectAction("no VLESS input to preview")
+    actionRejection = ""
+    lastError = ""
+    actionStatus = "Checking VLESS link…"
+    importPreview = ({})
+    _previewKind = sourceKind
+    _previewPayload = sourcePayload
+    _previewSuggested = String(suggestedName || "")
+    previewProcess.stdinEnabled = sourceKind === "text"
+    previewProcess.command = sourceKind === "file"
+      ? ["bash", backendPath, "preview", sourcePayload]
+      : ["bash", backendPath, "preview"]
+    previewProcess.running = true
+    return true
+  }
 
   function pickConfigFile() {
     if (busy) return rejectAction("another VLESS operation is already running")
@@ -1492,6 +1538,18 @@ Item {
     lastError = ""
     actionStatus = "Reading clipboard…"
     clipboardProcess.running = true
+    return true
+  }
+
+  function exportDiagnostics() {
+    if (diagnosticsProcess.running)
+      return rejectAction("diagnostics export is already running")
+    actionRejection = ""
+    diagnosticsStatus = "Choosing a destination…"
+    diagnosticsProcess.command = [
+      "bash", "-c", diagnosticsExportScript, "omavless", backendPath
+    ]
+    diagnosticsProcess.running = true
     return true
   }
 
@@ -1818,12 +1876,38 @@ Item {
     "[ \"$rc\" = 141 ] && exit 3\n" +
     "exit 4\n"
 
+  readonly property string diagnosticsExportScript:
+    "be=\"$1\"\n" +
+    "folder=\"$HOME\"\n" +
+    "if command -v xdg-user-dir >/dev/null 2>&1; then\n" +
+    "  found=\"$(xdg-user-dir DOWNLOAD 2>/dev/null)\"\n" +
+    "  [ -n \"$found\" ] && folder=\"$found\"\n" +
+    "fi\n" +
+    "suggest=\"$folder/omavless-diagnostics.json\"\n" +
+    "if command -v zenity >/dev/null 2>&1; then\n" +
+    "  dest=\"$(zenity --file-selection --save --confirm-overwrite \\\n" +
+    "    --title='Export safe OmaVLESS diagnostics' --filename=\"$suggest\" \\\n" +
+    "    --file-filter='JSON | *.json' --file-filter='All files | *')\" || exit 3\n" +
+    "elif command -v kdialog >/dev/null 2>&1; then\n" +
+    "  dest=\"$(kdialog --getsavefilename \"$suggest\" '*.json|JSON diagnostics')\" || exit 3\n" +
+    "elif command -v yad >/dev/null 2>&1; then\n" +
+    "  dest=\"$(yad --file --save --confirm-overwrite --title='Export safe OmaVLESS diagnostics' \\\n" +
+    "    --filename=\"$suggest\")\" || exit 3\n" +
+    "else\n" +
+    "  exit 2\n" +
+    "fi\n" +
+    "[ -n \"$dest\" ] || exit 3\n" +
+    "exec bash \"$be\" diagnostics-export \"$dest\"\n"
+
   property string _controlError: ""
   // Which backend command controlProcess is running: special exit codes
   // (6 for an incomplete edit rollback, 20/21 for connect recovery) mean
   // nothing outside their command.
   property string _controlOperation: ""
   property string _controlStdin: ""
+  property string _previewKind: ""
+  property string _previewPayload: ""
+  property string _previewSuggested: ""
   property string _subscriptionUrlUuid: ""
   // True while lastError describes a failed status poll, so a successful
   // poll knows it may clear it.
@@ -2009,7 +2093,7 @@ Item {
       // Anything else non-zero is Cancel; say nothing.
       if (exitCode !== 0) return
       var path = String(pickerStdout.text || "").trim()
-      if (path !== "") root.importReady("file", path, root.sanitizeName(path))
+      if (path !== "") root.previewImport("file", path, root.sanitizeName(path))
     }
   }
 
@@ -2095,7 +2179,97 @@ Item {
         root.lastError = "Clipboard does not contain a VLESS link"
         return
       }
-      root.importReady("text", text, root.suggestName())
+      root.previewImport("text", text, root.suggestName())
+    }
+  }
+
+  Process {
+    id: previewProcess
+    running: false
+    command: []
+    stdinEnabled: false
+    onStarted: {
+      if (root._previewKind === "text") write(root._previewPayload)
+      stdinEnabled = false
+    }
+    stdout: StdioCollector {
+      id: previewStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: previewStderr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      var kind = root._previewKind
+      var payload = root._previewPayload
+      var suggested = root._previewSuggested
+      root._previewKind = ""
+      root._previewPayload = ""
+      root._previewSuggested = ""
+      root.actionStatus = ""
+      if (exitCode !== 0) {
+        root.lastError = root.elide(previewStderr.text || "Could not preview that VLESS link")
+        return
+      }
+      var value
+      try { value = JSON.parse(String(previewStdout.text || "")) } catch (error) {
+        root.lastError = "VLESS preview returned invalid data"
+        return
+      }
+      if (!value || value.version !== 1
+          || typeof value.server !== "string" || value.server === ""
+          || value.server.length > 253 || typeof value.port !== "number"
+          || !isFinite(value.port) || value.port < 1 || value.port > 65535
+          || ["tcp", "ws", "http", "h2", "grpc", "xhttp"].indexOf(value.transport) < 0
+          || ["none", "tls", "reality"].indexOf(value.security) < 0
+          || typeof value.sni !== "string" || value.sni.length > 253
+          || typeof value.flow !== "string" || value.flow.length > 64
+          || typeof value.insecure !== "boolean"
+          || typeof value.credentialHint !== "string"
+          || !/^••••[0-9a-f]{4}$/i.test(value.credentialHint)
+          || typeof value.suggestedName !== "string" || value.suggestedName.length > 80) {
+        root.lastError = "VLESS preview returned invalid data"
+        return
+      }
+      root.importPreview = {
+        server: root.plainText(value.server, 253), port: Math.floor(value.port),
+        transport: value.transport, security: value.security,
+        sni: root.plainText(value.sni, 253), flow: root.plainText(value.flow, 64),
+        insecure: value.insecure,
+        credentialHint: value.credentialHint,
+        suggestedName: root.plainText(value.suggestedName, 80)
+      }
+      root.lastError = ""
+      root.importReady(kind, payload,
+        root.importPreview.suggestedName !== "" ? root.importPreview.suggestedName : suggested)
+    }
+  }
+
+  Process {
+    id: diagnosticsProcess
+    running: false
+    command: []
+    stdout: StdioCollector {
+      id: diagnosticsStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: diagnosticsStderr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      if (exitCode === 3) {
+        root.diagnosticsStatus = ""
+        return
+      }
+      if (exitCode === 0) {
+        root.diagnosticsStatus = "Saved with private file permissions"
+        return
+      }
+      root.diagnosticsStatus = exitCode === 2
+        ? "No file picker found — install zenity, kdialog or yad"
+        : root.elide(diagnosticsStderr.text || "Could not export diagnostics")
     }
   }
 

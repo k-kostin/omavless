@@ -28,7 +28,9 @@ Open OmaVLESS from the bar. A three-step first-run guide checks Mihomo and its
 TUN capabilities, offers a Russia, China or Iran Routing profile (or a skip),
 then hands the existing private import flow your first `vless://` key. The
 guide never installs packages or runs privileged commands: every host setup
-step is shown as an explicit copy-to-terminal action.
+step is shown as an explicit copy-to-terminal action. Before a key is stored,
+the import review shows its endpoint, transport, security and SNI while keeping
+the full access UUID and key parameters hidden.
 
 ### 2. Prepare Mihomo
 
@@ -128,6 +130,11 @@ documented; the normal plugin installation does not exercise them silently.
   and turns the same button into `Cancel` while a test is running.
 - Profile rows keep a subtle theme-native outline at rest and gain the normal
   Omarchy hover fill without pointer hover moving the scroll position.
+- Any number of manual or subscription-managed servers can be pinned. The
+  active server remains first, followed by pinned servers and then the normal
+  name or latency order; subscription refreshes preserve pins for nodes that
+  still exist. The star action appears on row focus/hover and `f` toggles it
+  from the keyboard, keeping the compact list quiet otherwise.
 - TCP, WebSocket, HTTP, H2, gRPC and XHTTP transports.
 - None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk`, `sid`
   and `spx` URI parameters.
@@ -184,6 +191,14 @@ documented; the normal plugin installation does not exercise them silently.
   capabilities, offers a skippable country Routing choice and opens the
   existing private VLESS import flow. Host-changing commands are copied for an
   explicit terminal action and are never executed by the plugin.
+- File and clipboard imports pass through a backend-parsed review before the
+  name is confirmed. The review never receives a complete VLESS UUID, Reality
+  public key or URI; it exposes only bounded connection facts and a four-
+  character credential hint to help distinguish similar keys.
+- General Settings can export a `0600` JSON support snapshot containing plugin,
+  core, service, routing and inventory state. It intentionally omits profile
+  and subscription identifiers, profile/provider/server names, VLESS links,
+  key material, local executable paths and subscription URLs.
 - A compatible custom Mihomo YAML can be adopted only through an explicit
   command; OmaVLESS never discovers or imports another client's active
   configuration automatically.
@@ -239,6 +254,7 @@ new preference is saved once.
 | `t` | toggle the last used profile |
 | `i` | import a VLESS link file |
 | `v` | import a VLESS link from the clipboard |
+| `f` | pin or unpin the selected server |
 | `s` | open subscriptions |
 | `g` | open general settings |
 | `/` | search profiles, providers and endpoint hostnames |
@@ -265,6 +281,19 @@ omarchy-shell kdk.omavless rename "Old name" "New name"
 omarchy-shell kdk.omavless qr "Profile name"
 omarchy-shell kdk.omavless exportConfig "Profile name" ~/profile.url
 ```
+
+The general Settings page offers a save dialog for credential-free diagnostics.
+The same bounded JSON is available directly from the backend for terminal
+support workflows:
+
+```bash
+plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
+"$plugin" diagnostics
+"$plugin" diagnostics-export ~/omavless-diagnostics.json
+```
+
+The diagnostics command is deliberately separate from raw profile export and
+does not include VLESS UUIDs, keys or subscription URLs.
 
 The same routing tools available in Settings have explicit backend commands
 for troubleshooting or scripting. Domain/range values use stdin so they do

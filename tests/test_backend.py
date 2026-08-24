@@ -98,6 +98,21 @@ class BackendTests(unittest.TestCase):
         ):
             self.assertIn(expected, yaml)
 
+    def test_vless_preview_is_useful_without_returning_reusable_secrets(self):
+        preview = backend.preview_vless(REALITY_URI)
+        self.assertEqual(preview["server"], "example.com")
+        self.assertEqual(preview["port"], 443)
+        self.assertEqual(preview["transport"], "tcp")
+        self.assertEqual(preview["security"], "reality")
+        self.assertEqual(preview["sni"], "example.org")
+        self.assertFalse(preview["insecure"])
+        self.assertEqual(preview["credentialHint"], "••••1111")
+        self.assertEqual(preview["suggestedName"], "Example")
+        encoded = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("11111111-1111-4111-8111-111111111111", encoded)
+        self.assertNotIn("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", encoded)
+        self.assertNotIn("vless://", encoded)
+
     def test_ws_transport_maps_options(self):
         uri = (
             "vless://11111111-1111-4111-8111-111111111111@example.com:443"
@@ -1094,6 +1109,7 @@ rules:
             remaining = next(profile for profile in first["profiles"] if profile["name"] == "Second")
             first["activeId"] = active["id"]
             first["lastId"] = active["id"]
+            remaining["favorite"] = True
             backend.save_store(paths, first)
 
             with mock.patch.object(backend, "fetch_subscription", return_value=second):
@@ -1106,6 +1122,91 @@ rules:
             self.assertTrue(by_id[active["id"]]["missing"])
             self.assertIn(remaining["id"], by_id)
             self.assertFalse(by_id[remaining["id"]]["missing"])
+            self.assertTrue(by_id[remaining["id"]]["favorite"])
+
+    def test_profile_favorites_persist_and_are_public_only_as_a_boolean(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            backend.save_store(paths, {
+                "version": 2, "activeId": "", "lastId": profile_id,
+                "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
+                "subscriptions": [], "routingPreset": "roscomvpn-default",
+                "customRules": [], "rulesUpdatedAt": 0,
+                "startupConfigured": True,
+                "startup": {"enabled": False, "target": "last", "profileId": "", "mode": "rule"},
+                "onboardingComplete": True,
+            })
+            self.assertFalse(backend.load_store(paths)["profiles"][0]["favorite"])
+            backend.set_profile_favorite(paths, profile_id, True)
+            self.assertTrue(backend.load_store(paths)["profiles"][0]["favorite"])
+            with mock.patch.object(backend, "service_active", return_value=False):
+                status = json.loads(backend.status_text(paths))
+            self.assertTrue(status["profiles"][0]["favorite"])
+            self.assertNotIn("uri", status["profiles"][0])
+
+    def test_safe_diagnostics_omit_profiles_keys_and_subscription_urls(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            subscription_id = "33333333-3333-4333-8333-333333333333"
+            backend.save_store(paths, {
+                "version": 2, "activeId": "", "lastId": profile_id,
+                "profiles": [{
+                    "id": profile_id, "name": "Secret server", "uri": REALITY_URI,
+                    "favorite": True,
+                }],
+                "subscriptions": [{
+                    "id": subscription_id, "name": "Private provider",
+                    "url": "https://provider.example/bearer-token", "updatedAt": 1234,
+                }],
+                "routingPreset": "roscomvpn-default", "customRules": [],
+                "rulesUpdatedAt": 5678, "startupConfigured": True,
+                "startup": {"enabled": False, "target": "last", "profileId": "", "mode": "rule"},
+                "onboardingComplete": True,
+            })
+            paths.template.write_text(
+                (ROOT / "templates" / "default.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            with mock.patch.object(backend, "service_active", return_value=False), \
+                 mock.patch.object(backend, "service_enabled", return_value=False), \
+                 mock.patch.object(backend, "core_setup_status", return_value={
+                     "installed": True, "tunReady": True, "path": "/secret/path/mihomo",
+                 }), \
+                 mock.patch.object(backend, "routing_conflicts", return_value=["private-app"]):
+                text = backend.diagnostics_text(paths)
+                destination = home / "diagnostics.json"
+                backend.export_diagnostics(paths, str(destination))
+            payload = json.loads(text)
+            self.assertEqual(payload["inventory"], {
+                "profiles": 1, "favorites": 1, "subscriptions": 1, "customRules": 0,
+            })
+            for secret in (
+                profile_id, subscription_id, "11111111-1111-4111-8111-111111111111",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Secret server",
+                "Private provider", "provider.example", "example.com", "/secret/path",
+                "private-app", "vless://", "https://",
+            ):
+                self.assertNotIn(secret, text)
+            self.assertIsNone(re.search(
+                r"(?i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|https?://|vless://",
+                text,
+            ))
+            exported = json.loads(destination.read_text(encoding="utf-8"))
+            exported.pop("generatedAt")
+            comparable = dict(payload)
+            comparable.pop("generatedAt")
+            self.assertEqual(exported, comparable)
+            self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o600)
 
     def test_subscription_delete_refuses_an_active_managed_profile(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1894,7 +1995,7 @@ esac
             ROOT / name for name in (
                 "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml",
                 "RoutingPresetPrompt.qml", "OnboardingWizard.qml", "StartupPrompt.qml",
-                "RoutingToolsPrompt.qml", "RenameWindow.qml",
+                "RoutingToolsPrompt.qml", "ImportPreviewPrompt.qml", "RenameWindow.qml",
                 "QrWindow.qml", "backend.py", "backend.sh", "install.sh",
                 "uninstall.sh",
                 "manifest.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
@@ -1916,7 +2017,10 @@ esac
         self.assertIn("Copyright (c) 2026 OmaVLESS contributors", license_text)
         self.assertIn("https://github.com/jkoestinger/omarchy-vpn", notice)
         self.assertIn("https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn", notice)
-        for name in ("Panel.qml", "Service.qml", "NamePrompt.qml", "RenameWindow.qml", "QrWindow.qml"):
+        for name in (
+            "Panel.qml", "Service.qml", "NamePrompt.qml", "ImportPreviewPrompt.qml",
+            "RenameWindow.qml", "QrWindow.qml",
+        ):
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("SPDX-License-Identifier: MIT", source)
             self.assertIn("Adapted from Omarchy VPN", source)
