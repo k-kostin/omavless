@@ -48,8 +48,8 @@ TUN_DEVICE = "Meta"
 STATUS_CACHE_SECONDS = 1.0
 MAX_VLESS_URI_BYTES = 16 * 1024
 MAX_XHTTP_EXTRA_BYTES = 12 * 1024
-MAX_XHTTP_EXTRA_ITEMS = 96
-MAX_XHTTP_EXTRA_DEPTH = 4
+MAX_XHTTP_EXTRA_ITEMS = 160
+MAX_XHTTP_EXTRA_DEPTH = 8
 MAX_XHTTP_EXTRA_STRING_BYTES = 2048
 MAX_XHTTP_HEADER_COUNT = 32
 MAX_XHTTP_HEADER_VALUE_BYTES = 1024
@@ -1622,6 +1622,231 @@ def parse_xhttp_reuse(value: Any) -> dict[str, Any]:
     return result
 
 
+def xhttp_endpoint(value: Any, label: str) -> str:
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or len(value.encode("utf-8")) > 253:
+        raise BackendError(f"VLESS XHTTP download {label} has an invalid format")
+    if any(character.isspace() or ord(character) < 0x20 for character in value):
+        raise BackendError(f"VLESS XHTTP download {label} has an invalid format")
+    try:
+        ipaddress.ip_address(value)
+        return value
+    except ValueError:
+        pass
+    if any(character in value for character in "/@[]:#"):
+        raise BackendError(f"VLESS XHTTP download {label} has an invalid format")
+    try:
+        ascii_name = value.rstrip(".").encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise BackendError(f"VLESS XHTTP download {label} has an invalid format") from exc
+    labels = ascii_name.split(".")
+    if (not ascii_name or len(ascii_name) > 253
+            or any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", part)
+                   for part in labels)):
+        raise BackendError(f"VLESS XHTTP download {label} has an invalid format")
+    return value
+
+
+def parse_xhttp_alpn(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 8:
+        raise BackendError("VLESS XHTTP download ALPN has an invalid format")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or item not in {"h2", "h3", "http/1.1"}:
+            raise BackendError("VLESS XHTTP download ALPN has an unsupported value")
+        if item not in result:
+            result.append(item)
+    return result
+
+
+def parse_xhttp_download_extra(value: Any) -> dict[str, Any]:
+    """Map only download-side fields Mihomo can override independently."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise BackendError("VLESS XHTTP download transport extra must be an object")
+    allowed = {
+        "headers", "xmux", "host", "path", "mode", "extra",
+        "xPaddingBytes", "xPaddingObfsMode", "xPaddingKey", "xPaddingHeader",
+        "xPaddingPlacement", "xPaddingMethod", "uplinkHTTPMethod",
+        "sessionIDPlacement", "sessionPlacement", "sessionIDKey", "sessionKey",
+        "sessionIDTable", "sessionTable", "sessionIDLength", "sessionLength",
+        "seqPlacement", "seqKey", "uplinkDataPlacement", "uplinkDataKey",
+        "uplinkChunkSize", "noGRPCHeader", "noSSEHeader",
+        "scMaxEachPostBytes", "scMinPostsIntervalMs", "scMaxBufferedPosts",
+        "scStreamUpServerSecs", "serverMaxHeaderBytes", "downloadSettings",
+    }
+    if set(value) - allowed:
+        raise BackendError("VLESS XHTTP download transport extra contains unsupported fields")
+    if value.get("downloadSettings") is not None or value.get("extra") is not None:
+        raise BackendError("VLESS XHTTP recursive download settings are not supported")
+    for key in ("host", "path"):
+        if key in value and value[key] is not None and not isinstance(value[key], str):
+            raise BackendError(f"VLESS XHTTP download transport {key} has an invalid format")
+    if value.get("mode") not in (None, "", "auto", "stream-one", "stream-up", "packet-up"):
+        raise BackendError("VLESS XHTTP download transport mode is invalid")
+    result: dict[str, Any] = {}
+    headers = parse_xhttp_headers(value.get("headers"))
+    if headers:
+        result["headers"] = headers
+    reuse = parse_xhttp_reuse(value.get("xmux"))
+    if reuse:
+        result["reuse-settings"] = reuse
+
+    # Current Mihomo inherits every other XHTTP transport knob from upload.
+    # Accept serializer defaults, but reject a real independent override.
+    ignored = set(value) - {"headers", "xmux", "host", "path", "mode", "extra", "downloadSettings"}
+    defaults = (None, "", 0, "0", False)
+    for key in ignored:
+        if not any(value[key] == default for default in defaults):
+            raise BackendError(
+                f"VLESS XHTTP download {key} cannot be overridden independently in Mihomo"
+            )
+    return result
+
+
+def parse_xhttp_download(value: Any, main_mode: str, main_security: str) -> tuple[dict[str, Any], str]:
+    if not isinstance(value, dict):
+        raise BackendError("VLESS XHTTP downloadSettings must be an object")
+    if main_mode == "stream-one":
+        raise BackendError("VLESS XHTTP stream-one cannot use downloadSettings")
+    allowed = {
+        "address", "port", "network", "security", "tlsSettings",
+        "realitySettings", "xhttpSettings", "sockopt",
+    }
+    if set(value) - allowed:
+        raise BackendError("VLESS XHTTP downloadSettings contains unsupported fields")
+    sockopt = value.get("sockopt")
+    if sockopt not in (None, {}) and sockopt != "":
+        raise BackendError("VLESS XHTTP download sockopt is not imported")
+
+    result: dict[str, Any] = {}
+    address = xhttp_endpoint(value.get("address"), "address")
+    if address:
+        result["server"] = address
+    if "port" in value and value["port"] is not None:
+        port = value["port"]
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise BackendError("VLESS XHTTP download port is invalid")
+        result["port"] = port
+    network = value.get("network")
+    if network not in (None, "", "xhttp"):
+        raise BackendError("VLESS XHTTP download network must be xhttp")
+    security = value.get("security")
+    if security not in (None, "", "none", "tls", "reality"):
+        raise BackendError("VLESS XHTTP download security is unsupported")
+    if security in {"none", "tls", "reality"}:
+        result["tls"] = security in {"tls", "reality"}
+
+    tls_settings = value.get("tlsSettings")
+    if tls_settings is not None:
+        if not isinstance(tls_settings, dict):
+            raise BackendError("VLESS XHTTP download tlsSettings must be an object")
+        allowed_tls = {"serverName", "alpn", "fingerprint", "allowInsecure", "show"}
+        if set(tls_settings) - allowed_tls:
+            raise BackendError("VLESS XHTTP download tlsSettings contains unsupported fields")
+        if security == "none" and tls_settings:
+            raise BackendError("VLESS XHTTP download TLS settings conflict with security none")
+        if tls_settings.get("show") not in (None, False):
+            raise BackendError("VLESS XHTTP download tlsSettings show is unsupported")
+        server_name = xhttp_endpoint(tls_settings.get("serverName"), "server name")
+        if server_name:
+            result["servername"] = server_name
+        alpn = parse_xhttp_alpn(tls_settings.get("alpn"))
+        if alpn:
+            result["alpn"] = alpn
+        fingerprint = xhttp_token(tls_settings.get("fingerprint"), "download fingerprint")
+        if fingerprint:
+            result["client-fingerprint"] = fingerprint
+        if "allowInsecure" in tls_settings:
+            result["skip-cert-verify"] = xhttp_bool(
+                tls_settings["allowInsecure"], "download allowInsecure"
+            )
+
+    compatibility_note = ""
+    reality = value.get("realitySettings")
+    if reality is not None:
+        if security not in (None, "", "reality"):
+            raise BackendError("VLESS XHTTP download Reality conflicts with its security")
+        if not isinstance(reality, dict):
+            raise BackendError("VLESS XHTTP download realitySettings must be an object")
+        allowed_reality = {
+            "publicKey", "password", "shortId", "spiderX", "fingerprint",
+            "serverName", "mldsa65Verify", "show",
+        }
+        if set(reality) - allowed_reality:
+            raise BackendError("VLESS XHTTP download realitySettings contains unsupported fields")
+        if reality.get("show") not in (None, False):
+            raise BackendError("VLESS XHTTP download Reality show is unsupported")
+        if reality.get("mldsa65Verify") not in (None, ""):
+            raise BackendError(
+                "VLESS XHTTP download Reality ML-DSA verification is not supported by Mihomo"
+            )
+        public_key = xhttp_alias(reality, "publicKey", "password")
+        if not isinstance(public_key, str) or not public_key:
+            raise BackendError("VLESS XHTTP download Reality requires a public key")
+        validate_reality_public_key(public_key)
+        short_id = reality.get("shortId", "")
+        if not isinstance(short_id, str):
+            raise BackendError("VLESS XHTTP download Reality short ID has an invalid format")
+        validate_reality_short_id(short_id)
+        reality_opts: dict[str, Any] = {"public-key": public_key}
+        if short_id:
+            reality_opts["short-id"] = short_id
+        result["reality-opts"] = reality_opts
+        result["tls"] = True
+        server_name = xhttp_endpoint(reality.get("serverName"), "Reality server name")
+        if server_name:
+            result["servername"] = server_name
+        fingerprint = xhttp_token(reality.get("fingerprint"), "download Reality fingerprint")
+        if fingerprint:
+            result["client-fingerprint"] = fingerprint
+        if reality.get("spiderX") not in (None, ""):
+            compatibility_note = REALITY_SPX_COMPATIBILITY_NOTE
+    elif security == "reality" and main_security != "reality":
+        raise BackendError(
+            "VLESS XHTTP download Reality requires realitySettings when upload is not Reality"
+        )
+
+    transport = value.get("xhttpSettings")
+    if transport is not None:
+        if not isinstance(transport, dict):
+            raise BackendError("VLESS XHTTP download xhttpSettings must be an object")
+        allowed_transport = {"path", "host", "mode", "headers", "extra"}
+        if set(transport) - allowed_transport:
+            raise BackendError("VLESS XHTTP download xhttpSettings contains unsupported fields")
+        path = transport.get("path")
+        if path not in (None, ""):
+            if (not isinstance(path, str) or len(path.encode("utf-8")) > 2048
+                    or re.search(r"[\x00-\x1f\x7f]", path)):
+                raise BackendError("VLESS XHTTP download path has an invalid format")
+            result["path"] = path if path.startswith("/") else "/" + path
+        host = xhttp_endpoint(transport.get("host"), "host")
+        if host:
+            result["host"] = host
+        mode = transport.get("mode")
+        if mode not in (None, ""):
+            if mode not in {"auto", "stream-up", "packet-up", "stream-one"}:
+                raise BackendError("VLESS XHTTP download mode is unsupported")
+            if main_mode and mode != main_mode:
+                raise BackendError(
+                    "VLESS XHTTP upload and download modes must match in Mihomo"
+                )
+        direct_headers = parse_xhttp_headers(transport.get("headers"))
+        nested = parse_xhttp_download_extra(transport.get("extra"))
+        nested_headers = nested.pop("headers", {})
+        if direct_headers and nested_headers and direct_headers != nested_headers:
+            raise BackendError("VLESS XHTTP download headers conflict")
+        headers = nested_headers or direct_headers
+        if headers:
+            result["headers"] = headers
+        result.update(nested)
+    return result, compatibility_note
+
+
 def decode_xhttp_extra(raw: str) -> dict[str, Any]:
     if not raw:
         return {}
@@ -1641,7 +1866,7 @@ def decode_xhttp_extra(raw: str) -> dict[str, Any]:
     return data
 
 
-def parse_xhttp_extra(raw: str) -> dict[str, Any]:
+def parse_xhttp_extra(raw: str, main_mode: str, main_security: str) -> dict[str, Any]:
     """Translate only the shared, client-side Xray/Mihomo XHTTP subset."""
     data = decode_xhttp_extra(raw)
     if not data:
@@ -1684,10 +1909,14 @@ def parse_xhttp_extra(raw: str) -> dict[str, Any]:
     for key, defaults in ignored_defaults.items():
         if key in data and not any(data[key] == default for default in defaults):
             raise BackendError(f"VLESS XHTTP {key} is server-only and cannot be imported")
-    if data.get("downloadSettings") is not None:
-        raise BackendError("VLESS XHTTP downloadSettings requires the next compatibility layer")
-
     result: dict[str, Any] = {}
+    if data.get("downloadSettings") is not None:
+        download, compatibility_note = parse_xhttp_download(
+            data["downloadSettings"], main_mode or "auto", main_security
+        )
+        result["download-settings"] = download
+        if compatibility_note:
+            result["_compatibility-note"] = compatibility_note
     headers = parse_xhttp_headers(data.get("headers"))
     if headers:
         result["headers"] = headers
@@ -1843,7 +2072,7 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         if mode not in {"", "auto", "stream-one", "stream-up", "packet-up"}:
             raise BackendError(f"Unsupported VLESS XHTTP mode: {mode}")
         if strict_xhttp_extra:
-            xhttp_extra = parse_xhttp_extra(raw_xhttp_extra)
+            xhttp_extra = parse_xhttp_extra(raw_xhttp_extra, mode, security)
         else:
             # Stores created before bounded XHTTP support may contain fields
             # the old importer ignored. Keep the store readable after upgrade,
@@ -1876,7 +2105,8 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         "spider_x": spider_x,
         "compatibility_note": (
             REALITY_SPX_COMPATIBILITY_NOTE
-            if security == "reality" and bool(spider_x) else ""
+            if security == "reality" and bool(spider_x)
+            else str(xhttp_extra.pop("_compatibility-note", ""))
         ),
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",
         "host": first_query(query, "host"),
@@ -1917,6 +2147,28 @@ def yaml_value(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     return json.dumps(str(value), ensure_ascii=False)
+
+
+def append_yaml_mapping(lines: list[str], values: dict[str, Any], indent: int,
+                        *, quote_keys: bool = False) -> None:
+    """Render a schema-validated mapping without accepting arbitrary YAML."""
+    prefix = " " * indent
+    for key, value in values.items():
+        rendered_key = yaml_value(key) if quote_keys else key
+        if isinstance(value, dict):
+            if not value:
+                lines.append(f"{prefix}{rendered_key}: {{}}")
+            else:
+                lines.append(f"{prefix}{rendered_key}:")
+                append_yaml_mapping(
+                    lines, value, indent + 2, quote_keys=(key == "headers")
+                )
+        elif isinstance(value, list):
+            lines.append(
+                f"{prefix}{rendered_key}: {json.dumps(value, ensure_ascii=False)}"
+            )
+        else:
+            lines.append(f"{prefix}{rendered_key}: {yaml_value(value)}")
 
 
 def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
@@ -1965,20 +2217,7 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
             lines.append(f"    host: {y(node['host'])}")
         if node["mode"]:
             lines.append(f"    mode: {y(node['mode'])}")
-        extra = node["xhttp_extra"]
-        if extra.get("headers"):
-            lines.append("    headers:")
-            for key, value in extra["headers"].items():
-                lines.append(f"      {y(key)}: {y(value)}")
-        for key, value in extra.items():
-            if key == "headers":
-                continue
-            if key == "reuse-settings":
-                lines.append("    reuse-settings:")
-                for reuse_key, reuse_value in value.items():
-                    lines.append(f"      {reuse_key}: {y(reuse_value)}")
-            else:
-                lines.append(f"    {key}: {y(value)}")
+        append_yaml_mapping(lines, node["xhttp_extra"], 4)
     return "\n".join(lines)
 
 

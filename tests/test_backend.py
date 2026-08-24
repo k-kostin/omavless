@@ -279,6 +279,133 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn("ignored.example", yaml)
         self.assertNotIn("reuse-settings:", yaml)
 
+    def test_xhttp_download_settings_map_second_tls_endpoint(self):
+        extra = {
+            "xPaddingBytes": "100-1000",
+            "downloadSettings": {
+                "address": "download.example.com",
+                "port": 8443,
+                "network": "xhttp",
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "download-sni.example.com",
+                    "alpn": ["h2", "http/1.1"],
+                    "fingerprint": "chrome",
+                    "allowInsecure": False,
+                },
+                "xhttpSettings": {
+                    "path": "/down",
+                    "host": "download-host.example.com",
+                    "mode": "stream-up",
+                    "headers": {"X-Download": "private-download-value"},
+                    "extra": {
+                        "xmux": {
+                            "maxConnections": 4,
+                            "hMaxRequestTimes": "600-900",
+                            "hKeepAlivePeriod": 0,
+                        }
+                    },
+                },
+                "sockopt": {},
+            },
+        }
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@upload.example.com:443"
+            "?type=xhttp&security=tls&sni=upload.example.com&path=%2Fup&mode=stream-up"
+            "&extra=" + urllib.parse.quote(json.dumps(extra, separators=(",", ":")))
+            + "#Split"
+        )
+        yaml = backend.proxy_yaml({"name": "Split", "uri": uri})
+        for expected in (
+            "download-settings:", 'server: "download.example.com"', "port: 8443",
+            "tls: true", 'servername: "download-sni.example.com"',
+            'alpn: ["h2", "http/1.1"]', 'client-fingerprint: "chrome"',
+            "skip-cert-verify: false", 'path: "/down"',
+            'host: "download-host.example.com"',
+            '"X-Download": "private-download-value"',
+            "reuse-settings:", 'max-connections: "4"',
+        ):
+            self.assertIn(expected, yaml)
+        preview = backend.preview_vless(uri)
+        self.assertTrue(preview["advancedXhttp"])
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("download.example.com", public)
+        self.assertNotIn("private-download-value", public)
+
+    def test_xhttp_download_reality_is_strict_and_spx_is_only_explained(self):
+        extra = {
+            "downloadSettings": {
+                "address": "203.0.113.7",
+                "port": 443,
+                "network": "xhttp",
+                "security": "reality",
+                "realitySettings": {
+                    "publicKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+                    "shortId": "a1b2c3d4",
+                    "serverName": "reality-download.example.com",
+                    "fingerprint": "firefox",
+                    "spiderX": "/private-spider-path",
+                },
+                "xhttpSettings": {"path": "/down", "mode": "packet-up"},
+            }
+        }
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@upload.example.com:443"
+            "?type=xhttp&security=tls&sni=upload.example.com&mode=packet-up&extra="
+            + urllib.parse.quote(json.dumps(extra, separators=(",", ":"))) + "#Reality-down"
+        )
+        yaml = backend.proxy_yaml({"name": "Reality down", "uri": uri})
+        self.assertIn("download-settings:", yaml)
+        self.assertIn("reality-opts:", yaml)
+        self.assertIn(
+            'public-key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"', yaml
+        )
+        self.assertIn('short-id: "a1b2c3d4"', yaml)
+        self.assertNotIn("spider-x", yaml)
+        preview = backend.preview_vless(uri)
+        self.assertEqual(
+            preview["compatibilityNote"], backend.REALITY_SPX_COMPATIBILITY_NOTE
+        )
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("private-spider-path", public)
+        self.assertNotIn("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", public)
+
+    def test_xhttp_download_rejects_unrepresentable_nested_policy(self):
+        prefix = (
+            "vless://11111111-1111-4111-8111-111111111111@upload.example.com:443"
+            "?type=xhttp&security=tls&sni=upload.example.com&mode=stream-up&extra="
+        )
+
+        def uri_for(download: dict[str, object], *, mode: str = "stream-up") -> str:
+            base = prefix.replace("mode=stream-up", f"mode={mode}")
+            return base + urllib.parse.quote(json.dumps({"downloadSettings": download})) + "#Bad"
+
+        cases = (
+            ({"network": "grpc"}, "network must be xhttp"),
+            ({"address": "bad host/name"}, "address has an invalid format"),
+            ({"port": 70000}, "port is invalid"),
+            ({"sockopt": {"dialerProxy": "secret"}}, "sockopt is not imported"),
+            ({"security": "none", "tlsSettings": {"serverName": "example.com"}},
+             "conflict with security none"),
+            ({"security": "tls", "tlsSettings": {"certificate": "secret"}},
+             "tlsSettings contains unsupported"),
+            ({"xhttpSettings": {"mode": "packet-up"}}, "modes must match"),
+            ({"xhttpSettings": {"extra": {"xPaddingBytes": "10-20"}}},
+             "cannot be overridden independently"),
+            ({"xhttpSettings": {"headers": {"X-A": "one"},
+                                "extra": {"headers": {"X-A": "two"}}}},
+             "headers conflict"),
+            ({"security": "reality", "realitySettings": {
+                "publicKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+                "mldsa65Verify": "private-verifier",
+            }}, "ML-DSA verification"),
+        )
+        for download, error in cases:
+            with self.subTest(error=error), self.assertRaisesRegex(backend.BackendError, error):
+                backend.parse_vless(uri_for(download))
+        with self.assertRaisesRegex(backend.BackendError, "stream-one"):
+            backend.parse_vless(uri_for({}, mode="stream-one"))
+
     def test_xhttp_extra_rejects_ambiguous_or_unbounded_input(self):
         prefix = (
             "vless://11111111-1111-4111-8111-111111111111@example.com:443"
@@ -294,7 +421,6 @@ class BackendTests(unittest.TestCase):
             (json.dumps({"headers": {"Host": "override.example"}}), "header name"),
             (json.dumps({"headers": {"X-Test": "ok\r\nInjected: yes"}}), "header value"),
             (json.dumps({"extra": {"extra": {}}}), "recursive"),
-            (json.dumps({"downloadSettings": {}}), "next compatibility layer"),
             (json.dumps({"noSSEHeader": True}), "server-only"),
             (json.dumps({"xmux": {"maxConcurrency": 2, "maxConnections": 3}}),
              "mutually exclusive"),
@@ -2278,6 +2404,24 @@ esac
             "xPaddingBytes": "100-1000",
             "xmux": {"maxConcurrency": "16-32", "hKeepAlivePeriod": 0},
         }, separators=(",", ":")))
+        xhttp_download_extra = urllib.parse.quote(json.dumps({
+            "downloadSettings": {
+                "address": "download.example.com",
+                "port": 443,
+                "network": "xhttp",
+                "security": "tls",
+                "tlsSettings": {
+                    "serverName": "download.example.com",
+                    "alpn": ["h2"],
+                    "fingerprint": "chrome",
+                    "allowInsecure": False,
+                },
+                "xhttpSettings": {
+                    "path": "/down", "host": "download.example.com",
+                    "mode": "stream-up",
+                },
+            }
+        }, separators=(",", ":")))
         profiles = {
             "reality-vision": REALITY_URI,
             "reality-vision-udp443-xudp": (
@@ -2295,6 +2439,11 @@ esac
                 "vless://11111111-1111-4111-8111-111111111111@example.com:443"
                 "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
                 f"&mode=packet-up&extra={xhttp_extra}#XHTTP-extra"
+            ),
+            "xhttp-split-download": (
+                "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+                "?type=xhttp&security=tls&sni=example.com&path=%2Fup"
+                f"&mode=stream-up&extra={xhttp_download_extra}#XHTTP-split"
             ),
         }
         for name, uri in profiles.items():
