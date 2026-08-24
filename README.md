@@ -79,10 +79,10 @@ are stored privately under `~/.config/omavless/`.
 - Optional: `zenity` for file/edit dialogs, `wl-clipboard` for paste, and
   `qrencode` for QR display.
 
-OmaVLESS never edits `/etc/sudoers`, installs passwordless commands, invokes
-`sudo`/`pkexec`, changes crontab or downloads executable code. The explicit
-`setcap` command above is a one-time administrator action performed by the
-user.
+OmaVLESS creates no administrator policy files or passwordless command rules,
+does not invoke `sudo`/`pkexec`, change crontab or download executable code.
+The explicit `setcap` command above is a one-time administrator action
+performed by the user.
 
 Marketplace security review is expected to classify this plugin as
 `review-required`: the repository contains an optional manual installer, asks
