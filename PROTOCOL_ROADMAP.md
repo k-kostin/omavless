@@ -49,6 +49,7 @@ The open work is a linear stack. Test and integrate it in this exact order:
 13. [#13 — experimental Hysteria2 profiles](https://github.com/k-kostin/omavless/pull/13), based on #12
 14. [#14 — experimental TUIC v5 profiles](https://github.com/k-kostin/omavless/pull/14), based on #13
 15. [#15 — Mihomo 1.19.30 and AmneziaWG roadmap addendum](https://github.com/k-kostin/omavless/pull/15), based on #14
+16. [#16 — marketplace security preflight and tooltip hardening](https://github.com/k-kostin/omavless/pull/16), based on #15
 
 Later protocol PRs remain based on the preceding unmerged PR until the stack
 is integrated.
@@ -477,6 +478,34 @@ Start X1 only when all of the following are true:
 
 Until then, a Mihomo-incompatible profile receives a precise compatibility
 error rather than an automatic hidden fallback.
+
+## Marketplace security preflight
+
+Before submitting or updating the marketplace entry, audit the exact commit
+being submitted rather than only running manifest/Quattro validation:
+
+- reusable credentials travel over stdin or an already-private file descriptor,
+  never argv, shell source text or process environment;
+- every credential file is created with its final private mode before the first
+  byte is written, then atomically replaced; symlink and owner checks cover the
+  private directory, store, generated config and temporary exports;
+- no user-writable file is consumed by a root service and no passwordless
+  sudo/Polkit rule can activate user-controlled privileged configuration;
+- remote authenticated APIs require HTTPS, except an explicitly validated
+  loopback HTTP endpoint;
+- provider/profile names and all other untrusted metadata reach QML only via
+  `Text.PlainText` or a sink-local AutoText sanitizer; include bar tooltips,
+  hover tooltips, dialogs, notifications and error/status strings in the audit;
+- normal removal names every private or privileged file it intentionally keeps,
+  and a documented purge path removes credential-bearing state after the
+  service is stopped;
+- the PR includes adversarial tests for process inspection, creation-time file
+  modes, root-service boundaries, rich-text-shaped names and removal residue.
+
+Package installation, one-time capability setup and user-service management
+will still trigger marketplace manual review. They are declared capabilities,
+not automatic vulnerabilities. Keep them narrowly scoped, explain why each is
+required, and provide a no-passwordless-policy design for the reviewer.
 
 ## Pull-request discipline for future agents
 
