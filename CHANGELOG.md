@@ -86,6 +86,10 @@ All notable changes to OmaVLESS are documented here.
 - Added a plugin-owned private Unix controller for live route inspection and
   rule updates. Adopted templates have inherited controller listeners removed
   before the runtime config is generated.
+- Made Full VPN explicitly select and verify the active profile in Mihomo's
+  `GLOBAL` group instead of inheriting a cached `DIRECT` choice. New bundled
+  templates also ship a non-cyclic `GLOBAL` default, while existing private
+  routing templates are fixed at runtime without being overwritten.
 - Added a compact three-step first-run guide that checks Mihomo and required
   TUN capabilities, offers a skippable country Routing profile, and reuses the
   private VLESS import flow. Package and capability commands are copy-only and

@@ -1157,13 +1157,22 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 
 
 def controller_request(
-    socket_path: Path, method: str, path: str, timeout: float
+    socket_path: Path, method: str, path: str, timeout: float,
+    payload: dict[str, Any] | None = None,
 ) -> tuple[int, Any]:
     if method not in {"GET", "PUT"} or not path.startswith("/") or len(path) > 4096:
         raise BackendError("Invalid private Mihomo controller request")
+    encoded = b""
+    if payload is not None:
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > 4096:
+            raise BackendError("Private Mihomo controller request is too large")
     connection = UnixHTTPConnection(socket_path, timeout)
     try:
-        connection.request(method, path, headers={"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+        connection.request(method, path, body=encoded or None, headers=headers)
         response = connection.getresponse()
         body = response.read(PROBE_RESULT_BYTES + 1)
         if len(body) > PROBE_RESULT_BYTES:
@@ -3449,6 +3458,46 @@ def prepare_controller_socket(paths: Paths) -> None:
         socket_path.unlink()
 
 
+def wait_private_controller(paths: Paths, timeout: float = 5.0) -> Path:
+    """Wait until the active core accepts requests on its private Unix socket."""
+    socket_path = controller_socket(paths)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if socket_path.exists():
+            try:
+                status_code, _payload = controller_json(socket_path, "/version", 0.5)
+                if status_code == 200:
+                    return socket_path
+            except (BackendError, OSError):
+                pass
+        time.sleep(0.05)
+    raise BackendError("Private Mihomo controller did not become ready")
+
+
+def select_global_proxy(paths: Paths, profile_name: str) -> None:
+    """Make Full VPN select the active profile instead of cached DIRECT.
+
+    Mihomo's ``global`` mode routes through the built-in GLOBAL selector; merely
+    writing ``mode: global`` does not select an outbound.  The controller lives
+    in OmaVLESS's private runtime directory and the selected profile name is
+    never returned through public status or diagnostics.
+    """
+    socket_path = wait_private_controller(paths)
+    endpoint = "/proxies/" + urllib.parse.quote("GLOBAL", safe="")
+    status_code, _payload = controller_request(
+        socket_path, "PUT", endpoint, 5, {"name": profile_name}
+    )
+    if status_code != 204:
+        raise BackendError("Mihomo refused the Full VPN outbound selection")
+    status_code, selected = controller_json(socket_path, endpoint, 5)
+    if (
+        status_code != 200
+        or not isinstance(selected, dict)
+        or selected.get("now") != profile_name
+    ):
+        raise BackendError("Mihomo did not retain the Full VPN outbound selection")
+
+
 def render_config(
     paths: Paths, profile: dict[str, Any], store: dict[str, Any] | None = None
 ) -> str:
@@ -4460,8 +4509,9 @@ def startup_connect(paths: Paths) -> None:
         if paths.config.exists() else None
     )
     was_active = service_active(SERVICE)
+    startup_mode = str(startup["mode"])
     candidate = test_config(
-        paths, core, render_config_mode(paths, profile, str(startup["mode"]), store)
+        paths, core, render_config_mode(paths, profile, startup_mode, store)
     )
     try:
         prepare_controller_socket(paths)
@@ -4470,6 +4520,8 @@ def startup_connect(paths: Paths) -> None:
         systemctl("restart" if was_active else "start", SERVICE)
         if not service_active(SERVICE):
             raise BackendError("OmaVLESS service did not remain active after login autoconnect")
+        if startup_mode == "global":
+            select_global_proxy(paths, str(profile["name"]))
         store["activeId"] = profile_id
         store["lastId"] = profile_id
         save_store(paths, store)
@@ -4511,7 +4563,9 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
         raise BackendError("Mihoro is running. Stop mihomo.service before starting OmaVLESS")
     core = find_core(paths)
     ensure_unit(paths, core)
-    candidate = test_config(paths, core, render_config(paths, profile, store))
+    rendered = render_config(paths, profile, store)
+    routing_mode = yaml_top_level_scalar(rendered, "mode")
+    candidate = test_config(paths, core, rendered)
     old_config = (read_text_file(paths.config, MAX_TEMPLATE_BYTES, "generated config", private=True).encode()
                   if paths.config.exists() else None)
     was_active = service_active(SERVICE)
@@ -4528,6 +4582,8 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
             systemctl("enable", "--now", SERVICE)
         if not service_active(SERVICE):
             raise BackendError("OmaVLESS service did not remain active after startup")
+        if routing_mode == "global":
+            select_global_proxy(paths, str(profile["name"]))
         store["activeId"] = profile_id
         store["lastId"] = profile_id
         save_store(paths, store)

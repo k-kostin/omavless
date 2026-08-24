@@ -88,7 +88,13 @@ proxies:
 proxy-groups:
   - name: PROXY
     type: select
-    include-all: true
+    include-all-proxies: true
+    exclude-type: Direct|Reject|Pass|Compatible
+  - name: GLOBAL
+    type: select
+    proxies:
+      - PROXY
+    default-selected: PROXY
 
 rule-providers:
   private-domains:
