@@ -228,6 +228,16 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
+  function openRoutingTools() {
+    vless.loadCustomRules()
+    routingToolsPrompt.openTools()
+  }
+
+  function closeRoutingTools() {
+    routingToolsPrompt.dismiss()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
   function closeSettings() {
     page = "main"
   }
@@ -760,6 +770,7 @@ Panel {
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
     onboardingWizard.dismiss()
+    routingToolsPrompt.dismiss()
     cancelImport()
     if (opened) {
       page = "main"
@@ -997,7 +1008,7 @@ Panel {
       blocked: root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
-        || profileSearch.activeFocus
+        || routingToolsPrompt.visible || profileSearch.activeFocus
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
@@ -1911,6 +1922,24 @@ Panel {
             }
           }
 
+          SettingsActionRow {
+            title: "Routing tools"
+            description: root.plural(vless.routing.customRuleCount,
+              "custom rule", "custom rules") + " · check a domain"
+            actionText: "Open"
+            onAction: root.openRoutingTools()
+          }
+
+          SettingsActionRow {
+            title: "Remote rule data"
+            description: vless.routing.rulesUpdatedAt > 0
+              ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
+              : "Automatic schedule · not checked manually"
+            actionText: vless.busy ? "Updating…" : "Refresh"
+            actionEnabled: vless.routing.ruleUpdateAvailable && !vless.busy
+            onAction: vless.refreshRuleProviders()
+          }
+
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
@@ -1922,7 +1951,9 @@ Panel {
           SettingsActionRow {
             title: "Subscriptions"
             description: root.plural(vless.subscriptions.length, "provider", "providers")
-              + " · updates remain manual"
+              + " · " + (vless.latestSubscriptionUpdatedAt > 0
+                ? root.subscriptionAge(vless.latestSubscriptionUpdatedAt).toLowerCase()
+                : "never updated")
             actionText: "Manage"
             onAction: root.openSubscriptions()
           }
@@ -2133,6 +2164,32 @@ Panel {
           dismiss()
           Qt.callLater(function() { keyCatcher.forceActiveFocus() })
         }
+      }
+
+      RoutingToolsPrompt {
+        id: routingToolsPrompt
+        anchors.fill: parent
+        rules: vless.customRules
+        result: vless.routeCheckResult
+        loading: vless.routingToolsLoading || vless.routeChecking
+        busy: vless.busy || vless.routingToolsLoading || vless.routeChecking
+        refreshAvailable: vless.routing.ruleUpdateAvailable
+        rulesUpdatedLabel: vless.routing.rulesUpdatedAt > 0
+          ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
+          : "Automatic schedule · not checked manually"
+        statusText: vless.routingToolStatus
+        errorText: vless.routingToolError
+        foreground: root.foreground
+        dim: root.dim
+        urgent: root.urgent
+        fontFamily: root.fontFamily
+        onAddRule: function(kind, action, value) {
+          vless.addCustomRule(kind, action, value)
+        }
+        onDeleteRule: function(rule) { vless.deleteCustomRule(rule) }
+        onCheckRoute: function(value) { vless.checkRoute(value) }
+        onRefreshRules: vless.refreshRuleProviders()
+        onCanceled: root.closeRoutingTools()
       }
 
       RoutingPresetPrompt {

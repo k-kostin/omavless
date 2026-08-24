@@ -4,6 +4,18 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Added Settings-only custom routing rules for exact domains, domain suffixes
+  and IPv4/IPv6 ranges, with VPN, Direct and Block actions evaluated before the
+  selected country preset.
+- Added `Where will this destination go?` with mode/custom-rule explanations
+  and live Mihomo matched-rule detection. The live check opens one TCP
+  connection to port 443 without loading a page and hides profile/group names.
+- Added manual HTTP rule-provider refresh with an all-or-nothing success
+  timestamp, plus compact indicators for the latest successful rule and
+  subscription updates.
+- Added a plugin-owned private Unix controller for live route inspection and
+  rule updates. Adopted templates have inherited controller listeners removed
+  before the runtime config is generated.
 - Added a compact three-step first-run guide that checks Mihomo and required
   TUN capabilities, offers a skippable country Routing profile, and reuses the
   private VLESS import flow. Package and capability commands are copy-only and
