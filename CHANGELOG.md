@@ -4,6 +4,27 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Hardened VLESS share-link parsing against duplicate fields, case-insensitive
+  duplicates, conflicting aliases, malformed booleans and unknown options.
+  Recognized provider-only metadata is bounded, explained during import and
+  never copied into Mihomo configuration.
+- Based VLESS subscription identity on supported connection semantics rather
+  than labels, query ordering or provider priority hints. Legacy stored keys
+  migrate during refresh while retaining profile IDs, favorites, active/last
+  selection and autoconnect relationships.
+- Sanitized provider-controlled profile metadata before every stock Omarchy
+  text sink, including hero metadata and confirmation dialogs, so QML cannot
+  interpret a profile label as rich text.
+- Preserved option-like profile/subscription names and file destinations with
+  explicit argument boundaries, and kept profile credentials on stdin rather
+  than process command lines.
+- Replaced raw Mihomo configuration-test output and malformed-link parser
+  details with credential-free errors while retaining actionable recovery
+  states for service operations.
+- Added host-independent status tests, bracketed-IPv6 coverage, live procfs
+  credential-boundary checks and migration regression tests. All supported
+  generated profile families are also checked by the installed-core opt-in
+  integration test.
 - Added a protocol-neutral profile adapter for import, preview, Mihomo output,
   probes and subscription identity. Private stores migrate in memory to v3
   with an explicit protocol discriminator while preserving profile IDs,

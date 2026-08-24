@@ -5,7 +5,7 @@
   "version": "0.7.0",
   "author": "kdk",
   "license": "MIT",
-  "description": "Import, subscribe to and switch VLESS profiles from the Omarchy bar using a dedicated Mihomo TUN service, with guided setup, favorites, safe diagnostics and editable routing rules.",
+  "description": "Import, subscribe to and switch VLESS plus experimental Trojan, Hysteria2 and TUIC profiles from the Omarchy bar using a dedicated Mihomo TUN service.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "OmaVLESS",
-    "description": "Toggle, pin, import and subscribe to VLESS profiles backed by Mihomo. Includes redacted import review, safe diagnostics, login autoconnect and editable routing rules.",
+    "description": "Toggle, pin, import and subscribe to supported proxy profiles backed by Mihomo. Includes redacted import review, safe diagnostics, login autoconnect and editable routing rules.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",
