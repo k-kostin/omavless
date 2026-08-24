@@ -46,6 +46,7 @@ The open work is a linear stack. Test and integrate it in this exact order:
 10. [#10 — experimental VLESS Encryption and REALITY PQ](https://github.com/k-kostin/omavless/pull/10), based on #9
 11. [#11 — protocol-neutral profile adapters](https://github.com/k-kostin/omavless/pull/11), based on #10
 12. [#12 — experimental Trojan profiles](https://github.com/k-kostin/omavless/pull/12), based on #11
+13. [#13 — experimental Hysteria2 profiles](https://github.com/k-kostin/omavless/pull/13), based on #12
 
 Later protocol PRs remain based on the preceding unmerged PR until the stack
 is integrated.
@@ -230,6 +231,9 @@ independent servers and one subscription provider.
 
 ## Phase P2 — experimental Hysteria2
 
+Status: implemented in #13; pending Omarchy, current-Mihomo and independent
+server/provider verification on both UDP-friendly and UDP-restricted networks.
+
 Initial scope:
 
 - official `hysteria2://` and `hy2://` URI forms;
@@ -238,6 +242,27 @@ Initial scope:
 - no Realm mode in the first slice;
 - bandwidth values remain local client settings and are not trusted from a
   shared URI.
+
+The implemented importer accepts the official `hysteria2://` and `hy2://`
+forms, including percent-encoded auth/userpass, a default port of 443,
+bounded individual/range port lists, `salamander` or `gecko`, SNI, strict
+certificate verification preference, SHA-256 certificate pinning and a
+bounded base64 ECH config. It maps only those values to current Mihomo fields.
+Unknown and duplicate fields, overlapping/invalid ranges and URI-carried
+bandwidth are rejected before storage. Authentication, obfuscation passwords,
+certificate pins and ECH bytes are absent from public preview and diagnostics.
+
+Realm links remain outside this slice because their rendezvous token, Hysteria
+auth, Realm ID, STUN list and local port form a different connection model.
+Likewise, hop interval and bandwidth remain local settings rather than hidden
+provider-controlled query extensions.
+
+Schema references: the official [Hysteria 2 URI
+scheme](https://v2.hysteria.network/docs/developers/URI-Scheme/), official
+[port-hopping format](https://v2.hysteria.network/docs/advanced/Port-Hopping/),
+[Mihomo Hysteria2 documentation](https://wiki.metacubex.one/en/config/proxies/hysteria2/)
+and the current [`Hysteria2Option`
+implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/hysteria2.go).
 
 Omarchy testing must cover networks where UDP/QUIC works and where it is
 restricted, with errors that distinguish server failure from blocked UDP.

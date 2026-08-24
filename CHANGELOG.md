@@ -12,6 +12,11 @@ All notable changes to OmaVLESS are documented here.
   mixed VLESS/Trojan subscriptions. TCP, WebSocket and gRPC map to Mihomo with
   TLS or the supported REALITY subset; unsupported share fields fail before
   storage and public preview never receives the Trojan password.
+- Added experimental Hysteria2 profiles for official `hysteria2://` and
+  `hy2://` manual and subscription import. Authentication, multi-port hopping,
+  SNI, certificate pinning, ECH and `salamander`/`gecko` map to current Mihomo;
+  Realm, bandwidth and unknown provider fields fail closed, while preview and
+  diagnostics receive no authentication or obfuscation secrets.
 - Tightened VLESS compatibility boundaries: XUDP/PacketAddr encodings and
   XHTTP modes are now normalized and strictly validated, while both Xray
   Vision share-link variants map to Mihomo's single supported Vision flow
