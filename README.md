@@ -135,9 +135,19 @@ documented; the normal plugin installation does not exercise them silently.
   name or latency order; subscription refreshes preserve pins for nodes that
   still exist. The star action appears on row focus/hover and `f` toggles it
   from the keyboard, keeping the compact list quiet otherwise.
-- TCP, WebSocket, HTTP, H2, gRPC and XHTTP transports.
+- TCP, WebSocket, HTTP, H2, gRPC and XHTTP transports. XHTTP accepts the
+  Mihomo modes `auto`, `stream-one`, `stream-up` and `packet-up`; unsupported
+  values are rejected before a profile can be stored.
 - None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk`, `sid`
   and `spx` URI parameters.
+- Xray `packetEncoding=xudp` and `packetEncoding=packetaddr` UDP encodings.
+  Other packet encodings are rejected instead of being copied into Mihomo
+  configuration.
+- Both Xray Vision share-link values are recognized. Mihomo exposes only
+  `xtls-rprx-vision`, whose UDP/443 behavior corresponds to Xray's explicit
+  `xtls-rprx-vision-udp443` variant; OmaVLESS preserves the imported variant
+  for review but does not claim the two cores have identical QUIC behavior.
+  Vision is accepted only with TCP plus TLS or Reality.
 - Exclusive profile switching with Mihomo config validation before restart.
 - TUN status, traffic, ping, endpoint/transport/SNI details, rename, edit,
   delete, file export and QR display. The active view also includes uptime,
