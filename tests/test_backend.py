@@ -2843,6 +2843,22 @@ esac
                 backend.mark_active(paths, profile_id, time.time_ns() // 1_000_000)
                 self.assertEqual(backend.notify_drop(paths, profile_id, "Example"), 0)
 
+    def test_external_drop_notification_does_not_render_profile_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            malicious = '<img src="https://attacker.invalid/pixel">'
+            with mock.patch.object(
+                backend.shutil, "which", return_value="/usr/bin/notify-send"
+            ), mock.patch.object(backend, "run") as runner:
+                self.assertEqual(backend.notify_drop(paths, profile_id, malicious), 0)
+            command = runner.call_args.args[0]
+            self.assertEqual(command[-1], "A VPN profile was deactivated")
+            self.assertNotIn(malicious, command)
+
     def test_connect_failure_restores_config_and_reports_recovery(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)

@@ -4906,7 +4906,7 @@ def notify_drop(paths: Paths, profile_id: str, name: str) -> int:
     atomic_write(notice, f"{now_ms}\n")
     if shutil.which("notify-send"):
         run([str(shutil.which("notify-send")), "-a", "OmaVLESS", "OmaVLESS",
-             f"Profile {name} was deactivated"], check=False)
+             "A VPN profile was deactivated"], check=False)
     return 0
 
 

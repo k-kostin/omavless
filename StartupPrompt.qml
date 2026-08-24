@@ -21,6 +21,15 @@ Item {
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
 
+  // Button and tooltip labels come from shared Omarchy controls whose text
+  // format may be AutoText. Keep imported profile metadata inert at the sink.
+  function safeTooltip(value) {
+    return String(value === undefined || value === null ? "" : value)
+      .replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim()
+      .substring(0, 80)
+      .replace(/&/g, "＆").replace(/</g, "‹").replace(/>/g, "›")
+  }
+
   property bool enabledChoice: false
   property string targetChoice: "last"
   property string profileChoice: ""
@@ -157,8 +166,8 @@ Item {
                     Button {
                       required property var modelData
                       width: profileColumn.width
-                      text: modelData.name
-                      tooltipText: modelData.name
+                      text: prompt.safeTooltip(modelData.name)
+                      tooltipText: prompt.safeTooltip(modelData.name)
                       bordered: prompt.profileChoice === modelData.uuid
                       foreground: prompt.profileChoice === modelData.uuid ? Color.accent : prompt.foreground
                       fontFamily: prompt.fontFamily

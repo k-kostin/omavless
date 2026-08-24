@@ -115,6 +115,13 @@ Panel {
     + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
       : '"$(command -v mihomo)"')
 
+  // Omarchy's shared tooltip components render AutoText. Keep the safety
+  // boundary at the sink as well as in Service's public-data decoder so a
+  // future adapter cannot turn provider metadata into rich-text markup.
+  function safeTooltip(value, maximum) {
+    return vless.plainText(value, maximum === undefined ? 512 : maximum)
+  }
+
   function formatUptime(seconds) {
     var total = Math.max(0, Math.floor(Number(seconds) || 0))
     if (total < 60) return "<1m"
@@ -986,7 +993,7 @@ Panel {
       : root.barStatusIcon
     slotSize: vless.showBarThroughput && vless.active && vless.barThroughput !== "" && !vertical
       ? Style.bar.iconSlot * 4 : Style.bar.iconSlot
-    tooltipText: root.barTooltip
+    tooltipText: root.safeTooltip(root.barTooltip, 220)
     foreground: root.barIconColor
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) {
@@ -1219,7 +1226,8 @@ Panel {
                   // it would have no subject.
                   PanelActionButton {
                     iconText: "󰐲"
-                    tooltipText: "Show " + vless.primaryName + " as a QR code (q)"
+                    tooltipText: root.safeTooltip(
+                      "Show " + vless.primaryName + " as a QR code (q)", 180)
                     visible: vless.active && vless.supports("qr")
                     anchors.verticalCenter: parent.verticalCenter
                     // Full brightness at rest, like every other hero control:
@@ -1246,9 +1254,9 @@ Panel {
                     text: "Test"
                     iconText: vless.testingConnection ? "󰑓" : ""
                     iconSpinning: vless.testingConnection
-                    tooltipText: vless.testingConnection
+                    tooltipText: root.safeTooltip(vless.testingConnection
                       ? "Testing the active tunnel…"
-                      : "Test the active tunnel to " + vless.pingHost
+                      : "Test the active tunnel to " + vless.pingHost, 180)
                     visible: vless.active && vless.supports("connectionTest")
                     anchors.verticalCenter: parent.verticalCenter
                     bordered: true
@@ -1275,7 +1283,7 @@ Panel {
 
                     PanelToolTip {
                       visible: powerSwitch.containsMouse
-                      text: root.toggleHint
+                      text: root.safeTooltip(root.toggleHint, 120)
                       fontFamily: hero.fontFamily
                     }
                   }
@@ -2646,7 +2654,8 @@ Panel {
       // so the tooltip carries the whole string when the cell could not.
       PanelToolTip {
         visible: valueMouse.enabled && valueMouse.containsMouse
-        text: pairValue.truncated ? pair.value + " · " + pair.tooltipText : pair.tooltipText
+        text: root.safeTooltip(pairValue.truncated
+          ? pair.value + " · " + pair.tooltipText : pair.tooltipText, 512)
         fontFamily: root.fontFamily
       }
     }
@@ -2772,7 +2781,7 @@ Panel {
 
     PanelToolTip {
       visible: groupMouse.containsMouse && (groupTitle.truncated || groupSummary.truncated)
-      text: groupTitle.text + "\n" + groupSummary.text
+      text: root.safeTooltip(groupTitle.text + "\n" + groupSummary.text, 320)
       fontFamily: root.fontFamily
     }
   }
@@ -2850,8 +2859,9 @@ Panel {
       }
       PanelActionButton {
         iconText: serverRow.profile && serverRow.profile.favorite ? "󰓎" : "󰓒"
-        tooltipText: (serverRow.profile && serverRow.profile.favorite ? "Unpin " : "Pin ")
-          + (serverRow.profile ? serverRow.profile.name : "profile")
+        tooltipText: root.safeTooltip(
+          (serverRow.profile && serverRow.profile.favorite ? "Unpin " : "Pin ")
+            + (serverRow.profile ? serverRow.profile.name : "profile"), 160)
         foreground: serverRow.profile && serverRow.profile.favorite ? Color.accent : root.dim
         hoverColor: Color.accent
         fontFamily: root.fontFamily
@@ -3067,7 +3077,8 @@ Panel {
         PanelToolTip {
           visible: subscriptionMouse.containsMouse
             && (subscriptionTitle.truncated || subscriptionSummary.truncated)
-          text: subscriptionTitle.text + "\n" + subscriptionSummary.text
+          text: root.safeTooltip(
+            subscriptionTitle.text + "\n" + subscriptionSummary.text, 320)
           fontFamily: root.fontFamily
         }
       }
@@ -3182,8 +3193,9 @@ Panel {
 
       PanelActionButton {
         iconText: configRow.profile && configRow.profile.favorite ? "󰓎" : "󰓒"
-        tooltipText: (configRow.profile && configRow.profile.favorite ? "Unpin " : "Pin ")
-          + (configRow.profile ? configRow.profile.name : "profile")
+        tooltipText: root.safeTooltip(
+          (configRow.profile && configRow.profile.favorite ? "Unpin " : "Pin ")
+            + (configRow.profile ? configRow.profile.name : "profile"), 160)
         foreground: configRow.profile && configRow.profile.favorite ? Color.accent : root.dim
         hoverColor: Color.accent
         fontFamily: root.fontFamily
@@ -3195,7 +3207,8 @@ Panel {
 
       PanelActionButton {
         iconText: "󰏫"
-        tooltipText: "Edit config or name for " + (configRow.profile ? configRow.profile.name : "profile") + " (e / n)"
+        tooltipText: root.safeTooltip("Edit config or name for "
+          + (configRow.profile ? configRow.profile.name : "profile") + " (e / n)", 180)
         foreground: root.dim
         hoverColor: root.foreground
         fontFamily: root.fontFamily
@@ -3207,7 +3220,9 @@ Panel {
 
       PanelActionButton {
         iconText: "󰐲"
-        tooltipText: "Show " + (configRow.profile ? configRow.profile.name : "profile") + " as a QR code (q)"
+        tooltipText: root.safeTooltip("Show "
+          + (configRow.profile ? configRow.profile.name : "profile")
+          + " as a QR code (q)", 180)
         foreground: root.dim
         hoverColor: root.foreground
         fontFamily: root.fontFamily
@@ -3219,7 +3234,8 @@ Panel {
 
       PanelActionButton {
         iconText: "󰆴"
-        tooltipText: "Delete " + (configRow.profile ? configRow.profile.name : "profile") + " (x)"
+        tooltipText: root.safeTooltip("Delete "
+          + (configRow.profile ? configRow.profile.name : "profile") + " (x)", 160)
         foreground: root.dim
         hoverColor: root.urgent
         fontFamily: root.fontFamily
