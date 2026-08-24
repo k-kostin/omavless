@@ -38,9 +38,16 @@ The open work is a linear stack. Test and integrate it in this exact order:
 2. [#2 — guided setup and login autoconnect](https://github.com/k-kostin/omavless/pull/2), based on #1
 3. [#3 — custom routing tools and rule refresh](https://github.com/k-kostin/omavless/pull/3), based on #2
 4. [#4 — favorites, import review and safe diagnostics](https://github.com/k-kostin/omavless/pull/4), based on #3
-5. The roadmap PR containing this document, based on #4
-6. VLESS and later protocol PRs listed below, each based on the preceding
-   unmerged PR until the stack is integrated
+5. [#5 — protocol roadmap](https://github.com/k-kostin/omavless/pull/5), based on #4
+6. [#6 — strict VLESS semantics](https://github.com/k-kostin/omavless/pull/6), based on #5
+7. [#7 — REALITY compatibility](https://github.com/k-kostin/omavless/pull/7), based on #6
+8. [#8 — bounded XHTTP extras](https://github.com/k-kostin/omavless/pull/8), based on #7
+9. [#9 — XHTTP split-download settings](https://github.com/k-kostin/omavless/pull/9), based on #8
+10. [#10 — experimental VLESS Encryption and REALITY PQ](https://github.com/k-kostin/omavless/pull/10), based on #9
+11. [#11 — protocol-neutral profile adapters](https://github.com/k-kostin/omavless/pull/11), based on #10
+
+Later protocol PRs remain based on the preceding unmerged PR until the stack
+is integrated.
 
 For each stacked PR on the Omarchy machine:
 
@@ -160,6 +167,9 @@ than a false diagnosis.
 
 ## Phase A1 — protocol-neutral profile adapters
 
+Status: implemented in the protocol-adapter PR after #10; pending Omarchy and
+real-Mihomo verification.
+
 Goal: remove VLESS-only assumptions before exposing a second protocol.
 
 Introduce an internal adapter contract with protocol-specific implementations
@@ -176,6 +186,11 @@ The private store may continue to hold the original URI, but it gains an
 explicit protocol discriminator and a versioned migration. Existing VLESS IDs,
 favorites, subscription membership, active selection and autoconnect choices
 must survive the migration.
+
+The implemented v3 migration is in-memory on read and becomes durable only on
+the next user mutation. A v3 profile must declare a supported protocol matching
+its link. Public status exposes only that discriminator and the existing
+non-secret endpoint; it never exposes the URI.
 
 This phase is deliberately user-visible only as clearer neutral wording such as
 “profile” or “connection”. It must not add a partially implemented protocol.

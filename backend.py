@@ -265,7 +265,7 @@ def invalidate_status_cache(paths: Paths) -> None:
 
 def empty_store() -> dict[str, Any]:
     return {
-        "version": 2, "activeId": "", "lastId": "",
+        "version": 3, "activeId": "", "lastId": "",
         "profiles": [], "subscriptions": [], "routingPreset": "",
         "customRules": [], "rulesUpdatedAt": 0,
         "startupConfigured": True,
@@ -278,13 +278,14 @@ def empty_store() -> dict[str, Any]:
 
 def validate_store(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict) or not isinstance(data.get("profiles"), list):
-        raise BackendError("VLESS profile store has an invalid format")
+        raise BackendError("Profile store has an invalid format")
     version = data.get("version", 1)
-    if version not in {1, 2}:
-        raise BackendError(f"Unsupported VLESS profile store version: {data.get('version')}")
+    if version not in {1, 2, 3}:
+        raise BackendError(f"Unsupported profile store version: {data.get('version')}")
     # Version 1 had only local profiles. Migration is deliberately in-memory:
-    # the next real mutation writes v2 atomically, while a status poll does not
-    # churn a private credential file merely because the plugin was upgraded.
+    # the next real mutation writes the current version atomically, while a
+    # status poll does not churn a private credential file merely because the
+    # plugin was upgraded.
     subscriptions = data.setdefault("subscriptions", [])
     if not isinstance(subscriptions, list):
         raise BackendError("VLESS subscription store has an invalid format")
@@ -342,7 +343,17 @@ def validate_store(data: Any) -> dict[str, Any]:
         seen_ids.add(profile_id)
         if clean_name(name) != name:
             raise BackendError(f"VLESS profile #{index} has a non-canonical name")
-        parse_vless(uri, strict_xhttp_extra=False)
+        stored_protocol = profile.get("protocol")
+        if version < 3 and stored_protocol is None:
+            stored_protocol = profile_protocol(uri)
+        if not isinstance(stored_protocol, str) or not stored_protocol:
+            raise BackendError(f"Profile #{index} is missing its protocol")
+        if stored_protocol not in PROFILE_ADAPTERS:
+            raise BackendError(f"Profile #{index} uses an unsupported protocol")
+        if profile_protocol(uri) != stored_protocol:
+            raise BackendError(f"Profile #{index} protocol does not match its link")
+        parse_profile(uri, strict_transport=False)
+        profile["protocol"] = stored_protocol
         subscription_id = profile.get("subscriptionId", "")
         subscription_key = profile.get("subscriptionKey", "")
         missing = profile.get("missing", False)
@@ -455,7 +466,7 @@ def validate_store(data: Any) -> dict[str, Any]:
     onboarding_complete = data.setdefault("onboardingComplete", bool(profiles))
     if not isinstance(onboarding_complete, bool):
         raise BackendError("VLESS profile store has invalid onboarding state")
-    data["version"] = 2
+    data["version"] = 3
     return data
 
 
@@ -670,7 +681,7 @@ def fetch_subscription(url: str) -> str:
         raise BackendError("Subscription response is not UTF-8 text") from exc
 
 
-def subscription_key(uri: str) -> str:
+def _vless_subscription_key(uri: str) -> str:
     parsed = urllib.parse.urlsplit(extract_vless_uri(uri))
     # Labels and query ordering are presentation details. Normalizing them
     # keeps a provider-side rename or serializer change attached to the same
@@ -689,11 +700,13 @@ def subscription_key(uri: str) -> str:
 
 
 def _subscription_candidates(text: str) -> list[str]:
-    return re.findall(r"(?i)vless://[^\s\"'<>]+", text)
+    candidates = re.findall(r"(?i)[a-z][a-z0-9+.-]*://[^\s\"'<>]+", text)
+    return [candidate for candidate in candidates
+            if urllib.parse.urlsplit(candidate).scheme.lower() in PROFILE_SCHEMES]
 
 
 def parse_subscription(text: str) -> tuple[list[dict[str, Any]], int]:
-    """Parse raw or base64 VLESS subscriptions, ignoring other protocols."""
+    """Parse raw or base64 subscriptions, ignoring unsupported protocols."""
     candidates = _subscription_candidates(text)
     if not candidates:
         compact = re.sub(r"\s+", "", text)
@@ -706,15 +719,15 @@ def parse_subscription(text: str) -> tuple[list[dict[str, Any]], int]:
                 candidates = []
     if len(candidates) > MAX_SUBSCRIPTION_LINK_COUNT:
         raise BackendError(
-            f"Subscription contains more than {MAX_SUBSCRIPTION_LINK_COUNT} VLESS links"
+            f"Subscription contains more than {MAX_SUBSCRIPTION_LINK_COUNT} supported links"
         )
     valid: list[dict[str, Any]] = []
     seen: set[str] = set()
     skipped = 0
     for candidate in candidates:
         try:
-            node = parse_vless(candidate)
-            key = subscription_key(node["uri"])
+            node = parse_profile(candidate)
+            key = profile_subscription_key(node["uri"])
         except BackendError:
             skipped += 1
             continue
@@ -724,8 +737,8 @@ def parse_subscription(text: str) -> tuple[list[dict[str, Any]], int]:
         seen.add(key)
         valid.append({"key": key, "uri": node["uri"], "node": node})
     if not valid:
-        suffix = f" ({skipped} invalid VLESS links found)" if skipped else ""
-        raise BackendError("Subscription contains no supported VLESS profiles" + suffix)
+        suffix = f" ({skipped} invalid supported links found)" if skipped else ""
+        raise BackendError("Subscription contains no supported profiles" + suffix)
     return valid, skipped
 
 
@@ -777,7 +790,7 @@ def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
     for entry in entries:
         key = str(entry["key"])
         node = entry["node"]
-        desired = str(node.get("suggested_name") or node.get("server") or "VLESS")
+        desired = str(node.get("suggested_name") or node.get("server") or "Profile")
         name = unique_profile_name(desired, str(subscription["name"]), used_names)
         profile = existing.get(key)
         if profile is None:
@@ -786,6 +799,7 @@ def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
         profile.update({
             "name": name,
             "uri": str(entry["uri"]),
+            "protocol": str(node["protocol"]),
             "subscriptionId": subscription_id,
             "subscriptionKey": key,
             "missing": False,
@@ -1109,7 +1123,11 @@ def controller_json(socket_path: Path, path: str, timeout: float) -> tuple[int, 
 
 def probe_proxy_yaml(profile: dict[str, Any], alias: str, address: str) -> str:
     """Render one opaque, IP-pinned proxy for the isolated probe core."""
-    return proxy_yaml({"name": alias, "uri": profile["uri"]}, server_override=address)
+    return profile_yaml({
+        "name": alias,
+        "uri": profile["uri"],
+        "protocol": profile.get("protocol", profile_protocol(str(profile["uri"]))),
+    }, server_override=address)
 
 
 def probe_core_config(targets: list[dict[str, Any]]) -> str:
@@ -1267,8 +1285,7 @@ def probe_subscription(paths: Paths, subscription_id: str) -> dict[str, Any]:
     resolved_ids: set[str] = set()
     targets: list[dict[str, Any]] = []
     for profile_index, profile in enumerate(profiles):
-        node = parse_vless(str(profile["uri"]))
-        addresses = resolve_probe_addresses(str(node["server"]), resolver_urls)
+        addresses = resolve_probe_addresses(profile_endpoint(profile), resolver_urls)
         if not addresses:
             continue
         profile_id = str(profile["id"])
@@ -1349,8 +1366,7 @@ def probe_subscription_stream(paths: Paths, subscription_id: str) -> None:
         })
 
     for profile_index, profile in enumerate(profiles):
-        node = parse_vless(str(profile["uri"]))
-        addresses = resolve_probe_addresses(str(node["server"]), resolver_urls)
+        addresses = resolve_probe_addresses(profile_endpoint(profile), resolver_urls)
         profile_id = str(profile["id"])
         if not addresses:
             # DNS failures are already final and can be shown immediately.
@@ -2201,7 +2217,8 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         if feature not in experimental_features:
             experimental_features.append(feature)
     return {
-        "uri": uri, "uuid": user, "server": parsed.hostname, "port": port,
+        "protocol": "vless", "uri": uri, "uuid": user,
+        "server": parsed.hostname, "port": port,
         "network": network, "security": security,
         "encryption": encryption,
         "flow": flow, "mihomo_flow": mihomo_flow, "servername": server_name,
@@ -2236,6 +2253,7 @@ def preview_vless(text: str) -> dict[str, Any]:
     suggested = re.sub(r"[\x00-\x1f\x7f]", "", str(node["suggested_name"])).strip()[:80]
     return {
         "version": 1,
+        "protocol": "vless",
         "server": str(node["server"])[:253],
         "port": int(node["port"]),
         "transport": str(node["network"]),
@@ -2334,6 +2352,105 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
             lines.append(f"    mode: {y(node['mode'])}")
         append_yaml_mapping(lines, node["xhttp_extra"], 4)
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class ProfileAdapter:
+    """Strict boundary between a share-link protocol and the common app flow."""
+
+    protocol: str
+    schemes: tuple[str, ...]
+    extract: Callable[[str], str]
+    parse: Callable[[str, bool], dict[str, Any]]
+    preview: Callable[[str], dict[str, Any]]
+    render_yaml: Callable[[dict[str, Any], str | None], str]
+    endpoint: Callable[[str], str]
+    subscription_identity: Callable[[str], str]
+
+
+def _parse_vless_adapter(uri: str, strict_transport: bool) -> dict[str, Any]:
+    return parse_vless(uri, strict_xhttp_extra=strict_transport)
+
+
+def _vless_endpoint(uri: str) -> str:
+    return str(parse_vless(uri)["server"])
+
+
+VLESS_ADAPTER = ProfileAdapter(
+    protocol="vless",
+    schemes=("vless",),
+    extract=extract_vless_uri,
+    parse=_parse_vless_adapter,
+    preview=preview_vless,
+    render_yaml=proxy_yaml,
+    endpoint=_vless_endpoint,
+    subscription_identity=_vless_subscription_key,
+)
+PROFILE_ADAPTERS: dict[str, ProfileAdapter] = {VLESS_ADAPTER.protocol: VLESS_ADAPTER}
+PROFILE_SCHEMES: dict[str, ProfileAdapter] = {
+    scheme: adapter
+    for adapter in PROFILE_ADAPTERS.values()
+    for scheme in adapter.schemes
+}
+
+
+def profile_protocol(text: str) -> str:
+    """Return a supported protocol without returning any credential material."""
+    saw_link = False
+    for token in re.split(r"\s+", text.strip()):
+        match = re.match(r"(?i)^([a-z][a-z0-9+.-]*)://", token)
+        if not match:
+            continue
+        saw_link = True
+        adapter = PROFILE_SCHEMES.get(match.group(1).lower())
+        if adapter is not None:
+            return adapter.protocol
+    if saw_link:
+        raise BackendError("That profile protocol is not supported")
+    raise BackendError("Input does not contain a supported profile link")
+
+
+def extract_profile_uri(text: str) -> str:
+    protocol = profile_protocol(text)
+    return PROFILE_ADAPTERS[protocol].extract(text)
+
+
+def parse_profile(text: str, *, strict_transport: bool = True) -> dict[str, Any]:
+    uri = extract_profile_uri(text)
+    adapter = PROFILE_ADAPTERS[profile_protocol(uri)]
+    node = adapter.parse(uri, strict_transport)
+    if node.get("protocol") != adapter.protocol:
+        raise BackendError("Profile adapter returned an invalid protocol")
+    return node
+
+
+def preview_profile(text: str) -> dict[str, Any]:
+    uri = extract_profile_uri(text)
+    return PROFILE_ADAPTERS[profile_protocol(uri)].preview(uri)
+
+
+def profile_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
+    uri = str(profile.get("uri", ""))
+    uri_protocol = profile_protocol(uri)
+    stored_protocol = profile.get("protocol", uri_protocol)
+    if (not isinstance(stored_protocol, str) or stored_protocol != uri_protocol
+            or stored_protocol not in PROFILE_ADAPTERS):
+        raise BackendError("Profile protocol does not match its link")
+    return PROFILE_ADAPTERS[uri_protocol].render_yaml(profile, server_override)
+
+
+def profile_endpoint(profile: dict[str, Any] | str) -> str:
+    uri = str(profile.get("uri", "")) if isinstance(profile, dict) else str(profile)
+    return PROFILE_ADAPTERS[profile_protocol(uri)].endpoint(uri)
+
+
+def profile_subscription_key(uri: str) -> str:
+    return PROFILE_ADAPTERS[profile_protocol(uri)].subscription_identity(uri)
+
+
+def subscription_key(uri: str) -> str:
+    """Backward-compatible VLESS-era name for the protocol adapter identity."""
+    return profile_subscription_key(uri)
 
 
 def template_from_config(text: str) -> str:
@@ -2444,7 +2561,7 @@ def render_config(
     paths: Paths, profile: dict[str, Any], store: dict[str, Any] | None = None
 ) -> str:
     current_store = store if store is not None else load_store(paths)
-    text = ensure_template(paths).replace(PROFILE_MARKER, proxy_yaml(profile))
+    text = ensure_template(paths).replace(PROFILE_MARKER, profile_yaml(profile))
     return private_runtime_config(paths, text, current_store)
 
 
@@ -2455,7 +2572,7 @@ def render_config_mode(
     """Render one profile for an explicit login mode without changing Settings."""
     current_store = store if store is not None else load_store(paths)
     text = template_with_mode(ensure_template(paths), mode).replace(
-        PROFILE_MARKER, proxy_yaml(profile)
+        PROFILE_MARKER, profile_yaml(profile)
     )
     return private_runtime_config(paths, text, current_store)
 
@@ -3583,8 +3700,8 @@ def stop_service(paths: Paths, expected_profile_id: str = "") -> None:
 
 
 def import_profile(paths: Paths, name: str, old_id: str, text: str) -> None:
-    uri = extract_vless_uri(text)
-    parsed = parse_vless(uri)
+    uri = extract_profile_uri(text)
+    parsed = parse_profile(uri)
     store = load_store(paths)
     name = clean_name(name or parsed["suggested_name"] or parsed["server"])
     if any(p.get("name") == name and p.get("id") != old_id for p in store["profiles"]):
@@ -3597,11 +3714,14 @@ def import_profile(paths: Paths, name: str, old_id: str, text: str) -> None:
         profile = profile_by_id(store, old_id)
         if profile.get("subscriptionId"):
             raise BackendError("Subscribed profiles are updated from their subscription")
-        profile.update({"name": name, "uri": uri})
+        profile.update({"name": name, "uri": uri, "protocol": parsed["protocol"]})
         profile_id = old_id
     else:
         profile_id = str(uuidlib.uuid4())
-        store["profiles"].append({"id": profile_id, "name": name, "uri": uri})
+        store["profiles"].append({
+            "id": profile_id, "name": name, "uri": uri,
+            "protocol": parsed["protocol"],
+        })
     save_store(paths, store)
     if was_active:
         try:
@@ -3685,7 +3805,7 @@ def status_text(paths: Paths) -> str:
     endpoints: dict[str, str] = {}
     for profile in profiles:
         try:
-            endpoints[str(profile["id"])] = str(parse_vless(str(profile["uri"]))["server"])
+            endpoints[str(profile["id"])] = profile_endpoint(profile)
         except (BackendError, KeyError, TypeError):
             endpoints[str(profile.get("id", ""))] = ""
     routing = routing_status(paths, running, store)
@@ -3696,6 +3816,7 @@ def status_text(paths: Paths) -> str:
             {
                 "id": str(profile["id"]),
                 "name": str(profile["name"]),
+                "protocol": str(profile["protocol"]),
                 "device": TUN_DEVICE if profile["id"] == active_id else "",
                 "active": profile["id"] == active_id,
                 "subscriptionId": str(profile.get("subscriptionId", "")),
@@ -3868,7 +3989,7 @@ def interface_addresses(device: str) -> list[str]:
 
 
 def details(paths: Paths, profile_id: str, device: str = "") -> None:
-    node = parse_vless(profile_by_id(load_store(paths), profile_id)["uri"])
+    node = parse_profile(profile_by_id(load_store(paths), profile_id)["uri"])
     payload = {
         "version": 1,
         "address": ", ".join(interface_addresses(device)),
@@ -4048,9 +4169,9 @@ def main() -> int:
         status(paths)
     elif args.command == "preview":
         text = read_text_file(
-            Path(args.file).expanduser(), MAX_IMPORT_BYTES, "VLESS preview file"
-        ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "VLESS preview")
-        print(json.dumps(preview_vless(text), ensure_ascii=False, separators=(",", ":")))
+            Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"
+        ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "profile preview")
+        print(json.dumps(preview_profile(text), ensure_ascii=False, separators=(",", ":")))
     elif args.command == "diagnostics":
         with operation_lock(paths):
             print(diagnostics_text(paths), end="")
@@ -4078,8 +4199,13 @@ def main() -> int:
                 raise BackendError("mark-active observation must be an epoch timestamp") from exc
             mark_active(paths, args.id, observed_ms)
     elif args.command == "render-uri":
-        text = read_stdin_text(MAX_IMPORT_BYTES, "VLESS input")
-        print(proxy_yaml({"name": clean_name(args.name), "uri": extract_vless_uri(text)}))
+        text = read_stdin_text(MAX_IMPORT_BYTES, "profile input")
+        uri = extract_profile_uri(text)
+        print(profile_yaml({
+            "name": clean_name(args.name),
+            "uri": uri,
+            "protocol": profile_protocol(uri),
+        }))
     elif args.command == "adopt-template":
         with operation_lock(paths):
             source = Path(args.path).expanduser()

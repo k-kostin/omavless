@@ -773,7 +773,10 @@ rules:
             paths.config_dir.mkdir(parents=True, mode=0o700)
             profile_id = "22222222-2222-4222-8222-222222222222"
             store = backend.empty_store()
-            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
             store["activeId"] = profile_id
             backend.save_store(paths, store)
             with mock.patch.object(backend, "service_active", return_value=True), \
@@ -1097,16 +1100,95 @@ rules:
             self.assertFalse(status["profiles"][0]["active"])
             self.assertNotIn("vless://", status_result.stdout)
 
-    def test_v1_store_migrates_in_memory_to_subscription_capable_v2(self):
+    def test_v1_store_migrates_in_memory_to_protocol_aware_v3(self):
         profile_id = "22222222-2222-4222-8222-222222222222"
         migrated = backend.validate_store({
             "version": 1, "activeId": "", "lastId": profile_id,
             "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
         })
-        self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["version"], 3)
+        self.assertEqual(migrated["profiles"][0]["protocol"], "vless")
         self.assertEqual(migrated["routingPreset"], "roscomvpn-default")
         self.assertEqual(migrated["subscriptions"], [])
         self.assertNotIn("subscriptionId", migrated["profiles"][0])
+
+    def test_v2_store_migration_preserves_profile_relationships_and_startup(self):
+        profile_id = "22222222-2222-4222-8222-222222222222"
+        subscription_id = "33333333-3333-4333-8333-333333333333"
+        key = backend.subscription_key(REALITY_URI)
+        migrated = backend.validate_store({
+            "version": 2,
+            "activeId": profile_id,
+            "lastId": profile_id,
+            "profiles": [{
+                "id": profile_id,
+                "name": "Example",
+                "uri": REALITY_URI,
+                "subscriptionId": subscription_id,
+                "subscriptionKey": key,
+                "missing": False,
+                "favorite": True,
+            }],
+            "subscriptions": [{
+                "id": subscription_id,
+                "name": "Provider",
+                "url": "https://provider.example/subscription",
+                "updatedAt": 123,
+            }],
+            "routingPreset": "roscomvpn-default",
+            "customRules": [],
+            "rulesUpdatedAt": 456,
+            "startupConfigured": True,
+            "startup": {
+                "enabled": True,
+                "target": "profile",
+                "profileId": profile_id,
+                "mode": "rule",
+            },
+            "onboardingComplete": True,
+        })
+        self.assertEqual(migrated["version"], 3)
+        self.assertEqual(migrated["profiles"][0]["protocol"], "vless")
+        self.assertEqual(migrated["profiles"][0]["id"], profile_id)
+        self.assertTrue(migrated["profiles"][0]["favorite"])
+        self.assertEqual(migrated["profiles"][0]["subscriptionId"], subscription_id)
+        self.assertEqual(migrated["activeId"], profile_id)
+        self.assertEqual(migrated["lastId"], profile_id)
+        self.assertEqual(migrated["startup"]["profileId"], profile_id)
+        self.assertTrue(migrated["startup"]["enabled"])
+
+    def test_v3_store_requires_a_matching_supported_protocol(self):
+        profile_id = "22222222-2222-4222-8222-222222222222"
+        base = {
+            "version": 3,
+            "activeId": "",
+            "lastId": profile_id,
+            "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
+        }
+        with self.assertRaisesRegex(backend.BackendError, "missing its protocol"):
+            backend.validate_store(json.loads(json.dumps(base)))
+        base["profiles"][0]["protocol"] = "trojan"
+        with self.assertRaisesRegex(backend.BackendError, "unsupported protocol"):
+            backend.validate_store(base)
+
+    def test_profile_adapter_preserves_vless_parse_preview_yaml_and_identity(self):
+        profile = {"name": "Example", "uri": REALITY_URI, "protocol": "vless"}
+        self.assertEqual(backend.profile_protocol(REALITY_URI), "vless")
+        self.assertEqual(
+            backend.extract_profile_uri("https://docs.example/help\n" + REALITY_URI),
+            REALITY_URI,
+        )
+        self.assertEqual(backend.parse_profile(REALITY_URI), backend.parse_vless(REALITY_URI))
+        self.assertEqual(backend.preview_profile(REALITY_URI), backend.preview_vless(REALITY_URI))
+        self.assertEqual(backend.profile_yaml(profile), backend.proxy_yaml(profile))
+        self.assertEqual(backend.profile_endpoint(profile), "example.com")
+        self.assertEqual(
+            backend.profile_subscription_key(REALITY_URI),
+            backend._vless_subscription_key(REALITY_URI),
+        )
+        with self.assertRaisesRegex(backend.BackendError, "not supported") as caught:
+            backend.profile_protocol("trojan://a-secret@example.com:443")
+        self.assertNotIn("a-secret", str(caught.exception))
 
     def test_fresh_store_defers_routing_preset_choice(self):
         fresh = backend.validate_store(backend.empty_store())
@@ -1150,7 +1232,7 @@ rules:
             self.assertEqual(result["total"], 1)
             self.assertEqual(stat.S_IMODE(paths.store.stat().st_mode), 0o600)
             stored = json.loads(paths.store.read_text(encoding="utf-8"))
-            self.assertEqual(stored["version"], 2)
+            self.assertEqual(stored["version"], 3)
             self.assertEqual(stored["subscriptions"][0]["url"], secret_url)
             with mock.patch.object(backend, "service_active", return_value=False):
                 public = backend.status_text(paths)
@@ -1159,6 +1241,7 @@ rules:
             payload = json.loads(public)
             self.assertEqual(payload["subscriptions"][0]["name"], "My provider")
             self.assertEqual(payload["profiles"][0]["sourceName"], "My provider")
+            self.assertEqual(payload["profiles"][0]["protocol"], "vless")
 
     def test_subscription_cli_fetches_from_stdin_end_to_end_in_isolated_home(self):
         body = backend.base64.b64encode((REALITY_URI + "\n").encode())
@@ -1945,7 +2028,10 @@ rules:
             paths.config_dir.mkdir(parents=True, mode=0o700)
             profile_id = "22222222-2222-4222-8222-222222222222"
             store = backend.empty_store()
-            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
             store["routingPreset"] = "roscomvpn-default"
             backend.save_store(paths, store)
             candidate = paths.config_dir / ".startup-candidate.yaml"
@@ -1990,7 +2076,10 @@ rules:
     def test_first_profile_is_a_safe_last_used_fallback(self):
         store = backend.empty_store()
         profile_id = "22222222-2222-4222-8222-222222222222"
-        store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+        store["profiles"] = [{
+            "id": profile_id, "name": "Example", "uri": REALITY_URI,
+            "protocol": "vless",
+        }]
         self.assertEqual(
             backend.resolve_startup_profile(store, "last", "")["id"], profile_id
         )
@@ -2004,7 +2093,10 @@ rules:
             paths.config_dir.mkdir(parents=True, mode=0o700)
             profile_id = "22222222-2222-4222-8222-222222222222"
             store = backend.empty_store()
-            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
             backend.save_store(paths, store)
             with mock.patch.object(backend, "service_enabled", return_value=False):
                 with self.assertRaisesRegex(backend.BackendError, "country preset"):
@@ -2019,7 +2111,10 @@ rules:
             paths.config_dir.mkdir(parents=True, mode=0o700)
             profile_id = "22222222-2222-4222-8222-222222222222"
             store = backend.empty_store()
-            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
             store["startup"] = {
                 "enabled": True, "target": "profile", "profileId": profile_id,
                 "mode": "global",
@@ -2054,7 +2149,10 @@ rules:
             store = backend.empty_store()
             store["activeId"] = profile_id
             store["lastId"] = profile_id
-            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["profiles"] = [{
+                "id": profile_id, "name": "Example", "uri": REALITY_URI,
+                "protocol": "vless",
+            }]
             backend.save_store(paths, store)
             ok = subprocess.CompletedProcess([], 0, "", "")
             with mock.patch.object(backend, "mark_intent"), \

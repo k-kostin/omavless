@@ -17,7 +17,7 @@ Item {
 
   readonly property string backendPath: String(Qt.resolvedUrl("backend.sh")).replace(/^file:\/\//, "")
 
-  // Local profiles as {uuid, name, active}. Mutating actions address the
+  // Local profiles as {uuid, name, protocol, active}. Mutating actions address the
   // generated id, never the display label.
   property var profiles: []
   // Public subscription metadata only. Bearer URLs are intentionally absent
@@ -53,7 +53,7 @@ Item {
   readonly property bool routingToolsLoading: customRulesProcess.running
   readonly property bool routeChecking: routeCheckProcess.running
   property string _routeCheckInput: ""
-  // Names of the vless profiles currently active
+  // Names of the profiles currently active
   readonly property var activeNames: {
     var out = []
     for (var i = 0; i < profiles.length; i++) {
@@ -880,11 +880,14 @@ Item {
       var subscriptionId = source.subscriptionId === undefined ? "" : source.subscriptionId
       var sourceName = source.sourceName === undefined ? "" : source.sourceName
       var server = source.server === undefined ? "" : source.server
+      var protocol = source.protocol === undefined ? "" : source.protocol
       var missing = source.missing === undefined ? false : source.missing
       var favorite = source.favorite === undefined ? false : source.favorite
       if (typeof subscriptionId !== "string" || subscriptionId.length > 64
           || typeof sourceName !== "string" || sourceName.length > 80
           || typeof server !== "string" || server.length > 253
+          || typeof protocol !== "string" || protocol === "" || protocol.length > 32
+          || featureMap.protocols.indexOf(protocol) < 0
           || typeof missing !== "boolean" || typeof favorite !== "boolean"
           || (subscriptionId !== "" && subscriptionIds[subscriptionId] === undefined))
         return rejectStatus()
@@ -893,6 +896,7 @@ Item {
         ifname: plainText(source.device, 64),
         rawName: source.name,
         name: plainText(source.name, 80),
+        protocol: plainText(protocol, 32),
         server: plainText(server, 253),
         active: source.active === true,
         subscriptionUuid: subscriptionId,

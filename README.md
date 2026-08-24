@@ -107,6 +107,14 @@ documented; the normal plugin installation does not exercise them silently.
 
 ## Current scope
 
+- A protocol-neutral internal profile adapter now owns strict extraction,
+  parsing, redacted preview, Mihomo YAML generation, endpoint lookup and stable
+  subscription identity. The private store migrates v1/v2 profiles to an
+  explicit v3 `protocol` discriminator without changing their IDs, favorites,
+  subscription membership, current selection or login target. This is an
+  architectural boundary only: VLESS remains the sole advertised protocol
+  until a later experimental protocol passes its own review and live tests.
+
 - VLESS URI import from a file or the clipboard.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
   and atomic refresh-all. Plain-text and standard/URL-safe base64 lists of
