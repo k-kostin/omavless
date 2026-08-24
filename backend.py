@@ -79,6 +79,10 @@ ROUTING_PRESETS = {
 ROUTING_PRESET_VALUES = frozenset((*ROUTING_PRESETS, "custom"))
 LOCK_TIMEOUT_SECONDS = 15.0
 COMMAND_TIMEOUT_SECONDS = 30.0
+REALITY_SPX_COMPATIBILITY_NOTE = (
+    "Mihomo does not use the Xray-only REALITY spider path (spx); "
+    "the profile will be imported without it."
+)
 PUBLIC_CAPABILITIES = {
     "subscriptions": True,
     "subscriptionSearch": True,
@@ -1446,6 +1450,25 @@ def query_bool(query: dict[str, list[str]], *names: str) -> bool:
     return first_query(query, *names).lower() in {"1", "true", "yes", "on"}
 
 
+def validate_reality_public_key(value: str) -> None:
+    """Match Mihomo's canonical raw URL-safe 32-byte X25519 key format."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", value):
+        raise BackendError("VLESS Reality public key has an invalid format")
+    try:
+        decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+    except binascii.Error as exc:
+        raise BackendError("VLESS Reality public key has an invalid format") from exc
+    canonical = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+    if len(decoded) != 32 or canonical != value:
+        raise BackendError("VLESS Reality public key has an invalid format")
+
+
+def validate_reality_short_id(value: str) -> None:
+    """Mihomo accepts an optional, even-length hexadecimal short ID up to 8 bytes."""
+    if len(value) > 16 or len(value) % 2 or not re.fullmatch(r"[0-9A-Fa-f]*", value):
+        raise BackendError("VLESS Reality short ID has an invalid format")
+
+
 def extract_vless_uri(text: str) -> str:
     for token in re.split(r"\s+", text.strip()):
         if token.lower().startswith("vless://"):
@@ -1492,6 +1515,15 @@ def parse_vless(uri: str) -> dict[str, Any]:
     server_name = first_query(query, "sni", "servername")
     if security == "reality" and (not public_key or not server_name):
         raise BackendError("Reality link requires both pbk/public-key and sni/servername")
+    short_id = first_query(query, "sid", "short-id")
+    spider_x = first_query(query, "spx", "spider-x")
+    if security == "reality":
+        validate_reality_public_key(public_key)
+        validate_reality_short_id(short_id)
+        if first_query(query, "mldsa65Verify", "mldsa65-verify"):
+            raise BackendError(
+                "VLESS Reality ML-DSA verification is not supported by Mihomo"
+            )
     encryption = first_query(query, "encryption", default="none") or "none"
     if encryption != "none":
         raise BackendError("VLESS encryption must be none")
@@ -1527,8 +1559,15 @@ def parse_vless(uri: str) -> dict[str, Any]:
         "encryption": encryption,
         "flow": flow, "mihomo_flow": mihomo_flow, "servername": server_name,
         "fingerprint": first_query(query, "fp", "fingerprint", "client-fingerprint"),
-        "public_key": public_key, "short_id": first_query(query, "sid", "short-id"),
-        "spider_x": first_query(query, "spx", "spider-x"),
+        "public_key": public_key, "short_id": short_id,
+        # Xray share links commonly carry spx. Current Mihomo has no matching
+        # proxy option, so keep only enough private parser state to report the
+        # compatibility boundary; never copy it into generated configuration.
+        "spider_x": spider_x,
+        "compatibility_note": (
+            REALITY_SPX_COMPATIBILITY_NOTE
+            if security == "reality" and bool(spider_x) else ""
+        ),
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",
         "host": first_query(query, "host"),
         "service_name": first_query(query, "serviceName", "service-name"),
@@ -1553,6 +1592,7 @@ def preview_vless(text: str) -> dict[str, Any]:
         "sni": str(node["servername"])[:253],
         "flow": str(node["flow"])[:64],
         "insecure": bool(node["allow_insecure"]),
+        "compatibilityNote": str(node["compatibility_note"]),
         # Four trailing characters help compare two keys without making this
         # preview a copyable credential source.
         "credentialHint": "••••" + str(node["uuid"])[-4:],
@@ -1593,8 +1633,6 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
         lines.extend(["  reality-opts:", f"    public-key: {y(node['public_key'])}"])
         if node["short_id"]:
             lines.append(f"    short-id: {y(node['short_id'])}")
-        if node["spider_x"]:
-            lines.append(f"    spider-x: {y(node['spider_x'])}")
     if node["network"] == "ws":
         lines.extend(["  ws-opts:", f"    path: {y(node['path'])}"])
         if node["host"]:

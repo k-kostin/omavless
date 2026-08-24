@@ -152,6 +152,16 @@ Item {
           wrapMode: Text.WordWrap
         }
 
+        PlainText {
+          width: parent.width
+          visible: text.length > 0
+          text: String(prompt.preview.compatibilityNote || "")
+          color: Color.accent
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+
         TextField {
           id: nameField
           width: parent.width

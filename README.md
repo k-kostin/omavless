@@ -138,8 +138,12 @@ documented; the normal plugin installation does not exercise them silently.
 - TCP, WebSocket, HTTP, H2, gRPC and XHTTP transports. XHTTP accepts the
   Mihomo modes `auto`, `stream-one`, `stream-up` and `packet-up`; unsupported
   values are rejected before a profile can be stored.
-- None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk`, `sid`
-  and `spx` URI parameters.
+- None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk` and
+  `sid` URI parameters. Reality public keys and short IDs are checked against
+  Mihomo's accepted formats before storage. Xray's `spx` spider path is
+  recognized for an honest import warning but is not copied into YAML because
+  current Mihomo has no corresponding client option; Xray-only ML-DSA
+  verification metadata is rejected instead of being silently ignored.
 - Xray `packetEncoding=xudp` and `packetEncoding=packetaddr` UDP encodings.
   Other packet encodings are rejected instead of being copied into Mihomo
   configuration.

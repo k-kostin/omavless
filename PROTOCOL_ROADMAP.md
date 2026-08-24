@@ -90,8 +90,9 @@ Scope:
   flow value;
 - document and test the UDP/443 semantic difference instead of silently
   implying exact Xray behavior;
-- audit current REALITY aliases and the generated `spx`/`spider-x` field
-  against the installed Mihomo version;
+- treat Xray's `spx`/`spider-x` as an explained compatibility boundary rather
+  than generating an option absent from current Mihomo, and reject Xray-only
+  ML-DSA verification metadata explicitly;
 - keep validation errors credential-free and visible before connection.
 
 Cloud acceptance:
