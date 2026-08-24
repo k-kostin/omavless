@@ -4171,7 +4171,11 @@ def test_config(paths: Paths, core: Path, config: str) -> Path:
             handle.write(config)
         result = run([str(core), "-t", "-d", str(paths.config_dir), "-f", str(candidate)], check=False)
         if result.returncode != 0:
-            raise BackendError((result.stderr or result.stdout or "Mihomo rejected the generated config").strip())
+            # Mihomo is validating a credential-bearing file. Its diagnostics
+            # are useful in an explicit terminal session, but a core version
+            # may quote an invalid password, UUID, encryption value or key.
+            # Never forward that untrusted output to QML/status surfaces.
+            raise BackendError("Mihomo rejected the generated configuration")
         return candidate
     except Exception:
         with contextlib.suppress(FileNotFoundError):
