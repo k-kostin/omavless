@@ -4881,7 +4881,7 @@ def cleanup_runtime(paths: Paths) -> None:
                     path.unlink()
 
 
-def notify_drop(paths: Paths, profile_id: str, name: str) -> int:
+def notify_drop(paths: Paths, profile_id: str) -> int:
     intent = paths.runtime / f"omavless.{os.getuid()}.intent"
     if intent.exists():
         with contextlib.suppress(BackendError, OSError, ValueError):
@@ -4928,7 +4928,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("diagnostics-export"); p.add_argument("path")
     p = sub.add_parser("qr-png"); p.add_argument("id")
     p = sub.add_parser("edit"); p.add_argument("id"); p.add_argument("name")
-    p = sub.add_parser("notify-drop"); p.add_argument("id"); p.add_argument("name")
+    p = sub.add_parser("notify-drop"); p.add_argument("id")
     p = sub.add_parser("mark-active"); p.add_argument("id"); p.add_argument("observed", nargs="?")
     sub.add_parser("cleanup-runtime"); sub.add_parser("cleanup-qr")
     p = sub.add_parser("adopt-template"); p.add_argument("path")
@@ -4992,7 +4992,7 @@ def main() -> int:
         return edit_profile(paths, args.id, args.name, read_stdin_text(MAX_IMPORT_BYTES, "editor input"))
     elif args.command == "notify-drop":
         with operation_lock(paths):
-            return notify_drop(paths, args.id, args.name)
+            return notify_drop(paths, args.id)
     elif args.command == "mark-active":
         with operation_lock(paths):
             try:
