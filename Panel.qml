@@ -2418,7 +2418,11 @@ Panel {
         id: deleteDialog
         anchors.fill: parent
         opened: root.pendingDelete !== null
-        message: "Delete profile " + (root.pendingDelete ? root.pendingDelete.name : "") + "?"
+        // ConfirmDialog is a shared Omarchy control whose message uses an
+        // AutoText-capable Text item. Keep imported metadata inert at this
+        // final sink even though Service already normalizes public names.
+        message: root.safeTooltip("Delete profile "
+          + (root.pendingDelete ? root.pendingDelete.name : "") + "?", 180)
         confirmText: "Delete"
         foreground: root.foreground
         fontFamily: root.fontFamily
@@ -2443,9 +2447,9 @@ Panel {
         id: subscriptionDeleteDialog
         anchors.fill: parent
         opened: root.pendingSubscriptionDelete !== null
-        message: "Remove subscription "
+        message: root.safeTooltip("Remove subscription "
           + (root.pendingSubscriptionDelete ? root.pendingSubscriptionDelete.name : "")
-          + " and its managed profiles?"
+          + " and its managed profiles?", 220)
         confirmText: "Remove"
         foreground: root.foreground
         fontFamily: root.fontFamily
