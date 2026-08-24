@@ -557,6 +557,11 @@ class BackendTests(unittest.TestCase):
                 backend.parse_vless(uri)
             self.assertNotIn("private-query-value", str(caught.exception))
 
+        malformed_port = REALITY_URI.replace(":443", ":private-port")
+        with self.assertRaisesRegex(backend.BackendError, "Invalid VLESS link") as caught:
+            backend.parse_vless(malformed_port)
+        self.assertNotIn("private-port", str(caught.exception))
+
     def test_vless_provider_metadata_is_explicit_but_never_mapped(self):
         base, fragment = REALITY_URI.split("#", 1)
         uri = (
@@ -1714,6 +1719,60 @@ rules:
         self.assertEqual(
             backend.subscription_key(REALITY_URI), backend.subscription_key(reordered)
         )
+
+    def test_vless_subscription_identity_ignores_unmapped_provider_metadata(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        first = (
+            base + "&concurrency=4&x-durev-block=first&x-durev-prio=0#"
+            + fragment
+        )
+        second = (
+            base.replace("type=tcp", "network=tcp")
+            + "&concurrency=8&x-durev-block=second&x-durev-prio=4#Renamed"
+        )
+        self.assertEqual(
+            backend.profile_subscription_key(first),
+            backend.profile_subscription_key(second),
+        )
+        self.assertNotEqual(
+            backend.profile_subscription_key(first),
+            backend.profile_subscription_key(
+                second.replace("sni=example.org", "sni=other.example")
+            ),
+        )
+
+    def test_subscription_refresh_migrates_identity_without_replacing_profile(self):
+        subscription_id = "33333333-3333-4333-8333-333333333333"
+        profile_id = "44444444-4444-4444-8444-444444444444"
+        base, fragment = REALITY_URI.split("#", 1)
+        old_uri = base + "&x-durev-prio=0#" + fragment
+        new_uri = base + "&x-durev-prio=4#Provider rename"
+        store = backend.empty_store()
+        store["subscriptions"] = [{
+            "id": subscription_id, "name": "Provider",
+            "url": "https://provider.example/sub", "updatedAt": 0,
+        }]
+        store["profiles"] = [{
+            "id": profile_id, "name": "Old", "uri": old_uri,
+            "protocol": "vless", "subscriptionId": subscription_id,
+            # Simulate the raw-query identity persisted by pre-0.7 builds.
+            "subscriptionKey": "f" * 64,
+            "missing": False, "favorite": True,
+        }]
+        store["activeId"] = profile_id
+        store["lastId"] = profile_id
+        node = backend.parse_vless(new_uri)
+        key = backend.profile_subscription_key(new_uri)
+        result = backend.sync_subscription_store(
+            store, store["subscriptions"][0],
+            [{"key": key, "uri": new_uri, "node": node}], 123,
+        )
+        self.assertEqual(result, {"added": 0, "removed": 0, "stale": 0, "total": 1})
+        self.assertEqual(store["profiles"][0]["id"], profile_id)
+        self.assertTrue(store["profiles"][0]["favorite"])
+        self.assertEqual(store["profiles"][0]["subscriptionKey"], key)
+        self.assertEqual(store["activeId"], profile_id)
+        self.assertEqual(store["lastId"], profile_id)
 
     def test_subscription_save_is_private_and_status_never_exposes_url(self):
         with tempfile.TemporaryDirectory() as temp:

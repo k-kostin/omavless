@@ -701,19 +701,43 @@ def fetch_subscription(url: str) -> str:
 
 
 def _vless_subscription_key(uri: str) -> str:
-    parsed = urllib.parse.urlsplit(extract_vless_uri(uri))
-    # Labels and query ordering are presentation details. Normalizing them
-    # keeps a provider-side rename or serializer change attached to the same
-    # local UUID, which is what preserves selection and row identity.
-    host = (parsed.hostname or "").lower()
-    if ":" in host:
-        host = f"[{host}]"
-    netloc = f"{urllib.parse.unquote(parsed.username or '').lower()}@{host}:{parsed.port}"
-    query = urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(
-        parsed.query, keep_blank_values=True, max_num_fields=128
-    )), doseq=True)
-    canonical = urllib.parse.urlunsplit(
-        (parsed.scheme.lower(), netloc, parsed.path, query, "")
+    node = parse_vless(uri)
+    server = str(node["server"])
+    try:
+        server = str(ipaddress.ip_address(server))
+    except ValueError:
+        server = server.lower().rstrip(".")
+    # Hash the supported connection semantics, not provider presentation
+    # metadata or serializer spelling. This keeps an existing row, favorite
+    # and active/last selection when a provider changes its label, priority,
+    # x-durev hints, ignored concurrency hint, aliases or query ordering.
+    identity = {
+        "protocol": "vless",
+        "uuid": str(node["uuid"]).lower(),
+        "server": server,
+        "port": int(node["port"]),
+        "network": str(node["network"]),
+        "security": str(node["security"]),
+        "encryption": str(node["encryption"]),
+        # Preserve the explicit source variant even though Mihomo currently
+        # emits one Vision spelling for both documented Xray variants.
+        "flow": str(node["flow"]),
+        "servername": str(node["servername"]).lower().rstrip("."),
+        "fingerprint": str(node["fingerprint"]).lower(),
+        "publicKey": str(node["public_key"]),
+        "shortId": str(node["short_id"]).lower(),
+        "realityPq": bool(node["support_x25519mlkem768"]),
+        "path": str(node["path"]),
+        "host": str(node["host"]),
+        "serviceName": str(node["service_name"]),
+        "mode": str(node["mode"]),
+        "xhttpExtra": node["xhttp_extra"],
+        "alpn": list(node["alpn"]),
+        "allowInsecure": bool(node["allow_insecure"]),
+        "packetEncoding": str(node["packet_encoding"]),
+    }
+    canonical = json.dumps(
+        identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -792,18 +816,29 @@ def subscription_by_id(store: dict[str, Any], subscription_id: str) -> dict[str,
 def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
                             entries: list[dict[str, Any]], updated_at: int) -> dict[str, int]:
     subscription_id = str(subscription["id"])
-    existing = {
-        str(profile.get("subscriptionKey")): profile
-        for profile in store["profiles"]
+    existing_profiles = [
+        profile for profile in store["profiles"]
         if profile.get("subscriptionId") == subscription_id
-    }
+    ]
+    existing: dict[str, dict[str, Any]] = {}
+    ambiguous: set[str] = set()
+    for profile in existing_profiles:
+        keys = {str(profile.get("subscriptionKey", ""))}
+        with contextlib.suppress(BackendError):
+            keys.add(profile_subscription_key(str(profile.get("uri", ""))))
+        for key in keys - {""}:
+            previous = existing.get(key)
+            if previous is not None and previous.get("id") != profile.get("id"):
+                ambiguous.add(key)
+            else:
+                existing[key] = profile
     used_names = {
         str(profile["name"])
         for profile in store["profiles"]
         if profile.get("subscriptionId") != subscription_id
     }
-    incoming_keys = {str(entry["key"]) for entry in entries}
     active_id = str(store.get("activeId", ""))
+    matched_ids: set[str] = set()
     synced: list[dict[str, Any]] = []
     added = 0
     for entry in entries:
@@ -811,10 +846,16 @@ def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
         node = entry["node"]
         desired = str(node.get("suggested_name") or node.get("server") or "Profile")
         name = unique_profile_name(desired, str(subscription["name"]), used_names)
+        if key in ambiguous:
+            raise BackendError(
+                "Subscription update matches more than one existing profile"
+            )
         profile = existing.get(key)
         if profile is None:
             profile = {"id": str(uuidlib.uuid4())}
             added += 1
+        else:
+            matched_ids.add(str(profile["id"]))
         profile.update({
             "name": name,
             "uri": str(entry["uri"]),
@@ -827,8 +868,8 @@ def sync_subscription_store(store: dict[str, Any], subscription: dict[str, Any],
 
     removed_ids: set[str] = set()
     stale = 0
-    for key, profile in existing.items():
-        if key in incoming_keys:
+    for profile in existing_profiles:
+        if str(profile["id"]) in matched_ids:
             continue
         if profile.get("id") == active_id:
             profile["missing"] = True
@@ -2192,7 +2233,7 @@ def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
         parsed = urllib.parse.urlsplit(uri)
         port = parsed.port
     except ValueError as exc:
-        raise BackendError(f"Invalid VLESS link: {exc}") from exc
+        raise BackendError("Invalid VLESS link") from exc
     user = urllib.parse.unquote(parsed.username or "")
     if parsed.scheme.lower() != "vless":
         raise BackendError("Only vless:// links are supported")
