@@ -147,6 +147,8 @@ rules:
             self.assertEqual(backend.routing_status(paths, False), {
                 "mode": "rule", "source": "basic", "preset": "",
                 "configured": False, "ruleCount": 5, "providerCount": 0,
+                "customRuleCount": 0, "rulesUpdatedAt": 0,
+                "ruleUpdateAvailable": False,
             })
 
             roscomvpn = """# omavless-routing-profile: roscomvpn-default
@@ -169,6 +171,8 @@ rules:
                 "mode": "rule", "source": "roscomvpn",
                 "preset": "roscomvpn-default", "configured": False,
                 "ruleCount": 2, "providerCount": 2,
+                "customRuleCount": 0, "rulesUpdatedAt": 0,
+                "ruleUpdateAvailable": False,
             })
             selected = backend.routing_status(
                 paths, False, {"routingPreset": "roscomvpn-default"}
@@ -227,6 +231,8 @@ rules:
             self.assertEqual(payload["routing"], {
                 "mode": "rule", "source": "custom", "preset": "",
                 "configured": False, "ruleCount": 1, "providerCount": 0,
+                "customRuleCount": 0, "rulesUpdatedAt": 0,
+                "ruleUpdateAvailable": False,
             })
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
             self.assertEqual(payload["capabilities"]["protocols"], ["vless"])
@@ -256,6 +262,198 @@ rules:
             backend.template_with_mode(source, "invalid")
         with self.assertRaisesRegex(backend.BackendError, "more than one"):
             backend.template_with_mode("mode: rule\nmode: direct\n", "global")
+
+    def test_custom_rule_values_are_canonical_and_bounded(self):
+        self.assertEqual(backend.canonical_custom_rule_value("suffix", "*.Example.COM."),
+                         "example.com")
+        self.assertEqual(backend.canonical_custom_rule_value("domain", "пример.рф"),
+                         "xn--e1afmkfd.xn--p1ai")
+        self.assertEqual(backend.canonical_custom_rule_value("ipcidr", "192.0.2.7/24"),
+                         "192.0.2.0/24")
+        with self.assertRaisesRegex(backend.BackendError, "without a scheme"):
+            backend.canonical_custom_rule_value("domain", "https://example.com/path")
+        with self.assertRaisesRegex(backend.BackendError, "valid domain"):
+            backend.canonical_custom_rule_value("domain", "localhost")
+
+    def test_private_runtime_config_strips_public_controllers_and_prepends_custom_rules(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            store = backend.empty_store()
+            store["customRules"] = [
+                {"id": "22222222-2222-4222-8222-222222222222",
+                 "kind": "suffix", "value": "example.com", "action": "direct"},
+                {"id": "33333333-3333-4333-8333-333333333333",
+                 "kind": "ipcidr", "value": "2001:db8::/32", "action": "reject"},
+            ]
+            source = """external-controller: 0.0.0.0:9090
+external-controller-cors:
+  allow-origins:
+    - '*'
+secret: exposed
+rules:
+  - RULE-SET,base,PROXY
+  - MATCH,PROXY
+"""
+            result = backend.private_runtime_config(paths, source, store)
+            self.assertIn(f'external-controller-unix: "{backend.controller_socket(paths)}"', result)
+            self.assertNotIn("0.0.0.0", result)
+            self.assertNotIn("exposed", result)
+            self.assertNotIn("allow-origins", result)
+            self.assertLess(result.index("DOMAIN-SUFFIX,example.com,DIRECT"),
+                            result.index("RULE-SET,base,PROXY"))
+            self.assertIn("IP-CIDR6,2001:db8::/32,REJECT-DROP,no-resolve", result)
+
+    def test_custom_rule_mutations_reconnect_and_keep_values_out_of_public_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            store = backend.empty_store()
+            store["profiles"] = [{"id": profile_id, "name": "Example", "uri": REALITY_URI}]
+            store["activeId"] = profile_id
+            backend.save_store(paths, store)
+            with mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "connect_profile") as reconnect:
+                rule = backend.save_custom_rule(paths, "suffix", "proxy", "Private.Example")
+            reconnect.assert_called_once_with(paths, profile_id)
+            self.assertEqual(rule["value"], "private.example")
+            explicit = backend.custom_rules_text(paths)
+            self.assertIn("private.example", explicit)
+            with mock.patch.object(backend, "service_active", return_value=False):
+                public = backend.status_text(paths)
+            self.assertNotIn("private.example", public)
+            self.assertIn('"customRuleCount":1', public)
+            with mock.patch.object(backend, "service_active", return_value=False):
+                backend.delete_custom_rule(paths, rule["id"])
+            self.assertEqual(backend.load_store(paths)["customRules"], [])
+
+    def test_route_check_explains_mode_custom_and_disconnected_results(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            store = backend.empty_store()
+            store["customRules"] = [{
+                "id": "22222222-2222-4222-8222-222222222222",
+                "kind": "suffix", "value": "example.com", "action": "direct",
+            }]
+            backend.save_store(paths, store)
+            paths.template.write_text(
+                "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(backend, "service_active", return_value=False):
+                direct = backend.route_check(paths, "www.example.com")
+                unknown = backend.route_check(paths, "openai.com")
+            self.assertEqual(direct["outcome"], "direct")
+            self.assertEqual(direct["source"], "custom")
+            self.assertEqual(direct["rulePayload"], "example.com")
+            self.assertEqual(unknown["outcome"], "unknown")
+            paths.template.write_text(
+                "mode: global\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(backend, "service_active", return_value=False):
+                global_result = backend.route_check(paths, "openai.com")
+            self.assertEqual(global_result["outcome"], "vpn")
+            self.assertEqual(global_result["ruleType"], "MODE")
+
+    def test_live_route_check_reports_the_rule_without_proxy_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            paths.config.write_text("mixed-port: 7890\n", encoding="utf-8")
+            backend.controller_socket(paths).touch()
+            probe = mock.Mock()
+            controller_responses = [
+                (200, {"rules": [{
+                    "index": 0, "type": "RULE-SET", "payload": "github", "proxy": "PROXY",
+                    "extra": {"hitCount": 3, "hitAt": 100},
+                }]}),
+                (200, {"connections": []}),
+                (200, {"connections": [{
+                    "id": "new", "metadata": {"host": "example.com", "destinationIP": ""},
+                    "rule": "RuleSet", "rulePayload": "github", "chains": ["Secret node", "PROXY"],
+                }]}),
+                (200, {"rules": [{
+                    "index": 0, "type": "RULE-SET", "payload": "github", "proxy": "PROXY",
+                    "extra": {"hitCount": 4, "hitAt": 101},
+                }]}),
+            ]
+            with mock.patch.object(backend, "controller_json", side_effect=controller_responses), \
+                 mock.patch.object(backend.socket, "create_connection", return_value=probe):
+                result = backend.live_route_match(paths, "example.com", False)
+            self.assertEqual(result, {
+                "outcome": "vpn", "ruleType": "RuleSet", "rulePayload": "github",
+                "target": "PROXY", "source": "live",
+            })
+            probe.sendall.assert_called_once()
+            probe.close.assert_called_once_with()
+            self.assertNotIn("Secret node", json.dumps(result))
+
+    def test_live_route_check_uses_rule_hit_for_an_immediate_reject(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            paths.config.write_text("mixed-port: 7890\n", encoding="utf-8")
+            backend.controller_socket(paths).touch()
+            probe = mock.Mock()
+            controller_responses = [
+                (200, {"rules": [{
+                    "index": 4, "type": "DOMAIN-SUFFIX", "payload": "ads.example",
+                    "proxy": "REJECT-DROP", "extra": {"hitCount": 9, "hitAt": 100},
+                }]}),
+                (200, {"connections": []}),
+                (200, {"connections": []}),
+                (200, {"rules": [{
+                    "index": 4, "type": "DOMAIN-SUFFIX", "payload": "ads.example",
+                    "proxy": "REJECT-DROP", "extra": {"hitCount": 10, "hitAt": 101},
+                }]}),
+            ]
+            with mock.patch.object(backend, "controller_json", side_effect=controller_responses), \
+                 mock.patch.object(backend.socket, "create_connection", return_value=probe):
+                result = backend.live_route_match(paths, "ads.example", False)
+            self.assertEqual(result, {
+                "outcome": "block", "ruleType": "DOMAIN-SUFFIX",
+                "rulePayload": "ads.example", "target": "REJECT", "source": "live",
+            })
+
+    def test_remote_rule_refresh_updates_timestamp_only_after_every_http_provider(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            backend.save_store(paths, backend.empty_store())
+            backend.controller_socket(paths).touch()
+            providers = {"providers": {
+                "one": {"vehicleType": "HTTP"},
+                "two": {"vehicleType": "HTTP"},
+                "local": {"vehicleType": "File"},
+            }}
+            with mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "controller_json", return_value=(200, providers)), \
+                 mock.patch.object(backend, "controller_request", return_value=(204, {})) as request:
+                result = backend.refresh_rule_providers(paths)
+            self.assertEqual(result["updated"], 2)
+            self.assertGreater(result["updatedAt"], 0)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(backend.load_store(paths)["rulesUpdatedAt"], result["updatedAt"])
 
     def test_set_routing_mode_reconnects_and_rolls_back_on_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1294,7 +1492,7 @@ rules:
                  mock.patch.object(backend, "systemctl", return_value=ok) as systemctl, \
                  mock.patch.object(backend, "mark_active"):
                 backend.startup_connect(paths)
-            render.assert_called_once_with(paths, mock.ANY, "global")
+            render.assert_called_once_with(paths, mock.ANY, "global", mock.ANY)
             systemctl.assert_called_once_with("start", backend.SERVICE)
             saved = backend.load_store(paths)
             self.assertEqual(saved["activeId"], profile_id)
@@ -1700,7 +1898,7 @@ esac
             ROOT / name for name in (
                 "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml",
                 "RoutingPresetPrompt.qml", "OnboardingWizard.qml", "StartupPrompt.qml",
-                "RenameWindow.qml",
+                "RoutingToolsPrompt.qml", "RenameWindow.qml",
                 "QrWindow.qml", "backend.py", "backend.sh", "install.sh",
                 "uninstall.sh",
                 "manifest.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",

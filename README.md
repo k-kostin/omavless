@@ -162,8 +162,24 @@ documented; the normal plugin installation does not exercise them silently.
   well as what is active afterward.
 - A gear-shaped entry opens general OmaVLESS settings instead of adding more
   controls to the main connection view. It contains the routing-preset picker,
-  Mihomo setup status, login autoconnect, source links, subscription
-  management, connection-monitoring context and privacy/display switches.
+  routing tools, Mihomo setup status, login autoconnect, source links,
+  subscription management, connection-monitoring context and privacy/display
+  switches.
+- Settings include simple custom routing rules for an exact domain, a domain
+  and its subdomains, or an IPv4/IPv6 range. Each match can use the VPN, go
+  direct or be blocked. These rules are stored in the private profile store,
+  applied before the selected country preset and revalidated transactionally
+  when an active connection is reloaded.
+- `Where will this destination go?` first checks the selected mode and custom
+  rules locally. For a country preset it asks the active Mihomo core which rule
+  matched, without exposing a profile or policy-group name. This live check
+  opens one TCP connection to the requested destination on port 443 through
+  Mihomo but does not load a web page.
+- Settings show the latest successful subscription update and the latest
+  successful manual rule-data refresh. `Refresh now` asks every HTTP rule
+  provider used by the active Routing profile to update, and records success
+  only after all of them finish. Normal template update intervals continue to
+  be handled by Mihomo itself.
 - A minimal first-run guide checks the external Mihomo binary and its TUN
   capabilities, offers a skippable country Routing choice and opens the
   existing private VLESS import flow. Host-changing commands are copied for an
@@ -176,6 +192,10 @@ documented; the normal plugin installation does not exercise them silently.
   written with mode `0600`; imported links and subscription URLs travel over
   stdin rather than process arguments. Subscription URLs are absent from the
   status API and are revealed only inside their explicit editor.
+- The active core API uses a plugin-owned Unix socket inside the private user
+  runtime directory. OmaVLESS strips inherited controller listeners and their
+  secrets from an explicitly adopted template before adding this socket, so
+  routing checks and rule refreshes do not expose a TCP controller port.
 - Multi-monitor safe operation: every mutation is serialized by a user-runtime
   file lock, simultaneous status polls share a short-lived private cache, and
   repeated poll failures back off instead of spawning forever at full cadence.
@@ -246,6 +266,23 @@ omarchy-shell kdk.omavless qr "Profile name"
 omarchy-shell kdk.omavless exportConfig "Profile name" ~/profile.url
 ```
 
+The same routing tools available in Settings have explicit backend commands
+for troubleshooting or scripting. Domain/range values use stdin so they do
+not appear in the process list:
+
+```bash
+plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
+printf '%s\n' 'example.com' | "$plugin" route-check
+printf '%s\n' 'example.com' | "$plugin" custom-rule-add suffix direct
+"$plugin" custom-rules
+"$plugin" custom-rule-delete RULE_ID
+"$plugin" rule-providers-refresh
+```
+
+Custom rules are intentionally limited to the common domain and IP cases. For
+advanced Mihomo syntax, replace the private template explicitly as described
+below.
+
 For a custom routing config, replace the private template explicitly. The
 command removes only the top-level proxy list and leaves groups, providers and
 rules in place:
@@ -314,6 +351,10 @@ stores a history on disk.
 - `~/.config/omavless/config.yaml` — generated Mihomo config for the selected
   profile.
 - `~/.config/systemd/user/omavless.service` — generated user service.
+- `~/.config/systemd/user/omavless-autostart.service` — optional login
+  preparation service.
+- `$XDG_RUNTIME_DIR/omavless.<uid>.controller.sock` — private runtime-only
+  Mihomo controller used for rule checks and manual rule-provider refreshes.
 
 Prototype installs using `~/.config/omarchy/omavless/` and
 `~/.local/state/omarchy/vless-last` are migrated automatically. Migration never

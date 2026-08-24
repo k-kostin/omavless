@@ -46,6 +46,13 @@ Item {
   readonly property bool probingProfiles: probeProcess.running
   readonly property bool subscriptionEditorLoading: subscriptionUrlProcess.running
   signal subscriptionUrlReady(string uuid, string url)
+  property var customRules: []
+  property string routingToolStatus: ""
+  property string routingToolError: ""
+  property var routeCheckResult: null
+  readonly property bool routingToolsLoading: customRulesProcess.running
+  readonly property bool routeChecking: routeCheckProcess.running
+  property string _routeCheckInput: ""
   // Names of the vless profiles currently active
   readonly property var activeNames: {
     var out = []
@@ -61,6 +68,12 @@ Item {
       if (profiles[i].managed) count++
     }
     return count
+  }
+  readonly property double latestSubscriptionUpdatedAt: {
+    var latest = 0
+    for (var i = 0; i < subscriptions.length; i++)
+      latest = Math.max(latest, Number(subscriptions[i].updatedAt) || 0)
+    return latest
   }
   // UUID of the most recently connected profile, persisted across restarts
   // so the hero toggle reconnects what you actually used last. A UUID, not
@@ -100,7 +113,10 @@ Item {
     preset: "",
     configured: false,
     ruleCount: 0,
-    providerCount: 0
+    providerCount: 0,
+    customRuleCount: 0,
+    rulesUpdatedAt: 0,
+    ruleUpdateAvailable: false
   })
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
   property var startup: ({
@@ -785,8 +801,14 @@ Item {
         || typeof route.preset !== "string" || route.preset.length > 64
         || typeof route.configured !== "boolean"
         || typeof route.ruleCount !== "number" || typeof route.providerCount !== "number"
+        || typeof route.customRuleCount !== "number"
+        || typeof route.rulesUpdatedAt !== "number"
+        || typeof route.ruleUpdateAvailable !== "boolean"
         || !isFinite(route.ruleCount) || !isFinite(route.providerCount)
-        || route.ruleCount < 0 || route.providerCount < 0)
+        || !isFinite(route.customRuleCount) || !isFinite(route.rulesUpdatedAt)
+        || route.ruleCount < 0 || route.providerCount < 0
+        || route.customRuleCount < 0 || route.customRuleCount > 128
+        || route.rulesUpdatedAt < 0)
       return rejectStatus()
     var setup = payload.coreSetup
     var startupSource = payload.startup
@@ -896,7 +918,10 @@ Item {
       preset: plainText(route.preset, 64),
       configured: route.configured,
       ruleCount: Math.floor(route.ruleCount),
-      providerCount: Math.floor(route.providerCount)
+      providerCount: Math.floor(route.providerCount),
+      customRuleCount: Math.floor(route.customRuleCount),
+      rulesUpdatedAt: Math.floor(route.rulesUpdatedAt),
+      ruleUpdateAvailable: route.ruleUpdateAvailable
     }
     if (_lastExitRoutingMode !== route.mode) {
       _lastExitRoutingMode = route.mode
@@ -1071,6 +1096,65 @@ Item {
     actionRejection = ""
     actionStatus = "Finishing setup…"
     runControl(["onboarding-complete"])
+    return true
+  }
+
+  function loadCustomRules() {
+    if (customRulesProcess.running) return false
+    routingToolError = ""
+    customRulesProcess.command = ["bash", backendPath, "custom-rules"]
+    customRulesProcess.running = true
+    return true
+  }
+
+  function addCustomRule(kind, action, value) {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    var matchKind = String(kind || "")
+    var routeAction = String(action || "")
+    var matchValue = String(value || "").trim()
+    if (["domain", "suffix", "ipcidr"].indexOf(matchKind) < 0)
+      return rejectAction("unsupported custom routing match")
+    if (["proxy", "direct", "reject"].indexOf(routeAction) < 0)
+      return rejectAction("unsupported custom routing action")
+    if (matchValue === "" || matchValue.length > 1024)
+      return rejectAction("enter a domain or IP range")
+    routingToolError = ""
+    routingToolStatus = "Saving custom rule…"
+    runControl(["custom-rule-add", matchKind, routeAction], matchValue)
+    return true
+  }
+
+  function deleteCustomRule(rule) {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    if (!rule || !rule.id) return rejectAction("no such custom routing rule")
+    routingToolError = ""
+    routingToolStatus = "Removing custom rule…"
+    runControl(["custom-rule-delete", String(rule.id)])
+    return true
+  }
+
+  function refreshRuleProviders() {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    routingToolError = ""
+    routingToolStatus = "Refreshing remote rule data…"
+    runControl(["rule-providers-refresh"])
+    return true
+  }
+
+  function checkRoute(value) {
+    if (routeCheckProcess.running) return false
+    var query = String(value || "").trim()
+    if (query === "" || query.length > 1024) {
+      routingToolError = "Enter a domain or IP address"
+      return false
+    }
+    routingToolError = ""
+    routingToolStatus = "Checking route…"
+    routeCheckResult = null
+    _routeCheckInput = query
+    routeCheckProcess.stdinEnabled = true
+    routeCheckProcess.command = ["bash", backendPath, "route-check"]
+    routeCheckProcess.running = true
     return true
   }
 
@@ -2289,6 +2373,106 @@ Item {
   }
 
   Process {
+    id: customRulesProcess
+    running: false
+    command: []
+    stdout: StdioCollector {
+      id: customRulesStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: customRulesStderr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.routingToolError = root.elide(customRulesStderr.text || "Could not load custom rules")
+        return
+      }
+      var payload
+      try { payload = JSON.parse(String(customRulesStdout.text || "")) } catch (error) {
+        root.routingToolError = "Custom rule data is invalid"
+        return
+      }
+      if (!payload || payload.version !== 1 || !Array.isArray(payload.rules)
+          || payload.rules.length > 128) {
+        root.routingToolError = "Custom rule data is invalid"
+        return
+      }
+      var rules = []
+      var ids = {}
+      for (var i = 0; i < payload.rules.length; i++) {
+        var item = payload.rules[i]
+        if (!item || typeof item.id !== "string" || item.id === ""
+            || item.id.length > 64 || ids[item.id] !== undefined
+            || ["domain", "suffix", "ipcidr"].indexOf(item.kind) < 0
+            || ["proxy", "direct", "reject"].indexOf(item.action) < 0
+            || typeof item.value !== "string" || item.value === ""
+            || item.value.length > 1024) {
+          root.routingToolError = "Custom rule data is invalid"
+          return
+        }
+        ids[item.id] = true
+        rules.push({
+          id: item.id, kind: item.kind,
+          value: root.plainText(item.value, 1024), action: item.action
+        })
+      }
+      root.customRules = rules
+      root.routingToolError = ""
+    }
+  }
+
+  Process {
+    id: routeCheckProcess
+    running: false
+    command: []
+    stdinEnabled: false
+    onStarted: {
+      write(root._routeCheckInput)
+      root._routeCheckInput = ""
+      stdinEnabled = false
+    }
+    stdout: StdioCollector {
+      id: routeCheckStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: routeCheckStderr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      root.routingToolStatus = ""
+      if (exitCode !== 0) {
+        root.routingToolError = root.elide(routeCheckStderr.text || "Could not check that route")
+        return
+      }
+      var payload
+      try { payload = JSON.parse(String(routeCheckStdout.text || "")) } catch (error) {
+        root.routingToolError = "Route check returned invalid data"
+        return
+      }
+      if (!payload || payload.version !== 1 || typeof payload.query !== "string"
+          || payload.query.length > 1024
+          || ["vpn", "direct", "block", "unknown"].indexOf(payload.outcome) < 0
+          || typeof payload.ruleType !== "string" || payload.ruleType.length > 80
+          || typeof payload.rulePayload !== "string" || payload.rulePayload.length > 256
+          || typeof payload.target !== "string" || payload.target.length > 80
+          || typeof payload.source !== "string" || payload.source.length > 32) {
+        root.routingToolError = "Route check returned invalid data"
+        return
+      }
+      root.routeCheckResult = {
+        query: root.plainText(payload.query, 1024), outcome: payload.outcome,
+        ruleType: root.plainText(payload.ruleType, 80),
+        rulePayload: root.plainText(payload.rulePayload, 256),
+        target: root.plainText(payload.target, 80), source: payload.source
+      }
+      root.routingToolError = ""
+    }
+  }
+
+  Process {
     id: controlProcess
     running: false
     command: []
@@ -2311,6 +2495,8 @@ Item {
       var op = root._controlOperation
       root._controlOperation = ""
       var subscriptionOperation = op.indexOf("subscription-") === 0
+      var routingOperation = op.indexOf("custom-rule-") === 0
+        || op === "rule-providers-refresh"
       var completedEditorSave = op === "import" && root._editRetryName !== ""
       // 6 means import needs manual recovery: rollback or incomplete-profile
       // cleanup kept one or more replacements. Never reopen an editor
@@ -2325,6 +2511,22 @@ Item {
         root._editRetryName = ""
         root._editRetryText = ""
         if (completedEditorSave) root.editFinished()
+        if (routingOperation) {
+          root.routingToolError = ""
+          if (op === "rule-providers-refresh") {
+            var updateResult = null
+            try { updateResult = JSON.parse(String(controlStdout.text || "{}")) } catch (error) {}
+            var updated = updateResult && typeof updateResult.updated === "number"
+              ? Math.floor(updateResult.updated) : 0
+            root.routingToolStatus = updated > 0
+              ? "Updated " + updated + (updated === 1 ? " rule set" : " rule sets")
+              : "Rule data updated"
+          } else {
+            root.routingToolStatus = op === "custom-rule-delete"
+              ? "Custom rule removed" : "Custom rule saved"
+            Qt.callLater(root.loadCustomRules)
+          }
+        }
         if (subscriptionOperation) {
           var result = null
           try { result = JSON.parse(String(controlStdout.text || "{}")) } catch (error) {}
@@ -2361,6 +2563,9 @@ Item {
         } else if (subscriptionOperation) {
           root.subscriptionStatus = ""
           root.subscriptionError = reason
+        } else if (routingOperation) {
+          root.routingToolStatus = ""
+          root.routingToolError = reason
         } else root.lastError = reason
       }
       root._pendingConnect = ""

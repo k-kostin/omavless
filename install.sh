@@ -38,6 +38,7 @@ cp -a \
   "$plugin_dir/RoutingPresetPrompt.qml" \
   "$plugin_dir/OnboardingWizard.qml" \
   "$plugin_dir/StartupPrompt.qml" \
+  "$plugin_dir/RoutingToolsPrompt.qml" \
   "$plugin_dir/RenameWindow.qml" \
   "$plugin_dir/QrWindow.qml" \
   "$plugin_dir/backend.sh" \

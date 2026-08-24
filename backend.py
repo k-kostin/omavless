@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import concurrent.futures
 import contextlib
 import fcntl
 import functools
@@ -54,6 +55,8 @@ MAX_SUBSCRIPTION_COUNT = 64
 MAX_SUBSCRIPTION_LINK_COUNT = 1024
 MAX_SUBSCRIPTION_URL_BYTES = 8 * 1024
 MAX_SUBSCRIPTION_BYTES = 5 * 1024 * 1024
+MAX_CUSTOM_RULE_COUNT = 128
+MAX_CUSTOM_RULE_VALUE_BYTES = 1024
 SUBSCRIPTION_TIMEOUT_SECONDS = 25.0
 PROBE_DNS_TIMEOUT_SECONDS = 2.0
 PROBE_HTTP_TIMEOUT_MILLISECONDS = 5000
@@ -246,6 +249,7 @@ def empty_store() -> dict[str, Any]:
     return {
         "version": 2, "activeId": "", "lastId": "",
         "profiles": [], "subscriptions": [], "routingPreset": "",
+        "customRules": [], "rulesUpdatedAt": 0,
         "startupConfigured": True,
         "startup": {
             "enabled": False, "target": "last", "profileId": "", "mode": "rule",
@@ -361,6 +365,37 @@ def validate_store(data: Any) -> dict[str, Any]:
     routing_preset = data["routingPreset"]
     if not isinstance(routing_preset, str) or routing_preset not in ROUTING_PRESET_VALUES | {""}:
         raise BackendError("VLESS profile store has an invalid routing preset")
+    custom_rules = data.setdefault("customRules", [])
+    if not isinstance(custom_rules, list) or len(custom_rules) > MAX_CUSTOM_RULE_COUNT:
+        raise BackendError("VLESS profile store has invalid custom routing rules")
+    seen_custom_rules: set[tuple[str, str]] = set()
+    for index, rule in enumerate(custom_rules, start=1):
+        if not isinstance(rule, dict):
+            raise BackendError(f"Custom routing rule #{index} has an invalid format")
+        rule_id = rule.get("id")
+        kind = rule.get("kind")
+        value = rule.get("value")
+        action = rule.get("action")
+        if not all(isinstance(item, str) for item in (rule_id, kind, value, action)):
+            raise BackendError(f"Custom routing rule #{index} is incomplete")
+        try:
+            uuidlib.UUID(rule_id)
+        except ValueError as exc:
+            raise BackendError(f"Custom routing rule #{index} has an invalid id") from exc
+        if kind not in {"domain", "suffix", "ipcidr"}:
+            raise BackendError(f"Custom routing rule #{index} has an invalid match type")
+        if action not in {"proxy", "direct", "reject"}:
+            raise BackendError(f"Custom routing rule #{index} has an invalid action")
+        if canonical_custom_rule_value(kind, value) != value:
+            raise BackendError(f"Custom routing rule #{index} has a non-canonical value")
+        key = (kind, value)
+        if key in seen_custom_rules:
+            raise BackendError("VLESS profile store contains a duplicate custom routing rule")
+        seen_custom_rules.add(key)
+    rules_updated_at = data.setdefault("rulesUpdatedAt", 0)
+    if (not isinstance(rules_updated_at, int) or isinstance(rules_updated_at, bool)
+            or rules_updated_at < 0):
+        raise BackendError("VLESS profile store has an invalid rule update time")
     # New installs start with login autoconnect off. Older stores keep the
     # exact systemd-enabled behavior they already had until the user saves an
     # explicit choice in Settings; startupConfigured distinguishes those two
@@ -476,6 +511,44 @@ def clean_name(value: str) -> str:
     if len(value) > 80:
         raise BackendError("Profile name must be at most 80 characters")
     return value
+
+
+def canonical_domain(value: str) -> str:
+    text = value.strip().rstrip(".")
+    if not text or len(text.encode("utf-8")) > MAX_CUSTOM_RULE_VALUE_BYTES:
+        raise BackendError("Domain must not be empty or larger than 1 KiB")
+    if re.search(r"[\x00-\x20\x7f/:?#@]", text):
+        raise BackendError("Enter a domain without a scheme, port, path or spaces")
+    try:
+        domain = text.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise BackendError("Domain is not valid IDNA") from exc
+    if len(domain) > 253:
+        raise BackendError("Domain is too long")
+    labels = domain.split(".")
+    if len(labels) < 2 or any(
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+        for label in labels
+    ):
+        raise BackendError("Enter a valid domain such as example.com")
+    return domain
+
+
+def canonical_custom_rule_value(kind: str, value: str) -> str:
+    if kind in {"domain", "suffix"}:
+        text = value.strip()
+        if kind == "suffix":
+            text = text.removeprefix("*.").removeprefix(".")
+        return canonical_domain(text)
+    if kind == "ipcidr":
+        text = value.strip()
+        if not text or len(text.encode("utf-8")) > MAX_CUSTOM_RULE_VALUE_BYTES:
+            raise BackendError("IP range must not be empty or larger than 1 KiB")
+        try:
+            return str(ipaddress.ip_network(text, strict=False))
+        except ValueError as exc:
+            raise BackendError("Enter an IP address or CIDR range") from exc
+    raise BackendError("Unsupported custom routing match type")
 
 
 def validate_subscription_url(value: str) -> str:
@@ -987,21 +1060,29 @@ class UnixHTTPConnection(http.client.HTTPConnection):
         self.sock.connect(str(self.socket_path))
 
 
-def controller_json(socket_path: Path, path: str, timeout: float) -> tuple[int, Any]:
+def controller_request(
+    socket_path: Path, method: str, path: str, timeout: float
+) -> tuple[int, Any]:
+    if method not in {"GET", "PUT"} or not path.startswith("/") or len(path) > 4096:
+        raise BackendError("Invalid private Mihomo controller request")
     connection = UnixHTTPConnection(socket_path, timeout)
     try:
-        connection.request("GET", path, headers={"Accept": "application/json"})
+        connection.request(method, path, headers={"Accept": "application/json"})
         response = connection.getresponse()
         body = response.read(PROBE_RESULT_BYTES + 1)
         if len(body) > PROBE_RESULT_BYTES:
-            raise BackendError("Mihomo probe response is too large")
+            raise BackendError("Mihomo controller response is too large")
         try:
             payload = json.loads(body) if body else {}
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise BackendError("Mihomo probe returned invalid JSON") from exc
+            raise BackendError("Mihomo controller returned invalid JSON") from exc
         return response.status, payload
     finally:
         connection.close()
+
+
+def controller_json(socket_path: Path, path: str, timeout: float) -> tuple[int, Any]:
+    return controller_request(socket_path, "GET", path, timeout)
 
 
 def probe_proxy_yaml(profile: dict[str, Any], alias: str, address: str) -> str:
@@ -1530,15 +1611,94 @@ def ensure_template(paths: Paths) -> str:
     return text
 
 
-def render_config(paths: Paths, profile: dict[str, Any]) -> str:
-    return ensure_template(paths).replace(PROFILE_MARKER, proxy_yaml(profile))
+def controller_socket(paths: Paths) -> Path:
+    return paths.runtime / f"omavless.{os.getuid()}.controller.sock"
 
 
-def render_config_mode(paths: Paths, profile: dict[str, Any], mode: str) -> str:
+def strip_controller_config(text: str) -> str:
+    """Remove inherited API listeners before adding the private Unix socket."""
+    lines = text.splitlines(keepends=True)
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = re.match(r"^(external-controller(?:-[a-z0-9-]+)?|secret)\s*:", line)
+        if not match:
+            kept.append(line)
+            index += 1
+            continue
+        index += 1
+        while index < len(lines):
+            following = lines[index]
+            if following.strip() and not following.startswith((" ", "\t", "#")):
+                break
+            index += 1
+    return "".join(kept)
+
+
+def custom_rule_line(rule: dict[str, Any]) -> str:
+    targets = {"proxy": "PROXY", "direct": "DIRECT", "reject": "REJECT-DROP"}
+    kind = str(rule["kind"])
+    value = str(rule["value"])
+    target = targets[str(rule["action"])]
+    if kind == "domain":
+        return f"  - DOMAIN,{value},{target}\n"
+    if kind == "suffix":
+        return f"  - DOMAIN-SUFFIX,{value},{target}\n"
+    network = ipaddress.ip_network(value, strict=False)
+    rule_type = "IP-CIDR6" if network.version == 6 else "IP-CIDR"
+    return f"  - {rule_type},{network},{target},no-resolve\n"
+
+
+def inject_custom_rules(text: str, rules: list[dict[str, Any]]) -> str:
+    if not rules:
+        return text
+    lines = text.splitlines(keepends=True)
+    matches = [
+        index for index, line in enumerate(lines)
+        if re.match(r"^rules\s*:\s*(?:#.*)?$", line.rstrip("\r\n"))
+    ]
+    if len(matches) != 1:
+        raise BackendError("Route template must contain one top-level rules section")
+    insertion = ["  # OmaVLESS custom rules — evaluated before the selected preset\n"]
+    insertion.extend(custom_rule_line(rule) for rule in rules)
+    lines[matches[0] + 1:matches[0] + 1] = insertion
+    return "".join(lines)
+
+
+def private_runtime_config(
+    paths: Paths, text: str, store: dict[str, Any]
+) -> str:
+    ensure_runtime(paths)
+    configured = inject_custom_rules(strip_controller_config(text), store["customRules"])
+    return f"external-controller-unix: {yaml_value(str(controller_socket(paths)))}\n" + configured
+
+
+def prepare_controller_socket(paths: Paths) -> None:
+    ensure_runtime(paths)
+    socket_path = controller_socket(paths)
+    with contextlib.suppress(FileNotFoundError):
+        socket_path.unlink()
+
+
+def render_config(
+    paths: Paths, profile: dict[str, Any], store: dict[str, Any] | None = None
+) -> str:
+    current_store = store if store is not None else load_store(paths)
+    text = ensure_template(paths).replace(PROFILE_MARKER, proxy_yaml(profile))
+    return private_runtime_config(paths, text, current_store)
+
+
+def render_config_mode(
+    paths: Paths, profile: dict[str, Any], mode: str,
+    store: dict[str, Any] | None = None,
+) -> str:
     """Render one profile for an explicit login mode without changing Settings."""
-    return template_with_mode(ensure_template(paths), mode).replace(
+    current_store = store if store is not None else load_store(paths)
+    text = template_with_mode(ensure_template(paths), mode).replace(
         PROFILE_MARKER, proxy_yaml(profile)
     )
+    return private_runtime_config(paths, text, current_store)
 
 
 def bundled_template(name: str) -> str:
@@ -1700,7 +1860,9 @@ def routing_status(paths: Paths, running: bool, store: dict[str, Any] | None = N
             text = ensure_template(paths)
     except BackendError:
         return {"mode": "unknown", "source": "unknown", "preset": "",
-                "configured": False, "ruleCount": 0, "providerCount": 0}
+                "configured": False, "ruleCount": 0, "providerCount": 0,
+                "customRuleCount": 0, "rulesUpdatedAt": 0,
+                "ruleUpdateAvailable": False}
 
     mode = yaml_top_level_scalar(text, "mode") or "unknown"
     rules = yaml_top_level_block(text, "rules")
@@ -1737,11 +1899,359 @@ def routing_status(paths: Paths, running: bool, store: dict[str, Any] | None = N
         source = "basic"
     else:
         source = "custom"
-    selected = str((store if store is not None else load_store(paths)).get("routingPreset", ""))
+    current_store = store if store is not None else load_store(paths)
+    selected = str(current_store.get("routingPreset", ""))
     effective_preset = selected if selected == "custom" or selected == marked else marked
     return {"mode": mode, "source": source, "preset": effective_preset,
             "configured": bool(selected), "ruleCount": rule_count,
-            "providerCount": provider_count}
+            "providerCount": provider_count,
+            "customRuleCount": len(current_store.get("customRules", [])),
+            "rulesUpdatedAt": int(current_store.get("rulesUpdatedAt", 0)),
+            "ruleUpdateAvailable": bool(
+                running and mode == "rule" and provider_count > 0
+                and controller_socket(paths).exists()
+            )}
+
+
+def save_custom_rule(paths: Paths, kind: str, action: str, raw_value: str) -> dict[str, Any]:
+    if kind not in {"domain", "suffix", "ipcidr"}:
+        raise BackendError("Unsupported custom routing match type")
+    if action not in {"proxy", "direct", "reject"}:
+        raise BackendError("Unsupported custom routing action")
+    value = canonical_custom_rule_value(kind, raw_value)
+    store = load_store(paths)
+    if len(store["customRules"]) >= MAX_CUSTOM_RULE_COUNT:
+        raise BackendError(f"At most {MAX_CUSTOM_RULE_COUNT} custom routing rules are supported")
+    if any(rule["kind"] == kind and rule["value"] == value for rule in store["customRules"]):
+        raise BackendError("That custom routing match already exists")
+    previous_store = json.loads(json.dumps(store))
+    rule = {"id": str(uuidlib.uuid4()), "kind": kind, "value": value, "action": action}
+    store["customRules"].append(rule)
+    save_store(paths, store)
+    running = service_active(SERVICE)
+    active_id = str(store.get("activeId", "")) if running else ""
+    if running and not active_id:
+        save_store(paths, previous_store)
+        raise BackendError("omavless.service is running without an active profile")
+    try:
+        if active_id:
+            connect_profile(paths, active_id)
+    except Exception as exc:
+        try:
+            save_store(paths, previous_store)
+        except Exception as rollback_exc:
+            raise BackendError(
+                f"{exc}; custom rule rollback needs manual recovery ({rollback_exc})", 21
+            ) from exc
+        raise
+    return rule
+
+
+def delete_custom_rule(paths: Paths, rule_id: str) -> None:
+    store = load_store(paths)
+    previous_store = json.loads(json.dumps(store))
+    remaining = [rule for rule in store["customRules"] if rule["id"] != rule_id]
+    if len(remaining) == len(store["customRules"]):
+        raise BackendError("No such custom routing rule")
+    store["customRules"] = remaining
+    save_store(paths, store)
+    running = service_active(SERVICE)
+    active_id = str(store.get("activeId", "")) if running else ""
+    if running and not active_id:
+        save_store(paths, previous_store)
+        raise BackendError("omavless.service is running without an active profile")
+    try:
+        if active_id:
+            connect_profile(paths, active_id)
+    except Exception as exc:
+        try:
+            save_store(paths, previous_store)
+        except Exception as rollback_exc:
+            raise BackendError(
+                f"{exc}; custom rule rollback needs manual recovery ({rollback_exc})", 21
+            ) from exc
+        raise
+
+
+def custom_rules_text(paths: Paths) -> str:
+    store = load_store(paths)
+    payload = {
+        "version": 1,
+        "rules": [
+            {
+                "id": str(rule["id"]), "kind": str(rule["kind"]),
+                "value": str(rule["value"]), "action": str(rule["action"]),
+            }
+            for rule in store["customRules"]
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def _refresh_rule_provider(socket_path: Path, name: str) -> str:
+    endpoint = "/providers/rules/" + urllib.parse.quote(name, safe="")
+    status_code, _payload = controller_request(socket_path, "PUT", endpoint, 60)
+    if status_code != 204:
+        raise BackendError(f"Mihomo refused rule provider update: {name}")
+    return name
+
+
+def refresh_rule_providers(paths: Paths) -> dict[str, int]:
+    if not service_active(SERVICE):
+        raise BackendError("Connect in Routing mode before refreshing rule data")
+    socket_path = controller_socket(paths)
+    if not socket_path.exists():
+        raise BackendError("Reconnect once to enable private rule updates")
+    status_code, payload = controller_json(socket_path, "/providers/rules", 5)
+    providers = payload.get("providers") if isinstance(payload, dict) else None
+    if status_code != 200 or not isinstance(providers, dict) or len(providers) > 256:
+        raise BackendError("Mihomo returned invalid rule provider status")
+    names: list[str] = []
+    for name, provider in providers.items():
+        if not isinstance(name, str) or not 0 < len(name) <= 256 or not isinstance(provider, dict):
+            raise BackendError("Mihomo returned invalid rule provider metadata")
+        vehicle = str(provider.get("vehicleType", "")).lower()
+        if vehicle == "http":
+            names.append(name)
+    if not names:
+        raise BackendError("The active Routing profile has no remote rule providers")
+    failures: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(names))) as executor:
+        futures = {
+            executor.submit(_refresh_rule_provider, socket_path, name): name for name in names
+        }
+        for future, name in futures.items():
+            try:
+                future.result()
+            except Exception:
+                failures.append(name)
+    if failures:
+        preview = ", ".join(failures[:3])
+        if len(failures) > 3:
+            preview += f" and {len(failures) - 3} more"
+        raise BackendError(f"Could not refresh rule providers: {preview}")
+    with operation_lock(paths):
+        store = load_store(paths)
+        store["rulesUpdatedAt"] = time.time_ns() // 1_000_000
+        save_store(paths, store)
+        updated_at = int(store["rulesUpdatedAt"])
+        invalidate_status_cache(paths)
+    return {"updated": len(names), "updatedAt": updated_at}
+
+
+def canonical_route_query(value: str) -> tuple[str, bool]:
+    text = value.strip()
+    try:
+        return str(ipaddress.ip_address(text)), True
+    except ValueError:
+        return canonical_domain(text), False
+
+
+def custom_rule_match(
+    rules: list[dict[str, Any]], query: str, is_ip: bool
+) -> dict[str, Any] | None:
+    for rule in rules:
+        kind = str(rule["kind"])
+        value = str(rule["value"])
+        if kind == "ipcidr":
+            if is_ip and ipaddress.ip_address(query) in ipaddress.ip_network(value):
+                return rule
+        elif not is_ip and (
+            (kind == "domain" and query == value)
+            or (kind == "suffix" and (query == value or query.endswith("." + value)))
+        ):
+            return rule
+    return None
+
+
+def route_outcome(target: str) -> str:
+    value = target.upper()
+    if value == "DIRECT":
+        return "direct"
+    if value.startswith("REJECT"):
+        return "block"
+    return "vpn"
+
+
+def public_route_target(target: str) -> str:
+    """Expose route semantics without leaking a profile or policy-group name."""
+    outcome = route_outcome(target)
+    if outcome == "direct":
+        return "DIRECT"
+    if outcome == "block":
+        return "REJECT"
+    return "PROXY"
+
+
+def controller_rules(socket_path: Path, timeout: float) -> list[dict[str, Any]]:
+    status_code, payload = controller_json(socket_path, "/rules", timeout)
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if status_code != 200 or not isinstance(rules, list) or len(rules) > 65536:
+        raise BackendError("Mihomo returned invalid routing rule status")
+    if any(not isinstance(item, dict) for item in rules):
+        raise BackendError("Mihomo returned invalid routing rule metadata")
+    return rules
+
+
+def rule_hit_snapshot(rules: list[dict[str, Any]]) -> dict[int, int]:
+    snapshot: dict[int, int] = {}
+    for position, item in enumerate(rules):
+        extra = item.get("extra")
+        hit_count = extra.get("hitCount") if isinstance(extra, dict) else None
+        index = item.get("index", position)
+        if (
+            isinstance(index, int) and not isinstance(index, bool)
+            and isinstance(hit_count, int) and not isinstance(hit_count, bool)
+            and index >= 0 and hit_count >= 0
+        ):
+            snapshot[index] = hit_count
+    return snapshot
+
+
+def incremented_rule(
+    rules: list[dict[str, Any]], before_hits: dict[int, int]
+) -> dict[str, Any] | None:
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for position, item in enumerate(rules):
+        extra = item.get("extra")
+        hit_count = extra.get("hitCount") if isinstance(extra, dict) else None
+        hit_at = extra.get("hitAt", 0) if isinstance(extra, dict) else 0
+        index = item.get("index", position)
+        if (
+            isinstance(index, int) and not isinstance(index, bool)
+            and isinstance(hit_count, int) and not isinstance(hit_count, bool)
+            and hit_count > before_hits.get(index, hit_count)
+        ):
+            candidates.append((int(hit_at) if isinstance(hit_at, int) else 0, index, item))
+    if not candidates:
+        return None
+    # Other traffic may hit a rule during the short probe. Mihomo's hitAt value
+    # lets the most recent match win; the active-connection match below remains
+    # the preferred result when it is observable.
+    candidates.sort(key=lambda candidate: (candidate[0], candidate[1]), reverse=True)
+    return candidates[0][2]
+
+
+def rule_target(
+    rules: list[dict[str, Any]], rule_type: str, rule_payload: str
+) -> str:
+    normalized_type = re.sub(r"[^A-Z0-9]", "", rule_type.upper())
+    for item in rules:
+        item_type = re.sub(r"[^A-Z0-9]", "", str(item.get("type", "")).upper())
+        if item_type == normalized_type and str(item.get("payload", "")) == rule_payload:
+            return str(item.get("proxy", ""))[:256]
+    return ""
+
+
+def live_route_match(paths: Paths, query: str, is_ip: bool) -> dict[str, str]:
+    socket_path = controller_socket(paths)
+    if not socket_path.exists():
+        raise BackendError("Reconnect once to enable private domain checks")
+    before_rules = controller_rules(socket_path, 3)
+    before_hits = rule_hit_snapshot(before_rules)
+    status_code, before_payload = controller_json(socket_path, "/connections", 3)
+    before_connections = before_payload.get("connections") if isinstance(before_payload, dict) else None
+    if status_code != 200 or not isinstance(before_connections, list):
+        raise BackendError("Mihomo returned invalid connection status")
+    before_ids = {
+        str(item.get("id", "")) for item in before_connections if isinstance(item, dict)
+    }
+    config_text = read_text_file(paths.config, MAX_TEMPLATE_BYTES, "generated config", private=True)
+    try:
+        port = int(yaml_top_level_scalar(config_text, "mixed-port"))
+    except ValueError as exc:
+        raise BackendError("The active config has no usable local mixed port") from exc
+    if not 1 <= port <= 65535:
+        raise BackendError("The active config has no usable local mixed port")
+    authority = f"[{query}]:443" if is_ip and ":" in query else f"{query}:443"
+    probe = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        request = f"CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n"
+        probe.sendall(request.encode("ascii"))
+        deadline = time.monotonic() + 5
+        matched_connection: dict[str, Any] | None = None
+        matched_rule: dict[str, Any] | None = None
+        current_rules = before_rules
+        while time.monotonic() < deadline:
+            _code, current = controller_json(socket_path, "/connections", 1)
+            connections = current.get("connections") if isinstance(current, dict) else None
+            if isinstance(connections, list):
+                for item in connections:
+                    if not isinstance(item, dict) or str(item.get("id", "")) in before_ids:
+                        continue
+                    metadata = item.get("metadata")
+                    host = str(metadata.get("host", "")).lower() if isinstance(metadata, dict) else ""
+                    destination = str(metadata.get("destinationIP", "")) if isinstance(metadata, dict) else ""
+                    if host == query or (is_ip and destination == query):
+                        matched_connection = item
+                        break
+            current_rules = controller_rules(socket_path, 1)
+            matched_rule = incremented_rule(current_rules, before_hits)
+            if matched_connection is not None or matched_rule is not None:
+                break
+            time.sleep(0.1)
+    finally:
+        probe.close()
+    if matched_connection is None and matched_rule is None:
+        raise BackendError("Could not observe a route for that destination; it may be unavailable")
+    rule_type = ""
+    rule_payload = ""
+    target = ""
+    if matched_connection is not None:
+        rule_type = str(matched_connection.get("rule", ""))[:80]
+        rule_payload = str(matched_connection.get("rulePayload", ""))[:256]
+        target = rule_target(current_rules, rule_type, rule_payload)
+    elif matched_rule is not None:
+        rule_type = str(matched_rule.get("type", ""))[:80]
+        rule_payload = str(matched_rule.get("payload", ""))[:256]
+        target = str(matched_rule.get("proxy", ""))[:256]
+    if not target:
+        chains = matched_connection.get("chains") if matched_connection is not None else None
+        if isinstance(chains, list) and chains:
+            upper = [str(item).upper() for item in chains]
+            target = "DIRECT" if "DIRECT" in upper else "PROXY"
+    return {
+        "outcome": route_outcome(target or "PROXY"),
+        "ruleType": rule_type or "RULE",
+        "rulePayload": rule_payload,
+        "target": public_route_target(target or "PROXY"),
+        "source": "live",
+    }
+
+
+def route_check(paths: Paths, raw_query: str) -> dict[str, Any]:
+    query, is_ip = canonical_route_query(raw_query)
+    store = load_store(paths)
+    running = service_active(SERVICE)
+    routing = routing_status(paths, running, store)
+    mode = str(routing["mode"])
+    if mode == "global":
+        result = {"outcome": "vpn", "ruleType": "MODE", "rulePayload": "global",
+                  "target": "PROXY", "source": "mode"}
+    elif mode == "direct":
+        result = {"outcome": "direct", "ruleType": "MODE", "rulePayload": "direct",
+                  "target": "DIRECT", "source": "mode"}
+    else:
+        matched = custom_rule_match(store["customRules"], query, is_ip)
+        if matched is not None:
+            target = {"proxy": "PROXY", "direct": "DIRECT", "reject": "REJECT-DROP"}[
+                str(matched["action"])
+            ]
+            result = {
+                "outcome": route_outcome(target),
+                "ruleType": str(matched["kind"]).upper(),
+                "rulePayload": str(matched["value"]),
+                "target": target,
+                "source": "custom",
+            }
+        elif running and mode == "rule":
+            result = live_route_match(paths, query, is_ip)
+        else:
+            result = {
+                "outcome": "unknown", "ruleType": "RULE-SET", "rulePayload": "",
+                "target": "", "source": "disconnected",
+            }
+    return {"version": 1, "query": query, **result}
 
 
 def find_core(paths: Paths) -> Path:
@@ -2098,7 +2608,7 @@ def configure_startup(
         core = find_core(paths)
         ensure_unit(paths, core)
         ensure_startup_unit(paths)
-        candidate = test_config(paths, core, render_config_mode(paths, profile, mode))
+        candidate = test_config(paths, core, render_config_mode(paths, profile, mode, store))
         with contextlib.suppress(FileNotFoundError):
             candidate.unlink()
     else:
@@ -2179,9 +2689,10 @@ def startup_connect(paths: Paths) -> None:
     )
     was_active = service_active(SERVICE)
     candidate = test_config(
-        paths, core, render_config_mode(paths, profile, str(startup["mode"]))
+        paths, core, render_config_mode(paths, profile, str(startup["mode"]), store)
     )
     try:
+        prepare_controller_socket(paths)
         os.replace(candidate, paths.config)
         os.chmod(paths.config, 0o600)
         systemctl("restart" if was_active else "start", SERVICE)
@@ -2228,11 +2739,12 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
         raise BackendError("Mihoro is running. Stop mihomo.service before starting OmaVLESS")
     core = find_core(paths)
     ensure_unit(paths, core)
-    candidate = test_config(paths, core, render_config(paths, profile))
+    candidate = test_config(paths, core, render_config(paths, profile, store))
     old_config = (read_text_file(paths.config, MAX_TEMPLATE_BYTES, "generated config", private=True).encode()
                   if paths.config.exists() else None)
     was_active = service_active(SERVICE)
     try:
+        prepare_controller_socket(paths)
         os.replace(candidate, paths.config)
         os.chmod(paths.config, 0o600)
         configured_startup = bool(store.get("startupConfigured", False))
@@ -2295,6 +2807,8 @@ def stop_service(paths: Paths, expected_profile_id: str = "") -> None:
             clear_intent(paths, active_id)
         reason = (result.stderr or result.stdout or "systemd refused to stop OmaVLESS").strip()
         raise BackendError(reason)
+    with contextlib.suppress(FileNotFoundError):
+        controller_socket(paths).unlink()
     store["activeId"] = ""
     removed_ids = {
         str(profile["id"]) for profile in store["profiles"]
@@ -2572,7 +3086,16 @@ def cleanup_runtime(paths: Paths) -> None:
         for path in paths.runtime.glob(pattern):
             with contextlib.suppress(OSError):
                 match = re.match(r"^vless-(?:qr|edit)\.(\d+)\.", path.name)
-                owner_alive = bool(match and Path("/proc", match.group(1)).exists())
+                owner_pid = int(match.group(1)) if match else -1
+                # The current process is necessarily alive even in restricted
+                # containers where its own /proc entry can be transiently
+                # hidden from a filesystem lookup.
+                owner_alive = bool(
+                    match and (
+                        owner_pid == os.getpid()
+                        or Path("/proc", str(owner_pid)).exists()
+                    )
+                )
                 # A dead Quickshell cannot clean its credential-bearing temp
                 # files. Reap those immediately; only malformed legacy names
                 # need the conservative age fallback.
@@ -2631,6 +3154,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("profile", choices=tuple(ROUTING_PRESETS))
     p.add_argument("--keep-mode", action="store_true")
     p = sub.add_parser("set-mode"); p.add_argument("mode", choices=("rule", "global", "direct"))
+    sub.add_parser("custom-rules")
+    p = sub.add_parser("custom-rule-add")
+    p.add_argument("kind", choices=("domain", "suffix", "ipcidr"))
+    p.add_argument("action", choices=("proxy", "direct", "reject"))
+    p = sub.add_parser("custom-rule-delete"); p.add_argument("id")
+    sub.add_parser("route-check")
+    sub.add_parser("rule-providers-refresh")
     p = sub.add_parser("startup-configure")
     p.add_argument("enabled", choices=("on", "off"))
     p.add_argument("target", choices=("last", "profile"))
@@ -2700,6 +3230,26 @@ def main() -> int:
         with operation_lock(paths):
             set_routing_mode(paths, args.mode)
             invalidate_status_cache(paths)
+    elif args.command == "custom-rules":
+        with operation_lock(paths):
+            print(custom_rules_text(paths), end="")
+    elif args.command == "custom-rule-add":
+        value = read_stdin_text(MAX_CUSTOM_RULE_VALUE_BYTES, "custom routing value")
+        with operation_lock(paths):
+            print(json.dumps(
+                save_custom_rule(paths, args.kind, args.action, value),
+                ensure_ascii=False, separators=(",", ":"),
+            ))
+            invalidate_status_cache(paths)
+    elif args.command == "custom-rule-delete":
+        with operation_lock(paths):
+            delete_custom_rule(paths, args.id)
+            invalidate_status_cache(paths)
+    elif args.command == "route-check":
+        value = read_stdin_text(MAX_CUSTOM_RULE_VALUE_BYTES, "routing query")
+        print(json.dumps(route_check(paths, value), ensure_ascii=False, separators=(",", ":")))
+    elif args.command == "rule-providers-refresh":
+        print(json.dumps(refresh_rule_providers(paths), separators=(",", ":")))
     elif args.command == "startup-configure":
         with operation_lock(paths):
             configure_startup(
