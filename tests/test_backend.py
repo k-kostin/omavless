@@ -43,6 +43,13 @@ TROJAN_REALITY_URI = (
     "&serviceName=edge&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     "&sid=0123456789abcdef#Trojan%20Reality"
 )
+HYSTERIA2_PIN = "0123456789abcdef" * 4
+HYSTERIA2_URI = (
+    "hysteria2://user%3Apass%40secret@example.com:443,5000-6000/"
+    "?obfs=gecko&obfs-password=obfs%20secret&sni=hy2.example.org"
+    f"&insecure=1&pinSHA256={HYSTERIA2_PIN}&ech=AQIDBA%3D%3D"
+    "#Hysteria%202"
+)
 
 
 class BackendTests(unittest.TestCase):
@@ -222,6 +229,98 @@ class BackendTests(unittest.TestCase):
                     backend.BackendError, message) as caught:
                 backend.parse_trojan(uri)
             self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_hysteria2_official_uri_maps_to_current_mihomo_schema(self):
+        node = backend.parse_profile(HYSTERIA2_URI)
+        self.assertEqual(node["protocol"], "hysteria2")
+        self.assertEqual(node["password"], "user:pass@secret")
+        self.assertEqual(node["server"], "example.com")
+        self.assertEqual(node["port"], 443)
+        self.assertEqual(node["ports"], "443,5000-6000")
+        self.assertTrue(node["port_hopping"])
+        self.assertEqual(node["obfs"], "gecko")
+        self.assertEqual(node["obfs_password"], "obfs secret")
+        self.assertEqual(node["fingerprint"], HYSTERIA2_PIN)
+        self.assertEqual(node["ech"], "AQIDBA==")
+
+        yaml = backend.profile_yaml({
+            "name": "Hysteria 2", "uri": HYSTERIA2_URI,
+            "protocol": "hysteria2",
+        })
+        for expected in (
+            "type: hysteria2", 'server: "example.com"', "port: 443",
+            'ports: "443,5000-6000"', 'password: "user:pass@secret"',
+            'obfs: "gecko"', 'obfs-password: "obfs secret"',
+            'sni: "hy2.example.org"', "skip-cert-verify: true",
+            f'fingerprint: "{HYSTERIA2_PIN}"', "ech-opts:",
+            "enable: true", 'config: "AQIDBA=="',
+        ):
+            self.assertIn(expected, yaml)
+        self.assertNotIn("  up:", yaml)
+        self.assertNotIn("  down:", yaml)
+
+    def test_hysteria2_preview_and_errors_do_not_expose_auth_or_obfs_secrets(self):
+        preview = backend.preview_profile(HYSTERIA2_URI)
+        self.assertEqual(preview["protocol"], "hysteria2")
+        self.assertEqual(preview["transport"], "quic")
+        self.assertEqual(preview["security"], "tls")
+        self.assertEqual(preview["credentialHint"], "••••")
+        self.assertEqual(preview["experimentalFeatures"], ["Hysteria2"])
+        public = json.dumps(preview, ensure_ascii=False)
+        for secret in ("user:pass", "obfs secret", "AQIDBA", HYSTERIA2_PIN):
+            self.assertNotIn(secret, public)
+        self.assertNotIn("hysteria2://", public)
+
+        private_uri = HYSTERIA2_URI.replace(
+            "obfs=gecko", "obfs=private-obfuscator"
+        )
+        with self.assertRaisesRegex(backend.BackendError, "obfuscation type") as caught:
+            backend.parse_hysteria2(private_uri)
+        self.assertNotIn("private-obfuscator", str(caught.exception))
+
+    def test_hysteria2_accepts_alias_default_port_ipv6_userpass_and_colon_pin(self):
+        default = backend.parse_profile("hy2://user:pass@example.com/#Default")
+        self.assertEqual(default["password"], "user:pass")
+        self.assertEqual(default["port"], 443)
+        self.assertFalse(default["port_hopping"])
+        self.assertEqual(default["ports"], "443")
+
+        colon_pin = ":".join(
+            HYSTERIA2_PIN[index:index + 2]
+            for index in range(0, len(HYSTERIA2_PIN), 2)
+        )
+        ipv6 = backend.parse_profile(
+            "hy2://auth@[2001:db8::1]:8443-8445/"
+            "?obfs=salamander&obfs-password=secret"
+            f"&pinSHA256={colon_pin}#IPv6"
+        )
+        self.assertEqual(ipv6["server"], "2001:db8::1")
+        self.assertEqual(ipv6["ports"], "8443-8445")
+        self.assertEqual(ipv6["fingerprint"], HYSTERIA2_PIN)
+
+    def test_hysteria2_rejects_ambiguous_or_unrepresentable_share_fields(self):
+        cases = (
+            ("hy2://auth@example.com:0", "range"),
+            ("hy2://auth@example.com:443,443", "overlapping"),
+            ("hy2://auth@example.com:500-400", "range"),
+            ("hy2://auth@example.com:443?insecure=true", "0 or 1"),
+            ("hy2://auth@example.com:443?obfs=gecko", "requires a password"),
+            ("hy2://auth@example.com:443?obfs-password=private-secret", "requires an obfs"),
+            ("hy2://auth@example.com:443?pinSHA256=deadbeef", "SHA-256"),
+            ("hy2://auth@example.com:443?ech=not-base64", "base64"),
+            ("hy2://auth@example.com:443?upmbps=100", "local setting"),
+            ("hy2://auth@example.com:443?unknown=private-secret", "unsupported fields"),
+            ("hy2://auth@example.com:443/private", "path is not supported"),
+        )
+        for uri, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                    backend.BackendError, message) as caught:
+                backend.parse_hysteria2(uri)
+            self.assertNotIn("private-secret", str(caught.exception))
+        with self.assertRaisesRegex(backend.BackendError, "not supported"):
+            backend.parse_profile(
+                "hysteria2+realm://token@realm.example/room?auth=private-secret"
+            )
 
     def test_reality_fields_match_current_mihomo_schema(self):
         base, fragment = REALITY_URI.split("#", 1)
@@ -801,7 +900,10 @@ rules:
                 "ruleUpdateAvailable": False,
             })
             self.assertEqual(payload["capabilities"]["core"], "mihomo")
-            self.assertEqual(payload["capabilities"]["protocols"], ["vless", "trojan"])
+            self.assertEqual(
+                payload["capabilities"]["protocols"],
+                ["vless", "trojan", "hysteria2"],
+            )
             self.assertEqual(payload["coreSetup"], {
                 "installed": False, "tunReady": False, "path": "",
             })
@@ -1229,6 +1331,29 @@ rules:
             self.assertNotIn("trojan://", public)
             self.assertEqual(json.loads(public)["profiles"][0]["protocol"], "trojan")
 
+    def test_hysteria2_cli_import_keeps_auth_out_of_public_status(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, _runtime = self.make_env(home)
+            imported = subprocess.run(
+                [str(ROOT / "backend.sh"), "import", "Hysteria 2"],
+                input=HYSTERIA2_URI, text=True, env=env, capture_output=True,
+            )
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            stored = json.loads(
+                (home / ".config" / "omavless" / "profiles.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(stored["profiles"][0]["protocol"], "hysteria2")
+            with mock.patch.object(backend, "service_active", return_value=False):
+                public = backend.status_text(self.paths_for(home, home / "runtime"))
+            for secret in ("user%3Apass", "obfs%20secret", "hysteria2://"):
+                self.assertNotIn(secret, public)
+            self.assertEqual(
+                json.loads(public)["profiles"][0]["protocol"], "hysteria2"
+            )
+
     def test_v1_store_migrates_in_memory_to_protocol_aware_v3(self):
         profile_id = "22222222-2222-4222-8222-222222222222"
         migrated = backend.validate_store({
@@ -1340,11 +1465,14 @@ rules:
         self.assertEqual([item["key"] for item in profiles64], [item["key"] for item in profiles])
         self.assertEqual(skipped64, 0)
 
-    def test_subscription_parser_and_store_support_mixed_vless_trojan_profiles(self):
-        entries, skipped = backend.parse_subscription(REALITY_URI + "\n" + TROJAN_URI)
+    def test_subscription_parser_and_store_supports_all_profile_adapters(self):
+        entries, skipped = backend.parse_subscription(
+            REALITY_URI + "\n" + TROJAN_URI + "\n" + HYSTERIA2_URI
+        )
         self.assertEqual(skipped, 0)
         self.assertEqual(
-            [entry["node"]["protocol"] for entry in entries], ["vless", "trojan"]
+            [entry["node"]["protocol"] for entry in entries],
+            ["vless", "trojan", "hysteria2"],
         )
         subscription_id = "33333333-3333-4333-8333-333333333333"
         subscription = {
@@ -1356,7 +1484,7 @@ rules:
         backend.sync_subscription_store(store, subscription, entries, 123)
         self.assertEqual(
             [profile["protocol"] for profile in store["profiles"]],
-            ["vless", "trojan"],
+            ["vless", "trojan", "hysteria2"],
         )
         migrated = backend.validate_store(store)
         self.assertEqual(migrated["version"], 3)
@@ -1371,6 +1499,18 @@ rules:
         ))
         self.assertEqual(
             backend.profile_subscription_key(TROJAN_URI),
+            backend.profile_subscription_key(reordered),
+        )
+
+    def test_hysteria2_subscription_identity_normalizes_alias_label_and_query_order(self):
+        parsed = urllib.parse.urlsplit(HYSTERIA2_URI)
+        reordered = urllib.parse.urlunsplit((
+            "hy2", parsed.netloc, parsed.path,
+            urllib.parse.urlencode(list(reversed(urllib.parse.parse_qsl(parsed.query)))),
+            "Provider rename",
+        ))
+        self.assertEqual(
+            backend.profile_subscription_key(HYSTERIA2_URI),
             backend.profile_subscription_key(reordered),
         )
 
@@ -2718,7 +2858,8 @@ esac
         ]
         texts = {path: path.read_text(encoding="utf-8") for path in distributed}
         credential = re.compile(
-            r"(?:vless://[0-9a-fA-F-]{36}|trojan://[^\s/@]+)@"
+            r"(?:vless://[0-9a-fA-F-]{36}|trojan://[^\s/@]+|"
+            r"(?:hysteria2|hy2)://[^\s/@]+)@"
         )
         for path, text in texts.items():
             self.assertIsNone(credential.search(text), f"embedded VLESS credential in {path}")
@@ -2803,6 +2944,7 @@ esac
             ),
             "trojan-tls": TROJAN_URI,
             "trojan-reality-grpc": TROJAN_REALITY_URI,
+            "hysteria2-gecko-port-hopping": HYSTERIA2_URI,
         }
         for name, uri in profiles.items():
             with self.subTest(profile=name), tempfile.TemporaryDirectory() as temp:

@@ -271,7 +271,8 @@ Item {
     conflictDetection: true,
     qr: true,
     trojanExperimental: true,
-    protocols: ["vless", "trojan"],
+    hysteria2Experimental: true,
+    protocols: ["vless", "trojan", "hysteria2"],
     core: "mihomo"
   })
 
@@ -793,7 +794,7 @@ Item {
     var featureSource = payload.capabilities
     var featureNames = ["subscriptions", "subscriptionSearch", "routingModes",
       "connectionTest", "liveTraffic", "trafficHistory", "exitIp",
-      "conflictDetection", "qr", "trojanExperimental"]
+      "conflictDetection", "qr", "trojanExperimental", "hysteria2Experimental"]
     if (!featureSource || typeof featureSource.core !== "string"
         || featureSource.core.length > 32 || !Array.isArray(featureSource.protocols)
         || featureSource.protocols.length > 16)
@@ -1788,7 +1789,7 @@ Item {
   }
 
   function looksLikeConfig(text) {
-    return /(^|\s)(vless|trojan):\/\//i.test(String(text || ""))
+    return /(^|\s)(vless|trojan|hysteria2|hy2):\/\//i.test(String(text || ""))
   }
 
   // QML deliberately does not parse a credential-bearing URI fragment.
@@ -2228,7 +2229,7 @@ Item {
           || typeof value.server !== "string" || value.server === ""
           || value.server.length > 253 || typeof value.port !== "number"
           || !isFinite(value.port) || value.port < 1 || value.port > 65535
-          || ["tcp", "ws", "http", "h2", "grpc", "xhttp"].indexOf(value.transport) < 0
+          || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic"].indexOf(value.transport) < 0
           || ["none", "tls", "reality"].indexOf(value.security) < 0
           || typeof value.sni !== "string" || value.sni.length > 253
           || typeof value.flow !== "string" || value.flow.length > 64

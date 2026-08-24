@@ -49,6 +49,11 @@ STATUS_CACHE_SECONDS = 1.0
 MAX_VLESS_URI_BYTES = 16 * 1024
 MAX_TROJAN_URI_BYTES = 16 * 1024
 MAX_TROJAN_PASSWORD_BYTES = 1024
+MAX_HYSTERIA2_URI_BYTES = 16 * 1024
+MAX_HYSTERIA2_AUTH_BYTES = 1024
+MAX_HYSTERIA2_OBFS_PASSWORD_BYTES = 1024
+MAX_HYSTERIA2_PORT_SPEC_BYTES = 2048
+MAX_HYSTERIA2_ECH_BYTES = 8 * 1024
 MAX_VLESS_ENCRYPTION_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_BYTES = 12 * 1024
 MAX_XHTTP_EXTRA_ITEMS = 160
@@ -110,7 +115,8 @@ PUBLIC_CAPABILITIES = {
     "vlessEncryptionExperimental": True,
     "realityPqExperimental": True,
     "trojanExperimental": True,
-    "protocols": ["vless", "trojan"],
+    "hysteria2Experimental": True,
+    "protocols": ["vless", "trojan", "hysteria2"],
     "core": "mihomo",
 }
 
@@ -2628,6 +2634,272 @@ def _parse_trojan_adapter(uri: str, strict_transport: bool) -> dict[str, Any]:
     return parse_trojan(uri, strict_transport=strict_transport)
 
 
+def extract_hysteria2_uri(text: str) -> str:
+    for token in re.split(r"\s+", text.strip()):
+        if token.lower().startswith(("hysteria2://", "hy2://")):
+            uri = token.strip()
+            if len(uri.encode("utf-8")) > MAX_HYSTERIA2_URI_BYTES:
+                raise BackendError(
+                    "Hysteria2 link is too large "
+                    f"(maximum {MAX_HYSTERIA2_URI_BYTES // 1024} KiB)"
+                )
+            return uri
+    raise BackendError("Input does not contain a Hysteria2 link")
+
+
+def _hysteria2_text(value: str, label: str, limit: int, *, empty: bool = True) -> str:
+    if ((not empty and not value) or len(value.encode("utf-8")) > limit
+            or re.search(r"[\x00-\x1f\x7f]", value)):
+        raise BackendError(f"Hysteria2 {label} has an invalid format")
+    return value
+
+
+def _hysteria2_host(value: str) -> str:
+    if (not value or len(value.encode("utf-8")) > 1024
+            or re.search(r"[\x00-\x20\x7f/?#@]", value)):
+        raise BackendError("Hysteria2 server has an invalid format")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        pass
+    try:
+        host = value.rstrip(".").encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise BackendError("Hysteria2 server is not valid IDNA") from exc
+    if (not host or len(host) > 253 or any(
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in host.split("."))):
+        raise BackendError("Hysteria2 server has an invalid format")
+    return host
+
+
+def _hysteria2_ports(value: str) -> tuple[str, int, bool]:
+    if (not value or len(value.encode("ascii", "ignore")) != len(value)
+            or len(value.encode("ascii")) > MAX_HYSTERIA2_PORT_SPEC_BYTES):
+        raise BackendError("Hysteria2 port list has an invalid format")
+    parts = value.split(",")
+    if len(parts) > 256 or any(not part for part in parts):
+        raise BackendError("Hysteria2 port list has an invalid format")
+    ranges: list[tuple[int, int]] = []
+    canonical: list[str] = []
+    for part in parts:
+        match = re.fullmatch(r"([0-9]{1,5})(?:-([0-9]{1,5}))?", part)
+        if not match:
+            raise BackendError("Hysteria2 port list has an invalid format")
+        start = int(match.group(1))
+        end = int(match.group(2) or match.group(1))
+        if not 1 <= start <= end <= 65535:
+            raise BackendError("Hysteria2 port list has an invalid range")
+        if any(start <= previous_end and end >= previous_start
+               for previous_start, previous_end in ranges):
+            raise BackendError("Hysteria2 port list contains overlapping ranges")
+        ranges.append((start, end))
+        canonical.append(str(start) if start == end else f"{start}-{end}")
+    result = ",".join(canonical)
+    return result, ranges[0][0], len(ranges) > 1 or ranges[0][0] != ranges[0][1]
+
+
+def _hysteria2_authority(netloc: str) -> tuple[str, str, str, int, bool]:
+    if not netloc or netloc.count("@") > 1:
+        raise BackendError("Hysteria2 link has an invalid authority")
+    if "@" in netloc:
+        encoded_auth, endpoint = netloc.rsplit("@", 1)
+        try:
+            auth = urllib.parse.unquote_to_bytes(encoded_auth).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise BackendError("Hysteria2 authentication is not valid UTF-8") from exc
+    else:
+        auth, endpoint = "", netloc
+    _hysteria2_text(auth, "authentication", MAX_HYSTERIA2_AUTH_BYTES)
+
+    if endpoint.startswith("["):
+        close = endpoint.find("]")
+        if close < 0:
+            raise BackendError("Hysteria2 IPv6 server must be bracketed")
+        host_text = endpoint[1:close]
+        suffix = endpoint[close + 1:]
+        if suffix and not suffix.startswith(":"):
+            raise BackendError("Hysteria2 link has an invalid authority")
+        try:
+            if ipaddress.ip_address(host_text).version != 6:
+                raise ValueError
+        except ValueError as exc:
+            raise BackendError("Hysteria2 bracketed server must be IPv6") from exc
+        port_text = suffix[1:] if suffix else "443"
+    else:
+        if endpoint.count(":") > 1:
+            raise BackendError("Hysteria2 IPv6 server must be bracketed")
+        if ":" in endpoint:
+            host_text, port_text = endpoint.rsplit(":", 1)
+        else:
+            host_text, port_text = endpoint, "443"
+    host = _hysteria2_host(host_text)
+    ports, port, hopping = _hysteria2_ports(port_text)
+    return auth, host, ports, port, hopping
+
+
+def _hysteria2_query(query_text: str) -> dict[str, str]:
+    try:
+        pairs = urllib.parse.parse_qsl(
+            query_text, keep_blank_values=True, max_num_fields=128,
+            encoding="utf-8", errors="strict",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BackendError("Invalid Hysteria2 query") from exc
+    query: dict[str, str] = {}
+    for key, value in pairs:
+        lowered = key.lower()
+        if lowered in query:
+            raise BackendError("Hysteria2 link contains duplicate fields")
+        query[lowered] = value
+    bandwidth = {"up", "down", "upmbps", "downmbps", "bandwidth"}
+    if set(query) & bandwidth:
+        raise BackendError("Hysteria2 bandwidth is a local setting, not share-link data")
+    allowed = {"obfs", "obfs-password", "sni", "insecure", "pinsha256", "ech"}
+    if set(query) - allowed:
+        raise BackendError("Hysteria2 link contains unsupported fields")
+    return query
+
+
+def parse_hysteria2(uri: str, *, strict_transport: bool = True) -> dict[str, Any]:
+    """Parse the official Hysteria2 share URI into current Mihomo fields."""
+    del strict_transport  # Reserved by the common adapter contract.
+    uri = extract_hysteria2_uri(uri)
+    try:
+        parsed = urllib.parse.urlsplit(uri)
+    except ValueError as exc:
+        raise BackendError("Invalid Hysteria2 link") from exc
+    if parsed.scheme.lower() not in {"hysteria2", "hy2"}:
+        raise BackendError("Only hysteria2:// or hy2:// links are supported")
+    if parsed.path not in {"", "/"}:
+        raise BackendError("Hysteria2 link path is not supported")
+    auth, server, ports, port, hopping = _hysteria2_authority(parsed.netloc)
+    query = _hysteria2_query(parsed.query)
+
+    obfs = query.get("obfs", "").lower()
+    obfs_password = _hysteria2_text(
+        query.get("obfs-password", ""), "obfuscation password",
+        MAX_HYSTERIA2_OBFS_PASSWORD_BYTES,
+    )
+    if obfs not in {"", "salamander", "gecko"}:
+        raise BackendError("Hysteria2 obfuscation type is not supported by Mihomo")
+    if obfs and not obfs_password:
+        raise BackendError("Hysteria2 obfuscation requires a password")
+    if obfs_password and not obfs:
+        raise BackendError("Hysteria2 obfuscation password requires an obfs type")
+    sni = _hysteria2_text(query.get("sni", ""), "SNI", 253)
+    insecure_raw = query.get("insecure", "0")
+    if insecure_raw not in {"0", "1"}:
+        raise BackendError("Hysteria2 insecure must be 0 or 1")
+
+    fingerprint = query.get("pinsha256", "")
+    if fingerprint:
+        compact_fingerprint = fingerprint.replace(":", "")
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", compact_fingerprint):
+            raise BackendError("Hysteria2 certificate fingerprint must be SHA-256")
+        fingerprint = compact_fingerprint.lower()
+
+    ech = query.get("ech", "")
+    if ech:
+        if len(ech.encode("ascii", "ignore")) != len(ech):
+            raise BackendError("Hysteria2 ECH config is not valid base64")
+        try:
+            decoded_ech = base64.b64decode(ech, validate=True)
+        except binascii.Error as exc:
+            raise BackendError("Hysteria2 ECH config is not valid base64") from exc
+        if not decoded_ech or len(decoded_ech) > MAX_HYSTERIA2_ECH_BYTES:
+            raise BackendError("Hysteria2 ECH config has an invalid size")
+
+    suggested = re.sub(
+        r"[\x00-\x1f\x7f]", "", urllib.parse.unquote(parsed.fragment or "")
+    ).strip()[:80]
+    return {
+        "protocol": "hysteria2", "uri": uri, "password": auth,
+        "server": server, "port": port, "ports": ports, "port_hopping": hopping,
+        "obfs": obfs, "obfs_password": obfs_password, "servername": sni,
+        "allow_insecure": insecure_raw == "1", "fingerprint": fingerprint,
+        "ech": ech, "compatibility_note": "",
+        "experimental_features": ["Hysteria2"], "suggested_name": suggested,
+    }
+
+
+def preview_hysteria2(text: str) -> dict[str, Any]:
+    """Return Hysteria2 connection facts without authentication material."""
+    node = parse_hysteria2(text)
+    return {
+        "version": 1, "protocol": "hysteria2",
+        "server": str(node["server"])[:253], "port": int(node["port"]),
+        "transport": "quic", "security": "tls",
+        "sni": str(node["servername"])[:253], "flow": "",
+        "insecure": bool(node["allow_insecure"]), "advancedXhttp": False,
+        "experimental": True,
+        "experimentalFeatures": list(node["experimental_features"]),
+        "compatibilityNote": str(node["compatibility_note"]),
+        "credentialHint": "••••", "suggestedName": str(node["suggested_name"]),
+    }
+
+
+def hysteria2_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
+    node = parse_hysteria2(str(profile["uri"]))
+    y = yaml_value
+    lines = [
+        f"- name: {y(profile['name'])}", "  type: hysteria2",
+        f"  server: {y(server_override or node['server'])}",
+        f"  port: {node['port']}", f"  password: {y(node['password'])}",
+    ]
+    if node["port_hopping"]:
+        lines.append(f"  ports: {y(node['ports'])}")
+    if node["obfs"]:
+        lines.extend([
+            f"  obfs: {y(node['obfs'])}",
+            f"  obfs-password: {y(node['obfs_password'])}",
+        ])
+    if node["servername"]:
+        lines.append(f"  sni: {y(node['servername'])}")
+    if node["allow_insecure"]:
+        lines.append("  skip-cert-verify: true")
+    if node["fingerprint"]:
+        lines.append(f"  fingerprint: {y(node['fingerprint'])}")
+    if node["ech"]:
+        lines.extend([
+            "  ech-opts:", "    enable: true",
+            f"    config: {y(node['ech'])}",
+        ])
+    return "\n".join(lines)
+
+
+def _hysteria2_subscription_key(uri: str) -> str:
+    node = parse_hysteria2(uri)
+    host = str(node["server"]).lower()
+    if ":" in host:
+        host = f"[{host}]"
+    auth = urllib.parse.quote(str(node["password"]), safe="")
+    query_values = {
+        "obfs": str(node["obfs"]),
+        "obfs-password": str(node["obfs_password"]),
+        "sni": str(node["servername"]),
+        "insecure": "1" if node["allow_insecure"] else "",
+        "pinsha256": str(node["fingerprint"]),
+        "ech": str(node["ech"]),
+    }
+    query = urllib.parse.urlencode(sorted(
+        (key, value) for key, value in query_values.items() if value
+    ))
+    canonical = urllib.parse.urlunsplit((
+        "hysteria2", f"{auth + '@' if auth else ''}{host}:{node['ports']}",
+        "", query, "",
+    ))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _hysteria2_endpoint(uri: str) -> str:
+    return str(parse_hysteria2(uri)["server"])
+
+
+def _parse_hysteria2_adapter(uri: str, strict_transport: bool) -> dict[str, Any]:
+    return parse_hysteria2(uri, strict_transport=strict_transport)
+
+
 @dataclass(frozen=True)
 class ProfileAdapter:
     """Strict boundary between a share-link protocol and the common app flow."""
@@ -2670,9 +2942,20 @@ TROJAN_ADAPTER = ProfileAdapter(
     endpoint=_trojan_endpoint,
     subscription_identity=_trojan_subscription_key,
 )
+HYSTERIA2_ADAPTER = ProfileAdapter(
+    protocol="hysteria2",
+    schemes=("hysteria2", "hy2"),
+    extract=extract_hysteria2_uri,
+    parse=_parse_hysteria2_adapter,
+    preview=preview_hysteria2,
+    render_yaml=hysteria2_yaml,
+    endpoint=_hysteria2_endpoint,
+    subscription_identity=_hysteria2_subscription_key,
+)
 PROFILE_ADAPTERS: dict[str, ProfileAdapter] = {
     VLESS_ADAPTER.protocol: VLESS_ADAPTER,
     TROJAN_ADAPTER.protocol: TROJAN_ADAPTER,
+    HYSTERIA2_ADAPTER.protocol: HYSTERIA2_ADAPTER,
 }
 PROFILE_SCHEMES: dict[str, ProfileAdapter] = {
     scheme: adapter
@@ -4236,7 +4519,8 @@ def diagnostics_text(paths: Paths) -> str:
     # Defense in depth: future fields must not accidentally turn this support
     # file into a credential/profile export.
     forbidden = re.compile(
-        r"(?i)(?:vless|trojan)://|https?://|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+        r"(?i)(?:vless|trojan|hysteria2|hy2)://|https?://|"
+        r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
     )
     if forbidden.search(text):
         raise BackendError("Refusing diagnostics containing a credential or private address")

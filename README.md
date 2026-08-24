@@ -1,7 +1,7 @@
 # OmaVLESS — secure proxy profiles in the Omarchy bar
 
 OmaVLESS is an Omarchy bar plugin for importing, subscribing to, switching and
-monitoring VLESS profiles plus experimental Trojan profiles. Its interaction model is based on
+monitoring VLESS profiles plus experimental Trojan and Hysteria2 profiles. Its interaction model is based on
 [Omarchy VPN](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn)
 ([source](https://github.com/jkoestinger/omarchy-vpn)): the same hero toggle,
 profile rows, import/edit/rename/QR/delete actions, keyboard navigation and IPC.
@@ -26,7 +26,7 @@ omarchy plugin add https://github.com/k-kostin/omavless --enable
 
 Open OmaVLESS from the bar. A three-step first-run guide checks Mihomo and its
 TUN capabilities, offers a Russia, China or Iran Routing profile (or a skip),
-then hands the private import flow your first `vless://` or `trojan://` link. The
+then hands the private import flow your first supported profile link. The
 guide never installs packages or runs privileged commands: every host setup
 step is shown as an explicit copy-to-terminal action. Before a key is stored,
 the import review shows its endpoint, transport, security and SNI while keeping
@@ -120,15 +120,20 @@ documented; the normal plugin installation does not exercise them silently.
   preference, uTLS fingerprint, WebSocket host/path, gRPC service name and
   bounded REALITY fields are translated explicitly. Unknown or unrepresentable
   share fields are rejected, and the preview never receives the password.
+- Experimental Hysteria2 import for official `hysteria2://` and `hy2://`
+  links. Authentication/userpass, multi-port hopping, SNI, certificate
+  verification and SHA-256 pinning, ECH, and `salamander`/`gecko` obfuscation
+  map to bounded Mihomo fields. Realm mode is not yet supported, and provider
+  links cannot set local bandwidth.
 - Multiple provider subscriptions with add/edit/remove, per-provider refresh
   and atomic refresh-all. Plain-text and standard/URL-safe base64 lists may mix
-  `vless://` and `trojan://` links; unrelated protocols are ignored. Managed
+  VLESS, Trojan and Hysteria2 links; unrelated protocols are ignored. Managed
   servers stay collapsed under their provider until its row is opened.
 - Manual per-provider reachability tests try every working DNS-over-HTTPS
   resolver selected by the active routing policy, reject TUN fake-IP answers,
   resolve both IPv4 and IPv6, and fall back across up to four endpoint
   addresses. An isolated temporary Mihomo core with no TUN then pins each
-  candidate IP and performs full protocol/TLS/Reality handshakes plus HTTP checks
+  candidate IP and performs full protocol/TLS/Reality or QUIC handshakes plus HTTP checks
   against three independent connectivity targets. Its private Unix controller
   opens no TCP port, its routing mark bypasses an already active Mihomo TUN,
   and the process and credential-bearing `0600` config are removed after the
@@ -339,7 +344,7 @@ plugin="$HOME/.config/omarchy/plugins/kdk.omavless/backend.sh"
 ```
 
 The diagnostics command is deliberately separate from raw profile export and
-does not include UUIDs, Trojan passwords, keys or subscription URLs.
+does not include UUIDs, protocol passwords, keys or subscription URLs.
 
 The same routing tools available in Settings have explicit backend commands
 for troubleshooting or scripting. Domain/range values use stdin so they do
