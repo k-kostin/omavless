@@ -124,6 +124,10 @@ Scope:
 - reject unknown security-sensitive structures instead of copying them;
 - preserve the existing simple `path`, `host`, `mode` and `alpn` path.
 
+Implement and live-test the flat client/XMUX subset before adding
+`downloadSettings`; upload/download separation is a distinct compatibility
+slice because it introduces a second endpoint and a nested TLS/Reality policy.
+
 Omarchy acceptance requires real keys for each implemented XHTTP mode. At least
 one test must combine XHTTP with TLS and one with a compatible REALITY server.
 
