@@ -3187,6 +3187,29 @@ esac
                 )
                 self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_core_validation_error_never_forwards_credential_bearing_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(mode=0o700, parents=True)
+            private = "private-password-and-key"
+            with mock.patch.object(backend, "run", return_value=subprocess.CompletedProcess(
+                args=["mihomo", "-t"], returncode=1,
+                stdout="", stderr=f"invalid credential {private}",
+            )):
+                with self.assertRaises(backend.BackendError) as caught:
+                    backend.test_config(
+                        paths, Path("/usr/bin/mihomo"),
+                        f'proxies:\n  - name: test\n    password: "{private}"\n',
+                    )
+            self.assertEqual(
+                str(caught.exception), "Mihomo rejected the generated configuration"
+            )
+            self.assertNotIn(private, str(caught.exception))
+            self.assertEqual(list(paths.config_dir.glob(".candidate.*.yaml")), [])
+
     def test_uninstall_removes_only_runtime_integration_unless_purged(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
