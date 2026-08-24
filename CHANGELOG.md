@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## 0.7.0 — 2026-08-24
 
+- Decoupled pointer hover from the hero's persistent keyboard cursor so
+  Settings, QR and Test no longer light the neighboring power-switch ring.
+  Profile import actions now share the Subscriptions control height and
+  optical centerline for stable hit targets and alignment.
 - Hardened VLESS share-link parsing against duplicate fields, case-insensitive
   duplicates, conflicting aliases, malformed booleans and unknown options.
   Recognized provider-only metadata is bounded, explained during import and

@@ -201,6 +201,12 @@ grep -q 'bordered: true' "$panel"
 grep -q '_dropWarningText' "$service"
 grep -q '&& !root.active' "$service"
 grep -q 'text: "Subscriptions…"' "$panel"
+grep -q 'id: subscriptionsButton' "$panel"
+(( $(grep -c 'size: subscriptionsButton.implicitHeight' "$panel") == 2 ))
+(( $(grep -c 'anchors.verticalCenter: parent.verticalCenter' "$panel") >= 8 ))
+grep -q 'function clearKeyboardCursorOnHover(isHovered)' "$panel"
+(( $(grep -c 'header.clearKeyboardCursorOnHover(on)' "$panel") == 4 ))
+! grep -q 'header.focusHero()' "$panel"
 ! grep -q 'onHoveredChanged: if (hovered)' "$panel"
 grep -q 'URL stays private' "$panel"
 grep -q 'echoMode: reveal.checked' "$subscription_prompt"

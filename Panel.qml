@@ -1157,7 +1157,16 @@ Panel {
             // Exposed for the hero's trailingControl, whose `root` resolves to
             // PanelHero (not this Panel) — reach panel state via `header`.
             readonly property bool ringVisible: root.headerHasCursor
-            function focusHero() { root.setHeaderCursor() }
+
+            // Only keyboard navigation owns the persistent header cursor.
+            // A pointer already gives each control its own hover state; making
+            // every hero action select the header as well caused the power
+            // switch's outer cursor ring to light up while the pointer was on
+            // Settings, QR or Test. Besides looking like a joined hover state,
+            // that left the ring behind while crossing between controls.
+            function clearKeyboardCursorOnHover(isHovered) {
+              if (isHovered) root.cursorActive = false
+            }
 
             PanelHero {
               id: hero
@@ -1222,7 +1231,7 @@ Panel {
                     fontFamily: hero.fontFamily
                     fontSize: Style.font.subtitle * 1.35
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
-                    onHovered: function(on) { if (on) header.focusHero() }
+                    onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: root.openSettings()
                   }
 
@@ -1248,7 +1257,7 @@ Panel {
                     // than the row-sized default the CONFIGS buttons use.
                     fontSize: Style.font.subtitle * 1.5
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
-                    onHovered: function(on) { if (on) header.focusHero() }
+                    onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: vless.showQr(vless.primaryProfile)
                   }
 
@@ -1271,7 +1280,7 @@ Panel {
                     enabled: !vless.testingConnection && !vless.busy
                       && !vless.editing && !vless.importSourceBusy
                       && vless.primaryDevice !== "" && vless.pingHost !== ""
-                    onHovered: function(on) { if (on) header.focusHero() }
+                    onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: vless.testActiveConnection()
                   }
 
@@ -1283,7 +1292,7 @@ Panel {
                     busy: vless.busy
                     hasCursor: header.ringVisible
                     foreground: hero.foreground
-                    onHovered: function(on) { if (on) header.focusHero() }
+                    onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onToggled: vless.toggle()
 
                     PanelToolTip {
@@ -1634,6 +1643,7 @@ Panel {
                 spacing: Style.space(2)
 
                 Button {
+                  id: subscriptionsButton
                   text: "Subscriptions…"
                   visible: vless.supports("subscriptions")
                   tooltipText: "Manage profile subscriptions"
@@ -1655,6 +1665,8 @@ Panel {
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
+                  size: subscriptionsButton.implicitHeight
+                  anchors.verticalCenter: parent.verticalCenter
                   enabled: !vless.busy && !vless.importSourceBusy && !vless.editing
                   onHovered: function(on) { if (on) root.cursorActive = false }
                   onClicked: vless.pickConfigFile()
@@ -1666,6 +1678,8 @@ Panel {
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
+                  size: subscriptionsButton.implicitHeight
+                  anchors.verticalCenter: parent.verticalCenter
                   enabled: !vless.busy && !vless.importSourceBusy && !vless.editing
                   onHovered: function(on) { if (on) root.cursorActive = false }
                   onClicked: vless.pasteConfig()
