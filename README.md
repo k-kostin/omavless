@@ -18,7 +18,19 @@ the Mihomo core.
 
 ## Quick start on Omarchy
 
-### 1. Install Mihomo
+### 1. Install OmaVLESS
+
+```bash
+omarchy plugin add https://github.com/k-kostin/omavless --enable
+```
+
+Open OmaVLESS from the bar. A three-step first-run guide checks Mihomo and its
+TUN capabilities, offers a Russia, China or Iran Routing profile (or a skip),
+then hands the existing private import flow your first `vless://` key. The
+guide never installs packages or runs privileged commands: every host setup
+step is shown as an explicit copy-to-terminal action.
+
+### 2. Prepare Mihomo
 
 The simplest Omarchy-native route is the current
 [`mihomo-bin`](https://aur.archlinux.org/packages/mihomo-bin) AUR package:
@@ -53,25 +65,24 @@ same capabilities to it. OmaVLESS will refuse to connect while Mihoro's own
 `mihomo.service` is active, because two full-tunnel cores must not compete for
 policy routing.
 
-### 2. Install OmaVLESS
+The plugin install command clones and validates the plugin, then enables its
+bar widget. It does **not** run `install.sh`, install Mihomo, invoke `sudo`,
+grant capabilities or start a tunnel. `omarchyplugins.com` is an independent
+community index; the installation itself is handled by the Omarchy CLI.
 
-```bash
-omarchy plugin add https://github.com/k-kostin/omavless --enable
-```
+### 3. Connect and choose login behavior
 
-The command clones and validates the plugin, then enables its bar widget. It
-does **not** run `install.sh`, install Mihomo, invoke `sudo`, grant capabilities
-or start a tunnel. `omarchyplugins.com` is an independent community index; the
-installation itself is handled by the Omarchy CLI.
+After the guide, use `+` for another `vless://` profile or `Subscriptions…`
+for a provider URL. Choose `Full VPN`, `Routing` or `Direct`, select a profile
+and enable the hero switch. Profiles and subscription URLs are stored
+privately under `~/.config/omavless/`.
 
-### 3. Add a connection
-
-Open OmaVLESS from the bar, then use `+` for one `vless://` profile or
-`Subscriptions…` for a provider URL. Choose `Full VPN`, `Routing` or `Direct`,
-select a profile and enable the hero switch. The first Routing click asks for
-Russia, China or Iran; the choice can be changed later from the gear-shaped
-general Settings page. Profiles and subscription URLs are stored privately
-under `~/.config/omavless/`.
+New installs do not start a VPN automatically. From the gear-shaped general
+Settings page, `Start VPN at login` can be enabled for the last used server or
+one fixed server, in `Full VPN` or `Routing` mode. `Direct` is deliberately not
+an autoconnect choice because it would start a TUN service while bypassing the
+VPN proxy. Existing installs keep their earlier systemd-enabled behavior until
+this setting is explicitly saved.
 
 ## Requirements and security model
 
@@ -151,8 +162,12 @@ documented; the normal plugin installation does not exercise them silently.
   well as what is active afterward.
 - A gear-shaped entry opens general OmaVLESS settings instead of adding more
   controls to the main connection view. It contains the routing-preset picker,
-  source links, subscription management, connection-monitoring context and
-  privacy/display switches.
+  Mihomo setup status, login autoconnect, source links, subscription
+  management, connection-monitoring context and privacy/display switches.
+- A minimal first-run guide checks the external Mihomo binary and its TUN
+  capabilities, offers a skippable country Routing choice and opens the
+  existing private VLESS import flow. Host-changing commands are copied for an
+  explicit terminal action and are never executed by the plugin.
 - A compatible custom Mihomo YAML can be adopted only through an explicit
   command; OmaVLESS never discovers or imports another client's active
   configuration automatically.
@@ -186,9 +201,14 @@ disable Mihoro only when you are ready to test OmaVLESS:
 systemctl --user disable --now mihomo.service
 ```
 
-Connecting a profile enables `omavless.service`, so the selected profile starts
-again after login. Disconnecting disables the service, so an intentionally
-disconnected VPN stays off after reboot.
+On a new install, connecting starts `omavless.service` only for the current
+session. The general Settings page can additionally enable
+`omavless-autostart.service`, which prepares the chosen last-used or fixed
+profile and starts the main service after login. Disconnecting stops the
+current session without silently changing that saved login preference; turn
+`Start VPN at login` off explicitly when it should remain off after reboot.
+Older profile stores retain their previous enabled-service behavior until the
+new preference is saved once.
 
 ## Controls
 

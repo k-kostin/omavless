@@ -102,6 +102,28 @@ Item {
     ruleCount: 0,
     providerCount: 0
   })
+  property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property var startup: ({
+    enabled: false,
+    configured: true,
+    target: "last",
+    profileId: "",
+    mode: "rule"
+  })
+  property bool onboardingComplete: true
+  readonly property bool onboardingNeeded: !onboardingComplete
+  readonly property string coreSetupLabel: !coreSetup.installed
+    ? "Mihomo not installed" : (coreSetup.tunReady ? "Mihomo ready" : "TUN access required")
+  readonly property var startupProfile: startup.target === "profile"
+    ? findByUuid(startup.profileId) : toggleProfile
+  readonly property string startupSummary: {
+    if (!startup.enabled) return "Off"
+    if (!startup.configured) return "On · review legacy login behavior"
+    var target = startup.target === "last"
+      ? "Last used server"
+      : (startupProfile ? startupProfile.name : "Selected server unavailable")
+    return target + " · " + (startup.mode === "global" ? "Full VPN" : "Routing")
+  }
   readonly property var routingPresets: [
     {
       id: "roscomvpn-default",
@@ -766,6 +788,18 @@ Item {
         || !isFinite(route.ruleCount) || !isFinite(route.providerCount)
         || route.ruleCount < 0 || route.providerCount < 0)
       return rejectStatus()
+    var setup = payload.coreSetup
+    var startupSource = payload.startup
+    if (!setup || typeof setup.installed !== "boolean"
+        || typeof setup.tunReady !== "boolean" || typeof setup.path !== "string"
+        || setup.path.length > 4096 || !startupSource
+        || typeof startupSource.enabled !== "boolean"
+        || typeof startupSource.configured !== "boolean"
+        || (startupSource.target !== "last" && startupSource.target !== "profile")
+        || typeof startupSource.profileId !== "string" || startupSource.profileId.length > 64
+        || (startupSource.mode !== "rule" && startupSource.mode !== "global")
+        || typeof payload.onboardingComplete !== "boolean")
+      return rejectStatus()
     var subscriptionSource = payload.subscriptions === undefined ? [] : payload.subscriptions
     if (!Array.isArray(subscriptionSource) || subscriptionSource.length > 64) return rejectStatus()
     var conflictSource = payload.conflicts === undefined ? [] : payload.conflicts
@@ -843,6 +877,19 @@ Item {
     if ((activeCount === 1) !== (firstUp !== "")) return rejectStatus()
     if (payload.lastId !== "" && byUuid[payload.lastId] === undefined) return rejectStatus()
     lastUuid = payload.lastId
+    coreSetup = {
+      installed: setup.installed,
+      tunReady: setup.tunReady,
+      path: plainText(setup.path, 4096)
+    }
+    startup = {
+      enabled: startupSource.enabled,
+      configured: startupSource.configured,
+      target: startupSource.target,
+      profileId: plainText(startupSource.profileId, 64),
+      mode: startupSource.mode
+    }
+    onboardingComplete = payload.onboardingComplete
     routing = {
       mode: route.mode,
       source: route.source,
@@ -996,6 +1043,34 @@ Item {
     var args = ["use-routing", value]
     if (keepMode) args.push("--keep-mode")
     runControl(args)
+    return true
+  }
+
+  function configureStartup(enabled, target, profileUuid, mode) {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    var wantedTarget = String(target || "")
+    var wantedProfile = String(profileUuid || "")
+    var wantedMode = String(mode || "")
+    if (wantedTarget !== "last" && wantedTarget !== "profile")
+      return rejectAction("unsupported login autoconnect target")
+    if (wantedMode !== "rule" && wantedMode !== "global")
+      return rejectAction("login autoconnect supports Routing or Full VPN")
+    if (enabled && wantedTarget === "profile" && !findByUuid(wantedProfile))
+      return rejectAction("choose a profile for login autoconnect")
+    actionRejection = ""
+    actionStatus = enabled ? "Saving login autoconnect…" : "Disabling login autoconnect…"
+    runControl([
+      "startup-configure", enabled ? "on" : "off", wantedTarget,
+      wantedTarget === "profile" ? wantedProfile : "", wantedMode
+    ])
+    return true
+  }
+
+  function completeOnboarding() {
+    if (busy) return rejectAction("another VLESS operation is already running")
+    actionRejection = ""
+    actionStatus = "Finishing setup…"
+    runControl(["onboarding-complete"])
     return true
   }
 

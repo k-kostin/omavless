@@ -41,6 +41,7 @@ PLUGIN_VERSION = "0.7.0"
 USER_AGENT = f"OmaVLESS/{PLUGIN_VERSION}"
 PROFILE_MARKER = "{{OMAVLESS_PROXY}}"
 SERVICE = "omavless.service"
+STARTUP_SERVICE = "omavless-autostart.service"
 CONFLICT_SERVICE = "mihomo.service"
 TUN_DEVICE = "Meta"
 STATUS_CACHE_SECONDS = 1.0
@@ -245,6 +246,11 @@ def empty_store() -> dict[str, Any]:
     return {
         "version": 2, "activeId": "", "lastId": "",
         "profiles": [], "subscriptions": [], "routingPreset": "",
+        "startupConfigured": True,
+        "startup": {
+            "enabled": False, "target": "last", "profileId": "", "mode": "rule",
+        },
+        "onboardingComplete": False,
     }
 
 
@@ -355,6 +361,43 @@ def validate_store(data: Any) -> dict[str, Any]:
     routing_preset = data["routingPreset"]
     if not isinstance(routing_preset, str) or routing_preset not in ROUTING_PRESET_VALUES | {""}:
         raise BackendError("VLESS profile store has an invalid routing preset")
+    # New installs start with login autoconnect off. Older stores keep the
+    # exact systemd-enabled behavior they already had until the user saves an
+    # explicit choice in Settings; startupConfigured distinguishes those two
+    # cases without status polling mutating the private credential store.
+    if "startup" not in data:
+        data["startup"] = {
+            "enabled": False, "target": "last", "profileId": "", "mode": "rule",
+        }
+        data["startupConfigured"] = False
+    startup_configured = data.setdefault("startupConfigured", True)
+    if not isinstance(startup_configured, bool):
+        raise BackendError("VLESS profile store has invalid startup configuration state")
+    startup = data["startup"]
+    if not isinstance(startup, dict):
+        raise BackendError("VLESS profile store has invalid startup settings")
+    startup_enabled = startup.get("enabled")
+    startup_target = startup.get("target")
+    startup_profile_id = startup.get("profileId", "")
+    startup_mode = startup.get("mode")
+    if not isinstance(startup_enabled, bool):
+        raise BackendError("VLESS profile store has an invalid startup enabled value")
+    if startup_target not in {"last", "profile"}:
+        raise BackendError("VLESS profile store has an invalid startup target")
+    if not isinstance(startup_profile_id, str):
+        raise BackendError("VLESS profile store has an invalid startup profile")
+    if startup_profile_id and startup_profile_id not in seen_ids:
+        startup["enabled"] = False
+        startup["profileId"] = ""
+    if startup_target == "profile" and not startup["profileId"]:
+        startup["enabled"] = False
+    if startup_target == "last" and not profiles:
+        startup["enabled"] = False
+    if startup_mode not in {"rule", "global"}:
+        raise BackendError("VLESS profile store has an invalid startup routing mode")
+    onboarding_complete = data.setdefault("onboardingComplete", bool(profiles))
+    if not isinstance(onboarding_complete, bool):
+        raise BackendError("VLESS profile store has invalid onboarding state")
     data["version"] = 2
     return data
 
@@ -1491,6 +1534,13 @@ def render_config(paths: Paths, profile: dict[str, Any]) -> str:
     return ensure_template(paths).replace(PROFILE_MARKER, proxy_yaml(profile))
 
 
+def render_config_mode(paths: Paths, profile: dict[str, Any], mode: str) -> str:
+    """Render one profile for an explicit login mode without changing Settings."""
+    return template_with_mode(ensure_template(paths), mode).replace(
+        PROFILE_MARKER, proxy_yaml(profile)
+    )
+
+
 def bundled_template(name: str) -> str:
     source = ROUTING_PRESETS.get(name)
     if source is None:
@@ -1706,7 +1756,7 @@ def find_core(paths: Paths) -> Path:
         path = Path(candidate).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return path.resolve()
-    raise BackendError("mihomo is not installed (expected ~/.local/bin/mihomo)")
+    raise BackendError("mihomo is not installed (install mihomo-bin or use ~/.local/bin/mihomo)")
 
 
 def run(command: list[str], *, check: bool = True, input_text: str | None = None,
@@ -1730,6 +1780,57 @@ def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess[str
 
 def service_active(name: str) -> bool:
     return systemctl("is-active", "--quiet", name, check=False).returncode == 0
+
+
+def service_enabled(name: str) -> bool:
+    return systemctl("is-enabled", "--quiet", name, check=False).returncode == 0
+
+
+def startup_unit(paths: Paths) -> Path:
+    return paths.unit.with_name(STARTUP_SERVICE)
+
+
+def core_setup_status(paths: Paths) -> dict[str, Any]:
+    """Return bounded setup facts without executing or exposing VPN credentials."""
+    try:
+        core = find_core(paths)
+    except BackendError:
+        return {"installed": False, "tunReady": False, "path": ""}
+    getcap = shutil.which("getcap")
+    capabilities = ""
+    if getcap:
+        result = run([getcap, str(core)], check=False, timeout=3)
+        if result.returncode == 0:
+            capabilities = result.stdout.lower()
+    required = ("cap_net_admin", "cap_net_raw", "cap_net_bind_service")
+    return {
+        "installed": True,
+        "tunReady": all(capability in capabilities for capability in required),
+        "path": str(core)[:4096],
+    }
+
+
+def effective_startup_enabled(store: dict[str, Any]) -> bool:
+    if bool(store.get("startupConfigured", False)):
+        return bool(store.get("startup", {}).get("enabled", False))
+    # Before the Settings model existed, connect enabled the main unit
+    # directly. Preserve that exact state until the user makes a choice.
+    return service_enabled(STARTUP_SERVICE) or service_enabled(SERVICE)
+
+
+def startup_status(store: dict[str, Any], routing_mode: str = "") -> dict[str, Any]:
+    startup = store["startup"]
+    configured = bool(store.get("startupConfigured", False))
+    mode = str(startup["mode"])
+    if not configured and routing_mode in {"rule", "global"}:
+        mode = routing_mode
+    return {
+        "enabled": effective_startup_enabled(store),
+        "configured": configured,
+        "target": str(startup["target"]),
+        "profileId": str(startup.get("profileId", "")),
+        "mode": mode,
+    }
 
 
 def service_uptime_seconds(name: str, running: bool) -> int:
@@ -1850,6 +1951,29 @@ WantedBy=default.target
         systemctl("daemon-reload")
 
 
+def ensure_startup_unit(paths: Paths) -> None:
+    helper = startup_unit(paths)
+    backend = PLUGIN_DIR / "backend.sh"
+    unit = f"""[Unit]
+Description=OmaVLESS login autoconnect
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={systemd_quote(str(backend))} startup-connect
+
+[Install]
+WantedBy=default.target
+"""
+    if helper.is_symlink():
+        raise BackendError(f"Refusing symlinked systemd unit: {helper}")
+    current = read_text_file(helper, 64 * 1024, "autostart systemd unit") if helper.exists() else ""
+    if current != unit:
+        atomic_write(helper, unit, 0o644)
+        systemctl("daemon-reload")
+
+
 def test_config(paths: Paths, core: Path, config: str) -> Path:
     paths.config_dir.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".candidate.", suffix=".yaml", dir=paths.config_dir)
@@ -1928,6 +2052,175 @@ def mark_active(paths: Paths, profile_id: str, observed_ms: int | None = None) -
     clear_drop_notice(paths, profile_id, observed_ms)
 
 
+def resolve_startup_profile(store: dict[str, Any], target: str, profile_id: str) -> dict[str, Any]:
+    selected_id = profile_id
+    if target == "last":
+        selected_id = str(store.get("lastId", ""))
+        if not selected_id and store["profiles"]:
+            selected_id = str(store["profiles"][0]["id"])
+    if not selected_id:
+        raise BackendError(
+            "Connect a profile once before using Last used at login"
+            if target == "last" else "Choose a profile for login autoconnect"
+        )
+    return profile_by_id(store, selected_id)
+
+
+def restore_unit_enabled(name: str, enabled: bool) -> str:
+    if not enabled and not service_enabled(name):
+        return ""
+    result = systemctl("enable" if enabled else "disable", name, check=False)
+    return "" if result.returncode == 0 else (
+        result.stderr or result.stdout or f"could not restore {name}"
+    ).strip()
+
+
+def configure_startup(
+    paths: Paths, enabled: bool, target: str, profile_id: str, mode: str
+) -> None:
+    if target not in {"last", "profile"}:
+        raise BackendError("Unsupported login autoconnect target")
+    if mode not in {"rule", "global"}:
+        raise BackendError("Login autoconnect supports only Routing or Full VPN")
+    store = load_store(paths)
+    previous_store = json.loads(json.dumps(store))
+    old_main_enabled = service_enabled(SERVICE)
+    old_helper_enabled = service_enabled(STARTUP_SERVICE)
+    if enabled:
+        if mode == "rule" and not store.get("routingPreset"):
+            raise BackendError("Choose a Routing country preset before using it at login")
+        profile = resolve_startup_profile(store, target, profile_id)
+        setup = core_setup_status(paths)
+        if not setup["installed"]:
+            raise BackendError("Install Mihomo before enabling login autoconnect")
+        if not setup["tunReady"]:
+            raise BackendError("Grant Mihomo TUN capabilities before enabling login autoconnect")
+        core = find_core(paths)
+        ensure_unit(paths, core)
+        ensure_startup_unit(paths)
+        candidate = test_config(paths, core, render_config_mode(paths, profile, mode))
+        with contextlib.suppress(FileNotFoundError):
+            candidate.unlink()
+    else:
+        # Write the helper too, so turning the option back on later never
+        # depends on an old unit left by a prototype build.
+        ensure_startup_unit(paths)
+
+    store["startupConfigured"] = True
+    store["startup"] = {
+        "enabled": enabled,
+        "target": target,
+        "profileId": profile_id if target == "profile" else "",
+        "mode": mode,
+    }
+    save_store(paths, store)
+    try:
+        if enabled:
+            result = systemctl("enable", STARTUP_SERVICE, check=False)
+            if result.returncode != 0:
+                raise BackendError((result.stderr or result.stdout or "Could not enable login autoconnect").strip())
+            # The main service remains startable but no longer owns a login
+            # symlink. The helper prepares the chosen profile first.
+            if old_main_enabled:
+                result = systemctl("disable", SERVICE, check=False)
+                if result.returncode != 0:
+                    raise BackendError((result.stderr or result.stdout or "Could not migrate login autoconnect").strip())
+        else:
+            for name, was_enabled in (
+                (STARTUP_SERVICE, old_helper_enabled), (SERVICE, old_main_enabled)
+            ):
+                if not was_enabled:
+                    continue
+                result = systemctl("disable", name, check=False)
+                if result.returncode != 0:
+                    reason = (
+                        result.stderr or result.stdout
+                        or "Could not disable login autoconnect"
+                    ).strip()
+                    raise BackendError(reason)
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        try:
+            save_store(paths, previous_store)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"preference restore: {rollback_exc}")
+        for name, was_enabled in (
+            (SERVICE, old_main_enabled), (STARTUP_SERVICE, old_helper_enabled)
+        ):
+            reason = restore_unit_enabled(name, was_enabled)
+            if reason:
+                rollback_errors.append(reason)
+        if rollback_errors:
+            raise BackendError(
+                f"{exc}; autoconnect rollback needs manual recovery ({'; '.join(rollback_errors)})",
+                21,
+            ) from exc
+        raise
+
+
+def startup_connect(paths: Paths) -> None:
+    """Prepare and start the configured profile from the login helper unit."""
+    store = load_store(paths)
+    startup = store["startup"]
+    if not store.get("startupConfigured") or not startup.get("enabled"):
+        raise BackendError("Login autoconnect is disabled")
+    if service_active(CONFLICT_SERVICE):
+        raise BackendError("Mihoro is running. Stop mihomo.service before starting OmaVLESS")
+    profile = resolve_startup_profile(
+        store, str(startup["target"]), str(startup.get("profileId", ""))
+    )
+    profile_id = str(profile["id"])
+    core = find_core(paths)
+    ensure_unit(paths, core)
+    previous_store = json.loads(json.dumps(store))
+    old_config = (
+        read_text_file(paths.config, MAX_TEMPLATE_BYTES, "generated config", private=True).encode()
+        if paths.config.exists() else None
+    )
+    was_active = service_active(SERVICE)
+    candidate = test_config(
+        paths, core, render_config_mode(paths, profile, str(startup["mode"]))
+    )
+    try:
+        os.replace(candidate, paths.config)
+        os.chmod(paths.config, 0o600)
+        systemctl("restart" if was_active else "start", SERVICE)
+        if not service_active(SERVICE):
+            raise BackendError("OmaVLESS service did not remain active after login autoconnect")
+        store["activeId"] = profile_id
+        store["lastId"] = profile_id
+        save_store(paths, store)
+        mark_active(paths, profile_id)
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        try:
+            if old_config is None:
+                with contextlib.suppress(FileNotFoundError):
+                    paths.config.unlink()
+            else:
+                atomic_write(paths.config, old_config)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"config restore: {rollback_exc}")
+        try:
+            save_store(paths, previous_store)
+        except Exception as rollback_exc:
+            rollback_errors.append(f"profile state restore: {rollback_exc}")
+        result = systemctl("restart" if was_active else "stop", SERVICE, check=False)
+        restored = service_active(SERVICE) if was_active else not service_active(SERVICE)
+        if result.returncode != 0 or not restored:
+            reason = (result.stderr or result.stdout or "unexpected service state").strip()
+            rollback_errors.append(f"service restore: {reason}")
+        if rollback_errors:
+            raise BackendError(
+                f"{exc}; login autoconnect rollback needs manual recovery ({'; '.join(rollback_errors)})",
+                21,
+            ) from exc
+        raise
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            candidate.unlink()
+
+
 def connect_profile(paths: Paths, profile_id: str) -> None:
     store = load_store(paths)
     profile = profile_by_id(store, profile_id)
@@ -1942,8 +2235,11 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
     try:
         os.replace(candidate, paths.config)
         os.chmod(paths.config, 0o600)
+        configured_startup = bool(store.get("startupConfigured", False))
         if was_active:
             systemctl("restart", SERVICE)
+        elif configured_startup:
+            systemctl("start", SERVICE)
         else:
             systemctl("enable", "--now", SERVICE)
         if not service_active(SERVICE):
@@ -1962,8 +2258,12 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
                 atomic_write(paths.config, old_config)
         except Exception as rollback_exc:
             rollback_errors.append(f"config restore: {rollback_exc}")
-        result = (systemctl("restart", SERVICE, check=False) if was_active
-                  else systemctl("disable", "--now", SERVICE, check=False))
+        if was_active:
+            result = systemctl("restart", SERVICE, check=False)
+        elif configured_startup:
+            result = systemctl("stop", SERVICE, check=False)
+        else:
+            result = systemctl("disable", "--now", SERVICE, check=False)
         restored = service_active(SERVICE) if was_active else not service_active(SERVICE)
         if result.returncode != 0 or not restored:
             reason = (result.stderr or result.stdout or "unexpected service state").strip()
@@ -1985,7 +2285,11 @@ def stop_service(paths: Paths, expected_profile_id: str = "") -> None:
         raise BackendError("That VLESS profile is no longer active")
     if active_id:
         mark_intent(paths, active_id)
-    result = systemctl("disable", "--now", SERVICE, check=False)
+    configured_startup = bool(store.get("startupConfigured", False))
+    if configured_startup:
+        result = systemctl("stop", SERVICE, check=False)
+    else:
+        result = systemctl("disable", "--now", SERVICE, check=False)
     if result.returncode != 0 and service_active(SERVICE):
         if active_id:
             clear_intent(paths, active_id)
@@ -2100,6 +2404,7 @@ def status_text(paths: Paths) -> str:
             endpoints[str(profile["id"])] = str(parse_vless(str(profile["uri"]))["server"])
         except (BackendError, KeyError, TypeError):
             endpoints[str(profile.get("id", ""))] = ""
+    routing = routing_status(paths, running, store)
     payload = {
         "version": 1,
         "capabilities": PUBLIC_CAPABILITIES,
@@ -2139,7 +2444,10 @@ def status_text(paths: Paths) -> str:
                 store["subscriptions"], key=lambda item: str(item.get("name", "")).lower()
             )
         ],
-        "routing": routing_status(paths, running, store),
+        "routing": routing,
+        "coreSetup": core_setup_status(paths),
+        "startup": startup_status(store, str(routing["mode"])),
+        "onboardingComplete": bool(store.get("onboardingComplete", False)),
         "uptimeSeconds": service_uptime_seconds(SERVICE, running),
         "conflicts": routing_conflicts(paths, running),
     }
@@ -2323,6 +2631,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("profile", choices=tuple(ROUTING_PRESETS))
     p.add_argument("--keep-mode", action="store_true")
     p = sub.add_parser("set-mode"); p.add_argument("mode", choices=("rule", "global", "direct"))
+    p = sub.add_parser("startup-configure")
+    p.add_argument("enabled", choices=("on", "off"))
+    p.add_argument("target", choices=("last", "profile"))
+    p.add_argument("profile_id")
+    p.add_argument("mode", choices=("rule", "global"))
+    sub.add_parser("startup-connect")
+    sub.add_parser("onboarding-complete")
     p = sub.add_parser("subscription-save"); p.add_argument("name"); p.add_argument("id", nargs="?", default="")
     p = sub.add_parser("subscription-refresh"); p.add_argument("id")
     sub.add_parser("subscription-refresh-all")
@@ -2385,6 +2700,21 @@ def main() -> int:
         with operation_lock(paths):
             set_routing_mode(paths, args.mode)
             invalidate_status_cache(paths)
+    elif args.command == "startup-configure":
+        with operation_lock(paths):
+            configure_startup(
+                paths, args.enabled == "on", args.target, args.profile_id, args.mode
+            )
+            invalidate_status_cache(paths)
+    elif args.command == "startup-connect":
+        with operation_lock(paths):
+            startup_connect(paths)
+            invalidate_status_cache(paths)
+    elif args.command == "onboarding-complete":
+        with operation_lock(paths):
+            store = load_store(paths)
+            store["onboardingComplete"] = True
+            save_store(paths, store)
     elif args.command == "subscription-save":
         url = read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")
         # Network I/O never holds the global mutation lock. A slow provider

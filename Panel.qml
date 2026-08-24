@@ -53,6 +53,7 @@ Panel {
   // where lastError is read, so a handoff that produced no editor has to
   // bring it back; an IPC edit never sets this and stays headless.
   property bool editHandedOff: false
+  property bool onboardingDismissed: false
   // Relative update/test ages need one inexpensive shared clock. Without it,
   // text bound through helper functions would stay frozen until other state
   // happened to change.
@@ -105,6 +106,13 @@ Panel {
     if (vless.hasRoutingConflict) line += " · Possible conflict: " + vless.conflictSummary
     return vless.plainText(line, 220)
   }
+  readonly property string mihomoInstallCommand: "omarchy pkg aur add mihomo-bin"
+  readonly property string mihomoCapabilityCommand: "sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep "
+    + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
+      : '"$(command -v mihomo)"')
+  readonly property string mihomoVerifyCommand: "mihomo -v && getcap "
+    + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
+      : '"$(command -v mihomo)"')
 
   function formatUptime(seconds) {
     var total = Math.max(0, Math.floor(Number(seconds) || 0))
@@ -195,6 +203,29 @@ Panel {
     page = "settings"
     cursorActive = false
     if (settingsFlick) settingsFlick.contentY = 0
+  }
+
+  function openOnboarding(step) {
+    onboardingDismissed = false
+    onboardingWizard.openAt(step || 1)
+  }
+
+  function dismissOnboarding() {
+    onboardingDismissed = true
+    onboardingWizard.dismiss()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function finishOnboarding() {
+    if (!vless.completeOnboarding()) return
+    onboardingWizard.dismiss()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function saveStartup(enabled, target, profileId, mode) {
+    if (!vless.configureStartup(enabled, target, profileId, mode)) return
+    startupPrompt.dismiss()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function closeSettings() {
@@ -727,9 +758,12 @@ Panel {
     editingSubscription = null
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
+    startupPrompt.dismiss()
+    onboardingWizard.dismiss()
     cancelImport()
     if (opened) {
       page = "main"
+      onboardingDismissed = false
       if (vless.qrVisible) vless.closeQr()
       cancelRename()
       // The error surface is back on screen; whatever happens to the editor
@@ -739,7 +773,10 @@ Panel {
       hoveredSubscriptionServerUuid = ""
       if (panelFlick) panelFlick.contentY = 0
       vless.refresh()
-      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+      Qt.callLater(function() {
+        keyCatcher.forceActiveFocus()
+        if (vless.onboardingNeeded && !root.onboardingDismissed) root.openOnboarding(1)
+      })
     }
   }
   onConfigIndexChanged: {
@@ -766,6 +803,10 @@ Panel {
   Connections {
     target: vless
     function onProfilesChanged() { root.restoreCursor() }
+    function onOnboardingNeededChanged() {
+      if (root.opened && vless.onboardingNeeded && !root.onboardingDismissed)
+        root.openOnboarding(1)
+    }
     function onSubscriptionsChanged() {
       root.subscriptionIndex = Math.max(0, Math.min(
         root.subscriptionIndex, vless.subscriptions.length - 1
@@ -955,7 +996,8 @@ Panel {
       anchors.fill: parent
       blocked: root.pendingDelete !== null || root.pendingSubscriptionDelete !== null
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
-        || routingPresetPrompt.visible || profileSearch.activeFocus
+        || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
+        || profileSearch.activeFocus
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
@@ -1756,6 +1798,29 @@ Panel {
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
+            text: "SETUP & STARTUP"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          SettingsActionRow {
+            title: "Mihomo core"
+            description: vless.coreSetupLabel
+              + (vless.coreSetup.path !== "" ? " · " + vless.coreSetup.path : "")
+            actionText: vless.coreSetup.tunReady ? "Ready" : "Setup"
+            onAction: root.openOnboarding(1)
+          }
+
+          SettingsActionRow {
+            title: "Start VPN at login"
+            description: vless.startupSummary
+            actionText: "Configure"
+            onAction: startupPrompt.openWith(vless.startup)
+          }
+
+          PanelSeparator { foreground: root.foreground }
+
+          PanelSectionHeader {
             text: "ROUTING PROFILE"
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -2016,6 +2081,57 @@ Panel {
             width: 1
             height: Style.space(8)
           }
+        }
+      }
+
+      OnboardingWizard {
+        id: onboardingWizard
+        anchors.fill: parent
+        coreSetup: vless.coreSetup
+        presets: vless.routingPresets
+        profiles: vless.profiles
+        routingPreset: vless.routingPresetConfigured ? vless.routing.preset : ""
+        busy: vless.busy || vless.importSourceBusy
+        installCommand: root.mihomoInstallCommand
+        capabilityCommand: root.mihomoCapabilityCommand
+        verifyCommand: root.mihomoVerifyCommand
+        foreground: root.foreground
+        dim: root.dim
+        urgent: root.urgent
+        fontFamily: root.fontFamily
+        onCopyCommand: function(command) { vless.copyText(command) }
+        onRefreshRequested: vless.refresh()
+        onPresetChosen: function(preset) {
+          if (vless.useRoutingPreset(preset, false)) onboardingWizard.step = 3
+        }
+        onPasteRequested: vless.pasteConfig()
+        onFileRequested: vless.pickConfigFile()
+        onFinishRequested: root.finishOnboarding()
+        onCanceled: root.dismissOnboarding()
+      }
+
+      StartupPrompt {
+        id: startupPrompt
+        anchors.fill: parent
+        profiles: vless.profiles
+        startup: vless.startup
+        routingAvailable: vless.routingPresetConfigured
+        coreReady: vless.coreSetup.tunReady
+        busy: vless.busy
+        foreground: root.foreground
+        dim: root.dim
+        urgent: root.urgent
+        fontFamily: root.fontFamily
+        onConfirmed: function(enabled, target, profileId, mode) {
+          root.saveStartup(enabled, target, profileId, mode)
+        }
+        onSetupRequested: {
+          startupPrompt.dismiss()
+          root.openOnboarding(1)
+        }
+        onCanceled: {
+          dismiss()
+          Qt.callLater(function() { keyCatcher.forceActiveFocus() })
         }
       }
 
