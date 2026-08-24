@@ -1409,7 +1409,9 @@ Item {
     actionRejection = ""
     subscriptionError = ""
     subscriptionStatus = target === "" ? "Adding " + clean + "…" : "Saving " + clean + "…"
-    runControl(["subscription-save", clean, target], value)
+    // Names are positional data, not argparse options. The explicit boundary
+    // keeps a valid provider name such as "--fast" from being reinterpreted.
+    runControl(["subscription-save", "--", clean, target], value)
     return true
   }
 
@@ -1477,7 +1479,7 @@ Item {
     }
     actionRejection = ""
     actionStatus = "Renaming " + profile.name + "…"
-    runControl(["rename", profile.uuid, value])
+    runControl(["rename", profile.uuid, "--", value])
     return true
   }
 
@@ -1607,7 +1609,7 @@ Item {
     // and argv is world-readable via /proc.
     _editSeed = String(seedText || "")
     editProcess.stdinEnabled = true
-    editProcess.command = ["bash", backendPath, "edit", _editUuid, _editName]
+    editProcess.command = ["bash", backendPath, "edit", _editUuid, "--", _editName]
     editProcess.running = true
     return true
   }
@@ -1703,7 +1705,9 @@ Item {
     if (notifyProcess.running || _dropQueue.length === 0) return
     var drop = _dropQueue.shift()
     _notifyDropName = drop.name
-    notifyProcess.command = ["bash", backendPath, "notify-drop", drop.uuid, drop.name]
+    // The backend needs only the opaque UUID to deduplicate the desktop
+    // notice. Keep provider-controlled display metadata out of its argv.
+    notifyProcess.command = ["bash", backendPath, "notify-drop", drop.uuid]
     notifyProcess.running = true
   }
 
@@ -1739,7 +1743,7 @@ Item {
     actionRejection = ""
     var existing = findByName(name)
     actionStatus = "Importing " + name + "…"
-    runControl(["import", String(name), existing ? existing.uuid : "", String(path)])
+    runControl(["import", "--", String(name), existing ? existing.uuid : "", String(path)])
     return true
   }
 
@@ -1761,7 +1765,7 @@ Item {
     _editRetryName = name
     _editRetryText = text
     actionStatus = "Saving " + name + "…"
-    runControl(["import", name, uuid], text)
+    runControl(["import", "--", name, uuid], text)
   }
 
   function importText(text, name) {
@@ -1773,7 +1777,7 @@ Item {
     actionRejection = ""
     var existing = findByName(name)
     actionStatus = "Importing " + name + "…"
-    runControl(["import", String(name), existing ? existing.uuid : ""], String(text))
+    runControl(["import", "--", String(name), existing ? existing.uuid : ""], String(text))
     return true
   }
 
