@@ -48,6 +48,7 @@ The open work is a linear stack. Test and integrate it in this exact order:
 12. [#12 — experimental Trojan profiles](https://github.com/k-kostin/omavless/pull/12), based on #11
 13. [#13 — experimental Hysteria2 profiles](https://github.com/k-kostin/omavless/pull/13), based on #12
 14. [#14 — experimental TUIC v5 profiles](https://github.com/k-kostin/omavless/pull/14), based on #13
+15. [#15 — Mihomo 1.19.30 and AmneziaWG roadmap addendum](https://github.com/k-kostin/omavless/pull/15), based on #14
 
 Later protocol PRs remain based on the preceding unmerged PR until the stack
 is integrated.
@@ -66,6 +67,41 @@ For each stacked PR on the Omarchy machine:
 Do not merge a later PR merely because its combined tip works: doing so would
 hide which slice introduced a live regression. Draft status is removed only
 after the Omarchy checks for that PR pass.
+
+## Mihomo source and release gate
+
+Every protocol or key-format PR must repeat this audit; knowledge copied from
+an older OmaVLESS PR is not sufficient:
+
+1. start with Mihomo's official proxy documentation for the emitted YAML;
+2. inspect the corresponding option structures and parser at a pinned Mihomo
+   tag or commit, because documentation can lag implementation;
+3. read the latest stable release notes and every release since OmaVLESS's
+   oldest supported Mihomo version for protocol changes, compatibility fixes
+   and security advisories;
+4. compare the original protocol/share-format specification; an independent
+   importer such as v2rayN or dae may document an input dialect, but is never
+   the authority for Mihomo's output schema;
+5. classify every candidate field as share-controlled, local-only, unsupported
+   by the installed core, or unsupported by Mihomo at all;
+6. record the installed `mihomo -v` output and validate representative emitted
+   configs with both the oldest supported and latest stable core whenever a
+   feature is version-sensitive.
+
+The PR body must link the official Mihomo documentation, a commit-pinned source
+permalink, the latest release tag and date reviewed, and the original input
+format specification. If the latest release changes the conclusion, add an
+explicit compatibility test and user-facing version error. Never silently
+downgrade or discard a field to make an older core accept a profile.
+
+This audit is repeated on the Omarchy machine immediately before merge. The
+reviewing agent must fetch the current release list rather than trust the date
+in this roadmap, run the cloud test suite with its installed core, and perform
+the PR's real TUN/server checks. A new upstream option is not automatically a
+product feature: unknown, unsafe and provider-controlled local tuning remains
+rejected until its user value and threat boundary are understood. A relevant
+Mihomo security advisory blocks merge until the minimum supported version and
+upgrade guidance are updated.
 
 ## Compatibility boundary
 
@@ -268,6 +304,13 @@ implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/h
 Omarchy testing must cover networks where UDP/QUIC works and where it is
 restricted, with errors that distinguish server failure from blocked UDP.
 
+Mihomo 1.19.30 also adds an optional integer `handshake-timeout` in seconds.
+It is a local connection-tuning value, not part of the official Hysteria2 URI,
+so OmaVLESS must not accept it from an untrusted share link. Keep Mihomo's zero
+default in the initial adapter. A later advanced Settings control may expose a
+bounded local value only if real UDP-restricted-network tests show that it
+improves the error experience rather than merely making failures slower.
+
 ## Phase P3 — experimental TUIC v5
 
 Status: implemented in #14; pending Omarchy, current-Mihomo and independent
@@ -301,20 +344,111 @@ specification](https://github.com/tuic-protocol/tuic/blob/master/SPEC.md), dae's
 and the current [`TuicOption`
 implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/tuic.go).
 
-## Phase P4 — experimental WireGuard file import
+## Phase P4 — experimental WireGuard and AmneziaWG import
+
+Status: planned after #14 is integrated and live-tested. The standard
+WireGuard subset can work with older Mihomo releases, but the target baseline
+for this phase is Mihomo 1.19.30 or newer: that release adds the WireGuard
+`ip-stack` block, AmneziaWG v3.0/v3.1 and the current MIPS congestion controls.
+OmaVLESS must read and compare the installed core version before accepting a
+profile which requires those fields.
+
+This phase is split by input format instead of pretending that WireGuard has a
+universal share URI.
+
+### P4a — standard one-peer WireGuard `.conf`
 
 Initial scope:
 
-- explicit import of a standard WireGuard `.conf` with one peer;
+- explicit import of one bounded `[Interface]` plus one `[Peer]` from a
+  standard `.conf` file or pasted configuration text;
 - IPv4/IPv6 interface addresses, endpoint, public/private/preshared keys,
-  allowed IPs, keepalive, MTU and optional reserved bytes;
-- translation into a Mihomo WireGuard outbound while OmaVLESS remains the
-  owner of traffic splitting;
-- no invented `wireguard://` standard and no multi-peer editor initially.
+  keepalive, MTU, DNS and optional reserved bytes;
+- strict rejection of duplicate sections/keys, extra peers and executable
+  `PreUp`, `PostUp`, `PreDown`, `PostDown`, `Table` or `SaveConfig` directives;
+- translation into Mihomo's documented `wireguard` outbound, using the full
+  `peers` form internally so a later multi-peer slice has no second schema;
+- no invented public `wireguard://` standard and no multi-peer editor in the
+  first implementation.
 
-WireGuard remains experimental longer because it has no single interoperable
-share-link format and because imported `AllowedIPs` must not silently override
-OmaVLESS routing policy.
+Imported `AllowedIPs` describes the original tunnel intent, but it must not
+become a system routing command. The Mihomo outbound receives all-address peer
+coverage needed by the imported address families, while OmaVLESS Full VPN,
+Routing and Direct policies continue to decide which traffic selects that
+outbound. Import review must explain this translation.
+
+WireGuard does not fit the current URI-only private store. P4a therefore needs
+a versioned private profile payload for canonical configuration fields rather
+than encoding a private key into an invented URI. The source path is never
+stored. Private and preshared keys are absent from preview, public status,
+diagnostics, errors and argv; explicit config/QR export must warn that the
+result itself is a reusable private credential.
+
+Schema reference: [Mihomo WireGuard documentation and standard-config
+translation](https://wiki.metacubex.one/en/config/proxies/wg/#translating-from-a-standard-wireguard-configuration-file).
+
+### P4b — native AmneziaWG `.conf`
+
+The same parser can recognize Amnezia's additional `[Interface]` keys and
+classify the profile as AmneziaWG without a second top-level protocol engine.
+Map only the documented Mihomo `amnezia-wg-option` fields:
+
+- v1.0: `Jc`, `Jmin`, `Jmax`, `S1`, `S2` and `H1`–`H4`;
+- v1.5/v2: optional `S3`, `S4`, `I1`–`I5` and the version-appropriate header
+  value/range rules; legacy v1.5-only `J1`–`J3`/`ITime` require a real fixture
+  before they are accepted;
+- v3: `HeaderProtectionKey`, `ContentPaddingAddition`, `RekeyAfterTime`,
+  `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout` and
+  `MaxHandshakeAttempts`;
+- v3.1: `RandomTrailers` and `DisableCookies` in addition to the v3 fields.
+
+Version inference must be deterministic from the accepted field family and
+must fail on mixed or incomplete generations. Booleans accept only the native
+AWG spellings which can be normalized without ambiguity. Numeric values,
+ranges, special-junk templates and the decoded header-protection key receive
+explicit count/size/range bounds before any YAML is written.
+
+The generated Mihomo proxy remains `type: wireguard`; Amnezia is enabled only
+through `amnezia-wg-option`. For v3.1, `version: 3`, `random-trailers` and
+`disable-cookies` require Mihomo 1.19.30+. A profile using newer fields on an
+older core gets a precise version error before storage or service restart.
+
+Mihomo 1.19.30's optional `ip-stack` is a local advanced setting, not an
+imported provider value. Default to `mode: auto`; expose `gvisor`/`mips` and
+`cubic`/`reno`/`bbr`/`bbr3` only in Settings with an explanation that the
+congestion controller is ignored by gVisor. Do not guess a faster mode from a
+key.
+
+References: the [Mihomo WireGuard/AmneziaWG
+schema](https://wiki.metacubex.one/en/config/proxies/wg/), Mihomo 1.19.30's
+[`ip-stack` commit](https://github.com/MetaCubeX/mihomo/commit/8b76447b7af8528a846e74dfbfe6776e6349a228),
+[AmneziaWG v3.1 commit](https://github.com/MetaCubeX/mihomo/commit/8c56780b56b82230e071551d7d471b045fa28dfa)
+and Amnezia's current native-config field names in
+[`InterfaceConfig::toWgConf`](https://github.com/amnezia-vpn/amnezia-client/blob/707266124452c566e8a723633759502221542901/client/daemon/interfaceconfig.cpp).
+
+### P4c — AmneziaVPN `vpn://` connection keys
+
+This is a later input adapter, not part of the first WireGuard PR. Amnezia's
+`vpn://` value is a base64url/qCompress-wrapped JSON connection document, not a
+WireGuard share URI. It may contain several protocol containers or an API
+endpoint instead of an immediately usable native AWG configuration.
+
+If implemented, decoding must be offline, size/depth/count bounded and select
+only an explicit WireGuard/AmneziaWG container. OmaVLESS must never call an
+embedded `api_endpoint`, import SSH/server-administration credentials or fall
+back to another container implicitly. The decoded native configuration then
+passes through the exact P4a/P4b validator; there is no privileged or lenient
+second path. A `.vpn` file containing one `vpn://` line and direct clipboard
+paste can share this adapter.
+
+Official Amnezia documentation distinguishes the app-specific `vpn://` key
+from the native `amnezia_for_awg.conf`, which is the interoperable first
+target: [sharing formats](https://docs.amnezia.org/documentation/instructions/share-connection/).
+
+WireGuard and AmneziaWG remain experimental longer than URI protocols because
+their imports contain a reusable private key, because AWG has several field
+generations, and because routing semantics must be verified against both
+OmaVLESS policy and the peer's cryptokey routes on a real system.
 
 ## Later Mihomo-native candidates
 
