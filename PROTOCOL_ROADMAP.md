@@ -47,6 +47,7 @@ The open work is a linear stack. Test and integrate it in this exact order:
 11. [#11 — protocol-neutral profile adapters](https://github.com/k-kostin/omavless/pull/11), based on #10
 12. [#12 — experimental Trojan profiles](https://github.com/k-kostin/omavless/pull/12), based on #11
 13. [#13 — experimental Hysteria2 profiles](https://github.com/k-kostin/omavless/pull/13), based on #12
+14. [#14 — experimental TUIC v5 profiles](https://github.com/k-kostin/omavless/pull/14), based on #13
 
 Later protocol PRs remain based on the preceding unmerged PR until the stack
 is integrated.
@@ -269,12 +270,36 @@ restricted, with errors that distinguish server failure from blocked UDP.
 
 ## Phase P3 — experimental TUIC v5
 
+Status: implemented in #14; pending Omarchy, current-Mihomo and independent
+server/provider verification.
+
 Initial scope:
 
 - TUIC v5 UUID/password profiles only;
 - TLS/SNI, ALPN, UDP relay mode and bounded connection options;
 - conservative defaults for 0-RTT and congestion control;
 - no TUIC v4 token mode until a real compatibility fixture is available.
+
+The implemented importer uses the interoperable `tuic://UUID:password@host`
+dialect documented by dae and emitted by current v2rayN. It accepts SNI, ALPN,
+strict certificate verification, explicit SNI disabling, `native`/`quic` UDP
+relay and Mihomo's `cubic`/`new_reno`/`bbr` congestion controllers. Missing
+relay/controller fields become explicit `native` and `cubic` values. QUIC
+0-RTT (`reduce-rtt`) is never inferred from a share link and remains off.
+
+Unknown and duplicate parameters, TUIC v4 token-only links, invalid UUIDs and
+conflicting SNI settings fail before storage. UUID and password are absent from
+preview, public status and diagnostics. Because current Mihomo implements
+`disable-sni` by also disabling certificate verification, preview reports that
+security consequence instead of presenting it as a harmless hostname option.
+
+Schema references: the TUIC project's [v5 protocol
+specification](https://github.com/tuic-protocol/tuic/blob/master/SPEC.md), dae's
+[TUIC URI scheme](https://github.com/daeuniverse/dae/discussions/182), current
+[v2rayN parser/exporter](https://github.com/2dust/v2rayN/blob/master/v2rayN/ServiceLib/Handler/Fmt/TuicFmt.cs),
+[Mihomo TUIC documentation](https://wiki.metacubex.one/en/config/proxies/tuic/)
+and the current [`TuicOption`
+implementation](https://github.com/MetaCubeX/mihomo/blob/Meta/adapter/outbound/tuic.go).
 
 ## Phase P4 — experimental WireGuard file import
 

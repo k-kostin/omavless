@@ -241,7 +241,7 @@ Item {
               text: wizard.profiles.length > 0
                 ? (wizard.profiles.length === 1 ? "Your first connection is ready."
                   : wizard.profiles.length + " connections are ready.")
-                : "Paste a VLESS, Trojan or Hysteria2 link from the clipboard, or choose a file. The secret stays in OmaVLESS private storage."
+                : "Paste a VLESS, Trojan, Hysteria2 or TUIC link from the clipboard, or choose a file. The secret stays in OmaVLESS private storage."
               color: wizard.profiles.length > 0 ? Color.accent : wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall

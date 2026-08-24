@@ -17,6 +17,10 @@ All notable changes to OmaVLESS are documented here.
   SNI, certificate pinning, ECH and `salamander`/`gecko` map to current Mihomo;
   Realm, bandwidth and unknown provider fields fail closed, while preview and
   diagnostics receive no authentication or obfuscation secrets.
+- Added experimental TUIC v5 profiles for bounded `tuic://` manual and
+  subscription import. UUID/password, SNI, ALPN, strict TLS, UDP relay and
+  congestion fields map directly to Mihomo; v4 tokens and unknown options fail
+  closed, 0-RTT stays off, and public surfaces receive no TUIC credential.
 - Tightened VLESS compatibility boundaries: XUDP/PacketAddr encodings and
   XHTTP modes are now normalized and strictly validated, while both Xray
   Vision share-link variants map to Mihomo's single supported Vision flow
