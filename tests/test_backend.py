@@ -1425,17 +1425,17 @@ esac
         self.assertNotIn('"mihoro.toml"', backend_source)
         self.assertNotIn('"mihomo" / "config.yaml"', backend_source)
 
-    def test_upstream_mit_attribution_is_preserved(self):
+    def test_ui_reference_mit_attribution_is_preserved(self):
         license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
         notice = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-        self.assertIn("Copyright (c) 2026 glafeara", license_text)
+        self.assertIn("Copyright (c) 2026 Justin Köstinger", license_text)
         self.assertIn("Copyright (c) 2026 OmaVLESS contributors", license_text)
-        self.assertIn("https://github.com/glafeara/omarchy-wireguard", notice)
-        self.assertIn("acffeb96cb40c207b0cc6698215c04cfb1b56231", notice)
+        self.assertIn("https://github.com/jkoestinger/omarchy-vpn", notice)
+        self.assertIn("https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn", notice)
         for name in ("Panel.qml", "Service.qml", "NamePrompt.qml", "RenameWindow.qml", "QrWindow.qml"):
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("SPDX-License-Identifier: MIT", source)
-            self.assertIn("Derived from Omawire", source)
+            self.assertIn("Adapted from Omarchy VPN", source)
         self.assertIn("THIRD_PARTY_NOTICES.md", (ROOT / "install.sh").read_text(encoding="utf-8"))
 
     def test_current_mihomo_accepts_generated_reality_config(self):

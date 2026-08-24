@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Derived from Omawire: https://github.com/glafeara/omarchy-wireguard
-// Copyright (c) 2026 glafeara
+// Adapted from Omarchy VPN: https://github.com/jkoestinger/omarchy-vpn
+// Copyright (c) 2026 Justin Köstinger
 // Copyright (c) 2026 OmaVLESS contributors
 // See LICENSE and THIRD_PARTY_NOTICES.md.
 

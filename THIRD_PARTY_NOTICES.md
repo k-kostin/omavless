@@ -1,18 +1,19 @@
 # Third-party notices
 
-## Omawire
+## Omarchy VPN
 
-The OmaVLESS interface and interaction model are derived from
-[Omawire](https://github.com/glafeara/omarchy-wireguard), using upstream
-revision `acffeb96cb40c207b0cc6698215c04cfb1b56231` as the starting point.
+Parts of the OmaVLESS interface and interaction model are adapted from
+[Omarchy VPN](https://github.com/jkoestinger/omarchy-vpn) by Justin Köstinger.
+The project is also listed in the
+[Omarchy Plugins directory](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn).
 The adapted source files are `Panel.qml`, `Service.qml`, `NamePrompt.qml`,
 `RenameWindow.qml`, and `QrWindow.qml`.
 
-Omawire is distributed under the MIT License:
+Omarchy VPN is distributed under the MIT License:
 
 > MIT License
 >
-> Copyright (c) 2026 glafeara
+> Copyright (c) 2026 Justin Köstinger
 >
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal

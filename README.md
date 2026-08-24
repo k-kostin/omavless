@@ -1,8 +1,9 @@
 # OmaVLESS — VLESS profiles in the Omarchy bar
 
 OmaVLESS is an Omarchy bar plugin for importing, subscribing to, switching and
-monitoring `vless://` profiles. Its interaction model is intentionally based on
-[Omawire](https://github.com/glafeara/omarchy-wireguard): the same hero toggle,
+monitoring `vless://` profiles. Its interaction model is based on
+[Omarchy VPN](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn)
+([source](https://github.com/jkoestinger/omarchy-vpn)): the same hero toggle,
 profile rows, import/edit/rename/QR/delete actions, keyboard navigation and IPC.
 
 The transport is different. VLESS is not a NetworkManager tunnel, so OmaVLESS
@@ -315,10 +316,11 @@ Mihoro or the Mihomo binary.
 
 ## Credits and license
 
-The UI is a derivative of
-[Omawire](https://github.com/glafeara/omarchy-wireguard) by glafeara. Its
-original copyright and MIT terms are preserved in `LICENSE`, in headers on the
-adapted QML files, and in `THIRD_PARTY_NOTICES.md`. The published
+The adapted interface builds on
+[Omarchy VPN](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn) by
+Justin Köstinger ([source](https://github.com/jkoestinger/omarchy-vpn)). Its
+copyright and MIT terms are preserved in `LICENSE`, in headers on the adapted
+QML files, and in `THIRD_PARTY_NOTICES.md`. The published
 [RoscomVPN Routing](https://github.com/hydraponique/roscomvpn-routing) policy
 model and its separately maintained GeoSite/GeoIP datasets provide the routing
 source. Mihoro and omarchy-mihoro informed Mihomo service/API behavior but

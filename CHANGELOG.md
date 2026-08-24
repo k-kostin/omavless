@@ -164,5 +164,5 @@ All notable changes to OmaVLESS are documented here.
 - Replaced the bundled LAN-only fallback with a deterministic RoscomVPN-based
   policy using 23 maintained GeoSite/GeoIP rule sets; existing private
   templates change only through the explicit `use-routing` command.
-- Isolated OmaVLESS from Mihoro's configuration and service, preserved the
-  Omawire MIT attribution, and added a safe removal helper.
+- Isolated OmaVLESS from Mihoro's configuration and service and added a safe
+  removal helper.
