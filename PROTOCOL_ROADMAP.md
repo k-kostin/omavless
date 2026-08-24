@@ -148,6 +148,12 @@ Scope:
 - show the experimental capability in preview without showing the secret;
 - retain the existing `encryption=none` path unchanged.
 
+Cloud parsing validates Mihomo's current `mlkem768x25519plus` client grammar,
+including mode, RTT, padding ranges and canonical 32/1184-byte public key
+tokens. The GUI receives only fixed experimental feature names. REALITY PQ
+also carries a fingerprint-dependent warning because the Mihomo option cannot
+force a uTLS fingerprint to advertise a group it does not implement.
+
 The parser must not infer that a failed new-Xray REALITY server is a malformed
 key. Where the failure is ambiguous, the UI reports a compatibility hint rather
 than a false diagnosis.

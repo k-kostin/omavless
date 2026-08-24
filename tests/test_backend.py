@@ -139,6 +139,88 @@ class BackendTests(unittest.TestCase):
             backend.parse_vless(unsupported)
         self.assertNotIn("secret-verifier", str(failure.exception))
 
+    def test_experimental_vless_encryption_is_bounded_and_redacted(self):
+        client_key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+        variants = (
+            f"mlkem768x25519plus.native.1rtt.{client_key}",
+            f"mlkem768x25519plus.xorpub.0rtt.{client_key}",
+            (
+                "mlkem768x25519plus.random.1rtt."
+                f"100-111-1111.75-0-111.50-0-3333.{client_key}"
+            ),
+        )
+        for encryption in variants:
+            with self.subTest(encryption=encryption.split(".")[1:3]):
+                uri = REALITY_URI.replace(
+                    "encryption=none", "encryption=" + urllib.parse.quote(encryption)
+                )
+                node = backend.parse_vless(uri)
+                self.assertEqual(node["encryption"], encryption)
+                self.assertIn(
+                    f"encryption: {json.dumps(encryption)}",
+                    backend.proxy_yaml({"name": "Encrypted", "uri": uri}),
+                )
+                preview = backend.preview_vless(uri)
+                self.assertTrue(preview["experimental"])
+                self.assertEqual(preview["experimentalFeatures"], ["VLESS Encryption"])
+                public = json.dumps(preview, ensure_ascii=False)
+                self.assertNotIn(client_key, public)
+                self.assertNotIn("mlkem768x25519plus", public)
+
+    def test_vless_encryption_rejects_values_mihomo_cannot_parse(self):
+        client_key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+        cases = (
+            ("aes-128-gcm", "not supported"),
+            (f"mlkem768x25519plus.bad.1rtt.{client_key}", "not supported"),
+            (f"mlkem768x25519plus.native.bad.{client_key}", "not supported"),
+            ("mlkem768x25519plus.native.1rtt.100-111-1111", "client key"),
+            ("mlkem768x25519plus.native.1rtt.bad", "padding"),
+            (f"mlkem768x25519plus.native.1rtt.50-1-2.{client_key}", "too small"),
+            (f"mlkem768x25519plus.native.1rtt.100-35-70000.{client_key}",
+             "outside the supported range"),
+            ("mlkem768x25519plus.native.1rtt." + "A" * 44, "key"),
+        )
+        for encryption, error in cases:
+            uri = REALITY_URI.replace(
+                "encryption=none", "encryption=" + urllib.parse.quote(encryption)
+            )
+            with self.subTest(error=error), self.assertRaisesRegex(backend.BackendError, error):
+                backend.parse_vless(uri)
+        private_value = "mlkem768x25519plus.native.1rtt.private-secret"
+        with self.assertRaises(backend.BackendError) as failure:
+            backend.validate_vless_encryption(private_value)
+        self.assertNotIn("private-secret", str(failure.exception))
+
+    def test_reality_pq_flag_is_explicit_experimental_metadata(self):
+        base, fragment = REALITY_URI.split("#", 1)
+        uri = base + "&supportX25519MLKEM768=true#" + fragment
+        node = backend.parse_vless(uri)
+        self.assertTrue(node["support_x25519mlkem768"])
+        yaml = backend.proxy_yaml({"name": "PQ", "uri": uri})
+        self.assertIn("support-x25519mlkem768: true", yaml)
+        preview = backend.preview_vless(uri)
+        self.assertTrue(preview["experimental"])
+        self.assertEqual(preview["experimentalFeatures"], ["REALITY PQ"])
+        self.assertIn("fingerprint", preview["compatibilityNote"])
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", public)
+
+        disabled = backend.parse_vless(
+            base + "&support-x25519mlkem768=false#" + fragment
+        )
+        self.assertFalse(disabled["support_x25519mlkem768"])
+        with self.assertRaisesRegex(backend.BackendError, "must be true or false"):
+            backend.parse_vless(base + "&supportX25519MLKEM768=maybe#" + fragment)
+        with self.assertRaisesRegex(backend.BackendError, "aliases conflict"):
+            backend.parse_vless(
+                base + "&supportX25519MLKEM768=true"
+                "&support-x25519mlkem768=false#" + fragment
+            )
+        with self.assertRaisesRegex(backend.BackendError, "requires Reality"):
+            backend.parse_vless(
+                uri.replace("security=reality", "security=tls")
+            )
+
     def test_ws_transport_maps_options(self):
         uri = (
             "vless://11111111-1111-4111-8111-111111111111@example.com:443"
@@ -345,6 +427,7 @@ class BackendTests(unittest.TestCase):
                     "serverName": "reality-download.example.com",
                     "fingerprint": "firefox",
                     "spiderX": "/private-spider-path",
+                    "supportX25519MLKEM768": True,
                 },
                 "xhttpSettings": {"path": "/down", "mode": "packet-up"},
             }
@@ -361,11 +444,15 @@ class BackendTests(unittest.TestCase):
             'public-key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"', yaml
         )
         self.assertIn('short-id: "a1b2c3d4"', yaml)
+        self.assertIn("support-x25519mlkem768: true", yaml)
         self.assertNotIn("spider-x", yaml)
         preview = backend.preview_vless(uri)
         self.assertEqual(
             preview["compatibilityNote"], backend.REALITY_SPX_COMPATIBILITY_NOTE
+            + " " + backend.REALITY_PQ_COMPATIBILITY_NOTE
         )
+        self.assertTrue(preview["experimental"])
+        self.assertEqual(preview["experimentalFeatures"], ["REALITY PQ"])
         public = json.dumps(preview, ensure_ascii=False)
         self.assertNotIn("private-spider-path", public)
         self.assertNotIn("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", public)
@@ -2039,7 +2126,7 @@ rules:
         many_fields = base + "&" + "&".join(f"x{i}=1" for i in range(130)) + "#" + fragment
         with self.assertRaisesRegex(backend.BackendError, "Max number of fields exceeded"):
             backend.parse_vless(many_fields)
-        with self.assertRaisesRegex(backend.BackendError, "encryption must be none"):
+        with self.assertRaisesRegex(backend.BackendError, "not supported by Mihomo"):
             backend.parse_vless(REALITY_URI.replace("encryption=none", "encryption=aes-128-gcm"))
         with self.assertRaisesRegex(backend.BackendError, "Unsupported VLESS flow"):
             backend.parse_vless(REALITY_URI.replace("xtls-rprx-vision", "made-up-flow"))
@@ -2420,6 +2507,12 @@ esac
         }, separators=(",", ":")))
         profiles = {
             "reality-vision": REALITY_URI,
+            "reality-pq-flag": base + "&supportX25519MLKEM768=true#" + fragment,
+            "vless-encryption": REALITY_URI.replace(
+                "encryption=none",
+                "encryption=mlkem768x25519plus.native.1rtt."
+                "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            ),
             "reality-vision-udp443-xudp": (
                 base.replace(
                     "flow=xtls-rprx-vision", "flow=xtls-rprx-vision-udp443"

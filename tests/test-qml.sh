@@ -103,6 +103,7 @@ grep -q 'complete access UUID and key parameters are intentionally not shown' "$
 grep -q 'credentialHint' "$import_preview_prompt"
 grep -q 'compatibilityNote' "$import_preview_prompt"
 grep -q 'advancedXhttp' "$import_preview_prompt"
+grep -q 'prompt.preview.experimental' "$import_preview_prompt"
 grep -q 'onClicked: wizard.copyCommand(commandRow.command)' "$onboarding_wizard"
 ! grep -q 'runControl' "$onboarding_wizard"
 grep -q 'text: "Choose Routing preset"' "$routing_prompt"
