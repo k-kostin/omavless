@@ -193,6 +193,160 @@ class BackendTests(unittest.TestCase):
         with self.assertRaisesRegex(backend.BackendError, "XHTTP mode"):
             backend.parse_vless(f"{prefix}&mode=made-up#XHTTP")
 
+    def test_bounded_xhttp_extra_maps_only_current_mihomo_fields(self):
+        extra = {
+            "headers": {"X-Trace": "edge", "X-Secret": "private-token"},
+            "xPaddingBytes": "100-1000",
+            "xPaddingObfsMode": True,
+            "xPaddingKey": "padding",
+            "xPaddingHeader": "Referer",
+            "xPaddingPlacement": "queryInHeader",
+            "xPaddingMethod": "tokenish",
+            "uplinkHTTPMethod": "put",
+            "sessionPlacement": "cookie",
+            "sessionKey": "session_id",
+            "sessionTable": "Base62",
+            "sessionLength": "16-32",
+            "seqPlacement": "header",
+            "seqKey": "X-Seq",
+            "uplinkDataPlacement": "header",
+            "uplinkDataKey": "X-Data",
+            "uplinkChunkSize": 4096,
+            "noGRPCHeader": True,
+            "scMaxEachPostBytes": 1000000,
+            "scMinPostsIntervalMs": "15-30",
+            "xmux": {
+                "maxConcurrency": "16-32",
+                "maxConnections": 0,
+                "cMaxReuseTimes": 96,
+                "hMaxRequestTimes": "400-600",
+                "hMaxReusableSecs": 1800,
+                "hKeepAlivePeriod": 0,
+            },
+        }
+        encoded_extra = urllib.parse.quote(json.dumps(extra, separators=(",", ":")))
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+            "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
+            f"&mode=packet-up&extra={encoded_extra}#Advanced"
+        )
+        node = backend.parse_vless(uri)
+        self.assertTrue(node["xhttp_extra"])
+        yaml = backend.proxy_yaml({"name": "Advanced", "uri": uri})
+        for expected in (
+            '"X-Trace": "edge"', '"X-Secret": "private-token"',
+            'x-padding-bytes: "100-1000"', "x-padding-obfs-mode: true",
+            'uplink-http-method: "PUT"', 'session-placement: "cookie"',
+            'session-length: "16-32"', 'uplink-chunk-size: "4096"',
+            "no-grpc-header: true", 'sc-min-posts-interval-ms: "15-30"',
+            "reuse-settings:", 'max-concurrency: "16-32"',
+            'c-max-reuse-times: "96"', "h-keep-alive-period: 0",
+        ):
+            self.assertIn(expected, yaml)
+        preview = backend.preview_vless(uri)
+        self.assertTrue(preview["advancedXhttp"])
+        public = json.dumps(preview, ensure_ascii=False)
+        self.assertNotIn("private-token", public)
+        self.assertNotIn("X-Secret", public)
+
+    def test_xhttp_extra_accepts_benign_full_xray_defaults(self):
+        extra = {
+            "host": "ignored.example",
+            "path": "/ignored",
+            "mode": "stream-one",
+            "headers": None,
+            "xPaddingBytes": "100-1000",
+            "noSSEHeader": False,
+            "scMaxBufferedPosts": 0,
+            "scStreamUpServerSecs": "0",
+            "serverMaxHeaderBytes": 0,
+            "xmux": {
+                "maxConcurrency": "0", "maxConnections": "0",
+                "cMaxReuseTimes": "0", "hMaxRequestTimes": "0",
+                "hMaxReusableSecs": "0", "hKeepAlivePeriod": 0,
+            },
+            "downloadSettings": None,
+            "extra": None,
+        }
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+            "?type=xhttp&security=tls&sni=example.com&path=%2Fquery-wins&mode=auto"
+            "&extra=" + urllib.parse.quote(json.dumps(extra)) + "#Defaults"
+        )
+        yaml = backend.proxy_yaml({"name": "Defaults", "uri": uri})
+        self.assertIn('path: "/query-wins"', yaml)
+        self.assertIn('mode: "auto"', yaml)
+        self.assertNotIn("ignored.example", yaml)
+        self.assertNotIn("reuse-settings:", yaml)
+
+    def test_xhttp_extra_rejects_ambiguous_or_unbounded_input(self):
+        prefix = (
+            "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+            "?type=xhttp&security=tls&sni=example.com&mode=packet-up&extra="
+        )
+
+        def uri_for(raw: str) -> str:
+            return prefix + urllib.parse.quote(raw) + "#Bad"
+
+        cases = (
+            ('{"unknown":"secret"}', "unsupported fields"),
+            ('{"xPaddingBytes":"1","xPaddingBytes":"2"}', "duplicate fields"),
+            (json.dumps({"headers": {"Host": "override.example"}}), "header name"),
+            (json.dumps({"headers": {"X-Test": "ok\r\nInjected: yes"}}), "header value"),
+            (json.dumps({"extra": {"extra": {}}}), "recursive"),
+            (json.dumps({"downloadSettings": {}}), "next compatibility layer"),
+            (json.dumps({"noSSEHeader": True}), "server-only"),
+            (json.dumps({"xmux": {"maxConcurrency": 2, "maxConnections": 3}}),
+             "mutually exclusive"),
+            (json.dumps({"sessionPlacement": "path", "seqPlacement": "header"}),
+             "seq placement"),
+        )
+        for raw, error in cases:
+            with self.subTest(error=error), self.assertRaisesRegex(backend.BackendError, error):
+                backend.parse_vless(uri_for(raw))
+
+        deep: dict[str, object] = {}
+        cursor = deep
+        for _ in range(backend.MAX_XHTTP_EXTRA_DEPTH + 1):
+            child: dict[str, object] = {}
+            cursor["nested"] = child
+            cursor = child
+        with self.assertRaisesRegex(backend.BackendError, "nested too deeply"):
+            backend.parse_vless(uri_for(json.dumps(deep)))
+
+        oversized = json.dumps({"headers": {"X-Test": "x" * 1100}})
+        with self.assertRaisesRegex(backend.BackendError, "header value"):
+            backend.parse_vless(uri_for(oversized))
+
+        non_xhttp = REALITY_URI.replace(
+            "#Example", "&extra=" + urllib.parse.quote('{"xPaddingBytes":"100-1000"}') + "#Example"
+        )
+        with self.assertRaisesRegex(backend.BackendError, "requires the XHTTP transport"):
+            backend.parse_vless(non_xhttp)
+
+    def test_legacy_store_with_unsupported_xhttp_extra_remains_readable(self):
+        raw_extra = urllib.parse.quote(json.dumps({"futureField": "private-value"}))
+        uri = (
+            "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+            "?type=xhttp&security=tls&sni=example.com&mode=auto"
+            f"&extra={raw_extra}#Legacy"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            paths.store.write_text(json.dumps({
+                "version": 1, "activeId": "", "lastId": profile_id,
+                "profiles": [{"id": profile_id, "name": "Legacy", "uri": uri}],
+            }), encoding="utf-8")
+            loaded = backend.load_store(paths)
+            self.assertEqual(loaded["profiles"][0]["name"], "Legacy")
+            with self.assertRaisesRegex(backend.BackendError, "unsupported fields"):
+                backend.proxy_yaml(loaded["profiles"][0])
+
     def test_non_xhttp_mode_query_cannot_leak_into_generated_yaml(self):
         base, fragment = REALITY_URI.split("#", 1)
         parsed = backend.parse_vless(f"{base}&mode=provider-metadata#{fragment}")
@@ -2119,6 +2273,11 @@ esac
         core = Path(configured)
         template = (ROOT / "templates" / "default.yaml").read_text(encoding="utf-8")
         base, fragment = REALITY_URI.split("#", 1)
+        xhttp_extra = urllib.parse.quote(json.dumps({
+            "headers": {"X-Trace": "omavless"},
+            "xPaddingBytes": "100-1000",
+            "xmux": {"maxConcurrency": "16-32", "hKeepAlivePeriod": 0},
+        }, separators=(",", ":")))
         profiles = {
             "reality-vision": REALITY_URI,
             "reality-vision-udp443-xudp": (
@@ -2131,6 +2290,11 @@ esac
                 "vless://11111111-1111-4111-8111-111111111111@example.com:443"
                 "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
                 "&mode=packet-up&packetEncoding=packetaddr#XHTTP"
+            ),
+            "xhttp-extra-xmux": (
+                "vless://11111111-1111-4111-8111-111111111111@example.com:443"
+                "?type=xhttp&security=tls&sni=example.com&path=%2Fedge"
+                f"&mode=packet-up&extra={xhttp_extra}#XHTTP-extra"
             ),
         }
         for name, uri in profiles.items():

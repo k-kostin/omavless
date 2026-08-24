@@ -12,6 +12,11 @@ All notable changes to OmaVLESS are documented here.
   IDs are validated, Xray-only `spx` is explained during import instead of
   emitted as an unsupported `spider-x` option, and ML-DSA-only links fail with
   a credential-free compatibility error.
+- Added bounded XHTTP `extra` translation for client headers, padding,
+  session/sequence placement, upload controls and XMUX/reuse. Duplicate,
+  oversized, deeply nested, server-only and unknown fields are rejected; old
+  stores remain readable even when a previously ignored field needs manual
+  compatibility review before reconnecting.
 - Added multi-server favorites for both local and subscription-managed
   profiles. Active and pinned servers stay easy to reach without adding a
   permanent toolbar; pins survive subscription refreshes for retained nodes.

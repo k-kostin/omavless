@@ -137,7 +137,12 @@ documented; the normal plugin installation does not exercise them silently.
   from the keyboard, keeping the compact list quiet otherwise.
 - TCP, WebSocket, HTTP, H2, gRPC and XHTTP transports. XHTTP accepts the
   Mihomo modes `auto`, `stream-one`, `stream-up` and `packet-up`; unsupported
-  values are rejected before a profile can be stored.
+  values are rejected before a profile can be stored. A bounded XHTTP `extra`
+  object can translate the shared Xray/Mihomo client subset for headers,
+  padding, session/sequence placement, upload sizing and XMUX/reuse. JSON
+  depth, count, ranges, header syntax and field names are constrained; raw or
+  unknown configuration is never copied into YAML. Advanced contents stay out
+  of the public preview, which reports only that advanced XHTTP is present.
 - None, TLS and Reality security, including `flow`, `sni`, `fp`, `pbk` and
   `sid` URI parameters. Reality public keys and short IDs are checked against
   Mihomo's accepted formats before storage. Xray's `spx` spider path is

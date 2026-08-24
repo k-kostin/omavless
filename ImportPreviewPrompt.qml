@@ -111,7 +111,8 @@ Item {
                     + ":" + String(prompt.preview.port || "") },
                 { label: "Connection", value: String(prompt.preview.transport || "")
                     + " / " + String(prompt.preview.security || "")
-                    + (prompt.preview.flow ? " / " + prompt.preview.flow : "") },
+                    + (prompt.preview.flow ? " / " + prompt.preview.flow : "")
+                    + (prompt.preview.advancedXhttp ? " / advanced" : "") },
                 { label: "SNI", value: String(prompt.preview.sni || "—") },
                 { label: "TLS check", value: prompt.preview.insecure
                     ? "Disabled by this key" : "Enabled" },

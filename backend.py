@@ -47,6 +47,12 @@ CONFLICT_SERVICE = "mihomo.service"
 TUN_DEVICE = "Meta"
 STATUS_CACHE_SECONDS = 1.0
 MAX_VLESS_URI_BYTES = 16 * 1024
+MAX_XHTTP_EXTRA_BYTES = 12 * 1024
+MAX_XHTTP_EXTRA_ITEMS = 96
+MAX_XHTTP_EXTRA_DEPTH = 4
+MAX_XHTTP_EXTRA_STRING_BYTES = 2048
+MAX_XHTTP_HEADER_COUNT = 32
+MAX_XHTTP_HEADER_VALUE_BYTES = 1024
 MAX_PROFILE_COUNT = 256
 MAX_STORE_BYTES = 5 * 1024 * 1024
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
@@ -93,6 +99,7 @@ PUBLIC_CAPABILITIES = {
     "exitIp": True,
     "conflictDetection": True,
     "qr": True,
+    "xhttpExtra": True,
     "protocols": ["vless"],
     "core": "mihomo",
 }
@@ -328,7 +335,7 @@ def validate_store(data: Any) -> dict[str, Any]:
         seen_ids.add(profile_id)
         if clean_name(name) != name:
             raise BackendError(f"VLESS profile #{index} has a non-canonical name")
-        parse_vless(uri)
+        parse_vless(uri, strict_xhttp_extra=False)
         subscription_id = profile.get("subscriptionId", "")
         subscription_key = profile.get("subscriptionKey", "")
         missing = profile.get("missing", False)
@@ -1469,6 +1476,294 @@ def validate_reality_short_id(value: str) -> None:
         raise BackendError("VLESS Reality short ID has an invalid format")
 
 
+def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise BackendError("VLESS XHTTP extra contains duplicate fields")
+        result[key] = value
+    return result
+
+
+def validate_xhttp_json_shape(value: Any) -> None:
+    """Bound JSON complexity before applying the narrower XHTTP schema."""
+    seen = 0
+
+    def visit(item: Any, depth: int) -> None:
+        nonlocal seen
+        if depth > MAX_XHTTP_EXTRA_DEPTH:
+            raise BackendError("VLESS XHTTP extra is nested too deeply")
+        seen += 1
+        if seen > MAX_XHTTP_EXTRA_ITEMS:
+            raise BackendError("VLESS XHTTP extra contains too many values")
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if len(key.encode("utf-8")) > 128:
+                    raise BackendError("VLESS XHTTP extra contains an oversized field name")
+                visit(child, depth + 1)
+        elif isinstance(item, list):
+            for child in item:
+                visit(child, depth + 1)
+        elif isinstance(item, str):
+            if len(item.encode("utf-8")) > MAX_XHTTP_EXTRA_STRING_BYTES:
+                raise BackendError("VLESS XHTTP extra contains an oversized string")
+        elif item is not None and not isinstance(item, (bool, int, float)):
+            raise BackendError("VLESS XHTTP extra contains an unsupported JSON value")
+
+    visit(value, 0)
+
+
+def xhttp_alias(data: dict[str, Any], *names: str) -> Any:
+    present = [(name, data[name]) for name in names if name in data]
+    if len(present) > 1 and any(value != present[0][1] for _, value in present[1:]):
+        raise BackendError("VLESS XHTTP extra contains conflicting field aliases")
+    return present[0][1] if present else None
+
+
+def xhttp_range(value: Any, label: str) -> str:
+    """Normalize Xray integer/range JSON into Mihomo's bounded range string."""
+    if value is None or value == "" or value == 0 or value == "0":
+        return ""
+    if isinstance(value, bool):
+        raise BackendError(f"VLESS XHTTP {label} must be an integer or range")
+    if isinstance(value, int):
+        start = end = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+(?:-[0-9]+)?", value):
+        parts = value.split("-", 1)
+        start = int(parts[0])
+        end = int(parts[-1])
+    else:
+        raise BackendError(f"VLESS XHTTP {label} must be an integer or range")
+    if start < 0 or end < start or end > 2_147_483_647:
+        raise BackendError(f"VLESS XHTTP {label} is outside the supported range")
+    return str(start) if start == end else f"{start}-{end}"
+
+
+def xhttp_bool(value: Any, label: str) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise BackendError(f"VLESS XHTTP {label} must be true or false")
+    return value
+
+
+def xhttp_ascii(value: Any, label: str, *, maximum: int = 128) -> str:
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or len(value.encode("utf-8")) > maximum:
+        raise BackendError(f"VLESS XHTTP {label} has an invalid format")
+    if not re.fullmatch(r"[\x21-\x7e]+", value):
+        raise BackendError(f"VLESS XHTTP {label} has an invalid format")
+    return value
+
+
+def xhttp_token(value: Any, label: str) -> str:
+    value = xhttp_ascii(value, label, maximum=64)
+    if value and not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", value):
+        raise BackendError(f"VLESS XHTTP {label} has an invalid format")
+    return value
+
+
+def parse_xhttp_headers(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or len(value) > MAX_XHTTP_HEADER_COUNT:
+        raise BackendError("VLESS XHTTP headers have an invalid format")
+    headers: dict[str, str] = {}
+    token = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+    for name, header_value in value.items():
+        if (not isinstance(name, str) or not token.fullmatch(name)
+                or len(name.encode("ascii", "ignore")) != len(name)
+                or len(name) > 64 or name.lower() == "host"):
+            raise BackendError("VLESS XHTTP contains an unsupported header name")
+        if (not isinstance(header_value, str)
+                or len(header_value.encode("utf-8")) > MAX_XHTTP_HEADER_VALUE_BYTES
+                or not re.fullmatch(r"[\x20-\x7e]*", header_value)):
+            raise BackendError("VLESS XHTTP contains an invalid header value")
+        headers[name] = header_value
+    return headers
+
+
+def parse_xhttp_reuse(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise BackendError("VLESS XHTTP xmux must be an object")
+    allowed = {
+        "maxConcurrency", "maxConnections", "cMaxReuseTimes",
+        "hMaxRequestTimes", "hMaxReusableSecs", "hKeepAlivePeriod",
+    }
+    if set(value) - allowed:
+        raise BackendError("VLESS XHTTP xmux contains unsupported fields")
+    result: dict[str, Any] = {}
+    mapping = (
+        ("maxConcurrency", "max-concurrency"),
+        ("maxConnections", "max-connections"),
+        ("cMaxReuseTimes", "c-max-reuse-times"),
+        ("hMaxRequestTimes", "h-max-request-times"),
+        ("hMaxReusableSecs", "h-max-reusable-secs"),
+    )
+    normalized: dict[str, str] = {}
+    for source, target in mapping:
+        if source in value:
+            normalized[source] = xhttp_range(value[source], f"xmux {source}")
+            if normalized[source]:
+                result[target] = normalized[source]
+    if normalized.get("maxConcurrency") and normalized.get("maxConnections"):
+        raise BackendError(
+            "VLESS XHTTP xmux maxConcurrency and maxConnections are mutually exclusive"
+        )
+    if "hKeepAlivePeriod" in value:
+        period = value["hKeepAlivePeriod"]
+        if isinstance(period, bool) or not isinstance(period, int) or not -1 <= period <= 86400:
+            raise BackendError("VLESS XHTTP xmux hKeepAlivePeriod is invalid")
+        if period != 0 or result:
+            result["h-keep-alive-period"] = period
+    return result
+
+
+def decode_xhttp_extra(raw: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    if len(raw.encode("utf-8")) > MAX_XHTTP_EXTRA_BYTES:
+        raise BackendError(
+            f"VLESS XHTTP extra is too large (maximum {MAX_XHTTP_EXTRA_BYTES // 1024} KiB)"
+        )
+    try:
+        data = json.loads(raw, object_pairs_hook=_json_object_without_duplicates)
+    except BackendError:
+        raise
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise BackendError("VLESS XHTTP extra is not valid JSON") from exc
+    validate_xhttp_json_shape(data)
+    if not isinstance(data, dict):
+        raise BackendError("VLESS XHTTP extra must be a JSON object")
+    return data
+
+
+def parse_xhttp_extra(raw: str) -> dict[str, Any]:
+    """Translate only the shared, client-side Xray/Mihomo XHTTP subset."""
+    data = decode_xhttp_extra(raw)
+    if not data:
+        return {}
+
+    aliases = {
+        "sessionIDPlacement", "sessionPlacement", "sessionIDKey", "sessionKey",
+        "sessionIDTable", "sessionTable", "sessionIDLength", "sessionLength",
+    }
+    mapped = {
+        "headers", "xPaddingBytes", "xPaddingObfsMode", "xPaddingKey",
+        "xPaddingHeader", "xPaddingPlacement", "xPaddingMethod",
+        "uplinkHTTPMethod", "seqPlacement", "seqKey", "uplinkDataPlacement",
+        "uplinkDataKey", "uplinkChunkSize", "noGRPCHeader",
+        "scMaxEachPostBytes", "scMinPostsIntervalMs", "xmux",
+        "downloadSettings",
+    } | aliases
+    xray_compat = {
+        "host", "path", "mode", "extra", "noSSEHeader",
+        "scMaxBufferedPosts", "scStreamUpServerSecs", "serverMaxHeaderBytes",
+    }
+    if set(data) - mapped - xray_compat:
+        raise BackendError("VLESS XHTTP extra contains unsupported fields")
+
+    # Xray overwrites these three values with the share-link query fields.
+    for key in ("host", "path"):
+        if key in data and data[key] is not None and not isinstance(data[key], str):
+            raise BackendError(f"VLESS XHTTP extra {key} has an invalid format")
+    if "mode" in data and data["mode"] not in {
+            None, "", "auto", "stream-one", "stream-up", "packet-up"}:
+        raise BackendError("VLESS XHTTP extra mode is invalid")
+    if data.get("extra") is not None:
+        raise BackendError("VLESS XHTTP recursive extra objects are not supported")
+    ignored_defaults = {
+        "noSSEHeader": {None, False},
+        "scMaxBufferedPosts": {None, 0, "", "0"},
+        "scStreamUpServerSecs": {None, 0, "", "0"},
+        "serverMaxHeaderBytes": {None, 0, "", "0"},
+    }
+    for key, defaults in ignored_defaults.items():
+        if key in data and not any(data[key] == default for default in defaults):
+            raise BackendError(f"VLESS XHTTP {key} is server-only and cannot be imported")
+    if data.get("downloadSettings") is not None:
+        raise BackendError("VLESS XHTTP downloadSettings requires the next compatibility layer")
+
+    result: dict[str, Any] = {}
+    headers = parse_xhttp_headers(data.get("headers"))
+    if headers:
+        result["headers"] = headers
+    for source, target in (
+        ("xPaddingBytes", "x-padding-bytes"),
+        ("uplinkChunkSize", "uplink-chunk-size"),
+        ("scMaxEachPostBytes", "sc-max-each-post-bytes"),
+        ("scMinPostsIntervalMs", "sc-min-posts-interval-ms"),
+    ):
+        if source in data:
+            normalized = xhttp_range(data[source], source)
+            if normalized:
+                result[target] = normalized
+    for source, target in (
+        ("xPaddingObfsMode", "x-padding-obfs-mode"),
+        ("noGRPCHeader", "no-grpc-header"),
+    ):
+        if source in data and xhttp_bool(data[source], source):
+            result[target] = True
+
+    enum_fields = (
+        ("xPaddingPlacement", "x-padding-placement", {"queryInHeader", "cookie", "header", "query"}),
+        ("xPaddingMethod", "x-padding-method", {"repeat-x", "tokenish"}),
+        ("uplinkHTTPMethod", "uplink-http-method", {"POST", "PUT", "PATCH", "DELETE"}),
+        ("seqPlacement", "seq-placement", {"path", "query", "cookie", "header"}),
+        ("uplinkDataPlacement", "uplink-data-placement", {"auto", "body", "cookie", "header"}),
+    )
+    for source, target, choices in enum_fields:
+        if source not in data or data[source] in (None, ""):
+            continue
+        value = data[source]
+        if source == "uplinkHTTPMethod" and isinstance(value, str):
+            value = value.upper()
+        if not isinstance(value, str) or value not in choices:
+            raise BackendError(f"VLESS XHTTP {source} has an unsupported value")
+        result[target] = value
+
+    for source, target in (
+        ("xPaddingKey", "x-padding-key"),
+        ("xPaddingHeader", "x-padding-header"),
+        ("seqKey", "seq-key"),
+        ("uplinkDataKey", "uplink-data-key"),
+    ):
+        if source in data:
+            value = xhttp_token(data[source], source)
+            if value:
+                result[target] = value
+
+    session_placement = xhttp_alias(data, "sessionIDPlacement", "sessionPlacement")
+    if session_placement not in (None, ""):
+        if not isinstance(session_placement, str) or session_placement not in {
+                "path", "query", "cookie", "header"}:
+            raise BackendError("VLESS XHTTP session placement has an unsupported value")
+        result["session-placement"] = session_placement
+    session_key = xhttp_alias(data, "sessionIDKey", "sessionKey")
+    if session_key not in (None, ""):
+        result["session-key"] = xhttp_token(session_key, "session key")
+    session_table = xhttp_alias(data, "sessionIDTable", "sessionTable")
+    if session_table not in (None, ""):
+        result["session-table"] = xhttp_ascii(session_table, "session table")
+    session_length = xhttp_alias(data, "sessionIDLength", "sessionLength")
+    if session_length not in (None, "", 0, "0"):
+        result["session-length"] = xhttp_range(session_length, "session length")
+
+    if (result.get("session-placement", "path") == "path"
+            and result.get("seq-placement", "path") != "path"):
+        raise BackendError(
+            "VLESS XHTTP seq placement must be path when session placement is path"
+        )
+
+    reuse = parse_xhttp_reuse(data.get("xmux"))
+    if reuse:
+        result["reuse-settings"] = reuse
+    return result
+
+
 def extract_vless_uri(text: str) -> str:
     for token in re.split(r"\s+", text.strip()):
         if token.lower().startswith("vless://"):
@@ -1481,7 +1776,7 @@ def extract_vless_uri(text: str) -> str:
     raise BackendError("Input does not contain a VLESS link")
 
 
-def parse_vless(uri: str) -> dict[str, Any]:
+def parse_vless(uri: str, *, strict_xhttp_extra: bool = True) -> dict[str, Any]:
     uri = extract_vless_uri(uri)
     try:
         parsed = urllib.parse.urlsplit(uri)
@@ -1542,14 +1837,29 @@ def parse_vless(uri: str) -> dict[str, Any]:
     if packet_encoding not in {"", "xudp", "packetaddr"}:
         raise BackendError(f"Unsupported VLESS packet encoding: {packet_encoding}")
     mode = first_query(query, "mode")
+    raw_xhttp_extra = first_query(query, "extra")
     if network == "xhttp":
         mode = mode.lower()
         if mode not in {"", "auto", "stream-one", "stream-up", "packet-up"}:
             raise BackendError(f"Unsupported VLESS XHTTP mode: {mode}")
+        if strict_xhttp_extra:
+            xhttp_extra = parse_xhttp_extra(raw_xhttp_extra)
+        else:
+            # Stores created before bounded XHTTP support may contain fields
+            # the old importer ignored. Keep the store readable after upgrade,
+            # but strict preview/connect paths still refuse unsupported input.
+            if len(raw_xhttp_extra.encode("utf-8")) > MAX_XHTTP_EXTRA_BYTES:
+                raise BackendError(
+                    f"VLESS XHTTP extra is too large (maximum {MAX_XHTTP_EXTRA_BYTES // 1024} KiB)"
+                )
+            xhttp_extra = {}
     else:
         # Other transports use their own option names. Some providers retain
         # an unrelated `mode` query field, which must not alter generated YAML.
         mode = ""
+        if raw_xhttp_extra:
+            raise BackendError("VLESS XHTTP extra requires the XHTTP transport")
+        xhttp_extra = {}
     header_type = first_query(query, "headerType", "header-type").lower()
     if network == "tcp" and header_type not in {"", "none"}:
         raise BackendError(f"Unsupported VLESS TCP header type: {header_type}")
@@ -1571,7 +1881,7 @@ def parse_vless(uri: str) -> dict[str, Any]:
         "path": urllib.parse.unquote(first_query(query, "path", default="/")) or "/",
         "host": first_query(query, "host"),
         "service_name": first_query(query, "serviceName", "service-name"),
-        "mode": mode,
+        "mode": mode, "xhttp_extra": xhttp_extra,
         "alpn": [part.strip() for part in first_query(query, "alpn").split(",") if part.strip()],
         "allow_insecure": query_bool(query, "allowInsecure", "skip-cert-verify"),
         "packet_encoding": packet_encoding,
@@ -1592,6 +1902,7 @@ def preview_vless(text: str) -> dict[str, Any]:
         "sni": str(node["servername"])[:253],
         "flow": str(node["flow"])[:64],
         "insecure": bool(node["allow_insecure"]),
+        "advancedXhttp": bool(node["xhttp_extra"]),
         "compatibilityNote": str(node["compatibility_note"]),
         # Four trailing characters help compare two keys without making this
         # preview a copyable credential source.
@@ -1654,6 +1965,20 @@ def proxy_yaml(profile: dict[str, Any], server_override: str | None = None) -> s
             lines.append(f"    host: {y(node['host'])}")
         if node["mode"]:
             lines.append(f"    mode: {y(node['mode'])}")
+        extra = node["xhttp_extra"]
+        if extra.get("headers"):
+            lines.append("    headers:")
+            for key, value in extra["headers"].items():
+                lines.append(f"      {y(key)}: {y(value)}")
+        for key, value in extra.items():
+            if key == "headers":
+                continue
+            if key == "reuse-settings":
+                lines.append("    reuse-settings:")
+                for reuse_key, reuse_value in value.items():
+                    lines.append(f"      {reuse_key}: {y(reuse_value)}")
+            else:
+                lines.append(f"    {key}: {y(value)}")
     return "\n".join(lines)
 
 
