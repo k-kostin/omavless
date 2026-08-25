@@ -1038,24 +1038,28 @@ rules:
         with tempfile.TemporaryDirectory() as temp:
             proc = Path(temp)
             for pid, name in (
-                ("10", "python3"), ("11", "v2rayN"), ("12", "bash"),
-                ("13", "mihomo"), ("14", "xray"),
+                ("10010", "python3"), ("10011", "v2rayN"), ("10012", "bash"),
+                ("10013", "mihomo"), ("10014", "xray"),
             ):
                 (proc / pid).mkdir()
                 (proc / pid / "comm").write_text(name + "\n", encoding="utf-8")
                 children = proc / pid / "task" / pid
                 children.mkdir(parents=True)
                 (children / "children").write_text("", encoding="ascii")
-            (proc / "10" / "task" / "10" / "children").write_text("13\n", encoding="ascii")
-            (proc / "13" / "task" / "13" / "children").write_text("14\n", encoding="ascii")
-            family = backend.process_family_pids(10, proc)
-            self.assertEqual(family, {10, 13, 14})
+            (proc / "10010" / "task" / "10010" / "children").write_text(
+                "10013\n", encoding="ascii"
+            )
+            (proc / "10013" / "task" / "10013" / "children").write_text(
+                "10014\n", encoding="ascii"
+            )
+            family = backend.process_family_pids(10010, proc)
+            self.assertEqual(family, {10010, 10013, 10014})
             self.assertEqual(backend.vpn_process_labels(proc, own_pids=family), ["V2RayN"])
 
-            (proc / "10" / "task" / "10" / "children").write_text(
-                " ".join(str(pid) for pid in range(20, 100)), encoding="ascii"
+            (proc / "10010" / "task" / "10010" / "children").write_text(
+                " ".join(str(pid) for pid in range(20000, 20100)), encoding="ascii"
             )
-            self.assertEqual(len(backend.process_family_pids(10, proc, limit=4)), 4)
+            self.assertEqual(len(backend.process_family_pids(10010, proc, limit=4)), 4)
 
     def test_systemd_uptime_uses_monotonic_clock_and_is_bounded(self):
         completed = subprocess.CompletedProcess([], 0, "2500000\n", "")
@@ -3525,6 +3529,21 @@ esac
                      mock.patch.object(backend, "disable_runtime_integration") as cleanup:
                     self.assertEqual(backend.watch_plugin_removal(paths), 0)
                     cleanup.assert_not_called()
+
+    def test_removal_guard_dispatch_does_not_create_private_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            with mock.patch.object(sys, "argv", ["backend.sh", "watch-plugin-removal"]), \
+                 mock.patch.object(backend.Paths, "current", return_value=paths), \
+                 mock.patch.object(backend, "watch_plugin_removal", return_value=0) as guard, \
+                 mock.patch.object(backend, "ensure_private_dir") as ensure:
+                self.assertEqual(backend.main(), 0)
+            guard.assert_called_once_with(paths)
+            ensure.assert_not_called()
+            self.assertFalse(paths.config_dir.exists())
 
     def test_removal_guard_cleans_after_disable_or_checkout_deletion(self):
         with tempfile.TemporaryDirectory() as temp:

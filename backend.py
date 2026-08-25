@@ -5285,13 +5285,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     paths = Paths.current()
+    # The unload guard owns only user-service integration. Removing a plugin
+    # that was never configured must not create a new persistent data root as
+    # a side effect of cleanup.
+    if args.command == "watch-plugin-removal":
+        return watch_plugin_removal(paths)
     ensure_private_dir(paths.config_dir)
     with operation_lock(paths):
         migrate_legacy_data(paths)
     if args.command == "status":
         status(paths)
-    elif args.command == "watch-plugin-removal":
-        return watch_plugin_removal(paths)
     elif args.command == "run-core":
         return run_core_supervisor(paths, Path(args.core))
     elif args.command == "preview":
