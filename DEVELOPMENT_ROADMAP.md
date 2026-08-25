@@ -29,7 +29,7 @@ label is removed. The remaining `security-review-required` label represents
 the expected human review of the documented privilege, service-management and
 installer capabilities.
 
-Two OmaVLESS Draft PRs are active while that exact marketplace snapshot remains
+Three OmaVLESS Draft PRs are active while that exact marketplace snapshot remains
 unchanged:
 
 1. [`#28`](https://github.com/k-kostin/omavless/pull/28) documents the
@@ -38,6 +38,10 @@ unchanged:
 2. [`#27`](https://github.com/k-kostin/omavless/pull/27) implements advanced
    read-only Mihomo diagnostics and adaptive polling. Cloud checks pass; the
    PR remains incomplete until its local Omarchy checklist passes.
+3. Stacked [`#30`](https://github.com/k-kostin/omavless/pull/30) prepares the
+   opt-in V0 experimental-protocol live harness on top of #27. It changes no
+   importer, generated Mihomo YAML, service unit or product routing semantics
+   and cannot merge before D0 and D1.
 
 Merged [`#29`](https://github.com/k-kostin/omavless/pull/29) completed the S0
 lifecycle gate and produced the current marketplace candidate. Draft branches
@@ -95,20 +99,25 @@ diagnostic export and destination-route inspection are not future work.
 
 ### V0 — existing experimental protocol validation gate
 
-- Future branch: `codex/experimental-protocol-live-gates`
-- State: planned after D1 merges.
+- Branch: `codex/experimental-protocol-live-gates`
+- PR: `#30`, stacked on D1 / #27 until its predecessor merges.
+- State: cloud-ready harness; Omarchy/server/provider evidence pending.
 - Goal: turn the remaining “works in generated YAML” evidence into a repeatable
   privacy-safe validation procedure before adding another credential family.
-- Scope: an opt-in harness and a checked-in results template for VLESS XHTTP
-  modes, VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5. Real keys
-  enter only through private files or stdin and are never committed, printed,
-  placed in argv/environment or copied into CI artifacts.
-- Cloud gate: parser/config fixtures, redaction tests and sanitized result
-  schema.
-- Omarchy gate: record `mihomo -v`; run installed-core config validation;
-  exercise representative independent servers/providers; test Hysteria2/TUIC
-  on UDP-friendly and UDP-restricted networks; record only protocol, feature,
-  pass/fail category and a credential-free note.
+- Scope: an explicit opt-in runner and bounded private result schema for VLESS
+  XHTTP modes, VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5.
+  Profiles are imported through the normal UI; real URIs, passwords, protocol
+  UUIDs, subscription URLs and keys never enter the cases schema, Git, result
+  matrix or new process arguments/environment.
+- Cloud gate: complete on stacked head
+  `94d6719e308bd3506bd4e86471f59d6c5cb78852`; 171 CI tests pass with two
+  expected installed-core skips, including six focused cases/result/privacy
+  tests and QML contracts.
+- Omarchy gate: after D0 and D1 merge, rebase/retarget #30; record `mihomo -v`;
+  run installed-core config validation; exercise representative independent
+  servers/providers; pair Hysteria2 on UDP-friendly and UDP-restricted
+  networks; inspect TUN/systemd/private-controller behavior and share only the
+  generic credential-free result matrix.
 - This gate may document failures without changing an adapter. Any fix found
   during live testing gets its own narrowly scoped follow-up PR.
 - Successor: P4a.
