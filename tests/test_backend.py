@@ -3571,6 +3571,53 @@ esac
                     else:
                         state.assert_not_called()
 
+    def test_disabled_plugin_cleanup_runs_end_to_end_without_deleting_private_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.unit.parent.mkdir(parents=True)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            helper = backend.startup_unit(paths)
+            paths.unit.write_text("main unit", encoding="utf-8")
+            helper.write_text("startup unit", encoding="utf-8")
+            private = "private-profile-that-must-remain"
+            paths.store.write_text(private, encoding="utf-8")
+            paths.store.chmod(0o600)
+
+            fake_bin = home / "bin"
+            fake_bin.mkdir()
+            omarchy = fake_bin / "omarchy"
+            omarchy.write_text(
+                '#!/bin/sh\nprintf \'%s\\n\' \'[{"id":"kdk.omavless","enabled":false}]\'\n',
+                encoding="utf-8",
+            )
+            omarchy.chmod(0o755)
+            systemctl = fake_bin / "systemctl"
+            systemctl.write_text(
+                '#!/bin/sh\ncase "$*" in *"is-active"*|*"is-enabled"*) exit 3;; *) exit 0;; esac\n',
+                encoding="utf-8",
+            )
+            systemctl.chmod(0o755)
+            env = os.environ.copy()
+            env.update({
+                "OMAVLESS_HOME": str(home),
+                "XDG_RUNTIME_DIR": str(runtime),
+                "OMAVLESS_SYSTEMCTL": str(systemctl),
+                "OMAVLESS_REMOVAL_GRACE_SECONDS": "0",
+                "PATH": str(fake_bin) + os.pathsep + env["PATH"],
+            })
+            result = subprocess.run(
+                [str(ROOT / "backend.sh"), "watch-plugin-removal"],
+                env=env, text=True, capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(paths.unit.exists())
+            self.assertFalse(helper.exists())
+            self.assertEqual(paths.store.read_text(encoding="utf-8"), private)
+            self.assertNotIn(private, result.stdout + result.stderr)
+
     def test_runtime_cleanup_removes_units_only_after_the_core_stops(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
