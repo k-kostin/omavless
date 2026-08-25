@@ -100,13 +100,45 @@ does not invoke `sudo`/`pkexec`, change crontab or download executable code.
 The explicit `setcap` command above is a one-time administrator action
 performed by the user.
 
-Marketplace security review is expected to classify this plugin as
-`review-required`: the repository contains an optional manual installer, asks
-the user to grant capabilities to a separately installed Mihomo binary, and
-manages a user-level systemd service. These capabilities are intentional and
-documented; the normal plugin installation does not exercise them silently.
+OmaVLESS 0.7.0 is
+[published and maintainer-verified](https://omarchyplugins.com/plugin.html?id=kdk.omavless)
+in the Omarchy plugin marketplace at exact commit
+`69fe05b03129a23664fff3f8289821a7b7f80095`. The review retained the expected
+`privilege`, `service-management` and `installer` capability declarations:
+the repository contains an optional manual installer, asks the user to grant
+capabilities to a separately installed Mihomo binary, and manages a user-level
+systemd service. These capabilities are intentional and documented; normal
+plugin installation does not exercise them silently.
 
 ## Current scope
+
+### Planned, not yet supported: WireGuard and AmneziaWG
+
+OmaVLESS 0.7.0 does **not** yet import standard WireGuard `.conf`, native
+AmneziaWG `.conf` or AmneziaVPN `vpn://` keys. Mihomo
+[v1.19.30](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30) added
+AmneziaWG v3.0/v3.1 and WireGuard `ip-stack`, but upstream core support alone
+does not make those formats safe to accept in OmaVLESS: the plugin still needs
+a bounded parser, versioned structured private storage, redacted preview and
+installed-core compatibility checks.
+
+The implementation is explicitly scheduled in
+[roadmap phase P4](PROTOCOL_ROADMAP.md#phase-p4--experimental-wireguard-and-amneziawg-import):
+
+1. standard one-peer WireGuard `.conf` import;
+2. native AmneziaWG guest `.conf` import, including the documented v1-v3.1
+   field families;
+3. a later bounded, offline adapter for guest `vpn://` keys.
+
+Native AmneziaWG `.conf` is the first interoperable Amnezia target. OmaVLESS
+will not import Amnezia full-access/server-administration keys or contact an
+API endpoint embedded in a key. Until P4 lands and passes real Omarchy/server
+tests, WireGuard and AmneziaWG remain roadmap items rather than advertised
+runtime support.
+
+The cross-feature merge order, open Draft PRs, future branch names and local
+Omarchy acceptance gates are tracked separately in the
+[development delivery roadmap](DEVELOPMENT_ROADMAP.md).
 
 - A protocol-neutral internal profile adapter now owns strict extraction,
   parsing, redacted preview, Mihomo YAML generation, endpoint lookup and stable
