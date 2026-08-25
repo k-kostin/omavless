@@ -4,6 +4,9 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Published OmaVLESS 0.7.0 in the Omarchy plugin marketplace as a
+  maintainer-verified listing at exact commit
+  `69fe05b03129a23664fff3f8289821a7b7f80095`.
 - Made normal `omarchy plugin remove kdk.omavless` fail safe despite Omarchy
   intentionally having no uninstall hooks. The generated main unit now runs a
   plugin-owned Mihomo supervisor, and QML starts a bounded removal guard when

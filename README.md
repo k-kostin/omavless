@@ -100,11 +100,15 @@ does not invoke `sudo`/`pkexec`, change crontab or download executable code.
 The explicit `setcap` command above is a one-time administrator action
 performed by the user.
 
-Marketplace security review is expected to classify this plugin as
-`review-required`: the repository contains an optional manual installer, asks
-the user to grant capabilities to a separately installed Mihomo binary, and
-manages a user-level systemd service. These capabilities are intentional and
-documented; the normal plugin installation does not exercise them silently.
+OmaVLESS 0.7.0 is
+[published and maintainer-verified](https://omarchyplugins.com/plugin.html?id=kdk.omavless)
+in the Omarchy plugin marketplace at exact commit
+`69fe05b03129a23664fff3f8289821a7b7f80095`. The review retained the expected
+`privilege`, `service-management` and `installer` capability declarations:
+the repository contains an optional manual installer, asks the user to grant
+capabilities to a separately installed Mihomo binary, and manages a user-level
+systemd service. These capabilities are intentional and documented; normal
+plugin installation does not exercise them silently.
 
 ## Current scope
 

@@ -2,8 +2,8 @@
 
 Status: 0.7.0 implementation baseline and forward roadmap, updated 2026-08-25.
 
-This document records the protocol work included in the OmaVLESS 0.7.0
-release candidate and the
+This document records the protocol work included in the published OmaVLESS
+0.7.0 marketplace baseline and the
 remaining order for extending it as a Mihomo-native, multi-protocol client
 without expanding the compact bar widget or weakening credential handling.
 The current cross-feature PR order and Omarchy handoff gates live in
@@ -65,7 +65,8 @@ preflight. Later 0.7.0 hardening and UI fixes are documented in
 `CHANGELOG.md` and the merged pull-request history.
 
 The active delivery chain is tracked in `DEVELOPMENT_ROADMAP.md`. The
-marketplace lifecycle/removal gate (S0) is merged; the next steps reconcile
+marketplace lifecycle/removal gate (S0) is merged and the exact 0.7.0 snapshot
+is published and maintainer-verified; the next steps reconcile
 documentation and diagnostics (D0/D1), then validate existing experimental
 protocols (V0) before P4 starts below. Before implementing another protocol,
 keep the existing experimental adapters honest: validate representative

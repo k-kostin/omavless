@@ -20,14 +20,15 @@ Omarchy machine. Protocol-level compatibility details remain in
 
 ## Current repository snapshot
 
-The marketplace release candidate is `0.7.0` at
+OmaVLESS 0.7.0 is
+[published and maintainer-verified](https://omarchyplugins.com/plugin.html?id=kdk.omavless)
+in the Omarchy plugin marketplace at exact commit
 `69fe05b03129a23664fff3f8289821a7b7f80095`. Marketplace submission
 [`#2311`](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/2311)
-has been revalidated at that exact commit: Quattro validation passes, the
-automated security baseline has no findings, and the earlier `needs-fixes`
-label is removed. The remaining `security-review-required` label represents
-the expected human review of the documented privilege, service-management and
-installer capabilities.
+is closed as completed with `listed` and `approved-and-verified`. Quattro
+validation passed and the automated security baseline reported no findings;
+the expected `privilege`, `service-management` and `installer` capability
+declarations remain recorded for the maintainer-reviewed snapshot.
 
 Three OmaVLESS Draft PRs are active while that exact marketplace snapshot remains
 unchanged:
@@ -44,9 +45,9 @@ unchanged:
    and cannot merge before D0 and D1.
 
 Merged [`#29`](https://github.com/k-kostin/omavless/pull/29) completed the S0
-lifecycle gate and produced the current marketplace candidate. Draft branches
-may be rebased and tested in the cloud, but `main` should stay at the candidate
-until submission `#2311` reaches a maintainer decision.
+lifecycle gate and produced the published marketplace snapshot. The publication
+hold is now resolved: D0 may merge after explicit owner approval, followed by
+the documented D1 and V0 rebase/live-validation sequence.
 
 Everything else described as merged in the protocol roadmap is already in
 `main`. In particular, routing presets and custom rules, onboarding and core
@@ -69,8 +70,8 @@ diagnostic export and destination-route inspection are not future work.
 - Local regression checklist: active and inactive login autoconnect, explicit
   disable, normal remove, already-disabled remove, hot reload preservation,
   private-data retention and unit/TUN residue.
-- Marketplace gate: complete. Submission `#2311` is validated at the merged
-  exact SHA and awaits only the expected human security review.
+- Marketplace gate: complete. Submission `#2311` is published, listed and
+  maintainer-verified at the merged exact SHA.
 - Successor: D0.
 
 ### D0 — documentation and progress ledger
@@ -82,8 +83,9 @@ diagnostic export and destination-route inspection are not future work.
   entry and removal documentation.
 - Review: verify that README and both roadmaps distinguish Mihomo capability
   from OmaVLESS import support. No live VPN check is required.
-- Hold as Draft until marketplace submission `#2311` reaches a maintainer
-  decision, then merge before D1 so later PRs reference one canonical queue.
+- Publication dependency: satisfied. Keep Draft until final review and explicit
+  owner merge approval, then merge before D1 so later PRs reference one
+  canonical queue.
 
 ### D1 — advanced Mihomo diagnostics and adaptive polling
 
