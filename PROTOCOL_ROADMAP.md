@@ -6,9 +6,29 @@ This document records the protocol work included in the OmaVLESS 0.7.0
 release candidate and the
 remaining order for extending it as a Mihomo-native, multi-protocol client
 without expanding the compact bar widget or weakening credential handling.
+The current cross-feature PR order and Omarchy handoff gates live in
+[`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md); this file remains the
+protocol compatibility specification.
 `Implemented` below means that the parser, redaction boundary, Mihomo mapping
 and automated tests are in `main`; experimental protocols still need broader
 independent server/provider interoperability before their label can be removed.
+
+## Protocol status at a glance
+
+| Family | OmaVLESS 0.7.0 status | Next gate |
+| --- | --- | --- |
+| VLESS | Implemented | Continue Mihomo/Xray compatibility review |
+| Trojan, Hysteria2, TUIC v5 | Experimental implementation | Independent live server/provider validation |
+| Standard WireGuard `.conf` | Planned P4a; no runtime importer | Structured private profile storage and one-peer parser |
+| Native AmneziaWG `.conf` | Planned P4b; no runtime importer | P4a plus versioned v1-v3.1 field validation |
+| AmneziaVPN guest `vpn://` | Planned P4c; no runtime importer | Bounded offline container decoding after P4b |
+
+Mihomo supporting an outbound does not mean OmaVLESS already supports its key
+or configuration format. Merged [PR
+#15](https://github.com/k-kostin/omavless/pull/15) began the WireGuard and
+AmneziaWG work at the design level only; it deliberately changed no runtime
+code. The manifest and marketplace description must continue to list only
+implemented protocols until the relevant P4 slice is merged and live-tested.
 
 ## Product direction
 
@@ -44,11 +64,15 @@ experimental Trojan/Hysteria2/TUIC imports, and the marketplace security
 preflight. Later 0.7.0 hardening and UI fixes are documented in
 `CHANGELOG.md` and the merged pull-request history.
 
-The active roadmap starts with P4 below. Before implementing another protocol,
+The active delivery chain is tracked in `DEVELOPMENT_ROADMAP.md`. The
+marketplace lifecycle/removal gate (S0) is merged; the next steps reconcile
+documentation and diagnostics (D0/D1), then validate existing experimental
+protocols (V0) before P4 starts below. Before implementing another protocol,
 keep the existing experimental adapters honest: validate representative
-generated configurations against an installed current Mihomo core and collect
-independent real server/provider results. Automated coverage is necessary but
-does not by itself promote an experimental protocol to stable.
+generated configurations
+against an installed current Mihomo core and collect independent real
+server/provider results. Automated coverage is necessary but does not by
+itself promote an experimental protocol to stable.
 
 ## Mihomo source and release gate
 
@@ -353,6 +377,9 @@ or newer: that release adds the WireGuard
 OmaVLESS must read and compare the installed core version before accepting a
 profile which requires those fields.
 
+No P4 runtime code is present in 0.7.0. The merged roadmap PR #15 established
+the security and compatibility design, not an importer.
+
 This phase is split by input format instead of pretending that WireGuard has a
 universal share URI.
 
@@ -409,9 +436,10 @@ ranges, special-junk templates and the decoded header-protection key receive
 explicit count/size/range bounds before any YAML is written.
 
 The generated Mihomo proxy remains `type: wireguard`; Amnezia is enabled only
-through `amnezia-wg-option`. For v3.1, `version: 3`, `random-trailers` and
-`disable-cookies` require Mihomo 1.19.30+. A profile using newer fields on an
-older core gets a precise version error before storage or service restart.
+through `amnezia-wg-option`. AmneziaWG v3.0 fields require `version: 3`, while
+v3.1 adds `random-trailers` and `disable-cookies`; both generations require
+Mihomo 1.19.30+. A profile using newer fields on an older core gets a precise
+version error before storage or service restart.
 
 Mihomo 1.19.30's optional `ip-stack` is a local advanced setting, not an
 imported provider value. Default to `mode: auto`; expose `gvisor`/`mips` and
@@ -420,8 +448,10 @@ congestion controller is ignored by gVisor. Do not guess a faster mode from a
 key.
 
 References: the [Mihomo WireGuard/AmneziaWG
-schema](https://wiki.metacubex.one/en/config/proxies/wg/), Mihomo 1.19.30's
+schema](https://wiki.metacubex.one/en/config/proxies/wg/), [Mihomo
+1.19.30](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30), its
 [`ip-stack` commit](https://github.com/MetaCubeX/mihomo/commit/8b76447b7af8528a846e74dfbfe6776e6349a228),
+[AmneziaWG v3.0 commit](https://github.com/MetaCubeX/mihomo/commit/8453e589df956192fbdd713ad1e1c239d3d805ac),
 [AmneziaWG v3.1 commit](https://github.com/MetaCubeX/mihomo/commit/8c56780b56b82230e071551d7d471b045fa28dfa)
 and Amnezia's current native-config field names in
 [`InterfaceConfig::toWgConf`](https://github.com/amnezia-vpn/amnezia-client/blob/707266124452c566e8a723633759502221542901/client/daemon/interfaceconfig.cpp).
@@ -495,6 +525,10 @@ being submitted rather than only running manifest/Quattro validation:
 - provider/profile names and all other untrusted metadata reach QML only via
   `Text.PlainText` or a sink-local AutoText sanitizer; include bar tooltips,
   hover tooltips, dialogs, notifications and error/status strings in the audit;
+- normal `omarchy plugin disable/remove` stops the owned core and TUN, disables
+  login integration and removes generated user units; live-test hot reload,
+  already-disabled removal and failure paths rather than relying on a repository
+  uninstall hook that Omarchy does not execute;
 - normal removal names every private or privileged file it intentionally keeps,
   and a documented purge path removes credential-bearing state after the
   service is stopped;

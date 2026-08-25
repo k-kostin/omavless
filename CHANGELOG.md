@@ -10,6 +10,15 @@ All notable changes to OmaVLESS are documented here.
   unloaded. Actual checkout deletion stops the TUN, disables autoconnect and
   removes both user units. An explicit plugin disable applies the same cleanup;
   hot reload and update preserve the selected connection state.
+- Made the planned WireGuard and AmneziaWG work visible from the README and
+  added an at-a-glance protocol matrix to the roadmap. The documentation now
+  distinguishes Mihomo 1.19.30 core support from OmaVLESS runtime import
+  support, records that AmneziaWG v3.0 and v3.1 both require that baseline,
+  and keeps the current manifest description limited to implemented protocols.
+- Added a delivery roadmap which separates merged, cloud-ready, experimental,
+  planned and deferred work; records the exact Draft-PR handoff order; and
+  names the privacy and live-validation gates for existing experimental
+  adapters, WireGuard, AmneziaWG and later product tracks.
 
 ## 0.7.0 — 2026-08-24
 
