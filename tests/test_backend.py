@@ -1037,10 +1037,25 @@ rules:
     def test_vpn_process_detection_is_bounded_and_excludes_own_core(self):
         with tempfile.TemporaryDirectory() as temp:
             proc = Path(temp)
-            for pid, name in (("10", "mihomo"), ("11", "v2rayN"), ("12", "bash")):
+            for pid, name in (
+                ("10", "python3"), ("11", "v2rayN"), ("12", "bash"),
+                ("13", "mihomo"), ("14", "xray"),
+            ):
                 (proc / pid).mkdir()
                 (proc / pid / "comm").write_text(name + "\n", encoding="utf-8")
-            self.assertEqual(backend.vpn_process_labels(proc, own_pid=10), ["V2RayN"])
+                children = proc / pid / "task" / pid
+                children.mkdir(parents=True)
+                (children / "children").write_text("", encoding="ascii")
+            (proc / "10" / "task" / "10" / "children").write_text("13\n", encoding="ascii")
+            (proc / "13" / "task" / "13" / "children").write_text("14\n", encoding="ascii")
+            family = backend.process_family_pids(10, proc)
+            self.assertEqual(family, {10, 13, 14})
+            self.assertEqual(backend.vpn_process_labels(proc, own_pids=family), ["V2RayN"])
+
+            (proc / "10" / "task" / "10" / "children").write_text(
+                " ".join(str(pid) for pid in range(20, 100)), encoding="ascii"
+            )
+            self.assertEqual(len(backend.process_family_pids(10, proc, limit=4)), 4)
 
     def test_systemd_uptime_uses_monotonic_clock_and_is_bounded(self):
         completed = subprocess.CompletedProcess([], 0, "2500000\n", "")
@@ -2393,6 +2408,12 @@ rules:
     def test_profile_credential_is_absent_from_live_process_argv_and_environment(self):
         if not Path("/proc/self/cmdline").is_file():
             self.skipTest("process inspection requires procfs")
+        try:
+            proc_self_pid = int(os.readlink("/proc/self"))
+        except (OSError, ValueError):
+            self.skipTest("process inspection requires a visible procfs PID namespace")
+        if proc_self_pid != os.getpid():
+            self.skipTest("procfs belongs to a different PID namespace")
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             env, _ = self.make_env(home)
@@ -2405,10 +2426,17 @@ rules:
                 proc = Path("/proc") / str(process.pid)
                 command = b""
                 for _ in range(100):
-                    command = (proc / "cmdline").read_bytes()
+                    try:
+                        command = (proc / "cmdline").read_bytes()
+                    except FileNotFoundError:
+                        # Some nested PID namespaces publish the child in
+                        # procfs a moment after Popen returns.
+                        time.sleep(0.01)
+                        continue
                     if b"backend.py" in command:
                         break
                     time.sleep(0.01)
+                self.assertTrue(command, "child process never became visible in procfs")
                 environment = (proc / "environ").read_bytes()
                 for private in (
                     b"vless://",
@@ -2969,6 +2997,32 @@ rules:
                 backend.ensure_unit(paths, home / "mihomo")
         self.assertEqual(backend.systemd_quote('/tmp/100%/a"b'), '"/tmp/100%%/a\\"b"')
 
+    def test_systemd_unit_runs_the_plugin_supervisor_without_credentials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.unit.parent.mkdir(parents=True)
+            core = home / "mihomo"
+            core.write_text("#!/bin/sh\n", encoding="utf-8")
+            core.chmod(0o755)
+            private = "credential-that-must-not-reach-the-unit"
+            paths.config_dir.mkdir(parents=True)
+            paths.config.write_text(f'password: "{private}"\n', encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "systemctl", return_value=ok):
+                backend.ensure_unit(paths, core)
+            text = paths.unit.read_text(encoding="utf-8")
+            self.assertIn("ConditionPathExists=", text)
+            self.assertIn(str(backend.PLUGIN_DIR / "manifest.json"), text)
+            self.assertIn(" run-core ", text)
+            self.assertIn(str(backend.PLUGIN_DIR / "backend.sh"), text)
+            self.assertIn(str(core), text)
+            self.assertNotIn(f"ExecStart={backend.systemd_quote(str(core))}", text)
+            self.assertNotIn(str(paths.config), text)
+            self.assertNotIn(private, text)
+
     def test_startup_unit_is_user_scoped_and_refuses_symlinks(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -2983,6 +3037,8 @@ rules:
             text = helper.read_text(encoding="utf-8")
             self.assertIn("ExecStart=", text)
             self.assertIn(" startup-connect", text)
+            self.assertIn("ConditionPathExists=", text)
+            self.assertIn(str(backend.PLUGIN_DIR / "manifest.json"), text)
             self.assertIn("WantedBy=default.target", text)
             self.assertNotIn("User=", text)
             helper.unlink()
@@ -3416,6 +3472,179 @@ esac
             )
             self.assertNotIn(private, str(caught.exception))
             self.assertEqual(list(paths.config_dir.glob(".candidate.*.yaml")), [])
+
+    def test_plugin_enabled_state_is_strict_and_bounded(self):
+        command = "/usr/bin/omarchy"
+        enabled = subprocess.CompletedProcess(
+            [], 0, json.dumps([{"id": "kdk.omavless", "enabled": True}]), ""
+        )
+        disabled = subprocess.CompletedProcess(
+            [], 0, json.dumps([{"id": "kdk.omavless", "enabled": False}]), ""
+        )
+        with mock.patch.object(backend.shutil, "which", return_value=command), \
+             mock.patch.object(backend, "run", side_effect=[enabled, disabled]) as run:
+            self.assertIs(backend.plugin_enabled_state(), True)
+            self.assertIs(backend.plugin_enabled_state(), False)
+        self.assertEqual(
+            run.call_args_list[0],
+            mock.call(
+                [command, "plugin", "list", "--json"], check=False,
+                timeout=backend.PLUGIN_LIST_TIMEOUT_SECONDS,
+            ),
+        )
+
+        invalid_results = (
+            subprocess.CompletedProcess([], 1, "", "unavailable"),
+            subprocess.CompletedProcess([], 0, "not-json", ""),
+            subprocess.CompletedProcess([], 0, json.dumps({"enabled": False}), ""),
+            subprocess.CompletedProcess(
+                [], 0, json.dumps([{"id": "kdk.omavless", "enabled": "false"}]), ""
+            ),
+            subprocess.CompletedProcess([], 0, "[" * 2000 + "]" * 2000, ""),
+            subprocess.CompletedProcess([], 0, "x" * (backend.MAX_PLUGIN_LIST_BYTES + 1), ""),
+        )
+        for result in invalid_results:
+            with self.subTest(stdout=result.stdout[:16], returncode=result.returncode), \
+                 mock.patch.object(backend.shutil, "which", return_value=command), \
+                 mock.patch.object(backend, "run", return_value=result):
+                self.assertIsNone(backend.plugin_enabled_state())
+        with mock.patch.object(backend.shutil, "which", return_value=None):
+            self.assertIsNone(backend.plugin_enabled_state())
+
+    def test_removal_guard_ignores_hot_reload_and_unavailable_shell(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            for state in (True, None):
+                with self.subTest(enabled=state), \
+                     mock.patch.dict(os.environ, {"OMAVLESS_REMOVAL_GRACE_SECONDS": "0"}), \
+                     mock.patch.object(backend, "plugin_manifest_present", return_value=True), \
+                     mock.patch.object(backend, "plugin_enabled_state", return_value=state), \
+                     mock.patch.object(backend, "disable_runtime_integration") as cleanup:
+                    self.assertEqual(backend.watch_plugin_removal(paths), 0)
+                    cleanup.assert_not_called()
+
+    def test_removal_guard_cleans_after_disable_or_checkout_deletion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            cases = ((True, False), (False, None))
+            for manifest_present, enabled in cases:
+                with self.subTest(manifest=manifest_present, enabled=enabled), \
+                     mock.patch.dict(os.environ, {"OMAVLESS_REMOVAL_GRACE_SECONDS": "0"}), \
+                     mock.patch.object(
+                         backend, "plugin_manifest_present", return_value=manifest_present
+                     ), \
+                     mock.patch.object(
+                         backend, "plugin_enabled_state", return_value=enabled
+                     ) as state, \
+                     mock.patch.object(
+                         backend, "disable_runtime_integration", return_value=True
+                     ) as cleanup:
+                    self.assertEqual(backend.watch_plugin_removal(paths), 0)
+                    cleanup.assert_called_once_with(paths, stop_main=True)
+                    if manifest_present:
+                        state.assert_called_once_with()
+                    else:
+                        state.assert_not_called()
+
+    def test_runtime_cleanup_removes_units_only_after_the_core_stops(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.unit.parent.mkdir(parents=True)
+            helper = backend.startup_unit(paths)
+            paths.unit.write_text("main", encoding="utf-8")
+            helper.write_text("startup", encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(backend, "systemctl", return_value=ok) as systemctl, \
+                 mock.patch.object(backend, "service_active", return_value=False), \
+                 mock.patch.object(backend, "service_enabled", return_value=False):
+                self.assertTrue(backend.disable_runtime_integration(paths, stop_main=True))
+            self.assertFalse(paths.unit.exists())
+            self.assertFalse(helper.exists())
+            self.assertEqual(systemctl.call_args_list, [
+                mock.call("disable", "--now", backend.STARTUP_SERVICE, check=False),
+                mock.call("disable", "--now", backend.SERVICE, check=False),
+                mock.call("daemon-reload", check=False),
+            ])
+
+            paths.unit.write_text("main", encoding="utf-8")
+            helper.write_text("startup", encoding="utf-8")
+            with mock.patch.object(backend, "systemctl", return_value=ok), \
+                 mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "SERVICE_STOP_GRACE_SECONDS", 0):
+                self.assertFalse(backend.disable_runtime_integration(paths, stop_main=True))
+            self.assertTrue(paths.unit.exists())
+            self.assertTrue(helper.exists())
+
+            with mock.patch.object(backend, "systemctl", return_value=ok), \
+                 mock.patch.object(backend, "service_active", return_value=False), \
+                 mock.patch.object(backend, "service_enabled", return_value=True):
+                self.assertFalse(backend.disable_runtime_integration(paths, stop_main=True))
+            self.assertTrue(paths.unit.exists())
+            self.assertTrue(helper.exists())
+
+    def test_core_supervisor_stops_and_unlinks_after_plugin_removal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True)
+            private = "private-profile-credential"
+            paths.config.write_text(f'password: "{private}"\n', encoding="utf-8")
+            core = home / "mihomo"
+            core.write_text("#!/bin/sh\n", encoding="utf-8")
+            core.chmod(0o755)
+            process = mock.Mock()
+            process.poll.side_effect = [None, None]
+            process.returncode = None
+            with mock.patch.object(backend.subprocess, "Popen", return_value=process) as popen, \
+                 mock.patch.object(backend, "plugin_manifest_present", return_value=False), \
+                 mock.patch.object(backend, "PLUGIN_REMOVAL_GRACE_SECONDS", 0), \
+                 mock.patch.object(backend.time, "sleep"), \
+                 mock.patch.object(backend, "stop_probe_core") as stop, \
+                 mock.patch.object(
+                     backend, "disable_runtime_integration", return_value=True
+                 ) as cleanup:
+                self.assertEqual(backend.run_core_supervisor(paths, core), 0)
+            argv = popen.call_args.args[0]
+            self.assertEqual(argv, [
+                str(core.resolve()), "-d", str(paths.config_dir), "-f", str(paths.config),
+            ])
+            self.assertNotIn(private, " ".join(argv))
+            self.assertEqual(popen.call_args.kwargs, {"stdin": subprocess.DEVNULL})
+            stop.assert_called_once_with(process)
+            cleanup.assert_called_once_with(paths, stop_main=False)
+
+    def test_core_supervisor_preserves_child_failure_for_systemd_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True)
+            paths.config.write_text("mode: rule\n", encoding="utf-8")
+            core = home / "mihomo"
+            core.write_text("#!/bin/sh\n", encoding="utf-8")
+            core.chmod(0o755)
+            process = mock.Mock()
+            process.poll.side_effect = [None, 7]
+            process.returncode = 7
+            with mock.patch.object(backend.subprocess, "Popen", return_value=process), \
+                 mock.patch.object(backend, "plugin_manifest_present", return_value=True), \
+                 mock.patch.object(backend.time, "sleep"), \
+                 mock.patch.object(backend, "disable_runtime_integration") as cleanup:
+                self.assertEqual(backend.run_core_supervisor(paths, core), 7)
+            cleanup.assert_not_called()
+            self.assertEqual(backend.core_exit_code(-15), 143)
 
     def test_uninstall_removes_only_runtime_integration_unless_purged(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -79,6 +79,8 @@ grep -q 'property var conflicts:' "$service"
 grep -q 'property string exitIp:' "$service"
 grep -q 'property var rxHistory:' "$service"
 grep -q 'function plainText(value, maximum)' "$service"
+grep -q 'Component.onDestruction:' "$service"
+grep -q 'watch-plugin-removal' "$service"
 grep -q 'textFormat: Text.PlainText' "$plain_text"
 for qml in "$panel" "$service" "$subscription_prompt" "$routing_prompt" \
   "$onboarding_wizard" "$startup_prompt" "$routing_tools_prompt" \

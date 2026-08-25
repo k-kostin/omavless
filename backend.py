@@ -78,6 +78,12 @@ PROBE_DNS_TIMEOUT_SECONDS = 2.0
 PROBE_HTTP_TIMEOUT_MILLISECONDS = 5000
 PROBE_CORE_START_SECONDS = 5.0
 PROBE_CORE_STOP_SECONDS = 2.0
+PLUGIN_REMOVAL_GRACE_SECONDS = 2.0
+PLUGIN_REMOVAL_POLL_SECONDS = 0.1
+SERVICE_STOP_GRACE_SECONDS = 5.0
+PLUGIN_LIST_TIMEOUT_SECONDS = 3.0
+MAX_PLUGIN_LIST_BYTES = 1024 * 1024
+MAX_PROCESS_FAMILY_PIDS = 64
 PROBE_RESULT_BYTES = 1024 * 1024
 PROBE_MAX_ADDRESSES = 4
 PROBE_ROUTING_MARK = 0x80000
@@ -4117,6 +4123,125 @@ def startup_unit(paths: Paths) -> Path:
     return paths.unit.with_name(STARTUP_SERVICE)
 
 
+def plugin_manifest_present() -> bool:
+    """Return whether the installed plugin still exists at its loaded path."""
+    return (PLUGIN_DIR / "manifest.json").is_file()
+
+
+def plugin_enabled_state() -> bool | None:
+    """Return Omarchy's current enabled state, or None when it is unavailable."""
+    command = shutil.which("omarchy")
+    if not command:
+        return None
+    try:
+        result = run(
+            [command, "plugin", "list", "--json"],
+            check=False,
+            timeout=PLUGIN_LIST_TIMEOUT_SECONDS,
+        )
+    except (BackendError, OSError, UnicodeError):
+        return None
+    try:
+        output_bytes = len(result.stdout.encode("utf-8"))
+    except UnicodeError:
+        return None
+    if result.returncode != 0 or output_bytes > MAX_PLUGIN_LIST_BYTES:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError, RecursionError):
+        return None
+    if not isinstance(payload, list):
+        return None
+    for item in payload[:1024]:
+        if not isinstance(item, dict) or item.get("id") != "kdk.omavless":
+            continue
+        enabled = item.get("enabled")
+        return enabled if isinstance(enabled, bool) else None
+    return None
+
+
+def unlink_service_units(paths: Paths) -> None:
+    """Remove only OmaVLESS-owned user units after their processes stopped."""
+    for unit in (paths.unit, startup_unit(paths)):
+        with contextlib.suppress(FileNotFoundError):
+            unit.unlink()
+    systemctl("daemon-reload", check=False)
+
+
+def disable_runtime_integration(paths: Paths, *, stop_main: bool) -> bool:
+    """Disable OmaVLESS units and remove them only after the core is inactive."""
+    systemctl("disable", "--now", STARTUP_SERVICE, check=False)
+    if stop_main:
+        systemctl("disable", "--now", SERVICE, check=False)
+        deadline = time.monotonic() + SERVICE_STOP_GRACE_SECONDS
+        while service_active(SERVICE) and time.monotonic() < deadline:
+            time.sleep(PLUGIN_REMOVAL_POLL_SECONDS)
+        if service_active(SERVICE):
+            return False
+    else:
+        # Called by the main service supervisor after its child has stopped.
+        # Disabling the current unit is safe; asking systemd to stop it would
+        # terminate this cleanup before the unit files can be removed.
+        systemctl("disable", SERVICE, check=False)
+    if service_enabled(SERVICE) or service_enabled(STARTUP_SERVICE):
+        return False
+    unlink_service_units(paths)
+    return True
+
+
+def watch_plugin_removal(paths: Paths) -> int:
+    """Clean runtime integration after removal or an explicit plugin disable."""
+    grace = PLUGIN_REMOVAL_GRACE_SECONDS
+    override = os.environ.get("OMAVLESS_REMOVAL_GRACE_SECONDS", "").strip()
+    if override:
+        with contextlib.suppress(ValueError):
+            grace = max(0.0, min(float(override), 10.0))
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        time.sleep(min(PLUGIN_REMOVAL_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+    # A hot reload/update destroys QML too, but the registry still reports the
+    # plugin enabled. An explicit disable must clean its headless runtime so a
+    # later removal cannot leave login-enabled units behind. If the shell is
+    # unavailable (for example while it is shutting down), preserve state.
+    if plugin_manifest_present() and plugin_enabled_state() is not False:
+        return 0
+    with operation_lock(paths):
+        return 0 if disable_runtime_integration(paths, stop_main=True) else 1
+
+
+def core_exit_code(returncode: int | None) -> int:
+    if returncode is None:
+        return 1
+    return 128 + min(-returncode, 127) if returncode < 0 else min(returncode, 255)
+
+
+def run_core_supervisor(paths: Paths, core: Path) -> int:
+    """Run Mihomo while the owning plugin exists and reap it after removal."""
+    resolved = core.expanduser().resolve()
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise BackendError("Configured Mihomo binary is unavailable")
+    if not paths.config.is_file():
+        raise BackendError("Generated OmaVLESS configuration is unavailable")
+    process = subprocess.Popen(
+        [str(resolved), "-d", str(paths.config_dir), "-f", str(paths.config)],
+        stdin=subprocess.DEVNULL,
+    )
+    missing_since: float | None = None
+    while process.poll() is None:
+        if plugin_manifest_present():
+            missing_since = None
+        else:
+            now = time.monotonic()
+            if missing_since is None:
+                missing_since = now
+            elif now - missing_since >= PLUGIN_REMOVAL_GRACE_SECONDS:
+                stop_probe_core(process)
+                return 0 if disable_runtime_integration(paths, stop_main=False) else 1
+        time.sleep(PLUGIN_REMOVAL_POLL_SECONDS)
+    return core_exit_code(process.returncode)
+
+
 def core_setup_status(paths: Paths) -> dict[str, Any]:
     """Return bounded setup facts without executing or exposing VPN credentials."""
     try:
@@ -4198,9 +4323,46 @@ def external_tun_interfaces(
     return sorted(found)[:8]
 
 
-def vpn_process_labels(proc_root: Path = Path("/proc"), own_pid: int = 0) -> list[str]:
+def process_family_pids(
+    root_pid: int, proc_root: Path = Path("/proc"), limit: int = MAX_PROCESS_FAMILY_PIDS
+) -> set[int]:
+    """Return a bounded Linux process family without reading command lines."""
+    if root_pid <= 0 or limit <= 0:
+        return set()
+    found = {root_pid}
+    pending = [root_pid]
+    while pending and len(found) < limit:
+        pid = pending.pop(0)
+        try:
+            raw = (proc_root / str(pid) / "task" / str(pid) / "children").read_text(
+                encoding="ascii", errors="ignore"
+            )[:4096]
+        except OSError:
+            continue
+        for token in raw.split():
+            if not token.isdigit():
+                continue
+            child = int(token)
+            if child <= 0 or child in found:
+                continue
+            found.add(child)
+            pending.append(child)
+            if len(found) >= limit:
+                break
+    return found
+
+
+def vpn_process_labels(
+    proc_root: Path = Path("/proc"), own_pid: int = 0,
+    own_pids: set[int] | None = None,
+) -> list[str]:
     """Recognise common user VPN cores without exposing command lines."""
     labels: list[str] = []
+    excluded = {os.getpid()}
+    if own_pid > 0:
+        excluded.add(own_pid)
+    if own_pids:
+        excluded.update(own_pids)
     known = (
         ("v2rayn", "V2RayN"),
         ("mihomo", "Mihomo"),
@@ -4213,7 +4375,7 @@ def vpn_process_labels(proc_root: Path = Path("/proc"), own_pid: int = 0) -> lis
     except OSError:
         return labels
     for entry in entries:
-        if not entry.name.isdigit() or int(entry.name) in {own_pid, os.getpid()}:
+        if not entry.name.isdigit() or int(entry.name) in excluded:
             continue
         try:
             value = (entry / "comm").read_text(encoding="utf-8", errors="replace")[:128].strip().lower()
@@ -4239,7 +4401,8 @@ def routing_conflicts(paths: Paths, running: bool) -> list[str]:
         own_pid = int(own_pid_result.stdout.strip()) if own_pid_result.returncode == 0 else 0
     except ValueError:
         own_pid = 0
-    labels = vpn_process_labels(own_pid=own_pid)
+    own_pids = process_family_pids(own_pid) if own_pid > 0 else set()
+    labels = vpn_process_labels(own_pids=own_pids)
     if mihoro_active and "Mihomo" not in labels:
         labels.insert(0, "Mihoro")
     result = labels[:4]
@@ -4257,13 +4420,16 @@ def systemd_quote(value: str) -> str:
 
 
 def ensure_unit(paths: Paths, core: Path) -> None:
+    backend = PLUGIN_DIR / "backend.sh"
+    manifest = PLUGIN_DIR / "manifest.json"
     unit = f"""[Unit]
 Description=OmaVLESS tunnel (Mihomo core)
 Wants=network-online.target
 After=network-online.target
+ConditionPathExists={systemd_quote(str(manifest))}
 
 [Service]
-ExecStart={systemd_quote(str(core))} -d {systemd_quote(str(paths.config_dir))} -f {systemd_quote(str(paths.config))}
+ExecStart={systemd_quote(str(backend))} run-core {systemd_quote(str(core))}
 Restart=on-failure
 RestartSec=2
 
@@ -4281,10 +4447,12 @@ WantedBy=default.target
 def ensure_startup_unit(paths: Paths) -> None:
     helper = startup_unit(paths)
     backend = PLUGIN_DIR / "backend.sh"
+    manifest = PLUGIN_DIR / "manifest.json"
     unit = f"""[Unit]
 Description=OmaVLESS login autoconnect
 Wants=network-online.target
 After=network-online.target
+ConditionPathExists={systemd_quote(str(manifest))}
 
 [Service]
 Type=oneshot
@@ -5082,6 +5250,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("notify-drop"); p.add_argument("id")
     p = sub.add_parser("mark-active"); p.add_argument("id"); p.add_argument("observed", nargs="?")
     sub.add_parser("cleanup-runtime"); sub.add_parser("cleanup-qr")
+    sub.add_parser("watch-plugin-removal")
+    p = sub.add_parser("run-core"); p.add_argument("core")
     p = sub.add_parser("adopt-template"); p.add_argument("path")
     p = sub.add_parser("use-routing")
     p.add_argument("profile", choices=tuple(ROUTING_PRESETS))
@@ -5120,6 +5290,10 @@ def main() -> int:
         migrate_legacy_data(paths)
     if args.command == "status":
         status(paths)
+    elif args.command == "watch-plugin-removal":
+        return watch_plugin_removal(paths)
+    elif args.command == "run-core":
+        return run_core_supervisor(paths, Path(args.core))
     elif args.command == "preview":
         text = read_text_file(
             Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"
