@@ -2,6 +2,15 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## Unreleased
+
+- Made normal `omarchy plugin remove kdk.omavless` fail safe despite Omarchy
+  intentionally having no uninstall hooks. The generated main unit now runs a
+  plugin-owned Mihomo supervisor, and QML starts a bounded removal guard when
+  unloaded. Actual checkout deletion stops the TUN, disables autoconnect and
+  removes both user units. An explicit plugin disable applies the same cleanup;
+  hot reload and update preserve the selected connection state.
+
 ## 0.7.0 — 2026-08-24
 
 - Decoupled pointer hover from the hero's persistent keyboard cursor so

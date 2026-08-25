@@ -1695,7 +1695,13 @@ Item {
   // A shell reload destroys this Service without a window-close signal.  The
   // current PNG is known to this instance, so remove only that path; do not
   // sweep omavless-qr.* broadly because another monitor can legitimately own one.
-  Component.onDestruction: closeQr()
+  Component.onDestruction: {
+    closeQr()
+    // Omarchy has no uninstall hook: `plugin remove` first unloads this QML,
+    // then deletes the checkout. The detached guard waits through hot reloads
+    // but cleans runtime units after an explicit disable or checkout removal.
+    Quickshell.execDetached(["bash", backendPath, "watch-plugin-removal"])
+  }
   // SIGKILL and a hard shell crash cannot run the destruction handler. The
   // backend identifies PNGs by this shell's parent PID, so startup safely
   // reaps files from a dead previous shell without touching a live monitor.

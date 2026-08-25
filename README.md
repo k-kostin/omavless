@@ -474,20 +474,24 @@ be inspected before retrying.
 
 ## Removal
 
-Omarchy's normal removal command does **not** run this repository's
-`uninstall.sh`. Always stop and remove the generated `omavless.service` first,
-while the helper still exists, and only then remove the plugin checkout:
+Omarchy's normal removal command does **not** run repository hooks. OmaVLESS
+therefore owns a removal guard: the running service supervises its Mihomo child,
+and an unloaded widget waits briefly to distinguish a hot reload/update from an
+explicit disable or deletion of the installed plugin directory. Disabling or
+removing OmaVLESS stops the TUN, disables login autoconnect and removes both
+generated user units while keeping private profiles for an optional later
+reinstall:
 
 ```bash
-~/.config/omarchy/plugins/kdk.omavless/uninstall.sh
 omarchy plugin remove kdk.omavless
 ```
 
-Without `--purge`, private profiles, subscription URLs and the routing template
-remain in `~/.config/omavless/` for a later reinstall. Use
-`uninstall.sh --purge` only when those private files should also be deleted,
-then run `omarchy plugin remove kdk.omavless`. The removal helper never touches
-Mihoro or the Mihomo binary.
+The guard does nothing during a hot reload/update while Omarchy still reports
+the plugin enabled. The bundled `uninstall.sh` remains available for explicit
+pre-removal cleanup and for `--purge`. Use `uninstall.sh --purge` before
+`omarchy plugin remove` only when private profiles, subscription URLs and the
+routing template should also be deleted. Neither cleanup path touches Mihoro or
+the Mihomo binary.
 
 ## Credits and license
 
