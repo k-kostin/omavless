@@ -22,6 +22,9 @@ application UX and Git workflow rules.
 - [`TUI_APP.md`](TUI_APP.md) describes the product evolution from a bar-only
   plugin into one shared OmaVLESS runtime with a compact bar surface, a full
   TUI application and a semantic CLI/IPC integration surface.
+- [`PLATFORM.md`](PLATFORM.md) defines the Arch-first standalone product and
+  distribution boundary: Omarchy is first-class integration, not a runtime
+  dependency.
 - [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) defines the Git and
   cloud/local handoff model, including why `main` is the accepted source of
   truth, feature PRs are the practical alpha channel, and a beta branch is
@@ -41,6 +44,22 @@ documentation or later validated work. The repository must always name the
 exact published SHA instead of implying that the tip of `main` is necessarily
 the marketplace snapshot.
 
+## Product direction
+
+The product name remains **OmaVLESS** (`omavless`). The forward standalone
+identity is:
+
+> **OmaVLESS — a terminal-first VPN and proxy client for Arch Linux, with
+> first-class Omarchy integration.**
+
+The published 0.7.0 baseline is still an Omarchy plugin. The standalone
+application/runtime direction is planned future work and must not be advertised
+as current functionality before T1/T2 land.
+
+The intended dependency direction is `Omarchy integration -> OmaVLESS runtime`,
+never the reverse. A normal Arch installation should eventually use the same
+runtime, TUI and semantic CLI without Omarchy, Quickshell or Hyprland installed.
+
 ## Design principles
 
 1. **Mihomo remains the primary core.** Current Full VPN, Routing, Direct,
@@ -58,27 +77,30 @@ the marketplace snapshot.
    and CLI/automation surface must converge on one canonical connection owner
    instead of starting independent cores or maintaining competing copies of
    connection state.
-5. **Tunnel ownership is centralized.** OmaVLESS may stop and replace cores it
+5. **Omarchy is integration, not foundation.** Omarchy-specific Quickshell,
+   launch/focus, theme and Hyprland behavior stays outside the generic Arch
+   runtime/application layer.
+6. **Tunnel ownership is centralized.** OmaVLESS may stop and replace cores it
    owns, but foreign VPNs/TUNs are detected and reported rather than killed or
    reconfigured.
-6. **Fail-closed protection is independent of a proxy core.** A real kill
+7. **Fail-closed protection is independent of a proxy core.** A real kill
    switch must survive a core crash and therefore cannot be implemented as a
    Mihomo-only option or depend on the QML panel/TUI staying alive.
-7. **Privilege stays narrow and explicit.** If fail-closed networking needs a
+8. **Privilege stays narrow and explicit.** If fail-closed networking needs a
    privileged host component, it must be optional, auditable and expose only a
    bounded networking protocol; arbitrary commands or arbitrary firewall rules
    are out of scope.
-8. **Compact and full interfaces have different jobs.** The bar keeps frequent
+9. **Compact and full interfaces have different jobs.** The bar keeps frequent
    connect/switch/status actions concise; the TUI becomes the natural home for
    deeper sources, subscriptions, routing/DNS, connections, diagnostics, logs
    and operator workflows.
-9. **Evidence controls merges.** Runtime/network/security changes reach `main`
-   only after their declared cloud and real-Omarchy gates pass. Documentation-
-   only changes do not invent a meaningless live VPN gate.
+10. **Evidence controls merges.** Runtime/network/security changes reach `main`
+    only after their declared cloud and real-Omarchy gates pass. Documentation-
+    only changes do not invent a meaningless live VPN gate.
 
 ## Current priority
 
 The existing D1 → V0 → P4a → P4b → P4c sequence remains the active runtime
-chain. The architecture and TUI work in this directory is deliberately staged
-rather than used as an excuse for a speculative rewrite while current protocol
-validation and credential-family work is still open.
+chain. The architecture, platform and TUI work in this directory is deliberately
+staged rather than used as an excuse for a speculative rewrite while current
+protocol validation and credential-family work is still open.
