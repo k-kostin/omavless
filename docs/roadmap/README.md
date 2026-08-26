@@ -4,8 +4,8 @@ Status: design and delivery index, updated 2026-08-26.
 
 OmaVLESS keeps the short, operational ledgers at the repository root and puts
 longer design rationale in this directory. This avoids turning one roadmap into
-a mixture of release state, protocol compatibility, architecture sketches and
-Git workflow rules.
+a mixture of release state, protocol compatibility, architecture sketches,
+application UX and Git workflow rules.
 
 ## Canonical documents
 
@@ -19,6 +19,9 @@ Git workflow rules.
   Mihomo-centric implementation to explicit `CoreBackend`,
   `TunnelCoordinator` and optional `LeakProtection` boundaries without a
   big-bang rewrite.
+- [`TUI_APP.md`](TUI_APP.md) describes the product evolution from a bar-only
+  plugin into one shared OmaVLESS runtime with a compact bar surface, a full
+  TUI application and a semantic CLI/IPC integration surface.
 - [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) defines the Git and
   cloud/local handoff model, including why `main` is the accepted source of
   truth, feature PRs are the practical alpha channel, and a beta branch is
@@ -51,23 +54,31 @@ the marketplace snapshot.
 3. **A second core is capability-driven, not a preference toggle.** Initial
    Xray support is reserved for common Xray-only profile semantics which Mihomo
    cannot represent without loss. The first production slice is Full VPN only.
-4. **Tunnel ownership is centralized.** OmaVLESS may stop and replace cores it
+4. **One runtime owns the tunnel; UIs are clients.** The future bar plugin, TUI
+   and CLI/automation surface must converge on one canonical connection owner
+   instead of starting independent cores or maintaining competing copies of
+   connection state.
+5. **Tunnel ownership is centralized.** OmaVLESS may stop and replace cores it
    owns, but foreign VPNs/TUNs are detected and reported rather than killed or
    reconfigured.
-5. **Fail-closed protection is independent of a proxy core.** A real kill
+6. **Fail-closed protection is independent of a proxy core.** A real kill
    switch must survive a core crash and therefore cannot be implemented as a
-   Mihomo-only option or depend on the QML panel staying alive.
-6. **Privilege stays narrow and explicit.** If fail-closed networking needs a
+   Mihomo-only option or depend on the QML panel/TUI staying alive.
+7. **Privilege stays narrow and explicit.** If fail-closed networking needs a
    privileged host component, it must be optional, auditable and expose only a
    bounded networking protocol; arbitrary commands or arbitrary firewall rules
    are out of scope.
-7. **Evidence controls merges.** Runtime/network/security changes reach `main`
+8. **Compact and full interfaces have different jobs.** The bar keeps frequent
+   connect/switch/status actions concise; the TUI becomes the natural home for
+   deeper sources, subscriptions, routing/DNS, connections, diagnostics, logs
+   and operator workflows.
+9. **Evidence controls merges.** Runtime/network/security changes reach `main`
    only after their declared cloud and real-Omarchy gates pass. Documentation-
    only changes do not invent a meaningless live VPN gate.
 
 ## Current priority
 
 The existing D1 → V0 → P4a → P4b → P4c sequence remains the active runtime
-chain. The architecture work in this directory is deliberately staged behind
-or alongside that chain so the project does not perform a speculative rewrite
-while one core still satisfies the current product.
+chain. The architecture and TUI work in this directory is deliberately staged
+rather than used as an excuse for a speculative rewrite while current protocol
+validation and credential-family work is still open.
