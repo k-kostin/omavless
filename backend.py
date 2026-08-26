@@ -88,6 +88,14 @@ PROBE_RESULT_BYTES = 1024 * 1024
 PROBE_MAX_ADDRESSES = 4
 PROBE_ROUTING_MARK = 0x80000
 PROBE_GROUP_NAME = "OMAVLESS_TEST"
+ADVANCED_DIAGNOSTICS_RESPONSE_BYTES = 512 * 1024
+ADVANCED_DIAGNOSTICS_OUTPUT_BYTES = 384 * 1024
+MAX_LOADED_RULES = 2048
+MAX_LOADED_RULE_PROVIDERS = 256
+MAX_DIAGNOSTIC_RULE_TYPE_BYTES = 80
+MAX_DIAGNOSTIC_RULE_PAYLOAD_BYTES = 512
+MAX_DIAGNOSTIC_PROVIDER_NAME_BYTES = 160
+MAX_DIAGNOSTIC_PROVIDER_FIELD_BYTES = 80
 PROBE_URLS = (
     "https://www.gstatic.com/generate_204",
     "https://cp.cloudflare.com/generate_204",
@@ -1165,9 +1173,12 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 def controller_request(
     socket_path: Path, method: str, path: str, timeout: float,
     payload: dict[str, Any] | None = None,
+    *, max_response_bytes: int = PROBE_RESULT_BYTES,
 ) -> tuple[int, Any]:
     if method not in {"GET", "PUT"} or not path.startswith("/") or len(path) > 4096:
         raise BackendError("Invalid private Mihomo controller request")
+    if not 1 <= max_response_bytes <= PROBE_RESULT_BYTES:
+        raise BackendError("Invalid private Mihomo controller response limit")
     encoded = b""
     if payload is not None:
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
@@ -1180,8 +1191,8 @@ def controller_request(
             headers["Content-Type"] = "application/json"
         connection.request(method, path, body=encoded or None, headers=headers)
         response = connection.getresponse()
-        body = response.read(PROBE_RESULT_BYTES + 1)
-        if len(body) > PROBE_RESULT_BYTES:
+        body = response.read(max_response_bytes + 1)
+        if len(body) > max_response_bytes:
             raise BackendError("Mihomo controller response is too large")
         try:
             payload = json.loads(body) if body else {}
@@ -1192,8 +1203,13 @@ def controller_request(
         connection.close()
 
 
-def controller_json(socket_path: Path, path: str, timeout: float) -> tuple[int, Any]:
-    return controller_request(socket_path, "GET", path, timeout)
+def controller_json(
+    socket_path: Path, path: str, timeout: float,
+    *, max_response_bytes: int = PROBE_RESULT_BYTES,
+) -> tuple[int, Any]:
+    return controller_request(
+        socket_path, "GET", path, timeout, max_response_bytes=max_response_bytes
+    )
 
 
 def probe_proxy_yaml(profile: dict[str, Any], alias: str, address: str) -> str:
@@ -3813,11 +3829,239 @@ def custom_rules_text(paths: Paths) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
 
 
+def _bounded_controller_text(
+    value: str, maximum_bytes: int, private_fragments: tuple[str, ...] = (),
+) -> str:
+    """Return one controller-controlled field as bounded, non-secret plain text."""
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if "://" in text:
+        return "[redacted]"
+    for fragment in private_fragments:
+        if fragment and len(fragment) < 8 and text == fragment:
+            text = "[private]"
+        elif fragment and fragment in text:
+            text = text.replace(fragment, "[private]")
+    text = re.sub(
+        r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        "[private]", text,
+    )
+    encoded = text.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return text
+    suffix = "…"
+    room = max(0, maximum_bytes - len(suffix.encode("utf-8")))
+    return encoded[:room].decode("utf-8", errors="ignore").rstrip() + suffix
+
+
+def _diagnostic_private_fragments(store: dict[str, Any]) -> tuple[str, ...]:
+    """Collect exact local values that must never reappear in controller output."""
+    values: set[str] = set()
+    for profile in store.get("profiles", []):
+        if not isinstance(profile, dict):
+            continue
+        for key in ("id", "uri"):
+            value = str(profile.get(key, ""))
+            if len(value) >= 8:
+                values.add(value)
+        name = str(profile.get("name", ""))
+        if name:
+            values.add(name)
+    for subscription in store.get("subscriptions", []):
+        if not isinstance(subscription, dict):
+            continue
+        for key in ("id", "url"):
+            value = str(subscription.get(key, ""))
+            if len(value) >= 8:
+                values.add(value)
+        name = str(subscription.get("name", ""))
+        if name:
+            values.add(name)
+    return tuple(sorted(values, key=len, reverse=True))
+
+
+def _append_bounded_diagnostic_row(
+    rows: list[dict[str, Any]], row: dict[str, Any], size: int, maximum_bytes: int,
+) -> tuple[int, bool]:
+    encoded = json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if size + len(encoded) + 1 > maximum_bytes:
+        return size, False
+    rows.append(row)
+    return size + len(encoded) + 1, True
+
+
+def _valid_rule_provider_name(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value.encode("utf-8")) <= 256
+        and not re.search(r"[\x00-\x1f\x7f/\\?#%]", value)
+        and value not in {".", ".."}
+    )
+
+
+def loaded_rules_payload(
+    payload: Any, private_fragments: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list) or len(rules) > 65536:
+        raise BackendError("Mihomo returned invalid loaded rule data")
+    public: list[dict[str, Any]] = []
+    public_bytes = 64
+    for item in rules:
+        if not isinstance(item, dict):
+            raise BackendError("Mihomo returned invalid loaded rule data")
+        rule_type = item.get("type", "")
+        rule_payload = item.get("payload", "")
+        proxy = item.get("proxy", "")
+        if not all(isinstance(value, str) for value in (rule_type, rule_payload, proxy)):
+            raise BackendError("Mihomo returned invalid loaded rule data")
+        if len(public) >= MAX_LOADED_RULES:
+            break
+        row = {
+            "type": _bounded_controller_text(
+                rule_type, MAX_DIAGNOSTIC_RULE_TYPE_BYTES, private_fragments
+            ),
+            "payload": _bounded_controller_text(
+                rule_payload, MAX_DIAGNOSTIC_RULE_PAYLOAD_BYTES, private_fragments
+            ),
+            "target": "DIRECT" if route_outcome(proxy) == "direct" else (
+                "REJECT" if route_outcome(proxy) == "block" else "VPN"
+            ),
+        }
+        public_bytes, appended = _append_bounded_diagnostic_row(
+            public, row, public_bytes, 280 * 1024
+        )
+        if not appended:
+            break
+    return {
+        "total": len(rules),
+        "shown": len(public),
+        "truncated": len(public) < len(rules),
+        "items": public,
+    }
+
+
+def loaded_rule_providers_payload(
+    payload: Any, private_fragments: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    providers = payload.get("providers") if isinstance(payload, dict) else None
+    if not isinstance(providers, dict) or len(providers) > MAX_LOADED_RULE_PROVIDERS:
+        raise BackendError("Mihomo returned invalid rule provider data")
+    public: list[dict[str, Any]] = []
+    public_bytes = 64
+    for name, provider in providers.items():
+        if (
+            not _valid_rule_provider_name(name)
+            or not isinstance(provider, dict)
+        ):
+            raise BackendError("Mihomo returned invalid rule provider data")
+        behavior = provider.get("behavior", "")
+        vehicle = provider.get("vehicleType", "")
+        updated_at = provider.get("updatedAt", "")
+        rule_count = provider.get("ruleCount")
+        if (
+            not isinstance(behavior, str) or not isinstance(vehicle, str)
+            or not isinstance(updated_at, (str, int, float))
+        ):
+            raise BackendError("Mihomo returned invalid rule provider data")
+        if isinstance(updated_at, bool):
+            raise BackendError("Mihomo returned invalid rule provider data")
+        if rule_count is not None and (
+            not isinstance(rule_count, int) or isinstance(rule_count, bool)
+            or rule_count < 0 or rule_count > 1_000_000_000
+        ):
+            raise BackendError("Mihomo returned invalid rule provider data")
+        state = "unknown" if rule_count is None else ("loaded" if rule_count > 0 else "empty")
+        row = {
+            "name": _bounded_controller_text(
+                name, MAX_DIAGNOSTIC_PROVIDER_NAME_BYTES, private_fragments
+            ),
+            "behavior": _bounded_controller_text(
+                behavior, MAX_DIAGNOSTIC_PROVIDER_FIELD_BYTES, private_fragments
+            ),
+            "ruleCount": rule_count if rule_count is not None else -1,
+            "updatedAt": _bounded_controller_text(
+                str(updated_at), MAX_DIAGNOSTIC_PROVIDER_FIELD_BYTES, private_fragments
+            ),
+            "status": state,
+            "refreshable": vehicle.lower() == "http",
+        }
+        public_bytes, appended = _append_bounded_diagnostic_row(
+            public, row, public_bytes, 80 * 1024
+        )
+        if not appended:
+            break
+    return {
+        "total": len(providers),
+        "shown": len(public),
+        "truncated": len(public) < len(providers),
+        "items": public,
+    }
+
+
+def refreshable_rule_provider_names(payload: Any) -> list[str]:
+    """Validate the bounded controller list before constructing update paths."""
+    providers = payload.get("providers") if isinstance(payload, dict) else None
+    if not isinstance(providers, dict) or len(providers) > MAX_LOADED_RULE_PROVIDERS:
+        raise BackendError("Mihomo returned invalid rule provider status")
+    names: list[str] = []
+    for name, provider in providers.items():
+        if (
+            not _valid_rule_provider_name(name)
+            or not isinstance(provider, dict)
+        ):
+            raise BackendError("Mihomo returned invalid rule provider metadata")
+        vehicle = provider.get("vehicleType", "")
+        if not isinstance(vehicle, str):
+            raise BackendError("Mihomo returned invalid rule provider metadata")
+        if vehicle.lower() == "http":
+            names.append(name)
+    return names
+
+
+def advanced_diagnostics_payload(paths: Paths) -> dict[str, Any]:
+    if not service_active(SERVICE):
+        raise BackendError("Connect OmaVLESS to inspect loaded Mihomo data")
+    socket_path = controller_socket(paths)
+    if not socket_path.exists():
+        raise BackendError("Reconnect once to enable private live diagnostics")
+    with operation_lock(paths):
+        private_fragments = _diagnostic_private_fragments(load_store(paths))
+    try:
+        rules_status, rules = controller_json(
+            socket_path, "/rules", 5,
+            max_response_bytes=ADVANCED_DIAGNOSTICS_RESPONSE_BYTES,
+        )
+        providers_status, providers = controller_json(
+            socket_path, "/providers/rules", 5,
+            max_response_bytes=ADVANCED_DIAGNOSTICS_RESPONSE_BYTES,
+        )
+        if rules_status != 200 or providers_status != 200:
+            raise BackendError("Mihomo refused live diagnostics")
+        result = {
+            "version": 1,
+            "rules": loaded_rules_payload(rules, private_fragments),
+            "providers": loaded_rule_providers_payload(providers, private_fragments),
+        }
+    except (BackendError, OSError, TimeoutError) as exc:
+        raise BackendError("Could not read live Mihomo diagnostics") from exc
+    encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > ADVANCED_DIAGNOSTICS_OUTPUT_BYTES:
+        raise BackendError("Could not read live Mihomo diagnostics")
+    return result
+
+
+def advanced_diagnostics_text(paths: Paths) -> str:
+    return json.dumps(
+        advanced_diagnostics_payload(paths), ensure_ascii=False, separators=(",", ":")
+    ) + "\n"
+
+
 def _refresh_rule_provider(socket_path: Path, name: str) -> str:
     endpoint = "/providers/rules/" + urllib.parse.quote(name, safe="")
     status_code, _payload = controller_request(socket_path, "PUT", endpoint, 60)
     if status_code != 204:
-        raise BackendError(f"Mihomo refused rule provider update: {name}")
+        raise BackendError("Mihomo refused a rule provider update")
     return name
 
 
@@ -3827,34 +4071,30 @@ def refresh_rule_providers(paths: Paths) -> dict[str, int]:
     socket_path = controller_socket(paths)
     if not socket_path.exists():
         raise BackendError("Reconnect once to enable private rule updates")
-    status_code, payload = controller_json(socket_path, "/providers/rules", 5)
-    providers = payload.get("providers") if isinstance(payload, dict) else None
-    if status_code != 200 or not isinstance(providers, dict) or len(providers) > 256:
+    try:
+        status_code, payload = controller_json(socket_path, "/providers/rules", 5)
+    except (BackendError, OSError, TimeoutError) as exc:
+        raise BackendError("Could not read rule provider status") from exc
+    if status_code != 200:
         raise BackendError("Mihomo returned invalid rule provider status")
-    names: list[str] = []
-    for name, provider in providers.items():
-        if not isinstance(name, str) or not 0 < len(name) <= 256 or not isinstance(provider, dict):
-            raise BackendError("Mihomo returned invalid rule provider metadata")
-        vehicle = str(provider.get("vehicleType", "")).lower()
-        if vehicle == "http":
-            names.append(name)
+    names = refreshable_rule_provider_names(payload)
     if not names:
         raise BackendError("The active Routing profile has no remote rule providers")
-    failures: list[str] = []
+    failures = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(names))) as executor:
         futures = {
             executor.submit(_refresh_rule_provider, socket_path, name): name for name in names
         }
-        for future, name in futures.items():
+        for future in futures:
             try:
                 future.result()
             except Exception:
-                failures.append(name)
+                failures += 1
     if failures:
-        preview = ", ".join(failures[:3])
-        if len(failures) > 3:
-            preview += f" and {len(failures) - 3} more"
-        raise BackendError(f"Could not refresh rule providers: {preview}")
+        raise BackendError(
+            f"Could not refresh {failures} rule provider"
+            + ("" if failures == 1 else "s")
+        )
     with operation_lock(paths):
         store = load_store(paths)
         store["rulesUpdatedAt"] = time.time_ns() // 1_000_000
@@ -5247,6 +5487,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export-file"); p.add_argument("id"); p.add_argument("path")
     sub.add_parser("diagnostics")
     p = sub.add_parser("diagnostics-export"); p.add_argument("path")
+    sub.add_parser("advanced-diagnostics")
     p = sub.add_parser("qr-png"); p.add_argument("id")
     p = sub.add_parser("edit"); p.add_argument("id"); p.add_argument("name")
     p = sub.add_parser("notify-drop"); p.add_argument("id")
@@ -5316,6 +5557,8 @@ def main() -> int:
     elif args.command == "diagnostics-export":
         with operation_lock(paths):
             print(export_diagnostics(paths, args.path))
+    elif args.command == "advanced-diagnostics":
+        print(advanced_diagnostics_text(paths), end="")
     elif args.command == "details":
         details(paths, args.id, args.device)
     elif args.command == "export-file":

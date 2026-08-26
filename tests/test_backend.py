@@ -1320,6 +1320,198 @@ rules:
             self.assertEqual(request.call_count, 2)
             self.assertEqual(backend.load_store(paths)["rulesUpdatedAt"], result["updatedAt"])
 
+    def test_remote_rule_refresh_keeps_all_or_nothing_timestamp_and_private_errors(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            store = backend.empty_store()
+            store["rulesUpdatedAt"] = 1234
+            backend.save_store(paths, store)
+            backend.controller_socket(paths).touch()
+            providers = {"providers": {
+                "private-provider-one": {"vehicleType": "HTTP"},
+                "private-provider-two": {"vehicleType": "HTTP"},
+            }}
+            with mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "controller_json", return_value=(200, providers)), \
+                 mock.patch.object(
+                     backend, "controller_request",
+                     side_effect=[(204, {}), backend.BackendError("private-provider-two")],
+                 ), self.assertRaises(backend.BackendError) as raised:
+                backend.refresh_rule_providers(paths)
+            self.assertEqual(backend.load_store(paths)["rulesUpdatedAt"], 1234)
+            message = str(raised.exception)
+            self.assertNotIn("private-provider-one", message)
+            self.assertNotIn("private-provider-two", message)
+
+    def test_loaded_rules_are_bounded_and_hide_internal_proxy_targets(self):
+        payload = {"rules": [
+            {"type": "DOMAIN-SUFFIX", "payload": "example.com", "proxy": "PROXY"},
+            {"type": "IP-CIDR", "payload": "10.0.0.0/8", "proxy": "DIRECT"},
+            {"type": "DOMAIN", "payload": "ads.example", "proxy": "REJECT-DROP"},
+            {"type": "RULE-SET", "payload": "x" * 2000, "proxy": "Secret group"},
+        ]}
+        result = backend.loaded_rules_payload(payload)
+        self.assertEqual(result["total"], 4)
+        self.assertEqual(
+            [item["target"] for item in result["items"]],
+            ["VPN", "DIRECT", "REJECT", "VPN"],
+        )
+        encoded = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("PROXY", encoded)
+        self.assertNotIn("Secret group", encoded)
+        self.assertLessEqual(
+            len(result["items"][-1]["payload"].encode("utf-8")),
+            backend.MAX_DIAGNOSTIC_RULE_PAYLOAD_BYTES,
+        )
+        many = backend.loaded_rules_payload({"rules": [
+            {"type": "MATCH", "payload": "", "proxy": "PROXY"}
+            for _ in range(backend.MAX_LOADED_RULES + 17)
+        ]})
+        self.assertEqual(many["shown"], backend.MAX_LOADED_RULES)
+        self.assertTrue(many["truncated"])
+        self.assertLessEqual(
+            len(json.dumps(many, separators=(",", ":")).encode("utf-8")),
+            280 * 1024,
+        )
+
+    def test_loaded_rule_parsing_rejects_malformed_metadata(self):
+        for payload in (
+            [], {"rules": "not-a-list"}, {"rules": ["not-an-object"]},
+            {"rules": [{"type": [], "payload": "x", "proxy": "DIRECT"}]},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(backend.BackendError):
+                backend.loaded_rules_payload(payload)
+
+    def test_controller_rejects_malformed_and_oversized_diagnostic_json(self):
+        connection = mock.Mock()
+        response = connection.getresponse.return_value
+        response.status = 200
+        with mock.patch.object(backend, "UnixHTTPConnection", return_value=connection):
+            response.read.return_value = b"{broken"
+            with self.assertRaisesRegex(backend.BackendError, "invalid JSON"):
+                backend.controller_json(
+                    Path("/tmp/private.sock"), "/rules", 1,
+                    max_response_bytes=128,
+                )
+            response.read.return_value = b"x" * 129
+            with self.assertRaisesRegex(backend.BackendError, "too large"):
+                backend.controller_json(
+                    Path("/tmp/private.sock"), "/rules", 1,
+                    max_response_bytes=128,
+                )
+
+    def test_loaded_rule_provider_status_is_bounded_and_derived(self):
+        result = backend.loaded_rule_providers_payload({"providers": {
+            "remote-main": {
+                "vehicleType": "HTTP", "behavior": "Domain",
+                "ruleCount": 321, "updatedAt": "2026-08-25T10:00:00Z",
+            },
+            "empty-local": {
+                "vehicleType": "File", "behavior": "Classical",
+                "ruleCount": 0, "updatedAt": "",
+            },
+        }})
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(result["items"][0], {
+            "name": "remote-main", "behavior": "Domain", "ruleCount": 321,
+            "updatedAt": "2026-08-25T10:00:00Z", "status": "loaded",
+            "refreshable": True,
+        })
+        self.assertEqual(result["items"][1]["status"], "empty")
+        self.assertNotIn("vehicleType", json.dumps(result))
+
+    def test_rule_provider_refresh_names_come_only_from_valid_loaded_list(self):
+        payload = {"providers": {
+            "remote-main": {"vehicleType": "HTTP"},
+            "local-copy": {"vehicleType": "File"},
+        }}
+        self.assertEqual(
+            backend.refreshable_rule_provider_names(payload), ["remote-main"]
+        )
+        for name in ("../escape", "provider/name", "provider?query", "bad\nname"):
+            with self.subTest(name=name), self.assertRaises(backend.BackendError):
+                backend.refreshable_rule_provider_names({
+                    "providers": {name: {"vehicleType": "HTTP"}}
+                })
+
+    def test_advanced_diagnostics_redacts_local_credentials_names_and_urls(self):
+        profile_name = "Private profile name"
+        subscription_name = "Private subscription"
+        subscription_url = "https://user:token@example.com/feed?key=secret"
+        fragments = (profile_name, subscription_name, subscription_url, REALITY_URI)
+        result = {
+            "rules": backend.loaded_rules_payload({"rules": [{
+                "type": "RULE-SET", "payload": profile_name,
+                "proxy": "11111111-1111-4111-8111-111111111111",
+            }, {
+                "type": "DOMAIN", "payload": subscription_url, "proxy": "PROXY",
+            }]}, fragments),
+            "providers": backend.loaded_rule_providers_payload({"providers": {
+                subscription_name: {
+                    "behavior": "Domain", "ruleCount": 1,
+                    "updatedAt": "2026-08-25T10:00:00Z",
+                },
+            }}, fragments),
+        }
+        encoded = json.dumps(result, ensure_ascii=False)
+        for secret in (
+            profile_name, subscription_name, subscription_url, REALITY_URI,
+            "11111111-1111-4111-8111-111111111111", "vless://",
+        ):
+            self.assertNotIn(secret, encoded)
+
+    def test_advanced_diagnostics_reads_only_private_controller_endpoints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            backend.save_store(paths, backend.empty_store())
+            backend.controller_socket(paths).touch()
+            responses = [
+                (200, {"rules": [{
+                    "type": "MATCH", "payload": "", "proxy": "PROXY",
+                }]}),
+                (200, {"providers": {}}),
+            ]
+            with mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "controller_json", side_effect=responses) as request:
+                result = backend.advanced_diagnostics_payload(paths)
+            self.assertEqual(result["version"], 1)
+            self.assertEqual(result["rules"]["items"][0]["target"], "VPN")
+            self.assertEqual(
+                [call.args[1] for call in request.call_args_list],
+                ["/rules", "/providers/rules"],
+            )
+            for call in request.call_args_list:
+                self.assertEqual(call.args[0], backend.controller_socket(paths))
+                self.assertEqual(
+                    call.kwargs["max_response_bytes"],
+                    backend.ADVANCED_DIAGNOSTICS_RESPONSE_BYTES,
+                )
+
+    def test_advanced_diagnostics_controller_errors_are_credential_free(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            backend.save_store(paths, backend.empty_store())
+            backend.controller_socket(paths).touch()
+            private_error = "vless://private-uuid@private-endpoint controller.sock"
+            with mock.patch.object(backend, "service_active", return_value=True), \
+                 mock.patch.object(backend, "controller_json", side_effect=OSError(private_error)), \
+                 self.assertRaises(backend.BackendError) as raised:
+                backend.advanced_diagnostics_payload(paths)
+            self.assertEqual(str(raised.exception), "Could not read live Mihomo diagnostics")
+            self.assertNotIn(private_error, str(raised.exception))
+
     def test_full_vpn_selects_and_verifies_the_active_profile_privately(self):
         socket_path = Path("/run/user/1000/omavless/controller.sock")
         with mock.patch.object(
@@ -2448,6 +2640,8 @@ rules:
             )
             try:
                 proc = Path("/proc") / str(process.pid)
+                if not proc.is_dir():
+                    self.skipTest("procfs does not expose child PIDs in this namespace")
                 command = b""
                 for _ in range(100):
                     try:

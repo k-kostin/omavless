@@ -284,6 +284,12 @@ Omarchy acceptance gates are tracked separately in the
   provider used by the active Routing profile to update, and records success
   only after all of them finish. Normal template update intervals continue to
   be handled by Mihomo itself.
+- Settings also open a compact read-only view of what the plugin-owned Mihomo
+  core actually loaded. It fetches `/rules` and `/providers/rules` only through
+  OmaVLESS's private Unix controller, bounds the response and every displayed
+  field, maps internal proxy targets to `VPN`, `DIRECT` or `REJECT`, and lets
+  the user search rule type, payload and outcome locally. It does not list
+  active connections or expose proxy-group names.
 - A minimal first-run guide checks the external Mihomo binary and its TUN
   capabilities, offers a skippable country Routing choice and opens the
   existing private profile import flow. Host-changing commands are copied for an
@@ -311,6 +317,10 @@ Omarchy acceptance gates are tracked separately in the
 - Multi-monitor safe operation: every mutation is serialized by a user-runtime
   file lock, simultaneous status polls share a short-lived private cache, and
   repeated poll failures back off instead of spawning forever at full cadence.
+  An open panel keeps the configured normal cadence; a closed panel performs
+  only the light status check at a cadence of at least 30 seconds. Loaded rules
+  and providers are fetched once when their Settings page opens, on explicit
+  refresh and after a relevant update, never on the status timer.
 
 ## Development install
 
