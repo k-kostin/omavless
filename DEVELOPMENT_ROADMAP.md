@@ -6,8 +6,11 @@ This file is the compact source of truth for delivery order and acceptance
 state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 
 - [`docs/roadmap/README.md`](docs/roadmap/README.md) — roadmap/document map;
-- [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md) — core,
-  lifecycle/exclusivity and fail-closed direction;
+- [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md) — shared
+  runtime, core, lifecycle/exclusivity and fail-closed direction;
+- [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md) — evolution from a
+  bar-only plugin to one runtime with compact bar, full TUI and CLI/IPC control
+  surfaces;
 - [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
   — cloud/Omarchy Git workflow and branch policy;
 - [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
@@ -77,8 +80,8 @@ Two runtime Drafts remain in the active chain:
    harness, stacked on #27 until D1 merges. Cloud checks pass; independent real
    server/provider/TUN evidence remains open.
 
-The architecture/workflow documentation refresh is intentionally separate from
-those runtime branches. It must not be used to bypass their existing local
+The architecture/workflow/TUI documentation refresh is intentionally separate
+from those runtime branches. It must not be used to bypass their existing local
 acceptance gates.
 
 ## Active merge chain
@@ -173,14 +176,17 @@ collects broader independent evidence:
 ## Product tracks after the active protocol chain
 
 These tracks are independent of protocol expansion and should remain narrowly
-scoped PRs.
+scoped PRs. Their relative ordering can be changed deliberately after P4c; the
+roadmap does not require implementing every product track before another can
+start.
 
 ### I1 — i18n foundation
 
 - Future branch: `codex/i18n-foundation`.
 - English remains default/fallback; Russian is the first additional locale.
 - Provider/profile/core-controlled data is never translated.
-- Prefer stable backend status/error codes localized on the QML side.
+- Prefer stable backend status/error codes localized on the UI side so the same
+  codes can later be rendered consistently by QML and the TUI.
 
 ### C1 — privacy-aware active connections
 
@@ -188,6 +194,8 @@ scoped PRs.
 - Depends on D1's diagnostics/controller boundary.
 - Read-only host/process/chain/rule/traffic comes first; closing a connection
   is a separate mutation/security slice.
+- The eventual TUI is the natural full view for this data; the bar may retain a
+  compact summary rather than duplicate the complete connection table.
 
 ### S1 — App proxy without TUN
 
@@ -196,6 +204,88 @@ scoped PRs.
   another Full VPN / Routing / Direct policy.
 - Preserve/restore exact prior proxy settings transactionally and introduce no
   privileged helper.
+- On Omarchy, design must cover both desktop proxy state and the systemd/UWSM
+  user-manager environment inherited by newly launched applications. Merely
+  switching a desktop proxy to `none` or unsetting variables is not sufficient
+  when the machine had pre-existing proxy state.
+
+## Full application / TUI track
+
+Detailed design: [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md).
+
+The target is **not** a second VPN application next to the plugin. It is one
+canonical OmaVLESS runtime with a compact Omarchy bar surface, a full TUI
+workspace and a bounded CLI/IPC integration surface.
+
+### T0 — control-plane and distribution design
+
+- State: **planned design phase**.
+- Define bar/TUI/CLI responsibilities and the migration path from the current
+  QML -> `backend.py` control model.
+- Define a versioned bounded semantic IPC protocol and separate small state from
+  high-volume local logs/connections.
+- Define daemon/systemd ownership, package/update/remove lifecycle and exact
+  compatibility requirements for the existing plugin.
+- Define an explicit distribution path for a future native TUI/runtime. The
+  marketplace plugin must not silently download/build a binary.
+- Define `Open app` launch-or-focus behavior using the supported Omarchy
+  terminal launcher and a stable app-id.
+
+### T1 — shared runtime / daemon foundation
+
+- State: **planned after T0 when scheduled**.
+- One headless runtime becomes the canonical owner of desired/actual connection
+  state, store mutations, core lifecycle and background work.
+- Expose a private `0600` Unix-socket contract plus a small machine-readable CLI
+  bridge for QML/scripts; ordinary state contains no reusable credentials or
+  core-controller secret.
+- Keep current bar behavior working through the new boundary before adding a
+  full TUI.
+- A panel/TUI/terminal close must not stop a healthy requested tunnel.
+- This phase should satisfy/subsume the relevant N0 coordinator extraction;
+  do not create a parallel daemon state machine and a separate coordinator.
+
+### T2 — TUI MVP and plugin `Open app`
+
+- State: **planned after T1**.
+- Build an Omarchy-themed keyboard-first TUI with a responsive layout.
+- Wide dashboard direction: traffic summary at top, profiles/subscriptions
+  sources plus live activity/logs in the main workspace, and persistent
+  connection/mode/core/protection/policy status at the bottom.
+- MVP operations: profiles/subscriptions, connect/disconnect, supported modes,
+  search/favorites, one/all latency tests, traffic rate/totals, active
+  connection count, profile/core details, subscription refresh, settings and
+  diagnostics entry points, help overlay.
+- `j/k` + arrows are baseline navigation; `h/l`/Tab, search, first/last and
+  mouse support are added where they improve rather than complicate semantics.
+- Follow the active Omarchy theme while running.
+- Add `Open app` to the plugin. It must launch or focus one TUI window, attach to
+  the existing runtime and never create a second tunnel/core.
+- Concurrent bar and TUI actions must serialize against the same canonical
+  state; closing/reopening either surface must not disturb the tunnel.
+
+### T3 — operator and observability integration
+
+- State: **planned after T2 and prerequisite feature tracks**.
+- Integrate D1 rules/provider diagnostics into dedicated TUI views.
+- Integrate C1 active connections when available, including a later explicit
+  close-connection mutation after its own security review.
+- Add bounded local core/application activity/log views with session-aware
+  navigation/selection/copy, richer traffic context and route inspection.
+- Add a read-only `doctor`/health view or CLI output with remediation hints.
+- Keep local operator detail distinct from shareable redacted diagnostic
+  export; raw logs are never silently bundled for sharing.
+
+### T4 — background and management quality-of-life candidates
+
+- State: **later, split into separate PRs**.
+- Candidate slices: per-subscription automatic refresh schedules; provider
+  quota/usage/expiry metadata under strict bounds; transactional private-state
+  backup/restore; reconnect after suspend/selected network transitions; richer
+  batch latency workflows; bounded structured DNS controls; named
+  service-routing templates layered on existing custom rules.
+- These are not permission to accept arbitrary provider YAML/configuration or
+  to broaden protocol support solely for feature-count parity.
 
 ## Networking/core architecture tracks
 
@@ -205,24 +295,28 @@ not authorize a speculative rewrite of the current Mihomo implementation.
 
 ### N0 — tunnel coordinator boundary
 
-- State: **planned when a concrete networking feature needs it**.
+- State: **planned when a concrete networking or multi-surface feature needs
+  it**.
 - Centralize desired versus actual connection state, owned-core transitions,
   operation serialization and conservative foreign-VPN conflict handling.
+- Serialize commands from every OmaVLESS control surface so bar/TUI/CLI cannot
+  race separate core transitions.
 - OmaVLESS may stop cores it owns; it must not kill/reconfigure foreign VPNs or
   arbitrary TUN interfaces.
 - Preserve current Mihomo behavior while extracting the smallest useful
   lifecycle boundary.
+- T1 may subsume this track if the shared runtime lands first.
 
 ### K0 — fail-closed threat model and host integration design
 
 - State: **planned design/security phase**.
 - Goal: design a real kill switch which remains effective after the proxy core
-  or QML panel crashes.
+  or UI crashes.
 - Cover IPv4, IPv6, DNS, route replacement, suspend/resume, network changes,
-  reconnect traffic, stale-rule cleanup, plugin disable/remove and emergency
+  reconnect traffic, stale-rule cleanup, plugin/app disable/remove and emergency
   recovery.
 - Determine the smallest privilege boundary before implementation. Do not add
-  arbitrary `sudo`/`pkexec`/firewall commands to the normal backend.
+  arbitrary `sudo`/`pkexec`/firewall commands to the normal backend/runtime.
 
 ### K1 — Full VPN fail-closed kill switch
 
@@ -231,7 +325,7 @@ not authorize a speculative rewrite of the current Mihomo implementation.
 - Protection follows desired VPN state rather than core process liveness.
 - If the owned core dies/restarts while the user still expects a connection,
   ordinary direct egress stays blocked until recovery or explicit disconnect.
-- First slice is a kill switch, not permanent Mullvad-style Lockdown.
+- First slice is a kill switch, not permanent Lockdown.
 - Likely requires an external OS networking policy; if a privileged helper is
   required, it must be optional, separately reviewed and accept only bounded
   fixed-purpose operations rather than arbitrary firewall rules.
@@ -260,6 +354,8 @@ not authorize a speculative rewrite of the current Mihomo implementation.
   the older proposed hidden Mihomo-TUN + loopback-SOCKS + Xray two-process
   transport chain as the default architecture.
 - One OmaVLESS-owned full-tunnel core may be active at a time.
+- Every control surface renders the same selected-core/capability state from
+  the runtime instead of implementing core selection independently.
 - If K1 exists by then, Xray integrates with the same LeakProtection boundary
   instead of growing a second kill-switch implementation.
 
@@ -272,8 +368,8 @@ not authorize a speculative rewrite of the current Mihomo implementation.
 
 ## Deferred compatibility research
 
-Keep these out of P4 and the networking refactors unless real demand/fixtures
-justify them:
+Keep these out of P4 and the networking/application refactors unless real
+demand/fixtures justify them:
 
 - Hysteria2 Realm links;
 - local Hysteria2 `handshake-timeout` without demonstrated value;
@@ -281,7 +377,9 @@ justify them:
 - AnyTLS, Shadowsocks and VMess solely for protocol-count completeness;
 - manual core-selection UX before a real operational need exists;
 - permanent Lockdown semantics before K1 Full VPN kill-switch behavior is
-  proven.
+  proven;
+- arbitrary raw YAML merge/patch systems or untrusted provider-controlled
+  runtime configuration as a shortcut around structured adapters.
 
 ## Cloud -> Omarchy handoff procedure
 
@@ -300,6 +398,11 @@ then:
 7. reruns affected gates whenever the head changes;
 8. merges only after the declared gates pass and explicit owner approval is
    given.
+
+For TUI/control-plane work, the local gate additionally covers concurrent
+plugin/TUI control, launch-or-focus, terminal close/reopen, theme changes,
+resize behavior and confirmation that one UI cannot stall or replace the
+canonical tunnel owner.
 
 A stacked successor is rebased/retargeted only after its predecessor merges,
 then receives its own checks. Do not create empty successor branches merely to
