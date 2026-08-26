@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 codex-skills/
+v0-cases.local.json
+v0-results.local.json
