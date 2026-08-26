@@ -1,249 +1,306 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-25.
+Status: active delivery ledger, updated 2026-08-26.
 
-This document connects the code currently merged in `main`, open cloud PRs,
-future implementation branches and the checks which can run only on a real
-Omarchy machine. Protocol-level compatibility details remain in
-[`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md).
+This file is the compact source of truth for delivery order and acceptance
+state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
+
+- [`docs/roadmap/README.md`](docs/roadmap/README.md) — roadmap/document map;
+- [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md) — core,
+  lifecycle/exclusivity and fail-closed direction;
+- [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
+  — cloud/Omarchy Git workflow and branch policy;
+- [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
+  compatibility specification.
 
 ## Status vocabulary
 
-- **Merged** means runtime code and automated tests are in `main`.
-- **Cloud-ready** means a Draft PR has passed available CI/static tests but
-  still needs its listed Omarchy smoke tests.
-- **Experimental** means the importer exists, but independent server/provider
-  interoperability evidence is not yet sufficient to call it stable.
-- **Planned** means no runtime support is present; documentation or design is
-  not counted as implementation.
-- **Deferred** means the item is intentionally outside the active merge chain.
+- **Merged** — accepted code/documentation is in `main`.
+- **Cloud-ready** — exact Draft PR head passed every available cloud/static
+  gate but still has declared Omarchy-only checks.
+- **Merge-ready** — exact head passed its declared cloud and local gates and is
+  waiting only for final owner merge approval.
+- **Experimental** — product maturity label; implementation may already be
+  merged but broader independent interoperability evidence is still required.
+- **Planned** — designed/scheduled, no production runtime support yet.
+- **Deferred** — intentionally outside the active merge chain.
+
+Git maturity and product maturity are separate. An experimental protocol may
+live in `main` after its implementation gates pass; it does not need a permanent
+`alpha` or `beta` branch merely to preserve the label.
+
+## Repository and release model
+
+`main` is the only long-lived development source of truth. Runtime/network/
+security changes merge only after the exact candidate head passes every
+required real-Omarchy gate. Documentation-only work does not invent a live VPN
+gate.
+
+The currently published OmaVLESS 0.7.0 marketplace snapshot remains exact
+commit `69fe05b03129a23664fff3f8289821a7b7f80095`, published and
+maintainer-verified through marketplace submission `#2311`. `main` is allowed
+to advance beyond that immutable public snapshot; documentation must continue
+to name the exact marketplace SHA rather than imply that the moving `main` tip
+is already published.
+
+For future formal releases, prefer an explicit version tag such as `v0.8.0` on
+the exact release candidate which passed the release gate.
+
+### Branch policy
+
+Do **not** maintain permanent `alpha` and `beta` branches by default.
+
+- A short-lived feature branch + Draft PR is the practical **alpha** state for
+  cloud work.
+- A cloud-ready Draft whose real Omarchy checklist is still open represents the
+  next maturity state without requiring a second branch.
+- After the exact head passes its real gate, it merges directly into `main`.
+- A temporary `beta/<scope>` branch is allowed only as an integration/test
+  assembly when several named candidate PRs genuinely need combined Omarchy
+  or soak testing. Fixes found there must go back to the owning feature PRs;
+  beta is deleted afterward and never becomes a parallel source of truth.
+
+Full rules: [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md).
 
 ## Current repository snapshot
 
-OmaVLESS 0.7.0 is
-[published and maintainer-verified](https://omarchyplugins.com/plugin.html?id=kdk.omavless)
-in the Omarchy plugin marketplace at exact commit
-`69fe05b03129a23664fff3f8289821a7b7f80095`. Marketplace submission
-[`#2311`](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/2311)
-is closed as completed with `listed` and `approved-and-verified`. Quattro
-validation passed and the automated security baseline reported no findings;
-the expected `privilege`, `service-management` and `installer` capability
-declarations remain recorded for the maintainer-reviewed snapshot.
+D0 / documentation PR `#28` is merged into `main` at
+`751bb31b6c478e53aea6c0e9647e60fdb80bce6a`. It preserved the S0 lifecycle
+work from merged PR `#29` and established the P4 WireGuard/AmneziaWG queue.
 
-Three OmaVLESS Draft PRs are active while that exact marketplace snapshot remains
-unchanged:
+Two runtime Drafts remain in the active chain:
 
-1. [`#28`](https://github.com/k-kostin/omavless/pull/28) documents the
-   WireGuard/AmneziaWG status and this delivery queue. It changes no runtime
-   behavior.
-2. [`#27`](https://github.com/k-kostin/omavless/pull/27) implements advanced
-   read-only Mihomo diagnostics and adaptive polling. Cloud checks pass; the
-   PR remains incomplete until its local Omarchy checklist passes.
-3. Stacked [`#30`](https://github.com/k-kostin/omavless/pull/30) prepares the
-   opt-in V0 experimental-protocol live harness on top of #27. It changes no
-   importer, generated Mihomo YAML, service unit or product routing semantics
-   and cannot merge before D0 and D1.
+1. `#27` / `codex/advanced-mihomo-diagnostics` — D1 advanced diagnostics and
+   adaptive polling. It is rebased onto current `main`, cloud checks pass and
+   the real Omarchy diagnostics/polling smoke remains open.
+2. `#30` / `codex/experimental-protocol-live-gates` — V0 live-validation
+   harness, stacked on #27 until D1 merges. Cloud checks pass; independent real
+   server/provider/TUN evidence remains open.
 
-Merged [`#29`](https://github.com/k-kostin/omavless/pull/29) completed the S0
-lifecycle gate and produced the published marketplace snapshot. The publication
-hold is now resolved: D0 may merge after explicit owner approval, followed by
-the documented D1 and V0 rebase/live-validation sequence.
-
-Everything else described as merged in the protocol roadmap is already in
-`main`. In particular, routing presets and custom rules, onboarding and core
-setup guidance, login autoconnect, favorites, redacted import preview, safe
-diagnostic export and destination-route inspection are not future work.
+The architecture/workflow documentation refresh is intentionally separate from
+those runtime branches. It must not be used to bypass their existing local
+acceptance gates.
 
 ## Active merge chain
 
 ### S0 — marketplace lifecycle and removal fix
 
-- Branch: `codex/removal-runtime-cleanup`
-- PR: `#29`
+- PR: `#29`.
 - State: **merged** at `69fe05b03129a23664fff3f8289821a7b7f80095`.
-- Reason: Omarchy intentionally runs no repository uninstall hook. A generated
-  full-route service must therefore stop and remove its runtime integration
-  when its owning plugin is disabled or removed, without treating hot reloads
-  and updates as removal.
-- Evidence: exact-tree CI, 156 cloud tests including fake Omarchy/systemd
-  end-to-end cleanup, fail-closed unit removal and credential-boundary checks.
-- Local regression checklist: active and inactive login autoconnect, explicit
-  disable, normal remove, already-disabled remove, hot reload preservation,
-  private-data retention and unit/TUN residue.
-- Marketplace gate: complete. Submission `#2311` is published, listed and
-  maintainer-verified at the merged exact SHA.
-- Successor: D0.
+- Result: disable/removal cleanup, generated user-service ownership and private
+  state retention/removal semantics were hardened and became the published
+  marketplace snapshot.
 
 ### D0 — documentation and progress ledger
 
-- Branch: `codex/amneziawg-roadmap-visibility`
-- PR: `#28`
-- State: cloud-ready, documentation only, rebased from the S0 candidate.
-- Dependency: satisfied. The branch preserves S0's `Unreleased` lifecycle
-  entry and removal documentation.
-- Review: verify that README and both roadmaps distinguish Mihomo capability
-  from OmaVLESS import support. No live VPN check is required.
-- Publication dependency: satisfied. Keep Draft until final review and explicit
-  owner merge approval, then merge before D1 so later PRs reference one
-  canonical queue.
+- PR: `#28`.
+- State: **merged** at `751bb31b6c478e53aea6c0e9647e60fdb80bce6a`.
+- Result: canonical protocol/delivery queue plus explicit WireGuard/AmneziaWG
+  planning.
 
 ### D1 — advanced Mihomo diagnostics and adaptive polling
 
-- Branch: `codex/advanced-mihomo-diagnostics`
-- PR: `#27`
-- State: cloud-ready, Omarchy smoke pending.
-- Dependency: after D0 merges, update the branch from `main` and resolve the
-  shared README/CHANGELOG `Unreleased` additions without dropping either set.
+- Branch: `codex/advanced-mihomo-diagnostics`.
+- PR: `#27`.
+- State: **cloud-ready; Omarchy smoke pending**.
 - Acceptance: complete every unchecked `Local Omarchy smoke required` item in
-  the PR body, including private Unix-controller verification, stale-response
-  handling, provider refresh semantics and background polling behavior.
+  the PR body on the exact current head, including private Unix-controller
+  verification, stale-response handling, provider refresh semantics, adaptive
+  polling and Full VPN/ Routing/Direct regression checks.
 - Successor: V0.
 
 ### V0 — existing experimental protocol validation gate
 
-- Branch: `codex/experimental-protocol-live-gates`
-- PR: `#30`, stacked on D1 / #27 until its predecessor merges.
-- State: cloud-ready harness; Omarchy/server/provider evidence pending.
-- Goal: turn the remaining “works in generated YAML” evidence into a repeatable
-  privacy-safe validation procedure before adding another credential family.
-- Scope: an explicit opt-in runner and bounded private result schema for VLESS
-  XHTTP modes, VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5.
-  Profiles are imported through the normal UI; real URIs, passwords, protocol
-  UUIDs, subscription URLs and keys never enter the cases schema, Git, result
-  matrix or new process arguments/environment.
-- Cloud gate: complete on stacked head
-  `94d6719e308bd3506bd4e86471f59d6c5cb78852`; 171 CI tests pass with two
-  expected installed-core skips, including six focused cases/result/privacy
-  tests and QML contracts.
-- Omarchy gate: after D0 and D1 merge, rebase/retarget #30; record `mihomo -v`;
-  run installed-core config validation; exercise representative independent
-  servers/providers; pair Hysteria2 on UDP-friendly and UDP-restricted
-  networks; inspect TUN/systemd/private-controller behavior and share only the
-  generic credential-free result matrix.
-- This gate may document failures without changing an adapter. Any fix found
-  during live testing gets its own narrowly scoped follow-up PR.
+- Branch: `codex/experimental-protocol-live-gates`.
+- PR: `#30`, stacked on D1 until #27 merges.
+- State: **cloud-ready harness; Omarchy/server/provider evidence pending**.
+- Goal: turn generated-config evidence into repeatable privacy-safe live
+  evidence before another credential family is added.
+- Scope: opt-in local runner for existing VLESS XHTTP modes, VLESS Encryption /
+  REALITY PQ, Trojan, Hysteria2 and TUIC v5. Real URIs, passwords, protocol
+  UUIDs, subscription URLs and keys never enter its shareable result matrix.
+- Omarchy gate: after D1 merges, rebase/retarget onto the new `main`, rerun all
+  cloud checks, record current Mihomo version, validate configs and exercise
+  representative independent servers/providers plus UDP-friendly/restricted
+  Hysteria2 behavior.
 - Successor: P4a.
 
 ### P4a — standard one-peer WireGuard `.conf`
 
-- Future branch: `codex/wireguard-conf-import`
-- State: planned; no runtime code exists.
-- Dependency: V0 merged, current Mihomo source/release audit repeated.
-- Scope: versioned structured private-profile storage, bounded one-interface /
-  one-peer parser, redacted preview, Mihomo `wireguard` YAML, endpoint probe,
-  safe export/QR behavior and store migration. Reject executable hooks,
-  duplicate sections/keys, multiple peers and arbitrary YAML.
-- Omarchy gate: real standard WireGuard profile, IPv4 and IPv6 where
-  available, all three OmaVLESS routing policies, reconnect/autoconnect,
-  update/remove rollback and proof that private/preshared keys do not reach
-  public UI, logs, diagnostics, argv or environment.
+- Future branch: `codex/wireguard-conf-import`.
+- State: **planned**.
+- Dependency: V0 merged plus a fresh Mihomo source/release audit.
+- Scope: bounded one-interface/one-peer parser, versioned structured private
+  storage, redacted preview, Mihomo WireGuard generation, endpoint probe and
+  safe explicit export. Reject executable hooks, extra peers, ambiguous keys
+  and arbitrary YAML.
+- Omarchy gate: real WireGuard server, IPv4/IPv6 where available, Full VPN /
+  Routing / Direct, reconnect/autoconnect/update/remove rollback and proof that
+  reusable keys do not reach public UI/logs/diagnostics/argv/environment.
 - Successor: P4b.
 
 ### P4b — native AmneziaWG `.conf`
 
-- Future branch: `codex/amneziawg-conf-import`
-- State: planned; no runtime code exists.
-- Dependency: P4a merged and live-tested; Mihomo 1.19.30+ capability gate.
-- Scope: reuse P4a storage/parser boundaries, classify native Amnezia fields,
-  validate generation-specific v1-v3.1 families and emit only documented
-  `amnezia-wg-option` fields. Reject mixed/incomplete generations.
-- Fixtures: redacted native profiles for at least one legacy AWG generation,
-  v3.0 and v3.1. Legacy v1.5-only `J1`-`J3`/`ITime` remain rejected until a
-  real fixture exists.
-- Omarchy gate: validate the generated config and connect to real matching
-  servers; verify exact old-core errors for v3/v3.1; leave the protocol marked
-  experimental.
+- Future branch: `codex/amneziawg-conf-import`.
+- State: **planned**.
+- Dependency: P4a merged/live-tested and installed-core capability gate.
+- Scope: reuse P4a storage/parser boundaries, accept only validated native AWG
+  generation families and emit documented `amnezia-wg-option` fields.
+- Omarchy gate: real matching AWG servers/fixtures, precise old-core errors and
+  independent live evidence; retain Experimental label initially.
 - Successor: P4c.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-- Future branch: `codex/amnezia-vpn-key-import`
-- State: planned after P4b.
-- Scope: bounded offline decode of guest keys and explicit extraction of one
-  WireGuard/AmneziaWG container through the P4a/P4b validators.
-- Security boundary: never call an embedded API endpoint, import SSH/root or
-  full-server-access credentials, choose a different protocol container
-  implicitly, or retain the raw decoded document in public output.
-- Omarchy gate: use a revocable guest key, then revoke it after testing; verify
-  `.vpn`, clipboard and import-preview behavior without exposing the key.
+- Future branch: `codex/amnezia-vpn-key-import`.
+- State: **planned after P4b**.
+- Scope: bounded offline guest-key decoding and explicit extraction of a single
+  WG/AWG container through the exact P4a/P4b validators.
+- Security boundary: no embedded API call, no SSH/root/server-administration
+  credentials, no implicit fallback to another protocol container.
 
 ## Implemented but not yet stable
 
-The following items are runtime-complete in 0.7.0 but retain experimental
-labels until V0 collects independent evidence:
+The following are runtime-complete in 0.7.0 but remain Experimental until V0
+collects broader independent evidence:
 
 - VLESS Encryption and REALITY PQ metadata;
-- Trojan, including the supported TLS and REALITY transport combinations;
-- Hysteria2, especially UDP restriction behavior and failure reporting;
-- TUIC v5, including relay and congestion-controller combinations.
-
-XHTTP modes and split upload/download settings also require representative
-real TLS/REALITY keys even though their bounded mapping and current-core config
-validation are already automated.
+- Trojan supported TLS/REALITY combinations;
+- Hysteria2, especially UDP-restricted behavior;
+- TUIC v5;
+- representative advanced XHTTP modes/split settings.
 
 ## Product tracks after the active protocol chain
 
-These are valuable, but starting them before P4c would create overlapping
-QML/backend/storage changes and make the evening merge sequence harder to
-audit.
+These tracks are independent of protocol expansion and should remain narrowly
+scoped PRs.
 
 ### I1 — i18n foundation
 
-- Future branch: `codex/i18n-foundation`
-- Centralize user-facing strings; English remains default/fallback and Russian
-  is the first additional locale.
-- Provider/profile names and backend/controller data are never translated.
-- Prefer stable backend status/error codes localized in QML over complete
-  backend-generated sentences.
+- Future branch: `codex/i18n-foundation`.
+- English remains default/fallback; Russian is the first additional locale.
+- Provider/profile/core-controlled data is never translated.
+- Prefer stable backend status/error codes localized on the QML side.
 
 ### C1 — privacy-aware active connections
 
-- Future branch: `codex/active-connections`
-- Depends on D1's diagnostics page and controller boundary.
-- Read-only host/process/chain/rule/traffic comes first, with strict bounds and
-  redaction. Closing a connection is a later mutation with a separate UX and
-  security review.
+- Future branch: `codex/active-connections`.
+- Depends on D1's diagnostics/controller boundary.
+- Read-only host/process/chain/rule/traffic comes first; closing a connection
+  is a separate mutation/security slice.
 
 ### S1 — App proxy without TUN
 
-- Future design branch: `codex/system-proxy-design`
-- Threat model and reversible state design precede implementation.
-- User-facing name: “App proxy — only applications that honor proxy settings”.
-- Preserve and transactionally restore the exact previous proxy settings,
-  mark ownership, exclude localhost/controller/private ranges and never use a
-  privileged helper. Do not present it as a full-device VPN or as another
-  Full VPN / Routing / Direct routing policy.
+- Future design branch: `codex/system-proxy-design`.
+- User-facing concept: applications which honor proxy settings, explicitly not
+  another Full VPN / Routing / Direct policy.
+- Preserve/restore exact prior proxy settings transactionally and introduce no
+  privileged helper.
+
+## Networking/core architecture tracks
+
+The accepted design direction is documented in detail in
+[`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md). These tracks do
+not authorize a speculative rewrite of the current Mihomo implementation.
+
+### N0 — tunnel coordinator boundary
+
+- State: **planned when a concrete networking feature needs it**.
+- Centralize desired versus actual connection state, owned-core transitions,
+  operation serialization and conservative foreign-VPN conflict handling.
+- OmaVLESS may stop cores it owns; it must not kill/reconfigure foreign VPNs or
+  arbitrary TUN interfaces.
+- Preserve current Mihomo behavior while extracting the smallest useful
+  lifecycle boundary.
+
+### K0 — fail-closed threat model and host integration design
+
+- State: **planned design/security phase**.
+- Goal: design a real kill switch which remains effective after the proxy core
+  or QML panel crashes.
+- Cover IPv4, IPv6, DNS, route replacement, suspend/resume, network changes,
+  reconnect traffic, stale-rule cleanup, plugin disable/remove and emergency
+  recovery.
+- Determine the smallest privilege boundary before implementation. Do not add
+  arbitrary `sudo`/`pkexec`/firewall commands to the normal backend.
+
+### K1 — Full VPN fail-closed kill switch
+
+- State: **planned after K0**.
+- Initial scope: opt-in **Full VPN only**.
+- Protection follows desired VPN state rather than core process liveness.
+- If the owned core dies/restarts while the user still expects a connection,
+  ordinary direct egress stays blocked until recovery or explicit disconnect.
+- First slice is a kill switch, not permanent Mullvad-style Lockdown.
+- Likely requires an external OS networking policy; if a privileged helper is
+  required, it must be optional, separately reviewed and accept only bounded
+  fixed-purpose operations rather than arbitrary firewall rules.
+- Forced core death, failed restart, network changes and removal cleanup are
+  mandatory Omarchy tests.
+
+### X0 — core-backend contract extraction
+
+- State: **deferred until a real second-core need exists**.
+- Extract only the Mihomo-specific lifecycle/config/capability surface required
+  to add another backend. Do not perform a big-bang rewrite while Mihomo alone
+  satisfies current product requirements.
+
+### X1 — optional Xray Full VPN compatibility backend
+
+- State: **deferred compatibility work**.
+- Trigger: common real profiles require Xray semantics that supported Mihomo
+  cannot represent without loss and the gap is confirmed to be core-level, not
+  an OmaVLESS importer bug.
+- Mihomo remains preferred/default and fully featured.
+- Core choice is initially automatic/capability-driven, not a normal user
+  preference toggle.
+- **First production Xray slice supports Full VPN only.** Routing and Direct are
+  unavailable; there is no RU/CN/IR/custom-rule/route-inspection parity claim.
+- Xray is intended to own its own validated Full VPN capture path; do not use
+  the older proposed hidden Mihomo-TUN + loopback-SOCKS + Xray two-process
+  transport chain as the default architecture.
+- One OmaVLESS-owned full-tunnel core may be active at a time.
+- If K1 exists by then, Xray integrates with the same LeakProtection boundary
+  instead of growing a second kill-switch implementation.
+
+### R1 — backend-neutral routing research
+
+- State: **deferred; not implied by X1**.
+- Consider Xray Routing only when RU/CN/IR policies, custom rules, DNS,
+  rule-data lifecycle, route inspection and leak-safety semantics can be
+  preserved rather than approximated.
 
 ## Deferred compatibility research
 
-Do not put these items into P4 PRs:
+Keep these out of P4 and the networking refactors unless real demand/fixtures
+justify them:
 
 - Hysteria2 Realm links;
-- local Hysteria2 `handshake-timeout` unless live UDP tests prove user value;
-- TUIC v4 and TUIC 0-RTT without representative fixtures and an explicit
-  replay-risk decision;
-- AnyTLS, Shadowsocks and VMess until demand and real fixtures justify them;
-- the two-process Xray transport backend until Mihomo-native coverage is
-  mature and a common core-level incompatibility justifies its lifecycle and
-  threat-model cost.
+- local Hysteria2 `handshake-timeout` without demonstrated value;
+- TUIC v4 / TUIC 0-RTT without representative fixtures and replay-risk review;
+- AnyTLS, Shadowsocks and VMess solely for protocol-count completeness;
+- manual core-selection UX before a real operational need exists;
+- permanent Lockdown semantics before K1 Full VPN kill-switch behavior is
+  proven.
 
-## Evening Omarchy handoff procedure
+## Cloud -> Omarchy handoff procedure
 
-For each PR, the cloud agent provides the URL, exact head SHA, changed files,
-automated checks and an unchecked local-smoke list. The Omarchy agent then:
+For every runtime PR the cloud agent records URL, base/head SHA, changed files,
+completed cloud checks and every unchecked real-host gate. The Omarchy agent
+then:
 
-1. treats merged S0 as the baseline, then follows D0 → D1 → V0 → P4a → P4b →
-   P4c and never tests a successor before its predecessor is merged;
-2. fetches `origin` and verifies the PR head SHA;
-3. checks that the diff contains only the named roadmap slice;
-4. runs `omarchy plugin validate`, `./tests/run.sh`, `qmllint` with Omarchy
-   imports, shell syntax checks and the PR-specific installed-core tests;
-5. completes the live checklist without pasting real keys, profile names,
-   endpoints or subscription URLs into GitHub;
-6. reports failures on the same PR instead of fixing them in the successor;
-7. merges only after the live gate passes, then starts the successor from the
-   new `origin/main` rather than from a stale pre-merge branch.
+1. fetches and verifies the exact candidate head;
+2. checks the diff and dependency base;
+3. runs `omarchy plugin validate`, `./tests/run.sh`, shell/Python checks and
+   `qmllint` with installed imports as applicable;
+4. executes the PR-specific live TUN/systemd/core/server/network checklist;
+5. keeps real credentials, profile/provider names and endpoints out of GitHub;
+6. reports failures on the owning PR rather than patching only an integration
+   branch;
+7. reruns affected gates whenever the head changes;
+8. merges only after the declared gates pass and explicit owner approval is
+   given.
 
-No empty successor branch should be created in advance. Its base SHA is the
-merged predecessor, so creating it early only increases rebase conflicts and
-makes the audit trail ambiguous.
+A stacked successor is rebased/retargeted only after its predecessor merges,
+then receives its own checks. Do not create empty successor branches merely to
+reserve names.
