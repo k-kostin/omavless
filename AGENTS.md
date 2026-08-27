@@ -65,3 +65,19 @@ An agent handing work to another environment should report at minimum:
 - push/PR state.
 
 When a useful investigation produces findings that future agents need, store a credential-safe report or update the relevant canonical documentation in Git rather than leaving the result only in chat history.
+
+## Current continuity checkpoint — 2026-08-27
+
+D1 / PR `#27` (advanced Mihomo diagnostics and adaptive polling) is complete and merged. The accepted D1 head was `2c2615247d32e7ac4b2f7ada055d1028586cc639`; merge commit in `main` is `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`.
+
+Before repeating D1 investigation or acceptance, read [`docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md`](docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md). It preserves the exact-head evidence and the important lifecycle findings from the session, including:
+
+- the confirmed Mihomo selector-readiness race where `/version` was ready while `PROXY` still returned `404`, then accepted the identical request 50 ms later;
+- the bounded selector retry semantics now merged into `main`;
+- the distinction between that selector race and the separate three-prompt Mihomo/systemd-resolved/polkit behavior;
+- the final 5/5 Routing -> Full VPN regression plus the other required mode transitions;
+- D1 diagnostics/privacy/polling/provider acceptance;
+- the manual UI result and deferred Tab-navigation issue `#37`;
+- the practical cloud-orchestrator -> user -> guest Codex CLI workflow used when Codex Desktop could not address the raw Try Omarchy QEMU window.
+
+The next active runtime chain item is PR `#30` / `codex/experimental-protocol-live-gates`. Rebase/retarget it onto current `main`, rerun its cloud checks, then execute its own privacy-safe live server/provider/TUN validation. Do not restart D1 as an open prerequisite and do not skip V0 to start P4a WireGuard work.
