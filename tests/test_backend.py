@@ -1327,13 +1327,19 @@ rules:
         ), mock.patch.object(
             backend, "controller_request", return_value=(204, {})
         ) as request, mock.patch.object(
-            backend, "controller_json", return_value=(200, {"now": "Example"})
+            backend, "controller_json", side_effect=[
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
         ) as readback:
             backend.select_global_proxy(mock.Mock(), "Example")
-        request.assert_called_once_with(
-            socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "Example"}
-        )
-        readback.assert_called_once_with(socket_path, "/proxies/GLOBAL", 5)
+        self.assertEqual(request.call_args_list, [
+            mock.call(socket_path, "PUT", "/proxies/PROXY", 5, {"name": "Example"}),
+            mock.call(socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "PROXY"}),
+        ])
+        self.assertEqual(readback.call_args_list, [
+            mock.call(socket_path, "/proxies/PROXY", 5),
+            mock.call(socket_path, "/proxies/GLOBAL", 5),
+        ])
 
     def test_full_vpn_rejects_a_selection_that_mihomo_did_not_retain(self):
         socket_path = Path("/run/user/1000/omavless/controller.sock")
@@ -1345,6 +1351,20 @@ rules:
             backend, "controller_json", return_value=(200, {"now": "DIRECT"})
         ), self.assertRaisesRegex(backend.BackendError, "did not retain"):
             backend.select_global_proxy(mock.Mock(), "Example")
+
+    def test_full_vpn_rejects_nested_global_selector_failure(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", side_effect=[(204, {}), (400, {})]
+        ) as request, mock.patch.object(
+            backend, "controller_json", return_value=(200, {"now": "Example"})
+        ), self.assertRaisesRegex(backend.BackendError, "refused"):
+            backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(request.call_args_list[-1], mock.call(
+            socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "PROXY"}
+        ))
 
     def test_set_routing_mode_reconnects_and_rolls_back_on_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -2623,6 +2643,46 @@ rules:
                 time.sleep(0.15)
                 self.assertIsNone(child.poll(), "mutation ignored the cross-process lock")
             stdout, stderr = child.communicate(timeout=5)
+            self.assertEqual(child.returncode, 0, stderr or stdout)
+
+    def test_run_core_dispatch_bypasses_user_mutation_lock_and_migration(self):
+        args = mock.Mock(command="run-core", core="/usr/bin/mihomo")
+        paths = mock.Mock()
+        parser = mock.Mock()
+        parser.parse_args.return_value = args
+        with mock.patch.object(backend, "build_parser", return_value=parser), \
+             mock.patch.object(backend.Paths, "current", return_value=paths), \
+             mock.patch.object(backend, "ensure_private_dir") as ensure_private, \
+             mock.patch.object(backend, "operation_lock") as operation_lock, \
+             mock.patch.object(backend, "migrate_legacy_data") as migrate, \
+             mock.patch.object(backend, "run_core_supervisor", return_value=7) as run_core:
+            self.assertEqual(backend.main(), 7)
+        ensure_private.assert_called_once_with(paths.config_dir)
+        operation_lock.assert_not_called()
+        migrate.assert_not_called()
+        run_core.assert_called_once_with(paths, Path("/usr/bin/mihomo"))
+
+    def test_run_core_process_starts_while_user_mutation_lock_is_held(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, runtime = self.make_env(home)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True)
+            paths.config.write_text("mode: rule\n", encoding="utf-8")
+            core = home / "mihomo"
+            core.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            core.chmod(0o755)
+            with backend.operation_lock(paths):
+                child = subprocess.Popen(
+                    [str(ROOT / "backend.sh"), "run-core", str(core)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                )
+                try:
+                    stdout, stderr = child.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.communicate()
+                    self.fail("run-core waited for the user mutation lock")
             self.assertEqual(child.returncode, 0, stderr or stdout)
 
     def test_operation_lock_and_child_commands_have_timeouts(self):

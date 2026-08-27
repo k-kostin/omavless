@@ -3481,27 +3481,29 @@ def wait_private_controller(paths: Paths, timeout: float = 5.0) -> Path:
 
 
 def select_global_proxy(paths: Paths, profile_name: str) -> None:
-    """Make Full VPN select the active profile instead of cached DIRECT.
+    """Make Full VPN select the active profile through the nested selectors.
 
-    Mihomo's ``global`` mode routes through the built-in GLOBAL selector; merely
-    writing ``mode: global`` does not select an outbound.  The controller lives
-    in OmaVLESS's private runtime directory and the selected profile name is
-    never returned through public status or diagnostics.
+    The generated topology is GLOBAL -> PROXY -> active private profile.
+    Selecting the profile directly in GLOBAL is rejected because it is a member
+    of PROXY, not GLOBAL. The controller lives in OmaVLESS's private runtime
+    directory and the selected profile name is never returned through public
+    status or diagnostics.
     """
     socket_path = wait_private_controller(paths)
-    endpoint = "/proxies/" + urllib.parse.quote("GLOBAL", safe="")
-    status_code, _payload = controller_request(
-        socket_path, "PUT", endpoint, 5, {"name": profile_name}
-    )
-    if status_code != 204:
-        raise BackendError("Mihomo refused the Full VPN outbound selection")
-    status_code, selected = controller_json(socket_path, endpoint, 5)
-    if (
-        status_code != 200
-        or not isinstance(selected, dict)
-        or selected.get("now") != profile_name
-    ):
-        raise BackendError("Mihomo did not retain the Full VPN outbound selection")
+    for selector, target in (("PROXY", profile_name), ("GLOBAL", "PROXY")):
+        endpoint = "/proxies/" + urllib.parse.quote(selector, safe="")
+        status_code, _payload = controller_request(
+            socket_path, "PUT", endpoint, 5, {"name": target}
+        )
+        if status_code != 204:
+            raise BackendError("Mihomo refused the Full VPN outbound selection")
+        status_code, selected = controller_json(socket_path, endpoint, 5)
+        if (
+            status_code != 200
+            or not isinstance(selected, dict)
+            or selected.get("now") != target
+        ):
+            raise BackendError("Mihomo did not retain the Full VPN outbound selection")
 
 
 def render_config(
@@ -5291,12 +5293,18 @@ def main() -> int:
     if args.command == "watch-plugin-removal":
         return watch_plugin_removal(paths)
     ensure_private_dir(paths.config_dir)
+    # run-core is the service's internal execution path. A user mutation may
+    # synchronously restart the service while holding the operation lock, so
+    # taking that lock here would prevent Mihomo from starting until the
+    # caller's controller-readiness check times out. The generated config is
+    # already prepared transactionally by the caller; the supervisor does not
+    # migrate or mutate user state.
+    if args.command == "run-core":
+        return run_core_supervisor(paths, Path(args.core))
     with operation_lock(paths):
         migrate_legacy_data(paths)
     if args.command == "status":
         status(paths)
-    elif args.command == "run-core":
-        return run_core_supervisor(paths, Path(args.core))
     elif args.command == "preview":
         text = read_text_file(
             Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"
