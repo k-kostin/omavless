@@ -2,13 +2,17 @@
 
 This file is the mandatory entry point for every coding or testing agent working on OmaVLESS: browser/cloud agents, Codex Desktop on macOS, Codex CLI inside Try Omarchy, and agents running on a bare-metal Omarchy PC.
 
-Before planning, implementing, gating or merging work, read:
+Before planning, implementing, gating or merging work:
 
-1. `DEVELOPMENT_ROADMAP.md`
-2. `docs/roadmap/DEVELOPMENT_WORKFLOW.md`
-3. the relevant feature/protocol roadmap referenced there
+1. Refresh remote metadata first (`git fetch origin --prune` or the equivalent through connected GitHub tooling).
+2. Compare the local `main` and current branch with their remote refs; do not reason from a stale checkout.
+3. Read the current remote versions of:
+   - `DEVELOPMENT_ROADMAP.md`
+   - `docs/roadmap/DEVELOPMENT_WORKFLOW.md`
+   - `docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md`
+   - the relevant feature/protocol roadmap referenced there.
 
-GitHub is the source of truth. Do not rely on an agent's private conversation state as the only record of a decision, test result or useful implementation.
+GitHub is the source of truth. Do not rely on an agent's private conversation state or a stale local checkout as the only record of a decision, test result, policy or useful implementation.
 
 ## Acceptance environments
 
