@@ -1,7 +1,7 @@
 # OmaVLESS TUI application and control surfaces
 
 Status: product/architecture direction, not current runtime support. Updated
-2026-08-26.
+2026-08-27.
 
 OmaVLESS should be able to grow from a compact Omarchy bar plugin into a
 full VPN application without creating a second owner of the tunnel or copying
@@ -42,6 +42,45 @@ Keep the compact panel optimized for frequent actions:
 
 Do not move every future feature into the panel. A small bar surface should not
 become a compressed desktop application.
+
+### Close, disconnect, quit and disable are different actions
+
+The current plugin must keep these lifecycle terms precise:
+
+- **Close panel** dismisses only the open popup. The bar widget remains loaded
+  and the requested VPN state is unchanged.
+- **Disconnect** stops the requested VPN connection. It does not remove the
+  plugin UI.
+- **Disable/remove plugin** unloads the Omarchy plugin and performs the existing
+  fail-safe runtime cleanup, including stopping its owned tunnel and removing
+  generated user units where applicable.
+- **Quit OmaVLESS** is reserved for closing or unloading an application/UI
+  surface while leaving a healthy requested tunnel owned by the canonical
+  runtime.
+
+Do not add a `Quit OmaVLESS` row to the current plugin Settings page by mapping
+it to `Panel.close()` or `omarchy plugin disable`. The first would leave the bar
+surface present and merely close its popup; the second would intentionally run
+the disable/removal cleanup and disconnect the tunnel. At the accepted Try
+Omarchy 4.0.0.alpha baseline, the Omarchy plugin API enables or disables the
+plugin id as a whole; it does not expose a separate supported primitive for
+unloading only this bar widget while retaining its plugin-local `Service.qml`
+owner.
+
+Baseline evidence: Try Omarchy pins
+[`basecamp/omarchy@7488ead`](https://github.com/basecamp/omarchy/tree/7488eaded43de68ff9d2d7e4bf50cd48e112eb0f);
+its [`omarchy-plugin-disable`](https://github.com/basecamp/omarchy/blob/7488eaded43de68ff9d2d7e4bf50cd48e112eb0f/bin/omarchy-plugin-disable)
+operates on the complete plugin id, while
+[`omarchy-bar`](https://github.com/basecamp/omarchy/blob/7488eaded43de68ff9d2d7e4bf50cd48e112eb0f/bin/omarchy-bar)
+offers put/move/settings operations but no independent widget-unload command.
+
+`Quit OmaVLESS` becomes implementable only after T1 gives the tunnel an owner
+whose lifetime is independent of the bar/TUI surface, and after the frontend
+has an honest close/unload and re-entry path. Its later acceptance check must
+start with a healthy active tunnel, quit the selected UI surface, and verify
+that exactly one runtime, one core and one TUN remain healthy before reopening
+the UI. A combined `Quit & Disconnect` action is not part of the baseline UX;
+the existing explicit Disconnect action already owns that intent.
 
 ### TUI application
 
