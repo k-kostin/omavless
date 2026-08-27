@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import http.client
 import http.server
 import json
 import os
@@ -1569,6 +1570,38 @@ rules:
             ]
         ), mock.patch.object(backend.time, "sleep") as sleep:
             backend.select_global_proxy(mock.Mock(), "Example")
+        sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
+
+    def test_full_vpn_retries_temporary_controller_protocol_failure(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", side_effect=[
+                http.client.BadStatusLine("startup"), (204, {}), (204, {}),
+            ]
+        ), mock.patch.object(
+            backend, "controller_json", side_effect=[
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
+
+    def test_full_vpn_retries_temporary_readback_protocol_failure(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", return_value=(204, {})
+        ) as request, mock.patch.object(
+            backend, "controller_json", side_effect=[
+                http.client.BadStatusLine("startup"),
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(request.call_count, 2)
         sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
 
     def test_full_vpn_retries_temporary_server_error(self):

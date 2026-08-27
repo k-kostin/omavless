@@ -3532,7 +3532,7 @@ def select_proxy_with_retry(socket_path: Path, endpoint: str, target: str) -> No
                 status_code, _payload = controller_request(
                     socket_path, "PUT", endpoint, max(0.05, remaining), {"name": target}
                 )
-            except (OSError, TimeoutError):
+            except (OSError, TimeoutError, http.client.HTTPException):
                 status_code = 503
             if status_code == 204:
                 put_accepted = True
@@ -3547,7 +3547,7 @@ def select_proxy_with_retry(socket_path: Path, endpoint: str, target: str) -> No
                 status_code, selected = controller_json(
                     socket_path, endpoint, max(0.05, remaining)
                 )
-            except (OSError, TimeoutError):
+            except (OSError, TimeoutError, http.client.HTTPException):
                 status_code, selected = 503, {}
             if (
                 status_code == 200
