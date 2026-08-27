@@ -1,6 +1,6 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-26.
+Status: active delivery ledger, updated 2026-08-27.
 
 This file is the compact source of truth for delivery order and acceptance
 state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
@@ -226,6 +226,10 @@ workspace and a bounded CLI/IPC integration surface.
   high-volume local logs/connections.
 - Define daemon/systemd ownership, package/update/remove lifecycle and exact
   compatibility requirements for the existing plugin.
+- Preserve the current distinction between closing a panel, disconnecting the
+  VPN and disabling/removing the plugin. Defer `Quit OmaVLESS` until T1 owns the
+  tunnel independently of UI lifetime; do not alias it to popup close or plugin
+  disable.
 - Define an explicit distribution path for a future native TUI/runtime. The
   marketplace plugin must not silently download/build a binary.
 - Define `Open app` launch-or-focus behavior using the supported Omarchy
