@@ -1522,27 +1522,148 @@ rules:
             backend, "controller_json", side_effect=[
                 (200, {"now": "Example"}), (200, {"now": "PROXY"}),
             ]
-        ) as readback:
+        ) as readback, mock.patch.object(backend.time, "sleep") as sleep:
             backend.select_global_proxy(mock.Mock(), "Example")
         self.assertEqual(request.call_args_list, [
-            mock.call(socket_path, "PUT", "/proxies/PROXY", 5, {"name": "Example"}),
-            mock.call(socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "PROXY"}),
+            mock.call(
+                socket_path, "PUT", "/proxies/PROXY", mock.ANY, {"name": "Example"}
+            ),
+            mock.call(
+                socket_path, "PUT", "/proxies/GLOBAL", mock.ANY, {"name": "PROXY"}
+            ),
         ])
         self.assertEqual(readback.call_args_list, [
-            mock.call(socket_path, "/proxies/PROXY", 5),
-            mock.call(socket_path, "/proxies/GLOBAL", 5),
+            mock.call(socket_path, "/proxies/PROXY", mock.ANY),
+            mock.call(socket_path, "/proxies/GLOBAL", mock.ANY),
         ])
+        sleep.assert_not_called()
+
+    def test_full_vpn_retries_selector_not_found_during_startup(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", side_effect=[
+                (404, {}), (204, {}), (204, {}),
+            ]
+        ) as request, mock.patch.object(
+            backend, "controller_json", side_effect=[
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(request.call_count, 3)
+        sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
+
+    def test_full_vpn_retries_temporary_controller_transport_failure(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", side_effect=[
+                OSError("private controller startup"), (204, {}), (204, {}),
+            ]
+        ), mock.patch.object(
+            backend, "controller_json", side_effect=[
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
+
+    def test_full_vpn_retries_temporary_server_error(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", side_effect=[
+                (503, {}), (204, {}), (204, {}),
+            ]
+        ), mock.patch.object(
+            backend, "controller_json", side_effect=[
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        sleep.assert_called_once_with(backend.SELECTOR_READY_INITIAL_DELAY_SECONDS)
+
+    def test_full_vpn_retries_temporary_readback_failure(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", return_value=(204, {})
+        ) as request, mock.patch.object(
+            backend, "controller_json", side_effect=[
+                (404, {}), (200, {"now": "DIRECT"}),
+                (200, {"now": "Example"}), (200, {"now": "PROXY"}),
+            ]
+        ), mock.patch.object(backend.time, "sleep") as sleep:
+            backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(sleep.call_args_list, [mock.call(0.05), mock.call(0.1)])
+
+    def test_full_vpn_does_not_retry_permanent_selector_errors(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        for status_code in (400, 401, 403):
+            with self.subTest(status_code=status_code), mock.patch.object(
+                backend, "wait_private_controller", return_value=socket_path
+            ), mock.patch.object(
+                backend, "controller_request", return_value=(status_code, {})
+            ) as request, mock.patch.object(backend.time, "sleep") as sleep, \
+                 self.assertRaisesRegex(backend.BackendError, "refused"):
+                backend.select_global_proxy(mock.Mock(), "Example")
+            request.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_full_vpn_selector_retry_deadline_is_bounded(self):
+        socket_path = Path("/run/user/1000/omavless/controller.sock")
+        now = 0.0
+
+        def monotonic():
+            return now
+
+        def sleep(delay):
+            nonlocal now
+            now += delay
+
+        with mock.patch.object(
+            backend, "wait_private_controller", return_value=socket_path
+        ), mock.patch.object(
+            backend, "controller_request", return_value=(404, {})
+        ) as request, mock.patch.object(
+            backend.time, "monotonic", side_effect=monotonic
+        ), mock.patch.object(
+            backend.time, "sleep", side_effect=sleep
+        ), self.assertRaisesRegex(backend.BackendError, "refused"):
+            backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(now, backend.SELECTOR_READY_TIMEOUT_SECONDS)
+        self.assertLessEqual(request.call_count, 8)
 
     def test_full_vpn_rejects_a_selection_that_mihomo_did_not_retain(self):
         socket_path = Path("/run/user/1000/omavless/controller.sock")
+        now = 0.0
+
+        def monotonic():
+            return now
+
+        def sleep(delay):
+            nonlocal now
+            now += delay
+
         with mock.patch.object(
             backend, "wait_private_controller", return_value=socket_path
         ), mock.patch.object(
             backend, "controller_request", return_value=(204, {})
         ), mock.patch.object(
             backend, "controller_json", return_value=(200, {"now": "DIRECT"})
+        ), mock.patch.object(
+            backend.time, "monotonic", side_effect=monotonic
+        ), mock.patch.object(
+            backend.time, "sleep", side_effect=sleep
         ), self.assertRaisesRegex(backend.BackendError, "did not retain"):
             backend.select_global_proxy(mock.Mock(), "Example")
+        self.assertEqual(now, backend.SELECTOR_READY_TIMEOUT_SECONDS)
 
     def test_full_vpn_rejects_nested_global_selector_failure(self):
         socket_path = Path("/run/user/1000/omavless/controller.sock")
@@ -1555,7 +1676,7 @@ rules:
         ), self.assertRaisesRegex(backend.BackendError, "refused"):
             backend.select_global_proxy(mock.Mock(), "Example")
         self.assertEqual(request.call_args_list[-1], mock.call(
-            socket_path, "PUT", "/proxies/GLOBAL", 5, {"name": "PROXY"}
+            socket_path, "PUT", "/proxies/GLOBAL", mock.ANY, {"name": "PROXY"}
         ))
 
     def test_set_routing_mode_reconnects_and_rolls_back_on_failure(self):

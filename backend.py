@@ -90,6 +90,9 @@ PROBE_ROUTING_MARK = 0x80000
 PROBE_GROUP_NAME = "OMAVLESS_TEST"
 ADVANCED_DIAGNOSTICS_RESPONSE_BYTES = 512 * 1024
 ADVANCED_DIAGNOSTICS_OUTPUT_BYTES = 384 * 1024
+SELECTOR_READY_TIMEOUT_SECONDS = 1.0
+SELECTOR_READY_INITIAL_DELAY_SECONDS = 0.05
+SELECTOR_READY_MAX_DELAY_SECONDS = 0.2
 MAX_LOADED_RULES = 2048
 MAX_LOADED_RULE_PROVIDERS = 256
 MAX_DIAGNOSTIC_RULE_TYPE_BYTES = 80
@@ -3508,18 +3511,60 @@ def select_global_proxy(paths: Paths, profile_name: str) -> None:
     socket_path = wait_private_controller(paths)
     for selector, target in (("PROXY", profile_name), ("GLOBAL", "PROXY")):
         endpoint = "/proxies/" + urllib.parse.quote(selector, safe="")
-        status_code, _payload = controller_request(
-            socket_path, "PUT", endpoint, 5, {"name": target}
-        )
-        if status_code != 204:
+        select_proxy_with_retry(socket_path, endpoint, target)
+
+
+def _selector_response_is_transient(status_code: int) -> bool:
+    return status_code == 404 or 500 <= status_code <= 599
+
+
+def select_proxy_with_retry(socket_path: Path, endpoint: str, target: str) -> None:
+    """Select one outbound after Mihomo's controller becomes fully ready."""
+    deadline = time.monotonic() + SELECTOR_READY_TIMEOUT_SECONDS
+    delay = SELECTOR_READY_INITIAL_DELAY_SECONDS
+    put_accepted = False
+    while True:
+        if not put_accepted:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BackendError("Mihomo refused the Full VPN outbound selection")
+            try:
+                status_code, _payload = controller_request(
+                    socket_path, "PUT", endpoint, max(0.05, remaining), {"name": target}
+                )
+            except (OSError, TimeoutError):
+                status_code = 503
+            if status_code == 204:
+                put_accepted = True
+            elif not _selector_response_is_transient(status_code):
+                raise BackendError("Mihomo refused the Full VPN outbound selection")
+
+        if put_accepted:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BackendError("Mihomo did not retain the Full VPN outbound selection")
+            try:
+                status_code, selected = controller_json(
+                    socket_path, endpoint, max(0.05, remaining)
+                )
+            except (OSError, TimeoutError):
+                status_code, selected = 503, {}
+            if (
+                status_code == 200
+                and isinstance(selected, dict)
+                and selected.get("now") == target
+            ):
+                return
+            if status_code != 200 and not _selector_response_is_transient(status_code):
+                raise BackendError("Mihomo did not retain the Full VPN outbound selection")
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if put_accepted:
+                raise BackendError("Mihomo did not retain the Full VPN outbound selection")
             raise BackendError("Mihomo refused the Full VPN outbound selection")
-        status_code, selected = controller_json(socket_path, endpoint, 5)
-        if (
-            status_code != 200
-            or not isinstance(selected, dict)
-            or selected.get("now") != target
-        ):
-            raise BackendError("Mihomo did not retain the Full VPN outbound selection")
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, SELECTOR_READY_MAX_DELAY_SECONDS)
 
 
 def render_config(
