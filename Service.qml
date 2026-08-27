@@ -97,6 +97,25 @@ Item {
   property var importPreview: ({})
   readonly property bool diagnosticsExporting: diagnosticsProcess.running
   property string diagnosticsStatus: ""
+  // Live Mihomo data is deliberately page-scoped. It never contributes to
+  // lastError, so a controller/API problem cannot turn a healthy VPN shield
+  // into a fatal-looking bar state.
+  property bool diagnosticsPageVisible: false
+  readonly property bool advancedDiagnosticsLoading: advancedDiagnosticsProcess.running
+  property string advancedDiagnosticsError: ""
+  property var loadedRules: []
+  property int loadedRuleTotal: 0
+  property bool loadedRulesTruncated: false
+  property var loadedRuleProviders: []
+  property int loadedRuleProviderTotal: 0
+  property bool loadedRuleProvidersTruncated: false
+  readonly property int loadedRefreshableProviderCount: {
+    var count = 0
+    for (var i = 0; i < loadedRuleProviders.length; i++)
+      if (loadedRuleProviders[i].refreshable) count++
+    return count
+  }
+  property double advancedDiagnosticsLoadedAt: 0
   readonly property bool copying: copyProcess.running
   readonly property bool messageDismissible:
     lastError !== "" && actionStatus === "" ||
@@ -109,8 +128,11 @@ Item {
   // new process at the normal cadence forever. A manual refresh remains
   // available, and one success restores the configured interval.
   property int statusFailureCount: 0
+  property bool panelVisible: false
+  readonly property int statusBaseIntervalSec:
+    panelVisible ? refreshIntervalSec : Math.max(30, refreshIntervalSec)
   readonly property int statusPollIntervalMs:
-    refreshIntervalSec * 1000 * Math.pow(2, Math.min(statusFailureCount, 5))
+    statusBaseIntervalSec * 1000 * Math.pow(2, Math.min(statusFailureCount, 5))
 
   readonly property bool busy: controlProcess.running
   readonly property bool statusProcessRunning: statusProcess.running
@@ -411,6 +433,22 @@ Item {
     }
   }
 
+  onDiagnosticsPageVisibleChanged: {
+    _advancedDiagnosticsGeneration++
+    _advancedDiagnosticsRefreshPending = false
+    advancedDiagnosticsError = ""
+    if (diagnosticsPageVisible) {
+      loadedRules = []
+      loadedRuleTotal = 0
+      loadedRulesTruncated = false
+      loadedRuleProviders = []
+      loadedRuleProviderTotal = 0
+      loadedRuleProvidersTruncated = false
+      advancedDiagnosticsLoadedAt = 0
+      refreshAdvancedDiagnostics()
+    }
+  }
+
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
@@ -493,6 +531,95 @@ Item {
       return false
     }
     return refresh()
+  }
+
+  function refreshAdvancedDiagnostics() {
+    if (!diagnosticsPageVisible) return false
+    if (advancedDiagnosticsProcess.running) {
+      // A re-open must get a fresh answer after the request from the previous
+      // page lifetime exits. Repeated refresh clicks in one lifetime do not
+      // queue another process.
+      if (_advancedDiagnosticsRequestGeneration !== _advancedDiagnosticsGeneration)
+        _advancedDiagnosticsRefreshPending = true
+      return false
+    }
+    advancedDiagnosticsError = ""
+    _advancedDiagnosticsRequestGeneration = _advancedDiagnosticsGeneration
+    advancedDiagnosticsProcess.command = ["bash", backendPath, "advanced-diagnostics"]
+    advancedDiagnosticsProcess.running = true
+    return true
+  }
+
+  function refreshAdvancedDiagnosticsAfterChange() {
+    if (!diagnosticsPageVisible) return false
+    if (advancedDiagnosticsProcess.running) {
+      _advancedDiagnosticsRefreshPending = true
+      return false
+    }
+    return refreshAdvancedDiagnostics()
+  }
+
+  function applyAdvancedDiagnostics(raw) {
+    var text = String(raw || "")
+    if (text.length === 0 || text.length > 393216) return false
+    var payload
+    try { payload = JSON.parse(text) } catch (error) { return false }
+    if (!payload || payload.version !== 1 || !payload.rules || !payload.providers)
+      return false
+    var rules = payload.rules
+    var providers = payload.providers
+    if (!Array.isArray(rules.items) || rules.items.length > 2048
+        || typeof rules.total !== "number" || typeof rules.shown !== "number"
+        || !isFinite(rules.total) || Math.floor(rules.total) !== rules.total
+        || rules.total < rules.items.length || rules.total > 65536
+        || rules.shown !== rules.items.length
+        || typeof rules.truncated !== "boolean"
+        || !Array.isArray(providers.items) || providers.items.length > 256
+        || typeof providers.total !== "number" || typeof providers.shown !== "number"
+        || !isFinite(providers.total) || Math.floor(providers.total) !== providers.total
+        || providers.total < providers.items.length
+        || providers.total > 256
+        || providers.shown !== providers.items.length
+        || typeof providers.truncated !== "boolean") return false
+    var nextRules = []
+    for (var i = 0; i < rules.items.length; i++) {
+      var rule = rules.items[i]
+      if (!rule || typeof rule.type !== "string" || rule.type.length > 80
+          || typeof rule.payload !== "string" || rule.payload.length > 512
+          || ["VPN", "DIRECT", "REJECT"].indexOf(rule.target) < 0) return false
+      nextRules.push({
+        type: plainText(rule.type, 80), payload: plainText(rule.payload, 512),
+        target: rule.target
+      })
+    }
+    var nextProviders = []
+    for (var p = 0; p < providers.items.length; p++) {
+      var provider = providers.items[p]
+      if (!provider || typeof provider.name !== "string" || provider.name.length > 160
+          || typeof provider.behavior !== "string" || provider.behavior.length > 80
+          || typeof provider.updatedAt !== "string" || provider.updatedAt.length > 80
+          || typeof provider.ruleCount !== "number"
+          || provider.ruleCount < -1 || provider.ruleCount > 1000000000
+          || typeof provider.refreshable !== "boolean"
+          || ["loaded", "empty", "unknown"].indexOf(provider.status) < 0) return false
+      nextProviders.push({
+        name: plainText(provider.name, 160),
+        behavior: plainText(provider.behavior, 80),
+        ruleCount: Math.floor(provider.ruleCount),
+        updatedAt: plainText(provider.updatedAt, 80),
+        status: provider.status,
+        refreshable: provider.refreshable
+      })
+    }
+    loadedRules = nextRules
+    loadedRuleTotal = Math.floor(rules.total)
+    loadedRulesTruncated = rules.truncated
+    loadedRuleProviders = nextProviders
+    loadedRuleProviderTotal = Math.floor(providers.total)
+    loadedRuleProvidersTruncated = providers.truncated
+    advancedDiagnosticsLoadedAt = Date.now()
+    advancedDiagnosticsError = ""
+    return true
   }
 
   function sampleTraffic() {
@@ -1957,6 +2084,11 @@ Item {
   property var _markInFlight: []
   // Epoch milliseconds of the moment the running status poll was requested.
   property double _statusStartedAt: 0
+  // A generation identifies one diagnostics-page lifetime. Controller
+  // replies from a page that has already closed are ignored.
+  property int _advancedDiagnosticsGeneration: 0
+  property int _advancedDiagnosticsRequestGeneration: -1
+  property bool _advancedDiagnosticsRefreshPending: false
   // False once the QR window closed — a result arriving afterwards is
   // deleted, not displayed.
   property bool _qrWanted: false
@@ -2281,6 +2413,35 @@ Item {
       root.lastError = ""
       root.importReady(kind, payload,
         root.importPreview.suggestedName !== "" ? root.importPreview.suggestedName : suggested)
+    }
+  }
+
+  Process {
+    id: advancedDiagnosticsProcess
+    running: false
+    command: []
+    stdout: StdioCollector {
+      id: advancedDiagnosticsStdout
+      waitForEnd: true
+    }
+    // Collected only to drain the child pipe. Public UI errors are stable and
+    // never echo controller/configuration details from stderr.
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      var stale = !root.diagnosticsPageVisible
+        || root._advancedDiagnosticsRequestGeneration !== root._advancedDiagnosticsGeneration
+      if (!stale) {
+        if (exitCode === 0
+            && root.applyAdvancedDiagnostics(advancedDiagnosticsStdout.text)) {
+          root.advancedDiagnosticsError = ""
+        } else {
+          root.advancedDiagnosticsError = "Live Mihomo diagnostics are unavailable"
+        }
+      }
+      if (root._advancedDiagnosticsRefreshPending && root.diagnosticsPageVisible) {
+        root._advancedDiagnosticsRefreshPending = false
+        Qt.callLater(root.refreshAdvancedDiagnostics)
+      }
     }
   }
 
@@ -2733,6 +2894,7 @@ Item {
             root.routingToolStatus = updated > 0
               ? "Updated " + updated + (updated === 1 ? " rule set" : " rule sets")
               : "Rule data updated"
+            Qt.callLater(root.refreshAdvancedDiagnosticsAfterChange)
           } else {
             root.routingToolStatus = op === "custom-rule-delete"
               ? "Custom rule removed" : "Custom rule saved"

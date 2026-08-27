@@ -13,6 +13,22 @@ All notable changes to OmaVLESS are documented here.
   unloaded. Actual checkout deletion stops the TUN, disables autoconnect and
   removes both user units. An explicit plugin disable applies the same cleanup;
   hot reload and update preserve the selected connection state.
+- Added a Settings-only, read-only Mihomo diagnostics page backed exclusively
+  by OmaVLESS's private Unix controller. Loaded rules expose bounded type and
+  payload fields plus only the terminal `VPN`, `DIRECT` or `REJECT` outcome;
+  rule providers expose bounded identifiers, behavior, count, state and last
+  successful update without configuration fragments or proxy-group names.
+- Added local loaded-rule search, explicit loading/empty/error states and
+  generation-based stale-response rejection. Static controller data is read
+  once on page entry, on manual refresh and after a successful provider
+  update; repeat requests coalesce instead of building a process backlog.
+- Split status polling into the configured open-panel cadence and a light
+  background cadence of at least 30 seconds, retaining bounded failure
+  backoff. Traffic/details and latency sampling now stop when the main page is
+  hidden unless compact bar throughput was explicitly enabled.
+- Hardened rule-provider refresh validation against arbitrary API paths and
+  removed provider identifiers from refresh failure messages while preserving
+  the existing all-or-nothing success timestamp.
 - Made the planned WireGuard and AmneziaWG work visible from the README and
   added an at-a-glance protocol matrix to the roadmap. The documentation now
   distinguishes Mihomo 1.19.30 core support from OmaVLESS runtime import

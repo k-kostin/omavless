@@ -250,6 +250,18 @@ Panel {
     page = "main"
   }
 
+  function openAdvancedDiagnostics() {
+    page = "diagnostics"
+    cursorActive = false
+    advancedDiagnosticsPage.resetSearchFocus()
+  }
+
+  function closeAdvancedDiagnostics() {
+    page = "settings"
+    cursorActive = false
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
   function requestRoutingMode(mode) {
     var value = String(mode || "")
     if (value === "rule" && !vless.routingPresetConfigured) {
@@ -829,8 +841,10 @@ Panel {
   Service {
     id: vless
     settings: root.settings
-    trafficMonitoring: root.opened || vless.showBarThroughput
-    pingMonitoring: root.opened
+    panelVisible: root.opened
+    diagnosticsPageVisible: root.opened && root.page === "diagnostics"
+    trafficMonitoring: (root.opened && root.page === "main") || vless.showBarThroughput
+    pingMonitoring: root.opened && root.page === "main"
   }
 
   Connections {
@@ -1025,7 +1039,9 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
       root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
-        : (root.page === "settings" ? settingsColumn.implicitHeight : column.implicitHeight),
+        : (root.page === "settings" ? settingsColumn.implicitHeight
+          : (root.page === "diagnostics"
+            ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
       Style.space(600)
     )
 
@@ -1036,6 +1052,7 @@ Panel {
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus
+        || advancedDiagnosticsPage.searchActive
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
@@ -1043,6 +1060,7 @@ Panel {
       onActivateRequested: if (root.cursorActive) root.activateCursor()
       onCloseRequested: {
         if (root.page === "subscriptions") root.closeSubscriptions()
+        else if (root.page === "diagnostics") root.closeAdvancedDiagnostics()
         else if (root.page === "settings") root.closeSettings()
         else root.close()
       }
@@ -1056,6 +1074,11 @@ Panel {
         }
       }
       onTextKey: function(t) {
+        if (root.page === "diagnostics") {
+          if (t === "r" || t === "R") vless.refreshAdvancedDiagnostics()
+          else if (t === "/") advancedDiagnosticsPage.resetSearchFocus()
+          return
+        }
         if (root.page === "settings") {
           if (t === "s" || t === "S") root.openSubscriptions()
           else if (t === "r" || t === "R") vless.refresh()
@@ -1131,6 +1154,20 @@ Panel {
       // own hover, and this only goes false when the pointer is out.
       HoverHandler {
         onHoveredChanged: if (!hovered) root.cursorActive = false
+      }
+
+      AdvancedDiagnostics {
+        id: advancedDiagnosticsPage
+        anchors.fill: parent
+        visible: root.page === "diagnostics"
+        service: vless
+        foreground: root.foreground
+        dim: root.dim
+        urgent: root.urgent
+        fontFamily: root.fontFamily
+        onBackRequested: root.closeAdvancedDiagnostics()
+        onRefreshRequested: vless.refreshAdvancedDiagnostics()
+        onRefreshProvidersRequested: vless.refreshRuleProviders()
       }
 
       Flickable {
@@ -2012,8 +2049,9 @@ Panel {
 
           SettingsActionRow {
             title: "Connection monitoring"
-            description: "Status every " + vless.refreshIntervalSec + "s · latency target "
-              + (vless.pingHost !== "" ? vless.pingHost : "disabled")
+            description: "Open every " + vless.refreshIntervalSec
+              + "s · background every " + Math.max(30, vless.refreshIntervalSec)
+              + "s · latency " + (vless.pingHost !== "" ? vless.pingHost : "disabled")
             actionText: "Configured"
             actionEnabled: false
           }
@@ -2021,9 +2059,17 @@ Panel {
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
-            text: "PRIVACY & PANEL"
+            text: "DIAGNOSTICS & PRIVACY"
             foreground: root.foreground
             fontFamily: root.fontFamily
+          }
+
+          SettingsActionRow {
+            title: "Live Mihomo diagnostics"
+            description: "Loaded rules and rule providers · private controller only"
+            actionText: "Open"
+            actionEnabled: !vless.busy
+            onAction: root.openAdvancedDiagnostics()
           }
 
           SettingsActionRow {
