@@ -1698,7 +1698,9 @@ Panel {
                 // here too, or that row stays lit while the pointer is here.
                 PanelActionButton {
                   iconText: "󰐕"
-                  tooltipText: "Import a profile link file (i)"
+                  tooltipText: vless.filePicker.available
+                    ? "Import a profile link file (i)"
+                    : "File import unavailable — install zenity"
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -2227,6 +2229,7 @@ Panel {
         id: onboardingWizard
         anchors.fill: parent
         coreSetup: vless.coreSetup
+        filePicker: vless.filePicker
         presets: vless.routingPresets
         profiles: vless.profiles
         routingPreset: vless.routingPresetConfigured ? vless.routing.preset : ""

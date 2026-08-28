@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Report file-picker availability during onboarding and installation, with an
+  actionable Omarchy package command before the user tries file import.
+  Picker discovery and launch now use a deterministic, shell-free backend
+  boundary while retaining zenity, kdialog and yad support; clipboard import
+  remains available without a picker.
 - Published OmaVLESS 0.7.0 in the Omarchy plugin marketplace as a
   maintainer-verified listing at exact commit
   `69fe05b03129a23664fff3f8289821a7b7f80095`.
