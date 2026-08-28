@@ -29,6 +29,8 @@ Item {
   signal canceled()
 
   visible: false
+  focus: visible
+  Keys.onEscapePressed: canceled()
 
   function openWith(name, url) {
     fromFile = false
@@ -110,6 +112,8 @@ Item {
           foreground: prompt.foreground
           font.family: prompt.fontFamily
           onTextEdited: prompt.autoName = false
+          KeyNavigation.tab: prompt.fromFile ? cancelButton : urlField
+          KeyNavigation.backtab: confirmButton
           Keys.onEscapePressed: prompt.canceled()
         }
 
@@ -124,6 +128,8 @@ Item {
           enabled: !prompt.loading
           onTextEdited: if (prompt.autoName) nameField.text = prompt.suggestedName(text)
           onAccepted: if (prompt.accepted) prompt.confirmed()
+          KeyNavigation.tab: reveal
+          KeyNavigation.backtab: nameField
           Keys.onEscapePressed: prompt.canceled()
         }
 
@@ -151,6 +157,9 @@ Item {
             foreground: prompt.foreground
             fontFamily: prompt.fontFamily
             enabled: !prompt.loading
+            focusable: true
+            KeyNavigation.tab: cancelButton
+            KeyNavigation.backtab: urlField
             onClicked: checked = !checked
           }
 
@@ -176,18 +185,26 @@ Item {
             anchors.right: parent.right
             spacing: Style.space(10)
             Button {
+              id: cancelButton
               text: "Cancel"
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily
+              focusable: true
+              KeyNavigation.tab: confirmButton
+              KeyNavigation.backtab: prompt.fromFile ? nameField : reveal
               onClicked: prompt.canceled()
             }
             Button {
+              id: confirmButton
               text: prompt.confirmLabel
               bordered: true
               enabled: prompt.accepted && !prompt.loading
               foreground: enabled ? prompt.foreground : prompt.dim
               fontFamily: prompt.fontFamily
+              focusable: true
+              KeyNavigation.tab: nameField
+              KeyNavigation.backtab: cancelButton
               onClicked: prompt.confirmed()
             }
           }

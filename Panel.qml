@@ -97,6 +97,13 @@ Panel {
     ? "Disconnect"
     : (vless.toggleTarget !== "" ? "Connect " + vless.toggleTarget : "Connect")
   readonly property bool headerHasCursor: cursorActive && focusSection === "header" && vless.profiles.length > 0
+  readonly property bool panelTabFocusActive: {
+    var targets = root.panelTabTargets()
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i] && targets[i].activeFocus) return true
+    }
+    return false
+  }
   readonly property string barTooltip: {
     if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + vless.lastError, 180)
     if (!vless.active) {
@@ -266,6 +273,90 @@ Panel {
     page = "settings"
     cursorActive = false
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  // Omarchy's PanelKeyCatcher intentionally turns Tab into a semantic event.
+  // Keep that event inside an active OmaVLESS page instead of delegating it
+  // to Panel.switchPanel(), which moves to a neighboring bar plugin.
+  function panelTabTargets() {
+    if (page === "subscriptions") return [
+      subscriptionBackButton, subscriptionRefreshButton, subscriptionAddButton
+    ]
+    if (page === "settings") return [
+      settingsBackButton,
+      settingsCoreRow.focusTarget,
+      settingsFileImportRow.focusTarget,
+      settingsStartupRow.focusTarget,
+      settingsRoutingToolsRow.focusTarget,
+      settingsRuleRefreshRow.focusTarget,
+      settingsSubscriptionsRow.focusTarget,
+      settingsDiagnosticsRow.focusTarget,
+      settingsDiagnosticsExportRow.focusTarget,
+      settingsExitIpRow.focusTarget,
+      settingsThroughputRow.focusTarget
+    ]
+    if (page === "main") return [
+      subscriptionsButton, fileImportButton, clipboardImportButton, profileSearch
+    ]
+    return []
+  }
+
+  function availablePanelTabTargets() {
+    var source = root.panelTabTargets()
+    var result = []
+    for (var i = 0; i < source.length; i++) {
+      var target = source[i]
+      if (target && target.visible && target.enabled) result.push(target)
+    }
+    return result
+  }
+
+  function scrollPanelControlIntoView(target) {
+    var flick = page === "subscriptions" ? subscriptionsFlick
+      : (page === "settings" ? settingsFlick : panelFlick)
+    if (!flick || !target) return
+    Qt.callLater(function() {
+      if (!target || !flick) return
+      var point = target.mapToItem(flick.contentItem, 0, 0)
+      var margin = Style.space(8)
+      var top = point.y
+      var bottom = top + target.height
+      var maxY = Math.max(0, flick.contentHeight - flick.height)
+      if (top < flick.contentY + margin)
+        flick.contentY = Math.max(0, top - margin)
+      else if (bottom > flick.contentY + flick.height - margin)
+        flick.contentY = Math.min(maxY, bottom + margin - flick.height)
+    })
+  }
+
+  function focusPanelControl(direction) {
+    var targets = root.availablePanelTabTargets()
+    if (targets.length === 0) return false
+    var current = -1
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].activeFocus) { current = i; break }
+    }
+    var next = current < 0
+      ? (direction < 0 ? targets.length - 1 : 0)
+      : (current + (direction < 0 ? -1 : 1) + targets.length) % targets.length
+    targets[next].forceActiveFocus(direction < 0 ? Qt.BacktabFocusReason : Qt.TabFocusReason)
+    root.cursorActive = false
+    root.scrollPanelControlIntoView(targets[next])
+    return true
+  }
+
+  function handlePanelControlKey(event) {
+    if (event.key === Qt.Key_Escape) {
+      if (root.page === "subscriptions") root.closeSubscriptions()
+      else if (root.page === "settings") root.closeSettings()
+      else root.close()
+      event.accepted = true
+      return
+    }
+    if (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab) return
+    root.focusPanelControl((event.modifiers & Qt.ShiftModifier)
+      || event.key === Qt.Key_Backtab ? -1 : 1)
+    event.accepted = true
   }
 
   function requestRoutingMode(mode) {
@@ -1086,7 +1177,7 @@ Panel {
         || root.pendingEdit !== null || importDialog.visible || subscriptionPrompt.visible
         || routingPresetPrompt.visible || startupPrompt.visible || onboardingWizard.visible
         || routingToolsPrompt.visible || profileSearch.activeFocus
-        || advancedDiagnosticsPage.searchActive
+        || root.panelTabFocusActive || advancedDiagnosticsPage.keyboardControlActive
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
@@ -1098,7 +1189,7 @@ Panel {
         else if (root.page === "settings") root.closeSettings()
         else root.close()
       }
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTabRequested: function(direction) { root.focusPanelControl(direction) }
       onDeleteRequested: {
         if (root.page === "subscriptions") {
           if (root.cursorActive && !vless.probingProfiles)
@@ -1722,6 +1813,8 @@ Panel {
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   enabled: !vless.busy && !vless.importSourceBusy && !vless.editing
+                  focusable: true
+                  Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
                   onHovered: function(on) { if (on) root.cursorActive = false }
                   onClicked: root.openSubscriptions()
                 }
@@ -1731,6 +1824,7 @@ Panel {
                 // them without ever crossing the sink below. Drop the cursor
                 // here too, or that row stays lit while the pointer is here.
                 PanelActionButton {
+                  id: fileImportButton
                   iconText: "󰐕"
                   tooltipText: vless.filePicker.available
                     ? "Import a profile link file (i)"
@@ -1741,11 +1835,14 @@ Panel {
                   size: subscriptionsButton.implicitHeight
                   anchors.verticalCenter: parent.verticalCenter
                   enabled: !vless.busy && !vless.importSourceBusy && !vless.editing
+                  focusable: true
+                  Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
                   onHovered: function(on) { if (on) root.cursorActive = false }
                   onClicked: vless.pickConfigFile()
                 }
 
                 PanelActionButton {
+                  id: clipboardImportButton
                   iconText: "󰅌"
                   tooltipText: "Import from clipboard (v)"
                   foreground: root.dim
@@ -1754,6 +1851,8 @@ Panel {
                   size: subscriptionsButton.implicitHeight
                   anchors.verticalCenter: parent.verticalCenter
                   enabled: !vless.busy && !vless.importSourceBusy && !vless.editing
+                  focusable: true
+                  Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
                   onHovered: function(on) { if (on) root.cursorActive = false }
                   onClicked: vless.pasteConfig()
                 }
@@ -1778,6 +1877,13 @@ Panel {
               leftPadding: Style.space(10)
               rightPadding: Style.space(10)
               onTextChanged: root.profileFilter = text
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                  root.focusPanelControl((event.modifiers & Qt.ShiftModifier)
+                    || event.key === Qt.Key_Backtab ? -1 : 1)
+                  event.accepted = true
+                }
+              }
               Keys.onEscapePressed: function(event) {
                 if (text !== "") text = ""
                 else keyCatcher.forceActiveFocus()
@@ -1893,11 +1999,14 @@ Panel {
             spacing: Style.space(8)
 
             PanelActionButton {
+              id: settingsBackButton
               iconText: "󰁍"
               tooltipText: "Back to profiles (Esc)"
               foreground: root.foreground
               hoverColor: Color.accent
               fontFamily: root.fontFamily
+              focusable: true
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: root.closeSettings()
             }
 
@@ -1940,6 +2049,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsCoreRow
             title: "Mihomo core"
             description: vless.coreSetupLabel
               + (vless.coreSetup.path !== "" ? " · " + vless.coreSetup.path : "")
@@ -1948,6 +2058,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsFileImportRow
             title: "File import"
             description: vless.filePicker.available
               ? (vless.filePicker.provider === "gtk4"
@@ -1960,6 +2071,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsStartupRow
             title: "Start VPN at login"
             description: vless.startupSummary
             actionText: "Configure"
@@ -2060,6 +2172,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsRoutingToolsRow
             title: "Routing tools"
             description: root.plural(vless.routing.customRuleCount,
               "custom rule", "custom rules") + " · check a domain"
@@ -2068,6 +2181,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsRuleRefreshRow
             title: "Remote rule data"
             description: vless.routing.rulesUpdatedAt > 0
               ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
@@ -2086,6 +2200,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsSubscriptionsRow
             title: "Subscriptions"
             description: root.plural(vless.subscriptions.length, "provider", "providers")
               + " · " + (vless.latestSubscriptionUpdatedAt > 0
@@ -2113,6 +2228,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsDiagnosticsRow
             title: "Live Mihomo diagnostics"
             description: "Loaded rules and rule providers · private controller only"
             actionText: "Open"
@@ -2121,6 +2237,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsDiagnosticsExportRow
             title: "Safe diagnostics"
             description: vless.diagnosticsStatus !== ""
               ? vless.diagnosticsStatus
@@ -2131,6 +2248,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsExitIpRow
             title: "Observed Exit IP"
             description: "Show a bounded external path check in connection details"
             actionText: vless.showExitIp ? "On" : "Off"
@@ -2138,6 +2256,7 @@ Panel {
           }
 
           SettingsActionRow {
+            id: settingsThroughputRow
             title: "Live throughput in bar"
             description: "Keep the compact bar icon quiet unless explicitly enabled"
             actionText: vless.showBarThroughput ? "On" : "Off"
@@ -2170,11 +2289,14 @@ Panel {
             spacing: Style.space(8)
 
             PanelActionButton {
+              id: subscriptionBackButton
               iconText: "󰁍"
               tooltipText: "Back to profiles (Esc)"
               foreground: root.foreground
               hoverColor: Color.accent
               fontFamily: root.fontFamily
+              focusable: true
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: root.closeSubscriptions()
             }
 
@@ -2200,22 +2322,28 @@ Panel {
             }
 
             PanelActionButton {
+              id: subscriptionRefreshButton
               iconText: "󰑓"
               tooltipText: "Update all subscriptions (r)"
               foreground: root.dim
               hoverColor: root.foreground
               fontFamily: root.fontFamily
               enabled: !vless.busy && !vless.probingProfiles && vless.subscriptions.length > 0
+              focusable: true
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: vless.refreshAllSubscriptions()
             }
 
             Button {
+              id: subscriptionAddButton
               text: "Add…"
               tooltipText: "Add a profile subscription (a)"
               bordered: true
               foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: !vless.busy && !vless.probingProfiles && !vless.subscriptionEditorLoading
+              focusable: true
+              Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
               onClicked: root.addSubscription()
             }
           }
@@ -2671,6 +2799,7 @@ Panel {
     property string description: ""
     property string actionText: ""
     property bool actionEnabled: true
+    readonly property Item focusTarget: actionButton
     signal action()
 
     width: settingsColumn.width
@@ -2709,9 +2838,12 @@ Panel {
       }
 
       Button {
+        id: actionButton
         text: settingRow.actionText
         bordered: true
         enabled: settingRow.actionEnabled
+        focusable: settingRow.actionEnabled
+        Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
         foreground: enabled ? root.foreground : root.dim
         fontFamily: root.fontFamily
         onClicked: settingRow.action()

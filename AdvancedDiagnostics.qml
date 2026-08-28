@@ -22,6 +22,9 @@ Item {
   readonly property real controlHeight: Style.space(32)
   readonly property int visibleRuleLimit: 300
   readonly property bool searchActive: searchField.activeFocus
+  readonly property bool keyboardControlActive: backButton.activeFocus
+    || refreshButton.activeFocus || searchField.activeFocus
+    || providersRefreshButton.activeFocus
   readonly property var filteredRules: filterRules()
   readonly property int filteredRuleTotal: countFilteredRules()
 
@@ -110,7 +113,10 @@ Item {
           foreground: page.foreground
           fontFamily: page.fontFamily
           Layout.preferredHeight: page.controlHeight
+          focusable: true
           KeyNavigation.tab: refreshButton
+          KeyNavigation.backtab: providersRefreshButton
+          Keys.onEscapePressed: page.backRequested()
           onClicked: page.backRequested()
         }
 
@@ -143,7 +149,10 @@ Item {
           foreground: enabled ? page.foreground : page.dim
           fontFamily: page.fontFamily
           Layout.preferredHeight: page.controlHeight
+          focusable: true
           KeyNavigation.tab: searchField
+          KeyNavigation.backtab: backButton
+          Keys.onEscapePressed: page.backRequested()
           onClicked: page.refreshRequested()
         }
       }
@@ -187,6 +196,7 @@ Item {
         foreground: page.foreground
         font.family: page.fontFamily
         KeyNavigation.tab: providersRefreshButton
+        KeyNavigation.backtab: refreshButton
         Keys.onEscapePressed: page.backRequested()
       }
 
@@ -309,7 +319,10 @@ Item {
           foreground: enabled ? page.foreground : page.dim
           fontFamily: page.fontFamily
           Layout.preferredHeight: page.controlHeight
+          focusable: true
           KeyNavigation.tab: backButton
+          KeyNavigation.backtab: searchField
+          Keys.onEscapePressed: page.backRequested()
           onClicked: page.refreshProvidersRequested()
         }
       }
