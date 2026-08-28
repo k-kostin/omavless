@@ -108,6 +108,7 @@ Panel {
     return vless.plainText(line, 220)
   }
   readonly property string mihomoInstallCommand: "omarchy pkg aur add mihomo-bin"
+  readonly property string filePickerInstallCommand: "omarchy pkg add zenity"
   readonly property string mihomoCapabilityCommand: "sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep "
     + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
       : '"$(command -v mihomo)"')
@@ -1700,7 +1701,7 @@ Panel {
                   iconText: "󰐕"
                   tooltipText: vless.filePicker.available
                     ? "Import a profile link file (i)"
-                    : "File import unavailable — install zenity"
+                    : "File import unavailable — run “omarchy pkg add zenity”"
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -1916,10 +1917,13 @@ Panel {
           SettingsActionRow {
             title: "File import"
             description: vless.filePicker.available
-              ? "Available through " + vless.filePicker.provider
-              : "Unavailable — file picker missing. Run omarchy pkg add zenity"
-            actionText: vless.filePicker.available ? "Ready" : "Unavailable"
-            actionEnabled: false
+              ? (vless.filePicker.provider === "gtk4"
+                ? "Available through the system file picker"
+                : "Available through " + vless.filePicker.provider)
+              : "Unavailable — file picker missing. Run “omarchy pkg add zenity”"
+            actionText: vless.filePicker.available ? "Ready" : "Copy command"
+            actionEnabled: !vless.filePicker.available
+            onAction: vless.copyText(root.filePickerInstallCommand)
           }
 
           SettingsActionRow {

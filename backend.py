@@ -32,6 +32,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 import uuid as uuidlib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -4557,7 +4558,23 @@ def discover_file_picker() -> tuple[str, str]:
         executable = shutil.which(provider)
         if executable:
             return provider, str(executable)
+    if gtk4_file_picker_available():
+        return "gtk4", ""
     return "", ""
+
+
+def gtk4_file_picker_available() -> bool:
+    """Detect Omarchy's standard GTK4 chooser without opening a display."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import gi
+
+            gi.require_version("Gtk", "4.0")
+            from gi.repository import Gtk
+    except Exception:
+        return False
+    return hasattr(Gtk, "FileChooserNative")
 
 
 def file_picker_status() -> dict[str, Any]:
@@ -4565,33 +4582,81 @@ def file_picker_status() -> dict[str, Any]:
     return {"available": bool(provider), "provider": provider}
 
 
+def pick_import_file_gtk4() -> str:
+    """Open Omarchy's installed GTK4 native chooser and return a local path."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import gi
+
+            gi.require_version("Gtk", "4.0")
+            from gi.repository import GLib, Gtk
+
+        Gtk.init()
+        loop = GLib.MainLoop()
+        selected = {"path": ""}
+        dialog = Gtk.FileChooserNative.new(
+            "Import profile link",
+            None,
+            Gtk.FileChooserAction.OPEN,
+            "_Open",
+            "_Cancel",
+        )
+        profile_filter = Gtk.FileFilter()
+        profile_filter.set_name("Profile link")
+        for pattern in ("*.txt", "*.url", "*.conf"):
+            profile_filter.add_pattern(pattern)
+        dialog.add_filter(profile_filter)
+
+        def on_response(source: Any, response: int) -> None:
+            if response == Gtk.ResponseType.ACCEPT:
+                chosen = source.get_file()
+                if chosen is not None:
+                    selected["path"] = chosen.get_path() or ""
+            source.destroy()
+            loop.quit()
+
+        dialog.connect("response", on_response)
+        dialog.show()
+        loop.run()
+        return selected["path"]
+    except BackendError:
+        raise
+    except Exception as exc:
+        raise BackendError("Could not open the system file picker", 4) from exc
+
+
 def pick_import_file() -> int:
     provider, executable = discover_file_picker()
-    if not executable:
+    if not provider:
         raise BackendError(
             "File import unavailable — file picker missing. "
-            "Run: omarchy pkg add zenity (kdialog and yad are also supported).",
+            "Run “omarchy pkg add zenity” (kdialog and yad are also supported).",
             2,
         )
-    commands = {
-        "zenity": [
-            executable, "--file-selection", "--title=Import profile link",
-            "--file-filter=Profile link | *.txt *.url *.conf",
-            "--file-filter=All files | *",
-        ],
-        "kdialog": [
-            executable, "--getopenfilename", str(Path.home()),
-            "*.txt *.url *.conf|Profile link",
-        ],
-        "yad": [executable, "--file", "--title=Import profile link"],
-    }
-    result = run(commands[provider], check=False, timeout=None)
-    if result.returncode != 0:
+    if provider == "gtk4":
+        selected = pick_import_file_gtk4()
+    else:
+        commands = {
+            "zenity": [
+                executable, "--file-selection", "--title=Import profile link",
+                "--file-filter=Profile link | *.txt *.url *.conf",
+                "--file-filter=All files | *",
+            ],
+            "kdialog": [
+                executable, "--getopenfilename", str(Path.home()),
+                "*.txt *.url *.conf|Profile link",
+            ],
+            "yad": [executable, "--file", "--title=Import profile link"],
+        }
+        result = run(commands[provider], check=False, timeout=None)
+        if result.returncode != 0:
+            return 3
+        selected = result.stdout.rstrip("\r\n")
+    if not selected:
         return 3
-    selected = result.stdout.rstrip("\r\n")
     if (
-        not selected
-        or not Path(selected).is_absolute()
+        not Path(selected).is_absolute()
         or len(selected.encode("utf-8")) > MAX_PICKER_PATH_BYTES
         or re.search(r"[\x00-\x1f\x7f]", selected)
     ):

@@ -3129,7 +3129,8 @@ rules:
             )
 
     def test_missing_file_picker_has_actionable_public_error(self):
-        with mock.patch.object(backend.shutil, "which", return_value=None):
+        with mock.patch.object(backend.shutil, "which", return_value=None), \
+             mock.patch.object(backend, "gtk4_file_picker_available", return_value=False):
             self.assertEqual(
                 backend.file_picker_status(), {"available": False, "provider": ""}
             )
@@ -3138,6 +3139,22 @@ rules:
         self.assertEqual(raised.exception.exit_code, 2)
         self.assertIn("File import unavailable — file picker missing", str(raised.exception))
         self.assertIn("omarchy pkg add zenity", str(raised.exception))
+
+    def test_standard_omarchy_gtk4_picker_is_the_final_safe_fallback(self):
+        selected = "/tmp/profile;still-data.conf"
+        with mock.patch.object(backend.shutil, "which", return_value=None), \
+             mock.patch.object(backend, "gtk4_file_picker_available", return_value=True), \
+             mock.patch.object(backend, "pick_import_file_gtk4", return_value=selected), \
+             mock.patch.object(backend, "run") as run_mock, \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(backend.discover_file_picker(), ("gtk4", ""))
+            self.assertEqual(
+                backend.file_picker_status(),
+                {"available": True, "provider": "gtk4"},
+            )
+            self.assertEqual(backend.pick_import_file(), 0)
+            self.assertEqual(output.getvalue(), selected + "\n")
+            run_mock.assert_not_called()
 
     def test_supported_file_pickers_use_safe_argv_and_never_execute_the_path(self):
         selected = "/tmp/profile;touch-never-executed.conf"

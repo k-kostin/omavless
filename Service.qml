@@ -961,7 +961,7 @@ Item {
         || setup.path.length > 4096 || !picker
         || typeof picker.available !== "boolean"
         || typeof picker.provider !== "string"
-        || ["", "zenity", "kdialog", "yad"].indexOf(picker.provider) < 0
+        || ["", "zenity", "kdialog", "yad", "gtk4"].indexOf(picker.provider) < 0
         || picker.available !== (picker.provider !== "") || !startupSource
         || typeof startupSource.enabled !== "boolean"
         || typeof startupSource.configured !== "boolean"
@@ -1669,7 +1669,7 @@ Item {
     if (qrVisible) return rejectAction("close the QR code before importing")
     if (pickerProcess.running) return rejectAction("the file picker is already open")
     if (!filePicker.available) return rejectAction(
-      "File import unavailable — file picker missing. Run: omarchy pkg add zenity")
+      "File import unavailable — file picker missing. Run “omarchy pkg add zenity”")
     actionRejection = ""
     lastError = ""
     actionStatus = "Waiting for the file picker…"
@@ -2241,7 +2241,7 @@ Item {
       root.actionStatus = ""
       if (exitCode === 2) {
         root.lastError = root.elide(pickerStderr.text
-          || "File import unavailable — file picker missing. Run: omarchy pkg add zenity")
+          || "File import unavailable — file picker missing. Run “omarchy pkg add zenity”")
         return
       }
       // Exit 3 is the user pressing Cancel; say nothing.

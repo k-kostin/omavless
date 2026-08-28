@@ -92,10 +92,11 @@ this setting is explicitly saved.
 - Omarchy 4.x.
 - Python 3, included by Omarchy.
 - Mihomo, installed separately as described above.
-- Recommended: `zenity` for file import and profile editing. Install it from
-  Omarchy's supported Arch package path with `omarchy pkg add zenity`.
-  `kdialog` and `yad` remain supported for file import; onboarding and the
-  installer report when no picker is available. Clipboard import remains
+- File import uses Omarchy's standard GTK4 components out of the box.
+  `zenity`, `kdialog` and `yad` are also supported in deterministic order; on
+  an unusually minimal system, install `zenity` through Omarchy's supported
+  Arch package path with `omarchy pkg add zenity`. Onboarding, Settings and
+  the installer report when no picker is available. Clipboard import remains
   independent and uses `wl-clipboard`. `qrencode` enables QR display.
 
 OmaVLESS creates no administrator policy files or passwordless command rules,
