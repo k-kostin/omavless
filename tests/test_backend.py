@@ -1086,6 +1086,9 @@ rules:
             with mock.patch.object(backend, "service_active", return_value=False), \
                  mock.patch.object(backend, "core_setup_status", return_value={
                      "installed": False, "tunReady": False, "path": "",
+                 }), \
+                 mock.patch.object(backend, "file_picker_status", return_value={
+                     "available": False, "provider": "",
                  }):
                 payload = json.loads(backend.status_text(paths))
             self.assertEqual(payload["routing"], {
@@ -1101,6 +1104,9 @@ rules:
             )
             self.assertEqual(payload["coreSetup"], {
                 "installed": False, "tunReady": False, "path": "",
+            })
+            self.assertEqual(payload["filePicker"], {
+                "available": False, "provider": "",
             })
             self.assertEqual(payload["startup"], {
                 "enabled": False, "configured": True, "target": "last",
@@ -3101,6 +3107,80 @@ rules:
              mock.patch.object(backend.shutil, "which", return_value="/usr/bin/getcap"), \
              mock.patch.object(backend, "run", return_value=missing):
             self.assertFalse(backend.core_setup_status(self.paths_for(Path("/tmp")))["tunReady"])
+
+    def test_file_picker_discovery_is_bounded_and_deterministic(self):
+        available = {
+            "zenity": "/usr/bin/zenity",
+            "kdialog": "/usr/bin/kdialog",
+            "yad": "/usr/bin/yad",
+        }
+        with mock.patch.object(backend.shutil, "which", side_effect=available.get):
+            self.assertEqual(
+                backend.discover_file_picker(), ("zenity", "/usr/bin/zenity")
+            )
+            self.assertEqual(
+                backend.file_picker_status(),
+                {"available": True, "provider": "zenity"},
+            )
+        available["zenity"] = None
+        with mock.patch.object(backend.shutil, "which", side_effect=available.get):
+            self.assertEqual(
+                backend.discover_file_picker(), ("kdialog", "/usr/bin/kdialog")
+            )
+
+    def test_missing_file_picker_has_actionable_public_error(self):
+        with mock.patch.object(backend.shutil, "which", return_value=None), \
+             mock.patch.object(backend, "gtk4_file_picker_available", return_value=False):
+            self.assertEqual(
+                backend.file_picker_status(), {"available": False, "provider": ""}
+            )
+            with self.assertRaises(backend.BackendError) as raised:
+                backend.pick_import_file()
+        self.assertEqual(raised.exception.exit_code, 2)
+        self.assertIn("File import unavailable — file picker missing", str(raised.exception))
+        self.assertIn("omarchy pkg add zenity", str(raised.exception))
+
+    def test_standard_omarchy_gtk4_picker_is_the_final_safe_fallback(self):
+        selected = "/tmp/profile;still-data.conf"
+        with mock.patch.object(backend.shutil, "which", return_value=None), \
+             mock.patch.object(backend, "gtk4_file_picker_available", return_value=True), \
+             mock.patch.object(backend, "pick_import_file_gtk4", return_value=selected), \
+             mock.patch.object(backend, "run") as run_mock, \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(backend.discover_file_picker(), ("gtk4", ""))
+            self.assertEqual(
+                backend.file_picker_status(),
+                {"available": True, "provider": "gtk4"},
+            )
+            self.assertEqual(backend.pick_import_file(), 0)
+            self.assertEqual(output.getvalue(), selected + "\n")
+            run_mock.assert_not_called()
+
+    def test_supported_file_pickers_use_safe_argv_and_never_execute_the_path(self):
+        selected = "/tmp/profile;touch-never-executed.conf"
+        expected = {
+            "zenity": ["/usr/bin/zenity", "--file-selection"],
+            "kdialog": ["/usr/bin/kdialog", "--getopenfilename"],
+            "yad": ["/usr/bin/yad", "--file"],
+        }
+        for provider, prefix in expected.items():
+            with self.subTest(provider=provider), \
+                 mock.patch.object(
+                     backend.shutil, "which",
+                     side_effect=lambda name, chosen=provider: (
+                         f"/usr/bin/{name}" if name == chosen else None
+                     ),
+                 ), \
+                 mock.patch.object(
+                     backend, "run",
+                     return_value=subprocess.CompletedProcess([], 0, selected + "\n", ""),
+                 ) as run_mock, \
+                 mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(backend.pick_import_file(), 0)
+                command = run_mock.call_args.args[0]
+                self.assertEqual(command[:2], prefix)
+                self.assertNotIn("bash", command)
+                self.assertEqual(output.getvalue(), selected + "\n")
 
     def test_configure_startup_validates_and_enables_helper_transactionally(self):
         with tempfile.TemporaryDirectory() as temp:

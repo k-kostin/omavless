@@ -108,6 +108,7 @@ Panel {
     return vless.plainText(line, 220)
   }
   readonly property string mihomoInstallCommand: "omarchy pkg aur add mihomo-bin"
+  readonly property string filePickerInstallCommand: "omarchy pkg add zenity"
   readonly property string mihomoCapabilityCommand: "sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep "
     + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
       : '"$(command -v mihomo)"')
@@ -1698,7 +1699,9 @@ Panel {
                 // here too, or that row stays lit while the pointer is here.
                 PanelActionButton {
                   iconText: "󰐕"
-                  tooltipText: "Import a profile link file (i)"
+                  tooltipText: vless.filePicker.available
+                    ? "Import a profile link file (i)"
+                    : "File import unavailable — run “omarchy pkg add zenity”"
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -1909,6 +1912,18 @@ Panel {
               + (vless.coreSetup.path !== "" ? " · " + vless.coreSetup.path : "")
             actionText: vless.coreSetup.tunReady ? "Ready" : "Setup"
             onAction: root.openOnboarding(1)
+          }
+
+          SettingsActionRow {
+            title: "File import"
+            description: vless.filePicker.available
+              ? (vless.filePicker.provider === "gtk4"
+                ? "Available through the system file picker"
+                : "Available through " + vless.filePicker.provider)
+              : "Unavailable — file picker missing. Run “omarchy pkg add zenity”"
+            actionText: vless.filePicker.available ? "Ready" : "Copy command"
+            actionEnabled: !vless.filePicker.available
+            onAction: vless.copyText(root.filePickerInstallCommand)
           }
 
           SettingsActionRow {
@@ -2227,6 +2242,7 @@ Panel {
         id: onboardingWizard
         anchors.fill: parent
         coreSetup: vless.coreSetup
+        filePicker: vless.filePicker
         presets: vless.routingPresets
         profiles: vless.profiles
         routingPreset: vless.routingPresetConfigured ? vless.routing.preset : ""

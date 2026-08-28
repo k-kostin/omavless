@@ -32,6 +32,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 import uuid as uuidlib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -67,6 +68,7 @@ MAX_PROFILE_COUNT = 256
 MAX_STORE_BYTES = 5 * 1024 * 1024
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
 MAX_IMPORT_BYTES = 64 * 1024
+MAX_PICKER_PATH_BYTES = 4096
 MAX_SUBSCRIPTION_COUNT = 64
 MAX_SUBSCRIPTION_LINK_COUNT = 1024
 MAX_SUBSCRIPTION_URL_BYTES = 8 * 1024
@@ -110,6 +112,7 @@ ROUTING_PRESETS = {
     "iran-ir-direct": PLUGIN_DIR / "templates" / "iran.yaml",
 }
 ROUTING_PRESET_VALUES = frozenset((*ROUTING_PRESETS, "custom"))
+FILE_PICKER_ORDER = ("zenity", "kdialog", "yad")
 LOCK_TIMEOUT_SECONDS = 15.0
 COMMAND_TIMEOUT_SECONDS = 30.0
 REALITY_SPX_COMPATIBILITY_NOTE = (
@@ -4549,6 +4552,119 @@ def core_setup_status(paths: Paths) -> dict[str, Any]:
     }
 
 
+def discover_file_picker() -> tuple[str, str]:
+    """Return the preferred supported picker without invoking a shell."""
+    for provider in FILE_PICKER_ORDER:
+        executable = shutil.which(provider)
+        if executable:
+            return provider, str(executable)
+    if gtk4_file_picker_available():
+        return "gtk4", ""
+    return "", ""
+
+
+def gtk4_file_picker_available() -> bool:
+    """Detect Omarchy's standard GTK4 chooser without opening a display."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import gi
+
+            gi.require_version("Gtk", "4.0")
+            from gi.repository import Gtk
+    except Exception:
+        return False
+    return hasattr(Gtk, "FileChooserNative")
+
+
+def file_picker_status() -> dict[str, Any]:
+    provider, _executable = discover_file_picker()
+    return {"available": bool(provider), "provider": provider}
+
+
+def pick_import_file_gtk4() -> str:
+    """Open Omarchy's installed GTK4 native chooser and return a local path."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import gi
+
+            gi.require_version("Gtk", "4.0")
+            from gi.repository import GLib, Gtk
+
+        Gtk.init()
+        loop = GLib.MainLoop()
+        selected = {"path": ""}
+        dialog = Gtk.FileChooserNative.new(
+            "Import profile link",
+            None,
+            Gtk.FileChooserAction.OPEN,
+            "_Open",
+            "_Cancel",
+        )
+        profile_filter = Gtk.FileFilter()
+        profile_filter.set_name("Profile link")
+        for pattern in ("*.txt", "*.url", "*.conf"):
+            profile_filter.add_pattern(pattern)
+        dialog.add_filter(profile_filter)
+
+        def on_response(source: Any, response: int) -> None:
+            if response == Gtk.ResponseType.ACCEPT:
+                chosen = source.get_file()
+                if chosen is not None:
+                    selected["path"] = chosen.get_path() or ""
+            source.destroy()
+            loop.quit()
+
+        dialog.connect("response", on_response)
+        dialog.show()
+        loop.run()
+        return selected["path"]
+    except BackendError:
+        raise
+    except Exception as exc:
+        raise BackendError("Could not open the system file picker", 4) from exc
+
+
+def pick_import_file() -> int:
+    provider, executable = discover_file_picker()
+    if not provider:
+        raise BackendError(
+            "File import unavailable — file picker missing. "
+            "Run “omarchy pkg add zenity” (kdialog and yad are also supported).",
+            2,
+        )
+    if provider == "gtk4":
+        selected = pick_import_file_gtk4()
+    else:
+        commands = {
+            "zenity": [
+                executable, "--file-selection", "--title=Import profile link",
+                "--file-filter=Profile link | *.txt *.url *.conf",
+                "--file-filter=All files | *",
+            ],
+            "kdialog": [
+                executable, "--getopenfilename", str(Path.home()),
+                "*.txt *.url *.conf|Profile link",
+            ],
+            "yad": [executable, "--file", "--title=Import profile link"],
+        }
+        result = run(commands[provider], check=False, timeout=None)
+        if result.returncode != 0:
+            return 3
+        selected = result.stdout.rstrip("\r\n")
+    if not selected:
+        return 3
+    if (
+        not Path(selected).is_absolute()
+        or len(selected.encode("utf-8")) > MAX_PICKER_PATH_BYTES
+        or re.search(r"[\x00-\x1f\x7f]", selected)
+    ):
+        raise BackendError("File picker returned an invalid path", 4)
+    print(selected)
+    return 0
+
+
 def effective_startup_enabled(store: dict[str, Any]) -> bool:
     if bool(store.get("startupConfigured", False)):
         return bool(store.get("startup", {}).get("enabled", False))
@@ -5259,6 +5375,7 @@ def status_text(paths: Paths) -> str:
         ],
         "routing": routing,
         "coreSetup": core_setup_status(paths),
+        "filePicker": file_picker_status(),
         "startup": startup_status(store, str(routing["mode"])),
         "onboardingComplete": bool(store.get("onboardingComplete", False)),
         "uptimeSeconds": service_uptime_seconds(SERVICE, running),
@@ -5567,6 +5684,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("subscription-probe"); p.add_argument("id")
     p = sub.add_parser("subscription-probe-stream"); p.add_argument("id")
     p = sub.add_parser("render-uri"); p.add_argument("name", nargs="?", default="Profile")
+    sub.add_parser("pick-file")
     return result
 
 
@@ -5591,6 +5709,8 @@ def main() -> int:
         migrate_legacy_data(paths)
     if args.command == "status":
         status(paths)
+    elif args.command == "pick-file":
+        return pick_import_file()
     elif args.command == "preview":
         text = read_text_file(
             Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"

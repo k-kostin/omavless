@@ -152,6 +152,7 @@ Item {
     ruleUpdateAvailable: false
   })
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property var filePicker: ({ available: false, provider: "" })
   property var startup: ({
     enabled: false,
     configured: true,
@@ -953,10 +954,15 @@ Item {
         || route.rulesUpdatedAt < 0)
       return rejectStatus()
     var setup = payload.coreSetup
+    var picker = payload.filePicker
     var startupSource = payload.startup
     if (!setup || typeof setup.installed !== "boolean"
         || typeof setup.tunReady !== "boolean" || typeof setup.path !== "string"
-        || setup.path.length > 4096 || !startupSource
+        || setup.path.length > 4096 || !picker
+        || typeof picker.available !== "boolean"
+        || typeof picker.provider !== "string"
+        || ["", "zenity", "kdialog", "yad", "gtk4"].indexOf(picker.provider) < 0
+        || picker.available !== (picker.provider !== "") || !startupSource
         || typeof startupSource.enabled !== "boolean"
         || typeof startupSource.configured !== "boolean"
         || (startupSource.target !== "last" && startupSource.target !== "profile")
@@ -1051,6 +1057,10 @@ Item {
       installed: setup.installed,
       tunReady: setup.tunReady,
       path: plainText(setup.path, 4096)
+    }
+    filePicker = {
+      available: picker.available,
+      provider: picker.provider
     }
     startup = {
       enabled: startupSource.enabled,
@@ -1658,6 +1668,8 @@ Item {
     if (clipboardProcess.running) return rejectAction("clipboard import is already running")
     if (qrVisible) return rejectAction("close the QR code before importing")
     if (pickerProcess.running) return rejectAction("the file picker is already open")
+    if (!filePicker.available) return rejectAction(
+      "File import unavailable — file picker missing. Run “omarchy pkg add zenity”")
     actionRejection = ""
     lastError = ""
     actionStatus = "Waiting for the file picker…"
@@ -1960,19 +1972,6 @@ Item {
   // Profile storage, conversion, validation and service control live in
   // backend.sh. Desktop integration helpers stay inline.
 
-  // Exit 2 means "no picker installed" — distinct from the user pressing
-  // Cancel, which every one of these exits non-zero for.
-  readonly property string pickScript:
-    "if command -v zenity >/dev/null 2>&1; then\n" +
-    "  exec zenity --file-selection --title='Import profile link' \\\n" +
-    "    --file-filter='Profile link | *.txt *.url *.conf' --file-filter='All files | *'\n" +
-    "elif command -v kdialog >/dev/null 2>&1; then\n" +
-    "  exec kdialog --getopenfilename \"$HOME\" '*.txt *.url *.conf|Profile link'\n" +
-    "elif command -v yad >/dev/null 2>&1; then\n" +
-    "  exec yad --file --title='Import profile link'\n" +
-    "fi\n" +
-    "exit 2\n"
-
   // Device names come from the kernel — no spaces, no globs to worry about.
   readonly property string trafficScript:
     "for d in \"$@\"; do\n" +
@@ -2229,19 +2228,28 @@ Item {
   Process {
     id: pickerProcess
     running: false
-    command: ["bash", "-c", root.pickScript, "profile"]
+    command: ["bash", backendPath, "pick-file"]
     stdout: StdioCollector {
       id: pickerStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: pickerStderr
       waitForEnd: true
     }
     onExited: function(exitCode) {
       root.actionStatus = ""
       if (exitCode === 2) {
-        root.lastError = "No file picker found — install zenity, kdialog or yad"
+        root.lastError = root.elide(pickerStderr.text
+          || "File import unavailable — file picker missing. Run “omarchy pkg add zenity”")
         return
       }
-      // Anything else non-zero is Cancel; say nothing.
-      if (exitCode !== 0) return
+      // Exit 3 is the user pressing Cancel; say nothing.
+      if (exitCode === 3) return
+      if (exitCode !== 0) {
+        root.lastError = "Could not open the file picker"
+        return
+      }
       var path = String(pickerStdout.text || "").trim()
       if (path !== "") root.previewImport("file", path, root.sanitizeName(path))
     }

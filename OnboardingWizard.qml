@@ -13,6 +13,7 @@ Item {
   id: wizard
 
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property var filePicker: ({ available: false, provider: "" })
   property var presets: []
   property var profiles: []
   property string routingPreset: ""
@@ -248,6 +249,23 @@ Item {
               wrapMode: Text.WordWrap
             }
 
+            PlainText {
+              visible: !wizard.filePicker.available
+              width: parent.width
+              text: "File import unavailable — file picker missing. Run “omarchy pkg add zenity” in a terminal. Clipboard import still works."
+              color: wizard.urgent
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            CommandRow {
+              visible: !wizard.filePicker.available
+              width: parent.width
+              label: "Install a supported file picker"
+              command: "omarchy pkg add zenity"
+            }
+
             Row {
               spacing: Style.space(8)
               Button {
@@ -261,7 +279,7 @@ Item {
               Button {
                 text: "Choose file"
                 bordered: true
-                enabled: !wizard.busy
+                enabled: wizard.filePicker.available && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.fileRequested()

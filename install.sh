@@ -106,3 +106,10 @@ fi
 trap - EXIT
 
 echo "OmaVLESS is installed or updated; no tunnel was started."
+if ! command -v zenity >/dev/null 2>&1 \
+    && ! command -v kdialog >/dev/null 2>&1 \
+    && ! command -v yad >/dev/null 2>&1 \
+    && ! python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; assert hasattr(Gtk, "FileChooserNative")' >/dev/null 2>&1; then
+  echo 'File import unavailable — file picker missing. Run “omarchy pkg add zenity”'
+  echo "Clipboard import remains available; kdialog and yad are also supported."
+fi
