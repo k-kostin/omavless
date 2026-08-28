@@ -661,6 +661,13 @@ def validate_subscription_url(value: str) -> str:
     return value
 
 
+def read_subscription_url_file(path: Path) -> str:
+    """Read and validate one selected URL file without publishing its value."""
+    return validate_subscription_url(
+        read_text_file(path, MAX_SUBSCRIPTION_URL_BYTES, "subscription URL file")
+    )
+
+
 def subscription_host(url: str) -> str:
     """Return the only URL-derived value safe enough for user-facing errors."""
     try:
@@ -3358,6 +3365,42 @@ def preview_profile(text: str) -> dict[str, Any]:
     return PROFILE_ADAPTERS[profile_protocol(uri)].preview(uri)
 
 
+def classify_import(text: str, store: dict[str, Any]) -> dict[str, Any]:
+    """Classify one private import without returning its reusable secret."""
+    value = text.strip()
+    if not value:
+        raise BackendError("Import input must not be empty")
+    tokens = re.split(r"\s+", value)
+    supported_profiles = []
+    for token in tokens:
+        match = re.match(r"(?i)^([a-z][a-z0-9+.-]*)://", token)
+        if match and match.group(1).lower() in PROFILE_SCHEMES:
+            supported_profiles.append(token)
+    if supported_profiles:
+        if len(tokens) != 1 or len(supported_profiles) != 1:
+            raise BackendError("Import one profile link or subscription URL at a time")
+        return {
+            "version": 1,
+            "kind": "profile",
+            "profile": preview_profile(supported_profiles[0]),
+        }
+    if len(tokens) != 1:
+        raise BackendError("Import one profile link or subscription URL at a time")
+    try:
+        url = validate_subscription_url(value)
+    except BackendError as exc:
+        raise BackendError(
+            "Input is not a supported profile link or valid subscription URL"
+        ) from exc
+    duplicate = any(item.get("url") == url for item in store["subscriptions"])
+    return {
+        "version": 1,
+        "kind": "subscription",
+        "suggestedName": "Subscription",
+        "duplicate": duplicate,
+    }
+
+
 def profile_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
     uri = str(profile.get("uri", ""))
     uri_protocol = profile_protocol(uri)
@@ -5646,6 +5689,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("favorite"); p.add_argument("id"); p.add_argument("enabled", choices=("on", "off"))
     p = sub.add_parser("import"); p.add_argument("name"); p.add_argument("old_id", nargs="?", default=""); p.add_argument("file", nargs="?")
     p = sub.add_parser("preview"); p.add_argument("file", nargs="?")
+    p = sub.add_parser("import-preview"); p.add_argument("file", nargs="?")
     p = sub.add_parser("export-file"); p.add_argument("id"); p.add_argument("path")
     sub.add_parser("diagnostics")
     p = sub.add_parser("diagnostics-export"); p.add_argument("path")
@@ -5677,6 +5721,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("startup-connect")
     sub.add_parser("onboarding-complete")
     p = sub.add_parser("subscription-save"); p.add_argument("name"); p.add_argument("id", nargs="?", default="")
+    p = sub.add_parser("subscription-save-file")
+    p.add_argument("name"); p.add_argument("id"); p.add_argument("file")
     p = sub.add_parser("subscription-refresh"); p.add_argument("id")
     sub.add_parser("subscription-refresh-all")
     p = sub.add_parser("subscription-delete"); p.add_argument("id")
@@ -5716,6 +5762,14 @@ def main() -> int:
             Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"
         ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "profile preview")
         print(json.dumps(preview_profile(text), ensure_ascii=False, separators=(",", ":")))
+    elif args.command == "import-preview":
+        text = read_text_file(
+            Path(args.file).expanduser(), MAX_IMPORT_BYTES, "import preview file"
+        ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "import preview")
+        print(json.dumps(
+            classify_import(text, load_store(paths)),
+            ensure_ascii=False, separators=(",", ":"),
+        ))
     elif args.command == "diagnostics":
         with operation_lock(paths):
             print(diagnostics_text(paths), end="")
@@ -5807,8 +5861,12 @@ def main() -> int:
             store = load_store(paths)
             store["onboardingComplete"] = True
             save_store(paths, store)
-    elif args.command == "subscription-save":
-        url = read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")
+    elif args.command in {"subscription-save", "subscription-save-file"}:
+        url = (
+            read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")
+            if args.command == "subscription-save"
+            else read_subscription_url_file(Path(args.file).expanduser())
+        )
         # Network I/O never holds the global mutation lock. A slow provider
         # must not prevent an urgent disconnect or make status monitors time
         # out; only the final validated store update is serialized.

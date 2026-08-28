@@ -11,6 +11,10 @@ All notable changes to OmaVLESS are documented here.
   boundary, with Omarchy's installed GTK4 chooser as the out-of-box fallback
   while retaining zenity, kdialog and yad support; clipboard import remains
   available without a picker.
+- Route the primary clipboard and file import actions through one strict
+  backend classifier so a single profile still opens the profile preview and
+  a validated subscription URL opens the existing subscription confirmation
+  flow. Ambiguous input and duplicate subscriptions fail before any fetch.
 - Published OmaVLESS 0.7.0 in the Omarchy plugin marketplace as a
   maintainer-verified listing at exact commit
   `69fe05b03129a23664fff3f8289821a7b7f80095`.

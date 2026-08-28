@@ -44,6 +44,7 @@ Panel {
   // name; "file" | "text" | "" (no prompt open).
   property string importKind: ""
   property string importPayload: ""
+  property string subscriptionImportFile: ""
   // Profile ({uuid, name}) awaiting a new display name; non-null while the
   // rename dialog is open.
   property var pendingRename: null
@@ -182,15 +183,18 @@ Panel {
   readonly property string subscriptionNameClean: subscriptionPrompt.nameValue.trim()
   readonly property string subscriptionUrlClean: subscriptionPrompt.urlValue.trim()
   readonly property bool subscriptionNameValid: vless.isValidName(subscriptionNameClean)
-  readonly property bool subscriptionUrlValid: /^https?:\/\/[^\s]+$/i.test(subscriptionUrlClean)
+  readonly property bool subscriptionUrlValid: subscriptionImportFile !== ""
+    || /^https?:\/\/[^\s]+$/i.test(subscriptionUrlClean)
   readonly property bool subscriptionAccepted: subscriptionNameValid && subscriptionUrlValid
   readonly property string subscriptionHint: vless.subscriptionError !== ""
     ? vless.subscriptionError
     : (!subscriptionNameValid
     ? "Use a non-empty provider name up to 80 characters"
+    : (subscriptionImportFile !== ""
+      ? "URL validated from the selected file and kept private"
     : (!subscriptionUrlValid
       ? "Use the http:// or https:// URL supplied by your provider"
-      : "URL stays private and is shown only in this editor"))
+      : "URL stays private and is shown only in this editor")))
 
   function openSubscriptions() {
     if (!vless.supports("subscriptions")) return
@@ -205,6 +209,7 @@ Panel {
     page = "main"
     pendingSubscriptionDelete = null
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
   }
 
@@ -301,6 +306,7 @@ Panel {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading) return
     vless.clearSubscriptionMessage()
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.title = "Add subscription"
     subscriptionPrompt.confirmLabel = "Add"
     subscriptionPrompt.openWith("", "")
@@ -309,6 +315,7 @@ Panel {
   function editSubscription(subscription) {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading || !subscription) return
     editingSubscription = subscription
+    subscriptionImportFile = ""
     subscriptionPrompt.title = "Edit " + subscription.name
     subscriptionPrompt.confirmLabel = "Save"
     subscriptionPrompt.openWith(subscription.rawName || subscription.name, "")
@@ -318,8 +325,12 @@ Panel {
   function confirmSubscription() {
     if (!subscriptionAccepted) return
     var uuid = editingSubscription ? editingSubscription.uuid : ""
-    if (!vless.saveSubscription(subscriptionNameClean, uuid, subscriptionUrlClean)) return
+    var started = subscriptionImportFile !== ""
+      ? vless.saveSubscriptionFile(subscriptionNameClean, uuid, subscriptionImportFile)
+      : vless.saveSubscription(subscriptionNameClean, uuid, subscriptionUrlClean)
+    if (!started) return
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
   }
 
@@ -677,6 +688,23 @@ Panel {
     importDialog.openWith(suggested !== "" ? String(suggested) : vless.suggestName())
   }
 
+  function beginSubscriptionImport(kind, payload, suggested) {
+    vless.clearSubscriptionMessage()
+    editingSubscription = null
+    subscriptionPrompt.title = kind === "file"
+      ? "Add subscription from file"
+      : "Add subscription from clipboard"
+    subscriptionPrompt.confirmLabel = "Add"
+    var name = suggested !== "" ? String(suggested) : "Subscription"
+    if (kind === "file") {
+      subscriptionImportFile = String(payload)
+      subscriptionPrompt.openFromFile(name)
+    } else {
+      subscriptionImportFile = ""
+      subscriptionPrompt.openWith(name, String(payload))
+    }
+  }
+
   function cancelImport() {
     importKind = ""
     importPayload = ""
@@ -801,6 +829,7 @@ Panel {
     pendingSubscriptionDelete = null
     pendingEdit = null
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
@@ -871,6 +900,10 @@ Panel {
     function onImportReady(kind, payload, suggestedName) {
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
+    }
+    function onSubscriptionImportReady(kind, payload, suggestedName) {
+      if (!root.opened) root.open()
+      root.beginSubscriptionImport(kind, payload, suggestedName)
     }
     // The QR window is centred on the screen and takes keyboard focus; the
     // panel behind it is in the way, so it goes — as does a rename prompt,
@@ -2331,8 +2364,8 @@ Panel {
         }
       }
 
-      // Backend-parsed, redacted preview shared by file and clipboard import.
-      // The raw URI never becomes a displayed QML property.
+      // Backend-parsed, redacted profile preview shared by file and clipboard
+      // import. Subscription results route to the masked prompt below.
       ImportPreviewPrompt {
         id: importDialog
         anchors.fill: parent
@@ -2363,6 +2396,7 @@ Panel {
         onConfirmed: root.confirmSubscription()
         onCanceled: {
           root.editingSubscription = null
+          root.subscriptionImportFile = ""
           dismiss()
           keyCatcher.forceActiveFocus()
         }
