@@ -22,6 +22,8 @@ application UX and Git workflow rules.
 - [`TUI_APP.md`](TUI_APP.md) describes the product evolution from a bar-only
   plugin into one shared OmaVLESS runtime with a compact bar surface, a full
   TUI application and a semantic CLI/IPC integration surface.
+- [`CONTROL_PLANE.md`](CONTROL_PLANE.md) is the accepted T0 runtime ownership,
+  versioned IPC, migration/distribution contract and T1 acceptance plan.
 - [`PLATFORM.md`](PLATFORM.md) defines the Arch-first standalone product and
   distribution boundary: Omarchy is first-class integration, not a runtime
   dependency.

@@ -1,7 +1,10 @@
 # OmaVLESS platform and distribution direction
 
-Status: product/platform direction, not current standalone runtime support.
-Updated 2026-08-26.
+Status: T0 distribution contract accepted, not current standalone runtime
+support. Updated 2026-08-28.
+
+The complete runtime/API/migration contract is
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
 ## Product identity
 
@@ -48,8 +51,8 @@ without installing Omarchy, Quickshell or Hyprland.
 
 ## Standalone command surface
 
-The planned native application should have one product command. Exact CLI
-syntax remains subject to T0 API design, but the intended shape is:
+The planned native application has one product command. T0 fixes the semantic
+shape while leaving nonessential presentation flags to implementation:
 
 ```text
 omavless            -> interactive TUI by default
@@ -120,6 +123,15 @@ OmaVLESS bar plugin
 window already exists, the integration should focus it. Closing the terminal
 must not change a healthy requested tunnel.
 
+T0 selects the installed Omarchy launcher and stable application ID:
+
+```text
+omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui
+```
+
+The TUI attaches to `omavless-runtime.service`; daemon startup failure produces
+a bounded doctor/remediation view and never falls back to starting Mihomo.
+
 Omarchy-specific responsibilities belong in the integration layer, for example:
 
 - Quickshell/bar rendering;
@@ -141,19 +153,17 @@ provide the same VPN/profile/runtime functionality.
 
 ## Distribution ownership
 
-The future standalone application needs an explicit package boundary. The
-preferred first-class distribution is an Arch package/AUR package once the
-runtime/TUI exists.
-
-A packaged installation may eventually provide, for example:
+The future standalone application uses the separately reviewed Arch/AUR package
+`omavless` once the runtime exists. The package owns at least:
 
 ```text
 /usr/bin/omavless
-/usr/lib/systemd/user/omavless.service
+/usr/lib/systemd/user/omavless-runtime.service
 ```
 
-plus only the additional static resources actually required by the application.
-Exact paths and package ownership are decided during T0/T1.
+plus only the additional audited resources required by the application.
+Mihomo remains separately packaged and privileged networking remains separate
+security work.
 
 The Omarchy marketplace plugin must not silently download, compile or install
 the standalone binary. Its behavior should be:

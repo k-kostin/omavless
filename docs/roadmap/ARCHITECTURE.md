@@ -1,7 +1,7 @@
 # OmaVLESS architecture evolution
 
-Status: design direction, not a claim of current runtime support. Updated
-2026-08-26.
+Status: design direction with an accepted T0 control-plane contract, not a
+claim of current runtime support. Updated 2026-08-28.
 
 This document describes how OmaVLESS can gain a full TUI application, an
 optional Xray core, stronger VPN ownership semantics and fail-closed protection
@@ -10,6 +10,8 @@ performing a speculative rewrite of the existing Mihomo implementation.
 
 The detailed control-surface/TUI product direction lives in
 [`TUI_APP.md`](TUI_APP.md).
+The implementation-ready T1 ownership, IPC and migration contract lives in
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
 ## 1. Product boundary
 
@@ -141,9 +143,12 @@ user's desired VPN state.
 
 ### Private client boundary
 
-The preferred future client boundary is a versioned, bounded private Unix
-socket under `XDG_RUNTIME_DIR`, mode `0600`, plus a small semantic CLI bridge
-for QML and scripts. Details are specified in [`TUI_APP.md`](TUI_APP.md).
+T0 selects `$XDG_RUNTIME_DIR/omavless/control.sock`, below a mode-`0700`
+directory, with a mode-`0600` socket and same-UID peer verification. V1 uses
+bounded NDJSON, explicit negotiation, per-start instance IDs, revisions and one
+runtime-owned mutation queue, plus a small semantic CLI bridge for QML and
+scripts. Details are specified in
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
 The protocol should carry semantic actions such as connect/disconnect/set-mode,
 not arbitrary UI key presses. One slow client must not stall lifecycle work.
@@ -430,9 +435,12 @@ This architecture is intentionally evolutionary.
 
 ### T0/T1 — control-plane and shared runtime
 
-The detailed TUI track is defined in [`TUI_APP.md`](TUI_APP.md). T0 designs the
-bar/TUI/CLI contract and distribution boundary. T1 introduces one headless
-canonical runtime when scheduled. T1 should satisfy or subsume the relevant N0
+T0 is complete as a design checkpoint in
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md). T1 introduces
+`omavless-runtime.service` as the headless canonical owner when scheduled. Its
+first slice implements the singleton owner, hello/status/capabilities,
+desired/actual reconciliation, serialized connect/disconnect/mode and the
+plugin compatibility bridge. T1 satisfies or subsumes the relevant N0
 lifecycle extraction rather than creating a second competing coordinator.
 
 ### N0 — lifecycle/coordinator boundary
