@@ -255,7 +255,12 @@ workspace and a bounded CLI/IPC integration surface.
 
 ### T1 — shared runtime / daemon foundation
 
-- State: **planned after T0 when scheduled**.
+- State: **T1a protocol/conformance foundation implemented; runtime ownership
+  cutover pending**.
+- T1a provides a reusable v1 NDJSON parser/encoder and credential-free
+  conformance corpus with the accepted frame, string, depth, envelope,
+  version, ID, revision and operation-ID bounds. It intentionally opens no
+  socket, dispatches no lifecycle method and is not a daemon.
 - One headless runtime becomes the canonical owner of desired/actual connection
   state, store mutations, core lifecycle and background work.
 - Expose a private `0600` Unix-socket contract plus a small machine-readable CLI
@@ -266,6 +271,10 @@ workspace and a bounded CLI/IPC integration surface.
 - A panel/TUI/terminal close must not stop a healthy requested tunnel.
 - This phase should satisfy/subsume the relevant N0 coordinator extraction;
   do not create a parallel daemon state machine and a separate coordinator.
+- Remaining T1 work begins with singleton/socket/peer enforcement and
+  hello/status/capability dispatch, then desired/actual reconciliation,
+  serialized lifecycle mutations and the plugin compatibility bridge under
+  the existing staged-cutover acceptance contract.
 
 ### T2 — TUI MVP and plugin `Open app`
 

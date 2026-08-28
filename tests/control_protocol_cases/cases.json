@@ -1,0 +1,52 @@
+{
+  "requests": [
+    {
+      "name": "hello",
+      "value": {
+        "api": "omavless.control",
+        "version": 1,
+        "id": "hello-1",
+        "method": "system.hello",
+        "params": {"versions": [1]}
+      }
+    },
+    {
+      "name": "ordinary-unicode",
+      "value": {
+        "api": "omavless.control",
+        "version": 1,
+        "id": "status-1",
+        "method": "status.get",
+        "params": {"clientLabel": "Проверка"}
+      }
+    }
+  ],
+  "responses": [
+    {
+      "name": "success",
+      "value": {
+        "api": "omavless.control",
+        "version": 1,
+        "id": "status-1",
+        "ok": true,
+        "revision": 42,
+        "result": {"actual": "disconnected"}
+      }
+    },
+    {
+      "name": "error",
+      "value": {
+        "api": "omavless.control",
+        "version": 1,
+        "id": "connect-1",
+        "ok": false,
+        "revision": 42,
+        "error": {
+          "code": "conflict",
+          "message": "Another transition is active",
+          "retryable": true
+        }
+      }
+    }
+  ]
+}

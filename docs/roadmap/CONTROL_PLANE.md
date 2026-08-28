@@ -1,7 +1,24 @@
 # OmaVLESS control-plane contract
 
 Status: accepted T0 implementation contract, 2026-08-28. This document defines
-the T1 boundary; it does not claim that the daemon, IPC API or TUI exists yet.
+the T1 boundary. The isolated T1a protocol/conformance library now implements
+the v1 mechanics described below, but no daemon, socket listener, runtime
+ownership cutover or TUI exists yet.
+
+## Implementation checkpoint: T1a protocol foundation
+
+`omavless_control_protocol.py` is the shared executable definition of v1 frame
+and envelope mechanics. It implements strict UTF-8 NDJSON decoding, duplicate-
+key rejection, structural and byte bounds, version/ID/revision/operation
+validation, stable success/error envelopes and one-frame stream helpers. The
+credential-free corpus under `tests/control_protocol_cases/` is intended for
+reuse by the future daemon, CLI, TUI and QML bridge.
+
+T1a deliberately has no socket listener, method dispatcher, daemon process,
+state store, mutation queue or Mihomo dependency. Current `backend.py` and the
+plugin remain the only runtime path. The remaining T1 steps therefore still
+require the singleton/peer/socket boundary, semantic read methods, desired and
+actual state reconciliation, serialized mutations and staged plugin cutover.
 
 ## 1. Decision summary
 
