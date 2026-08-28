@@ -1914,6 +1914,15 @@ Panel {
           }
 
           SettingsActionRow {
+            title: "File import"
+            description: vless.filePicker.available
+              ? "Available through " + vless.filePicker.provider
+              : "Unavailable — file picker missing. Run omarchy pkg add zenity"
+            actionText: vless.filePicker.available ? "Ready" : "Unavailable"
+            actionEnabled: false
+          }
+
+          SettingsActionRow {
             title: "Start VPN at login"
             description: vless.startupSummary
             actionText: "Configure"
