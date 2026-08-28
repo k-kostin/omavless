@@ -3358,6 +3358,42 @@ def preview_profile(text: str) -> dict[str, Any]:
     return PROFILE_ADAPTERS[profile_protocol(uri)].preview(uri)
 
 
+def classify_import(text: str, store: dict[str, Any]) -> dict[str, Any]:
+    """Classify one private import without returning its reusable secret."""
+    value = text.strip()
+    if not value:
+        raise BackendError("Import input must not be empty")
+    tokens = re.split(r"\s+", value)
+    supported_profiles = []
+    for token in tokens:
+        match = re.match(r"(?i)^([a-z][a-z0-9+.-]*)://", token)
+        if match and match.group(1).lower() in PROFILE_SCHEMES:
+            supported_profiles.append(token)
+    if supported_profiles:
+        if len(tokens) != 1 or len(supported_profiles) != 1:
+            raise BackendError("Import one profile link or subscription URL at a time")
+        return {
+            "version": 1,
+            "kind": "profile",
+            "profile": preview_profile(supported_profiles[0]),
+        }
+    if len(tokens) != 1:
+        raise BackendError("Import one profile link or subscription URL at a time")
+    try:
+        url = validate_subscription_url(value)
+    except BackendError as exc:
+        raise BackendError(
+            "Input is not a supported profile link or valid subscription URL"
+        ) from exc
+    duplicate = any(item.get("url") == url for item in store["subscriptions"])
+    return {
+        "version": 1,
+        "kind": "subscription",
+        "suggestedName": "Subscription",
+        "duplicate": duplicate,
+    }
+
+
 def profile_yaml(profile: dict[str, Any], server_override: str | None = None) -> str:
     uri = str(profile.get("uri", ""))
     uri_protocol = profile_protocol(uri)
@@ -5646,6 +5682,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("favorite"); p.add_argument("id"); p.add_argument("enabled", choices=("on", "off"))
     p = sub.add_parser("import"); p.add_argument("name"); p.add_argument("old_id", nargs="?", default=""); p.add_argument("file", nargs="?")
     p = sub.add_parser("preview"); p.add_argument("file", nargs="?")
+    p = sub.add_parser("import-preview"); p.add_argument("file", nargs="?")
     p = sub.add_parser("export-file"); p.add_argument("id"); p.add_argument("path")
     sub.add_parser("diagnostics")
     p = sub.add_parser("diagnostics-export"); p.add_argument("path")
@@ -5716,6 +5753,14 @@ def main() -> int:
             Path(args.file).expanduser(), MAX_IMPORT_BYTES, "profile preview file"
         ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "profile preview")
         print(json.dumps(preview_profile(text), ensure_ascii=False, separators=(",", ":")))
+    elif args.command == "import-preview":
+        text = read_text_file(
+            Path(args.file).expanduser(), MAX_IMPORT_BYTES, "import preview file"
+        ) if args.file else read_stdin_text(MAX_IMPORT_BYTES, "import preview")
+        print(json.dumps(
+            classify_import(text, load_store(paths)),
+            ensure_ascii=False, separators=(",", ":"),
+        ))
     elif args.command == "diagnostics":
         with operation_lock(paths):
             print(diagnostics_text(paths), end="")

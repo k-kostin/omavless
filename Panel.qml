@@ -677,6 +677,17 @@ Panel {
     importDialog.openWith(suggested !== "" ? String(suggested) : vless.suggestName())
   }
 
+  function beginSubscriptionImport(kind, payload, suggested) {
+    vless.clearSubscriptionMessage()
+    editingSubscription = null
+    subscriptionPrompt.title = kind === "file"
+      ? "Add subscription from file"
+      : "Add subscription from clipboard"
+    subscriptionPrompt.confirmLabel = "Add"
+    subscriptionPrompt.openWith(
+      suggested !== "" ? String(suggested) : "Subscription", String(payload))
+  }
+
   function cancelImport() {
     importKind = ""
     importPayload = ""
@@ -871,6 +882,10 @@ Panel {
     function onImportReady(kind, payload, suggestedName) {
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
+    }
+    function onSubscriptionImportReady(kind, payload, suggestedName) {
+      if (!root.opened) root.open()
+      root.beginSubscriptionImport(kind, payload, suggestedName)
     }
     // The QR window is centred on the screen and takes keyboard focus; the
     // panel behind it is in the way, so it goes — as does a rename prompt,
@@ -2331,8 +2346,8 @@ Panel {
         }
       }
 
-      // Backend-parsed, redacted preview shared by file and clipboard import.
-      // The raw URI never becomes a displayed QML property.
+      // Backend-parsed, redacted profile preview shared by file and clipboard
+      // import. Subscription results route to the masked prompt below.
       ImportPreviewPrompt {
         id: importDialog
         anchors.fill: parent

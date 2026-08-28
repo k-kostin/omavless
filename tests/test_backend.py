@@ -105,6 +105,10 @@ class BackendTests(unittest.TestCase):
             parser.parse_args(["preview", "--", "--profile"]).file,
             "--profile",
         )
+        self.assertEqual(
+            parser.parse_args(["import-preview", "--", "--input"]).file,
+            "--input",
+        )
         export = parser.parse_args([
             "export-file", "--", "11111111-1111-4111-8111-111111111111", "--output",
         ])
@@ -2067,6 +2071,79 @@ rules:
         with self.assertRaisesRegex(backend.BackendError, "not supported") as caught:
             backend.profile_protocol("unknown://a-secret@example.com:443")
         self.assertNotIn("a-secret", str(caught.exception))
+
+    def test_unified_import_classifier_routes_one_profile_or_subscription(self):
+        store = backend.empty_store()
+        profile = backend.classify_import(REALITY_URI, store)
+        self.assertEqual(profile["version"], 1)
+        self.assertEqual(profile["kind"], "profile")
+        self.assertEqual(profile["profile"], backend.preview_profile(REALITY_URI))
+
+        url = "https://subscription.example/feed?token=private-token"
+        with mock.patch.object(backend, "fetch_subscription") as fetch_mock:
+            subscription = backend.classify_import(url, store)
+        self.assertEqual(subscription, {
+            "version": 1, "kind": "subscription",
+            "suggestedName": "Subscription", "duplicate": False,
+        })
+        fetch_mock.assert_not_called()
+        public = json.dumps(subscription)
+        self.assertNotIn(url, public)
+        self.assertNotIn("private-token", public)
+        self.assertNotIn("subscription.example", public)
+
+    def test_unified_import_classifier_rejects_invalid_or_ambiguous_input_safely(self):
+        store = backend.empty_store()
+        with self.assertRaisesRegex(backend.BackendError, "one profile link"):
+            backend.classify_import(REALITY_URI + "\n" + TROJAN_URI, store)
+        private = "https://user:private-password@example.com/feed"
+        with self.assertRaises(backend.BackendError) as caught:
+            backend.classify_import(private, store)
+        self.assertEqual(
+            str(caught.exception),
+            "Input is not a supported profile link or valid subscription URL",
+        )
+        self.assertNotIn("private-password", str(caught.exception))
+        for invalid in (
+            "http://remote.example/feed",
+            "https://provider.example/feed#fragment",
+            "https://provider.example/feed bad",
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(backend.BackendError):
+                backend.classify_import(invalid, store)
+
+    def test_unified_import_classifier_flags_duplicate_without_fetching(self):
+        url = "https://subscription.example/feed?token=private-token"
+        store = backend.empty_store()
+        store["subscriptions"].append({
+            "id": "22222222-2222-4222-8222-222222222222",
+            "name": "Existing", "url": url, "updatedAt": 0,
+        })
+        with mock.patch.object(backend, "fetch_subscription") as fetch_mock:
+            result = backend.classify_import(url, store)
+        self.assertTrue(result["duplicate"])
+        fetch_mock.assert_not_called()
+
+    def test_import_preview_cli_classifies_clipboard_and_file_consistently(self):
+        url = "https://subscription.example/feed?token=private-token"
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, _runtime = self.make_env(home)
+            source = home / "subscription.url"
+            source.write_text(url, encoding="utf-8")
+            stdin_result = subprocess.run(
+                [str(ROOT / "backend.sh"), "import-preview"],
+                input=url, capture_output=True, text=True, env=env, check=False,
+            )
+            file_result = subprocess.run(
+                [str(ROOT / "backend.sh"), "import-preview", "--", str(source)],
+                capture_output=True, text=True, env=env, check=False,
+            )
+        self.assertEqual(stdin_result.returncode, 0, stdin_result.stderr)
+        self.assertEqual(file_result.returncode, 0, file_result.stderr)
+        self.assertEqual(json.loads(stdin_result.stdout), json.loads(file_result.stdout))
+        self.assertNotIn(url, stdin_result.stdout)
+        self.assertNotIn("private-token", file_result.stdout)
 
     def test_fresh_store_defers_routing_preset_choice(self):
         fresh = backend.validate_store(backend.empty_store())

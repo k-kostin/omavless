@@ -1637,9 +1637,11 @@ Item {
     return rejectAction("no profile is available")
   }
 
-  // Import: a picked file or pasted link becomes a private local profile
-  // entry. The status poll picks it up on the next tick.
+  // One backend classifier owns both private import sources. A profile opens
+  // the redacted profile prompt; a validated subscription URL opens the
+  // existing masked subscription confirmation flow.
   signal importReady(string kind, string payload, string suggestedName)
+  signal subscriptionImportReady(string kind, string payload, string suggestedName)
 
   function previewImport(kind, payload, suggestedName) {
     if (previewProcess.running) return rejectAction("another profile preview is already running")
@@ -1649,15 +1651,15 @@ Item {
       return rejectAction("no profile input to preview")
     actionRejection = ""
     lastError = ""
-    actionStatus = "Checking profile link…"
+    actionStatus = "Checking import…"
     importPreview = ({})
     _previewKind = sourceKind
     _previewPayload = sourcePayload
     _previewSuggested = String(suggestedName || "")
     previewProcess.stdinEnabled = sourceKind === "text"
     previewProcess.command = sourceKind === "file"
-      ? ["bash", backendPath, "preview", "--", sourcePayload]
-      : ["bash", backendPath, "preview"]
+      ? ["bash", backendPath, "import-preview", "--", sourcePayload]
+      : ["bash", backendPath, "import-preview"]
     previewProcess.running = true
     return true
   }
@@ -2333,10 +2335,6 @@ Item {
         root.lastError = "Could not read the clipboard"
         return
       }
-      if (!root.looksLikeConfig(text)) {
-        root.lastError = "Clipboard does not contain a supported profile link"
-        return
-      }
       root.previewImport("text", text, root.suggestName())
     }
   }
@@ -2367,14 +2365,36 @@ Item {
       root._previewSuggested = ""
       root.actionStatus = ""
       if (exitCode !== 0) {
-        root.lastError = root.elide(previewStderr.text || "Could not preview that profile link")
+        root.lastError = root.elide(previewStderr.text || "Could not classify that import")
         return
       }
-      var value
-      try { value = JSON.parse(String(previewStdout.text || "")) } catch (error) {
-        root.lastError = "Profile preview returned invalid data"
+      var result
+      try { result = JSON.parse(String(previewStdout.text || "")) } catch (error) {
+        root.lastError = "Import preview returned invalid data"
         return
       }
+      if (!result || result.version !== 1
+          || (result.kind !== "profile" && result.kind !== "subscription")) {
+        root.lastError = "Import preview returned invalid data"
+        return
+      }
+      if (result.kind === "subscription") {
+        if (typeof result.suggestedName !== "string"
+            || result.suggestedName === "" || result.suggestedName.length > 80
+            || typeof result.duplicate !== "boolean") {
+          root.lastError = "Import preview returned invalid data"
+          return
+        }
+        if (result.duplicate) {
+          root.lastError = "That subscription URL is already added"
+          return
+        }
+        root.lastError = ""
+        root.subscriptionImportReady(
+          kind, payload, root.plainText(result.suggestedName, 80))
+        return
+      }
+      var value = result.profile
       if (!value || value.version !== 1
           || typeof value.protocol !== "string"
           || root.capabilities.protocols.indexOf(value.protocol) < 0
