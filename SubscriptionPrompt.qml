@@ -23,6 +23,7 @@ Item {
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
   property bool autoName: true
+  property bool fromFile: false
 
   signal confirmed()
   signal canceled()
@@ -30,12 +31,23 @@ Item {
   visible: false
 
   function openWith(name, url) {
+    fromFile = false
     nameField.text = String(name || "")
     urlField.text = String(url || "")
     autoName = nameField.text === ""
     reveal.checked = false
     visible = true
     Qt.callLater(function() { urlField.forceActiveFocus() })
+  }
+
+  function openFromFile(name) {
+    fromFile = true
+    nameField.text = String(name || "Subscription")
+    urlField.text = ""
+    autoName = false
+    reveal.checked = false
+    visible = true
+    Qt.callLater(function() { nameField.forceActiveFocus(); nameField.selectAll() })
   }
 
   function suggestedName(value) {
@@ -45,6 +57,7 @@ Item {
 
   function dismiss() {
     visible = false
+    fromFile = false
     nameField.text = ""
     urlField.text = ""
     reveal.checked = false
@@ -102,6 +115,7 @@ Item {
 
         TextField {
           id: urlField
+          visible: !prompt.fromFile
           width: parent.width
           placeholderText: "https://provider.example/subscription"
           foreground: prompt.foreground
@@ -113,12 +127,23 @@ Item {
           Keys.onEscapePressed: prompt.canceled()
         }
 
+        PlainText {
+          visible: prompt.fromFile
+          width: parent.width
+          text: "Subscription URL validated from the selected file. It will be read privately after confirmation."
+          color: prompt.dim
+          font.family: prompt.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+
         Row {
           width: parent.width
           spacing: Style.space(6)
 
           Button {
             id: reveal
+            visible: !prompt.fromFile
             property bool checked: false
             text: checked ? "Hide URL" : "Show URL"
             tooltipText: "Subscription URLs may contain access credentials"
@@ -130,7 +155,9 @@ Item {
           }
 
           PlainText {
-            width: parent.width - reveal.width - parent.spacing
+            width: prompt.fromFile
+              ? parent.width
+              : parent.width - reveal.width - parent.spacing
             anchors.verticalCenter: reveal.verticalCenter
             text: prompt.loading ? "Loading private URL…" : prompt.hint
             color: prompt.error || (!prompt.accepted && !prompt.loading)

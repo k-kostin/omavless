@@ -109,6 +109,12 @@ class BackendTests(unittest.TestCase):
             parser.parse_args(["import-preview", "--", "--input"]).file,
             "--input",
         )
+        subscription_file = parser.parse_args([
+            "subscription-save-file", "--", "--provider", "", "--input",
+        ])
+        self.assertEqual(subscription_file.name, "--provider")
+        self.assertEqual(subscription_file.id, "")
+        self.assertEqual(subscription_file.file, "--input")
         export = parser.parse_args([
             "export-file", "--", "11111111-1111-4111-8111-111111111111", "--output",
         ])
@@ -2144,6 +2150,19 @@ rules:
         self.assertEqual(json.loads(stdin_result.stdout), json.loads(file_result.stdout))
         self.assertNotIn(url, stdin_result.stdout)
         self.assertNotIn("private-token", file_result.stdout)
+
+    def test_subscription_url_file_is_bounded_validated_and_private(self):
+        url = "https://subscription.example/feed?token=private-token"
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "subscription.url"
+            source.write_text(url + "\n", encoding="utf-8")
+            self.assertEqual(backend.read_subscription_url_file(source), url)
+            source.write_text(
+                "https://user:private-password@example.com/feed", encoding="utf-8"
+            )
+            with self.assertRaises(backend.BackendError) as caught:
+                backend.read_subscription_url_file(source)
+        self.assertNotIn("private-password", str(caught.exception))
 
     def test_fresh_store_defers_routing_preset_choice(self):
         fresh = backend.validate_store(backend.empty_store())

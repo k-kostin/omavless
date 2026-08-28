@@ -44,6 +44,7 @@ Panel {
   // name; "file" | "text" | "" (no prompt open).
   property string importKind: ""
   property string importPayload: ""
+  property string subscriptionImportFile: ""
   // Profile ({uuid, name}) awaiting a new display name; non-null while the
   // rename dialog is open.
   property var pendingRename: null
@@ -182,15 +183,18 @@ Panel {
   readonly property string subscriptionNameClean: subscriptionPrompt.nameValue.trim()
   readonly property string subscriptionUrlClean: subscriptionPrompt.urlValue.trim()
   readonly property bool subscriptionNameValid: vless.isValidName(subscriptionNameClean)
-  readonly property bool subscriptionUrlValid: /^https?:\/\/[^\s]+$/i.test(subscriptionUrlClean)
+  readonly property bool subscriptionUrlValid: subscriptionImportFile !== ""
+    || /^https?:\/\/[^\s]+$/i.test(subscriptionUrlClean)
   readonly property bool subscriptionAccepted: subscriptionNameValid && subscriptionUrlValid
   readonly property string subscriptionHint: vless.subscriptionError !== ""
     ? vless.subscriptionError
     : (!subscriptionNameValid
     ? "Use a non-empty provider name up to 80 characters"
+    : (subscriptionImportFile !== ""
+      ? "URL validated from the selected file and kept private"
     : (!subscriptionUrlValid
       ? "Use the http:// or https:// URL supplied by your provider"
-      : "URL stays private and is shown only in this editor"))
+      : "URL stays private and is shown only in this editor")))
 
   function openSubscriptions() {
     if (!vless.supports("subscriptions")) return
@@ -205,6 +209,7 @@ Panel {
     page = "main"
     pendingSubscriptionDelete = null
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
   }
 
@@ -301,6 +306,7 @@ Panel {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading) return
     vless.clearSubscriptionMessage()
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.title = "Add subscription"
     subscriptionPrompt.confirmLabel = "Add"
     subscriptionPrompt.openWith("", "")
@@ -309,6 +315,7 @@ Panel {
   function editSubscription(subscription) {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading || !subscription) return
     editingSubscription = subscription
+    subscriptionImportFile = ""
     subscriptionPrompt.title = "Edit " + subscription.name
     subscriptionPrompt.confirmLabel = "Save"
     subscriptionPrompt.openWith(subscription.rawName || subscription.name, "")
@@ -318,8 +325,12 @@ Panel {
   function confirmSubscription() {
     if (!subscriptionAccepted) return
     var uuid = editingSubscription ? editingSubscription.uuid : ""
-    if (!vless.saveSubscription(subscriptionNameClean, uuid, subscriptionUrlClean)) return
+    var started = subscriptionImportFile !== ""
+      ? vless.saveSubscriptionFile(subscriptionNameClean, uuid, subscriptionImportFile)
+      : vless.saveSubscription(subscriptionNameClean, uuid, subscriptionUrlClean)
+    if (!started) return
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
   }
 
@@ -684,8 +695,14 @@ Panel {
       ? "Add subscription from file"
       : "Add subscription from clipboard"
     subscriptionPrompt.confirmLabel = "Add"
-    subscriptionPrompt.openWith(
-      suggested !== "" ? String(suggested) : "Subscription", String(payload))
+    var name = suggested !== "" ? String(suggested) : "Subscription"
+    if (kind === "file") {
+      subscriptionImportFile = String(payload)
+      subscriptionPrompt.openFromFile(name)
+    } else {
+      subscriptionImportFile = ""
+      subscriptionPrompt.openWith(name, String(payload))
+    }
   }
 
   function cancelImport() {
@@ -812,6 +829,7 @@ Panel {
     pendingSubscriptionDelete = null
     pendingEdit = null
     editingSubscription = null
+    subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
@@ -2378,6 +2396,7 @@ Panel {
         onConfirmed: root.confirmSubscription()
         onCanceled: {
           root.editingSubscription = null
+          root.subscriptionImportFile = ""
           dismiss()
           keyCatcher.forceActiveFocus()
         }

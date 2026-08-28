@@ -1552,6 +1552,22 @@ Item {
     return true
   }
 
+  function saveSubscriptionFile(name, uuid, path) {
+    if (busy) return rejectAction("another OmaVLESS operation is already running")
+    if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
+    var clean = String(name || "").trim()
+    var target = String(uuid || "")
+    var value = String(path || "")
+    if (!isValidName(clean)) return rejectAction("use a non-empty name up to 80 characters")
+    if (value === "" || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value))
+      return rejectAction("subscription import file path is invalid")
+    actionRejection = ""
+    subscriptionError = ""
+    subscriptionStatus = "Adding " + clean + "…"
+    runControl(["subscription-save-file", "--", clean, target, value])
+    return true
+  }
+
   function refreshSubscription(subscription) {
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")

@@ -661,6 +661,13 @@ def validate_subscription_url(value: str) -> str:
     return value
 
 
+def read_subscription_url_file(path: Path) -> str:
+    """Read and validate one selected URL file without publishing its value."""
+    return validate_subscription_url(
+        read_text_file(path, MAX_SUBSCRIPTION_URL_BYTES, "subscription URL file")
+    )
+
+
 def subscription_host(url: str) -> str:
     """Return the only URL-derived value safe enough for user-facing errors."""
     try:
@@ -5714,6 +5721,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("startup-connect")
     sub.add_parser("onboarding-complete")
     p = sub.add_parser("subscription-save"); p.add_argument("name"); p.add_argument("id", nargs="?", default="")
+    p = sub.add_parser("subscription-save-file")
+    p.add_argument("name"); p.add_argument("id"); p.add_argument("file")
     p = sub.add_parser("subscription-refresh"); p.add_argument("id")
     sub.add_parser("subscription-refresh-all")
     p = sub.add_parser("subscription-delete"); p.add_argument("id")
@@ -5852,8 +5861,12 @@ def main() -> int:
             store = load_store(paths)
             store["onboardingComplete"] = True
             save_store(paths, store)
-    elif args.command == "subscription-save":
-        url = read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")
+    elif args.command in {"subscription-save", "subscription-save-file"}:
+        url = (
+            read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")
+            if args.command == "subscription-save"
+            else read_subscription_url_file(Path(args.file).expanduser())
+        )
         # Network I/O never holds the global mutation lock. A slow provider
         # must not prevent an urgent disconnect or make status monitors time
         # out; only the final validated store update is serialized.
