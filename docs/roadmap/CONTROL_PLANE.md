@@ -14,6 +14,13 @@ validation, stable success/error envelopes and one-frame stream helpers. The
 credential-free corpus under `tests/control_protocol_cases/` is intended for
 reuse by the future daemon, CLI, TUI and QML bridge.
 
+`tools/control_protocol_probe.py` is a developer-only executable check of this
+boundary. `hello` emits the one fixed credential-free v1 negotiation request;
+`request` and `response` accept exactly one bounded frame on standard input and
+return only a fixed VALID result or a stable safe protocol error. The probe does
+not accept a method or JSON parameters on its command line, echo validated
+content, connect to a socket, dispatch work or access private/runtime state.
+
 T1a deliberately has no socket listener, method dispatcher, daemon process,
 state store, mutation queue or Mihomo dependency. Current `backend.py` and the
 plugin remain the only runtime path. The remaining T1 steps therefore still
