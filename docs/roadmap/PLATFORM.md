@@ -83,8 +83,8 @@ Linux". Initial design and packaging may assume:
 - Linux TUN support;
 - standard file capabilities (`setcap`) for supported proxy cores where
   required;
-- nftables or another explicitly selected Linux mechanism if/when K1
-  fail-closed protection is implemented;
+- nftables plus the separately packaged root NetGuard service selected by K0
+  if/when K1 fail-closed protection is implemented;
 - current packaged/verified Mihomo and, only if X1 becomes justified, Xray.
 
 This boundary is a support decision, not proof that the architecture must stay
@@ -175,8 +175,10 @@ the standalone binary. Its behavior should be:
 - never invoke an unreviewed curl-pipe-shell installer from QML;
 - never silently introduce privileged setup.
 
-Application/core setup that needs capabilities or a future K1 helper remains an
-explicit host-administration step with documented audit/removal behavior.
+Application/core setup that needs capabilities or the future K1 NetGuard
+service remains an explicit host-administration step with documented audit,
+fail-closed removal and fixed console recovery behavior. The K0 contract is
+[`KILL_SWITCH.md`](KILL_SWITCH.md).
 
 ## Migration from the current plugin
 
