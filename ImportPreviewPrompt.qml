@@ -172,6 +172,8 @@ Item {
           foreground: prompt.foreground
           font.family: prompt.fontFamily
           onAccepted: if (prompt.accepted) prompt.confirmed()
+          KeyNavigation.tab: cancelButton
+          KeyNavigation.backtab: confirmButton
           Keys.onEscapePressed: prompt.canceled()
         }
 
@@ -192,18 +194,26 @@ Item {
             anchors.right: parent.right
             spacing: Style.space(10)
             Button {
+              id: cancelButton
               text: "Cancel"
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily
+              focusable: true
+              KeyNavigation.tab: confirmButton
+              KeyNavigation.backtab: nameField
               onClicked: prompt.canceled()
             }
             Button {
+              id: confirmButton
               text: prompt.confirmLabel
               bordered: true
               enabled: prompt.accepted
               foreground: enabled ? prompt.foreground : prompt.dim
               fontFamily: prompt.fontFamily
+              focusable: true
+              KeyNavigation.tab: nameField
+              KeyNavigation.backtab: cancelButton
               onClicked: prompt.confirmed()
             }
           }

@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Keep Tab and Shift+Tab inside the active OmaVLESS panel or confirmation
+  surface, with visible focus rings, circular page-local traversal and
+  preserved Enter/Escape behavior instead of switching to adjacent bar
+  plugins while OmaVLESS owns keyboard focus.
 - Report file-picker availability during onboarding and installation, with an
   actionable Omarchy package command in Settings before the user tries file
   import.
