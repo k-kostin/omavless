@@ -4,6 +4,13 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added an explicit opt-in V0 live-validation harness for the experimental
+  VLESS, Trojan, Hysteria2 and TUIC adapters. It runs existing locally imported
+  profiles one at a time in Full VPN mode, performs a bounded HTTPS probe and
+  attempts to restore the previous routing mode and active profile.
+- Added a private, bounded cases schema and atomic `0600` result format. Profile
+  URIs, protocol credentials, names, endpoints and raw backend errors never
+  enter the checked-in fixture or public result matrix.
 - Published OmaVLESS 0.7.0 in the Omarchy plugin marketplace as a
   maintainer-verified listing at exact commit
   `69fe05b03129a23664fff3f8289821a7b7f80095`.
