@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added the T1a control-protocol foundation: one reusable bounded v1 NDJSON
+  parser/encoder, stable credential-safe error envelopes, version/revision/
+  operation validation and a deterministic cross-client conformance corpus.
+  This slice does not open a socket or change current VPN lifecycle ownership.
 - Keep Tab and Shift+Tab inside the active OmaVLESS panel or confirmation
   surface, with visible focus rings, circular page-local traversal and
   preserved Enter/Escape behavior instead of switching to adjacent bar
