@@ -4,18 +4,20 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Subscription URLs behave like bearer credentials. The URL is shown only
 // inside this explicit editor and starts obscured on every open.
 Item {
   id: prompt
 
-  property string title: "Subscription"
+  property string locale: "en"
+  property string title: textFor("subscription.title")
   property string hint: ""
   property bool accepted: false
   property bool loading: false
   property bool error: false
-  property string confirmLabel: "Save"
+  property string confirmLabel: textFor("common.save")
   property alias nameValue: nameField.text
   property alias urlValue: urlField.text
   property color foreground: Color.foreground
@@ -27,6 +29,10 @@ Item {
 
   signal confirmed()
   signal canceled()
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
 
   visible: false
   focus: visible
@@ -44,7 +50,7 @@ Item {
 
   function openFromFile(name) {
     fromFile = true
-    nameField.text = String(name || "Subscription")
+    nameField.text = String(name || textFor("subscription.title"))
     urlField.text = ""
     autoName = false
     reveal.checked = false
@@ -108,7 +114,7 @@ Item {
         TextField {
           id: nameField
           width: parent.width
-          placeholderText: "Provider name"
+          placeholderText: prompt.textFor("subscription.provider_name")
           foreground: prompt.foreground
           font.family: prompt.fontFamily
           onTextEdited: prompt.autoName = false
@@ -136,7 +142,7 @@ Item {
         PlainText {
           visible: prompt.fromFile
           width: parent.width
-          text: "Subscription URL validated from the selected file. It will be read privately after confirmation."
+          text: prompt.textFor("subscription.file_validated")
           color: prompt.dim
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -151,8 +157,9 @@ Item {
             id: reveal
             visible: !prompt.fromFile
             property bool checked: false
-            text: checked ? "Hide URL" : "Show URL"
-            tooltipText: "Subscription URLs may contain access credentials"
+            text: checked
+              ? prompt.textFor("common.hide_url") : prompt.textFor("common.show_url")
+            tooltipText: prompt.textFor("subscription.url_sensitive")
             bordered: true
             foreground: prompt.foreground
             fontFamily: prompt.fontFamily
@@ -168,7 +175,7 @@ Item {
               ? parent.width
               : parent.width - reveal.width - parent.spacing
             anchors.verticalCenter: reveal.verticalCenter
-            text: prompt.loading ? "Loading private URL…" : prompt.hint
+            text: prompt.loading ? prompt.textFor("subscription.loading_private") : prompt.hint
             color: prompt.error || (!prompt.accepted && !prompt.loading)
               ? prompt.urgent : prompt.dim
             font.family: prompt.fontFamily
@@ -186,7 +193,7 @@ Item {
             spacing: Style.space(10)
             Button {
               id: cancelButton
-              text: "Cancel"
+              text: prompt.textFor("common.cancel")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily

@@ -32,6 +32,7 @@ cp -a \
   "$plugin_dir/Panel.qml" \
   "$plugin_dir/Service.qml" \
   "$plugin_dir/AdvancedDiagnostics.qml" \
+  "$plugin_dir/I18n.js" \
   "$plugin_dir/PlainText.qml" \
   "$plugin_dir/Sparkline.qml" \
   "$plugin_dir/NamePrompt.qml" \

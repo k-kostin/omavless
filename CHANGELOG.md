@@ -7,6 +7,11 @@ All notable changes to OmaVLESS are documented here.
 - Added a credential-safe developer conformance probe for fixed v1 hello
   generation and end-to-end bounded request/response validation. It cannot
   connect to or execute control methods and never echoes validated input.
+- Added the I1 localization foundation with a live System/English/Russian
+  Settings selector, bounded semantic keys and interpolation, visible English
+  fallback, translated main/settings/import/subscription surfaces and localized
+  stable v1 control errors. Language changes do not restart the plugin or VPN;
+  provider/profile/core data remains untranslated and inert.
 - Accepted the K0 Full VPN fail-closed threat model and host-integration
   contract: a separately packaged root NetGuard service, one fixed-purpose API,
   one atomic dedicated nftables table, durable desired-state protection and

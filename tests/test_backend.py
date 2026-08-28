@@ -96,6 +96,12 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
         self.assertEqual(manifest["entryPoints"]["barWidget"], "Panel.qml")
         self.assertIn("experimental Trojan, Hysteria2 and TUIC", manifest["description"])
+        widget = manifest["barWidget"]
+        self.assertEqual(widget["defaults"]["locale"], "system")
+        locale_schema = next(item for item in widget["schema"] if item["key"] == "locale")
+        self.assertEqual(locale_schema["type"], "enum")
+        self.assertEqual(locale_schema["options"], ["system", "en", "ru"])
+        self.assertEqual(locale_schema["defaultValue"], "system")
         panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
         self.assertIn('moduleName: "kdk.omavless"', panel)
 
