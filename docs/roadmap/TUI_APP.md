@@ -1,7 +1,10 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: product/architecture direction, not current runtime support. Updated
-2026-08-27.
+Status: T0 product/architecture contract accepted; no shared runtime or TUI is
+implemented yet. Updated 2026-08-28.
+
+The implementation-ready T1 IPC, ownership, migration and distribution
+contract is [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
 OmaVLESS should be able to grow from a compact Omarchy bar plugin into a
 full VPN application without creating a second owner of the tunnel or copying
@@ -193,9 +196,12 @@ responsibility should have a product reason.
 
 ### Private IPC
 
-Prefer a private Unix-domain socket below `XDG_RUNTIME_DIR`, mode `0600`, with a
-versioned bounded protocol. A newline-delimited JSON protocol is a reasonable
-first implementation but is not mandated by this roadmap.
+T0 selects `$XDG_RUNTIME_DIR/omavless/control.sock`, with a mode-`0700` parent,
+mode-`0600` socket and same-UID peer verification. V1 uses bounded UTF-8 NDJSON,
+one unary request/response per connection, explicit negotiation, per-start
+instance IDs, revisions and a separate bounded event stream. Exact framing,
+limits, methods and stable errors are defined in
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
 The API should use semantic commands rather than forwarding arbitrary UI key
 presses. That allows QML, TUI, CLI and tests to share the same contract.
@@ -226,16 +232,17 @@ A local socket is not permission to abandon redaction rules.
 
 The bar plugin should eventually expose **Open app**.
 
-On Omarchy 4 the preferred behavior is launch-or-focus rather than spawning
-unlimited terminal windows. The implementation should use the supported
-Omarchy terminal launcher with a stable app-id and a floating-window rule, for
-example conceptually:
+On Omarchy 4 the behavior is launch-or-focus rather than spawning unlimited
+terminal windows. T0 selects the supported Omarchy terminal launcher and a
+stable app ID:
 
 ```text
-omarchy-launch-or-focus-tui --app-id=<stable-omavless-id> <omavless-tui-command>
+omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui
 ```
 
-The exact command/app-id is chosen during T1/T2 implementation.
+The TUI attaches to `omavless-runtime.service`; it never starts a core directly.
+Daemon-down behavior and bounded remediation are defined in the control-plane
+contract.
 
 Requirements:
 
@@ -399,16 +406,18 @@ is not sufficient if the user had pre-existing proxy configuration.
 
 ### T0 — control-plane and distribution design
 
-State: planned documentation/design phase.
+State: **accepted design checkpoint** in
+[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
-- define bar/TUI/CLI responsibilities;
-- define versioned semantic IPC and privacy bounds;
-- decide daemon/systemd ownership and migration from current service behavior;
-- decide application distribution without weakening marketplace installation;
-- define launch-or-focus behavior and removal/update ownership;
-- specify compatibility with existing plugin IPC/commands during migration.
+- `omavless-runtime.service` is the one future canonical owner;
+- v1 private socket framing, methods, errors, revisions and mutation
+  serialization are concrete;
+- persistent/desired/actual/cache/log state classes are separated;
+- Stage 0–3 migration, rollback and restart reconciliation are specified;
+- Arch/AUR packaging and exact Omarchy launch-or-focus behavior are selected;
+- T1 has a concrete deterministic and Try Omarchy acceptance plan.
 
-No new TUI runtime is advertised at T0.
+No daemon or TUI runtime is advertised at T0.
 
 ### T1 — shared runtime / daemon foundation
 

@@ -11,6 +11,9 @@ state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 - [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md) — evolution from a
   bar-only plugin to one runtime with compact bar, full TUI and CLI/IPC control
   surfaces;
+- [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md) — accepted
+  T0 runtime ownership, versioned IPC, migration, distribution and T1
+  acceptance contract;
 - [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
   — cloud/Omarchy Git workflow and branch policy;
 - [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
@@ -232,21 +235,23 @@ workspace and a bounded CLI/IPC integration surface.
 
 ### T0 — control-plane and distribution design
 
-- State: **planned design phase**.
-- Define bar/TUI/CLI responsibilities and the migration path from the current
-  QML -> `backend.py` control model.
-- Define a versioned bounded semantic IPC protocol and separate small state from
-  high-volume local logs/connections.
-- Define daemon/systemd ownership, package/update/remove lifecycle and exact
-  compatibility requirements for the existing plugin.
-- Preserve the current distinction between closing a panel, disconnecting the
-  VPN and disabling/removing the plugin. Defer `Quit OmaVLESS` until T1 owns the
-  tunnel independently of UI lifetime; do not alias it to popup close or plugin
-  disable.
-- Define an explicit distribution path for a future native TUI/runtime. The
-  marketplace plugin must not silently download/build a binary.
-- Define `Open app` launch-or-focus behavior using the supported Omarchy
-  terminal launcher and a stable app-id.
+- State: **accepted design checkpoint** in
+  [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md).
+- Selected `omavless-runtime.service` as the one future canonical owner, with
+  the existing Mihomo supervisor retained only as a private implementation
+  detail during the first migration.
+- Defined v1 bounded NDJSON on a private same-user Unix socket, stable semantic
+  method/error categories, revisions, idempotent retries and one mutation
+  queue.
+- Separated private store, desired state, actual runtime state, caches and
+  high-volume traffic/log data.
+- Defined Stage 0–3 migration/rollback, restart reconciliation and exact
+  close/disconnect/quit/disable/remove/stop semantics.
+- Selected an explicit Arch/AUR package boundary and
+  `omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui`;
+  the marketplace plugin never downloads/builds it.
+- T1 is implementation-ready but not automatically scheduled by this design-
+  only merge.
 
 ### T1 — shared runtime / daemon foundation
 
