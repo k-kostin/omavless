@@ -66,7 +66,7 @@ An agent handing work to another environment should report at minimum:
 
 When a useful investigation produces findings that future agents need, store a credential-safe report or update the relevant canonical documentation in Git rather than leaving the result only in chat history.
 
-## Current continuity checkpoint — 2026-08-27
+## Current continuity checkpoint — 2026-08-28
 
 D1 / PR `#27` (advanced Mihomo diagnostics and adaptive polling) is complete and merged. The accepted D1 head was `2c2615247d32e7ac4b2f7ada055d1028586cc639`; merge commit in `main` is `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`.
 
@@ -77,7 +77,19 @@ Before repeating D1 investigation or acceptance, read [`docs/testing/TRY_OMARCHY
 - the distinction between that selector race and the separate three-prompt Mihomo/systemd-resolved/polkit behavior;
 - the final 5/5 Routing -> Full VPN regression plus the other required mode transitions;
 - D1 diagnostics/privacy/polling/provider acceptance;
-- the manual UI result and deferred Tab-navigation issue `#37`;
+- the original manual UI result and then-deferred Tab-navigation issue `#37`,
+  which is now fixed and merged through PR `#43`;
 - the practical cloud-orchestrator -> user -> guest Codex CLI workflow used when Codex Desktop could not address the raw Try Omarchy QEMU window.
 
-The next active runtime chain item is PR `#30` / `codex/experimental-protocol-live-gates`. Rebase/retarget it onto current `main`, rerun its cloud checks, then execute its own privacy-safe live server/provider/TUN validation. Do not restart D1 as an open prerequisite and do not skip V0 to start P4a WireGuard work.
+PR `#30` / `codex/experimental-protocol-live-gates` has since been rebuilt as
+one V0-only commit directly on `main`, with exact head
+`a643db595ad5369b5fea200ebc601b4f0f70f18f`. Its static/installed gates and one
+representative VLESS XHTTP live case pass. It remains Draft and partially
+validated because VLESS Encryption / REALITY PQ, Trojan, Hysteria2 and TUIC v5
+fixtures are unavailable; do not fabricate them or call V0 complete.
+
+The missing V0 fixtures do not block independent no-new-protocol-key work.
+File-picker onboarding (`#39` / PR `#41`), unified top-level subscription import
+(`#40` / PR `#42`) and panel-local Tab navigation (`#37` / PR `#43`) are merged.
+Do not restart D1, restack #30 on it, or skip the remaining V0 evidence gate to
+begin P4a WireGuard/AmneziaWG implementation.

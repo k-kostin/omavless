@@ -1,6 +1,6 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-27.
+Status: active delivery ledger, updated 2026-08-28.
 
 This file is the compact source of truth for delivery order and acceptance
 state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
@@ -71,18 +71,23 @@ D0 / documentation PR `#28` is merged into `main` at
 `751bb31b6c478e53aea6c0e9647e60fdb80bce6a`. It preserved the S0 lifecycle
 work from merged PR `#29` and established the P4 WireGuard/AmneziaWG queue.
 
-Two runtime Drafts remain in the active chain:
+D1 / PR `#27` is complete and merged. V0 / PR `#30` was reconstructed directly
+on `main` rather than remaining stacked on D1. Its static gates are green and
+one representative VLESS XHTTP live case passes, but the Draft remains open
+because VLESS Encryption / REALITY PQ, Trojan, Hysteria2 and TUIC v5 fixtures
+are unavailable. V0 is partially validated, not complete.
 
-1. `#27` / `codex/advanced-mihomo-diagnostics` — D1 advanced diagnostics and
-   adaptive polling. It is rebased onto current `main`, cloud checks pass and
-   the real Omarchy diagnostics/polling smoke remains open.
-2. `#30` / `codex/experimental-protocol-live-gates` — V0 live-validation
-   harness, stacked on #27 until D1 merges. Cloud checks pass; independent real
-   server/provider/TUN evidence remains open.
+Fixture absence blocks claims about those protocol families; it does not block
+independent work which needs no new protocol key. The following Try Omarchy-
+validated UX fixes are now merged:
 
-The architecture/workflow/TUI documentation refresh is intentionally separate
-from those runtime branches. It must not be used to bypass their existing local
-acceptance gates.
+- issue `#39` / PR `#41`: out-of-box GTK file-picker fallback plus actionable
+  picker onboarding, merged at `8ebf1049bb7135569b7ec89673f5e0f7fde3cb58`;
+- issue `#40` / PR `#42`: unified top-level profile/subscription import,
+  merged at `2e10b7e8f707f7d91f3d8c18e9ffd0dc20da44ba`;
+- issue `#37` / PR `#43`: page-local Tab/Shift+Tab navigation with preserved
+  Enter/Escape and shell handoff after panel close, merged at
+  `d2a58589ed1eef5938fbce888f1e43a8d4c90fd0`.
 
 ## Active merge chain
 
@@ -105,27 +110,35 @@ acceptance gates.
 
 - Branch: `codex/advanced-mihomo-diagnostics`.
 - PR: `#27`.
-- State: **cloud-ready; Omarchy smoke pending**.
-- Acceptance: complete every unchecked `Local Omarchy smoke required` item in
-  the PR body on the exact current head, including private Unix-controller
-  verification, stale-response handling, provider refresh semantics, adaptive
-  polling and Full VPN/ Routing/Direct regression checks.
+- State: **merged** at `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`.
+- Accepted exact head: `2c2615247d32e7ac4b2f7ada055d1028586cc639`.
+- Result: advanced private-controller diagnostics and adaptive polling merged;
+  the Full VPN selector-readiness race was reproduced and fixed with bounded
+  retry semantics.
+- Acceptance record:
+  [`docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md`](docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md).
 - Successor: V0.
 
 ### V0 — existing experimental protocol validation gate
 
 - Branch: `codex/experimental-protocol-live-gates`.
-- PR: `#30`, stacked on D1 until #27 merges.
-- State: **cloud-ready harness; Omarchy/server/provider evidence pending**.
+- PR: `#30`, Draft, based directly on `main` at its reconstruction point rather
+  than stacked on D1.
+- Exact V0 head: `a643db595ad5369b5fea200ebc601b4f0f70f18f`.
+- State: **partially live-validated; additional fixtures unavailable**.
 - Goal: turn generated-config evidence into repeatable privacy-safe live
   evidence before another credential family is added.
 - Scope: opt-in local runner for existing VLESS XHTTP modes, VLESS Encryption /
   REALITY PQ, Trojan, Hysteria2 and TUIC v5. Real URIs, passwords, protocol
   UUIDs, subscription URLs and keys never enter its shareable result matrix.
-- Omarchy gate: after D1 merges, rebase/retarget onto the new `main`, rerun all
-  cloud checks, record current Mihomo version, validate configs and exercise
-  representative independent servers/providers plus UDP-friendly/restricted
-  Hysteria2 behavior.
+- Evidence: exact-head cloud/static and installed-Mihomo gates pass. The
+  privacy-safe `vless-xhttp-stream-one-provider-1` case passed Full VPN/TUN,
+  HTTPS probe, restoration and privacy checks on Try Omarchy ARM64.
+- Remaining gate: representative VLESS Encryption / REALITY PQ, Trojan,
+  Hysteria2 and TUIC v5 fixtures are unavailable. The safe UDP-restricted
+  Hysteria2 half is also unavailable. Do not fabricate fixtures, call V0
+  complete or discard the accepted XHTTP evidence merely because unrelated
+  no-fixture UX/docs work advances `main`.
 - Successor: P4a.
 
 ### P4a — standard one-peer WireGuard `.conf`
