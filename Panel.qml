@@ -70,6 +70,14 @@ Panel {
   readonly property string uiLocale: I18n.normalizeLocale(
     localeOverride !== "" ? localeOverride
       : (localeSetting === "system" ? Qt.locale().name : localeSetting))
+  // Sheets and confirmations own pointer/scroll input while visible. Keeping
+  // the page Flickables interactive underneath a translucent sheet lets one
+  // wheel gesture move two surfaces and exposes two competing scrollbars.
+  readonly property bool modalInputActive: onboardingWizard.visible
+    || startupPrompt.visible || routingToolsPrompt.visible
+    || routingPresetPrompt.visible || importDialog.visible
+    || subscriptionPrompt.visible || pendingEdit !== null
+    || pendingDelete !== null || pendingSubscriptionDelete !== null
 
   function normalizeLocaleSetting(value) {
     var requested = String(value || "system").trim().toLowerCase()
@@ -1419,8 +1427,10 @@ Panel {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: ScrollBar {
+          policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
+        }
 
         Column {
           id: column
@@ -2106,8 +2116,10 @@ Panel {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: ScrollBar {
+          policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
+        }
 
         Column {
           id: settingsColumn
@@ -2425,8 +2437,10 @@ Panel {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: ScrollBar {
+          policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
+        }
 
         Column {
           id: subscriptionsColumn

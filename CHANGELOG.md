@@ -6,7 +6,9 @@ All notable changes to OmaVLESS are documented here.
 
 - Localized Routing Tools and the first-use Routing preset confirmation in
   English and Russian while preserving rule payloads, routing targets and
-  unknown preset metadata as untranslated technical data.
+  unknown preset metadata as untranslated technical data. Modal sheets now
+  suspend and hide their underlying page scroller so one wheel gesture cannot
+  move two surfaces or show competing scrollbars.
 - Localized the complete three-step onboarding and login-autoconnect dialogs
   in English and Russian while keeping terminal commands, protocol tokens and
   private profile names unchanged and inert.

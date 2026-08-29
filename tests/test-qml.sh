@@ -364,6 +364,9 @@ grep -q 'text: root.textFor("profiles.no_match"' "$panel"
 grep -q 'text: prompt.textFor("import.privacy_note")' "$import_preview_prompt"
 grep -q 'locale: root.uiLocale' "$panel"
 (( $(grep -c 'locale: root.uiLocale' "$panel") >= 6 ))
+grep -q 'readonly property bool modalInputActive:' "$panel"
+(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 3 ))
+(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 3 ))
 bash -n "$installer"
 bash -n "$uninstaller"
 
