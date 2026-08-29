@@ -6,6 +6,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // A compact, read-only view of the state Mihomo actually loaded. The service
 // has already reduced controller data to bounded plain fields and terminal
@@ -19,6 +20,7 @@ Item {
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
+  property string locale: "en"
   readonly property real controlHeight: Style.space(32)
   readonly property int visibleRuleLimit: 300
   readonly property bool searchActive: searchField.activeFocus
@@ -39,6 +41,14 @@ Item {
   function resetSearchFocus() {
     searchField.text = ""
     Qt.callLater(function() { searchField.forceActiveFocus() })
+  }
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
+
+  function localizedCount(baseKey, count) {
+    return I18n.plural(baseKey, count, locale)
   }
 
   function normalizedQuery() {
@@ -74,16 +84,29 @@ Item {
     var parts = []
     if (provider.behavior !== "") parts.push(provider.behavior)
     parts.push(provider.ruleCount >= 0
-      ? provider.ruleCount + (provider.ruleCount === 1 ? " rule" : " rules")
-      : "count unavailable")
+      ? localizedCount("rule", provider.ruleCount)
+      : textFor("diagnostics.count_unavailable"))
     parts.push(provider.status)
     return parts.join(" · ")
   }
 
   function providerUpdated(provider) {
     return provider.updatedAt !== ""
-      ? "Last successful update · " + provider.updatedAt
-      : "Last successful update not reported"
+      ? textFor("diagnostics.last_update", { timestamp: provider.updatedAt })
+      : textFor("diagnostics.last_update_unknown")
+  }
+
+  function ruleSummary() {
+    if (!service) return ""
+    var parts = [textFor("diagnostics.rules_summary", {
+      matching: filteredRuleTotal,
+      loaded: service.loadedRuleTotal
+    })]
+    if (filteredRuleTotal > visibleRuleLimit)
+      parts.push(textFor("diagnostics.showing_first", { count: visibleRuleLimit }))
+    if (service.loadedRulesTruncated)
+      parts.push(textFor("diagnostics.controller_bounded"))
+    return parts.join(" · ")
   }
 
   Flickable {
@@ -108,7 +131,7 @@ Item {
 
         Button {
           id: backButton
-          text: "Back"
+          text: page.textFor("common.back")
           bordered: true
           foreground: page.foreground
           fontFamily: page.fontFamily
@@ -125,7 +148,7 @@ Item {
           spacing: 0
           PlainText {
             Layout.fillWidth: true
-            text: "LIVE MIHOMO DIAGNOSTICS"
+            text: page.textFor("diagnostics.title")
             color: page.foreground
             font.family: page.fontFamily
             font.pixelSize: Style.font.title
@@ -133,7 +156,7 @@ Item {
           }
           PlainText {
             Layout.fillWidth: true
-            text: "Read-only state from OmaVLESS's private controller"
+            text: page.textFor("diagnostics.subtitle")
             color: page.dim
             font.family: page.fontFamily
             font.pixelSize: Style.font.caption
@@ -143,7 +166,8 @@ Item {
 
         Button {
           id: refreshButton
-          text: service && service.advancedDiagnosticsLoading ? "Loading…" : "Refresh"
+          text: service && service.advancedDiagnosticsLoading
+            ? page.textFor("common.loading") : page.textFor("common.refresh")
           bordered: true
           enabled: service && !service.advancedDiagnosticsLoading
           foreground: enabled ? page.foreground : page.dim
@@ -171,7 +195,7 @@ Item {
         visible: service && service.advancedDiagnosticsLoading
           && service.loadedRules.length === 0
         width: parent.width
-        text: "Reading loaded rules and providers…"
+        text: page.textFor("diagnostics.reading")
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -181,7 +205,7 @@ Item {
 
       PlainText {
         width: parent.width
-        text: "LOADED RULES"
+        text: page.textFor("diagnostics.loaded_rules")
         color: Color.accent
         font.family: page.fontFamily
         font.pixelSize: Style.font.subtitle
@@ -192,7 +216,7 @@ Item {
         id: searchField
         width: parent.width
         height: page.controlHeight
-        placeholderText: "Search payload, rule type or VPN / DIRECT / REJECT"
+        placeholderText: page.textFor("diagnostics.search_placeholder")
         foreground: page.foreground
         font.family: page.fontFamily
         KeyNavigation.tab: providersRefreshButton
@@ -203,14 +227,7 @@ Item {
       PlainText {
         visible: service && service.loadedRules.length > 0
         width: parent.width
-        text: {
-          var line = filteredRuleTotal + " matching · "
-            + service.loadedRuleTotal + " loaded"
-          if (filteredRuleTotal > visibleRuleLimit)
-            line += " · showing first " + visibleRuleLimit
-          if (service.loadedRulesTruncated) line += " · controller list bounded"
-          return line
-        }
+        text: page.ruleSummary()
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.caption
@@ -222,8 +239,8 @@ Item {
           && service.advancedDiagnosticsError === "" && filteredRuleTotal === 0
         width: parent.width
         text: service && service.loadedRules.length === 0
-          ? "Mihomo reported no loaded rules."
-          : "No loaded rule matches this search."
+          ? page.textFor("diagnostics.no_loaded_rules")
+          : page.textFor("diagnostics.no_rule_match")
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -254,7 +271,8 @@ Item {
               spacing: Style.space(2)
               PlainText {
                 Layout.fillWidth: true
-                text: modelData.type !== "" ? modelData.type : "Rule"
+                text: modelData.type !== ""
+                  ? modelData.type : page.textFor("diagnostics.rule_fallback")
                 color: page.foreground
                 font.family: page.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -263,7 +281,8 @@ Item {
               }
               PlainText {
                 Layout.fillWidth: true
-                text: modelData.payload !== "" ? modelData.payload : "No payload"
+                text: modelData.payload !== ""
+                  ? modelData.payload : page.textFor("diagnostics.no_payload")
                 color: page.dim
                 font.family: page.fontFamily
                 font.pixelSize: Style.font.caption
@@ -295,7 +314,7 @@ Item {
           spacing: 0
           PlainText {
             Layout.fillWidth: true
-            text: "RULE PROVIDERS"
+            text: page.textFor("diagnostics.rule_providers")
             color: Color.accent
             font.family: page.fontFamily
             font.pixelSize: Style.font.subtitle
@@ -304,7 +323,8 @@ Item {
           PlainText {
             Layout.fillWidth: true
             text: service
-              ? service.loadedRuleProviderTotal + " loaded by Mihomo"
+              ? page.textFor("diagnostics.providers_loaded",
+                  { count: service.loadedRuleProviderTotal })
               : ""
             color: page.dim
             font.family: page.fontFamily
@@ -313,7 +333,8 @@ Item {
         }
         Button {
           id: providersRefreshButton
-          text: service && service.busy ? "Updating…" : "Update all"
+          text: service && service.busy
+            ? page.textFor("common.updating") : page.textFor("diagnostics.update_all")
           bordered: true
           enabled: service && service.loadedRefreshableProviderCount > 0 && !service.busy
           foreground: enabled ? page.foreground : page.dim
@@ -344,7 +365,7 @@ Item {
           && service.advancedDiagnosticsError === ""
           && service.loadedRuleProviders.length === 0
         width: parent.width
-        text: "Mihomo reported no loaded rule providers."
+        text: page.textFor("diagnostics.no_loaded_providers")
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.bodySmall
@@ -403,7 +424,7 @@ Item {
       PlainText {
         visible: service && service.loadedRuleProvidersTruncated
         width: parent.width
-        text: "Provider output was bounded for safe display."
+        text: page.textFor("diagnostics.provider_output_bounded")
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.caption
