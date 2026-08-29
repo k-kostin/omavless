@@ -4,6 +4,9 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added a credential-safe developer conformance probe for fixed v1 hello
+  generation and end-to-end bounded request/response validation. It cannot
+  connect to or execute control methods and never echoes validated input.
 - Accepted the K0 Full VPN fail-closed threat model and host-integration
   contract: a separately packaged root NetGuard service, one fixed-purpose API,
   one atomic dedicated nftables table, durable desired-state protection and
