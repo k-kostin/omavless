@@ -17,6 +17,8 @@ state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 - [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md) — accepted K0
   fail-closed threat model, privilege boundary, host lifecycle and K1
   acceptance contract;
+- [`docs/roadmap/I18N.md`](docs/roadmap/I18N.md) — I1 locale/key ownership,
+  translated first surface and follow-up boundaries;
 - [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
   — cloud/Omarchy Git workflow and branch policy;
 - [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
@@ -201,11 +203,18 @@ start.
 
 ### I1 — i18n foundation
 
-- Future branch: `codex/i18n-foundation`.
-- English remains default/fallback; Russian is the first additional locale.
-- Provider/profile/core-controlled data is never translated.
-- Prefer stable backend status/error codes localized on the UI side so the same
-  codes can later be rendered consistently by QML and the TUI.
+- State: **foundation implemented; follow-up surface batches remain**.
+- English is the complete fallback; Russian is the first additional locale.
+  A persisted System/English/Russian Settings selector updates QML in place
+  without restarting the plugin or VPN; a bounded QA override remains.
+  Unsupported locales and missing Russian entries fall back to visible English.
+- The coherent first surface covers the main panel, Settings navigation,
+  connection modes, common actions, import/subscription confirmation and the
+  stable v1 control error set.
+- Provider/profile/core-controlled data is never translated. Named
+  interpolation is bounded and reaches only plain-text/sanitized sinks.
+- Onboarding, routing tools, diagnostics, secondary dialogs and legacy backend
+  prose remain explicit I1b/I1c batches.
 
 ### C1 — privacy-aware active connections
 

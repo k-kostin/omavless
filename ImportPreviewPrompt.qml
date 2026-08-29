@@ -7,6 +7,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Review only non-reusable connection facts before a credential is saved.
 // Parsing and redaction happen in the backend; this surface never receives a
@@ -14,8 +15,9 @@ import qs.Ui
 Item {
   id: prompt
 
-  property string title: "Import profile"
-  property string confirmLabel: "Import"
+  property string locale: "en"
+  property string title: textFor("import.profile_title")
+  property string confirmLabel: textFor("common.import")
   property string hint: ""
   property bool accepted: false
   property var preview: ({})
@@ -27,6 +29,10 @@ Item {
 
   signal confirmed()
   signal canceled()
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
 
   visible: false
   focus: visible
@@ -82,7 +88,7 @@ Item {
 
         PlainText {
           width: parent.width
-          text: "Review before import"
+          text: prompt.textFor("import.review")
           color: Color.accent
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.subtitle
@@ -107,19 +113,19 @@ Item {
 
             Repeater {
               model: [
-                { label: "Protocol", value: String(prompt.preview.protocol || "") },
-                { label: "Endpoint", value: String(prompt.preview.server || "")
+                { label: prompt.textFor("import.protocol"), value: String(prompt.preview.protocol || "") },
+                { label: prompt.textFor("import.endpoint"), value: String(prompt.preview.server || "")
                     + ":" + String(prompt.preview.port || "") },
-                { label: "Connection", value: String(prompt.preview.transport || "")
+                { label: prompt.textFor("import.connection"), value: String(prompt.preview.transport || "")
                     + " / " + String(prompt.preview.security || "")
                     + (prompt.preview.flow ? " / " + prompt.preview.flow : "")
                     + (prompt.preview.advancedXhttp ? " / advanced" : "")
                     + (prompt.preview.experimental ? " / experimental" : "") },
                 { label: "SNI", value: String(prompt.preview.sni || "—") },
-                { label: "TLS check", value: prompt.preview.insecure
-                    ? "Disabled by this key" : "Enabled" },
-                { label: "Credential", value: String(prompt.preview.credentialHint || "••••")
-                    + " · hidden" }
+                { label: prompt.textFor("import.tls_check"), value: prompt.preview.insecure
+                    ? prompt.textFor("import.tls_disabled") : prompt.textFor("import.tls_enabled") },
+                { label: prompt.textFor("import.credential"), value: String(prompt.preview.credentialHint || "••••")
+                    + " · " + prompt.textFor("import.hidden") }
               ]
 
               Row {
@@ -148,7 +154,7 @@ Item {
 
         PlainText {
           width: parent.width
-          text: "The complete access credential and key parameters are intentionally not shown. Nothing is stored until you press Import."
+          text: prompt.textFor("import.privacy_note")
           color: prompt.dim
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption
@@ -168,7 +174,7 @@ Item {
         TextField {
           id: nameField
           width: parent.width
-          placeholderText: "Profile name"
+          placeholderText: prompt.textFor("import.profile_name")
           foreground: prompt.foreground
           font.family: prompt.fontFamily
           onAccepted: if (prompt.accepted) prompt.confirmed()
@@ -195,7 +201,7 @@ Item {
             spacing: Style.space(10)
             Button {
               id: cancelButton
-              text: "Cancel"
+              text: prompt.textFor("common.cancel")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily

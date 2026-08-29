@@ -21,6 +21,7 @@
     "defaults": {
       "refreshIntervalSec": 10,
       "pingHost": "1.1.1.1",
+      "locale": "system",
       "showBarThroughput": false,
       "showExitIp": true
     },
@@ -39,6 +40,14 @@
         "type": "string",
         "label": "Ping host (empty disables the latency probe)",
         "defaultValue": "1.1.1.1"
+      },
+      {
+        "key": "locale",
+        "type": "enum",
+        "label": "Language",
+        "options": ["system", "en", "ru"],
+        "defaultValue": "system",
+        "description": "System, English or Russian. Applies without restarting OmaVLESS or the VPN."
       },
       {
         "key": "showBarThroughput",

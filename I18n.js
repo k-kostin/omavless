@@ -1,0 +1,252 @@
+// SPDX-License-Identifier: MIT
+// Stable, deliberately small UI localization catalog shared by QML surfaces.
+// Provider/profile/core-controlled data is passed only as bounded interpolation
+// and is never looked up as a translation key.
+
+var MAX_TEXT_LENGTH = 512
+var MAX_VALUE_LENGTH = 160
+
+var CATALOG = {
+  "status.connected": {"en":"Connected","ru":"Подключено"},
+  "status.disconnected": {"en":"Disconnected","ru":"Отключено"},
+  "status.connected_named": {"en":"Connected: {names}","ru":"Подключено: {names}"},
+  "action.connect": {"en":"Connect","ru":"Подключить"},
+  "action.disconnect": {"en":"Disconnect","ru":"Отключить"},
+  "action.test": {"en":"Test","ru":"Проверить"},
+  "common.cancel": {"en":"Cancel","ru":"Отмена"},
+  "common.add": {"en":"Add","ru":"Добавить"},
+  "common.save": {"en":"Save","ru":"Сохранить"},
+  "common.import": {"en":"Import","ru":"Импортировать"},
+  "common.replace": {"en":"Replace","ru":"Заменить"},
+  "common.loading": {"en":"Loading…","ru":"Загрузка…"},
+  "common.hide_url": {"en":"Hide URL","ru":"Скрыть URL"},
+  "common.show_url": {"en":"Show URL","ru":"Показать URL"},
+  "common.selected": {"en":"Selected","ru":"Выбрано"},
+  "common.use": {"en":"Use","ru":"Использовать"},
+  "common.ready": {"en":"Ready","ru":"Готово"},
+  "common.setup": {"en":"Setup","ru":"Настроить"},
+  "common.configure": {"en":"Configure","ru":"Настроить"},
+  "common.open": {"en":"Open","ru":"Открыть"},
+  "common.manage": {"en":"Manage","ru":"Управлять"},
+  "common.refresh": {"en":"Refresh","ru":"Обновить"},
+  "common.updating": {"en":"Updating…","ru":"Обновление…"},
+  "common.export": {"en":"Export","ru":"Экспортировать"},
+  "common.exporting": {"en":"Exporting…","ru":"Экспорт…"},
+  "common.on": {"en":"On","ru":"Вкл."},
+  "common.off": {"en":"Off","ru":"Выкл."},
+  "common.copy_command": {"en":"Copy command","ru":"Копировать команду"},
+  "common.configured": {"en":"Configured","ru":"Настроено"},
+  "language.system": {"en":"System","ru":"Системный"},
+  "language.english": {"en":"English","ru":"English"},
+  "language.russian": {"en":"Russian","ru":"Русский"},
+  "mode.full_vpn": {"en":"Full VPN","ru":"Полный VPN"},
+  "mode.routing": {"en":"Routing","ru":"Маршрутизация"},
+  "mode.direct": {"en":"Direct","ru":"Напрямую"},
+  "warning.full_tunnel_conflict": {"en":"Possible full-tunnel conflict · {summary}","ru":"Возможен конфликт полного туннеля · {summary}"},
+  "routing.active": {"en":"ACTIVE ROUTING","ru":"АКТИВНАЯ МАРШРУТИЗАЦИЯ"},
+  "routing.on_connect": {"en":"ROUTING ON CONNECT","ru":"МАРШРУТИЗАЦИЯ ПРИ ПОДКЛЮЧЕНИИ"},
+  "routing.mode.rule": {"en":"Rule","ru":"Правила"},
+  "routing.mode.global": {"en":"Full VPN","ru":"Полный VPN"},
+  "routing.mode.direct": {"en":"Direct","ru":"Напрямую"},
+  "routing.mode.unknown": {"en":"Unknown","ru":"Неизвестно"},
+  "routing.source.russia": {"en":"Russia","ru":"Россия"},
+  "routing.source.china": {"en":"China","ru":"Китай"},
+  "routing.source.iran": {"en":"Iran","ru":"Иран"},
+  "routing.source.custom": {"en":"Custom","ru":"Пользовательские"},
+  "routing.source.basic": {"en":"Basic","ru":"Базовые"},
+  "routing.source.none": {"en":"No rules","ru":"Без правил"},
+  "routing.source.unavailable": {"en":"Unavailable","ru":"Недоступно"},
+  "routing.summary.global": {"en":"All traffic uses the VPN · rule sets ignored","ru":"Весь трафик идёт через VPN · наборы правил не используются"},
+  "routing.summary.direct": {"en":"VPN bypassed · rule sets ignored","ru":"VPN обходится · наборы правил не используются"},
+  "routing.summary.unavailable": {"en":"Could not read the effective routing policy","ru":"Не удалось прочитать действующую политику маршрутизации"},
+  "routing.summary.russia": {"en":"RU/BY direct · selected services via VPN · {count}","ru":"RU/BY напрямую · выбранные сервисы через VPN · {count}"},
+  "routing.summary.china": {"en":"Mainland China direct · remaining traffic via VPN · {count}","ru":"Материковый Китай напрямую · остальной трафик через VPN · {count}"},
+  "routing.summary.iran": {"en":"Iran direct · remaining traffic via VPN · {count}","ru":"Иран напрямую · остальной трафик через VPN · {count}"},
+  "routing.summary.basic": {"en":"Local networks direct · all internet via VPN · {count}","ru":"Локальные сети напрямую · весь интернет через VPN · {count}"},
+  "routing.summary.custom": {"en":"{rules} · {sets}","ru":"{rules} · {sets}"},
+  "routing.summary.none": {"en":"No rule list found · Mihomo fallback applies","ru":"Список правил не найден · действует резервная политика Mihomo"},
+  "routing.preset.russia": {"en":"RU/BY and selected local services direct · remaining traffic via VPN","ru":"RU/BY и выбранные локальные сервисы напрямую · остальной трафик через VPN"},
+  "routing.preset.china": {"en":"Mainland China and private networks direct · remaining traffic via VPN","ru":"Материковый Китай и частные сети напрямую · остальной трафик через VPN"},
+  "routing.preset.iran": {"en":"Iran and private networks direct · remaining traffic via VPN","ru":"Иран и частные сети напрямую · остальной трафик через VPN"},
+  "profile.showing": {"en":"Showing {name}","ru":"Показан профиль {name}"},
+  "metric.ping": {"en":"Ping","ru":"Задержка"},
+  "metric.packet_loss": {"en":"Packet Loss","ru":"Потери пакетов"},
+  "metric.receiving": {"en":"Receiving","ru":"Приём"},
+  "metric.sending": {"en":"Sending","ru":"Передача"},
+  "metric.downloaded": {"en":"Downloaded","ru":"Загружено"},
+  "metric.uploaded": {"en":"Uploaded","ru":"Отправлено"},
+  "metric.tun_address": {"en":"TUN Address","ru":"Адрес TUN"},
+  "metric.server": {"en":"Server","ru":"Сервер"},
+  "metric.transport": {"en":"Transport","ru":"Транспорт"},
+  "metric.exit_ip": {"en":"Exit IP","ru":"Выходной IP"},
+  "metric.exit_ip_note": {"en":"Exit IP is this request's observed path, not proof of the complete routing policy.","ru":"Выходной IP показывает путь этого запроса, но не подтверждает всю политику маршрутизации."},
+  "traffic.last_seconds": {"en":"TRAFFIC · LAST {seconds}S","ru":"ТРАФИК · ПОСЛЕДНИЕ {seconds} С"},
+  "profiles.title": {"en":"PROFILES","ru":"ПРОФИЛИ"},
+  "profiles.search": {"en":"Search profiles, countries, hosts…  (/)","ru":"Поиск профилей, стран и узлов…  (/)"},
+  "profiles.empty": {"en":"No profiles yet\nImport a link file with + or paste one from the clipboard with v","ru":"Профилей пока нет\nИмпортируйте файл ссылок через + или вставьте ссылку из буфера клавишей v"},
+  "profiles.no_match": {"en":"No profiles match “{query}”","ru":"Нет профилей по запросу «{query}»"},
+  "profiles.click_connect": {"en":"Click to connect","ru":"Нажмите, чтобы подключить"},
+  "profiles.click_disconnect": {"en":"Connected — click to disconnect","ru":"Подключено — нажмите, чтобы отключить"},
+  "profiles.run_test_sort": {"en":"Run Test to sort by latency","ru":"Запустите проверку для сортировки по задержке"},
+  "profiles.failed_last": {"en":"Failed checks stay last","ru":"Недоступные серверы останутся в конце"},
+  "profiles.sort_ping": {"en":"Sort by ping","ru":"По задержке"},
+  "subscriptions.open": {"en":"Subscriptions…","ru":"Подписки…"},
+  "subscriptions.title": {"en":"SUBSCRIPTIONS","ru":"ПОДПИСКИ"},
+  "subscriptions.add": {"en":"Add…","ru":"Добавить…"},
+  "subscriptions.help": {"en":"Managed profiles update only when you ask. Test performs an end-to-end proxy check through every server; results stay in this session.","ru":"Управляемые профили обновляются только по запросу. Проверка проходит через каждый сервер; результаты сохраняются лишь до конца сеанса."},
+  "subscriptions.empty": {"en":"No subscriptions yet\nAdd the URL supplied by your provider","ru":"Подписок пока нет\nДобавьте URL, предоставленный провайдером"},
+  "count.provider.one": {"en":"provider","ru":"провайдер"},
+  "count.provider.few": {"en":"providers","ru":"провайдера"},
+  "count.provider.many": {"en":"providers","ru":"провайдеров"},
+  "count.managed_profile.one": {"en":"managed profile","ru":"управляемый профиль"},
+  "count.managed_profile.few": {"en":"managed profiles","ru":"управляемых профиля"},
+  "count.managed_profile.many": {"en":"managed profiles","ru":"управляемых профилей"},
+  "count.server.one": {"en":"server","ru":"сервер"},
+  "count.server.few": {"en":"servers","ru":"сервера"},
+  "count.server.many": {"en":"servers","ru":"серверов"},
+  "count.rule.one": {"en":"rule","ru":"правило"},
+  "count.rule.few": {"en":"rules","ru":"правила"},
+  "count.rule.many": {"en":"rules","ru":"правил"},
+  "count.rule_set.one": {"en":"rule set","ru":"набор правил"},
+  "count.rule_set.few": {"en":"rule sets","ru":"набора правил"},
+  "count.rule_set.many": {"en":"rule sets","ru":"наборов правил"},
+  "count.custom_rule.one": {"en":"custom rule","ru":"пользовательское правило"},
+  "count.custom_rule.few": {"en":"custom rules","ru":"пользовательских правила"},
+  "count.custom_rule.many": {"en":"custom rules","ru":"пользовательских правил"},
+  "age.never": {"en":"Never updated","ru":"Никогда не обновлялась"},
+  "age.just_now": {"en":"Updated just now","ru":"Обновлена только что"},
+  "age.minutes": {"en":"Updated {count}m ago","ru":"Обновлена {count} мин назад"},
+  "age.hours": {"en":"Updated {count}h ago","ru":"Обновлена {count} ч назад"},
+  "age.days": {"en":"Updated {count}d ago","ru":"Обновлена {count} дн назад"},
+  "settings.title": {"en":"SETTINGS","ru":"НАСТРОЙКИ"},
+  "settings.subtitle": {"en":"Routing, connections, privacy and panel display","ru":"Маршрутизация, подключения, конфиденциальность и панель"},
+  "settings.setup_startup": {"en":"SETUP & STARTUP","ru":"УСТАНОВКА И ЗАПУСК"},
+  "settings.mihomo_core": {"en":"Mihomo core","ru":"Ядро Mihomo"},
+  "settings.file_import": {"en":"File import","ru":"Импорт из файла"},
+  "settings.core_missing": {"en":"Mihomo not installed","ru":"Mihomo не установлен"},
+  "settings.core_ready": {"en":"Mihomo ready","ru":"Mihomo готов"},
+  "settings.core_tun_required": {"en":"TUN access required","ru":"Требуется доступ к TUN"},
+  "settings.file_picker_system": {"en":"Available through the system file picker","ru":"Доступен через системный выбор файлов"},
+  "settings.file_picker_provider": {"en":"Available through {provider}","ru":"Доступен через {provider}"},
+  "settings.file_picker_missing": {"en":"Unavailable — file picker missing. Run “omarchy pkg add zenity”","ru":"Недоступен — нет средства выбора файлов. Выполните «omarchy pkg add zenity»"},
+  "settings.start_at_login": {"en":"Start VPN at login","ru":"Запускать VPN при входе"},
+  "settings.routing_profile": {"en":"ROUTING PROFILE","ru":"ПРОФИЛЬ МАРШРУТИЗАЦИИ"},
+  "settings.routing_choose": {"en":"Choose a country preset before the first use of Routing.","ru":"Выберите страновой набор перед первым использованием маршрутизации."},
+  "settings.routing_selected": {"en":"Selected: {name}. Full VPN and Direct remain independent.","ru":"Выбрано: {name}. Полный VPN и прямое подключение остаются независимыми."},
+  "settings.routing_current": {"en":"Current template: {name}. Choose a country preset below or keep the existing policy.","ru":"Текущий шаблон: {name}. Выберите страновой набор ниже или сохраните действующую политику."},
+  "settings.source": {"en":"Source · {source}","ru":"Источник · {source}"},
+  "settings.open_source": {"en":"Open routing rule source","ru":"Открыть источник правил маршрутизации"},
+  "settings.routing_tools": {"en":"Routing tools","ru":"Инструменты маршрутизации"},
+  "settings.routing_tools_description": {"en":"{count} · check a domain","ru":"{count} · проверить домен"},
+  "settings.remote_rules": {"en":"Remote rule data","ru":"Удалённые данные правил"},
+  "settings.rules_automatic": {"en":"Automatic schedule · not checked manually","ru":"Автоматическое расписание · вручную не проверялось"},
+  "settings.connections": {"en":"CONNECTIONS","ru":"ПОДКЛЮЧЕНИЯ"},
+  "settings.subscriptions": {"en":"Subscriptions","ru":"Подписки"},
+  "settings.monitoring": {"en":"Connection monitoring","ru":"Мониторинг подключения"},
+  "settings.monitoring_description": {"en":"Open every {open}s · background every {background}s · latency {host}","ru":"Открытая панель: {open} с · фон: {background} с · проверка: {host}"},
+  "settings.appearance": {"en":"APPEARANCE","ru":"ВНЕШНИЙ ВИД"},
+  "settings.language": {"en":"Language","ru":"Язык"},
+  "settings.language_description": {"en":"Changes immediately · VPN and plugin stay running","ru":"Применяется сразу · VPN и плагин продолжают работать"},
+  "settings.diagnostics_privacy": {"en":"DIAGNOSTICS & PRIVACY","ru":"ДИАГНОСТИКА И КОНФИДЕНЦИАЛЬНОСТЬ"},
+  "settings.live_diagnostics": {"en":"Live Mihomo diagnostics","ru":"Диагностика Mihomo"},
+  "settings.live_diagnostics_description": {"en":"Loaded rules and rule providers · private controller only","ru":"Загруженные правила и провайдеры · только приватный контроллер"},
+  "settings.safe_diagnostics": {"en":"Safe diagnostics","ru":"Безопасная диагностика"},
+  "settings.safe_diagnostics_private": {"en":"No profile credentials, keys, server names or subscription URLs","ru":"Без учётных данных, ключей, имён серверов и URL подписок"},
+  "settings.observed_exit_ip": {"en":"Observed Exit IP","ru":"Наблюдаемый выходной IP"},
+  "settings.exit_ip_description": {"en":"Show a bounded external path check in connection details","ru":"Показывать ограниченную внешнюю проверку пути в сведениях"},
+  "settings.bar_throughput": {"en":"Live throughput in bar","ru":"Текущая скорость в панели"},
+  "settings.bar_throughput_description": {"en":"Keep the compact bar icon quiet unless explicitly enabled","ru":"Не показывать скорость в компактной панели без явного включения"},
+  "startup.off": {"en":"Off","ru":"Выключено"},
+  "startup.legacy": {"en":"On · review legacy login behavior","ru":"Включено · проверьте прежнее поведение при входе"},
+  "startup.last_used": {"en":"Last used server","ru":"Последний использованный сервер"},
+  "startup.unavailable": {"en":"Selected server unavailable","ru":"Выбранный сервер недоступен"},
+  "startup.summary": {"en":"{target} · {mode}","ru":"{target} · {mode}"},
+  "import.profile_title": {"en":"Import profile","ru":"Импорт профиля"},
+  "import.from_clipboard": {"en":"Import from clipboard","ru":"Импорт из буфера обмена"},
+  "import.from_file": {"en":"Import {name}","ru":"Импорт файла {name}"},
+  "import.review": {"en":"Review before import","ru":"Проверьте перед импортом"},
+  "import.protocol": {"en":"Protocol","ru":"Протокол"},
+  "import.endpoint": {"en":"Endpoint","ru":"Адрес"},
+  "import.connection": {"en":"Connection","ru":"Подключение"},
+  "import.tls_check": {"en":"TLS check","ru":"Проверка TLS"},
+  "import.tls_disabled": {"en":"Disabled by this key","ru":"Отключена этим ключом"},
+  "import.tls_enabled": {"en":"Enabled","ru":"Включена"},
+  "import.credential": {"en":"Credential","ru":"Учётные данные"},
+  "import.hidden": {"en":"hidden","ru":"скрыто"},
+  "import.privacy_note": {"en":"The complete access credential and key parameters are intentionally not shown. Nothing is stored until you press Import.","ru":"Полные учётные данные и параметры ключа намеренно скрыты. До нажатия «Импортировать» ничего не сохраняется."},
+  "import.profile_name": {"en":"Profile name","ru":"Название профиля"},
+  "subscription.title": {"en":"Subscription","ru":"Подписка"},
+  "subscription.add_title": {"en":"Add subscription","ru":"Добавить подписку"},
+  "subscription.edit_title": {"en":"Edit {name}","ru":"Изменить {name}"},
+  "subscription.add_from_file": {"en":"Add subscription from file","ru":"Добавить подписку из файла"},
+  "subscription.add_from_clipboard": {"en":"Add subscription from clipboard","ru":"Добавить подписку из буфера"},
+  "subscription.provider_name": {"en":"Provider name","ru":"Название провайдера"},
+  "subscription.file_validated": {"en":"Subscription URL validated from the selected file. It will be read privately after confirmation.","ru":"URL подписки проверен в выбранном файле. После подтверждения он будет прочитан приватно."},
+  "subscription.url_sensitive": {"en":"Subscription URLs may contain access credentials","ru":"URL подписки может содержать учётные данные"},
+  "subscription.loading_private": {"en":"Loading private URL…","ru":"Загрузка приватного URL…"},
+  "error.invalid_request": {"en":"The control request is invalid","ru":"Некорректный запрос управления"},
+  "error.unsupported_version": {"en":"The control protocol version is unsupported","ru":"Версия протокола управления не поддерживается"},
+  "error.unknown_method": {"en":"The control method is not supported","ru":"Метод управления не поддерживается"},
+  "error.invalid_argument": {"en":"A control request argument is invalid","ru":"Некорректный аргумент запроса управления"},
+  "error.not_found": {"en":"The requested item was not found","ru":"Запрошенный объект не найден"},
+  "error.conflict": {"en":"The request conflicts with current state","ru":"Запрос конфликтует с текущим состоянием"},
+  "error.busy": {"en":"Another operation is in progress","ru":"Уже выполняется другая операция"},
+  "error.capability_unavailable": {"en":"The requested capability is unavailable","ru":"Запрошенная возможность недоступна"},
+  "error.permission_denied": {"en":"The request is not permitted","ru":"Запрос не разрешён"},
+  "error.core_rejected": {"en":"The proxy core rejected the operation","ru":"Прокси-ядро отклонило операцию"},
+  "error.transition_failed_restored": {"en":"The transition failed and prior state was restored","ru":"Переход не выполнен, предыдущее состояние восстановлено"},
+  "error.manual_recovery_required": {"en":"Manual recovery is required","ru":"Требуется ручное восстановление"},
+  "error.daemon_restarting": {"en":"The OmaVLESS runtime is restarting","ru":"Среда выполнения OmaVLESS перезапускается"},
+  "error.internal_error": {"en":"The OmaVLESS runtime encountered an internal error","ru":"Внутренняя ошибка среды выполнения OmaVLESS"}
+}
+
+function normalizeLocale(value) {
+  var raw = String(value || "").trim().toLowerCase().replace(/-/g, "_")
+  return raw === "ru" || raw.indexOf("ru_") === 0 ? "ru" : "en"
+}
+
+function boundedValue(value) {
+  return String(value === undefined || value === null ? "" : value)
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .substring(0, MAX_VALUE_LENGTH)
+}
+
+function translate(key, locale, values) {
+  var stableKey = String(key || "").substring(0, 96)
+  var entry = CATALOG[stableKey]
+  if (!entry || typeof entry.en !== "string" || entry.en === "")
+    return ("Missing translation: " + (stableKey || "unknown")).substring(0, MAX_TEXT_LENGTH)
+  var selected = normalizeLocale(locale)
+  var text = typeof entry[selected] === "string" && entry[selected] !== ""
+    ? entry[selected] : entry.en
+  var data = values && typeof values === "object" ? values : {}
+  text = text.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function(match, name) {
+    return Object.prototype.hasOwnProperty.call(data, name) ? boundedValue(data[name]) : match
+  })
+  return text.substring(0, MAX_TEXT_LENGTH)
+}
+
+function plural(baseKey, count, locale) {
+  var amount = Math.max(0, Math.floor(Number(count) || 0))
+  var selected = normalizeLocale(locale)
+  var form = amount === 1 ? "one" : "many"
+  if (selected === "ru") {
+    var mod10 = amount % 10
+    var mod100 = amount % 100
+    if (mod10 === 1 && mod100 !== 11) form = "one"
+    else if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) form = "few"
+  }
+  return amount + " " + translate("count." + baseKey + "." + form, selected)
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    CATALOG: CATALOG,
+    MAX_TEXT_LENGTH: MAX_TEXT_LENGTH,
+    MAX_VALUE_LENGTH: MAX_VALUE_LENGTH,
+    normalizeLocale: normalizeLocale,
+    boundedValue: boundedValue,
+    translate: translate,
+    plural: plural
+  }
+}

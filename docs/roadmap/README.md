@@ -26,6 +26,8 @@ application UX and Git workflow rules.
   versioned IPC, migration/distribution contract and T1 acceptance plan.
 - [`KILL_SWITCH.md`](KILL_SWITCH.md) is the accepted K0 Full VPN fail-closed
   threat model, NetGuard privilege/host contract and K1 acceptance matrix.
+- [`I18N.md`](I18N.md) defines the I1 English/Russian catalog, locale/fallback
+  behavior, string ownership and deliberately deferred translation batches.
 - [`PLATFORM.md`](PLATFORM.md) defines the Arch-first standalone product and
   distribution boundary: Omarchy is first-class integration, not a runtime
   dependency.

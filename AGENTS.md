@@ -66,6 +66,16 @@ An agent handing work to another environment should report at minimum:
 
 When a useful investigation produces findings that future agents need, store a credential-safe report or update the relevant canonical documentation in Git rather than leaving the result only in chat history.
 
+## Localization work
+
+For translation, locale formatting or localized-UI review, read
+[`skills/omavless-localization/SKILL.md`](skills/omavless-localization/SKILL.md)
+and the complete canonical
+[`docs/roadmap/I18N.md`](docs/roadmap/I18N.md) before changing strings. Catalog
+and contract tests are necessary but are not visual acceptance: exercise the
+declared screen/state matrix on the exact installed head, protect private
+fixture data in screenshots and repeat only the affected captures after a fix.
+
 ## Current continuity checkpoint — 2026-08-28
 
 D1 / PR `#27` (advanced Mihomo diagnostics and adaptive polling) is complete and merged. The accepted D1 head was `2c2615247d32e7ac4b2f7ada055d1028586cc639`; merge commit in `main` is `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`.

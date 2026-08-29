@@ -11,6 +11,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 Panel {
   id: root
@@ -60,6 +61,118 @@ Panel {
   // text bound through helper functions would stay frozen until other state
   // happened to change.
   property double ageClock: Date.now()
+  // Locale selection is presentation-only widget state. It never calls the
+  // VPN service or reloads the plugin, so changing language cannot interrupt
+  // a requested tunnel. OMAVLESS_LOCALE remains a bounded QA/support override.
+  readonly property string localeOverride: Quickshell.env("OMAVLESS_LOCALE") || ""
+  readonly property string localeSetting: normalizeLocaleSetting(
+    root.settings && root.settings.locale !== undefined ? root.settings.locale : "system")
+  readonly property string uiLocale: I18n.normalizeLocale(
+    localeOverride !== "" ? localeOverride
+      : (localeSetting === "system" ? Qt.locale().name : localeSetting))
+
+  function normalizeLocaleSetting(value) {
+    var requested = String(value || "system").trim().toLowerCase()
+    return requested === "en" || requested === "ru" ? requested : "system"
+  }
+
+  function languageSettingLabel() {
+    if (localeSetting === "en") return textFor("language.english")
+    if (localeSetting === "ru") return textFor("language.russian")
+    return textFor("language.system")
+  }
+
+  function cycleLanguageSetting() {
+    var next = localeSetting === "system" ? "en"
+      : (localeSetting === "en" ? "ru" : "system")
+    root.setWidgetSetting("locale", next, false)
+  }
+
+  function textFor(key, values) {
+    return I18n.translate(key, uiLocale, values || {})
+  }
+
+  function localizedCount(baseKey, count) {
+    return I18n.plural(baseKey, count, uiLocale)
+  }
+
+  function routingModeText(mode) {
+    if (mode === "rule") return textFor("routing.mode.rule")
+    if (mode === "global") return textFor("routing.mode.global")
+    if (mode === "direct") return textFor("routing.mode.direct")
+    return textFor("routing.mode.unknown")
+  }
+
+  function routingSourceText() {
+    var source = vless.routing.source
+    if (vless.activeRoutingPreset) source = vless.activeRoutingPreset.id
+    if (source === "roscomvpn" || source === "roscomvpn-default")
+      return textFor("routing.source.russia")
+    if (source === "china" || source === "china-cn-direct")
+      return textFor("routing.source.china")
+    if (source === "iran" || source === "iran-ir-direct")
+      return textFor("routing.source.iran")
+    if (source === "custom") return textFor("routing.source.custom")
+    if (source === "basic") return textFor("routing.source.basic")
+    if (source === "none") return textFor("routing.source.none")
+    return textFor("routing.source.unavailable")
+  }
+
+  function routingTitleText() {
+    return vless.routing.mode === "rule"
+      ? routingSourceText() + " · " + routingModeText(vless.routing.mode)
+      : routingModeText(vless.routing.mode)
+  }
+
+  function routingSummaryText() {
+    var route = vless.routing
+    if (route.mode === "global") return textFor("routing.summary.global")
+    if (route.mode === "direct") return textFor("routing.summary.direct")
+    if (route.mode !== "rule") return textFor("routing.summary.unavailable")
+    if (route.source === "roscomvpn")
+      return textFor("routing.summary.russia", { count: localizedCount("rule_set", route.providerCount) })
+    if (route.source === "china")
+      return textFor("routing.summary.china", { count: localizedCount("rule_set", route.providerCount) })
+    if (route.source === "iran")
+      return textFor("routing.summary.iran", { count: localizedCount("rule_set", route.providerCount) })
+    if (route.source === "basic")
+      return textFor("routing.summary.basic", { count: localizedCount("rule", route.ruleCount) })
+    if (route.source === "custom")
+      return textFor("routing.summary.custom", {
+        rules: localizedCount("rule", route.ruleCount),
+        sets: localizedCount("rule_set", route.providerCount)
+      })
+    if (route.source === "none") return textFor("routing.summary.none")
+    return textFor("routing.summary.unavailable")
+  }
+
+  function routingPresetCountryText(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.source.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.source.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.source.iran")
+    return preset.country
+  }
+
+  function routingPresetSummaryText(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.preset.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.preset.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.preset.iran")
+    return preset.summary
+  }
+
+  function startupSummaryText() {
+    if (!vless.startup.enabled) return textFor("startup.off")
+    if (!vless.startup.configured) return textFor("startup.legacy")
+    var target = vless.startup.target === "last"
+      ? textFor("startup.last_used")
+      : (vless.startupProfile ? vless.startupProfile.name : textFor("startup.unavailable"))
+    return textFor("startup.summary", {
+      target: target,
+      mode: vless.startup.mode === "global" ? textFor("mode.full_vpn") : textFor("mode.routing")
+    })
+  }
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -94,8 +207,9 @@ Panel {
     ? (bar ? bar.urgent : Color.urgent)
     : (vless.active ? barForeground : Qt.darker(barForeground, 1.55))
   readonly property string toggleHint: vless.active
-    ? "Disconnect"
-    : (vless.toggleTarget !== "" ? "Connect " + vless.toggleTarget : "Connect")
+    ? textFor("action.disconnect")
+    : (vless.toggleTarget !== "" ? textFor("action.connect") + " " + vless.toggleTarget
+      : textFor("action.connect"))
   readonly property bool headerHasCursor: cursorActive && focusSection === "header" && vless.profiles.length > 0
   readonly property bool panelTabFocusActive: {
     var targets = root.panelTabTargets()
@@ -107,7 +221,7 @@ Panel {
   readonly property string barTooltip: {
     if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + vless.lastError, 180)
     if (!vless.active) {
-      var down = "OmaVLESS · Disconnected"
+      var down = "OmaVLESS · " + textFor("status.disconnected")
       return vless.hasRoutingConflict ? down + " · Possible conflict: " + vless.conflictSummary : down
     }
     var line = vless.primaryName + " · " + vless.routingTitle
@@ -162,8 +276,8 @@ Panel {
   readonly property bool importAccepted: importNameValid && !importAmbiguous
   readonly property var importReplaceTarget: importReplaces ? vless.findByName(importNameClean) : null
   readonly property string importSourceLabel: importKind === "text"
-    ? "Import from clipboard"
-    : "Import " + String(importPayload).split("/").pop()
+    ? textFor("import.from_clipboard")
+    : textFor("import.from_file", { name: String(importPayload).split("/").pop() })
   readonly property string importHintText: !importNameValid
     ? "Use a non-empty name up to 80 characters"
     : (importAmbiguous
@@ -284,6 +398,8 @@ Panel {
     ]
     if (page === "settings") return [
       settingsBackButton,
+      settingsLanguageRow.focusTarget,
+      settingsThroughputRow.focusTarget,
       settingsCoreRow.focusTarget,
       settingsFileImportRow.focusTarget,
       settingsStartupRow.focusTarget,
@@ -292,8 +408,7 @@ Panel {
       settingsSubscriptionsRow.focusTarget,
       settingsDiagnosticsRow.focusTarget,
       settingsDiagnosticsExportRow.focusTarget,
-      settingsExitIpRow.focusTarget,
-      settingsThroughputRow.focusTarget
+      settingsExitIpRow.focusTarget
     ]
     if (page === "main") return [
       subscriptionsButton, fileImportButton, clipboardImportButton, profileSearch
@@ -398,8 +513,8 @@ Panel {
     vless.clearSubscriptionMessage()
     editingSubscription = null
     subscriptionImportFile = ""
-    subscriptionPrompt.title = "Add subscription"
-    subscriptionPrompt.confirmLabel = "Add"
+    subscriptionPrompt.title = textFor("subscription.add_title")
+    subscriptionPrompt.confirmLabel = textFor("common.add")
     subscriptionPrompt.openWith("", "")
   }
 
@@ -407,8 +522,8 @@ Panel {
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading || !subscription) return
     editingSubscription = subscription
     subscriptionImportFile = ""
-    subscriptionPrompt.title = "Edit " + subscription.name
-    subscriptionPrompt.confirmLabel = "Save"
+    subscriptionPrompt.title = textFor("subscription.edit_title", { name: subscription.name })
+    subscriptionPrompt.confirmLabel = textFor("common.save")
     subscriptionPrompt.openWith(subscription.rawName || subscription.name, "")
     vless.loadSubscriptionUrl(subscription)
   }
@@ -427,12 +542,12 @@ Panel {
 
   function subscriptionAge(updatedAt) {
     var value = Number(updatedAt)
-    if (!isFinite(value) || value <= 0) return "Never updated"
+    if (!isFinite(value) || value <= 0) return textFor("age.never")
     var seconds = Math.max(0, Math.floor((ageClock - value) / 1000))
-    if (seconds < 60) return "Updated just now"
-    if (seconds < 3600) return "Updated " + Math.floor(seconds / 60) + "m ago"
-    if (seconds < 86400) return "Updated " + Math.floor(seconds / 3600) + "h ago"
-    return "Updated " + Math.floor(seconds / 86400) + "d ago"
+    if (seconds < 60) return textFor("age.just_now")
+    if (seconds < 3600) return textFor("age.minutes", { count: Math.floor(seconds / 60) })
+    if (seconds < 86400) return textFor("age.hours", { count: Math.floor(seconds / 3600) })
+    return textFor("age.days", { count: Math.floor(seconds / 86400) })
   }
 
   function probeAge(subscriptionUuid) {
@@ -783,9 +898,9 @@ Panel {
     vless.clearSubscriptionMessage()
     editingSubscription = null
     subscriptionPrompt.title = kind === "file"
-      ? "Add subscription from file"
-      : "Add subscription from clipboard"
-    subscriptionPrompt.confirmLabel = "Add"
+      ? textFor("subscription.add_from_file")
+      : textFor("subscription.add_from_clipboard")
+    subscriptionPrompt.confirmLabel = textFor("common.add")
     var name = suggested !== "" ? String(suggested) : "Subscription"
     if (kind === "file") {
       subscriptionImportFile = String(payload)
@@ -1338,8 +1453,9 @@ Panel {
               // Keep provider-controlled profile names inert at this sink too,
               // even though Service already normalizes its public model.
               meta: vless.active
-                ? root.safeTooltip("Connected: " + vless.activeNames.join(", "), 220)
-                : "Disconnected"
+                ? root.safeTooltip(root.textFor("status.connected_named",
+                    { names: vless.activeNames.join(", ") }), 220)
+                : root.textFor("status.disconnected")
               foreground: root.foreground
               fontFamily: root.fontFamily
               iconOpacity: vless.active ? 1.0 : 0.5
@@ -1427,7 +1543,7 @@ Panel {
                   // shown in the detail grid. It sits between the QR action
                   // and power switch, preserving the switch's edge alignment.
                   Button {
-                    text: "Test"
+                    text: root.textFor("action.test")
                     iconText: vless.testingConnection ? "󰑓" : ""
                     iconSpinning: vless.testingConnection
                     tooltipText: root.safeTooltip(vless.testingConnection
@@ -1516,7 +1632,8 @@ Panel {
               }
               PlainText {
                 Layout.fillWidth: true
-                text: "Possible full-tunnel conflict · " + vless.conflictSummary
+                text: root.textFor("warning.full_tunnel_conflict",
+                  { summary: vless.conflictSummary })
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -1539,14 +1656,15 @@ Panel {
               spacing: Style.space(10)
 
               PanelSectionHeader {
-                text: vless.active ? "ACTIVE ROUTING" : "ROUTING ON CONNECT"
+                text: vless.active
+                  ? root.textFor("routing.active") : root.textFor("routing.on_connect")
                 foreground: root.foreground
                 fontFamily: root.fontFamily
               }
 
               PlainText {
                 Layout.fillWidth: true
-                text: vless.routingTitle
+                text: root.routingTitleText()
                 color: vless.routingUnavailable ? root.urgent : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -1562,9 +1680,9 @@ Panel {
 
               Repeater {
                 model: [
-                  { label: "Full VPN", mode: "global" },
-                  { label: "Routing", mode: "rule" },
-                  { label: "Direct", mode: "direct" }
+                  { label: root.textFor("mode.full_vpn"), mode: "global" },
+                  { label: root.textFor("mode.routing"), mode: "rule" },
+                  { label: root.textFor("mode.direct"), mode: "direct" }
                 ]
 
                 BorderSurface {
@@ -1605,7 +1723,7 @@ Panel {
 
             PlainText {
               width: parent.width
-              text: vless.routingSummary
+              text: root.routingSummaryText()
               color: vless.routingUnavailable ? root.urgent : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -1633,7 +1751,8 @@ Panel {
             PlainText {
               visible: text !== ""
               width: parent.width
-              text: vless.activeNames.length > 1 ? "Showing " + vless.primaryName : ""
+              text: vless.activeNames.length > 1
+                ? root.textFor("profile.showing", { name: vless.primaryName }) : ""
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -1657,13 +1776,13 @@ Panel {
               // rows below close the gap.
               DetailPair {
                 visible: vless.pingHost !== ""
-                label: "Ping"
+                label: root.textFor("metric.ping")
                 value: vless.fmtPing(vless.pingLatency)
                 valueColor: root.foreground
               }
               DetailPair {
                 visible: vless.pingHost !== ""
-                label: "Packet Loss"
+                label: root.textFor("metric.packet_loss")
                 value: vless.fmtLoss(vless.pingLoss)
                 valueColor: root.foreground
               }
@@ -1672,31 +1791,31 @@ Panel {
               // sample of a session has no interval behind it, and printing
               // its zero would claim an idle tunnel on no evidence.
               DetailPair {
-                label: "Receiving"
+                label: root.textFor("metric.receiving")
                 value: vless.trafficRate(vless.primaryDevice, "rxRate")
               }
               DetailPair {
-                label: "Sending"
+                label: root.textFor("metric.sending")
                 value: vless.trafficRate(vless.primaryDevice, "txRate")
               }
 
               // Session totals from the Mihomo TUN interface.
               DetailPair {
-                label: "Downloaded"
+                label: root.textFor("metric.downloaded")
                 value: vless.trafficTotal(vless.primaryDevice, "rx")
               }
               DetailPair {
-                label: "Uploaded"
+                label: root.textFor("metric.uploaded")
                 value: vless.trafficTotal(vless.primaryDevice, "tx")
               }
 
               DetailPair {
-                label: "TUN Address"
+                label: root.textFor("metric.tun_address")
                 value: root.detailText(vless.detail("address"))
                 tooltipText: "Copy the tunnel address"
               }
               DetailPair {
-                label: "Server"
+                label: root.textFor("metric.server")
                 value: root.detailText(vless.detail("server"))
                 tooltipText: "Copy the endpoint"
               }
@@ -1704,7 +1823,7 @@ Panel {
               // Copyable like the two above, and for the same reason: a route
               // list is exactly what a user pastes into the next config.
               DetailPair {
-                label: "Transport"
+                label: root.textFor("metric.transport")
                 value: root.detailText(vless.detail("transport"))
                 tooltipText: "Copy transport and security"
               }
@@ -1716,7 +1835,7 @@ Panel {
 
               DetailPair {
                 visible: vless.supports("exitIp")
-                label: "Exit IP"
+                label: root.textFor("metric.exit_ip")
                 value: vless.exitIpFetching ? "Checking…"
                   : (vless.exitIp !== "" ? vless.exitIp : "--")
                 tooltipText: vless.exitIp !== ""
@@ -1727,7 +1846,7 @@ Panel {
             PlainText {
               visible: vless.supports("exitIp") && vless.exitIp !== ""
               width: parent.width
-              text: "Exit IP is this request's observed path, not proof of the complete routing policy."
+              text: root.textFor("metric.exit_ip_note")
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -1743,7 +1862,8 @@ Panel {
               RowLayout {
                 width: parent.width
                 PlainText {
-                  text: "TRAFFIC · LAST " + (vless.historyMaxPoints * 2) + "S"
+                  text: root.textFor("traffic.last_seconds",
+                    { seconds: vless.historyMaxPoints * 2 })
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -1793,7 +1913,7 @@ Panel {
                 id: sectionLabel
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: "PROFILES"
+                text: root.textFor("profiles.title")
                 foreground: root.foreground
                 fontFamily: root.fontFamily
               }
@@ -1806,7 +1926,7 @@ Panel {
 
                 Button {
                   id: subscriptionsButton
-                  text: "Subscriptions…"
+                  text: root.textFor("subscriptions.open")
                   visible: vless.supports("subscriptions")
                   tooltipText: "Manage profile subscriptions"
                   bordered: true
@@ -1867,7 +1987,7 @@ Panel {
               id: profileSearch
               visible: vless.supports("subscriptionSearch") && vless.profiles.length >= 8
               width: parent.width
-              placeholderText: "Search profiles, countries, hosts…  (/)"
+              placeholderText: root.textFor("profiles.search")
               text: root.profileFilter
               color: root.foreground
               placeholderTextColor: root.dim
@@ -1902,7 +2022,7 @@ Panel {
             PlainText {
               visible: vless.profiles.length === 0
               width: parent.width
-              text: "No profiles yet\nImport a link file with + or paste one from the clipboard with v"
+              text: root.textFor("profiles.empty")
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -1914,7 +2034,7 @@ Panel {
               visible: vless.profiles.length > 0 && root.profileRows.length === 0
                 && root.profileFilter.trim() !== ""
               width: parent.width
-              text: "No profiles match “" + root.profileFilter.trim() + "”"
+              text: root.textFor("profiles.no_match", { query: root.profileFilter.trim() })
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -2015,14 +2135,14 @@ Panel {
               spacing: 0
               PlainText {
                 Layout.fillWidth: true
-                text: "SETTINGS"
+                text: root.textFor("settings.title")
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
               }
               PlainText {
                 Layout.fillWidth: true
-                text: "Routing, connections, privacy and panel display"
+                text: root.textFor("settings.subtitle")
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -2043,45 +2163,75 @@ Panel {
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
-            text: "SETUP & STARTUP"
+            text: root.textFor("settings.appearance")
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+
+          SettingsActionRow {
+            id: settingsLanguageRow
+            title: root.textFor("settings.language")
+            description: root.textFor("settings.language_description")
+            actionText: root.languageSettingLabel()
+            onAction: root.cycleLanguageSetting()
+          }
+
+          SettingsActionRow {
+            id: settingsThroughputRow
+            title: root.textFor("settings.bar_throughput")
+            description: root.textFor("settings.bar_throughput_description")
+            actionText: vless.showBarThroughput
+              ? root.textFor("common.on") : root.textFor("common.off")
+            onAction: root.setWidgetSetting("showBarThroughput", !vless.showBarThroughput, true)
+          }
+
+          PanelSeparator { foreground: root.foreground }
+
+          PanelSectionHeader {
+            text: root.textFor("settings.setup_startup")
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
 
           SettingsActionRow {
             id: settingsCoreRow
-            title: "Mihomo core"
-            description: vless.coreSetupLabel
+            title: root.textFor("settings.mihomo_core")
+            description: root.textFor(!vless.coreSetup.installed
+                ? "settings.core_missing" : (vless.coreSetup.tunReady
+                  ? "settings.core_ready" : "settings.core_tun_required"))
               + (vless.coreSetup.path !== "" ? " · " + vless.coreSetup.path : "")
-            actionText: vless.coreSetup.tunReady ? "Ready" : "Setup"
+            actionText: vless.coreSetup.tunReady
+              ? root.textFor("common.ready") : root.textFor("common.setup")
             onAction: root.openOnboarding(1)
           }
 
           SettingsActionRow {
             id: settingsFileImportRow
-            title: "File import"
+            title: root.textFor("settings.file_import")
             description: vless.filePicker.available
               ? (vless.filePicker.provider === "gtk4"
-                ? "Available through the system file picker"
-                : "Available through " + vless.filePicker.provider)
-              : "Unavailable — file picker missing. Run “omarchy pkg add zenity”"
-            actionText: vless.filePicker.available ? "Ready" : "Copy command"
+                ? root.textFor("settings.file_picker_system")
+                : root.textFor("settings.file_picker_provider",
+                    { provider: vless.filePicker.provider }))
+              : root.textFor("settings.file_picker_missing")
+            actionText: vless.filePicker.available
+              ? root.textFor("common.ready") : root.textFor("common.copy_command")
             actionEnabled: !vless.filePicker.available
             onAction: vless.copyText(root.filePickerInstallCommand)
           }
 
           SettingsActionRow {
             id: settingsStartupRow
-            title: "Start VPN at login"
-            description: vless.startupSummary
-            actionText: "Configure"
+            title: root.textFor("settings.start_at_login")
+            description: root.startupSummaryText()
+            actionText: root.textFor("common.configure")
             onAction: startupPrompt.openWith(vless.startup)
           }
 
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
-            text: "ROUTING PROFILE"
+            text: root.textFor("settings.routing_profile")
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
@@ -2089,11 +2239,10 @@ Panel {
           PlainText {
             width: parent.width
             text: !vless.routingPresetConfigured
-              ? "Choose a country preset before the first use of Routing."
+              ? root.textFor("settings.routing_choose")
               : (vless.activeRoutingPreset
-                ? "Selected: " + vless.routingPresetName + ". Full VPN and Direct remain independent."
-                : "Current template: " + vless.routingSourceLabel
-                  + ". Choose a country preset below or keep the existing policy.")
+                ? root.textFor("settings.routing_selected", { name: vless.routingPresetName })
+                : root.textFor("settings.routing_current", { name: root.routingSourceText() }))
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -2131,7 +2280,8 @@ Panel {
 
                   PlainText {
                     Layout.fillWidth: true
-                    text: routingPresetCard.modelData.country + " · " + routingPresetCard.modelData.name
+                    text: root.routingPresetCountryText(routingPresetCard.modelData)
+                      + " · " + routingPresetCard.modelData.name
                     color: routingPresetCard.selected ? Color.accent : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -2140,7 +2290,8 @@ Panel {
                   }
 
                   Button {
-                    text: routingPresetCard.selected ? "Selected" : "Use"
+                    text: routingPresetCard.selected
+                      ? root.textFor("common.selected") : root.textFor("common.use")
                     bordered: true
                     enabled: !routingPresetCard.selected && !vless.busy
                     foreground: enabled ? root.foreground : root.dim
@@ -2151,7 +2302,7 @@ Panel {
 
                 PlainText {
                   width: parent.width
-                  text: routingPresetCard.modelData.summary
+                  text: root.routingPresetSummaryText(routingPresetCard.modelData)
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -2159,8 +2310,8 @@ Panel {
                 }
 
                 Button {
-                  text: "Source · " + routingPresetCard.modelData.source
-                  tooltipText: "Open routing rule source"
+                  text: root.textFor("settings.source", { source: routingPresetCard.modelData.source })
+                  tooltipText: root.textFor("settings.open_source")
                   bordered: false
                   foreground: root.dim
                   fontFamily: root.fontFamily
@@ -2173,20 +2324,22 @@ Panel {
 
           SettingsActionRow {
             id: settingsRoutingToolsRow
-            title: "Routing tools"
-            description: root.plural(vless.routing.customRuleCount,
-              "custom rule", "custom rules") + " · check a domain"
-            actionText: "Open"
+            title: root.textFor("settings.routing_tools")
+            description: root.textFor("settings.routing_tools_description", {
+              count: root.localizedCount("custom_rule", vless.routing.customRuleCount)
+            })
+            actionText: root.textFor("common.open")
             onAction: root.openRoutingTools()
           }
 
           SettingsActionRow {
             id: settingsRuleRefreshRow
-            title: "Remote rule data"
+            title: root.textFor("settings.remote_rules")
             description: vless.routing.rulesUpdatedAt > 0
               ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
-              : "Automatic schedule · not checked manually"
-            actionText: vless.busy ? "Updating…" : "Refresh"
+              : root.textFor("settings.rules_automatic")
+            actionText: vless.busy
+              ? root.textFor("common.updating") : root.textFor("common.refresh")
             actionEnabled: vless.routing.ruleUpdateAvailable && !vless.busy
             onAction: vless.refreshRuleProviders()
           }
@@ -2194,73 +2347,69 @@ Panel {
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
-            text: "CONNECTIONS"
+            text: root.textFor("settings.connections")
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
 
           SettingsActionRow {
             id: settingsSubscriptionsRow
-            title: "Subscriptions"
-            description: root.plural(vless.subscriptions.length, "provider", "providers")
+            title: root.textFor("settings.subscriptions")
+            description: root.localizedCount("provider", vless.subscriptions.length)
               + " · " + (vless.latestSubscriptionUpdatedAt > 0
                 ? root.subscriptionAge(vless.latestSubscriptionUpdatedAt).toLowerCase()
-                : "never updated")
-            actionText: "Manage"
+                : root.textFor("age.never"))
+            actionText: root.textFor("common.manage")
             onAction: root.openSubscriptions()
           }
 
           SettingsActionRow {
-            title: "Connection monitoring"
-            description: "Open every " + vless.refreshIntervalSec
-              + "s · background every " + Math.max(30, vless.refreshIntervalSec)
-              + "s · latency " + (vless.pingHost !== "" ? vless.pingHost : "disabled")
-            actionText: "Configured"
+            title: root.textFor("settings.monitoring")
+            description: root.textFor("settings.monitoring_description", {
+              open: vless.refreshIntervalSec,
+              background: Math.max(30, vless.refreshIntervalSec),
+              host: vless.pingHost !== "" ? vless.pingHost : root.textFor("common.off")
+            })
+            actionText: root.textFor("common.configured")
             actionEnabled: false
           }
 
           PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
-            text: "DIAGNOSTICS & PRIVACY"
+            text: root.textFor("settings.diagnostics_privacy")
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
 
           SettingsActionRow {
             id: settingsDiagnosticsRow
-            title: "Live Mihomo diagnostics"
-            description: "Loaded rules and rule providers · private controller only"
-            actionText: "Open"
+            title: root.textFor("settings.live_diagnostics")
+            description: root.textFor("settings.live_diagnostics_description")
+            actionText: root.textFor("common.open")
             actionEnabled: !vless.busy
             onAction: root.openAdvancedDiagnostics()
           }
 
           SettingsActionRow {
             id: settingsDiagnosticsExportRow
-            title: "Safe diagnostics"
+            title: root.textFor("settings.safe_diagnostics")
             description: vless.diagnosticsStatus !== ""
               ? vless.diagnosticsStatus
-              : "No profile credentials, keys, server names or subscription URLs"
-            actionText: vless.diagnosticsExporting ? "Exporting…" : "Export"
+              : root.textFor("settings.safe_diagnostics_private")
+            actionText: vless.diagnosticsExporting
+              ? root.textFor("common.exporting") : root.textFor("common.export")
             actionEnabled: !vless.diagnosticsExporting && !vless.busy
             onAction: vless.exportDiagnostics()
           }
 
           SettingsActionRow {
             id: settingsExitIpRow
-            title: "Observed Exit IP"
-            description: "Show a bounded external path check in connection details"
-            actionText: vless.showExitIp ? "On" : "Off"
+            title: root.textFor("settings.observed_exit_ip")
+            description: root.textFor("settings.exit_ip_description")
+            actionText: vless.showExitIp
+              ? root.textFor("common.on") : root.textFor("common.off")
             onAction: root.setWidgetSetting("showExitIp", !vless.showExitIp, true)
-          }
-
-          SettingsActionRow {
-            id: settingsThroughputRow
-            title: "Live throughput in bar"
-            description: "Keep the compact bar icon quiet unless explicitly enabled"
-            actionText: vless.showBarThroughput ? "On" : "Off"
-            onAction: root.setWidgetSetting("showBarThroughput", !vless.showBarThroughput, true)
           }
 
           Item { width: 1; height: Style.space(8) }
@@ -2305,16 +2454,15 @@ Panel {
               spacing: 0
               PlainText {
                 Layout.fillWidth: true
-                text: "SUBSCRIPTIONS"
+                text: root.textFor("subscriptions.title")
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
               }
               PlainText {
                 Layout.fillWidth: true
-                text: root.plural(vless.subscriptions.length, "provider", "providers")
-                  + " · " + root.plural(vless.managedProfileCount,
-                    "managed profile", "managed profiles")
+                text: root.localizedCount("provider", vless.subscriptions.length)
+                  + " · " + root.localizedCount("managed_profile", vless.managedProfileCount)
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -2336,7 +2484,7 @@ Panel {
 
             Button {
               id: subscriptionAddButton
-              text: "Add…"
+              text: root.textFor("subscriptions.add")
               tooltipText: "Add a profile subscription (a)"
               bordered: true
               foreground: root.foreground
@@ -2350,7 +2498,7 @@ Panel {
 
           PlainText {
             width: parent.width
-            text: "Managed profiles update only when you ask. Test performs an end-to-end proxy check through every server; results stay in this session."
+            text: root.textFor("subscriptions.help")
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -2366,7 +2514,7 @@ Panel {
           PlainText {
             visible: vless.subscriptions.length === 0
             width: parent.width
-            text: "No subscriptions yet\nAdd the URL supplied by your provider"
+            text: root.textFor("subscriptions.empty")
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -2461,7 +2609,7 @@ Panel {
         refreshAvailable: vless.routing.ruleUpdateAvailable
         rulesUpdatedLabel: vless.routing.rulesUpdatedAt > 0
           ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
-          : "Automatic schedule · not checked manually"
+          : root.textFor("settings.rules_automatic")
         statusText: vless.routingToolStatus
         errorText: vless.routingToolError
         foreground: root.foreground
@@ -2501,7 +2649,9 @@ Panel {
         preview: vless.importPreview
         hint: root.importHintText
         accepted: root.importAccepted
-        confirmLabel: root.importReplaces ? "Replace" : "Import"
+        locale: root.uiLocale
+        confirmLabel: root.importReplaces
+          ? root.textFor("common.replace") : root.textFor("common.import")
         foreground: root.foreground
         dim: root.dim
         urgent: root.urgent
@@ -2513,6 +2663,7 @@ Panel {
       SubscriptionPrompt {
         id: subscriptionPrompt
         anchors.fill: parent
+        locale: root.uiLocale
         hint: root.subscriptionHint
         accepted: root.subscriptionAccepted
         loading: root.editingSubscription !== null && vless.subscriptionEditorLoading
@@ -2985,7 +3136,7 @@ Panel {
           Layout.fillWidth: true
           text: {
             if (!groupRow.subscription) return ""
-            var line = root.plural(groupRow.profiles.length, "server", "servers")
+            var line = root.localizedCount("server", groupRow.profiles.length)
             var pinned = root.favoriteCount(groupRow.profiles)
             if (pinned > 0) line += " · " + root.plural(pinned, "pinned", "pinned")
             if (groupRow.activeProfile) line += " · connected: " + groupRow.activeProfile.name
@@ -3015,7 +3166,7 @@ Panel {
       Button {
         readonly property bool testing: vless.probingSubscriptionUuid
           === (groupRow.subscription ? groupRow.subscription.uuid : "")
-        text: testing ? "Cancel" : "Test"
+        text: testing ? root.textFor("common.cancel") : root.textFor("action.test")
         iconText: testing ? "󰑓" : ""
         iconSpinning: testing
         tooltipText: testing
@@ -3092,7 +3243,7 @@ Panel {
         PlainText {
           Layout.fillWidth: true
           text: serverRow.profile && serverRow.profile.active
-            ? "Connected — click to disconnect" : "Click to connect"
+            ? root.textFor("profiles.click_disconnect") : root.textFor("profiles.click_connect")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -3152,8 +3303,8 @@ Panel {
       PlainText {
         Layout.fillWidth: true
         text: sortRow.testedCount > 0
-          ? "Failed checks stay last"
-          : "Run Test to sort by latency"
+          ? root.textFor("profiles.failed_last")
+          : root.textFor("profiles.run_test_sort")
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -3162,7 +3313,7 @@ Panel {
 
       Button {
         text: sortRow.sortMode === "pingAsc" ? "Ping ↑"
-          : (sortRow.sortMode === "pingDesc" ? "Ping ↓" : "Sort by ping")
+          : (sortRow.sortMode === "pingDesc" ? "Ping ↓" : root.textFor("profiles.sort_ping"))
         bordered: true
         tooltipText: sortRow.sortMode === "default"
           ? "Sort reachable servers from fastest to slowest"
@@ -3254,7 +3405,7 @@ Panel {
               Layout.fillWidth: true
               text: {
                 if (!subscriptionRow.subscription) return ""
-                var line = root.plural(subscriptionRow.profiles.length, "server", "servers") + " · "
+                var line = root.localizedCount("server", subscriptionRow.profiles.length) + " · "
                   + root.subscriptionAge(subscriptionRow.subscription.updatedAt)
                 if (subscriptionRow.probeSummary.tested > 0) {
                   var age = root.probeAge(subscriptionRow.subscription.uuid)
@@ -3283,7 +3434,7 @@ Panel {
           Button {
             readonly property bool testing: vless.probingSubscriptionUuid
               === (subscriptionRow.subscription ? subscriptionRow.subscription.uuid : "")
-            text: testing ? "Cancel" : "Test"
+            text: testing ? root.textFor("common.cancel") : root.textFor("action.test")
             iconText: testing ? "󰑓" : ""
             iconSpinning: testing
             tooltipText: testing
@@ -3420,11 +3571,11 @@ Panel {
               return "Removed from " + configRow.profile.sourceName + " · disconnect to clean up"
             var source = configRow.profile && configRow.profile.managed && !configRow.nested
               ? configRow.profile.sourceName + " · " : ""
-            if (!configRow.connected) return source + "Click to connect"
+            if (!configRow.connected) return source + root.textFor("profiles.click_connect")
             if (configRow.profile && configRow.profile.uuid === vless.primaryUuid)
-              return source + "Connected — click to disconnect"
+              return source + root.textFor("profiles.click_disconnect")
             var line = vless.trafficLine(configRow.profile ? configRow.profile.ifname : "")
-            return source + (line !== "" ? line : "Connected — click to disconnect")
+            return source + (line !== "" ? line : root.textFor("profiles.click_disconnect"))
           }
           color: root.dim
           font.family: root.fontFamily
