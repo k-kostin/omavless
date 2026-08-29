@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // A deliberately short first-run path: make the external core usable, pick
 // an optional Routing policy, then hand the existing private import flow its
@@ -25,6 +26,7 @@ Item {
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
+  property string locale: "en"
   property int step: 1
 
   signal copyCommand(string command)
@@ -45,6 +47,30 @@ Item {
   }
 
   function dismiss() { visible = false }
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
+
+  function localizedCount(baseKey, count) {
+    return I18n.plural(baseKey, count, locale)
+  }
+
+  function presetCountry(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.source.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.source.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.source.iran")
+    return preset.country
+  }
+
+  function presetSummary(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.preset.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.preset.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.preset.iran")
+    return preset.summary
+  }
 
   Keys.onEscapePressed: canceled()
 
@@ -92,7 +118,7 @@ Item {
             spacing: Style.space(8)
             PlainText {
               width: parent.width - stepText.width - parent.spacing
-              text: "SET UP OMAVLESS"
+              text: wizard.textFor("onboarding.title")
               color: wizard.foreground
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.title
@@ -109,8 +135,9 @@ Item {
 
           PlainText {
             width: parent.width
-            text: wizard.step === 1 ? "Mihomo core"
-              : (wizard.step === 2 ? "Routing profile" : "First connection")
+            text: wizard.step === 1 ? wizard.textFor("onboarding.step.core")
+              : (wizard.step === 2 ? wizard.textFor("onboarding.step.routing")
+                : wizard.textFor("onboarding.step.connection"))
             color: Color.accent
             font.family: wizard.fontFamily
             font.pixelSize: Style.font.subtitle
@@ -124,11 +151,9 @@ Item {
 
             PlainText {
               width: parent.width
-              text: !wizard.coreSetup.installed
-                ? "OmaVLESS needs the Mihomo core. Install the package in a terminal, then check again."
-                : (wizard.coreSetup.tunReady
-                  ? "Mihomo is installed and has the permissions required for a TUN connection."
-                  : "Mihomo is installed, but Linux has not granted it the TUN capabilities yet.")
+              text: wizard.textFor(!wizard.coreSetup.installed
+                ? "onboarding.core.missing" : (wizard.coreSetup.tunReady
+                  ? "onboarding.core.ready" : "onboarding.core.tun_missing"))
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -137,19 +162,19 @@ Item {
 
             CommandRow {
               visible: !wizard.coreSetup.installed
-              label: "Install Mihomo"
+              label: wizard.textFor("onboarding.install_mihomo")
               command: wizard.installCommand
             }
 
             CommandRow {
               visible: wizard.coreSetup.installed && !wizard.coreSetup.tunReady
-              label: "Grant TUN access"
+              label: wizard.textFor("onboarding.grant_tun")
               command: wizard.capabilityCommand
             }
 
             CommandRow {
               visible: wizard.coreSetup.installed
-              label: "Verify installation"
+              label: wizard.textFor("onboarding.verify_installation")
               command: wizard.verifyCommand
             }
 
@@ -171,7 +196,7 @@ Item {
 
             PlainText {
               width: parent.width
-              text: "Routing sends local destinations directly and the remaining traffic through the selected profile. You can skip this and use Full VPN first."
+              text: wizard.textFor("onboarding.routing_help")
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -203,7 +228,7 @@ Item {
                     width: parent.width - choosePreset.width - parent.spacing
                     PlainText {
                       width: parent.width
-                      text: presetCard.modelData.country
+                      text: wizard.presetCountry(presetCard.modelData)
                       color: presetCard.selected ? Color.accent : wizard.foreground
                       font.family: wizard.fontFamily
                       font.pixelSize: Style.font.body
@@ -211,7 +236,7 @@ Item {
                     }
                     PlainText {
                       width: parent.width
-                      text: presetCard.modelData.summary
+                      text: wizard.presetSummary(presetCard.modelData)
                       color: wizard.dim
                       font.family: wizard.fontFamily
                       font.pixelSize: Style.font.caption
@@ -220,7 +245,8 @@ Item {
                   }
                   Button {
                     id: choosePreset
-                    text: presetCard.selected ? "Selected" : "Choose"
+                    text: presetCard.selected
+                      ? wizard.textFor("common.selected") : wizard.textFor("common.choose")
                     bordered: true
                     enabled: !presetCard.selected && !wizard.busy
                     foreground: enabled ? wizard.foreground : wizard.dim
@@ -240,9 +266,10 @@ Item {
             PlainText {
               width: parent.width
               text: wizard.profiles.length > 0
-                ? (wizard.profiles.length === 1 ? "Your first connection is ready."
-                  : wizard.profiles.length + " connections are ready.")
-                : "Paste a VLESS, Trojan, Hysteria2 or TUIC link from the clipboard, or choose a file. The secret stays in OmaVLESS private storage."
+                ? wizard.textFor("onboarding.connections_ready", {
+                    count: wizard.localizedCount("connection", wizard.profiles.length)
+                  })
+                : wizard.textFor("onboarding.import_help")
               color: wizard.profiles.length > 0 ? Color.accent : wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -252,7 +279,7 @@ Item {
             PlainText {
               visible: !wizard.filePicker.available
               width: parent.width
-              text: "File import unavailable — file picker missing. Run “omarchy pkg add zenity” in a terminal. Clipboard import still works."
+              text: wizard.textFor("onboarding.file_picker_missing")
               color: wizard.urgent
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -262,14 +289,14 @@ Item {
             CommandRow {
               visible: !wizard.filePicker.available
               width: parent.width
-              label: "Install a supported file picker"
+              label: wizard.textFor("onboarding.install_file_picker")
               command: "omarchy pkg add zenity"
             }
 
             Row {
               spacing: Style.space(8)
               Button {
-                text: "Paste link"
+                text: wizard.textFor("onboarding.paste_link")
                 bordered: true
                 enabled: !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -277,7 +304,7 @@ Item {
                 onClicked: wizard.pasteRequested()
               }
               Button {
-                text: "Choose file"
+                text: wizard.textFor("onboarding.choose_file")
                 bordered: true
                 enabled: wizard.filePicker.available && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -296,7 +323,8 @@ Item {
               spacing: Style.space(8)
 
               Button {
-                text: wizard.step === 1 ? "Close" : "Back"
+                text: wizard.step === 1
+                  ? wizard.textFor("common.close") : wizard.textFor("common.back")
                 bordered: true
                 foreground: wizard.foreground
                 fontFamily: wizard.fontFamily
@@ -308,7 +336,7 @@ Item {
 
               Button {
                 visible: wizard.step === 1
-                text: "Check again"
+                text: wizard.textFor("common.check_again")
                 bordered: true
                 enabled: !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -318,7 +346,7 @@ Item {
 
               Button {
                 visible: wizard.step === 1
-                text: "Continue"
+                text: wizard.textFor("common.continue")
                 bordered: true
                 enabled: wizard.coreSetup.tunReady && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -328,7 +356,8 @@ Item {
 
               Button {
                 visible: wizard.step === 2
-                text: wizard.routingPreset === "" ? "Skip for now" : "Continue"
+                text: wizard.routingPreset === ""
+                  ? wizard.textFor("onboarding.skip_for_now") : wizard.textFor("common.continue")
                 bordered: true
                 enabled: !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -338,7 +367,8 @@ Item {
 
               Button {
                 visible: wizard.step === 3
-                text: wizard.profiles.length > 0 ? "Finish" : "Finish later"
+                text: wizard.profiles.length > 0
+                  ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
                 bordered: true
                 enabled: !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
@@ -390,8 +420,8 @@ Item {
       }
       Button {
         id: copyButton
-        text: "Copy"
-        tooltipText: "Copy command for the terminal"
+        text: wizard.textFor("common.copy")
+        tooltipText: wizard.textFor("onboarding.copy_command_tooltip")
         bordered: true
         foreground: wizard.foreground
         fontFamily: wizard.fontFamily

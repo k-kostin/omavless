@@ -24,6 +24,11 @@ assert.strictEqual(I18n.translate("language.system", "ru"), "Системный"
 assert.strictEqual(I18n.translate("settings.language", "ru"), "Язык")
 assert.strictEqual(I18n.translate("routing.summary.global", "ru"),
   "Весь трафик идёт через VPN · наборы правил не используются")
+assert.strictEqual(I18n.translate("onboarding.title", "ru"), "НАСТРОЙКА OMAVLESS")
+assert.strictEqual(I18n.translate("startup_prompt.autoconnect", "ru"), "Автоподключение")
+assert.strictEqual(I18n.plural("connection", 1, "ru"), "1 подключение")
+assert.strictEqual(I18n.plural("connection", 3, "ru"), "3 подключения")
+assert.strictEqual(I18n.plural("connection", 12, "ru"), "12 подключений")
 assert.strictEqual(
   I18n.translate("missing.key", "ru"),
   "Missing translation: missing.key"
