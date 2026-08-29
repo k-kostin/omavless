@@ -4,6 +4,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // First-use country chooser. The normal panel stays deliberately compact;
 // source attribution and later profile changes live on the Settings page.
@@ -16,6 +17,7 @@ Item {
   property color foreground: Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property string fontFamily: Style.font.family
+  property string locale: "en"
 
   signal confirmed(string preset)
   signal canceled()
@@ -31,6 +33,26 @@ Item {
 
   function dismiss() {
     visible = false
+  }
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
+
+  function presetCountry(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.source.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.source.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.source.iran")
+    return preset.country
+  }
+
+  function presetSummary(preset) {
+    if (!preset) return ""
+    if (preset.id === "roscomvpn-default") return textFor("routing.preset.russia")
+    if (preset.id === "china-cn-direct") return textFor("routing.preset.china")
+    if (preset.id === "iran-ir-direct") return textFor("routing.preset.iran")
+    return preset.summary
   }
 
   function moveSelection(delta) {
@@ -82,7 +104,7 @@ Item {
 
         PlainText {
           width: parent.width
-          text: "Choose Routing preset"
+          text: prompt.textFor("routing_preset.title")
           color: prompt.foreground
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.title
@@ -90,7 +112,7 @@ Item {
 
         PlainText {
           width: parent.width
-          text: "Choose where you use this connection. You can change it later in Settings."
+          text: prompt.textFor("routing_preset.help")
           color: prompt.dim
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption
@@ -125,7 +147,7 @@ Item {
                 width: parent.width
                 spacing: Style.space(6)
                 PlainText {
-                  text: presetCard.modelData.country
+                  text: prompt.presetCountry(presetCard.modelData)
                   color: presetCard.selected ? Color.accent : prompt.foreground
                   font.family: prompt.fontFamily
                   font.pixelSize: Style.font.body
@@ -133,7 +155,7 @@ Item {
                 }
                 PlainText {
                   visible: presetCard.modelData.id === "roscomvpn-default"
-                  text: "Recommended"
+                  text: prompt.textFor("routing_preset.recommended")
                   color: prompt.dim
                   font.family: prompt.fontFamily
                   font.pixelSize: Style.font.caption
@@ -142,7 +164,7 @@ Item {
 
               PlainText {
                 width: parent.width
-                text: presetCard.modelData.summary
+                text: prompt.presetSummary(presetCard.modelData)
                 color: prompt.dim
                 font.family: prompt.fontFamily
                 font.pixelSize: Style.font.caption
@@ -169,7 +191,7 @@ Item {
             spacing: Style.space(10)
 
             Button {
-              text: "Cancel"
+              text: prompt.textFor("common.cancel")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily
@@ -177,7 +199,7 @@ Item {
             }
 
             Button {
-              text: "Apply Routing"
+              text: prompt.textFor("routing_preset.apply")
               bordered: true
               enabled: prompt.accepted
               foreground: enabled ? prompt.foreground : prompt.dim

@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Advanced routing stays behind Settings. The default panel remains a
 // three-button connection surface; this sheet exposes only user-level ideas:
@@ -17,13 +18,14 @@ Item {
   property bool loading: false
   property bool busy: false
   property bool refreshAvailable: false
-  property string rulesUpdatedLabel: "Never checked manually"
+  property string rulesUpdatedLabel: ""
   property string statusText: ""
   property string errorText: ""
   property color foreground: Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
+  property string locale: "en"
   property string matchChoice: "suffix"
   property string actionChoice: "proxy"
 
@@ -47,34 +49,39 @@ Item {
     ruleField.text = ""
   }
 
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
+
   function outcomeTitle(value) {
     if (!value) return ""
     if (value.outcome === "vpn") return "VPN"
-    if (value.outcome === "direct") return "Direct"
-    if (value.outcome === "block") return "Blocked"
-    return "Needs an active Routing connection"
+    if (value.outcome === "direct") return textFor("routing_tools.outcome.direct")
+    if (value.outcome === "block") return textFor("routing_tools.outcome.blocked")
+    return textFor("routing_tools.outcome.needs_active")
   }
 
   function resultExplanation(value) {
     if (!value) return ""
     if (value.source === "disconnected")
-      return "Connect in Routing mode to test the selected preset's remote rule sets."
+      return textFor("routing_tools.result.disconnected")
     var rule = value.ruleType
     if (value.rulePayload !== "") rule += " · " + value.rulePayload
-    if (value.target !== "") rule += " · route " + value.target
-    return rule
+    return value.target !== ""
+      ? textFor("routing_tools.result.route", { rule: rule, target: value.target })
+      : rule
   }
 
   function kindLabel(kind) {
-    if (kind === "domain") return "Exact domain"
-    if (kind === "suffix") return "Domain + subdomains"
-    return "IP range"
+    if (kind === "domain") return textFor("routing_tools.kind.domain")
+    if (kind === "suffix") return textFor("routing_tools.kind.suffix")
+    return textFor("routing_tools.kind.ip_range")
   }
 
   function actionLabel(action) {
     if (action === "proxy") return "VPN"
-    if (action === "direct") return "Direct"
-    return "Block"
+    if (action === "direct") return textFor("routing_tools.action.direct")
+    return textFor("routing_tools.action.block")
   }
 
   Keys.onEscapePressed: canceled()
@@ -120,7 +127,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "ROUTING TOOLS"
+            text: prompt.textFor("routing_tools.title")
             color: prompt.foreground
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.title
@@ -128,7 +135,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "Where will this destination go?"
+            text: prompt.textFor("routing_tools.destination_question")
             color: Color.accent
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.subtitle
@@ -141,7 +148,7 @@ Item {
             TextField {
               id: checkField
               width: parent.width - checkButton.width - parent.spacing
-              placeholderText: "example.com or 203.0.113.10"
+              placeholderText: prompt.textFor("routing_tools.destination_placeholder")
               foreground: prompt.foreground
               font.family: prompt.fontFamily
               enabled: !prompt.busy
@@ -150,7 +157,8 @@ Item {
             }
             Button {
               id: checkButton
-              text: prompt.loading ? "Checking…" : "Check"
+              text: prompt.loading
+                ? prompt.textFor("routing_tools.checking") : prompt.textFor("routing_tools.check")
               bordered: true
               enabled: checkField.text.trim() !== "" && !prompt.busy
               foreground: enabled ? prompt.foreground : prompt.dim
@@ -161,7 +169,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "A custom rule is checked locally. Otherwise, an active Routing check opens one TCP connection to destination:443 through Mihomo; no page is loaded."
+            text: prompt.textFor("routing_tools.check_help")
             color: prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
@@ -207,7 +215,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "Custom rules"
+            text: prompt.textFor("routing_tools.custom_rules")
             color: Color.accent
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.subtitle
@@ -216,7 +224,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "Custom rules run before the selected country preset. Earlier rules win."
+            text: prompt.textFor("routing_tools.custom_rules_help")
             color: prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
@@ -227,9 +235,9 @@ Item {
             spacing: Style.space(5)
             Repeater {
               model: [
-                { label: "Exact", value: "domain" },
-                { label: "Domain + subdomains", value: "suffix" },
-                { label: "IP range", value: "ipcidr" }
+                { label: prompt.textFor("routing_tools.match.exact"), value: "domain" },
+                { label: prompt.textFor("routing_tools.match.suffix"), value: "suffix" },
+                { label: prompt.textFor("routing_tools.kind.ip_range"), value: "ipcidr" }
               ]
               Button {
                 required property var modelData
@@ -262,8 +270,8 @@ Item {
               Repeater {
                 model: [
                   { label: "VPN", value: "proxy" },
-                  { label: "Direct", value: "direct" },
-                  { label: "Block", value: "reject" }
+                  { label: prompt.textFor("routing_tools.action.direct"), value: "direct" },
+                  { label: prompt.textFor("routing_tools.action.block"), value: "reject" }
                 ]
                 Button {
                   required property var modelData
@@ -282,7 +290,7 @@ Item {
             }
             Button {
               id: addButton
-              text: "Add rule"
+              text: prompt.textFor("routing_tools.add_rule")
               bordered: true
               enabled: ruleField.text.trim() !== "" && !prompt.busy
               foreground: enabled ? prompt.foreground : prompt.dim
@@ -297,7 +305,7 @@ Item {
           PlainText {
             visible: !prompt.loading && prompt.rules.length === 0
             width: parent.width
-            text: "No custom rules"
+            text: prompt.textFor("routing_tools.no_custom_rules")
             color: prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
@@ -342,7 +350,7 @@ Item {
                 }
                 Button {
                   id: removeButton
-                  text: "Remove"
+                  text: prompt.textFor("routing_tools.remove")
                   bordered: true
                   enabled: !prompt.busy
                   foreground: enabled ? prompt.urgent : prompt.dim
@@ -362,7 +370,7 @@ Item {
               width: parent.width - refreshButton.width - parent.spacing
               PlainText {
                 width: parent.width
-                text: "Remote rule data"
+                text: prompt.textFor("settings.remote_rules")
                 color: prompt.foreground
                 font.family: prompt.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -378,7 +386,7 @@ Item {
             }
             Button {
               id: refreshButton
-              text: "Refresh now"
+              text: prompt.textFor("routing_tools.refresh_now")
               bordered: true
               enabled: prompt.refreshAvailable && !prompt.busy
               foreground: enabled ? prompt.foreground : prompt.dim
@@ -390,7 +398,7 @@ Item {
           PlainText {
             visible: !prompt.refreshAvailable
             width: parent.width
-            text: "Start a Routing connection to refresh its remote rule sets now."
+            text: prompt.textFor("routing_tools.refresh_requires_connection")
             color: prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
@@ -413,7 +421,7 @@ Item {
             Button {
               id: closeButton
               anchors.right: parent.right
-              text: "Close"
+              text: prompt.textFor("common.close")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily

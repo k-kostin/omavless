@@ -2618,6 +2618,7 @@ Panel {
         dim: root.dim
         urgent: root.urgent
         fontFamily: root.fontFamily
+        locale: root.uiLocale
         onAddRule: function(kind, action, value) {
           vless.addCustomRule(kind, action, value)
         }
@@ -2635,6 +2636,7 @@ Panel {
         foreground: root.foreground
         dim: root.dim
         fontFamily: root.fontFamily
+        locale: root.uiLocale
         onConfirmed: function(preset) { root.applyFirstRoutingPreset(preset) }
         onCanceled: {
           dismiss()
