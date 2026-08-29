@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Accepted the K0 Full VPN fail-closed threat model and host-integration
+  contract: a separately packaged root NetGuard service, one fixed-purpose API,
+  one atomic dedicated nftables table, durable desired-state protection and
+  explicit recovery/disable/removal semantics. No firewall code is installed
+  by this documentation checkpoint.
 - Added the T1a control-protocol foundation: one reusable bounded v1 NDJSON
   parser/encoder, stable credential-safe error envelopes, version/revision/
   operation validation and a deterministic cross-client conformance corpus.

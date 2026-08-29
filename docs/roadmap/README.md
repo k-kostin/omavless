@@ -24,6 +24,8 @@ application UX and Git workflow rules.
   TUI application and a semantic CLI/IPC integration surface.
 - [`CONTROL_PLANE.md`](CONTROL_PLANE.md) is the accepted T0 runtime ownership,
   versioned IPC, migration/distribution contract and T1 acceptance plan.
+- [`KILL_SWITCH.md`](KILL_SWITCH.md) is the accepted K0 Full VPN fail-closed
+  threat model, NetGuard privilege/host contract and K1 acceptance matrix.
 - [`PLATFORM.md`](PLATFORM.md) defines the Arch-first standalone product and
   distribution boundary: Omarchy is first-class integration, not a runtime
   dependency.
@@ -102,7 +104,8 @@ runtime, TUI and semantic CLI without Omarchy, Quickshell or Hyprland installed.
 
 ## Current priority
 
-The existing D1 → V0 → P4a → P4b → P4c sequence remains the active runtime
-chain. The architecture, platform and TUI work in this directory is deliberately
-staged rather than used as an excuse for a speculative rewrite while current
-protocol validation and credential-family work is still open.
+T1a's isolated protocol/conformance foundation and K0's fail-closed design are
+independent no-fixture checkpoints. V0 remains partially validated and still
+blocks P4a, but unavailable protocol credentials do not block bounded T1,
+security-design, localization or observability work. None of these documents
+authorizes a speculative daemon cutover or privileged firewall implementation.

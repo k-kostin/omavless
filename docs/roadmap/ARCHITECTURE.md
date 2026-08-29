@@ -12,6 +12,8 @@ The detailed control-surface/TUI product direction lives in
 [`TUI_APP.md`](TUI_APP.md).
 The implementation-ready T1 ownership, IPC and migration contract lives in
 [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
+The accepted Full VPN fail-closed threat model and host boundary lives in
+[`KILL_SWITCH.md`](KILL_SWITCH.md).
 
 ## 1. Product boundary
 
@@ -357,10 +359,11 @@ TUN disappearance alone is not a kill switch. If the core crashes and the OS
 restores an ordinary default route, traffic can escape unless an independent
 network policy remains active.
 
-On Linux the likely enforcement mechanism is nftables or another OS-level
-network policy requiring `CAP_NET_ADMIN` or equivalent privilege. The exact
-implementation must be selected during the K0 threat-model phase rather than
-hard-coded in this roadmap.
+K0 selects a separately packaged root NetGuard service and one atomic dedicated
+nftables table. The normal runtime does not receive `CAP_NET_ADMIN`; the
+marketplace plugin does not gain sudo/pkexec behavior. Exact fixed API,
+persistence, DNS/link policy and recovery semantics are specified in
+[`KILL_SWITCH.md`](KILL_SWITCH.md).
 
 The existing security promise must remain: the normal plugin must not quietly
 run `sudo`/`pkexec`, install passwordless policy or feed arbitrary user-writable
@@ -460,22 +463,22 @@ earlier feature requires it.
 
 ### K0 — fail-closed threat model and host integration design
 
-State: planned design/security phase.
+State: accepted design/security checkpoint in
+[`KILL_SWITCH.md`](KILL_SWITCH.md).
 
-- enumerate traffic that must be blocked and traffic required to reconnect;
-- cover IPv4, IPv6, DNS, route replacement, suspend/resume, network changes,
-  core crash and UI/runtime crash;
-- choose the smallest privilege boundary;
-- specify install/update/remove and stale-rule recovery;
-- prove that disabling/removing OmaVLESS cannot strand an unexplained firewall
-  rule;
-- define local acceptance and emergency recovery steps before implementation.
+- root NetGuard plus a compiled fixed nftables policy is the selected privilege
+  boundary;
+- protection follows desired Full VPN state through core/runtime/UI/helper
+  failure and physical route/interface changes;
+- IPv4, IPv6, DNS, local-link, boot, upgrade, disable/remove and emergency
+  recovery behavior is explicit;
+- K1's deterministic, Try Omarchy and concrete bare-metal gates are enumerated.
 
-K0 changes no networking policy by itself.
+K0 changes no networking policy by itself. K1 remains unimplemented.
 
 ### K1 — Full VPN fail-closed kill switch
 
-State: planned after K0.
+State: implementation-ready after accepted K0, not implemented.
 
 - opt-in initially;
 - Full VPN only;

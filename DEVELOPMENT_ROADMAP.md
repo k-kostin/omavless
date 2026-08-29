@@ -14,6 +14,9 @@ state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 - [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md) — accepted
   T0 runtime ownership, versioned IPC, migration, distribution and T1
   acceptance contract;
+- [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md) — accepted K0
+  fail-closed threat model, privilege boundary, host lifecycle and K1
+  acceptance contract;
 - [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
   — cloud/Omarchy Git workflow and branch policy;
 - [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
@@ -340,28 +343,33 @@ not authorize a speculative rewrite of the current Mihomo implementation.
 
 ### K0 — fail-closed threat model and host integration design
 
-- State: **planned design/security phase**.
-- Goal: design a real kill switch which remains effective after the proxy core
-  or UI crashes.
-- Cover IPv4, IPv6, DNS, route replacement, suspend/resume, network changes,
-  reconnect traffic, stale-rule cleanup, plugin/app disable/remove and emergency
-  recovery.
-- Determine the smallest privilege boundary before implementation. Do not add
-  arbitrary `sudo`/`pkexec`/firewall commands to the normal backend/runtime.
+- State: **accepted design/security checkpoint** in
+  [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md).
+- Selected a separately packaged root-owned NetGuard service with an enrolled-
+  UID/fixed-purpose API and one atomic dedicated nftables table. QML and the
+  normal runtime receive no arbitrary firewall, command or privileged surface.
+- Defined desired-state-driven Full VPN protection, IPv4/IPv6/DNS/link
+  behavior, boot persistence, crash/upgrade/disable/removal and fixed console
+  recovery semantics.
+- Physical Wi-Fi/Ethernet transitions, suspend/resume and armed boot ordering
+  are concrete bare-metal gates; deterministic and ordinary crash/reconcile
+  coverage remains valid in Try Omarchy.
 
 ### K1 — Full VPN fail-closed kill switch
 
-- State: **planned after K0**.
+- State: **implementation-ready after accepted K0; not implemented**.
 - Initial scope: opt-in **Full VPN only**.
 - Protection follows desired VPN state rather than core process liveness.
 - If the owned core dies/restarts while the user still expects a connection,
   ordinary direct egress stays blocked until recovery or explicit disconnect.
 - First slice is a kill switch, not permanent Lockdown.
 - Likely requires an external OS networking policy; if a privileged helper is
-  required, it must be optional, separately reviewed and accept only bounded
-  fixed-purpose operations rather than arbitrary firewall rules.
-- Forced core death, failed restart, network changes and removal cleanup are
-  mandatory Omarchy tests.
+  required, K0 fixes it as an optional separately reviewed root NetGuard
+  service with no arbitrary firewall rules.
+- Deliver K1 as separate protocol/state renderer, root service, runtime
+  coordination and acceptance slices rather than one broad privileged change.
+- Forced core/helper/runtime death, failed restart, network changes and removal
+  cleanup are mandatory; named physical-host cases remain bare-metal gates.
 
 ### X0 — core-backend contract extraction
 
