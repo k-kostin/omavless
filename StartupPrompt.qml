@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Login behavior is edited in one focused sheet so the general Settings page
 // can describe the result in a single row.
@@ -20,6 +21,11 @@ Item {
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
+  property string locale: "en"
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
 
   // Button and tooltip labels come from shared Omarchy controls whose text
   // format may be AutoText. Keep imported profile metadata inert at the sink.
@@ -100,7 +106,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "START AT LOGIN"
+            text: prompt.textFor("startup_prompt.title")
             color: prompt.foreground
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.title
@@ -108,7 +114,7 @@ Item {
 
           PlainText {
             width: parent.width
-            text: "OmaVLESS starts its own Mihomo service after login. Manual connections remain independent during the current session."
+            text: prompt.textFor("startup_prompt.help")
             color: prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
@@ -116,9 +122,9 @@ Item {
           }
 
           ChoiceRow {
-            label: "Autoconnect"
-            leftText: "Off"
-            rightText: "On"
+            label: prompt.textFor("startup_prompt.autoconnect")
+            leftText: prompt.textFor("common.off")
+            rightText: prompt.textFor("common.on")
             rightSelected: prompt.enabledChoice
             onLeftChosen: prompt.enabledChoice = false
             onRightChosen: prompt.enabledChoice = true
@@ -130,9 +136,9 @@ Item {
             visible: prompt.enabledChoice
 
             ChoiceRow {
-              label: "Server"
-              leftText: "Last used"
-              rightText: "Choose"
+              label: prompt.textFor("startup_prompt.server")
+              leftText: prompt.textFor("startup.last_used")
+              rightText: prompt.textFor("common.choose")
               rightSelected: prompt.targetChoice === "profile"
               onLeftChosen: prompt.targetChoice = "last"
               onRightChosen: prompt.targetChoice = "profile"
@@ -181,7 +187,7 @@ Item {
             PlainText {
               visible: prompt.profiles.length === 0
               width: parent.width
-              text: "Add a profile before enabling login autoconnect."
+              text: prompt.textFor("startup_prompt.profile_required")
               color: prompt.urgent
               font.family: prompt.fontFamily
               font.pixelSize: Style.font.caption
@@ -189,9 +195,9 @@ Item {
             }
 
             ChoiceRow {
-              label: "Mode"
-              leftText: "Full VPN"
-              rightText: "Routing"
+              label: prompt.textFor("startup_prompt.mode")
+              leftText: prompt.textFor("mode.full_vpn")
+              rightText: prompt.textFor("mode.routing")
               rightSelected: prompt.modeChoice === "rule"
               onLeftChosen: prompt.modeChoice = "global"
               onRightChosen: prompt.modeChoice = "rule"
@@ -200,7 +206,7 @@ Item {
             PlainText {
               visible: prompt.modeChoice === "rule" && !prompt.routingAvailable
               width: parent.width
-              text: "Choose a country Routing profile first."
+              text: prompt.textFor("startup_prompt.routing_required")
               color: prompt.urgent
               font.family: prompt.fontFamily
               font.pixelSize: Style.font.caption
@@ -209,7 +215,7 @@ Item {
 
             Button {
               visible: !prompt.coreReady
-              text: "Open Mihomo setup"
+              text: prompt.textFor("startup_prompt.open_mihomo_setup")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily
@@ -225,14 +231,14 @@ Item {
               anchors.right: parent.right
               spacing: Style.space(8)
               Button {
-                text: "Cancel"
+                text: prompt.textFor("common.cancel")
                 bordered: true
                 foreground: prompt.foreground
                 fontFamily: prompt.fontFamily
                 onClicked: prompt.canceled()
               }
               Button {
-                text: "Save"
+                text: prompt.textFor("common.save")
                 bordered: true
                 enabled: prompt.valid && !prompt.busy
                 foreground: enabled ? prompt.foreground : prompt.dim

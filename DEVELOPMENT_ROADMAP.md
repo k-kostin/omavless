@@ -211,10 +211,12 @@ start.
 - The coherent first surface covers the main panel, Settings navigation,
   connection modes, common actions, import/subscription confirmation and the
   stable v1 control error set.
+- The first I1b batch covers the three-step onboarding and login-autoconnect
+  dialog without translating commands, profile names or protocol identifiers.
 - Provider/profile/core-controlled data is never translated. Named
   interpolation is bounded and reaches only plain-text/sanitized sinks.
-- Onboarding, routing tools, diagnostics, secondary dialogs and legacy backend
-  prose remain explicit I1b/I1c batches.
+- Routing tools, diagnostics, secondary dialogs and legacy backend prose remain
+  explicit I1b/I1c batches.
 
 ### C1 — privacy-aware active connections
 

@@ -4,6 +4,9 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Localized the complete three-step onboarding and login-autoconnect dialogs
+  in English and Russian while keeping terminal commands, protocol tokens and
+  private profile names unchanged and inert.
 - Added a credential-safe developer conformance probe for fixed v1 hello
   generation and end-to-end bounded request/response validation. It cannot
   connect to or execute control methods and never echoes validated input.

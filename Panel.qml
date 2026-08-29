@@ -2559,6 +2559,7 @@ Panel {
         installCommand: root.mihomoInstallCommand
         capabilityCommand: root.mihomoCapabilityCommand
         verifyCommand: root.mihomoVerifyCommand
+        locale: root.uiLocale
         foreground: root.foreground
         dim: root.dim
         urgent: root.urgent
@@ -2582,6 +2583,7 @@ Panel {
         routingAvailable: vless.routingPresetConfigured
         coreReady: vless.coreSetup.tunReady
         busy: vless.busy
+        locale: root.uiLocale
         foreground: root.foreground
         dim: root.dim
         urgent: root.urgent
