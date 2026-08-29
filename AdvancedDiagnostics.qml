@@ -51,6 +51,13 @@ Item {
     return I18n.plural(baseKey, count, locale)
   }
 
+  function diagnosticsErrorText() {
+    if (!service) return ""
+    if (service.advancedDiagnosticsErrorCode === "unavailable")
+      return textFor("diagnostics.error.unavailable")
+    return service.advancedDiagnosticsError
+  }
+
   function normalizedQuery() {
     return String(searchField.text || "").trim().toLowerCase()
   }
@@ -184,7 +191,7 @@ Item {
       PlainText {
         visible: service && service.advancedDiagnosticsError !== ""
         width: parent.width
-        text: service ? service.advancedDiagnosticsError : ""
+        text: page.diagnosticsErrorText()
         color: page.dim
         font.family: page.fontFamily
         font.pixelSize: Style.font.bodySmall

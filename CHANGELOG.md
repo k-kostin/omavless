@@ -13,7 +13,8 @@ All notable changes to OmaVLESS are documented here.
 - Localized the trusted framing of advanced diagnostics in English and Russian:
   headings, controls, counts and empty/loading states. Controller rule data,
   provider fields, targets, timestamps and raw legacy status/error text remain
-  untranslated technical data.
+  untranslated technical data; the bounded diagnostics-unavailable fallback now
+  uses a stable semantic code and localized display text.
 - Localized the complete three-step onboarding and login-autoconnect dialogs
   in English and Russian while keeping terminal commands, protocol tokens and
   private profile names unchanged and inert.

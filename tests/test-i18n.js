@@ -30,6 +30,8 @@ assert.strictEqual(I18n.translate("routing_tools.title", "ru"),
   "ИНСТРУМЕНТЫ МАРШРУТИЗАЦИИ")
 assert.strictEqual(I18n.translate("routing_preset.recommended", "ru"), "Рекомендуется")
 assert.strictEqual(I18n.translate("diagnostics.title", "ru"), "ДИАГНОСТИКА MIHOMO")
+assert.strictEqual(I18n.translate("diagnostics.error.unavailable", "ru"),
+  "Диагностика Mihomo сейчас недоступна")
 assert.strictEqual(I18n.plural("connection", 1, "ru"), "1 подключение")
 assert.strictEqual(I18n.plural("connection", 3, "ru"), "3 подключения")
 assert.strictEqual(I18n.plural("connection", 12, "ru"), "12 подключений")

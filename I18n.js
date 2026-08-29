@@ -214,6 +214,7 @@ var CATALOG = {
   "diagnostics.last_update": {"en":"Last successful update · {timestamp}","ru":"Последнее успешное обновление · {timestamp}"},
   "diagnostics.last_update_unknown": {"en":"Last successful update not reported","ru":"Время последнего успешного обновления не сообщается"},
   "diagnostics.provider_output_bounded": {"en":"Provider output was bounded for safe display.","ru":"Вывод провайдеров ограничен для безопасного отображения."},
+  "diagnostics.error.unavailable": {"en":"Live Mihomo diagnostics are unavailable","ru":"Диагностика Mihomo сейчас недоступна"},
   "startup.off": {"en":"Off","ru":"Выключено"},
   "startup.legacy": {"en":"On · review legacy login behavior","ru":"Включено · проверьте прежнее поведение при входе"},
   "startup.last_used": {"en":"Last used server","ru":"Последний использованный сервер"},

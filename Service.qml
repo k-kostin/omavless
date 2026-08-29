@@ -102,6 +102,7 @@ Item {
   // into a fatal-looking bar state.
   property bool diagnosticsPageVisible: false
   readonly property bool advancedDiagnosticsLoading: advancedDiagnosticsProcess.running
+  property string advancedDiagnosticsErrorCode: ""
   property string advancedDiagnosticsError: ""
   property var loadedRules: []
   property int loadedRuleTotal: 0
@@ -437,6 +438,7 @@ Item {
   onDiagnosticsPageVisibleChanged: {
     _advancedDiagnosticsGeneration++
     _advancedDiagnosticsRefreshPending = false
+    advancedDiagnosticsErrorCode = ""
     advancedDiagnosticsError = ""
     if (diagnosticsPageVisible) {
       loadedRules = []
@@ -544,6 +546,7 @@ Item {
         _advancedDiagnosticsRefreshPending = true
       return false
     }
+    advancedDiagnosticsErrorCode = ""
     advancedDiagnosticsError = ""
     _advancedDiagnosticsRequestGeneration = _advancedDiagnosticsGeneration
     advancedDiagnosticsProcess.command = ["bash", backendPath, "advanced-diagnostics"]
@@ -619,6 +622,7 @@ Item {
     loadedRuleProviderTotal = Math.floor(providers.total)
     loadedRuleProvidersTruncated = providers.truncated
     advancedDiagnosticsLoadedAt = Date.now()
+    advancedDiagnosticsErrorCode = ""
     advancedDiagnosticsError = ""
     return true
   }
@@ -2477,8 +2481,10 @@ Item {
       if (!stale) {
         if (exitCode === 0
             && root.applyAdvancedDiagnostics(advancedDiagnosticsStdout.text)) {
+          root.advancedDiagnosticsErrorCode = ""
           root.advancedDiagnosticsError = ""
         } else {
+          root.advancedDiagnosticsErrorCode = "unavailable"
           root.advancedDiagnosticsError = "Live Mihomo diagnostics are unavailable"
         }
       }
