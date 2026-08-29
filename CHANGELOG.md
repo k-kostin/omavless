@@ -8,7 +8,8 @@ All notable changes to OmaVLESS are documented here.
   English and Russian while preserving rule payloads, routing targets and
   unknown preset metadata as untranslated technical data. Modal sheets now
   suspend and hide their underlying page scroller so one wheel gesture cannot
-  move two surfaces or show competing scrollbars.
+  move two surfaces or show competing scrollbars, and Routing Tools reserves a
+  real gutter so its own scrollbar does not cover controls or text.
 - Localized the complete three-step onboarding and login-autoconnect dialogs
   in English and Russian while keeping terminal commands, protocol tokens and
   private profile names unchanged and inert.

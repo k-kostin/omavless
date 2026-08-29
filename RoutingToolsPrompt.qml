@@ -26,6 +26,9 @@ Item {
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
   property string locale: "en"
+  // Qt's attached scrollbar overlays Flickable content. Reserve the same
+  // physical gutter as the panel pages so text and controls stay clear.
+  readonly property real scrollGutter: Style.space(16)
   property string matchChoice: "suffix"
   property string actionChoice: "proxy"
 
@@ -122,7 +125,7 @@ Item {
 
         Column {
           id: content
-          width: parent.width
+          width: Math.max(0, parent.width - prompt.scrollGutter)
           spacing: Style.space(11)
 
           PlainText {

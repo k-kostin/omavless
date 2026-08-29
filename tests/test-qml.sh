@@ -183,6 +183,8 @@ grep -q 'text: prompt.textFor("routing_tools.refresh_now")' "$routing_tools_prom
 grep -q 'text: ruleRow.modelData.value' "$routing_tools_prompt"
 grep -q 'text: prompt.errorText !== "" ? prompt.errorText : prompt.statusText' "$routing_tools_prompt"
 grep -q 'textFor("routing_tools.result.route", { rule: rule, target: value.target })' "$routing_tools_prompt"
+grep -q 'readonly property real scrollGutter: Style.space(16)' "$routing_tools_prompt"
+grep -q 'width: Math.max(0, parent.width - prompt.scrollGutter)' "$routing_tools_prompt"
 grep -q 'text: prompt.textFor("import.review")' "$import_preview_prompt"
 grep -q '"import.privacy_note"' "$i18n"
 grep -q 'credentialHint' "$import_preview_prompt"
