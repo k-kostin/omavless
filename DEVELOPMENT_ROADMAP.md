@@ -1,6 +1,6 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-28.
+Status: active delivery ledger, updated 2026-08-29.
 
 This file is the compact source of truth for delivery order and acceptance
 state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
@@ -14,6 +14,11 @@ state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 - [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md) — accepted
   T0 runtime ownership, versioned IPC, migration, distribution and T1
   acceptance contract;
+- [`docs/roadmap/PLATFORM.md`](docs/roadmap/PLATFORM.md) — authoritative host
+  and distribution boundary for the future standalone Arch + NixOS app;
+- [`docs/roadmap/NIX_PORTABILITY.md`](docs/roadmap/NIX_PORTABILITY.md) — Nix/
+  future-Omarchy portability assumptions, immutable-path/capability/service
+  consequences and Nix acceptance matrix;
 - [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md) — accepted K0
   fail-closed threat model, privilege boundary, host lifecycle and K1
   acceptance contract;
@@ -24,11 +29,16 @@ state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
 - [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
   compatibility specification.
 
+Where older T0/TUI documents say `Arch/AUR` as if it were the only future host,
+`docs/roadmap/PLATFORM.md` is authoritative for host scope: **Arch and NixOS are
+the two initial standalone host families**. Existing control-plane, security
+and TUI semantics remain unchanged unless a later PR deliberately revises them.
+
 ## Status vocabulary
 
 - **Merged** — accepted code/documentation is in `main`.
 - **Cloud-ready** — exact Draft PR head passed every available cloud/static
-  gate but still has declared Omarchy-only checks.
+  gate but still has declared host/integration checks.
 - **Merge-ready** — exact head passed its declared cloud and local gates and is
   waiting only for final owner merge approval.
 - **Experimental** — product maturity label; implementation may already be
@@ -40,12 +50,17 @@ Git maturity and product maturity are separate. An experimental protocol may
 live in `main` after its implementation gates pass; it does not need a permanent
 `alpha` or `beta` branch merely to preserve the label.
 
+Host support is also an evidence axis. A shared runtime feature can be merged
+while NixOS packaging remains a planned target; documentation must not turn a
+green Arch/Omarchy test into a claim that NixOS package, wrapper, generation or
+service behavior was exercised.
+
 ## Repository and release model
 
 `main` is the only long-lived development source of truth. Runtime/network/
 security changes merge only after the exact candidate head passes every
-required real-Omarchy gate. Documentation-only work does not invent a live VPN
-gate.
+required declared host/integration gate. Documentation-only work does not
+invent a live VPN gate.
 
 The currently published OmaVLESS 0.7.0 marketplace snapshot remains exact
 commit `69fe05b03129a23664fff3f8289821a7b7f80095`, published and
@@ -63,13 +78,13 @@ Do **not** maintain permanent `alpha` and `beta` branches by default.
 
 - A short-lived feature branch + Draft PR is the practical **alpha** state for
   cloud work.
-- A cloud-ready Draft whose real Omarchy checklist is still open represents the
-  next maturity state without requiring a second branch.
-- After the exact head passes its real gate, it merges directly into `main`.
+- A cloud-ready Draft whose declared local checklist is still open represents
+  the next maturity state without requiring a second branch.
+- After the exact head passes its required gate, it merges directly into `main`.
 - A temporary `beta/<scope>` branch is allowed only as an integration/test
-  assembly when several named candidate PRs genuinely need combined Omarchy
-  or soak testing. Fixes found there must go back to the owning feature PRs;
-  beta is deleted afterward and never becomes a parallel source of truth.
+  assembly when several named candidate PRs genuinely need combined host or
+  soak testing. Fixes found there must go back to the owning feature PRs; beta
+  is deleted afterward and never becomes a parallel source of truth.
 
 Full rules: [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md).
 
@@ -96,6 +111,13 @@ validated UX fixes are now merged:
 - issue `#37` / PR `#43`: page-local Tab/Shift+Tab navigation with preserved
   Enter/Escape and shell handoff after panel close, merged at
   `d2a58589ed1eef5938fbce888f1e43a8d4c90fd0`.
+
+The forward application platform contract now treats Arch and NixOS as two
+initial host families. This does not claim NixOS runtime support today and does
+not pause Arch work. It changes the T1/T2 implementation boundary so package,
+capability and service provisioning cannot leak into the shared runtime/TUI.
+Current upstream Omarchy/Nix discussion is tracked as a planning signal, not as
+a confirmed Cinque migration announcement.
 
 ## Active merge chain
 
@@ -238,19 +260,26 @@ start.
   user-manager environment inherited by newly launched applications. Merely
   switching a desktop proxy to `none` or unsetting variables is not sufficient
   when the machine had pre-existing proxy state.
+- Before standalone NixOS support is claimed, S1 must separately define how the
+  equivalent user-session proxy state is discovered and restored there; do not
+  assume Omarchy/UWSM paths are a generic Linux contract.
 
 ## Full application / TUI track
 
 Detailed design: [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md).
+Host/distribution authority: [`docs/roadmap/PLATFORM.md`](docs/roadmap/PLATFORM.md)
+and [`docs/roadmap/NIX_PORTABILITY.md`](docs/roadmap/NIX_PORTABILITY.md).
 
 The target is **not** a second VPN application next to the plugin. It is one
 canonical OmaVLESS runtime with a compact Omarchy bar surface, a full TUI
-workspace and a bounded CLI/IPC integration surface.
+workspace and a bounded CLI/IPC integration surface. The same runtime/TUI is
+the product on Arch and NixOS; host-specific package/privilege/service work
+stays below that boundary.
 
 ### T0 — control-plane and distribution design
 
-- State: **accepted design checkpoint** in
-  [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md).
+- State: **accepted design checkpoint**, broadened by the 2026-08-29 platform
+  portability contract.
 - Selected `omavless-runtime.service` as the one future canonical owner, with
   the existing Mihomo supervisor retained only as a private implementation
   detail during the first migration.
@@ -261,11 +290,37 @@ workspace and a bounded CLI/IPC integration surface.
   high-volume traffic/log data.
 - Defined Stage 0–3 migration/rollback, restart reconciliation and exact
   close/disconnect/quit/disable/remove/stop semantics.
-- Selected an explicit Arch/AUR package boundary and
-  `omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui`;
-  the marketplace plugin never downloads/builds it.
+- The old T0 Arch/AUR-only distribution wording is superseded for host scope:
+  Arch and NixOS are the two initial standalone host families. Package manager,
+  capability and service provisioning are host concerns and are not exposed
+  through v1 semantic control methods.
+- The Omarchy launcher contract remains
+  `omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui` for
+  the current plugin API; a future launcher spelling change is a frontend
+  adapter change, not a runtime redesign.
+- The marketplace plugin never silently downloads/builds the standalone app.
 - T1 is implementation-ready but not automatically scheduled by this design-
   only merge.
+
+### T0p — Arch/Nix host portability contract
+
+- State: **accepted design direction; implementation/acceptance pending**.
+- Canonical documents: `PLATFORM.md` and `NIX_PORTABILITY.md`.
+- Working Omarchy assumption: a future Cinque may use Nix-backed packaging, but
+  this is not treated as confirmed; plugin/Quickshell semantics are assumed to
+  remain materially compatible until upstream proves otherwise.
+- Keep protocol/store/routing/control-plane/TUI semantics host-neutral.
+- Add only a narrow Arch/Nix host boundary for core entry-point discovery,
+  privilege status, service provisioning status and bounded install/doctor
+  remediation.
+- Do not persist a generation-specific `/nix/store/...` executable path as
+  desired state or package-neutral configuration.
+- Arch file-capability setup and Nix wrapper/service capability setup are two
+  implementations of the same semantic `TUN/core ready` requirement.
+- `systemctl --user` lifecycle may remain common; ownership/provisioning of the
+  unit differs between conventional Arch packages and declarative Nix output.
+- Nix acceptance must include generation update, rollback and stale-store-path/
+  garbage-collection regression tests before support is advertised.
 
 ### T1 — shared runtime / daemon foundation
 
@@ -285,15 +340,46 @@ workspace and a bounded CLI/IPC integration surface.
 - A panel/TUI/terminal close must not stop a healthy requested tunnel.
 - This phase should satisfy/subsume the relevant N0 coordinator extraction;
   do not create a parallel daemon state machine and a separate coordinator.
+- T1 must keep package-manager commands out of the semantic API, separate
+  service **state control** from service **provisioning**, and keep desired
+  state free of Arch package-manager data or Nix generation-specific paths.
+- Add bounded host capability/doctor results so a UI can explain `core missing`,
+  `TUN privilege missing` or `runtime service not provisioned` without learning
+  how pacman/Nix wrappers work.
 - Remaining T1 work begins with singleton/socket/peer enforcement and
   hello/status/capability dispatch, then desired/actual reconciliation,
-  serialized lifecycle mutations and the plugin compatibility bridge under
-  the existing staged-cutover acceptance contract.
+  serialized lifecycle mutations, host boundary and the plugin compatibility
+  bridge under the existing staged-cutover acceptance contract.
+
+### T1a-host — first concrete standalone host implementation
+
+- State: **planned as part of T1 delivery, not a second runtime**.
+- Arch remains the first practical implementation/acceptance host unless a
+  usable NixOS environment becomes available earlier.
+- Package the standalone `omavless` command/runtime service explicitly; migrate
+  from the current plugin-owned service/store without creating two owners.
+- Verify package install/update/remove, user-service ownership, Mihomo/TUN
+  privilege setup, restart reconciliation and existing Full/Routing/Direct
+  behavior.
+
+### T1n — NixOS host implementation
+
+- State: **planned; may proceed in parallel once the T1 executable/service host
+  contract is stable**.
+- Provide Nix package plus the smallest reviewed module/wrapper integration
+  needed for stable executable, user-service and TUN privilege semantics.
+- Do not copy the Arch `setcap` workflow onto immutable store binaries.
+- Required Nix-specific evidence: install/evaluate, stable core/app discovery,
+  user-service lifecycle, privilege-negative case, generation update, rollback,
+  garbage collection/stale-store-path regression and shared store migration.
+- This is a host implementation of the same T1 control plane, not a fork.
 
 ### T2 — TUI MVP and plugin `Open app`
 
 - State: **planned after T1**.
-- Build an Omarchy-themed keyboard-first TUI with a responsive layout.
+- Build one keyboard-first responsive TUI. Omarchy supplies first-class theme
+  integration; standalone Arch/NixOS without Omarchy use the app's default
+  theme or later explicit override.
 - Wide dashboard direction: traffic summary at top, profiles/subscriptions
   sources plus live activity/logs in the main workspace, and persistent
   connection/mode/core/protection/policy status at the bottom.
@@ -303,11 +389,17 @@ workspace and a bounded CLI/IPC integration surface.
   diagnostics entry points, help overlay.
 - `j/k` + arrows are baseline navigation; `h/l`/Tab, search, first/last and
   mouse support are added where they improve rather than complicate semantics.
-- Follow the active Omarchy theme while running.
-- Add `Open app` to the plugin. It must launch or focus one TUI window, attach to
-  the existing runtime and never create a second tunnel/core.
+- Host-specific branches in the TUI are restricted to setup/doctor/remediation
+  presentation. Profile parsing, connection transitions, routing and core
+  controller behavior come only from the semantic runtime API.
+- Add `Open app` to the Omarchy plugin. It must launch or focus one TUI window,
+  attach to the existing runtime and never create a second tunnel/core.
 - Concurrent bar and TUI actions must serialize against the same canonical
   state; closing/reopening either surface must not disturb the tunnel.
+- T2 platform-complete means the same TUI/control protocol has accepted Arch
+  and NixOS runtime paths. If NixOS host packaging is not yet accepted, T2 may
+  merge as an Arch-supported application while NixOS remains explicitly
+  planned; do not fork the TUI in the meantime.
 
 ### T3 — operator and observability integration
 
@@ -317,7 +409,8 @@ workspace and a bounded CLI/IPC integration surface.
   close-connection mutation after its own security review.
 - Add bounded local core/application activity/log views with session-aware
   navigation/selection/copy, richer traffic context and route inspection.
-- Add a read-only `doctor`/health view or CLI output with remediation hints.
+- Add a read-only `doctor`/health view or CLI output with host-specific bounded
+  remediation hints behind the shared semantic host-capability model.
 - Keep local operator detail distinct from shareable redacted diagnostic
   export; raw logs are never silently bundled for sharing.
 
@@ -365,6 +458,9 @@ not authorize a speculative rewrite of the current Mihomo implementation.
 - Physical Wi-Fi/Ethernet transitions, suspend/resume and armed boot ordering
   are concrete bare-metal gates; deterministic and ordinary crash/reconcile
   coverage remains valid in Try Omarchy.
+- K1 packaging/provisioning must eventually have separate reviewed Arch and
+  NixOS host implementations; the privileged API and fail-closed semantics stay
+  common.
 
 ### K1 — Full VPN fail-closed kill switch
 
@@ -431,16 +527,16 @@ demand/fixtures justify them:
 - arbitrary raw YAML merge/patch systems or untrusted provider-controlled
   runtime configuration as a shortcut around structured adapters.
 
-## Cloud -> Omarchy handoff procedure
+## Cloud -> host handoff procedure
 
 For every runtime PR the cloud agent records URL, base/head SHA, changed files,
-completed cloud checks and every unchecked real-host gate. The Omarchy agent
-then:
+completed cloud checks and every unchecked host/integration gate. The relevant
+acceptance agent then:
 
 1. fetches and verifies the exact candidate head;
 2. checks the diff and dependency base;
-3. runs `omarchy plugin validate`, `./tests/run.sh`, shell/Python checks and
-   `qmllint` with installed imports as applicable;
+3. runs the platform-appropriate deterministic checks plus installed-import/
+   packaging checks as applicable;
 4. executes the PR-specific live TUN/systemd/core/server/network checklist;
 5. keeps real credentials, profile/provider names and endpoints out of GitHub;
 6. reports failures on the owning PR rather than patching only an integration
@@ -449,10 +545,21 @@ then:
 8. merges only after the declared gates pass and explicit owner approval is
    given.
 
+For current Omarchy plugin/runtime work, Try Omarchy ARM64 remains the accepted
+normal integration environment under `ACCEPTANCE_ENVIRONMENTS.md`, with
+bare-metal required only for declared hardware-sensitive cases.
+
+For future standalone NixOS support, Nix package/module/generation evidence is a
+separate gate and must be labeled as such. It cannot be inferred from Try
+Omarchy or Arch tests. If/when an upstream Nix-backed Omarchy environment is
+available, add it as an explicit acceptance environment rather than silently
+relabeling existing evidence.
+
 For TUI/control-plane work, the local gate additionally covers concurrent
-plugin/TUI control, launch-or-focus, terminal close/reopen, theme changes,
-resize behavior and confirmation that one UI cannot stall or replace the
-canonical tunnel owner.
+plugin/TUI control, launch-or-focus on Omarchy, terminal close/reopen, theme
+changes, resize behavior and confirmation that one UI cannot stall or replace
+the canonical tunnel owner. Standalone Arch/Nix tests cover the same semantic
+runtime/TUI behavior without requiring Omarchy-specific launcher/theme checks.
 
 A stacked successor is rebased/retargeted only after its predecessor merges,
 then receives its own checks. Do not create empty successor branches merely to
