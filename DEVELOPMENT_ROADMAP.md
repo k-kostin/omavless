@@ -81,6 +81,7 @@ Already accepted:
 - unified top-level subscription import / PR `#42`;
 - panel-local Tab/Shift+Tab navigation / PR `#43`;
 - onboarding/startup localization / PR `#50`;
+- routing-tools and routing-preset localization;
 - Arch + NixOS platform planning / PR `#51`, merged at
   `ec78bd6bc2dec74cbeec80121aca878e2ade9412`.
 
@@ -155,7 +156,8 @@ abandoning the plugin.
 
 State: **active independent plugin work**.
 
-Current foundation is merged. Remaining batches include routing tools,
+Current foundation is merged. Routing tools and the first-use routing-preset
+confirmation are now localized. Remaining batches include
 diagnostics, secondary dialogs and legacy/backend-facing prose where it is
 actually presented to users. Keep provider/profile/core-controlled data
 untranslated and preserve English fallback.

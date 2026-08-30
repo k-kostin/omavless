@@ -26,6 +26,9 @@ assert.strictEqual(I18n.translate("routing.summary.global", "ru"),
   "Весь трафик идёт через VPN · наборы правил не используются")
 assert.strictEqual(I18n.translate("onboarding.title", "ru"), "НАСТРОЙКА OMAVLESS")
 assert.strictEqual(I18n.translate("startup_prompt.autoconnect", "ru"), "Автоподключение")
+assert.strictEqual(I18n.translate("routing_tools.title", "ru"),
+  "ИНСТРУМЕНТЫ МАРШРУТИЗАЦИИ")
+assert.strictEqual(I18n.translate("routing_preset.recommended", "ru"), "Рекомендуется")
 assert.strictEqual(I18n.plural("connection", 1, "ru"), "1 подключение")
 assert.strictEqual(I18n.plural("connection", 3, "ru"), "3 подключения")
 assert.strictEqual(I18n.plural("connection", 12, "ru"), "12 подключений")
@@ -48,6 +51,15 @@ assert.ok(controlled.includes("unsafe value"))
 const bounded = I18n.translate("profile.showing", "en", {name: "x".repeat(1000)})
 assert.ok(bounded.length <= I18n.MAX_TEXT_LENGTH)
 assert.ok(!bounded.includes("x".repeat(I18n.MAX_VALUE_LENGTH + 1)))
+
+const routeTarget = "MATCH·provider-controlled.example"
+const localizedRoute = I18n.translate("routing_tools.result.route", "ru", {
+  rule: "DOMAIN-SUFFIX",
+  target: routeTarget
+})
+assert.ok(localizedRoute.includes("DOMAIN-SUFFIX"))
+assert.ok(localizedRoute.includes(routeTarget))
+assert.ok(!Object.prototype.hasOwnProperty.call(I18n.CATALOG, routeTarget))
 
 for (const [key, value] of Object.entries(I18n.CATALOG)) {
   assert.ok(key.length > 0 && key.length <= 96)
