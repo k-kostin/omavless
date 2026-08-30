@@ -1,0 +1,23 @@
+[package]
+name = "omavless-control-protocol"
+description = "Bounded v1 wire mechanics for the OmaVLESS private control plane"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = "1.0"
+serde_json = "1.0"
+
+[dev-dependencies]
+omavless-parity = { path = "../omavless-parity" }
+serde = { version = "1.0", features = ["derive"] }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "omavless-control-protocol-probe"
+path = "src/main.rs"
