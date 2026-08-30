@@ -182,7 +182,8 @@ State: **partially live-validated; fixture constrained**.
 
 ### R0 — Rust workspace and differential infrastructure
 
-State: **next implementation checkpoint; not blocked by V0**.
+State: **workspace/parity foundation implemented; exact-head acceptance
+pending**.
 
 Future branch: `codex/rust-workspace-parity`.
 
@@ -195,6 +196,11 @@ Scope:
 - bounded parity runner and privacy rules;
 - crate/dependency direction documented;
 - no QML cutover, daemon or TUI.
+
+The first checkpoint provides the pinned Cargo workspace, application lockfile,
+strict sanitized result envelope, bounded comparator and CI gates. It does not
+yet move a production subsystem; R1 supplies the first Python/Rust differential
+adapter against the existing control-protocol corpus.
 
 Merge gate: deterministic cloud/static checks plus proof that current plugin
 runtime behavior is unchanged.

@@ -273,6 +273,17 @@ canonical technical stages are:
 
 Goal: introduce Rust without changing production tunnel ownership.
 
+The initial workspace checkpoint uses `omavless-parity` as a reusable result
+boundary. Implementation-specific adapters emit bounded sanitized reports; the
+comparator reads regular non-symlink files, compares by public case ID and emits
+only bounded mismatch IDs. It never executes adapters or prints facts,
+fingerprints, paths or parser fragments. Complex/private canonical results use
+a fingerprint rather than entering shareable output.
+
+Local compilation requires the Rust toolchain plus a C linker. Omarchy can
+install these through Settings and `omarchy pkg add gcc`, respectively; CI runs
+the same locked workspace checks on the native runner architecture.
+
 - create Cargo workspace and CI/toolchain checks;
 - commit `Cargo.lock`;
 - establish credential-free golden/differential fixture format;
