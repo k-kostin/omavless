@@ -207,10 +207,11 @@ runtime behavior is unchanged.
 
 ### R1 — Rust control-protocol parity
 
-State: **Rust v1 implementation and 57-case differential gate implemented;
-exact-head acceptance pending**.
+State: **merged in PR #56; Rust is canonical for future control-protocol work,
+Python retained as migration oracle**.
 
-Branch: `codex/rust-control-protocol`.
+Accepted implementation head: `227c6cc05dfad6f2e954b7c5461c479f592ba380`.
+Merge commit: `105aae681e12bae955b8fdbfcf017d8e493b72a8`.
 
 The existing Python T1a implementation and `tests/control_protocol_cases/`
 become the first language-neutral parity corpus.
@@ -231,7 +232,7 @@ Python remains temporarily as migration oracle, not a second runtime.
 
 ### R2 — Rust profile/protocol adapter parity
 
-State: **planned after R1; high priority**.
+State: **next implementation checkpoint; high priority**.
 
 Future branch family: `codex/rust-profile-adapters-*` with narrow slices rather
 than one giant conversion.
