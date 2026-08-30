@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added the R1 Rust control-protocol implementation and Python/Rust differential
+  gate for the accepted v1 UTF-8 NDJSON framing, envelope, bounds and stable
+  credential-safe error contract. Python remains the production plugin owner;
+  this checkpoint opens no socket and performs no runtime cutover.
 - Added the R0 Rust workspace and credential-safe migration parity foundation:
   pinned format/test/Clippy CI, committed application dependency lock, bounded
   sanitized result reports and a comparator that never executes adapters or

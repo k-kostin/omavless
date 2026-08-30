@@ -152,6 +152,9 @@ class ControlProtocolTests(unittest.TestCase):
         self.assert_protocol_error(
             self.encoded(self.base_request(version=2)), code="unsupported_version"
         )
+        self.assert_protocol_error(
+            self.encoded(self.base_request(version=1.0)), code="unsupported_version"
+        )
         with self.assertRaises(protocol.ProtocolError) as caught:
             protocol.negotiate_version([2, 3])
         self.assertEqual(caught.exception.code, "unsupported_version")
@@ -228,6 +231,19 @@ class ControlProtocolTests(unittest.TestCase):
             b'{"api":"omavless.control","version":1,"id":"x",'
             b'"method":"status.get","params":{"value":NaN}}\n'
         )
+
+    def test_integer_range_is_cross_language_safe(self):
+        for value in (-(1 << 63), (1 << 64) - 1):
+            with self.subTest(value=value):
+                request = self.base_request(params={"value": value})
+                self.assertEqual(
+                    protocol.decode_request(protocol.encode_request(request)), request
+                )
+        for value in (-(1 << 63) - 1, 1 << 64):
+            with self.subTest(value=value):
+                self.assert_protocol_error(
+                    self.encoded(self.base_request(params={"value": value}))
+                )
 
     def test_unary_read_write_helpers(self):
         frame = protocol.encode_request(self.base_request())

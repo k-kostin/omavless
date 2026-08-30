@@ -1,5 +1,8 @@
 [workspace]
-members = ["crates/omavless-parity"]
+members = [
+  "crates/omavless-control-protocol",
+  "crates/omavless-parity",
+]
 resolver = "3"
 
 [workspace.package]

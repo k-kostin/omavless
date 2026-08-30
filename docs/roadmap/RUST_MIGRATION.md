@@ -296,6 +296,12 @@ the same locked workspace checks on the native runner architecture.
 
 Goal: make the already isolated T1a protocol layer the first Rust-owned logic.
 
+The R1 checkpoint adds `omavless-control-protocol`: a pure Rust library for v1
+request/response parsing, encoding, stable errors, negotiation and bounded
+unary stream helpers. A credential-free differential gate compares the Python
+oracle and Rust outcome through the R0 sanitized report boundary. Neither probe
+opens a socket, dispatches a method or enters the production plugin path.
+
 - implement v1 frame/envelope validation in Rust;
 - reuse `tests/control_protocol_cases/` as a language-neutral corpus;
 - compare Python and Rust acceptance/errors/limits;

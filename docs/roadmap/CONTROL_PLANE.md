@@ -30,6 +30,12 @@ After R1 parity, Rust is canonical for new control-plane/runtime code; the
 Python implementation is retained only as a temporary migration oracle until
 its removal gate.
 
+The R1 implementation crate is `omavless-control-protocol`. Its checked-in
+differential gate covers the shared corpus plus deterministic invalid/boundary
+cases and publishes only stable acceptance/error classifications. It remains a
+library/developer probe in Stage 0R; current QML and `backend.py` do not import
+or execute it.
+
 T1a still opens no socket, dispatches no lifecycle method and owns no runtime
 state. Current `backend.py` remains the production plugin path until R5/T1.
 
@@ -144,6 +150,7 @@ Limits:
 - ordinary response/event frame: maximum 256 KiB;
 - nesting depth: maximum 16;
 - JSON string: maximum 32 KiB unless a method is stricter;
+- JSON integers: `-2^63..2^64-1`; revisions remain `0..2^63-1`;
 - unknown top-level fields and duplicate JSON keys rejected;
 - invalid UTF-8, non-object frame, trailing data and missing newline rejected
   before dispatch;

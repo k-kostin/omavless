@@ -25,6 +25,8 @@ MAX_STRING_BYTES = 32 * 1024
 MAX_ID_LENGTH = 64
 MAX_METHOD_LENGTH = 128
 MAX_REVISION = (1 << 63) - 1
+MIN_JSON_INTEGER = -(1 << 63)
+MAX_JSON_INTEGER = (1 << 64) - 1
 
 REQUEST_FIELDS = frozenset({"api", "version", "id", "method", "params"})
 SUCCESS_RESPONSE_FIELDS = frozenset(
@@ -141,7 +143,11 @@ def _validate_structure(value: Any, *, depth: int = 0) -> None:
         if len(encoded) > MAX_STRING_BYTES:
             raise ProtocolError("invalid_request", "A JSON string exceeds the size limit")
         return
-    if value is None or isinstance(value, bool) or isinstance(value, int):
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, int):
+        if not MIN_JSON_INTEGER <= value <= MAX_JSON_INTEGER:
+            raise ProtocolError("invalid_request", "A JSON integer exceeds the range limit")
         return
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -238,7 +244,11 @@ def validate_request(value: Any) -> dict[str, Any]:
         raise ProtocolError("invalid_request", "The control request fields are invalid")
     if value["api"] != API_NAME:
         raise ProtocolError("invalid_request", "The control API name is invalid")
-    if value["version"] != API_VERSION or isinstance(value["version"], bool):
+    if (
+        isinstance(value["version"], bool)
+        or not isinstance(value["version"], int)
+        or value["version"] != API_VERSION
+    ):
         raise ProtocolError(
             "unsupported_version",
             details={"supported": list(SUPPORTED_VERSIONS)},
@@ -305,7 +315,11 @@ def _validate_response(value: Any) -> dict[str, Any]:
         raise ProtocolError("invalid_request", "A control response must be a JSON object")
     if value.get("api") != API_NAME:
         raise ProtocolError("invalid_request", "The control API name is invalid")
-    if value.get("version") != API_VERSION or isinstance(value.get("version"), bool):
+    if (
+        isinstance(value.get("version"), bool)
+        or not isinstance(value.get("version"), int)
+        or value.get("version") != API_VERSION
+    ):
         raise ProtocolError(
             "unsupported_version",
             details={"supported": list(SUPPORTED_VERSIONS)},

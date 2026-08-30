@@ -182,10 +182,10 @@ State: **partially live-validated; fixture constrained**.
 
 ### R0 — Rust workspace and differential infrastructure
 
-State: **workspace/parity foundation implemented; exact-head acceptance
-pending**.
+State: **merged in PR #55; production runtime unchanged**.
 
-Future branch: `codex/rust-workspace-parity`.
+Accepted implementation head: `52d9c28fb87320ae65a5e37afa6c312f2a614083`.
+Merge commit: `f88a148c7146281fdda25249bae96bea5ed82930`.
 
 Scope:
 
@@ -207,9 +207,10 @@ runtime behavior is unchanged.
 
 ### R1 — Rust control-protocol parity
 
-State: **immediately after/stacked only when genuinely dependent on R0**.
+State: **Rust v1 implementation and 57-case differential gate implemented;
+exact-head acceptance pending**.
 
-Future branch: `codex/rust-control-protocol`.
+Branch: `codex/rust-control-protocol`.
 
 The existing Python T1a implementation and `tests/control_protocol_cases/`
 become the first language-neutral parity corpus.
