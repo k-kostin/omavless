@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added the R0 Rust workspace and credential-safe migration parity foundation:
+  pinned format/test/Clippy CI, committed application dependency lock, bounded
+  sanitized result reports and a comparator that never executes adapters or
+  prints semantic facts. The current QML/Python/Mihomo production path is
+  unchanged.
 - Localized Routing Tools and the first-use Routing preset confirmation in
   English and Russian while preserving rule payloads, routing targets and
   unknown preset metadata as untranslated technical data. Modal sheets now

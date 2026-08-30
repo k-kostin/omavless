@@ -1,0 +1,23 @@
+{
+  "api": "omavless.parity",
+  "version": 1,
+  "suite": "r0-smoke",
+  "cases": [
+    {
+      "id": "invalid-input",
+      "classification": "invalid-report",
+      "facts": {
+        "echoes_input": false
+      }
+    },
+    {
+      "id": "workspace-ready",
+      "classification": "accepted",
+      "fingerprint": "76f9f0545f3c254a490ad53972725422c0348a18484b4d02fea6ffdb77f476ac",
+      "facts": {
+        "bounded": true,
+        "format": "v1"
+      }
+    }
+  ]
+}
