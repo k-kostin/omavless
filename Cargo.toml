@@ -2,6 +2,7 @@
 members = [
   "crates/omavless-control-protocol",
   "crates/omavless-parity",
+  "crates/omavless-profile",
 ]
 resolver = "3"
 

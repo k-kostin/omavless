@@ -3334,7 +3334,7 @@ def profile_protocol(text: str) -> str:
     """Return a supported protocol without returning any credential material."""
     saw_link = False
     for token in re.split(r"\s+", text.strip()):
-        match = re.match(r"(?i)^([a-z][a-z0-9+.-]*)://", token)
+        match = re.match(r"(?ai)^([a-z][a-z0-9+.-]*)://", token)
         if not match:
             continue
         saw_link = True
@@ -3373,7 +3373,7 @@ def classify_import(text: str, store: dict[str, Any]) -> dict[str, Any]:
     tokens = re.split(r"\s+", value)
     supported_profiles = []
     for token in tokens:
-        match = re.match(r"(?i)^([a-z][a-z0-9+.-]*)://", token)
+        match = re.match(r"(?ai)^([a-z][a-z0-9+.-]*)://", token)
         if match and match.group(1).lower() in PROFILE_SCHEMES:
             supported_profiles.append(token)
     if supported_profiles:

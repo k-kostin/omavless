@@ -232,10 +232,12 @@ Python remains temporarily as migration oracle, not a second runtime.
 
 ### R2 — Rust profile/protocol adapter parity
 
-State: **next implementation checkpoint; high priority**.
+State: **protocol classification foundation implemented; exact-head acceptance
+pending; credential adapters remain**.
 
-Future branch family: `codex/rust-profile-adapters-*` with narrow slices rather
-than one giant conversion.
+Current branch: `codex/rust-profile-classification`. Continue as
+`codex/rust-profile-adapters-*` with narrow slices rather than one giant
+conversion.
 
 Migrate existing validated semantics:
 
