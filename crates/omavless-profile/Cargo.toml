@@ -1,0 +1,16 @@
+[package]
+name = "omavless-profile"
+description = "Canonical profile protocol model and pure adapters for OmaVLESS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dev-dependencies]
+omavless-parity = { path = "../omavless-parity" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

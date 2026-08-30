@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added the first R2 profile-domain slice: a canonical Rust protocol enum and
+  credential-safe classifier with Python/Rust parity for supported schemes,
+  the Hysteria2 alias, input bounds and fixed errors. Credential parsing and
+  runtime/plugin cutover remain unchanged.
 - Added the R1 Rust control-protocol implementation and Python/Rust differential
   gate for the accepted v1 UTF-8 NDJSON framing, envelope, bounds and stable
   credential-safe error contract. Python remains the production plugin owner;

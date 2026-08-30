@@ -314,6 +314,12 @@ opens a socket, dispatches a method or enters the production plugin path.
 Goal: move pure credential parsing and config semantics before new protocol
 families expand the Python backend.
 
+The first bounded slice establishes `omavless-profile::Protocol` and strict,
+bounded profile-link classification. Its sanitized differential adapter exposes
+only the canonical protocol or a fixed error class; no URI or credential data
+leaves stdin. Parsing, previews, identity, endpoints and Mihomo rendering remain
+owned by Python until their later R2 parity slices.
+
 Migrate:
 
 - protocol classification;
