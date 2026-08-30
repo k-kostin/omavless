@@ -232,12 +232,15 @@ Python remains temporarily as migration oracle, not a second runtime.
 
 ### R2 — Rust profile/protocol adapter parity
 
-State: **protocol classification foundation implemented; exact-head acceptance
-pending; credential adapters remain**.
+State: **protocol classification foundation merged in PR #58; credential
+adapters remain**.
 
-Current branch: `codex/rust-profile-classification`. Continue as
-`codex/rust-profile-adapters-*` with narrow slices rather than one giant
-conversion.
+Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
+Merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
+
+Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
+giant conversion. The next bounded slice is VLESS parse/preview/endpoint/
+identity semantics; do not combine every remaining protocol in one PR.
 
 Migrate existing validated semantics:
 
