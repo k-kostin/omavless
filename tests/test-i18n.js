@@ -29,6 +29,9 @@ assert.strictEqual(I18n.translate("startup_prompt.autoconnect", "ru"), "Авто
 assert.strictEqual(I18n.translate("routing_tools.title", "ru"),
   "ИНСТРУМЕНТЫ МАРШРУТИЗАЦИИ")
 assert.strictEqual(I18n.translate("routing_preset.recommended", "ru"), "Рекомендуется")
+assert.strictEqual(I18n.translate("diagnostics.title", "ru"), "ДИАГНОСТИКА MIHOMO")
+assert.strictEqual(I18n.translate("diagnostics.error.unavailable", "ru"),
+  "Диагностика Mihomo сейчас недоступна")
 assert.strictEqual(I18n.plural("connection", 1, "ru"), "1 подключение")
 assert.strictEqual(I18n.plural("connection", 3, "ru"), "3 подключения")
 assert.strictEqual(I18n.plural("connection", 12, "ru"), "12 подключений")
@@ -60,6 +63,13 @@ const localizedRoute = I18n.translate("routing_tools.result.route", "ru", {
 assert.ok(localizedRoute.includes("DOMAIN-SUFFIX"))
 assert.ok(localizedRoute.includes(routeTarget))
 assert.ok(!Object.prototype.hasOwnProperty.call(I18n.CATALOG, routeTarget))
+
+const coreTimestamp = "2026-08-29T12:34:56Z"
+const localizedUpdate = I18n.translate("diagnostics.last_update", "ru", {
+  timestamp: coreTimestamp
+})
+assert.ok(localizedUpdate.includes(coreTimestamp))
+assert.ok(!Object.prototype.hasOwnProperty.call(I18n.CATALOG, coreTimestamp))
 
 for (const [key, value] of Object.entries(I18n.CATALOG)) {
   assert.ok(key.length > 0 && key.length <= 96)

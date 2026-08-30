@@ -10,6 +10,11 @@ All notable changes to OmaVLESS are documented here.
   suspend and hide their underlying page scroller so one wheel gesture cannot
   move two surfaces or show competing scrollbars, and Routing Tools reserves a
   real gutter so its own scrollbar does not cover controls or text.
+- Localized the trusted framing of advanced diagnostics in English and Russian:
+  headings, controls, counts and empty/loading states. Controller rule data,
+  provider fields, targets, timestamps and raw legacy status/error text remain
+  untranslated technical data; the bounded diagnostics-unavailable fallback now
+  uses a stable semantic code and localized display text.
 - Localized the complete three-step onboarding and login-autoconnect dialogs
   in English and Russian while keeping terminal commands, protocol tokens and
   private profile names unchanged and inert.

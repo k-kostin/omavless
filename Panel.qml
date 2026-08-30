@@ -1413,6 +1413,7 @@ Panel {
         dim: root.dim
         urgent: root.urgent
         fontFamily: root.fontFamily
+        locale: root.uiLocale
         onBackRequested: root.closeAdvancedDiagnostics()
         onRefreshRequested: vless.refreshAdvancedDiagnostics()
         onRefreshProvidersRequested: vless.refreshRuleProviders()
