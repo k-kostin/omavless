@@ -1,227 +1,257 @@
 # OmaVLESS Nix / future Omarchy portability plan
 
-Status: research-backed platform design input, not a claim that Omarchy Cinque
-has committed to NixOS. Updated 2026-08-29.
+Status: research-backed Nix host design aligned with the selected native Rust
+application path; not a claim that Omarchy Cinque has committed to NixOS.
+Updated 2026-08-30.
 
-Canonical product/platform policy lives in [`PLATFORM.md`](PLATFORM.md). This
-document preserves the concrete observations that justify preparing the shared
-runtime and TUI for both Arch and NixOS now rather than after the application is
-already coupled to Arch packaging.
+Canonical product/host policy: [`PLATFORM.md`](PLATFORM.md).
+Python -> Rust migration contract: [`RUST_MIGRATION.md`](RUST_MIGRATION.md).
+Runtime/control API: [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 
-## 1. Why this is no longer hypothetical portability
+## 1. Why NixOS is a real target now
 
-Recent upstream Omarchy discussion has made a future Nix-backed packaging or
-host model a realistic possibility. The important product signal is not that a
-specific migration has been announced; it has not. The important signal is
-that Omarchy's maintainers are willing to change the package substrate if the
-user experience stays simple and Omarchy retains control of the resulting
-product experience.
+Recent upstream Omarchy discussion makes a future Nix-backed package/host model
+plausible, not confirmed. The signal that matters for OmaVLESS is that Omarchy
+may change its package substrate while trying to preserve a simple user
+experience and frontend/plugin model.
 
-For OmaVLESS planning, that changes NixOS from a generic "maybe another distro
-one day" idea into a concrete second host family worth protecting before T1/T2
-lock in package and service assumptions.
+That makes NixOS a concrete second host family worth designing for before the
+standalone application freezes Arch-only package assumptions.
 
-Roadmap policy therefore assumes:
+Roadmap policy:
 
-- Arch remains a first-class standalone target;
-- NixOS becomes the second initial standalone target;
-- a future Nix-backed Omarchy is treated as an Omarchy frontend/host integration
-  over the same runtime, not as a separate OmaVLESS product;
-- current Omarchy plugin/Quickshell semantics are assumed to remain materially
-  compatible unless upstream proves otherwise.
+- Arch remains first-class;
+- NixOS is the second initial standalone target;
+- future Nix-backed Omarchy is another host/frontend integration over the same
+  OmaVLESS runtime, not a fork;
+- current plugin/Quickshell semantics are assumed materially compatible until
+  upstream proves otherwise.
 
-This assumption must be revisited against the actual Cinque implementation
-before release support is claimed.
+## 2. Two migrations, one end state
 
-## 2. Expected migration size
+OmaVLESS is changing along two orthogonal axes:
 
-The current OmaVLESS implementation is not fundamentally tied to Arch. Most of
-the product should survive a host migration unchanged:
+```text
+implementation:
+Python backend -> native Rust application/runtime
 
-### Expected to remain shared
+host integration:
+Arch-only assumptions -> Arch + NixOS adapters
+```
 
-- profile parsing and validation;
-- VLESS/Trojan/Hysteria2/TUIC and future WG/AWG semantic adapters;
-- private profile/subscription store;
-- Mihomo YAML generation;
-- routing presets/custom-rule semantics;
-- controller-facing diagnostics behind the runtime;
+The desired intersection is:
+
+```text
+                    QML Omarchy frontend
+                            |
+                            v
+                     semantic v1 API
+                            |
+                            v
+                   native Rust omavless
+                  runtime / CLI / Ratatui
+                            |
+                   narrow host boundary
+                     /             \
+                    v               v
+                  Arch             NixOS
+```
+
+Do not solve Nix portability by preserving Python forever, and do not solve Rust
+migration by hard-coding Arch package mechanics into the new binary.
+
+## 3. What stays shared
+
+The following becomes shared Rust product logic:
+
+- profile parsing/validation;
+- VLESS/Trojan/Hysteria2/TUIC and future WG/AWG adapters;
+- private store/subscription semantics;
+- Mihomo config generation;
+- routing presets/custom rules;
+- controller diagnostics;
 - latency probes;
-- TUI workflows;
-- control-plane protocol;
-- desired/actual state model;
-- same-user XDG runtime/private socket model.
+- desired/actual runtime state;
+- v1 control protocol;
+- CLI;
+- Ratatui TUI after R6.
 
-### Expected to require host-specific work
+Host-specific work remains limited to:
 
-- package installation and update ownership;
-- Mihomo installation/remediation hints;
+- package/install/update/remove ownership;
+- stable application/core entry points;
 - TUN/capability provisioning;
-- systemd unit provisioning ownership;
-- executable-path stability across Nix generations;
+- user-service provisioning;
 - future NetGuard/nftables packaging;
-- host-specific doctor output.
+- host-specific doctor/remediation;
+- Nix generation lifecycle.
 
-The expected change is therefore a host-integration refactor, not a rewrite of
-OmaVLESS.
+The expected Nix work is therefore host integration around the native Rust
+application, not a second application implementation.
 
-## 3. Existing implementation decisions that already help
+## 4. Current implementation properties which help
 
-The current backend already has several useful portability properties:
+The Python reference backend already demonstrates useful portable semantics:
 
-1. Mihomo is not hard-coded to `/usr/bin/mihomo`. Core discovery accepts an
-   explicit `OMAVLESS_MIHOMO`, `~/.local/bin/mihomo`, and `PATH`.
-2. Private state is already under user/XDG-style paths rather than package
-   directories.
-3. Service control uses `systemctl --user`, a lifecycle model also available on
-   NixOS.
-4. Protocol and subscription logic do not call pacman/AUR.
-5. The planned T1 v1 control plane is semantic and does not expose package
-   manager or raw systemctl operations to clients.
+1. Mihomo is not hard-coded to `/usr/bin/mihomo`; discovery accepts
+   `OMAVLESS_MIHOMO`, `~/.local/bin/mihomo` and PATH.
+2. Private state already uses home/XDG-style locations.
+3. Lifecycle uses `systemctl --user`.
+4. Protocol/subscription logic does not depend on pacman/AUR.
+5. v1 control methods are semantic rather than package-manager/systemctl
+   passthroughs.
 
-These boundaries should be preserved and strengthened during T1 rather than
-replaced with a large distro abstraction layer.
+R2-R5 must preserve these useful boundaries in Rust. Python itself is not a
+portability requirement and is removed from the normal runtime path at R6.
 
-## 4. Known Nix hazard: resolving stable entry points into store paths
+## 5. Native package target
 
-Current core discovery eventually resolves the selected executable path. On a
-traditional mutable filesystem this is normally harmless. On NixOS a stable
-entry point may point through a profile/wrapper to a generation-specific path
-under `/nix/store`.
+A supported NixOS installation should expose a built `omavless` executable and
+package/module integration. Ordinary operation must not require:
 
-A runtime must not persist or bake such a resolved store path into durable
-configuration when the stable host contract is a wrapper/profile executable.
-After an update and garbage collection the previous store path may disappear.
+```text
+python
+python venv
+pip
+Python packages
+cargo run
+Rust compiler/toolchain
+```
 
-Before NixOS runtime acceptance:
+Cargo and Rust crates are source/build dependencies. Nix may use Cargo metadata
+and `Cargo.lock` to build reproducibly, but users run the resulting native
+program rather than compiling the application during normal startup.
 
-- distinguish the user/host-facing executable entry point from its resolved
-  implementation path;
-- avoid persisting generation-specific resolved paths as desired state;
-- regenerate/re-resolve runtime execution paths after package generation
-  changes;
-- include stale-store-path tests in the Nix acceptance matrix.
+Mihomo remains a separately packaged external core.
 
-This is a small implementation change but an important lifecycle invariant.
+## 6. Store-path hazard: stable entry point versus resolved implementation
 
-## 5. Capabilities: the largest Arch/Nix difference
+Nix profiles/wrappers may provide a stable user-facing path which resolves into
+a generation-specific `/nix/store/...` executable.
 
-The current Omarchy/Arch setup tells the user to install Mihomo and grant Linux
-capabilities to that executable with `setcap`.
+The runtime must distinguish:
 
-That must not become the generic product contract.
+- the stable host entry point it should invoke/re-resolve;
+- the current underlying implementation path used only for observation.
 
-On NixOS, immutable store semantics mean the normal product path should use a
-reviewed Nix-native privilege mechanism such as a security wrapper or a
-narrowly declared service capability model. The exact mechanism belongs to the
-Nix packaging implementation and security review.
+Do not persist a resolved store path in desired state or package-neutral private
+configuration merely because a filesystem API followed a symlink.
 
-Common security invariants across both hosts:
+Required acceptance:
+
+- change package generation;
+- verify runtime/core entry points are re-resolved correctly;
+- garbage-collect old generation paths where safe;
+- prove no stale durable path breaks startup/reconnect;
+- roll back and prove deterministic behavior.
+
+This applies to the Rust implementation of core discovery as R4/R5 replaces the
+current Python `Path.resolve()` behavior.
+
+## 7. Capabilities: main Arch/Nix difference
+
+Current Arch setup can legitimately grant file capabilities to a mutable Mihomo
+binary. That is an Arch host implementation, not the universal contract.
+
+On NixOS, immutable store semantics call for a reviewed Nix-native mechanism,
+for example a security wrapper or narrowly declared service capability model.
+The final mechanism is selected during R5n security/package work.
+
+Shared invariants:
 
 - no arbitrary root shell API;
-- no silent `sudo`/`pkexec` from QML/TUI;
-- no broad `CAP_NET_ADMIN` for the ordinary TUI or control-plane client;
-- no user-authored arbitrary privileged firewall expressions;
-- explicit, inspectable remediation when required host privileges are absent.
+- no silent sudo/pkexec from QML/TUI/CLI;
+- no broad CAP_NET_ADMIN on the normal UI/client;
+- no arbitrary user-authored privileged firewall expressions;
+- explicit bounded remediation when host privilege is absent.
 
-The TUI should only see a semantic result such as `core ready`, `TUN permission
-missing`, or `host setup required`, plus bounded host-specific remediation text.
+The runtime/TUI sees semantic readiness such as:
 
-## 6. systemd: lifecycle can remain shared
+```text
+core available
+TUN privilege ready
+runtime service provisioned
+host setup required
+```
 
-A switch to NixOS does not imply replacing the canonical user-service runtime.
-NixOS uses systemd and supports user services, so the runtime lifecycle can stay
-conceptually identical:
+not raw Nix operations.
+
+## 8. systemd remains a shared lifecycle model
+
+NixOS supports systemd user services, so canonical lifecycle stays:
 
 ```text
 omavless-runtime.service
-  start / stop / restart / status
+start / stop / restart / status
 ```
 
-The difference is who owns the unit definition:
-
-- Arch package: conventional packaged user unit;
-- NixOS: declaratively provisioned user unit/module output;
-- current plugin: legacy generated user unit during migration only.
-
-T1 should therefore separate **service state control** from **service file
-provisioning**. Once the standalone package owns the canonical runtime unit,
-the runtime should not rewrite its own packaged/declarative unit file.
-
-## 7. Narrow host adapter, not a distro framework
-
-T1/T2 should not grow conditionals across the whole application. Platform
-specificity belongs behind one small boundary.
-
-Conceptually:
+Provisioning ownership differs:
 
 ```text
-                shared runtime
-                     |
-             semantic host needs
-                     |
-          +----------+----------+
-          |                     |
-          v                     v
-      Arch host              NixOS host
-  package/setcap hints   package/wrapper/module
-  unit ownership        generation-safe paths
+Arch package                 NixOS package/module
+     |                              |
+     v                              v
+packaged user unit            declarative user unit
+     \                              /
+      +-----------+----------------+
+                  v
+          Rust omavless daemon
 ```
 
-The host interface may expose only what the runtime genuinely needs, for
-example:
+R5/T1 separates service **state control** from service **definition
+provisioning**. The runtime does not rewrite its own package/declarative unit.
+Legacy plugin-generated units exist only during transactional migration.
 
-- locate supported core entry point;
-- report whether required host networking privilege is provisioned;
-- report whether the package-owned runtime service is provisioned;
-- render bounded install/remediation hints;
-- expose host identity/capability information to `omavless doctor`.
+## 9. Narrow host adapter
 
-Profile parsing, routing decisions, subscriptions and control-plane methods do
-not belong in this adapter.
+Do not scatter `if nixos` throughout runtime/domain/TUI code.
 
-## 8. TUI design consequence
+Conceptual shared host needs:
 
-The TUI should be written once.
+- locate stable supported core entry point;
+- report network privilege readiness;
+- report runtime-service provisioning state;
+- provide bounded install/update/remediation hints;
+- report host identity/capability state to `omavless doctor`.
 
-It connects to the same private control socket and renders the same semantic
-state on Arch, NixOS and Omarchy. Host differences may appear only in setup and
-health/remediation views.
+Profile parsing, routing, subscriptions, state-machine transitions and control
+methods do not belong in this adapter.
 
-Examples:
+## 10. Ratatui consequence
+
+The TUI is written once in Rust and begins only after R6 proves the normal
+runtime has no Python dependency.
+
+It connects to the same private socket on Arch, NixOS and Omarchy. Host-specific
+presentation is limited to setup/doctor/remediation and theme availability.
+
+Example semantic display:
 
 ```text
 Arch:
-  Mihomo: installed
-  TUN privilege: file capabilities ready
+  Core: Mihomo ready
+  TUN: file capability ready
 
 NixOS:
-  Mihomo: installed
-  TUN privilege: Nix wrapper/service ready
+  Core: Mihomo ready
+  TUN: Nix wrapper/service ready
 ```
 
-Those are two presentations of the same runtime capability, not separate
-connection implementations.
+The TUI never invokes `pacman`, `yay`, `nix-env`, `nix profile`,
+`nixos-rebuild`, arbitrary Nix expressions or Cargo as part of connect.
 
-The TUI must never directly invoke `pacman`, `yay`, `nix-env`, `nix profile`,
-`nixos-rebuild` or arbitrary Nix expressions as part of a normal connect flow.
-Packaging remains outside the semantic VPN operation.
+## 11. Omarchy plugin assumption
 
-## 9. Omarchy plugin assumption
+Planning assumes the relevant plugin lifecycle remains materially compatible:
 
-For roadmap purposes we assume the Omarchy plugin API remains materially stable
-across the relevant major transition:
+- plugin id enable/disable remains available;
+- Quickshell remains a frontend surface or compatible replacement exists;
+- plugin can launch/focus `omavless tui` and call semantic Rust runtime bridge.
 
-- plugin id/enable/disable lifecycle remains available;
-- Quickshell remains a supported frontend surface or offers a compatible
-  replacement boundary;
-- the plugin can still launch/focus the standalone TUI and call the semantic
-  runtime bridge.
+Launcher/QML-import changes are frontend migration only. Never compensate by
+moving package/core lifecycle back into QML.
 
-If the exact launcher or QML imports change, treat that as a frontend migration.
-Do not move package/runtime logic back into the plugin to compensate.
-
-The desired final dependency remains:
+Desired dependency:
 
 ```text
 Omarchy bar (Arch-backed or Nix-backed)
@@ -230,83 +260,105 @@ Omarchy bar (Arch-backed or Nix-backed)
           semantic control API
                  |
                  v
-          OmaVLESS runtime
+             Rust runtime
                  |
                  v
-          host integration
+          Arch/Nix host adapter
 ```
 
-## 10. Packaging direction
+## 12. Packaging direction
 
 ### Arch
 
-Prepare a reviewed `omavless` package containing the standalone command,
-runtime resources and package-owned user service. Mihomo remains separately
-packaged unless a later security/release decision explicitly changes that.
+Reviewed `omavless` package contains native Rust application, runtime resources
+and package-owned user service. Mihomo remains separate.
 
 ### NixOS
 
-Prepare a Nix package plus the smallest module/wrapper integration required for
-stable executable/service/privilege semantics. Prefer a normal user-facing
-package/module contract; do not require ordinary users to edit raw generated
-Nix expressions merely to connect a VPN profile.
+Provide Nix package plus the smallest module/wrapper integration required for:
+
+- stable native `omavless` entry point;
+- stable Mihomo entry point;
+- declarative user service;
+- TUN privilege semantics;
+- generation-safe updates/rollback.
+
+Prefer normal package/module UX; ordinary users should not need to author raw
+generated Nix expressions merely to connect.
 
 ### Omarchy
 
-The marketplace plugin remains a frontend package. It may detect an installed
-standalone app and show `Open app`, but it does not curl/download/compile the
-runtime or silently provision privilege.
+Marketplace plugin remains frontend-only. It detects native application and
+shows `Open app`; it does not curl/download/compile Rust, run Cargo, or silently
+provision privilege.
 
-## 11. T1/T2 implementation checkpoints added by this decision
+## 13. R5n Nix checkpoint
 
-### T1 host-neutral runtime checkpoint
+R5n begins once the Rust binary/service/host contract is stable enough to
+package without inventing Nix-specific domain semantics.
 
-Before the daemon cutover is considered structurally complete:
+Required checkpoint:
 
-- package-manager commands are absent from the semantic control plane;
-- core execution uses a stable host entry-point contract;
-- service control and service provisioning are separate concepts;
-- `omavless doctor` has a bounded host-capability model;
-- desired state contains no Arch- or Nix-generation-specific executable path.
-
-### Arch host checkpoint
-
-- package install/update/remove smoke;
+- Nix package/module evaluates/installs;
+- `omavless daemon/status/doctor` use native binary;
+- stable app/core discovery across generation change;
 - user-service lifecycle;
-- Mihomo/TUN privilege setup;
-- Full/Routing/Direct lifecycle and restart reconciliation;
-- migration from current plugin-owned service/store.
-
-### NixOS host checkpoint
-
-- package/module evaluation and install;
-- stable executable discovery across generation update;
-- user-service lifecycle;
-- wrapper/service capability setup and negative permission case;
-- Full/Routing/Direct lifecycle parity;
+- wrapper/service privilege positive and negative cases;
+- Full/Routing/Direct parity where supported;
 - generation rollback;
-- garbage-collection/stale-store-path regression;
-- shared private-store migration/import behavior.
+- GC/stale-store-path regression;
+- shared private-store migration/import behavior;
+- no second runtime owner.
 
-### T2 TUI checkpoint
+## 14. R6 Python-absence on NixOS
 
-The same TUI build/control protocol must run against accepted Arch and NixOS
-runtime environments. Platform-specific branches in the TUI are restricted to
-setup/doctor/remediation presentation.
+R6 is a product-wide native-runtime gate. NixOS acceptance should also prove,
+when the Nix host implementation is available, that normal installed behavior
+does not pull Python/venv/pip in as hidden runtime requirements.
 
-## 12. What we deliberately do not do now
+This does not mean the Nix package closure can never contain Python for an
+unrelated host/tool dependency; the invariant is that **OmaVLESS production
+logic does not require or spawn Python to operate**.
 
-This roadmap update does **not**:
+The primary application contract remains the native Rust executable.
 
-- claim Omarchy Cinque will definitely be NixOS;
-- add Nix commands to the current marketplace plugin;
-- implement a Nix package before the shared runtime has a real executable
-  boundary;
-- delay Arch application work until upstream Omarchy settles its packaging;
+## 15. Nix acceptance matrix
+
+Before NixOS support claim:
+
+- package/module evaluation/install;
+- package update/remove where applicable;
+- native Rust app/daemon/CLI startup;
+- stable app/core entry-point discovery;
+- user-service login/restart behavior;
+- TUN privilege positive/negative cases;
+- Full/Routing/Direct lifecycle parity;
+- store/subscription/profile migration parity;
+- generation update;
+- generation rollback;
+- garbage collection/stale-path regression;
+- credential-safe diagnostics/doctor;
+- R6 no-Python production path;
+- later NetGuard host integration separately when K1 exists;
+- Omarchy plugin/TUI integration separately if an upstream Nix-backed Omarchy
+  environment becomes available.
+
+Arch/Try Omarchy evidence cannot substitute for this matrix.
+
+## 16. What we deliberately do not do now
+
+This plan does **not**:
+
+- claim Cinque definitely moves to NixOS;
+- add Nix commands to current marketplace plugin;
+- keep Python as the future runtime merely because Nix can package Python;
+- require Cargo/Rust toolchain at user runtime;
+- implement Nix package before the Rust executable/service boundary is usable;
+- delay Arch Rust migration while waiting for Omarchy upstream decisions;
 - promise Ubuntu/Fedora/general Linux support;
-- duplicate the runtime for Arch and NixOS;
-- rewrite current profile/core logic for portability's sake.
+- duplicate runtime/domain/TUI for NixOS;
+- embed Nix package-manager operations in semantic VPN API.
 
-The immediate architectural consequence is narrower: T1/T2 must stop treating
-Arch package mechanics as runtime semantics, so the application can become an
-Arch + NixOS product without a second rewrite later.
+The goal is one native Rust OmaVLESS application whose host integration is clean
+enough that Arch and NixOS can package/provision it differently without another
+application rewrite.

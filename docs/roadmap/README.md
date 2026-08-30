@@ -1,185 +1,243 @@
 # OmaVLESS roadmap map
 
-Status: design and delivery index, updated 2026-08-29.
+Status: design and delivery index, updated 2026-08-30.
 
-OmaVLESS keeps the short operational ledgers at the repository root and puts
-longer design rationale in this directory. This avoids turning one roadmap into
-a mixture of release state, protocol compatibility, architecture sketches,
-application UX, host packaging and Git workflow rules.
+OmaVLESS keeps the operational delivery ledger at repository root and longer
+contracts under this directory. The roadmap now separates four concerns which
+must not be confused:
+
+1. current Omarchy plugin product completion;
+2. incremental Python -> Rust migration;
+3. canonical runtime/application/TUI evolution;
+4. Arch/NixOS host packaging/security integration.
 
 ## Canonical documents
 
-- [`../../DEVELOPMENT_ROADMAP.md`](../../DEVELOPMENT_ROADMAP.md) is the active
-  delivery ledger: what is merged, what is cloud-ready, what still needs local
-  acceptance and the dependency order between PRs.
-- [`../../PROTOCOL_ROADMAP.md`](../../PROTOCOL_ROADMAP.md) is the protocol and
-  share-format compatibility specification. It records what OmaVLESS accepts,
-  what Mihomo can represent and where a future Xray backend may be justified.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) describes the intended evolution from a
-  Mihomo-centric implementation to explicit `CoreBackend`,
-  `TunnelCoordinator` and optional `LeakProtection` boundaries without a
-  big-bang rewrite.
-- [`TUI_APP.md`](TUI_APP.md) describes the product evolution from a bar-only
-  plugin into one shared OmaVLESS runtime with a compact bar surface, a full
-  TUI application and a semantic CLI/IPC integration surface.
-- [`CONTROL_PLANE.md`](CONTROL_PLANE.md) is the accepted T0 runtime ownership,
-  versioned IPC, migration/distribution contract and T1 acceptance plan.
-- [`KILL_SWITCH.md`](KILL_SWITCH.md) is the accepted K0 Full VPN fail-closed
-  threat model, NetGuard privilege/host contract and K1 acceptance matrix.
-- [`I18N.md`](I18N.md) defines the I1 English/Russian catalog, locale/fallback
-  behavior, string ownership and deliberately deferred translation batches.
-- [`PLATFORM.md`](PLATFORM.md) defines the standalone product and distribution
-  boundary: one shared runtime/TUI, initial host families Arch and NixOS, and
-  Omarchy as first-class integration rather than a runtime dependency.
-- [`NIX_PORTABILITY.md`](NIX_PORTABILITY.md) preserves the current Omarchy/Nix
-  research assumptions and the concrete host-integration consequences for T1
-  and T2: immutable store paths, capabilities, systemd provisioning, packaging
-  and acceptance.
-- [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) defines the Git and
-  cloud/local handoff model, including why `main` is the accepted source of
-  truth, feature PRs are the practical alpha channel, and a beta branch is
-  optional and temporary rather than a permanent second source of truth.
+- [`../../DEVELOPMENT_ROADMAP.md`](../../DEVELOPMENT_ROADMAP.md) — active
+  sequence, dependencies, statuses and next work.
+- [`RUST_MIGRATION.md`](RUST_MIGRATION.md) — **authoritative implementation
+  direction**: Rust target, Python parity/oracle rules, R0-R6 and native-runtime
+  gate before TUI.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — target Rust runtime/domain/core/host
+  layers, `TunnelCoordinator`, optional `LeakProtection` and future core model.
+- [`CONTROL_PLANE.md`](CONTROL_PLANE.md) — accepted v1 semantic IPC plus R5/T1
+  Rust ownership cutover and rollback contract.
+- [`TUI_APP.md`](TUI_APP.md) — selected Rust + Ratatui full application client,
+  UI responsibilities and T2+ delivery phases.
+- [`PLATFORM.md`](PLATFORM.md) — one application/runtime with initial host
+  families Arch and NixOS; Omarchy is first-class integration, not foundation.
+- [`NIX_PORTABILITY.md`](NIX_PORTABILITY.md) — Nix immutable paths,
+  capabilities, services, generation lifecycle and Nix acceptance matrix.
+- [`KILL_SWITCH.md`](KILL_SWITCH.md) — K0 threat model, root NetGuard boundary
+  and K1 acceptance requirements.
+- [`I18N.md`](I18N.md) — English/Russian catalog, fallback/ownership and
+  remaining plugin surface batches.
+- [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md) — Git/PR/cloud/local
+  workflow and evidence discipline.
+- [`../../PROTOCOL_ROADMAP.md`](../../PROTOCOL_ROADMAP.md) — protocol/share
+  compatibility, Mihomo representation and future-core gaps.
 
-Where older T0/TUI wording says "Arch/AUR" as if it were the only future host,
-[`PLATFORM.md`](PLATFORM.md) is now authoritative for host/distribution scope:
-Arch remains first-class and NixOS is the second initial target. The existing
-control-plane, migration and TUI semantics remain authoritative unless a later
-PR deliberately changes them.
+Every coding agent also reads [`../../AGENTS.md`](../../AGENTS.md), which makes
+`RUST_MIGRATION.md` mandatory for backend/runtime/protocol/TUI work.
 
-## Product and evidence are separate axes
+## Authoritative conflict rules
 
-A feature can be merged into `main` and still be labelled **Experimental** in
-the product. That means the implementation passed its required code/security
-and host gates but broader independent interoperability evidence is still being
-collected. Git branch names must not be used as a substitute for this product
-maturity label.
+When older accepted documents contain wording which predates later decisions:
 
-Likewise, the exact public marketplace build is an immutable commit (and should
-be tagged for formal releases) while `main` may move ahead with accepted
-documentation or later validated work. The repository must always name the
-exact published SHA instead of implying that the tip of `main` is necessarily
-the marketplace snapshot.
+- **implementation language:** `RUST_MIGRATION.md` wins. Rust is selected for
+  runtime/domain/CLI/TUI; Python is current plugin reference/migration oracle;
+- **host scope:** `PLATFORM.md` wins. Arch and NixOS are initial standalone
+  host families;
+- **semantic control API:** `CONTROL_PLANE.md` wins. Language migration does not
+  reopen v1 security/ownership semantics;
+- **delivery order:** `DEVELOPMENT_ROADMAP.md` wins.
 
-Arch and NixOS acceptance are also separate evidence axes. Passing one host's
-package/capability/service tests does not claim the other host is supported.
-The semantic runtime/TUI is shared, but each host integration must earn its own
-acceptance evidence.
+Do not use an older sentence such as "Python or compiled implementation remains
+open" to restart an already decided architecture question.
 
 ## Product direction
 
-The product name remains **OmaVLESS** (`omavless`). The forward standalone
-identity is:
+The forward product is:
 
 > **OmaVLESS — a terminal-first VPN and proxy client for Linux, with first-class
 > Omarchy integration and initial standalone support for Arch and NixOS.**
 
-The published 0.7.0 baseline is still an Omarchy plugin. The standalone
-application/runtime direction is planned future work and must not be advertised
-as current functionality before T1/T2 land and the corresponding host gates
-pass.
-
-The intended dependency direction is:
+Current published 0.7.0 remains an Omarchy QML/Quickshell plugin backed by
+Python and external Mihomo. Future product shape is:
 
 ```text
-Omarchy integration
-        |
-        v
-OmaVLESS runtime/TUI/CLI
-        |
-        v
-narrow host integration
-     /       \
-    v         v
- Arch       NixOS
+                   Omarchy bar
+                   QML frontend
+                        |
+                        v
+                 semantic v1 API
+                        |
+                        v
+                 Rust runtime
+            canonical state/lifecycle
+                /       |       \
+               v        v        v
+        Rust domain  Mihomo    host adapter
+        /routing     backend   Arch/NixOS
+               \        |        /
+                +-------+-------+
+                        |
+                        v
+                 external Mihomo
+
+Standalone clients:
+  Rust CLI
+  Rust Ratatui TUI
+  optional later Rust GUI client
 ```
 
-A supported standalone installation should eventually use the same runtime,
-TUI and semantic CLI without Omarchy, Quickshell or Hyprland installed.
+## Current migration doctrine
 
-## Omarchy Cinque planning assumption
+There is no big-bang rewrite branch.
 
-Current upstream discussion makes a Nix-backed Omarchy generation plausible but
-not confirmed. Until upstream publishes a concrete migration contract, roadmap
-work uses one explicit assumption: **the Omarchy plugin/Quickshell API remains
-materially compatible enough that the existing bar frontend can be migrated
-without redesigning the OmaVLESS runtime or TUI**.
+For each backend subsystem:
 
-If that assumption later proves false, the Omarchy integration layer changes.
-It must not pull package-manager, privilege or core-lifecycle ownership back
-into QML.
+```text
+Python reference
+      +
+language-neutral contract fixtures
+      |
+      v
+Rust candidate
+      |
+ differential / golden parity
+      |
+ real-host gate when applicable
+      |
+Rust becomes owner
+      |
+Python oracle/rollback removed later
+```
 
-## Design principles
+Known Python bugs are not sacred parity. Fix the explicit contract and regression
+fixture rather than preserving unsafe behavior.
 
-1. **Mihomo remains the primary core.** Current Full VPN, Routing, Direct,
-   country presets, rule providers, private controller and diagnostics are
-   Mihomo-native and must not be weakened merely to make another core look
-   symmetrical.
-2. **Profile semantics stay above core choice.** Strict protocol adapters,
-   redacted preview, private storage and subscription identity form the stable
-   boundary. A future core resolver chooses an implementation only after the
-   profile has been validated.
-3. **A second core is capability-driven, not a preference toggle.** Initial
-   Xray support is reserved for common Xray-only profile semantics which Mihomo
-   cannot represent without loss. The first production slice is Full VPN only.
-4. **One runtime owns the tunnel; UIs are clients.** The future bar plugin, TUI
-   and CLI/automation surface converge on one canonical connection owner instead
-   of starting independent cores or maintaining competing connection state.
-5. **Omarchy is integration, not foundation.** Omarchy-specific Quickshell,
-   launch/focus, theme and Hyprland behavior stays outside the generic runtime
-   and application layer.
-6. **Arch and NixOS are host adapters, not separate products.** Package,
-   capability and service provisioning may differ, while control-plane,
-   profile, routing and TUI behavior remain shared.
-7. **Do not persist generation-specific implementation paths.** Nix store paths
-   can change across generations; durable runtime state must refer to semantic
-   state or stable host entry points, not a resolved `/nix/store/...` path.
-8. **Tunnel ownership is centralized.** OmaVLESS may stop and replace cores it
-   owns, but foreign VPNs/TUNs are detected and reported rather than killed or
-   reconfigured.
-9. **Fail-closed protection is independent of a proxy core.** A real kill
-   switch must survive a core crash and therefore cannot be implemented as a
-   Mihomo-only option or depend on the QML panel/TUI staying alive.
-10. **Privilege stays narrow and host-native.** Arch may use reviewed file
-    capabilities; NixOS may use a reviewed wrapper/service mechanism. Neither
-    path gives the ordinary UI broad root authority.
-11. **Compact and full interfaces have different jobs.** The bar keeps frequent
-    connect/switch/status actions concise; the TUI becomes the natural home for
-    deeper sources, subscriptions, routing/DNS, connections, diagnostics, logs
-    and operator workflows.
-12. **Evidence controls merges and support claims.** Runtime/network/security
-    changes reach `main` only after their declared gates pass. Documentation-
-    only changes do not invent a meaningless live VPN gate, and one host's
-    evidence is never silently reused as another host's packaging proof.
+The final normal package should not require Python, pip, venv or Python modules.
+Cargo/crates are build-time source dependencies; ordinary users run the built
+`omavless` executable and do not need Cargo at runtime.
 
-## T1/T2 portability requirement
+Mihomo stays external and separately packaged.
 
-The T1 shared runtime and T2 TUI should be designed so that adding the second
-initial host does not require a second control plane or duplicated client.
-Before runtime ownership is considered structurally mature:
+## Current two-lane strategy
 
-- package-manager commands must stay out of the semantic control plane;
-- service state control must be distinct from service-file provisioning;
-- the desired state/store must contain no Arch package-manager state and no
-  Nix generation-specific executable path;
-- host health/remediation should be exposed through bounded semantic
-  capabilities/doctor results;
-- the TUI should use those semantic results and remain otherwise host-neutral.
+### Plugin completion lane
 
-The Nix-specific acceptance matrix is defined in
-[`NIX_PORTABILITY.md`](NIX_PORTABILITY.md).
+Keep improving the current plugin where work is genuinely plugin-facing:
+
+- remaining localization/QML surfaces;
+- bug fixes/accessibility/navigation;
+- current routing/import/subscription/diagnostic presentation;
+- opportunistic V0 fixture validation;
+- P4 protocols only after V0 + R2 so new parsers are Rust-first.
+
+Do not force every future app feature into the bar merely to call the plugin
+"complete".
+
+### Rust migration lane
+
+Begin immediately:
+
+```text
+R0 Cargo workspace + parity infrastructure
+R1 control protocol
+R2 existing protocol/profile adapters
+R3 store/subscriptions/routing
+R4 Mihomo/probes/diagnostics/host readiness
+R5/T1 Rust canonical runtime
+R6 remove Python runtime dependency
+T2 Ratatui TUI
+```
+
+R0-R2 are intentionally not blocked by missing V0 provider credentials.
+
+## Why P4 moved behind R2
+
+WireGuard/AmneziaWG remains plugin-relevant functionality, but it should not be
+implemented as a large new Python parser immediately before Python retirement.
+
+The dependency is now:
+
+```text
+V0 required protocol evidence
+           +
+R2 Rust adapter boundary
+           |
+           v
+P4a WireGuard Rust adapter
+ -> P4b AmneziaWG Rust adapter
+ -> P4c vpn:// guest decoder
+```
+
+The QML plugin can expose those Rust-owned semantics through the migration/runtime
+bridge. This finishes plugin capabilities without creating throwaway backend
+code.
+
+## Features intentionally waiting for Rust ownership
+
+The following are not abandoned; they are moved to the correct architectural
+layer:
+
+- full privacy-aware active connections;
+- App proxy state ownership;
+- K1 kill switch implementation;
+- optional Xray backend;
+- persistent background scheduling/recovery;
+- production TUI.
+
+Implementing them deeply in Python first would create immediate rewrite and, for
+K1/lifecycle work, additional security risk.
+
+## TUI and GUI direction
+
+T2 uses **Rust + Ratatui** after R6. The TUI is a client, never another tunnel
+owner.
+
+GPUI is a later GUI research candidate only. A future GUI remains another client
+of the same control API and should preferably be separately packaged so the
+headless/runtime/TUI path does not acquire a graphics stack.
+
+## Host direction
+
+Arch and NixOS are adapters around one Rust application, not forks.
+
+- Arch may use conventional package/user-unit/file-capability integration.
+- NixOS uses generation-safe package/module/wrapper semantics and must not
+  persist resolved stale `/nix/store/...` paths.
+- service state control and service provisioning are separate concepts.
+- one host's acceptance never proves the other's package/privilege behavior.
+
+## Evidence axes
+
+A change may be accepted on one axis and still pending on another:
+
+- Git/merge state;
+- protocol product maturity;
+- Python/Rust migration ownership;
+- current Omarchy live acceptance;
+- Arch packaging acceptance;
+- NixOS packaging/generation acceptance.
+
+Keep those statuses explicit in PR bodies and handoffs.
 
 ## Current priority
 
-T1a's isolated protocol/conformance foundation and K0's fail-closed design are
-independent no-fixture checkpoints. V0 remains partially validated and still
-blocks P4a, but unavailable protocol credentials do not block bounded T1,
-security-design, localization, observability or platform-preparation work.
+The practical order is:
 
-The new platform direction does **not** require pausing Arch development for a
-future Omarchy decision. Instead, T1/T2 implementation should avoid baking Arch
-package mechanics into the shared runtime so the same application can acquire a
-Nix package/module and Nix-specific acceptance path without a later rewrite.
+1. keep bounded current plugin/QML work moving;
+2. start R0/R1 now;
+3. move existing protocol/domain semantics through R2;
+4. add P4 only once V0 + R2 permit Rust-first implementation;
+5. complete R3/R4 while the plugin remains usable;
+6. perform R5/T1 ownership cutover;
+7. prove R6 with Python unavailable;
+8. only then implement the Ratatui TUI;
+9. add deeper app/security/backend features on the Rust runtime rather than
+   expanding a backend scheduled for deletion.
 
-None of these documents authorizes a speculative daemon cutover, privileged
-firewall implementation or claim that current OmaVLESS 0.7.0 already supports
-standalone Arch/NixOS operation.
+This order is intended to finish the plugin-era product without spending the
+next development cycle building large Python subsystems twice.

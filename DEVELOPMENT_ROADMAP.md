@@ -1,214 +1,538 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-29.
+Status: active delivery ledger, updated 2026-08-30.
 
-This file is the compact source of truth for delivery order and acceptance
-state. Detailed design rationale lives under [`docs/roadmap/`](docs/roadmap/):
+This file is the compact source of truth for **what happens next**, dependency
+order and acceptance state. Detailed contracts live under `docs/roadmap/`.
 
-- [`docs/roadmap/README.md`](docs/roadmap/README.md) — roadmap/document map;
-- [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md) — shared
-  runtime, core, lifecycle/exclusivity and fail-closed direction;
-- [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md) — evolution from a
-  bar-only plugin to one runtime with compact bar, full TUI and CLI/IPC control
-  surfaces;
-- [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md) — accepted
-  T0 runtime ownership, versioned IPC, migration, distribution and T1
-  acceptance contract;
-- [`docs/roadmap/PLATFORM.md`](docs/roadmap/PLATFORM.md) — authoritative host
-  and distribution boundary for the future standalone Arch + NixOS app;
-- [`docs/roadmap/NIX_PORTABILITY.md`](docs/roadmap/NIX_PORTABILITY.md) — Nix/
-  future-Omarchy portability assumptions, immutable-path/capability/service
-  consequences and Nix acceptance matrix;
-- [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md) — accepted K0
-  fail-closed threat model, privilege boundary, host lifecycle and K1
-  acceptance contract;
-- [`docs/roadmap/I18N.md`](docs/roadmap/I18N.md) — I1 locale/key ownership,
-  translated first surface and follow-up boundaries;
+Canonical references:
+
+- [`docs/roadmap/RUST_MIGRATION.md`](docs/roadmap/RUST_MIGRATION.md) — selected
+  Rust implementation direction, Python parity/retirement gates and R0-R6;
+- [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md) — shared Rust
+  runtime/domain/core layers, lifecycle/exclusivity and fail-closed direction;
+- [`docs/roadmap/CONTROL_PLANE.md`](docs/roadmap/CONTROL_PLANE.md) — v1 IPC,
+  ownership, migration and T1 runtime cutover contract;
+- [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md) — Rust/Ratatui TUI product
+  and client contract;
+- [`docs/roadmap/PLATFORM.md`](docs/roadmap/PLATFORM.md) — Arch + NixOS host and
+  distribution boundary;
+- [`docs/roadmap/NIX_PORTABILITY.md`](docs/roadmap/NIX_PORTABILITY.md) — Nix
+  immutable-path/capability/service consequences and acceptance matrix;
+- [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md) — K0/K1
+  fail-closed threat model and privileged boundary;
+- [`docs/roadmap/I18N.md`](docs/roadmap/I18N.md) — localization ownership and
+  remaining surface batches;
 - [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md)
-  — cloud/Omarchy Git workflow and branch policy;
-- [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol and share-format
-  compatibility specification.
+  — branch/PR/evidence workflow;
+- [`PROTOCOL_ROADMAP.md`](PROTOCOL_ROADMAP.md) — protocol/share-format
+  compatibility contract.
 
-Where older T0/TUI documents say `Arch/AUR` as if it were the only future host,
-`docs/roadmap/PLATFORM.md` is authoritative for host scope: **Arch and NixOS are
-the two initial standalone host families**. Existing control-plane, security
-and TUI semantics remain unchanged unless a later PR deliberately revises them.
+Where an older document still describes Python versus compiled runtime as an
+open choice, `RUST_MIGRATION.md` is authoritative: **Rust is selected for the
+future runtime/domain/CLI/TUI; Python is the current plugin reference and
+migration oracle.** Where older wording says Arch/AUR is the only future host,
+`PLATFORM.md` is authoritative: Arch and NixOS are the initial host families.
 
-## Status vocabulary
+## 1. Delivery principles
 
-- **Merged** — accepted code/documentation is in `main`.
-- **Cloud-ready** — exact Draft PR head passed every available cloud/static
-  gate but still has declared host/integration checks.
-- **Merge-ready** — exact head passed its declared cloud and local gates and is
-  waiting only for final owner merge approval.
-- **Experimental** — product maturity label; implementation may already be
-  merged but broader independent interoperability evidence is still required.
-- **Planned** — designed/scheduled, no production runtime support yet.
-- **Deferred** — intentionally outside the active merge chain.
-
-Git maturity and product maturity are separate. An experimental protocol may
-live in `main` after its implementation gates pass; it does not need a permanent
-`alpha` or `beta` branch merely to preserve the label.
-
-Host support is also an evidence axis. A shared runtime feature can be merged
-while NixOS packaging remains a planned target; documentation must not turn a
-green Arch/Omarchy test into a claim that NixOS package, wrapper, generation or
-service behavior was exercised.
-
-## Repository and release model
+### One source of truth
 
 `main` is the only long-lived development source of truth. Runtime/network/
-security changes merge only after the exact candidate head passes every
-required declared host/integration gate. Documentation-only work does not
-invent a live VPN gate.
+security/migration changes merge only after their declared exact-head gates.
+Documentation-only changes do not invent a live VPN test.
 
-The currently published OmaVLESS 0.7.0 marketplace snapshot remains exact
-commit `69fe05b03129a23664fff3f8289821a7b7f80095`, published and
-maintainer-verified through marketplace submission `#2311`. `main` is allowed
-to advance beyond that immutable public snapshot; documentation must continue
-to name the exact marketplace SHA rather than imply that the moving `main` tip
-is already published.
+The published marketplace 0.7.0 snapshot remains exact reviewed commit
+`69fe05b03129a23664fff3f8289821a7b7f80095`. Moving `main` is not automatically
+a new marketplace release.
 
-For future formal releases, prefer an explicit version tag such as `v0.8.0` on
-the exact release candidate which passed the release gate.
+### Product maturity, migration maturity and host maturity are separate
 
-### Branch policy
+- A protocol may be merged and still be **Experimental**.
+- A Rust implementation may have parity tests but not yet own production
+  behavior.
+- A shared runtime may work on Arch while NixOS packaging remains unaccepted.
 
-Do **not** maintain permanent `alpha` and `beta` branches by default.
+Do not collapse these axes into one "done" label.
 
-- A short-lived feature branch + Draft PR is the practical **alpha** state for
-  cloud work.
-- A cloud-ready Draft whose declared local checklist is still open represents
-  the next maturity state without requiring a second branch.
-- After the exact head passes its required gate, it merges directly into `main`.
-- A temporary `beta/<scope>` branch is allowed only as an integration/test
-  assembly when several named candidate PRs genuinely need combined host or
-  soak testing. Fixes found there must go back to the owning feature PRs; beta
-  is deleted afterward and never becomes a parallel source of truth.
+### No big-bang rewrite
 
-Full rules: [`docs/roadmap/DEVELOPMENT_WORKFLOW.md`](docs/roadmap/DEVELOPMENT_WORKFLOW.md).
+The current Python backend remains the reference production behavior until a
+bounded Rust slice passes its parity and host gates. Rust replaces Python
+incrementally. Do not create a permanent dual implementation.
 
-## Current repository snapshot
+### No premature TUI
 
-D0 / documentation PR `#28` is merged into `main` at
-`751bb31b6c478e53aea6c0e9647e60fdb80bce6a`. It preserved the S0 lifecycle
-work from merged PR `#29` and established the P4 WireGuard/AmneziaWG queue.
+Rust + Ratatui is the selected full TUI stack, but **production TUI work starts
+only after R6**, when the normal runtime/application path no longer requires
+Python. UI mockups/research may happen earlier; product TUI implementation may
+not be used to hide unfinished migration.
 
-D1 / PR `#27` is complete and merged. V0 / PR `#30` was reconstructed directly
-on `main` rather than remaining stacked on D1. Its static gates are green and
-one representative VLESS XHTTP live case passes, but the Draft remains open
-because VLESS Encryption / REALITY PQ, Trojan, Hysteria2 and TUIC v5 fixtures
-are unavailable. V0 is partially validated, not complete.
+## 2. Current repository snapshot
 
-Fixture absence blocks claims about those protocol families; it does not block
-independent work which needs no new protocol key. The following Try Omarchy-
-validated UX fixes are now merged:
+Already accepted:
 
-- issue `#39` / PR `#41`: out-of-box GTK file-picker fallback plus actionable
-  picker onboarding, merged at `8ebf1049bb7135569b7ec89673f5e0f7fde3cb58`;
-- issue `#40` / PR `#42`: unified top-level profile/subscription import,
-  merged at `2e10b7e8f707f7d91f3d8c18e9ffd0dc20da44ba`;
-- issue `#37` / PR `#43`: page-local Tab/Shift+Tab navigation with preserved
-  Enter/Escape and shell handoff after panel close, merged at
-  `d2a58589ed1eef5938fbce888f1e43a8d4c90fd0`.
+- S0 / PR `#29` marketplace lifecycle/removal hardening, merged at the published
+  `69fe05b03129a23664fff3f8289821a7b7f80095` baseline;
+- D0 / PR `#28` documentation/protocol queue;
+- D1 / PR `#27` advanced Mihomo diagnostics and selector-readiness fix, merged at
+  `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`;
+- file-picker onboarding / PR `#41`;
+- unified top-level subscription import / PR `#42`;
+- panel-local Tab/Shift+Tab navigation / PR `#43`;
+- onboarding/startup localization / PR `#50`;
+- Arch + NixOS platform planning / PR `#51`, merged at
+  `ec78bd6bc2dec74cbeec80121aca878e2ade9412`.
 
-The forward application platform contract now treats Arch and NixOS as two
-initial host families. This does not claim NixOS runtime support today and does
-not pause Arch work. It changes the T1/T2 implementation boundary so package,
-capability and service provisioning cannot leak into the shared runtime/TUI.
-Current upstream Omarchy/Nix discussion is tracked as a planning signal, not as
-a confirmed Cinque migration announcement.
+V0 / PR `#30` remains Draft at exact tested head
+`a643db595ad5369b5fea200ebc601b4f0f70f18f`. The representative VLESS XHTTP
+case passed; VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5 fixtures
+remain unavailable. Do not fabricate them or call V0 complete.
 
-## Active merge chain
+Missing V0 fixtures block claims about those protocol families and P4 protocol
+expansion. They **do not block R0/R1/R2 Rust migration work** on already-defined
+semantics.
 
-### S0 — marketplace lifecycle and removal fix
+## 3. The new global sequence
 
-- PR: `#29`.
-- State: **merged** at `69fe05b03129a23664fff3f8289821a7b7f80095`.
-- Result: disable/removal cleanup, generated user-service ownership and private
-  state retention/removal semantics were hardened and became the published
-  marketplace snapshot.
+Development now has two active lanes which intentionally converge.
 
-### D0 — documentation and progress ledger
+### Lane P — finish the plugin-version product surface
 
-- PR: `#28`.
-- State: **merged** at `751bb31b6c478e53aea6c0e9647e60fdb80bce6a`.
-- Result: canonical protocol/delivery queue plus explicit WireGuard/AmneziaWG
-  planning.
+Continue work that is valuable in the current Omarchy plugin and does not create
+large new Python runtime surfaces merely to be rewritten:
 
-### D1 — advanced Mihomo diagnostics and adaptive polling
+- remaining QML/localization batches;
+- current UI correctness/accessibility/navigation fixes;
+- current routing/import/subscription presentation and diagnostics polish;
+- opportunistic V0 live validation when legitimate fixtures become available;
+- P4 WireGuard/AmneziaWG **after both V0 and R2**, so new protocol parsers are
+  Rust-first while still becoming usable by the plugin through the migration
+  bridge.
 
-- Branch: `codex/advanced-mihomo-diagnostics`.
-- PR: `#27`.
-- State: **merged** at `5a50d59ae9fada9c61ee3ed9037f72e35bf09853`.
-- Accepted exact head: `2c2615247d32e7ac4b2f7ada055d1028586cc639`.
-- Result: advanced private-controller diagnostics and adaptive polling merged;
-  the Full VPN selector-readiness race was reproduced and fixed with bounded
-  retry semantics.
-- Acceptance record:
-  [`docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md`](docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md).
-- Successor: V0.
+"Plugin-version complete" does **not** mean squeezing every future application
+feature into the bar. Full active-connections workspaces, App proxy host
+ownership, kill switch runtime, Xray backend and the large TUI remain later
+runtime/application tracks.
 
-### V0 — existing experimental protocol validation gate
+### Lane R — migrate backend/runtime to Rust
 
-- Branch: `codex/experimental-protocol-live-gates`.
-- PR: `#30`, Draft, based directly on `main` at its reconstruction point rather
-  than stacked on D1.
-- Exact V0 head: `a643db595ad5369b5fea200ebc601b4f0f70f18f`.
-- State: **partially live-validated; additional fixtures unavailable**.
-- Goal: turn generated-config evidence into repeatable privacy-safe live
-  evidence before another credential family is added.
-- Scope: opt-in local runner for existing VLESS XHTTP modes, VLESS Encryption /
-  REALITY PQ, Trojan, Hysteria2 and TUIC v5. Real URIs, passwords, protocol
-  UUIDs, subscription URLs and keys never enter its shareable result matrix.
-- Evidence: exact-head cloud/static and installed-Mihomo gates pass. The
-  privacy-safe `vless-xhttp-stream-one-provider-1` case passed Full VPN/TUN,
-  HTTPS probe, restoration and privacy checks on Try Omarchy ARM64.
-- Remaining gate: representative VLESS Encryption / REALITY PQ, Trojan,
-  Hysteria2 and TUIC v5 fixtures are unavailable. The safe UDP-restricted
-  Hysteria2 half is also unavailable. Do not fabricate fixtures, call V0
-  complete or discard the accepted XHTTP evidence merely because unrelated
-  no-fixture UX/docs work advances `main`.
-- Successor: P4a.
+Start now and continue in bounded parity-gated slices:
+
+```text
+R0 workspace/parity harness
+ -> R1 control protocol
+ -> R2 profile/protocol adapters
+ -> R3 store/subscriptions/routing
+ -> R4 Mihomo/probes/diagnostics/host readiness
+ -> R5/T1 canonical Rust runtime cutover
+ -> R6 Python runtime retirement
+ -> T2 Ratatui TUI
+```
+
+R0/R1 can run while plugin QML work continues and while V0 fixtures are missing.
+
+### Features deliberately moved behind Rust runtime
+
+Do not build these as deep new Python-plugin subsystems first:
+
+- C1 full privacy-aware active-connections workspace/mutations;
+- S1 App proxy state ownership;
+- K1 fail-closed kill switch implementation;
+- X1 Xray compatibility backend;
+- background scheduling/recovery features which need a persistent owner;
+- TUI application implementation.
+
+Their design contracts remain useful, but implementation should attach to the
+Rust runtime so they are not immediately rewritten.
+
+## 4. Immediate work queue
+
+The practical next sessions may therefore be heavily Rust-focused without
+abandoning the plugin.
+
+### P-I1 — finish remaining plugin localization/surface batches
+
+State: **active independent plugin work**.
+
+Current foundation is merged. Remaining batches include routing tools,
+diagnostics, secondary dialogs and legacy/backend-facing prose where it is
+actually presented to users. Keep provider/profile/core-controlled data
+untranslated and preserve English fallback.
+
+These QML/i18n slices can merge independently of R0/R1 when their exact-head
+visual/contract gates pass.
+
+### V0 — existing experimental protocol validation
+
+State: **partially live-validated; fixture constrained**.
+
+- PR: `#30`, Draft.
+- Exact tested head: `a643db595ad5369b5fea200ebc601b4f0f70f18f`.
+- XHTTP representative case: PASS.
+- Missing: VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5 fixtures;
+  safe UDP-restricted Hysteria2 half also unavailable.
+- Do not ceremonially rebase solely because unrelated `main` docs/Rust work
+  advances. Rebase only when the harness/runtime relationship materially needs
+  it or remaining evidence becomes available.
+- V0 continues in parallel with R0-R2.
+
+### R0 — Rust workspace and differential infrastructure
+
+State: **next implementation checkpoint; not blocked by V0**.
+
+Future branch: `codex/rust-workspace-parity`.
+
+Scope:
+
+- introduce Cargo workspace without changing production tunnel ownership;
+- commit application `Cargo.lock`;
+- CI for build/test/clippy/format as appropriate;
+- credential-free golden/differential fixture conventions;
+- bounded parity runner and privacy rules;
+- crate/dependency direction documented;
+- no QML cutover, daemon or TUI.
+
+Merge gate: deterministic cloud/static checks plus proof that current plugin
+runtime behavior is unchanged.
+
+### R1 — Rust control-protocol parity
+
+State: **immediately after/stacked only when genuinely dependent on R0**.
+
+Future branch: `codex/rust-control-protocol`.
+
+The existing Python T1a implementation and `tests/control_protocol_cases/`
+become the first language-neutral parity corpus.
+
+Scope:
+
+- strict UTF-8/NDJSON frame mechanics;
+- duplicate-key/size/depth/version/id/revision/operation validation;
+- success/error envelopes and bounded stream helpers;
+- stable safe errors;
+- differential Python/Rust tests;
+- fuzz/property coverage where useful.
+
+After parity, Rust is the canonical future control-protocol implementation;
+Python remains temporarily as migration oracle, not a second runtime.
+
+## 5. Plugin protocol expansion now depends on Rust adapter boundary
+
+### R2 — Rust profile/protocol adapter parity
+
+State: **planned after R1; high priority**.
+
+Future branch family: `codex/rust-profile-adapters-*` with narrow slices rather
+than one giant conversion.
+
+Migrate existing validated semantics:
+
+- protocol classification;
+- VLESS parsing and transports/security metadata;
+- Trojan;
+- Hysteria2;
+- TUIC v5;
+- canonical profile model;
+- redacted import preview;
+- endpoint extraction;
+- subscription identity inputs;
+- Mihomo profile/YAML rendering semantics.
+
+Each protocol may be a separate PR if that produces clearer parity evidence.
+The Python implementation remains oracle until the corresponding Rust adapter
+is accepted.
 
 ### P4a — standard one-peer WireGuard `.conf`
 
-- Future branch: `codex/wireguard-conf-import`.
-- State: **planned**.
-- Dependency: V0 merged plus a fresh Mihomo source/release audit.
-- Scope: bounded one-interface/one-peer parser, versioned structured private
-  storage, redacted preview, Mihomo WireGuard generation, endpoint probe and
-  safe explicit export. Reject executable hooks, extra peers, ambiguous keys
-  and arbitrary YAML.
-- Omarchy gate: real WireGuard server, IPv4/IPv6 where available, Full VPN /
-  Routing / Direct, reconnect/autoconnect/update/remove rollback and proof that
-  reusable keys do not reach public UI/logs/diagnostics/argv/environment.
-- Successor: P4b.
+State: **planned after V0 + R2**.
+
+This dependency is deliberate. Do not implement P4a as a large new Python-only
+parser simply because the current plugin is Python-backed.
+
+Scope remains:
+
+- bounded one-interface/one-peer parser;
+- versioned structured private representation;
+- redacted preview;
+- Mihomo WireGuard generation;
+- endpoint/probe compatibility;
+- safe explicit export;
+- reject executable hooks, extra peers, ambiguous keys and arbitrary YAML.
+
+The adapter itself is Rust-first. The current QML plugin receives the same
+semantic behavior through the migration/runtime bridge.
+
+Acceptance still requires a real matching server, IPv4/IPv6 where available,
+Full/Routing/Direct, reconnect/autoconnect/update/remove rollback and proof that
+reusable keys never reach public UI/logs/diagnostics/argv/environment.
 
 ### P4b — native AmneziaWG `.conf`
 
-- Future branch: `codex/amneziawg-conf-import`.
-- State: **planned**.
-- Dependency: P4a merged/live-tested and installed-core capability gate.
-- Scope: reuse P4a storage/parser boundaries, accept only validated native AWG
-  generation families and emit documented `amnezia-wg-option` fields.
-- Omarchy gate: real matching AWG servers/fixtures, precise old-core errors and
-  independent live evidence; retain Experimental label initially.
-- Successor: P4c.
+State: **planned after P4a accepted**.
+
+Reuse the R2/P4a Rust storage/parser boundary; accept only validated AWG
+families and emit documented Mihomo fields. Real matching server fixtures and
+old-core compatibility errors remain mandatory. Retain Experimental product
+label initially.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-- Future branch: `codex/amnezia-vpn-key-import`.
-- State: **planned after P4b**.
-- Scope: bounded offline guest-key decoding and explicit extraction of a single
-  WG/AWG container through the exact P4a/P4b validators.
-- Security boundary: no embedded API call, no SSH/root/server-administration
-  credentials, no implicit fallback to another protocol container.
+State: **planned after P4b**.
 
-## Implemented but not yet stable
+Bounded offline guest-key decoding only; extract one WG/AWG container through
+the exact Rust P4a/P4b validators. No embedded API call, SSH/root/admin
+credential handling or implicit protocol fallback.
 
-The following are runtime-complete in 0.7.0 but remain Experimental until V0
-collects broader independent evidence:
+## 6. Continue migration beneath the finished plugin surface
+
+### R3 — store, subscriptions and routing semantics
+
+State: **planned after sufficient R2 adapter coverage**.
+
+Migrate with differential tests:
+
+- private store schema validation and migrations;
+- active/last/favorites/startup semantic state;
+- subscription parse/merge/identity/atomic commit model;
+- import/export transformations;
+- routing preset/custom-rule semantic model;
+- deterministic config assembly around Rust adapters.
+
+Remote fetch/process ownership may remain Python until R4. State semantics must
+already be language-neutral.
+
+### R4 — Mihomo operations, probes, diagnostics and host readiness
+
+State: **planned after R3 foundations; may be split into narrow PRs**.
+
+Migrate:
+
+- stable Mihomo entry-point discovery;
+- config validation subprocess behavior;
+- private controller client;
+- provider/rule/route diagnostics;
+- isolated latency/probe orchestration;
+- traffic/status sampling;
+- owned process/user-service observation;
+- host capability/doctor model for Arch and NixOS.
+
+Tokio/asynchronous Rust is appropriate for bounded I/O, but must not silently
+change timeout, retry, cancellation or concurrency semantics.
+
+Real Try Omarchy integration gates supplement differential tests for every
+OS/network-facing cutover.
+
+## 7. Canonical runtime cutover
+
+### T0 / T0p — design contracts
+
+State: **accepted**.
+
+The v1 semantic control plane, one-owner model, staged migration and Arch/NixOS
+host boundary are established. Implementation language is no longer open: Rust
+owns the target runtime.
+
+### R5 / T1 — Rust shared runtime / daemon foundation
+
+State: **planned after R4 reaches the required lifecycle/domain coverage**.
+
+This is one track, not a Rust daemon plus a separate T1 daemon.
+
+The primary `omavless` executable gains `daemon` and semantic CLI behavior and
+becomes the single canonical owner of:
+
+- desired/actual connection state;
+- profile/subscription/store mutations;
+- routing mode;
+- owned Mihomo lifecycle;
+- background work;
+- mutation serialization;
+- bounded diagnostics/events.
+
+Required cutover work:
+
+- private `0600` Unix socket below a `0700` runtime directory;
+- same-UID peer verification and singleton owner lock;
+- `system.hello`, `status.get`, capabilities and mutation dispatch;
+- desired/actual restart reconciliation;
+- serialized connect/disconnect/mode/profile mutations;
+- plugin compatibility bridge through semantic CLI/socket;
+- service state control separated from package/service provisioning;
+- no package-manager or raw systemctl API exposed to clients.
+
+The existing `backend.py` becomes explicit disconnected rollback/reference only
+during the compatibility window. It may not remain a second active owner.
+
+### R5a — Arch host/package path
+
+State: **part of T1 acceptance**.
+
+- package primary `omavless` binary and runtime user unit;
+- explicit Mihomo/TUN privilege setup;
+- plugin -> Rust runtime migration from existing private store/service;
+- Full/Routing/Direct lifecycle parity;
+- update/remove/rollback and restart reconciliation.
+
+### R5n — NixOS host path
+
+State: **second host implementation once binary/service contract is stable**.
+
+- Nix package/module/wrapper integration;
+- stable executable paths across generations;
+- no direct Arch-style `setcap` on immutable store binaries;
+- user-service lifecycle;
+- generation update/rollback;
+- garbage-collection/stale-store-path regression;
+- privilege-negative cases;
+- same private store/control-plane semantics.
+
+Nix support is not inferred from Arch/Try Omarchy evidence.
+
+## 8. Native-runtime gate before TUI
+
+### R6 — Python runtime retirement
+
+State: **hard prerequisite for T2**.
+
+R6 is complete only when:
+
+- all production backend operations required by the plugin are Rust-owned;
+- normal connect/routing/subscription/diagnostic/startup/lifecycle behavior works
+  with Python unavailable;
+- `backend.py` is not spawned by the normal application/plugin path;
+- no venv, pip or Python package setup is required;
+- the primary package runs the Rust `omavless` executable;
+- existing private stores migrate without credential loss or duplicated owners;
+- rollback/recovery was tested before legacy owner code is removed;
+- language-neutral regression corpora survive removal of the Python oracle;
+- final removal does not weaken current plugin functionality.
+
+Python can remain in repository history or narrowly scoped developer tooling only
+when there is a concrete reason, but it is not a product runtime dependency.
+
+## 9. TUI / application track
+
+### T2 — Rust + Ratatui TUI MVP
+
+State: **planned only after R6**.
+
+The first full application UI is Rust + Ratatui, using a reviewed terminal
+backend such as Crossterm. It is a client of the already accepted Rust runtime;
+it does not call Python or start Mihomo directly.
+
+MVP:
+
+- dashboard with connection/core/policy/protection status;
+- profiles and grouped subscriptions;
+- connect/disconnect and supported modes;
+- search/favorites;
+- one/all latency tests;
+- live rates/totals and active connection count;
+- profile/core details;
+- subscription refresh;
+- settings/diagnostics entry points;
+- bounded local activity/log view;
+- responsive keyboard-first navigation and help.
+
+Omarchy plugin gains `Open app` launch-or-focus and remains the compact quick
+control surface. Standalone Arch/Nix use the same TUI/runtime with a default
+non-Omarchy theme when needed.
+
+Acceptance includes concurrent plugin/TUI mutations, terminal close/reopen,
+resize, theme changes on Omarchy, runtime restart and proof of one canonical
+owner/core/TUN.
+
+### T3 — operator/observability workspace
+
+State: **after T2 and Rust runtime prerequisites**.
+
+Integrate deeper D1/C1 concepts into TUI views:
+
+- rules/providers/route diagnostics;
+- privacy-aware active connections;
+- later separately reviewed close-connection mutation;
+- richer traffic history;
+- bounded local logs/activity;
+- read-only doctor/health output.
+
+The full connection table belongs naturally here rather than being forced into
+the bar during plugin closure.
+
+### T4 — background/management quality of life
+
+State: **later independent Rust-runtime slices**.
+
+Candidates: subscription schedules, provider quota/expiry metadata,
+backup/restore, suspend/network recovery, structured DNS controls and service
+routing templates. Each keeps its own threat/host acceptance gate.
+
+### G1 — optional desktop GUI research
+
+State: **deferred until the Rust runtime + TUI are stable**.
+
+GPUI is a preferred research candidate, not a daemon/TUI dependency. A future
+GUI must be another semantic client. Prefer a separate GUI binary/package so a
+headless/TUI installation does not pull in a graphics stack solely to run the
+VPN runtime.
+
+## 10. Networking/security tracks after Rust ownership
+
+### C1 — privacy-aware active connections
+
+State: **backend/operator implementation deferred to Rust runtime/T3**.
+
+D1 already provides useful controller/diagnostic foundations. The full read-only
+connection/process/chain view should be implemented in Rust and presented
+primarily in TUI. Closing a connection remains a separate mutation/security
+slice.
+
+### S1 — App proxy without TUN
+
+State: **design retained; implementation after Rust runtime ownership**.
+
+Preserve/restore exact prior proxy state transactionally. On Omarchy cover both
+desktop proxy state and systemd/UWSM user-manager environment; on standalone
+NixOS define the equivalent host contract separately. No privileged helper and
+no generic reset-to-default behavior.
+
+### K0 — fail-closed threat model
+
+State: **accepted design/security checkpoint**.
+
+Root NetGuard + fixed nftables policy remains the selected privileged boundary.
+The normal runtime/UI gets no arbitrary firewall/root command surface. Arch and
+NixOS provisioning remain separate host implementations.
+
+### K1 — Full VPN fail-closed kill switch
+
+State: **implementation-ready by design, but implementation waits for Rust
+canonical runtime**.
+
+Initial scope remains opt-in Full VPN only. Protection follows desired tunnel
+state through core/runtime failure; explicit disconnect disarms it. Deliver as
+separate privileged protocol/service/runtime/acceptance slices, not as a large
+Python-plugin addition.
+
+### X0 / X1 — core backend abstraction and optional Xray
+
+State: **deferred until Rust runtime and a real compatibility need**.
+
+Mihomo remains primary. Extract only the Rust `CoreBackend` surface needed by a
+confirmed Xray-only semantic gap. First Xray production slice is Full VPN only;
+Routing/Direct parity is not implied.
+
+### R-routing — backend-neutral Xray routing research
+
+State: **deferred**.
+
+Only consider after exact RU/CN/IR/custom-rule/DNS/route-inspection/leak-safety
+semantics can be preserved rather than approximated.
+
+## 11. Implemented but still Experimental
+
+The following current features remain Experimental until broader V0 evidence is
+available:
 
 - VLESS Encryption and REALITY PQ metadata;
 - Trojan supported TLS/REALITY combinations;
@@ -216,351 +540,51 @@ collects broader independent evidence:
 - TUIC v5;
 - representative advanced XHTTP modes/split settings.
 
-## Product tracks after the active protocol chain
+Rust parity does not by itself promote their product maturity. Migration
+correctness and provider interoperability are separate evidence.
 
-These tracks are independent of protocol expansion and should remain narrowly
-scoped PRs. Their relative ordering can be changed deliberately after P4c; the
-roadmap does not require implementing every product track before another can
-start.
+## 12. Deferred compatibility research
 
-### I1 — i18n foundation
+Keep outside active protocol/runtime work unless real demand/fixtures justify:
 
-- State: **foundation implemented; follow-up surface batches remain**.
-- English is the complete fallback; Russian is the first additional locale.
-  A persisted System/English/Russian Settings selector updates QML in place
-  without restarting the plugin or VPN; a bounded QA override remains.
-  Unsupported locales and missing Russian entries fall back to visible English.
-- The coherent first surface covers the main panel, Settings navigation,
-  connection modes, common actions, import/subscription confirmation and the
-  stable v1 control error set.
-- The first I1b batch covers the three-step onboarding and login-autoconnect
-  dialog without translating commands, profile names or protocol identifiers.
-- Provider/profile/core-controlled data is never translated. Named
-  interpolation is bounded and reaches only plain-text/sanitized sinks.
-- Routing tools, diagnostics, secondary dialogs and legacy backend prose remain
-  explicit I1b/I1c batches.
-
-### C1 — privacy-aware active connections
-
-- Future branch: `codex/active-connections`.
-- Depends on D1's diagnostics/controller boundary.
-- Read-only host/process/chain/rule/traffic comes first; closing a connection
-  is a separate mutation/security slice.
-- The eventual TUI is the natural full view for this data; the bar may retain a
-  compact summary rather than duplicate the complete connection table.
-
-### S1 — App proxy without TUN
-
-- Future design branch: `codex/system-proxy-design`.
-- User-facing concept: applications which honor proxy settings, explicitly not
-  another Full VPN / Routing / Direct policy.
-- Preserve/restore exact prior proxy settings transactionally and introduce no
-  privileged helper.
-- On Omarchy, design must cover both desktop proxy state and the systemd/UWSM
-  user-manager environment inherited by newly launched applications. Merely
-  switching a desktop proxy to `none` or unsetting variables is not sufficient
-  when the machine had pre-existing proxy state.
-- Before standalone NixOS support is claimed, S1 must separately define how the
-  equivalent user-session proxy state is discovered and restored there; do not
-  assume Omarchy/UWSM paths are a generic Linux contract.
-
-## Full application / TUI track
-
-Detailed design: [`docs/roadmap/TUI_APP.md`](docs/roadmap/TUI_APP.md).
-Host/distribution authority: [`docs/roadmap/PLATFORM.md`](docs/roadmap/PLATFORM.md)
-and [`docs/roadmap/NIX_PORTABILITY.md`](docs/roadmap/NIX_PORTABILITY.md).
-
-The target is **not** a second VPN application next to the plugin. It is one
-canonical OmaVLESS runtime with a compact Omarchy bar surface, a full TUI
-workspace and a bounded CLI/IPC integration surface. The same runtime/TUI is
-the product on Arch and NixOS; host-specific package/privilege/service work
-stays below that boundary.
-
-### T0 — control-plane and distribution design
-
-- State: **accepted design checkpoint**, broadened by the 2026-08-29 platform
-  portability contract.
-- Selected `omavless-runtime.service` as the one future canonical owner, with
-  the existing Mihomo supervisor retained only as a private implementation
-  detail during the first migration.
-- Defined v1 bounded NDJSON on a private same-user Unix socket, stable semantic
-  method/error categories, revisions, idempotent retries and one mutation
-  queue.
-- Separated private store, desired state, actual runtime state, caches and
-  high-volume traffic/log data.
-- Defined Stage 0–3 migration/rollback, restart reconciliation and exact
-  close/disconnect/quit/disable/remove/stop semantics.
-- The old T0 Arch/AUR-only distribution wording is superseded for host scope:
-  Arch and NixOS are the two initial standalone host families. Package manager,
-  capability and service provisioning are host concerns and are not exposed
-  through v1 semantic control methods.
-- The Omarchy launcher contract remains
-  `omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui` for
-  the current plugin API; a future launcher spelling change is a frontend
-  adapter change, not a runtime redesign.
-- The marketplace plugin never silently downloads/builds the standalone app.
-- T1 is implementation-ready but not automatically scheduled by this design-
-  only merge.
-
-### T0p — Arch/Nix host portability contract
-
-- State: **accepted design direction; implementation/acceptance pending**.
-- Canonical documents: `PLATFORM.md` and `NIX_PORTABILITY.md`.
-- Working Omarchy assumption: a future Cinque may use Nix-backed packaging, but
-  this is not treated as confirmed; plugin/Quickshell semantics are assumed to
-  remain materially compatible until upstream proves otherwise.
-- Keep protocol/store/routing/control-plane/TUI semantics host-neutral.
-- Add only a narrow Arch/Nix host boundary for core entry-point discovery,
-  privilege status, service provisioning status and bounded install/doctor
-  remediation.
-- Do not persist a generation-specific `/nix/store/...` executable path as
-  desired state or package-neutral configuration.
-- Arch file-capability setup and Nix wrapper/service capability setup are two
-  implementations of the same semantic `TUN/core ready` requirement.
-- `systemctl --user` lifecycle may remain common; ownership/provisioning of the
-  unit differs between conventional Arch packages and declarative Nix output.
-- Nix acceptance must include generation update, rollback and stale-store-path/
-  garbage-collection regression tests before support is advertised.
-
-### T1 — shared runtime / daemon foundation
-
-- State: **T1a protocol/conformance foundation implemented; runtime ownership
-  cutover pending**.
-- T1a provides a reusable v1 NDJSON parser/encoder and credential-free
-  conformance corpus with the accepted frame, string, depth, envelope,
-  version, ID, revision and operation-ID bounds. It intentionally opens no
-  socket, dispatches no lifecycle method and is not a daemon.
-- One headless runtime becomes the canonical owner of desired/actual connection
-  state, store mutations, core lifecycle and background work.
-- Expose a private `0600` Unix-socket contract plus a small machine-readable CLI
-  bridge for QML/scripts; ordinary state contains no reusable credentials or
-  core-controller secret.
-- Keep current bar behavior working through the new boundary before adding a
-  full TUI.
-- A panel/TUI/terminal close must not stop a healthy requested tunnel.
-- This phase should satisfy/subsume the relevant N0 coordinator extraction;
-  do not create a parallel daemon state machine and a separate coordinator.
-- T1 must keep package-manager commands out of the semantic API, separate
-  service **state control** from service **provisioning**, and keep desired
-  state free of Arch package-manager data or Nix generation-specific paths.
-- Add bounded host capability/doctor results so a UI can explain `core missing`,
-  `TUN privilege missing` or `runtime service not provisioned` without learning
-  how pacman/Nix wrappers work.
-- Remaining T1 work begins with singleton/socket/peer enforcement and
-  hello/status/capability dispatch, then desired/actual reconciliation,
-  serialized lifecycle mutations, host boundary and the plugin compatibility
-  bridge under the existing staged-cutover acceptance contract.
-
-### T1a-host — first concrete standalone host implementation
-
-- State: **planned as part of T1 delivery, not a second runtime**.
-- Arch remains the first practical implementation/acceptance host unless a
-  usable NixOS environment becomes available earlier.
-- Package the standalone `omavless` command/runtime service explicitly; migrate
-  from the current plugin-owned service/store without creating two owners.
-- Verify package install/update/remove, user-service ownership, Mihomo/TUN
-  privilege setup, restart reconciliation and existing Full/Routing/Direct
-  behavior.
-
-### T1n — NixOS host implementation
-
-- State: **planned; may proceed in parallel once the T1 executable/service host
-  contract is stable**.
-- Provide Nix package plus the smallest reviewed module/wrapper integration
-  needed for stable executable, user-service and TUN privilege semantics.
-- Do not copy the Arch `setcap` workflow onto immutable store binaries.
-- Required Nix-specific evidence: install/evaluate, stable core/app discovery,
-  user-service lifecycle, privilege-negative case, generation update, rollback,
-  garbage collection/stale-store-path regression and shared store migration.
-- This is a host implementation of the same T1 control plane, not a fork.
-
-### T2 — TUI MVP and plugin `Open app`
-
-- State: **planned after T1**.
-- Build one keyboard-first responsive TUI. Omarchy supplies first-class theme
-  integration; standalone Arch/NixOS without Omarchy use the app's default
-  theme or later explicit override.
-- Wide dashboard direction: traffic summary at top, profiles/subscriptions
-  sources plus live activity/logs in the main workspace, and persistent
-  connection/mode/core/protection/policy status at the bottom.
-- MVP operations: profiles/subscriptions, connect/disconnect, supported modes,
-  search/favorites, one/all latency tests, traffic rate/totals, active
-  connection count, profile/core details, subscription refresh, settings and
-  diagnostics entry points, help overlay.
-- `j/k` + arrows are baseline navigation; `h/l`/Tab, search, first/last and
-  mouse support are added where they improve rather than complicate semantics.
-- Host-specific branches in the TUI are restricted to setup/doctor/remediation
-  presentation. Profile parsing, connection transitions, routing and core
-  controller behavior come only from the semantic runtime API.
-- Add `Open app` to the Omarchy plugin. It must launch or focus one TUI window,
-  attach to the existing runtime and never create a second tunnel/core.
-- Concurrent bar and TUI actions must serialize against the same canonical
-  state; closing/reopening either surface must not disturb the tunnel.
-- T2 platform-complete means the same TUI/control protocol has accepted Arch
-  and NixOS runtime paths. If NixOS host packaging is not yet accepted, T2 may
-  merge as an Arch-supported application while NixOS remains explicitly
-  planned; do not fork the TUI in the meantime.
-
-### T3 — operator and observability integration
-
-- State: **planned after T2 and prerequisite feature tracks**.
-- Integrate D1 rules/provider diagnostics into dedicated TUI views.
-- Integrate C1 active connections when available, including a later explicit
-  close-connection mutation after its own security review.
-- Add bounded local core/application activity/log views with session-aware
-  navigation/selection/copy, richer traffic context and route inspection.
-- Add a read-only `doctor`/health view or CLI output with host-specific bounded
-  remediation hints behind the shared semantic host-capability model.
-- Keep local operator detail distinct from shareable redacted diagnostic
-  export; raw logs are never silently bundled for sharing.
-
-### T4 — background and management quality-of-life candidates
-
-- State: **later, split into separate PRs**.
-- Candidate slices: per-subscription automatic refresh schedules; provider
-  quota/usage/expiry metadata under strict bounds; transactional private-state
-  backup/restore; reconnect after suspend/selected network transitions; richer
-  batch latency workflows; bounded structured DNS controls; named
-  service-routing templates layered on existing custom rules.
-- These are not permission to accept arbitrary provider YAML/configuration or
-  to broaden protocol support solely for feature-count parity.
-
-## Networking/core architecture tracks
-
-The accepted design direction is documented in detail in
-[`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTURE.md). These tracks do
-not authorize a speculative rewrite of the current Mihomo implementation.
-
-### N0 — tunnel coordinator boundary
-
-- State: **planned when a concrete networking or multi-surface feature needs
-  it**.
-- Centralize desired versus actual connection state, owned-core transitions,
-  operation serialization and conservative foreign-VPN conflict handling.
-- Serialize commands from every OmaVLESS control surface so bar/TUI/CLI cannot
-  race separate core transitions.
-- OmaVLESS may stop cores it owns; it must not kill/reconfigure foreign VPNs or
-  arbitrary TUN interfaces.
-- Preserve current Mihomo behavior while extracting the smallest useful
-  lifecycle boundary.
-- T1 may subsume this track if the shared runtime lands first.
-
-### K0 — fail-closed threat model and host integration design
-
-- State: **accepted design/security checkpoint** in
-  [`docs/roadmap/KILL_SWITCH.md`](docs/roadmap/KILL_SWITCH.md).
-- Selected a separately packaged root-owned NetGuard service with an enrolled-
-  UID/fixed-purpose API and one atomic dedicated nftables table. QML and the
-  normal runtime receive no arbitrary firewall, command or privileged surface.
-- Defined desired-state-driven Full VPN protection, IPv4/IPv6/DNS/link
-  behavior, boot persistence, crash/upgrade/disable/removal and fixed console
-  recovery semantics.
-- Physical Wi-Fi/Ethernet transitions, suspend/resume and armed boot ordering
-  are concrete bare-metal gates; deterministic and ordinary crash/reconcile
-  coverage remains valid in Try Omarchy.
-- K1 packaging/provisioning must eventually have separate reviewed Arch and
-  NixOS host implementations; the privileged API and fail-closed semantics stay
-  common.
-
-### K1 — Full VPN fail-closed kill switch
-
-- State: **implementation-ready after accepted K0; not implemented**.
-- Initial scope: opt-in **Full VPN only**.
-- Protection follows desired VPN state rather than core process liveness.
-- If the owned core dies/restarts while the user still expects a connection,
-  ordinary direct egress stays blocked until recovery or explicit disconnect.
-- First slice is a kill switch, not permanent Lockdown.
-- Likely requires an external OS networking policy; if a privileged helper is
-  required, K0 fixes it as an optional separately reviewed root NetGuard
-  service with no arbitrary firewall rules.
-- Deliver K1 as separate protocol/state renderer, root service, runtime
-  coordination and acceptance slices rather than one broad privileged change.
-- Forced core/helper/runtime death, failed restart, network changes and removal
-  cleanup are mandatory; named physical-host cases remain bare-metal gates.
-
-### X0 — core-backend contract extraction
-
-- State: **deferred until a real second-core need exists**.
-- Extract only the Mihomo-specific lifecycle/config/capability surface required
-  to add another backend. Do not perform a big-bang rewrite while Mihomo alone
-  satisfies current product requirements.
-
-### X1 — optional Xray Full VPN compatibility backend
-
-- State: **deferred compatibility work**.
-- Trigger: common real profiles require Xray semantics that supported Mihomo
-  cannot represent without loss and the gap is confirmed to be core-level, not
-  an OmaVLESS importer bug.
-- Mihomo remains preferred/default and fully featured.
-- Core choice is initially automatic/capability-driven, not a normal user
-  preference toggle.
-- **First production Xray slice supports Full VPN only.** Routing and Direct are
-  unavailable; there is no RU/CN/IR/custom-rule/route-inspection parity claim.
-- Xray is intended to own its own validated Full VPN capture path; do not use
-  the older proposed hidden Mihomo-TUN + loopback-SOCKS + Xray two-process
-  transport chain as the default architecture.
-- One OmaVLESS-owned full-tunnel core may be active at a time.
-- Every control surface renders the same selected-core/capability state from
-  the runtime instead of implementing core selection independently.
-- If K1 exists by then, Xray integrates with the same LeakProtection boundary
-  instead of growing a second kill-switch implementation.
-
-### R1 — backend-neutral routing research
-
-- State: **deferred; not implied by X1**.
-- Consider Xray Routing only when RU/CN/IR policies, custom rules, DNS,
-  rule-data lifecycle, route inspection and leak-safety semantics can be
-  preserved rather than approximated.
-
-## Deferred compatibility research
-
-Keep these out of P4 and the networking/application refactors unless real
-demand/fixtures justify them:
-
-- Hysteria2 Realm links;
+- Hysteria2 Realm;
 - local Hysteria2 `handshake-timeout` without demonstrated value;
-- TUIC v4 / TUIC 0-RTT without representative fixtures and replay-risk review;
+- TUIC v4 / TUIC 0-RTT without fixtures and replay-risk review;
 - AnyTLS, Shadowsocks and VMess solely for protocol-count completeness;
-- manual core-selection UX before a real operational need exists;
-- permanent Lockdown semantics before K1 Full VPN kill-switch behavior is
-  proven;
-- arbitrary raw YAML merge/patch systems or untrusted provider-controlled
-  runtime configuration as a shortcut around structured adapters.
+- manual core-selection UX without operational need;
+- permanent Lockdown before K1 kill-switch behavior is proven;
+- arbitrary raw YAML merge/patch systems or provider-controlled runtime config.
 
-## Cloud -> host handoff procedure
+## 13. Branch and evidence policy
 
-For every runtime PR the cloud agent records URL, base/head SHA, changed files,
-completed cloud checks and every unchecked host/integration gate. The relevant
-acceptance agent then:
+Do not maintain permanent `alpha`/`beta` branches. Use narrow branches + Draft
+PRs; a temporary beta is only a named integration/soak assembly.
 
-1. fetches and verifies the exact candidate head;
-2. checks the diff and dependency base;
-3. runs the platform-appropriate deterministic checks plus installed-import/
-   packaging checks as applicable;
-4. executes the PR-specific live TUN/systemd/core/server/network checklist;
-5. keeps real credentials, profile/provider names and endpoints out of GitHub;
-6. reports failures on the owning PR rather than patching only an integration
-   branch;
-7. reruns affected gates whenever the head changes;
-8. merges only after the declared gates pass and explicit owner approval is
-   given.
+For every runtime or Rust migration PR record:
 
-For current Omarchy plugin/runtime work, Try Omarchy ARM64 remains the accepted
-normal integration environment under `ACCEPTANCE_ENVIRONMENTS.md`, with
-bare-metal required only for declared hardware-sensitive cases.
+- base/head exact SHA;
+- roadmap stage and owning subsystem;
+- Python owner before / Rust owner after, when applicable;
+- differential/golden evidence;
+- intentional differences;
+- cloud/static checks;
+- exact local host gates still required;
+- privacy treatment of fixtures;
+- rollback/oracle status;
+- production path change.
 
-For future standalone NixOS support, Nix package/module/generation evidence is a
-separate gate and must be labeled as such. It cannot be inferred from Try
-Omarchy or Arch tests. If/when an upstream Nix-backed Omarchy environment is
-available, add it as an explicit acceptance environment rather than silently
-relabeling existing evidence.
+A Rust PR whose tests only exercise Rust is not sufficient migration evidence.
+Use the existing behavior or a pre-established language-neutral contract as the
+comparison source.
 
-For TUI/control-plane work, the local gate additionally covers concurrent
-plugin/TUI control, launch-or-focus on Omarchy, terminal close/reopen, theme
-changes, resize behavior and confirmation that one UI cannot stall or replace
-the canonical tunnel owner. Standalone Arch/Nix tests cover the same semantic
-runtime/TUI behavior without requiring Omarchy-specific launcher/theme checks.
+For current plugin/runtime work, Try Omarchy ARM64 remains the normal local
+integration environment. Bare-metal becomes mandatory only for concrete
+hardware-sensitive cases. Future Arch/Nix packaging evidence is recorded
+separately and one host never proves another.
 
-A stacked successor is rebased/retargeted only after its predecessor merges,
-then receives its own checks. Do not create empty successor branches merely to
-reserve names.
+## 14. Current priority in one sentence
+
+**Finish bounded plugin-facing work while immediately building R0/R1/R2; add
+new protocol parsers only after the Rust adapter boundary; complete R3/R4 and
+Rust T1 cutover; retire Python at R6; then build the Ratatui TUI on the already
+native Arch/Nix-ready runtime.**

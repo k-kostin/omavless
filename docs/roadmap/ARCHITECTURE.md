@@ -1,218 +1,242 @@
 # OmaVLESS architecture evolution
 
-Status: design direction with an accepted T0 control-plane contract, not a
-claim of current runtime support. Updated 2026-08-28.
+Status: selected Rust application architecture with accepted T0 control-plane
+and K0 security contracts; not a claim that the standalone runtime/TUI already
+exists. Updated 2026-08-30.
 
-This document describes how OmaVLESS can gain a full TUI application, an
-optional Xray core, stronger VPN ownership semantics and fail-closed protection
-without turning the project into a generic frontend for every VPN client or
-performing a speculative rewrite of the existing Mihomo implementation.
+Related canonical documents:
 
-The detailed control-surface/TUI product direction lives in
-[`TUI_APP.md`](TUI_APP.md).
-The implementation-ready T1 ownership, IPC and migration contract lives in
-[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
-The accepted Full VPN fail-closed threat model and host boundary lives in
-[`KILL_SWITCH.md`](KILL_SWITCH.md).
+- [`RUST_MIGRATION.md`](RUST_MIGRATION.md) — Python -> Rust migration sequence;
+- [`CONTROL_PLANE.md`](CONTROL_PLANE.md) — runtime ownership and v1 IPC;
+- [`TUI_APP.md`](TUI_APP.md) — Ratatui client/product surface;
+- [`PLATFORM.md`](PLATFORM.md) — Arch + NixOS host boundary;
+- [`KILL_SWITCH.md`](KILL_SWITCH.md) — fail-closed privileged boundary.
 
 ## 1. Product boundary
 
 OmaVLESS remains a censorship-oriented proxy/VPN client built around strict
 profile import, provider subscriptions, modern proxy transports and explicit
-routing policy. It is not intended to absorb Proton VPN, Mullvad, Windscribe or
-arbitrary NetworkManager clients. Those products keep their own account,
-daemon and policy models.
+routing policy. It is not a universal frontend for Proton, Mullvad, Windscribe
+or arbitrary NetworkManager clients with unrelated account/daemon models.
 
-The project itself can, however, have several interfaces. The intended future
-shape is one canonical OmaVLESS runtime/control plane with:
+The future product has several interfaces but one connection owner:
 
-- the existing Omarchy bar plugin as the compact quick-control surface;
-- a full TUI application as the operator/management surface;
-- a bounded semantic CLI/IPC surface for integration and automation.
+- Omarchy QML/Quickshell bar — compact quick control;
+- Rust Ratatui TUI — full local workspace;
+- Rust semantic CLI — scripting/integration;
+- optional later Rust desktop GUI client;
+- one canonical Rust runtime/control plane.
 
-These surfaces must not become independent VPN managers. They share one owner
-of connection state, core lifecycle and background work.
+The interfaces are clients, not independent VPN managers.
 
-The architectural lessons that matter are therefore:
+## 2. Selected implementation boundary
 
-- define a stable backend contract instead of letting UI code know every core;
-- centralize tunnel transitions and exclusivity;
-- separate canonical runtime state from any one UI lifetime;
-- keep leak protection independent from the process whose failure it must
-  protect against.
-
-The current Mihomo implementation remains the reference behavior.
-
-## 2. Current stable boundary
-
-OmaVLESS already has a protocol-neutral profile adapter layer. Supported
-protocol adapters are responsible for strict parsing, redacted preview,
-endpoint extraction, stable subscription identity and generation of a bounded
-core configuration. The private store has an explicit protocol discriminator.
-
-Today the final generation step is Mihomo-specific, and runtime state exposes
-`core: mihomo`. The QML panel invokes the current backend directly. That is
-acceptable while Mihomo is the only production core and the plugin is the only
-rich control surface.
-
-The architecture should be extracted only when concrete product work requires
-it. The justified triggers now include:
-
-1. the TUI/control-plane track needs one canonical runtime shared by multiple
-   clients;
-2. fail-closed networking needs desired/actual lifecycle state independent of
-   Mihomo process liveness; or
-3. an optional Xray backend is required by a common core-level compatibility
-   gap.
-
-Do not introduce abstractions merely to make the source look theoretically
-multi-core or daemonized.
-
-## 3. Target layers
-
-The intended direction is:
+The implementation target is no longer language-neutral:
 
 ```text
-       +----------------+----------------+----------------+
-       |                |                |                |
-       v                v                v                |
- Omarchy bar         TUI app         CLI/automation      |
- compact UI        full workspace     integration        |
-       |                |                |                |
-       +----------------+----------------+                |
-                        |                                 |
-                        v                                 |
-             OmaVLESS runtime/control plane               |
-             canonical desired/actual state               |
-                        |                                 |
-                        v                                 |
-              Profile / subscription store               |
-                        |                                 |
-                        v                                 |
-       Protocol adapters -> validated profile semantics   |
-                        |                                 |
-                        v                                 |
-                 Capability resolver                      |
-                        |                                 |
-              +---------+---------+                       |
-              |                   |                       |
-              v                   v                       |
-        MihomoBackend         XrayBackend                 |
-        primary/full       compatibility-only initially   |
-              |                   |                       |
-              +---------+---------+                       |
-                        |                                 |
-                        v                                 |
-                 TunnelCoordinator                       |
-                 desired/actual state                     |
-                 owned-core exclusivity                   |
-                 foreign-VPN conflict policy              |
-                        |                                 |
-                  +-----+-----+                           |
-                  |           |                           |
-                  v           v                           |
-               core       LeakProtection                  |
-              process       optional                      |
-                  |           |                           |
-                  +-----+-----+                           |
-                        |                                 |
-                        v                                 |
-                 Linux networking                         |
-                 TUN/routes/firewall                      |
+QML/Quickshell Omarchy frontend
+               |
+               v
+        semantic control API
+               |
+               v
+       Rust runtime/control
+               |
+     +---------+----------+
+     |                    |
+     v                    v
+Rust domain/profile   Rust host/core
+     logic              integration
+     |                    |
+     +---------+----------+
+               v
+          external Mihomo
 ```
 
-These are conceptual boundaries. They do not require separate binaries,
-processes or Python/Rust modules until implementation pressure justifies them.
+Python remains the current validated plugin backend and temporary migration
+oracle only. It is not the target daemon/TUI architecture.
 
-## 4. Runtime/control-plane ownership
+The final normal package should use one primary `omavless` Rust executable for
+daemon/CLI/TUI entry points. Mihomo remains separately packaged and externally
+supervised. Future privileged NetGuard remains a separate reviewed component.
 
-The future bar plugin and TUI make a canonical headless runtime useful for more
-than one UI. The runtime is the natural owner of state that must survive panel
-or terminal lifetime:
+## 3. Current stable semantics
 
-- desired/actual VPN connection state;
+Existing behavior remains the reference contract while implementation moves:
+
+- strict profile parsing;
+- redacted preview;
+- private profile/subscription store;
+- stable subscription identity;
+- Mihomo config generation;
+- Full VPN / Routing / Direct;
+- Russia/China/Iran routing presets;
+- custom rules;
+- private-controller diagnostics;
+- latency probing;
+- lifecycle and conflict handling.
+
+Rust migration must preserve these semantics through differential/golden and
+real-host acceptance. Known bugs discovered during parity are fixed explicitly
+rather than frozen as compatibility requirements.
+
+## 4. Target source/dependency layers
+
+The exact crate names may evolve, but dependency direction should resemble:
+
+```text
+                    clients
+       +--------------+--------------+
+       |              |              |
+       v              v              v
+  Omarchy QML     Rust Ratatui    Rust CLI
+       |              |              |
+       +--------------+--------------+
+                      |
+                v1 control API
+                      |
+                      v
+              Rust runtime crate
+              desired/actual state
+              mutation serialization
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+ Rust domain      Mihomo backend   host adapter
+ profiles/store   config/control   Arch / NixOS
+ routing/subs     probes/status
+        |             |             |
+        +-------------+-------------+
+                      |
+                      v
+              TunnelCoordinator
+                      |
+                +-----+-----+
+                |           |
+                v           v
+             core        optional
+             process     LeakProtection
+                |           |
+                +-----+-----+
+                      v
+               Linux networking
+```
+
+Conceptual crates:
+
+```text
+omavless-protocol
+omavless-domain
+omavless-mihomo
+omavless-host
+omavless-runtime
+omavless-cli
+omavless-tui
+```
+
+Do not let QML import host/core implementation logic. Do not let the TUI access
+Mihomo controller secrets. Do not let Arch/Nix packaging semantics leak into
+profile/routing code.
+
+## 5. Rust migration is itself an architectural constraint
+
+The project uses a strangler migration, not a rewrite branch.
+
+For each subsystem:
+
+1. freeze/identify current language-neutral semantics;
+2. implement Rust candidate;
+3. compare Python reference and Rust candidate;
+4. run host integration where behavior touches OS/network state;
+5. make Rust canonical owner;
+6. retain Python briefly only as explicit oracle/rollback when required;
+7. remove obsolete Python after the next gate.
+
+Do not create a permanent Python/Rust split where both can independently own the
+same connection or state.
+
+`RUST_MIGRATION.md` defines R0-R6 and the hard rule that production TUI begins
+only after the normal runtime path no longer requires Python.
+
+## 6. Protocol/domain adapter layer
+
+The stable internal profile model lives above core choice and host packaging.
+Adapters own:
+
+- strict extraction/parsing;
+- semantic validation;
+- canonical profile representation;
+- redacted preview;
+- endpoint extraction;
+- stable subscription identity inputs;
+- bounded core representation generation.
+
+R2 migrates existing VLESS/Trojan/Hysteria2/TUIC adapters to Rust.
+
+After R2, new large protocol adapters are Rust-first. P4 WireGuard/AmneziaWG is
+therefore gated on R2 as well as its protocol-validation prerequisites. The QML
+plugin can still expose these protocols through the compatibility/runtime bridge
+without recreating their parser in Python.
+
+## 7. Runtime/control-plane ownership
+
+The Rust runtime owns state that must survive UI lifetime:
+
+- desired/actual VPN state;
 - current profile and routing mode;
-- serialized profile/store mutations;
+- serialized store/profile/subscription mutations;
 - core lifecycle and selected backend;
-- background subscription/rule-data scheduling;
-- suspend/resume or selected network-change recovery;
-- traffic sampling that several clients may consume;
-- bounded diagnostic state and local log sources;
-- `LeakProtection` state when available.
+- background refresh/reconciliation;
+- traffic sampling consumed by multiple clients;
+- bounded diagnostics/events/log views;
+- later `LeakProtection` coordination.
 
-Closing Quickshell, the plugin panel or a TUI window must not itself change the
-user's desired VPN state.
+Closing Quickshell, panel, terminal or TUI must not itself change desired VPN
+state.
 
-### Private client boundary
+The private v1 socket is `$XDG_RUNTIME_DIR/omavless/control.sock` under a
+same-user `0700` directory with `0600` socket and peer verification. Clients use
+semantic actions rather than core/systemctl/shell forwarding.
 
-T0 selects `$XDG_RUNTIME_DIR/omavless/control.sock`, below a mode-`0700`
-directory, with a mode-`0600` socket and same-UID peer verification. V1 uses
-bounded NDJSON, explicit negotiation, per-start instance IDs, revisions and one
-runtime-owned mutation queue, plus a small semantic CLI bridge for QML and
-scripts. Details are specified in
-[`CONTROL_PLANE.md`](CONTROL_PLANE.md).
+## 8. `CoreBackend`
 
-The protocol should carry semantic actions such as connect/disconnect/set-mode,
-not arbitrary UI key presses. One slow client must not stall lifecycle work.
-High-volume logs/connections should be read through separate bounded views or
-streams instead of being copied into every status snapshot.
+`CoreBackend` represents a validated proxy core implementation, not arbitrary
+installed VPN products.
 
-The plugin and TUI must not receive the Mihomo/Xray controller secret as part of
-ordinary state. Core-controller ownership stays behind the runtime boundary.
+Its eventual Rust contract should cover operations equivalent to:
 
-## 5. `CoreBackend`
+- determine representability of validated profile + mode;
+- render private core config;
+- validate config with installed core;
+- start/stop/adopt owned core;
+- bounded health/status;
+- advertised optional diagnostics/capabilities.
 
-`CoreBackend` describes what a proxy core can actually do for one validated
-profile. It is not a user-facing list of installed VPN products.
+Optional capabilities remain explicit:
 
-A minimal eventual contract should cover operations equivalent to:
-
-- report whether a profile/mode combination is representable without loss;
-- render a private core configuration;
-- validate that configuration with the installed core;
-- start and stop the owned core instance;
-- report bounded connection/runtime status;
-- advertise optional diagnostic capabilities.
-
-Optional capabilities should be explicit rather than emulated. Examples are:
-
-- Routing mode;
-- Direct mode;
-- country/rule-provider support;
-- destination-route inspection;
-- traffic/accounting details;
+- Routing;
+- Direct;
+- rule providers/presets;
+- route inspection;
+- traffic/accounting;
 - active connection inspection;
 - provider refresh.
 
-The runtime/UI boundary should consume the advertised capability set. It should
-not accumulate scattered `if core == "xray"` branches across QML, TUI and CLI.
+Clients consume capability state; they do not accumulate `if core == ...`
+branches.
 
 ### Mihomo backend
 
-Mihomo remains the preferred and full-featured backend. Existing product
-semantics stay authoritative:
+Mihomo remains primary/full-featured. Existing product semantics are
+reference behavior and must not be weakened to simplify abstraction.
 
-- Full VPN;
-- Routing;
-- Direct;
-- Russia/China/Iran policy presets;
-- custom rules;
-- rule providers and refresh;
-- private controller diagnostics;
-- route inspection;
-- traffic accounting and the existing status model.
+### Xray backend
 
-No feature should be removed from Mihomo merely because another backend cannot
-match it.
+Xray remains deferred compatibility work after the Rust runtime is stable and a
+real common Xray-only semantic gap is confirmed.
 
-### Initial Xray backend
-
-Xray is a compatibility backend, not a replacement and not an initial manual
-preference toggle. The capability resolver may choose it only when a validated
-profile contains semantics which current supported Mihomo cannot represent
-without loss and the Xray path has explicit support for that exact subset.
-
-The first production slice is deliberately:
+Initial production slice, if justified:
 
 ```text
 Full VPN   supported
@@ -220,334 +244,166 @@ Routing    unavailable
 Direct     unavailable
 ```
 
-There is no early RU/CN/IR routing parity, custom-rule parity or route-
-inspection parity.
+Core selection is automatic/capability-driven first. A manual preference toggle
+is not an initial requirement.
 
-Current Xray-core has a native TUN inbound on Linux and can create a TUN
-interface; current upstream configuration also includes automatic system route
-and outbound-interface controls. That makes a self-contained Xray Full VPN
-backend technically plausible rather than requiring the old proposed design of
-Mihomo retaining TUN while Xray sits behind a loopback SOCKS hop. See the
-upstream TUN documentation:
-https://xtls.github.io/en/config/inbounds/tun.html
+## 9. `TunnelCoordinator`
 
-OmaVLESS still needs its own live tests before relying on those facilities. An
-upstream capability is not a product guarantee.
+One Rust state machine owns tunnel transitions.
 
-### Core selection
+Keep distinct:
 
-Initial selection should be automatic and explainable:
-
-```text
-profile supported completely by Mihomo
-    -> Mihomo
-
-profile contains a supported Xray-only semantic
-    -> Xray
-```
-
-The bar/TUI may expose a read-only explanation such as `Core: Xray — required
-by this profile`. They should not ask ordinary users to choose a core whose
-compatibility consequences they cannot reasonably evaluate.
-
-A manual advanced override can be reconsidered only if real support/debugging
-needs appear later.
-
-## 6. `TunnelCoordinator`
-
-Tunnel ownership should become a single state machine instead of being spread
-across profile switching, service management, conflict checks, UI processes and
-future core selection.
-
-The coordinator owns intent and transitions, not protocol parsing.
-
-Two states must be kept distinct:
-
-- **desired state** — what the user expects, for example `connected`;
+- **desired state** — user intent;
 - **actual state** — `starting`, `connected`, `reconnecting`, `failed`,
-  `stopping` or `disconnected`.
+  `stopping`, `disconnected`.
 
-This distinction is required both for multiple control surfaces and for a
-meaningful kill switch: a crashed core may make actual state `reconnecting`
-while desired state remains `connected`.
+This distinction is required for multiple clients and fail-closed behavior.
 
-### Owned-core exclusivity
-
-OmaVLESS may automatically stop/reconfigure processes and services it owns.
-For example, a future Mihomo -> Xray transition can be serialized as one
-transaction rather than two unrelated UI actions.
-
-Conceptually:
+Owned-core transition concept:
 
 ```text
 desired = connected
 prepare replacement
-arm leak protection when configured
+arm protection if configured
 stop old owned core
-verify owned TUN/runtime state is gone
-start new owned core
-verify capture path and connectivity
+verify old capture path removed
+start replacement
+verify capture/connectivity
 desired remains connected
 ```
 
-A failed transition must have an explicit rollback or blocked/recovery state;
-it must not silently fall through to ordinary direct internet.
+Failure must have explicit rollback/blocked state and must not silently restore
+ordinary direct internet while user intent remains protected.
 
-Concurrent commands from bar/TUI/CLI must serialize through the same
-coordinator so two clients cannot race separate starts/switches.
+Concurrent bar/TUI/CLI commands serialize through this coordinator.
 
-### Foreign VPNs and TUNs
+### Foreign VPNs/TUNs
 
-OmaVLESS does not own Mullvad, Proton, Windscribe, Mihoro, V2RayN, arbitrary
-OpenVPN/WireGuard services or unrelated TUN interfaces. Best-effort detection
-should remain conservative:
+OmaVLESS never owns arbitrary Mullvad/Proton/Windscribe/Mihoro/V2RayN/OpenVPN/
+WireGuard instances merely because they are detectable.
 
-- detect a likely conflict;
-- explain it;
-- refuse or pause the OmaVLESS transition when necessary;
-- never kill, disable, rewrite or silently reconfigure the foreign client.
+Policy:
 
-This is intentionally stricter than a generic multi-VPN controller which owns
-all of its backends.
+- detect likely conflict conservatively;
+- explain/refuse/pause when necessary;
+- never kill, disable or rewrite foreign client state.
 
-## 7. `LeakProtection`: fail-closed without coupling to Mihomo
+## 10. Host integration boundary
 
-A real kill switch must remain effective when the proxy core itself is dead.
-Therefore it cannot be implemented solely by Mihomo routing/TUN state, by a QML
-switch, by a TUI process, or by logic that disappears with the core service.
+Shared Rust domain/runtime code targets Arch and NixOS without becoming a
+generic distro framework.
 
-The conceptual owner is a separate `LeakProtection` boundary coordinated with
-the tunnel state machine.
+A narrow host abstraction may report:
 
-### Kill switch versus lockdown
+- stable core entry point;
+- core/TUN privilege readiness;
+- runtime-service provisioning readiness;
+- host identity/capabilities;
+- bounded install/doctor remediation.
 
-The first product should be a **kill switch**, not permanent lockdown.
+Arch may use reviewed file capabilities. NixOS may use wrapper/service capability
+provisioning and generation-safe entry points. Desired state never persists a
+Nix generation-specific resolved store path.
 
-Kill switch semantics:
+`systemctl --user` lifecycle may remain common while unit provisioning ownership
+differs by host.
 
-- user requests Full VPN connection;
-- protection is armed;
-- while desired state is connected, loss/restart of the core does not restore
-  ordinary direct internet;
-- after the user explicitly disconnects, protection is disarmed and normal
-  connectivity returns.
+## 11. `LeakProtection`
 
-A later **Lockdown** mode would be different: direct internet remains blocked
-even after the user disconnects the VPN. That is a stronger policy and should
-be a separate explicit feature, not hidden behind the same toggle.
+A real kill switch must survive proxy-core/runtime/UI failure and therefore
+cannot be only a Mihomo option or QML/TUI switch.
 
-### First scope: Full VPN only
+K0 selects a separately packaged root NetGuard service plus fixed-purpose
+nftables policy. The ordinary Rust runtime does **not** receive arbitrary root
+or firewall authority.
 
-K1 fail-closed support should initially apply only to Full VPN.
+Initial K1 semantics remain:
 
-Full VPN has an unambiguous security invariant: while the user expects the VPN
-to be connected, ordinary application traffic must not leave through the
-physical network outside the protected tunnel path.
-
-Routing mode is harder. Its healthy state intentionally mixes direct and
-proxied traffic, and its rule engine currently lives inside Mihomo. If the core
-dies, an external firewall no longer has the same domain/rule-provider
-knowledge. A safe fallback could block all internet until recovery, but DNS,
-IPv4/IPv6, provider refresh, direct exceptions and reconnection semantics need
-an explicit threat model before that behavior is promised.
-
-Direct mode has no reason to arm leak protection.
-
-### External enforcement is required
-
-TUN disappearance alone is not a kill switch. If the core crashes and the OS
-restores an ordinary default route, traffic can escape unless an independent
-network policy remains active.
-
-K0 selects a separately packaged root NetGuard service and one atomic dedicated
-nftables table. The normal runtime does not receive `CAP_NET_ADMIN`; the
-marketplace plugin does not gain sudo/pkexec behavior. Exact fixed API,
-persistence, DNS/link policy and recovery semantics are specified in
-[`KILL_SWITCH.md`](KILL_SWITCH.md).
-
-The existing security promise must remain: the normal plugin must not quietly
-run `sudo`/`pkexec`, install passwordless policy or feed arbitrary user-writable
-configuration to a root process.
-
-### Optional bounded NetGuard-style helper
-
-If a privileged host component is required, the preferred product boundary is
-an optional, separately reviewed helper (working name `NetGuard`) rather than
-putting arbitrary privileged commands in the normal backend/runtime.
-
-Its API must be intentionally small. Conceptually it may provide operations
-such as:
-
-```text
-arm
-update validated connection allowance
-status
-disarm
-```
-
-The final protocol may differ, but it must not provide:
-
-- arbitrary shell execution;
-- arbitrary nftables expressions;
-- arbitrary file reads/writes;
-- a path where a user-controlled YAML/JSON document is interpreted as root
-  firewall configuration.
-
-Rules should be generated from a fixed audited template with strict bounded
-inputs. No reusable profile credential belongs in the privileged API.
-
-The threat model must decide how the core's own reconnection traffic is allowed
-without allowing ordinary applications to bypass the block. Candidate
-mechanisms may include a validated endpoint/tuple allowance, packet marks or a
-similarly narrow ownership signal; none is accepted until IPv4, IPv6, DNS,
-route changes and crash/restart behavior are tested on the Omarchy machine.
-
-### UI/core independence
-
-Protection state must not depend on the panel or TUI staying open. A core crash
-should look conceptually like:
-
-```text
-desired: connected
-actual: reconnecting
-protection: armed
-user traffic: blocked from direct egress
-```
-
-Every control surface can then report `Reconnecting — internet traffic is
-blocked` rather than showing a misleading disconnected state while traffic
-leaks normally.
-
-## 8. System/App proxy boundary
-
-The separate App proxy mode must remain conceptually outside Full VPN /
-Routing / Direct. It affects only applications which honor configured proxy
-settings/environment and must not be advertised as packet capture.
-
-On Omarchy, a complete design must investigate both desktop proxy state and the
-systemd/UWSM user-manager environment inherited by newly launched applications.
-Any implementation must preserve and transactionally restore the exact previous
-state. Setting a generic `none` value or merely unsetting variables on disable
-is not sufficient when the machine had pre-existing proxy configuration.
-
-This design remains unprivileged and separate from `LeakProtection`.
-
-## 9. Incremental implementation tracks
-
-This architecture is intentionally evolutionary.
-
-### T0/T1 — control-plane and shared runtime
-
-T0 is complete as a design checkpoint in
-[`CONTROL_PLANE.md`](CONTROL_PLANE.md). T1 introduces
-`omavless-runtime.service` as the headless canonical owner when scheduled. Its
-first slice implements the singleton owner, hello/status/capabilities,
-desired/actual reconciliation, serialized connect/disconnect/mode and the
-plugin compatibility bridge. T1 satisfies or subsumes the relevant N0
-lifecycle extraction rather than creating a second competing coordinator.
-
-### N0 — lifecycle/coordinator boundary
-
-State: planned only when required by a concrete networking or multi-surface
-feature.
-
-- centralize desired/actual connection state;
-- centralize owned-core transitions and operation serialization;
-- preserve conservative foreign-VPN conflict handling;
-- serialize commands from every OmaVLESS control surface;
-- keep existing Mihomo behavior unchanged;
-- do not introduce a second core merely to test the abstraction.
-
-N0 may be implemented as part of T1 or K1, or immediately before X1 if no
-earlier feature requires it.
-
-### K0 — fail-closed threat model and host integration design
-
-State: accepted design/security checkpoint in
-[`KILL_SWITCH.md`](KILL_SWITCH.md).
-
-- root NetGuard plus a compiled fixed nftables policy is the selected privilege
-  boundary;
-- protection follows desired Full VPN state through core/runtime/UI/helper
-  failure and physical route/interface changes;
-- IPv4, IPv6, DNS, local-link, boot, upgrade, disable/remove and emergency
-  recovery behavior is explicit;
-- K1's deterministic, Try Omarchy and concrete bare-metal gates are enumerated.
-
-K0 changes no networking policy by itself. K1 remains unimplemented.
-
-### K1 — Full VPN fail-closed kill switch
-
-State: implementation-ready after accepted K0, not implemented.
-
-- opt-in initially;
+- opt-in;
 - Full VPN only;
-- protection follows desired tunnel state, not process liveness;
-- core restart remains blocked from leaking ordinary traffic;
-- explicit user disconnect disarms protection;
-- no permanent Lockdown semantics in the first slice;
-- local crash/restart/network-change tests are mandatory before merge.
+- arm while desired Full VPN connection exists;
+- core loss/restart does not restore ordinary direct egress;
+- explicit disconnect disarms protection;
+- no permanent Lockdown in first slice.
 
-### X0 — core contract extraction
+K1 implementation waits for Rust canonical runtime ownership rather than being
+built as a large Python-plugin subsystem.
 
-State: deferred until a real second-core need exists.
+A future helper API stays bounded, conceptually around operations such as
+`arm`, validated allowance update, `status`, `disarm`; never arbitrary shell,
+nftables expressions or user-authored root config.
 
-Extract only the Mihomo-specific lifecycle/config surface needed to implement a
-second backend. Do not rewrite protocol adapters or UI layers wholesale.
+## 12. App/system proxy boundary
 
-### X1 — optional Xray Full VPN backend
+S1 remains outside Full VPN / Routing / Direct. It affects applications honoring
+proxy settings/environment and must preserve/restore exact prior state.
 
-State: deferred compatibility work.
+Implementation waits for Rust runtime/host ownership. Omarchy must account for
+desktop state plus systemd/UWSM environment. NixOS needs its own host-specific
+state discovery/restoration contract. No generic reset-to-default shortcut.
 
-Trigger: a common real-world profile depends on an Xray feature which supported
-Mihomo cannot represent without loss and cannot reasonably gain soon enough
-upstream.
+## 13. TUI and future GUI
 
-Initial acceptance:
+The first full application UI is **Rust + Ratatui**, downstream of R6.
+It attaches to the Rust runtime and contains no Python compatibility path.
 
-- automatic capability-driven selection;
-- Full VPN only;
-- native Xray TUN/capture path validated on Omarchy;
-- no Routing or Direct mode;
-- no hidden Mihomo+Xray two-process chain;
-- one owned core active at a time;
-- redacted diagnostics and credentials keep the existing security boundary;
-- every control surface reports the same selected core/capability state;
-- if K1 exists by then, Xray must integrate with the same `LeakProtection`
-  contract rather than inventing a second kill switch.
+GPUI is a possible later desktop client. It must not be linked into or required
+by daemon/CLI/TUI crates merely because it is Rust. Prefer an optional separate
+GUI binary/package if that avoids a graphics-stack dependency for headless/TUI
+users.
 
-### R1 — backend-neutral routing research
+All clients share the same semantic API and state.
 
-State: deferred, not implied by X1.
+## 14. Implementation tracks
 
-Only consider Xray Routing after the project can preserve the observable
-semantics of current Mihomo routing: RU/CN/IR policies, custom rules, DNS,
-rule-data lifecycle, route inspection and leak safety. Exact parity is more
-important than enabling a button.
+### P — current plugin closure
 
-## 10. Testing invariants
+Continue QML/i18n/UI correctness and existing feature validation while Rust
+migration begins. Do not freeze the plugin.
 
-Architecture refactors do not lower acceptance requirements.
+### R0-R4 — backend/domain migration under Python production owner
 
-For every core/lifecycle/control-plane slice:
+Introduce workspace/parity infrastructure, then control protocol, adapters,
+store/subscriptions/routing and OS/core operations. Python remains production
+runtime owner until explicit T1 cutover.
 
-- cloud tests cover deterministic state transitions and failure rollback;
-- configuration generation remains bounded and credential-safe;
-- only one OmaVLESS-owned full-tunnel core may own the active capture path;
-- bar/TUI/CLI commands serialize against the same canonical desired state;
-- a slow or crashed UI client cannot stall tunnel lifecycle/background work;
-- ordinary state snapshots do not expose reusable credentials or controller
-  secrets;
-- foreign VPN detection never becomes an automatic kill/reconfigure action;
-- Omarchy tests verify the exact PR head, TUN/routes, systemd/process ownership,
-  IPv4/IPv6 where available and removal cleanup;
-- a fail-closed feature must include forced process death and failed restart,
-  not only happy-path connect/disconnect;
-- security-sensitive helpers require a dedicated threat-model review and tests
-  proving their accepted command/input surface is bounded;
-- TUI/control-plane changes include concurrent plugin/TUI control, terminal
-  close/reopen and Quickshell restart without disturbing desired tunnel state.
+### R5/T1 — canonical Rust runtime
 
-The goal is not backend or UI symmetry. The goal is one product with one
-verified connection owner, several fit-for-purpose interfaces and the strongest
-validated behavior available for each supported configuration.
+Rust daemon acquires singleton ownership; plugin switches to semantic IPC/CLI;
+no second owner.
+
+### R6 — Python retirement
+
+Normal operation must succeed with Python unavailable and no venv/pip/runtime
+packages before TUI starts.
+
+### T2+ — Ratatui application and operator expansion
+
+Build full UI only on the accepted native runtime. Add C1/S1/K1/Xray features
+there or in the runtime rather than expanding Python just before deletion.
+
+## 15. Testing invariants
+
+For every architecture/migration slice:
+
+- deterministic tests cover state/failure rollback;
+- Rust rewrite has Python/contract parity evidence where applicable;
+- credential-bearing differential inputs remain private and bounded;
+- config generation remains credential-safe;
+- only one OmaVLESS-owned full-tunnel core owns active capture path;
+- clients serialize against one desired state;
+- slow/crashed clients cannot stall lifecycle/background work;
+- ordinary status never exposes reusable credentials/controller secrets;
+- foreign VPN detection never becomes automatic kill/reconfigure;
+- Try Omarchy validates exact-head TUN/routes/systemd/process ownership for
+  affected current-host slices;
+- Nix/Arch packaging evidence remains host-specific;
+- fail-closed slices force process failure/restart, not only happy path;
+- privileged helpers get separate threat-model review;
+- R6 explicitly proves Python absence from runtime path;
+- TUI tests include concurrent plugin/TUI actions and UI close/reopen without
+  tunnel disturbance.
+
+The target is one product with one verified Rust connection owner, a preserved
+strict security model, a compact Omarchy frontend and multiple native clients —
+not a collection of loosely synchronized rewrites.

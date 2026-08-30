@@ -1,52 +1,28 @@
 # OmaVLESS development workflow
 
-Status: repository workflow policy, updated 2026-08-26.
+Status: repository workflow policy, updated 2026-08-30.
 
-OmaVLESS development is split between cloud GitHub agents and a real Omarchy
-machine. The workflow must preserve one accepted source of truth while still
-making it obvious which changes have only cloud evidence and which have passed
-real TUN/Quickshell/systemd/server validation.
+This workflow applies to current plugin work, incremental Python -> Rust
+migration, standalone Arch/NixOS packaging and later TUI work.
 
-## 1. Do not use permanent `alpha` and `beta` branches by default
+`AGENTS.md` is the mandatory entry point. Backend/runtime/protocol/TUI work must
+also read `RUST_MIGRATION.md`.
 
-A permanent three-branch ladder (`alpha` -> `beta` -> `main`) looks attractive
-but duplicates information already present in pull requests and acceptance
-checklists.
-
-For this project:
-
-- a cloud-only feature branch or Draft PR already acts as the **alpha** state;
-- a Draft PR whose cloud gates pass but whose real Omarchy checklist is still
-  open already expresses **cloud-ready / local validation pending**;
-- after the exact head passes its required real Omarchy checks and receives
-  owner approval, it can merge directly to `main`.
-
-Keeping permanent `alpha` and `beta` branches would create three moving bases,
-extra rebases and ambiguity about which branch is authoritative. It would also
-make stacked PRs harder to audit.
-
-## 2. Branch roles
-
-### `main`
+## 1. One long-lived branch
 
 `main` is the only long-lived development source of truth.
 
-A runtime/network/security change reaches `main` only after all acceptance gates
-declared by that PR pass. When a change requires a real Omarchy smoke test,
-`main` therefore contains only the version which passed that test.
+Do not maintain permanent `alpha` and `beta` branches. A normal feature branch
++ Draft PR already expresses an alpha state. A cloud-ready Draft with local
+gates pending expresses the next maturity state.
 
-Documentation-only work may merge without an invented VPN smoke gate after
-normal review and cloud checks.
+A temporary `beta/<scope>` branch is allowed only for a named integration/soak
+assembly when several accepted candidate heads genuinely need combined testing.
+Fixes return to the owning PRs; beta is deleted afterward.
 
-`main` is not required to equal the currently published marketplace commit.
-The marketplace/public release is an exact immutable SHA and, for formal
-releases, should also receive a version tag. Documentation or later accepted
-work may advance `main` while the marketplace still points to an older exact
-snapshot.
+## 2. Short-lived branch roles
 
-### Short-lived feature branches
-
-All implementation work happens on narrowly scoped branches such as:
+Use narrow branches such as:
 
 ```text
 codex/<topic>
@@ -54,245 +30,301 @@ fix/<topic>
 docs/<topic>
 ```
 
-The existing `codex/...` convention is suitable for cloud agents and should
-remain the default for agent-authored work.
+For Rust migration prefer stage/scoped names which make ownership obvious, for
+example:
 
-A feature branch may contain code which has never run on the Omarchy PC. That
-fact is recorded in its Draft PR body and checklist rather than encoded in a
-permanent branch name.
+```text
+codex/rust-workspace-parity
+codex/rust-control-protocol
+codex/rust-vless-adapter
+codex/rust-store-migration
+codex/rust-mihomo-controller
+codex/rust-runtime-cutover
+```
 
-### Stacked feature branches
+Do not put R0-R6 into one giant branch.
 
-A successor may temporarily target its unmerged predecessor when the work truly
-depends on it. The PR body must state the stack explicitly and record the exact
-base/head SHAs.
+## 3. Stacked branches
 
-After the predecessor merges:
+Stack only for a real dependency.
 
-1. update/rebase the successor onto the new `main`;
-2. resolve shared documentation/changelog edits without dropping either set;
-3. rerun all cloud checks on the new exact head;
+After predecessor merges:
+
+1. update/rebase successor onto new `main`;
+2. resolve shared docs/changelog without dropping either decision;
+3. rerun materially affected cloud/parity checks;
 4. retarget to `main`;
-5. perform the successor's own real Omarchy gates;
+5. perform successor's own local gates;
 6. merge only with separate owner approval.
 
-Do not treat testing a predecessor as implicitly validating a successor.
+Do not ceremonially rebase a long-lived evidence PR such as V0 solely because
+unrelated docs/UI work advanced `main` if its exact tested patch remains valid.
+Rebase when its runtime relationship materially changes or remaining evidence
+becomes actionable.
 
-## 3. When a `beta` integration branch is justified
-
-A beta branch is optional and **temporary**, not part of the normal ladder.
-Create one only when the real Omarchy session needs to validate multiple
-otherwise independent or already-reviewed PRs together before they can safely
-merge separately.
-
-Examples:
-
-- two changes touch the same TUN/lifecycle state machine and interaction risk is
-  meaningful even though each PR has independent tests;
-- a migration must be exercised with several coordinated follow-up slices;
-- a release candidate needs a fixed combined tree for a longer local soak.
-
-Use an explicit scoped name such as:
-
-```text
-beta/0.8.0
-beta/tunnel-coordinator
-```
-
-Rules for a temporary beta branch:
-
-- it is cut from a known `main` SHA;
-- it contains only named candidate PR heads;
-- it is never the base for unrelated new feature development;
-- fixes found during beta testing go back to the owning feature PR/branch and
-  are then re-integrated, rather than living only on beta;
-- successful beta evidence does not bypass the individual PR audit trail;
-- delete the beta branch after its candidates merge or the experiment is
-  abandoned.
-
-In other words, beta is a **test assembly**, not another source of truth.
-
-## 4. Why there is no permanent `alpha`
-
-A permanent alpha branch would mostly duplicate Draft PRs while making cloud
-agents coordinate a shared unstable branch. Shared unstable branches increase
-accidental coupling, make rollback harder and obscure which commit belongs to
-which task.
-
-For OmaVLESS, `alpha` is better represented by:
-
-```text
-feature branch + Draft PR + cloud evidence
-```
-
-This preserves isolation and lets multiple cloud agents work in parallel.
-
-If a future automated nightly/preview build needs a named aggregation point,
-create an explicit automation branch for that distribution purpose. Do not make
-it the development base by default.
-
-## 5. PR maturity states
-
-Branch names are not maturity labels. Use the following state vocabulary in PR
-bodies and the development ledger.
+## 4. PR maturity states
 
 ### Draft / cloud work
 
-Implementation is still changing or cloud validation is incomplete.
+Implementation or cloud/parity validation incomplete.
 
 ### Cloud-ready
 
-The exact remote head has passed every available deterministic/static/security
-check, but one or more declared checks require the real Omarchy machine.
-
-Cloud-ready is not merge-ready for a runtime slice with a local gate.
+Exact remote head passed all available deterministic/static/parity checks but
+one or more declared host/integration checks remain.
 
 ### Local-validation pending
 
-Often equivalent to cloud-ready, but useful when the PR is deliberately waiting
-for one scheduled Omarchy session. The unchecked local list must remain visible
-in the PR body.
+Useful when explicitly waiting for Try Omarchy, bare-metal, Arch or NixOS
+acceptance. Keep unchecked list visible.
 
 ### Merge-ready
 
-The exact head that will merge has passed its declared cloud and local gates,
-its diff has been re-reviewed after any rebase/fix, and owner approval has been
-given.
+Exact merge candidate passed declared cloud/parity/local gates, diff was
+re-reviewed after any rebase/fix and owner approval is given.
 
 ### Merged
 
-The accepted implementation is in `main`.
+Accepted implementation is in `main`.
 
-### Experimental product status
+### Experimental
 
-Independent from Git maturity. A merged protocol may remain **Experimental**
-until enough real provider/server interoperability evidence exists. Do not keep
-accepted code off `main` merely to encode an experimental product label.
+Independent product maturity label. A merged protocol can remain Experimental
+while broader provider/server evidence is missing.
 
-## 6. Cloud agent responsibilities
+### Migrated
 
-A cloud agent may:
+Do not use this word loosely. For a subsystem it means Rust is the accepted
+production owner and any retained Python code is explicitly oracle/rollback,
+not another live owner. Full project migration is not complete until R6.
 
-- research upstream code/docs/releases;
-- implement bounded changes;
-- add deterministic tests;
-- run available CI/static/security checks;
-- prepare Draft PRs and exact handoff instructions;
-- rebase/retarget stacked branches after predecessors merge;
-- update documentation and roadmaps.
+## 5. Two active development lanes
 
-A cloud agent must not claim that it validated:
+### Plugin completion lane
 
-- real Omarchy CLI behavior when the CLI is unavailable;
-- Quickshell integration with installed imports;
+Current QML/plugin work may continue while Rust migration proceeds:
+
+- localization;
+- presentation/accessibility/navigation;
+- current diagnostics/routing/import/subscription UX;
+- bug/security fixes;
+- V0 evidence when fixtures exist.
+
+Do not freeze a current bug because the backend will eventually be Rust.
+
+### Rust migration lane
+
+R0-R6 proceeds according to `RUST_MIGRATION.md`.
+
+Avoid expanding large Python backend areas which are about to move. Once R2 is
+available, new large protocol adapters are Rust-first. P4 WG/AWG depends on R2
+as well as V0.
+
+## 6. Rust migration PR template requirements
+
+Every R-stage PR body must answer:
+
+1. What exact subsystem is moving?
+2. Who owns it before this PR?
+3. Who owns it after this PR?
+4. What language-neutral contract/fixtures existed before replacement?
+5. What Python/Rust differential or golden result passed?
+6. Are any differences intentional? Why are they contract-correct?
+7. How are credentials/private fixtures protected?
+8. Does production plugin/runtime path change?
+9. What host gate is required?
+10. Can Python code be removed, or is it still oracle/rollback?
+11. What exact head SHA was tested?
+
+A PR which only shows `cargo test` against newly written Rust tests does not
+establish migration parity.
+
+## 7. Establish reference behavior before replacement
+
+Before rewriting a subsystem, capture the behavior worth preserving in a
+language-neutral form whenever practical:
+
+- accepted/rejected fixture corpus;
+- stable machine errors;
+- canonical normalized model;
+- redacted preview;
+- generated core config semantics;
+- migration outputs;
+- routing outcomes;
+- lifecycle state transitions.
+
+Do not snapshot secrets into Git.
+
+Known Python bugs are handled by explicit contract correction + regression test,
+not blindly duplicated in Rust.
+
+## 8. Differential test safety
+
+- credentials never in argv;
+- private fixtures untracked/mode `0600` where applicable;
+- CI uses only credential-free fixtures;
+- failure output does not dump raw profile/subscription input;
+- shareable parity reports use IDs/categories, not endpoints or keys;
+- bounded stdin/private files preferred over ad-hoc environment variables for
+  sensitive comparison input.
+
+## 9. Cloud agent responsibilities
+
+Cloud agents may:
+
+- research upstream behavior;
+- implement bounded QML/Python/Rust changes;
+- add language-neutral fixtures;
+- run deterministic differential/static/security checks;
+- prepare Draft PRs;
+- rebase genuine stacks;
+- update canonical docs.
+
+Cloud agents must not claim unrun:
+
+- Quickshell integration;
 - real TUN/routes/systemd ownership;
-- live server/provider interoperability;
-- censorship-network behavior which requires a real network;
-- host firewall behavior which was not actually exercised.
+- live provider/server interoperability;
+- physical network behavior;
+- Nix generation/package behavior;
+- Python-absence R6 product behavior unless actually exercised in an installed
+  environment.
 
-Every such missing gate stays unchecked.
+## 10. Try Omarchy responsibilities
 
-## 7. Omarchy-machine responsibilities
+For applicable current plugin/R4/R5 candidates:
 
-The local agent/session is the acceptance environment for behavior that depends
-on the actual desktop/network host.
+1. fetch exact candidate SHA;
+2. verify base/diff;
+3. run `omarchy plugin validate`, tests, installed QML checks and relevant
+   Rust/Python checks;
+4. execute PR-specific TUN/systemd/core/server checklist;
+5. keep credentials/endpoints/provider names out of public output;
+6. report failures on owning PR;
+7. rerun affected gates if head changes;
+8. merge only after explicit approval.
 
-For each candidate:
+Try Omarchy is ARM64/virtualized evidence; label it honestly.
 
-1. fetch the exact remote head SHA recorded in the PR;
-2. verify the diff and base before running anything;
-3. run `omarchy plugin validate`, the full test suite, relevant shell/Python
-   checks and `qmllint` with the installed imports;
-4. execute the PR-specific live checklist;
-5. keep credentials/endpoints/provider names out of public GitHub output;
-6. report failures on the owning PR;
-7. if a fix changes the head, repeat the affected checks on the new exact head;
-8. merge only after explicit owner approval.
+## 11. Bare-metal responsibilities
 
-Local experiments made directly on the machine must be converted into a normal
-branch/PR before they become accepted repository history.
+Bare-metal is secondary confidence unless concrete hardware-sensitive behavior
+requires it. Required examples include physical NIC transitions, suspend/resume,
+x86_64-only behavior or host firewall/kernel behavior not faithfully represented
+in Try Omarchy.
 
-## 8. Exact SHA discipline
+Do not demand bare-metal merely because old roadmap text did.
 
-Every handoff involving local validation records:
+## 12. Standalone Arch/NixOS responsibilities
 
-- base branch and base SHA;
-- feature branch and head SHA;
-- relevant dependency PRs;
-- automated checks already completed;
-- unchecked local gates.
+### Arch
 
-If the branch is rebased or receives another commit, previous local evidence is
-not automatically evidence for the new head. Repeat the tests materially
-affected by the change and record the new SHA.
+When R5a begins, test native package/runtime path independently of plugin-only
+acceptance: install/update/remove, service, Mihomo/TUN readiness, CLI/runtime,
+store migration, restart/rollback and Python-free operation when R6 applies.
 
-## 9. Release and marketplace model
+### NixOS
 
-Use separate concepts:
+When R5n begins, test package/module/wrapper semantics, stable entry points,
+user service, privilege negative case, generation update/rollback, garbage
+collection/stale store path and shared state migration.
+
+Never reuse Arch evidence as Nix package proof.
+
+## 13. R6 special procedure
+
+R6 must intentionally make Python unavailable to the installed normal
+OmaVLESS path and exercise all required production operations. Merely not
+observing a Python process during one happy-path connect is insufficient.
+
+Record:
+
+- package/head SHA;
+- how Python was made unavailable to OmaVLESS;
+- plugin bridge result;
+- status/import/subscription/routing/connect/diagnostic/startup coverage;
+- process tree showing no normal `backend.py` owner;
+- recovery/rollback result;
+- no venv/pip/runtime-Python installation requirement.
+
+Only after this gate may T2 production implementation begin.
+
+## 14. TUI workflow
+
+Before R6: research/design/prototypes only.
+
+After R6:
+
+- Ratatui client is developed in narrow T2 PRs;
+- it consumes only semantic Rust control API;
+- no Python compatibility calls;
+- concurrent plugin/TUI actions must serialize;
+- terminal close/reopen must not disturb tunnel;
+- Omarchy launch/focus/theme checks are distinct from standalone Arch/Nix TUI
+  behavior.
+
+## 15. Exact SHA discipline
+
+Every handoff involving runtime/migration/local validation records:
+
+- base SHA;
+- feature head SHA;
+- dependency PRs/stages;
+- cloud/parity checks;
+- unchecked host gates;
+- current owner language/path.
+
+If head changes, previous evidence applies only where unaffected; repeat
+materially affected checks.
+
+## 16. Release and marketplace model
+
+Keep concepts separate:
 
 ```text
 main                 accepted development history
 version tag          immutable project release
-marketplace snapshot exact reviewed/published commit
+marketplace snapshot exact reviewed plugin commit
+native package       exact built/tagged application release
 ```
 
-For the current 0.7.0 marketplace publication, documentation should continue to
-name its exact reviewed SHA even after `main` advances.
+Current marketplace 0.7.0 remains its reviewed SHA even as `main` adds Rust
+migration work.
 
-For future formal releases, prefer an annotated or otherwise intentional Git tag
-such as `v0.8.0` on the exact release candidate that passed the release gate.
-Marketplace submissions should reference/record that exact commit. Do not use a
-moving `beta` or `main` branch name as the security identity of a published
-build.
+The marketplace plugin never silently builds Cargo sources or installs the
+standalone package.
 
-## 10. Recommended normal flow
+## 17. Normal flow examples
 
-The default workflow is therefore:
+Plugin/UI feature:
+
+```text
+main -> feature branch -> Draft -> cloud/visual gate -> merge
+```
+
+Rust migration slice:
 
 ```text
 main
-  |
-  +-- codex/feature-a ---- Draft PR ---- cloud-ready
-  |                              |
-  |                              +-- Omarchy smoke
-  |                                      |
-  |                                      v
-  |                                  merge to main
-  |
-  +-- codex/feature-b ---- Draft PR ---- ...
+  -> establish/reference fixtures
+  -> Rust candidate + differential gate
+  -> host gate if applicable
+  -> Rust ownership cutover for slice
+  -> merge
+  -> later PR removes Python oracle when safe
 ```
 
-For a real dependency:
+T1/R5:
 
 ```text
-main
-  |
-  +-- A (Draft PR -> main)
-       |
-       +-- B (stacked Draft PR -> A)
-
-A merges
-B rebases to new main
-B gets its own gates
-B merges
+Python plugin owner
+  -> Rust runtime package present but inactive
+  -> migration preflight
+  -> explicit one-owner cutover
+  -> plugin semantic bridge
+  -> compatibility window
+  -> R6 Python retirement
 ```
 
-Only for a justified multi-PR integration test:
-
-```text
-main + candidate A + candidate B
-              |
-              v
-       beta/<scope>   (temporary)
-              |
-        combined Omarchy test
-              |
-     fixes return to A/B PRs
-              |
-       candidates merge
-              |
-        beta deleted
-```
-
-This keeps the cloud/local distinction explicit without creating permanent
-parallel histories whose meaning drifts over time.
+This workflow exists to avoid two failure modes: a giant unverifiable rewrite,
+and a permanent hybrid product which requires both Python and Rust forever.
