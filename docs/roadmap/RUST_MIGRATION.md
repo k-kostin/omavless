@@ -317,8 +317,15 @@ families expand the Python backend.
 The first bounded slice establishes `omavless-profile::Protocol` and strict,
 bounded profile-link classification. Its sanitized differential adapter exposes
 only the canonical protocol or a fixed error class; no URI or credential data
-leaves stdin. Parsing, previews, identity, endpoints and Mihomo rendering remain
-owned by Python until their later R2 parity slices.
+leaves stdin.
+
+The second bounded slice adds the future Rust-owned VLESS authority and public
+preview foundation: scheme/UUID/host/port validation, DNS/IPv4/IPv6 host
+classification, percent-decoded suggested labels, existing preview sanitation
+and fixed credential-safe parity facts. Its 31-case synthetic differential
+corpus never emits URI, UUID, server, label or password material. Python still
+owns the production path and remains the oracle while query/transport/security,
+identity and Mihomo rendering move in later slices.
 
 Migrate:
 

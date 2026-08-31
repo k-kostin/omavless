@@ -228,10 +228,12 @@ screenshots and repeat affected captures after a fix.
   (`#50`) are merged.
 - Arch + NixOS are the two initial standalone host families; Omarchy remains a
   first-class optional frontend.
-- Rust migration is now a selected implementation track. R0/R1 work is not
-  blocked by missing V0 protocol fixtures. P4 remains blocked by V0 and should
-  additionally wait for the R2 Rust protocol-adapter boundary so WG/AWG is not
-  implemented as a large new Python-only parser.
+- Rust migration is now active: R0/R1, R2 protocol classification and the
+  bounded R2 VLESS authority/public-preview foundation are merged. Missing V0
+  protocol fixtures do not block further deterministic R2 slices. P4 remains
+  blocked by V0 and should additionally wait for sufficient R2 Rust
+  protocol-adapter coverage so WG/AWG is not implemented as a large new
+  Python-only parser.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
