@@ -568,11 +568,11 @@ fn strict_boolean_alias(
     }
 }
 
-fn valid_reality_public_key(value: &str) -> bool {
+pub(crate) fn valid_reality_public_key(value: &str) -> bool {
     decoded_len_if_canonical(value) == Some(32)
 }
 
-fn valid_reality_short_id(value: &str) -> bool {
+pub(crate) fn valid_reality_short_id(value: &str) -> bool {
     value.len() <= 16
         && value.len().is_multiple_of(2)
         && value.bytes().all(|byte| byte.is_ascii_hexdigit())

@@ -8,6 +8,11 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
+
+use crate::vless::HostKind;
+use crate::vless_query::{valid_reality_public_key, valid_reality_short_id};
 
 pub const MAX_XHTTP_EXTRA_BYTES: usize = 12 * 1024;
 pub const MAX_XHTTP_EXTRA_ITEMS: usize = 160;
@@ -1485,6 +1490,992 @@ fn parse_reuse(value: Option<&JsonValue>) -> Result<ReuseFacts, XhttpOptionsErro
         h_max_reusable_secs,
         h_keep_alive_period,
     })
+}
+
+/// Normalized upload/download XHTTP mode vocabulary used by the bounded
+/// `downloadSettings` adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XhttpDownloadMode {
+    Auto,
+    StreamUp,
+    PacketUp,
+    StreamOne,
+}
+
+impl XhttpDownloadMode {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::StreamUp => "stream-up",
+            Self::PacketUp => "packet-up",
+            Self::StreamOne => "stream-one",
+        }
+    }
+}
+
+/// Normalized upload security vocabulary needed to validate inherited Reality
+/// download settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XhttpDownloadSecurity {
+    None,
+    Tls,
+    Reality,
+}
+
+impl XhttpDownloadSecurity {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Tls => "tls",
+            Self::Reality => "reality",
+        }
+    }
+}
+
+/// Credential-safe projection of normalized XHTTP `downloadSettings`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct XhttpDownloadFacts {
+    pub normalized_field_count: usize,
+    pub server_kind: Option<HostKind>,
+    pub port: Option<u16>,
+    pub tls: Option<bool>,
+    pub servername_kind: Option<HostKind>,
+    pub alpn_count: usize,
+    pub alpn_h2: bool,
+    pub alpn_h3: bool,
+    pub alpn_http_1_1: bool,
+    pub fingerprint_present: bool,
+    pub skip_cert_verify: Option<bool>,
+    pub reality_present: bool,
+    pub reality_short_id_present: bool,
+    pub reality_pq_enabled: bool,
+    pub reality_spider_compatibility: bool,
+    pub reality_pq_compatibility: bool,
+    pub path_present: bool,
+    pub host_kind: Option<HostKind>,
+    pub header_count: usize,
+    pub reuse_field_count: usize,
+    pub max_concurrency: Option<XhttpRange>,
+    pub max_connections: Option<XhttpRange>,
+    pub c_max_reuse_times: Option<XhttpRange>,
+    pub h_max_request_times: Option<XhttpRange>,
+    pub h_max_reusable_secs: Option<XhttpRange>,
+    pub h_keep_alive_period: Option<i32>,
+}
+
+struct XhttpDownloadReality {
+    public_key: String,
+    short_id: Option<String>,
+    pq_enabled: bool,
+}
+
+/// Private normalized XHTTP download-side configuration. Reusable endpoint,
+/// header, fingerprint and Reality credential material remains in memory for a
+/// later rendering slice and never appears in `Debug` or parity facts.
+pub struct XhttpDownloadSettings {
+    server: Option<String>,
+    port: Option<u16>,
+    tls: Option<bool>,
+    servername: Option<String>,
+    alpn: Vec<String>,
+    fingerprint: Option<String>,
+    skip_cert_verify: Option<bool>,
+    reality: Option<XhttpDownloadReality>,
+    path: Option<String>,
+    host: Option<String>,
+    headers: Vec<(String, String)>,
+    reuse: ReuseFacts,
+    facts: XhttpDownloadFacts,
+}
+
+impl XhttpDownloadSettings {
+    #[must_use]
+    pub const fn facts(&self) -> XhttpDownloadFacts {
+        self.facts
+    }
+
+    fn private_value_count(&self) -> usize {
+        usize::from(self.server.is_some())
+            + usize::from(self.servername.is_some())
+            + self.alpn.len()
+            + usize::from(self.fingerprint.is_some())
+            + self.reality.as_ref().map_or(0, |reality| {
+                usize::from(!reality.public_key.is_empty())
+                    + usize::from(reality.short_id.is_some())
+                    + usize::from(reality.pq_enabled)
+            })
+            + usize::from(self.path.is_some())
+            + usize::from(self.host.is_some())
+            + self.headers.len()
+            + usize::from(self.port.is_some())
+            + usize::from(self.tls.is_some())
+            + usize::from(self.skip_cert_verify.is_some())
+            + self.reuse.field_count
+    }
+}
+
+impl fmt::Debug for XhttpDownloadSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XhttpDownloadSettings")
+            .field("facts", &self.facts)
+            .field("private_value_count", &self.private_value_count())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Fixed, credential-safe XHTTP `downloadSettings` errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XhttpDownloadError {
+    Decode(XhttpExtraError),
+    Shared(XhttpOptionsError),
+    StreamOne,
+    UnsupportedFields,
+    Sockopt,
+    EndpointFormat,
+    Port,
+    Network,
+    Security,
+    TlsObject,
+    TlsFields,
+    TlsSecurityConflict,
+    TlsShow,
+    AlpnFormat,
+    AlpnValue,
+    RealitySecurityConflict,
+    RealityObject,
+    RealityFields,
+    RealityShow,
+    RealityMldsa,
+    RealityPublicKeyRequired,
+    RealityPublicKey,
+    RealityShortId,
+    RealitySettingsRequired,
+    TransportObject,
+    TransportFields,
+    PathFormat,
+    Mode,
+    ModeMismatch,
+    TransportExtraObject,
+    TransportExtraFields,
+    RecursiveDownload,
+    TransportCompatibilityFormat,
+    TransportMode,
+    IndependentOverride,
+    HeadersConflict,
+}
+
+impl XhttpDownloadError {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Decode(error) => error.code(),
+            Self::Shared(error) => error.code(),
+            Self::StreamOne => "stream_one",
+            Self::UnsupportedFields => "unsupported_fields",
+            Self::Sockopt => "sockopt",
+            Self::EndpointFormat => "endpoint_format",
+            Self::Port => "port",
+            Self::Network => "network",
+            Self::Security => "security",
+            Self::TlsObject => "tls_object",
+            Self::TlsFields => "tls_fields",
+            Self::TlsSecurityConflict => "tls_security_conflict",
+            Self::TlsShow => "tls_show",
+            Self::AlpnFormat => "alpn_format",
+            Self::AlpnValue => "alpn_value",
+            Self::RealitySecurityConflict => "reality_security_conflict",
+            Self::RealityObject => "reality_object",
+            Self::RealityFields => "reality_fields",
+            Self::RealityShow => "reality_show",
+            Self::RealityMldsa => "reality_mldsa",
+            Self::RealityPublicKeyRequired => "reality_public_key_required",
+            Self::RealityPublicKey => "reality_public_key",
+            Self::RealityShortId => "reality_short_id",
+            Self::RealitySettingsRequired => "reality_settings_required",
+            Self::TransportObject => "transport_object",
+            Self::TransportFields => "transport_fields",
+            Self::PathFormat => "path_format",
+            Self::Mode => "mode",
+            Self::ModeMismatch => "mode_mismatch",
+            Self::TransportExtraObject => "transport_extra_object",
+            Self::TransportExtraFields => "transport_extra_fields",
+            Self::RecursiveDownload => "recursive_download",
+            Self::TransportCompatibilityFormat => "transport_compatibility_format",
+            Self::TransportMode => "transport_mode",
+            Self::IndependentOverride => "independent_override",
+            Self::HeadersConflict => "headers_conflict",
+        }
+    }
+}
+
+impl fmt::Display for XhttpDownloadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode(error) => return error.fmt(formatter),
+            Self::Shared(error) => return error.fmt(formatter),
+            _ => {}
+        }
+        formatter.write_str(match self {
+            Self::Decode(_) | Self::Shared(_) => unreachable!(),
+            Self::StreamOne => "VLESS XHTTP stream-one cannot use downloadSettings",
+            Self::UnsupportedFields => "VLESS XHTTP downloadSettings contains unsupported fields",
+            Self::Sockopt => "VLESS XHTTP download sockopt is not imported",
+            Self::EndpointFormat => "VLESS XHTTP download endpoint has an invalid format",
+            Self::Port => "VLESS XHTTP download port is invalid",
+            Self::Network => "VLESS XHTTP download network must be xhttp",
+            Self::Security => "VLESS XHTTP download security is unsupported",
+            Self::TlsObject => "VLESS XHTTP download tlsSettings must be an object",
+            Self::TlsFields => "VLESS XHTTP download tlsSettings contains unsupported fields",
+            Self::TlsSecurityConflict => {
+                "VLESS XHTTP download TLS settings conflict with security none"
+            }
+            Self::TlsShow => "VLESS XHTTP download tlsSettings show is unsupported",
+            Self::AlpnFormat => "VLESS XHTTP download ALPN has an invalid format",
+            Self::AlpnValue => "VLESS XHTTP download ALPN has an unsupported value",
+            Self::RealitySecurityConflict => {
+                "VLESS XHTTP download Reality conflicts with its security"
+            }
+            Self::RealityObject => "VLESS XHTTP download realitySettings must be an object",
+            Self::RealityFields => {
+                "VLESS XHTTP download realitySettings contains unsupported fields"
+            }
+            Self::RealityShow => "VLESS XHTTP download Reality show is unsupported",
+            Self::RealityMldsa => "VLESS XHTTP download Reality ML-DSA verification is unsupported",
+            Self::RealityPublicKeyRequired => "VLESS XHTTP download Reality requires a public key",
+            Self::RealityPublicKey => {
+                "VLESS XHTTP download Reality public key has an invalid format"
+            }
+            Self::RealityShortId => "VLESS XHTTP download Reality short ID has an invalid format",
+            Self::RealitySettingsRequired => {
+                "VLESS XHTTP download Reality requires realitySettings"
+            }
+            Self::TransportObject => "VLESS XHTTP download xhttpSettings must be an object",
+            Self::TransportFields => {
+                "VLESS XHTTP download xhttpSettings contains unsupported fields"
+            }
+            Self::PathFormat => "VLESS XHTTP download path has an invalid format",
+            Self::Mode => "VLESS XHTTP download mode is unsupported",
+            Self::ModeMismatch => "VLESS XHTTP upload and download modes must match",
+            Self::TransportExtraObject => "VLESS XHTTP download transport extra must be an object",
+            Self::TransportExtraFields => {
+                "VLESS XHTTP download transport extra contains unsupported fields"
+            }
+            Self::RecursiveDownload => "VLESS XHTTP recursive download settings are not supported",
+            Self::TransportCompatibilityFormat => {
+                "VLESS XHTTP download transport compatibility field is invalid"
+            }
+            Self::TransportMode => "VLESS XHTTP download transport mode is invalid",
+            Self::IndependentOverride => {
+                "VLESS XHTTP download field cannot be overridden independently"
+            }
+            Self::HeadersConflict => "VLESS XHTTP download headers conflict",
+        })
+    }
+}
+
+impl std::error::Error for XhttpDownloadError {}
+
+impl From<XhttpExtraError> for XhttpDownloadError {
+    fn from(error: XhttpExtraError) -> Self {
+        Self::Decode(error)
+    }
+}
+
+impl From<XhttpOptionsError> for XhttpDownloadError {
+    fn from(error: XhttpOptionsError) -> Self {
+        Self::Shared(error)
+    }
+}
+
+/// Decode and normalize one bounded XHTTP `downloadSettings` object while the
+/// current Python backend remains the production owner and oracle.
+pub fn parse_xhttp_download_settings(
+    input: &str,
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
+    let document = decode_xhttp_extra(input)?;
+    normalize_xhttp_download(document, main_mode, main_security)
+}
+
+/// Byte-oriented entry point preserving the R2h1 UTF-8 and size classes.
+pub fn parse_xhttp_download_settings_bytes(
+    input: &[u8],
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
+    let document = decode_xhttp_extra_bytes(input)?;
+    normalize_xhttp_download(document, main_mode, main_security)
+}
+
+fn normalize_xhttp_download(
+    document: XhttpExtraDocument,
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
+    if main_mode == XhttpDownloadMode::StreamOne {
+        return Err(XhttpDownloadError::StreamOne);
+    }
+    let data = &document.root;
+    const ALLOWED: &[&str] = &[
+        "address",
+        "port",
+        "network",
+        "security",
+        "tlsSettings",
+        "realitySettings",
+        "xhttpSettings",
+        "sockopt",
+    ];
+    if data
+        .iter()
+        .any(|(name, _)| !ALLOWED.contains(&name.as_str()))
+    {
+        return Err(XhttpDownloadError::UnsupportedFields);
+    }
+    if field(data, "sockopt").is_some_and(|value| {
+        !matches!(value, JsonValue::Null)
+            && !matches!(value, JsonValue::String(text) if text.is_empty())
+            && !matches!(value, JsonValue::Object(values) if values.is_empty())
+    }) {
+        return Err(XhttpDownloadError::Sockopt);
+    }
+
+    let (server, server_kind) = parse_download_endpoint(field(data, "address"))?;
+    let port = parse_download_port(field(data, "port"))?;
+    if let Some(value) = field(data, "network")
+        && !is_null_or_one_of_strings(value, &["", "xhttp"])
+    {
+        return Err(XhttpDownloadError::Network);
+    }
+    let security = parse_download_security(field(data, "security"))?;
+    let mut tls = security.map(|value| value != XhttpDownloadSecurity::None);
+    let mut servername = None;
+    let mut servername_kind = None;
+    let mut alpn = Vec::new();
+    let mut fingerprint = None;
+    let mut skip_cert_verify = None;
+
+    if let Some(value) = field(data, "tlsSettings")
+        && !matches!(value, JsonValue::Null)
+    {
+        let JsonValue::Object(values) = value else {
+            return Err(XhttpDownloadError::TlsObject);
+        };
+        const ALLOWED_TLS: &[&str] =
+            &["serverName", "alpn", "fingerprint", "allowInsecure", "show"];
+        if values
+            .iter()
+            .any(|(name, _)| !ALLOWED_TLS.contains(&name.as_str()))
+        {
+            return Err(XhttpDownloadError::TlsFields);
+        }
+        if security == Some(XhttpDownloadSecurity::None) && !values.is_empty() {
+            return Err(XhttpDownloadError::TlsSecurityConflict);
+        }
+        if field(values, "show").is_some_and(|value| !python_none_or_false(value)) {
+            return Err(XhttpDownloadError::TlsShow);
+        }
+        (servername, servername_kind) = parse_download_endpoint(field(values, "serverName"))?;
+        alpn = parse_download_alpn(field(values, "alpn"))?;
+        fingerprint = parse_token(field(values, "fingerprint"))?;
+        if let Some(value) = field(values, "allowInsecure") {
+            skip_cert_verify = Some(parse_boolean(Some(value))?);
+        }
+    }
+
+    let mut reality = None;
+    let mut reality_spider_compatibility = false;
+    let mut reality_pq_compatibility = false;
+    if let Some(value) = field(data, "realitySettings")
+        && !matches!(value, JsonValue::Null)
+    {
+        if security.is_some_and(|value| value != XhttpDownloadSecurity::Reality) {
+            return Err(XhttpDownloadError::RealitySecurityConflict);
+        }
+        let JsonValue::Object(values) = value else {
+            return Err(XhttpDownloadError::RealityObject);
+        };
+        const ALLOWED_REALITY: &[&str] = &[
+            "publicKey",
+            "password",
+            "shortId",
+            "spiderX",
+            "fingerprint",
+            "serverName",
+            "mldsa65Verify",
+            "show",
+            "supportX25519MLKEM768",
+            "support-x25519mlkem768",
+        ];
+        if values
+            .iter()
+            .any(|(name, _)| !ALLOWED_REALITY.contains(&name.as_str()))
+        {
+            return Err(XhttpDownloadError::RealityFields);
+        }
+        if field(values, "show").is_some_and(|value| !python_none_or_false(value)) {
+            return Err(XhttpDownloadError::RealityShow);
+        }
+        if field(values, "mldsa65Verify").is_some_and(|value| !is_null_or_empty_string(value)) {
+            return Err(XhttpDownloadError::RealityMldsa);
+        }
+        let public_key_value = alias(values, &["publicKey", "password"])?;
+        let Some(JsonValue::String(public_key)) = public_key_value else {
+            return Err(XhttpDownloadError::RealityPublicKeyRequired);
+        };
+        if public_key.is_empty() {
+            return Err(XhttpDownloadError::RealityPublicKeyRequired);
+        }
+        if !valid_reality_public_key(public_key) {
+            return Err(XhttpDownloadError::RealityPublicKey);
+        }
+        let short_id = match field(values, "shortId") {
+            None => None,
+            Some(JsonValue::String(value)) if value.is_empty() => None,
+            Some(JsonValue::String(value)) if valid_reality_short_id(value) => Some(value.clone()),
+            Some(_) => return Err(XhttpDownloadError::RealityShortId),
+        };
+        let pq_value = alias(values, &["supportX25519MLKEM768", "support-x25519mlkem768"])?;
+        let pq_enabled = match pq_value {
+            None => false,
+            Some(value) => parse_boolean(Some(value))?,
+        };
+        reality_pq_compatibility = pq_enabled;
+        reality = Some(XhttpDownloadReality {
+            public_key: public_key.clone(),
+            short_id,
+            pq_enabled,
+        });
+        tls = Some(true);
+        let (reality_servername, reality_servername_kind) =
+            parse_download_endpoint(field(values, "serverName"))?;
+        if reality_servername.is_some() {
+            servername = reality_servername;
+            servername_kind = reality_servername_kind;
+        }
+        if let Some(value) = parse_token(field(values, "fingerprint"))? {
+            fingerprint = Some(value);
+        }
+        reality_spider_compatibility =
+            field(values, "spiderX").is_some_and(|value| !is_null_or_empty_string(value));
+    } else if security == Some(XhttpDownloadSecurity::Reality)
+        && main_security != XhttpDownloadSecurity::Reality
+    {
+        return Err(XhttpDownloadError::RealitySettingsRequired);
+    }
+
+    let mut path = None;
+    let mut host = None;
+    let mut host_kind = None;
+    let mut headers = Vec::new();
+    let mut reuse = ReuseFacts::default();
+    if let Some(value) = field(data, "xhttpSettings")
+        && !matches!(value, JsonValue::Null)
+    {
+        let JsonValue::Object(values) = value else {
+            return Err(XhttpDownloadError::TransportObject);
+        };
+        const ALLOWED_TRANSPORT: &[&str] = &["path", "host", "mode", "headers", "extra"];
+        if values
+            .iter()
+            .any(|(name, _)| !ALLOWED_TRANSPORT.contains(&name.as_str()))
+        {
+            return Err(XhttpDownloadError::TransportFields);
+        }
+        path = parse_download_path(field(values, "path"))?;
+        (host, host_kind) = parse_download_endpoint(field(values, "host"))?;
+        if let Some(value) = field(values, "mode")
+            && !is_null_or_empty_string(value)
+        {
+            let JsonValue::String(value) = value else {
+                return Err(XhttpDownloadError::Mode);
+            };
+            let mode = parse_download_mode(value).ok_or(XhttpDownloadError::Mode)?;
+            if mode != main_mode {
+                return Err(XhttpDownloadError::ModeMismatch);
+            }
+        }
+        let direct_headers = parse_headers(field(values, "headers"))?;
+        let nested = parse_download_transport_extra(field(values, "extra"))?;
+        if !direct_headers.is_empty()
+            && !nested.headers.is_empty()
+            && !headers_equal(&direct_headers, &nested.headers)
+        {
+            return Err(XhttpDownloadError::HeadersConflict);
+        }
+        headers = if nested.headers.is_empty() {
+            direct_headers
+        } else {
+            nested.headers
+        };
+        reuse = nested.reuse;
+    }
+
+    let normalized_field_count = usize::from(server.is_some())
+        + usize::from(port.is_some())
+        + usize::from(tls.is_some())
+        + usize::from(servername.is_some())
+        + usize::from(!alpn.is_empty())
+        + usize::from(fingerprint.is_some())
+        + usize::from(skip_cert_verify.is_some())
+        + usize::from(reality.is_some())
+        + usize::from(path.is_some())
+        + usize::from(host.is_some())
+        + usize::from(!headers.is_empty())
+        + usize::from(reuse.field_count > 0);
+    let facts = XhttpDownloadFacts {
+        normalized_field_count,
+        server_kind,
+        port,
+        tls,
+        servername_kind,
+        alpn_count: alpn.len(),
+        alpn_h2: alpn.iter().any(|value| value == "h2"),
+        alpn_h3: alpn.iter().any(|value| value == "h3"),
+        alpn_http_1_1: alpn.iter().any(|value| value == "http/1.1"),
+        fingerprint_present: fingerprint.is_some(),
+        skip_cert_verify,
+        reality_present: reality.is_some(),
+        reality_short_id_present: reality
+            .as_ref()
+            .is_some_and(|value| value.short_id.is_some()),
+        reality_pq_enabled: reality.as_ref().is_some_and(|value| value.pq_enabled),
+        reality_spider_compatibility,
+        reality_pq_compatibility,
+        path_present: path.is_some(),
+        host_kind,
+        header_count: headers.len(),
+        reuse_field_count: reuse.field_count,
+        max_concurrency: reuse.max_concurrency,
+        max_connections: reuse.max_connections,
+        c_max_reuse_times: reuse.c_max_reuse_times,
+        h_max_request_times: reuse.h_max_request_times,
+        h_max_reusable_secs: reuse.h_max_reusable_secs,
+        h_keep_alive_period: reuse.h_keep_alive_period,
+    };
+    Ok(XhttpDownloadSettings {
+        server,
+        port,
+        tls,
+        servername,
+        alpn,
+        fingerprint,
+        skip_cert_verify,
+        reality,
+        path,
+        host,
+        headers,
+        reuse,
+        facts,
+    })
+}
+
+fn parse_download_port(value: Option<&JsonValue>) -> Result<Option<u16>, XhttpDownloadError> {
+    match value {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::Number(JsonNumber::Integer(raw))) => {
+            let value = raw.parse::<u32>().map_err(|_| XhttpDownloadError::Port)?;
+            if value == 0 || value > u32::from(u16::MAX) {
+                return Err(XhttpDownloadError::Port);
+            }
+            Ok(Some(value as u16))
+        }
+        Some(_) => Err(XhttpDownloadError::Port),
+    }
+}
+
+fn parse_download_security(
+    value: Option<&JsonValue>,
+) -> Result<Option<XhttpDownloadSecurity>, XhttpDownloadError> {
+    match value {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(value)) if value.is_empty() => Ok(None),
+        Some(JsonValue::String(value)) => match value.as_str() {
+            "none" => Ok(Some(XhttpDownloadSecurity::None)),
+            "tls" => Ok(Some(XhttpDownloadSecurity::Tls)),
+            "reality" => Ok(Some(XhttpDownloadSecurity::Reality)),
+            _ => Err(XhttpDownloadError::Security),
+        },
+        Some(_) => Err(XhttpDownloadError::Security),
+    }
+}
+
+fn parse_download_mode(value: &str) -> Option<XhttpDownloadMode> {
+    match value {
+        "auto" => Some(XhttpDownloadMode::Auto),
+        "stream-up" => Some(XhttpDownloadMode::StreamUp),
+        "packet-up" => Some(XhttpDownloadMode::PacketUp),
+        "stream-one" => Some(XhttpDownloadMode::StreamOne),
+        _ => None,
+    }
+}
+
+fn parse_download_alpn(value: Option<&JsonValue>) -> Result<Vec<String>, XhttpDownloadError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    if matches!(value, JsonValue::Null) {
+        return Ok(Vec::new());
+    }
+    let JsonValue::Array(values) = value else {
+        return Err(XhttpDownloadError::AlpnFormat);
+    };
+    if values.len() > 8 {
+        return Err(XhttpDownloadError::AlpnFormat);
+    }
+    let mut result = Vec::new();
+    for value in values {
+        let JsonValue::String(value) = value else {
+            return Err(XhttpDownloadError::AlpnValue);
+        };
+        if !matches!(value.as_str(), "h2" | "h3" | "http/1.1") {
+            return Err(XhttpDownloadError::AlpnValue);
+        }
+        if !result.contains(value) {
+            result.push(value.clone());
+        }
+    }
+    Ok(result)
+}
+
+fn parse_download_path(value: Option<&JsonValue>) -> Result<Option<String>, XhttpDownloadError> {
+    match value {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(value)) if value.is_empty() => Ok(None),
+        Some(JsonValue::String(value))
+            if value.len() <= MAX_XHTTP_EXTRA_STRING_BYTES
+                && !value
+                    .chars()
+                    .any(|character| character <= '\u{1f}' || character == '\u{7f}') =>
+        {
+            if value.starts_with('/') {
+                Ok(Some(value.clone()))
+            } else {
+                Ok(Some(format!("/{value}")))
+            }
+        }
+        Some(_) => Err(XhttpDownloadError::PathFormat),
+    }
+}
+
+fn parse_download_endpoint(
+    value: Option<&JsonValue>,
+) -> Result<(Option<String>, Option<HostKind>), XhttpDownloadError> {
+    let value = match value {
+        None | Some(JsonValue::Null) => return Ok((None, None)),
+        Some(JsonValue::String(value)) if value.is_empty() => return Ok((None, None)),
+        Some(JsonValue::String(value)) => value,
+        Some(_) => return Err(XhttpDownloadError::EndpointFormat),
+    };
+    if value.len() > 253
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character <= '\u{1f}')
+    {
+        return Err(XhttpDownloadError::EndpointFormat);
+    }
+    if Ipv4Addr::from_str(value).is_ok() {
+        return Ok((Some(value.clone()), Some(HostKind::Ipv4)));
+    }
+    if Ipv6Addr::from_str(value).is_ok() || scoped_ipv6(value) {
+        return Ok((Some(value.clone()), Some(HostKind::Ipv6)));
+    }
+    if value.contains(['/', '@', '[', ']', ':', '#']) || !valid_download_dns_name(value) {
+        return Err(XhttpDownloadError::EndpointFormat);
+    }
+    Ok((Some(value.clone()), Some(HostKind::Dns)))
+}
+
+fn scoped_ipv6(value: &str) -> bool {
+    value.split_once('%').is_some_and(|(address, scope)| {
+        !scope.is_empty()
+            && !scope
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+            && Ipv6Addr::from_str(address).is_ok()
+    })
+}
+
+fn valid_download_dns_name(value: &str) -> bool {
+    let value = value.trim_end_matches('.');
+    if value.is_empty() {
+        return false;
+    }
+    let labels = value
+        .split(['.', '\u{3002}', '\u{ff0e}', '\u{ff61}'])
+        .collect::<Vec<_>>();
+    if labels.iter().any(|label| label.is_empty()) {
+        return false;
+    }
+    let mut ascii_length = labels.len().saturating_sub(1);
+    for label in labels {
+        let Some(length) = idna_label_length(label) else {
+            return false;
+        };
+        if length == 0 || length > 63 {
+            return false;
+        }
+        ascii_length = match ascii_length.checked_add(length) {
+            Some(length) => length,
+            None => return false,
+        };
+    }
+    ascii_length <= 253
+}
+
+fn idna_label_length(label: &str) -> Option<usize> {
+    if label.is_ascii() {
+        let bytes = label.as_bytes();
+        if bytes.is_empty()
+            || !bytes[0].is_ascii_alphanumeric()
+            || !bytes[bytes.len() - 1].is_ascii_alphanumeric()
+            || bytes
+                .iter()
+                .any(|byte| !byte.is_ascii_alphanumeric() && *byte != b'-')
+        {
+            return None;
+        }
+        return Some(bytes.len());
+    }
+    if label.starts_with('-')
+        || label.ends_with('-')
+        || label.chars().any(|character| {
+            character.is_whitespace()
+                || character.is_control()
+                || (character.is_ascii() && !character.is_ascii_alphanumeric() && character != '-')
+        })
+    {
+        return None;
+    }
+    let normalized = label
+        .chars()
+        .flat_map(char::to_lowercase)
+        .collect::<Vec<_>>();
+    punycode_length(&normalized).and_then(|length| length.checked_add(4))
+}
+
+fn punycode_length(input: &[char]) -> Option<usize> {
+    const BASE: u64 = 36;
+    const TMIN: u64 = 1;
+    const TMAX: u64 = 26;
+    const INITIAL_BIAS: u64 = 72;
+    const INITIAL_N: u64 = 128;
+
+    let mut output = input
+        .iter()
+        .filter(|character| character.is_ascii())
+        .count();
+    let basic = output;
+    if basic > 0 && basic < input.len() {
+        output = output.checked_add(1)?;
+    }
+    let mut handled = basic;
+    let mut n = INITIAL_N;
+    let mut delta = 0_u64;
+    let mut bias = INITIAL_BIAS;
+    while handled < input.len() {
+        let m = input
+            .iter()
+            .map(|character| u64::from(u32::from(*character)))
+            .filter(|value| *value >= n)
+            .min()?;
+        delta = delta.checked_add((m - n).checked_mul(u64::try_from(handled + 1).ok()?)?)?;
+        n = m;
+        for character in input {
+            let value = u64::from(u32::from(*character));
+            if value < n {
+                delta = delta.checked_add(1)?;
+            } else if value == n {
+                let mut q = delta;
+                let mut k = BASE;
+                loop {
+                    let threshold = if k <= bias {
+                        TMIN
+                    } else if k >= bias + TMAX {
+                        TMAX
+                    } else {
+                        k - bias
+                    };
+                    if q < threshold {
+                        break;
+                    }
+                    output = output.checked_add(1)?;
+                    q = (q - threshold) / (BASE - threshold);
+                    k = k.checked_add(BASE)?;
+                }
+                output = output.checked_add(1)?;
+                bias = adapt_punycode_bias(delta, handled + 1, handled == basic);
+                delta = 0;
+                handled += 1;
+            }
+        }
+        delta = delta.checked_add(1)?;
+        n = n.checked_add(1)?;
+    }
+    Some(output)
+}
+
+fn adapt_punycode_bias(delta: u64, points: usize, first: bool) -> u64 {
+    const BASE: u64 = 36;
+    const TMIN: u64 = 1;
+    const TMAX: u64 = 26;
+    const SKEW: u64 = 38;
+    const DAMP: u64 = 700;
+    let mut delta = if first { delta / DAMP } else { delta / 2 };
+    delta += delta / u64::try_from(points).unwrap_or(1);
+    let mut k = 0;
+    while delta > ((BASE - TMIN) * TMAX) / 2 {
+        delta /= BASE - TMIN;
+        k += BASE;
+    }
+    k + (((BASE - TMIN + 1) * delta) / (delta + SKEW))
+}
+
+#[derive(Default)]
+struct DownloadTransportExtra {
+    headers: Vec<(String, String)>,
+    reuse: ReuseFacts,
+}
+
+fn parse_download_transport_extra(
+    value: Option<&JsonValue>,
+) -> Result<DownloadTransportExtra, XhttpDownloadError> {
+    let Some(value) = value else {
+        return Ok(DownloadTransportExtra::default());
+    };
+    if matches!(value, JsonValue::Null) {
+        return Ok(DownloadTransportExtra::default());
+    }
+    let JsonValue::Object(values) = value else {
+        return Err(XhttpDownloadError::TransportExtraObject);
+    };
+    const ALLOWED: &[&str] = &[
+        "headers",
+        "xmux",
+        "host",
+        "path",
+        "mode",
+        "extra",
+        "xPaddingBytes",
+        "xPaddingObfsMode",
+        "xPaddingKey",
+        "xPaddingHeader",
+        "xPaddingPlacement",
+        "xPaddingMethod",
+        "uplinkHTTPMethod",
+        "sessionIDPlacement",
+        "sessionPlacement",
+        "sessionIDKey",
+        "sessionKey",
+        "sessionIDTable",
+        "sessionTable",
+        "sessionIDLength",
+        "sessionLength",
+        "seqPlacement",
+        "seqKey",
+        "uplinkDataPlacement",
+        "uplinkDataKey",
+        "uplinkChunkSize",
+        "noGRPCHeader",
+        "noSSEHeader",
+        "scMaxEachPostBytes",
+        "scMinPostsIntervalMs",
+        "scMaxBufferedPosts",
+        "scStreamUpServerSecs",
+        "serverMaxHeaderBytes",
+        "downloadSettings",
+    ];
+    if values
+        .iter()
+        .any(|(name, _)| !ALLOWED.contains(&name.as_str()))
+    {
+        return Err(XhttpDownloadError::TransportExtraFields);
+    }
+    if ["downloadSettings", "extra"]
+        .iter()
+        .any(|name| field(values, name).is_some_and(|value| !matches!(value, JsonValue::Null)))
+    {
+        return Err(XhttpDownloadError::RecursiveDownload);
+    }
+    for name in ["host", "path"] {
+        if let Some(value) = field(values, name)
+            && !matches!(value, JsonValue::Null | JsonValue::String(_))
+        {
+            return Err(XhttpDownloadError::TransportCompatibilityFormat);
+        }
+    }
+    if let Some(value) = field(values, "mode")
+        && !is_null_or_one_of_strings(value, &["", "auto", "stream-one", "stream-up", "packet-up"])
+    {
+        return Err(XhttpDownloadError::TransportMode);
+    }
+    let headers = parse_headers(field(values, "headers"))?;
+    let reuse = parse_reuse(field(values, "xmux"))?;
+    const IGNORED: &[&str] = &[
+        "xPaddingBytes",
+        "xPaddingObfsMode",
+        "xPaddingKey",
+        "xPaddingHeader",
+        "xPaddingPlacement",
+        "xPaddingMethod",
+        "uplinkHTTPMethod",
+        "sessionIDPlacement",
+        "sessionPlacement",
+        "sessionIDKey",
+        "sessionKey",
+        "sessionIDTable",
+        "sessionTable",
+        "sessionIDLength",
+        "sessionLength",
+        "seqPlacement",
+        "seqKey",
+        "uplinkDataPlacement",
+        "uplinkDataKey",
+        "uplinkChunkSize",
+        "noGRPCHeader",
+        "noSSEHeader",
+        "scMaxEachPostBytes",
+        "scMinPostsIntervalMs",
+        "scMaxBufferedPosts",
+        "scStreamUpServerSecs",
+        "serverMaxHeaderBytes",
+    ];
+    if IGNORED
+        .iter()
+        .any(|name| field(values, name).is_some_and(|value| !python_download_default(value)))
+    {
+        return Err(XhttpDownloadError::IndependentOverride);
+    }
+    Ok(DownloadTransportExtra { headers, reuse })
+}
+
+fn python_download_default(value: &JsonValue) -> bool {
+    matches!(value, JsonValue::Null)
+        || matches!(value, JsonValue::String(text) if text.is_empty() || text == "0")
+        || matches!(value, JsonValue::Boolean(false))
+        || matches!(value, JsonValue::Number(number) if number_is_zero(number))
+}
+
+fn python_none_or_false(value: &JsonValue) -> bool {
+    matches!(value, JsonValue::Null | JsonValue::Boolean(false))
+        || matches!(value, JsonValue::Number(number) if number_is_zero(number))
+}
+
+fn is_null_or_empty_string(value: &JsonValue) -> bool {
+    matches!(value, JsonValue::Null) || matches!(value, JsonValue::String(text) if text.is_empty())
+}
+
+fn headers_equal(left: &[(String, String)], right: &[(String, String)]) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|(name, value)| {
+            right
+                .iter()
+                .any(|(other_name, other_value)| name == other_name && value == other_value)
+        })
 }
 
 #[cfg(test)]
