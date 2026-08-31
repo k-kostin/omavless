@@ -13,9 +13,11 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::MAX_CLASSIFICATION_INPUT_BYTES;
+use crate::base64url::decoded_len_if_canonical;
 use crate::vless::{
     MAX_VLESS_URI_BYTES, VlessAuthorityError, extract_vless_uri, hex_value, parse_vless_authority,
 };
+use crate::vless_encryption::{VlessEncryption, VlessEncryptionError, parse_vless_encryption};
 
 const MAX_QUERY_FIELDS: usize = 128;
 const MAX_PROVIDER_METADATA_BYTES: usize = 128;
@@ -172,6 +174,7 @@ pub struct VlessQueryMetadata {
     pub xhttp_mode: Option<XhttpMode>,
     pub flow: Option<VlessFlow>,
     pub packet_encoding: Option<VlessPacketEncoding>,
+    pub encryption: Option<VlessEncryption>,
     pub reality_pq: bool,
     pub reality_pq_present: bool,
     pub reality_short_id_present: bool,
@@ -209,6 +212,7 @@ pub enum VlessQueryError {
     RealityMldsaUnsupported,
     InvalidRealityPublicKey,
     InvalidRealityShortId,
+    Encryption(VlessEncryptionError),
 }
 
 impl VlessQueryError {
@@ -235,6 +239,7 @@ impl VlessQueryError {
             Self::RealityMldsaUnsupported => "reality_mldsa_unsupported",
             Self::InvalidRealityPublicKey => "invalid_reality_public_key",
             Self::InvalidRealityShortId => "invalid_reality_short_id",
+            Self::Encryption(error) => error.code(),
         }
     }
 }
@@ -266,6 +271,7 @@ impl fmt::Display for VlessQueryError {
             Self::RealityMldsaUnsupported => "VLESS Reality ML-DSA verification is unsupported",
             Self::InvalidRealityPublicKey => "VLESS Reality public key has an invalid format",
             Self::InvalidRealityShortId => "VLESS Reality short ID has an invalid format",
+            Self::Encryption(error) => return error.fmt(formatter),
         })
     }
 }
@@ -275,6 +281,12 @@ impl std::error::Error for VlessQueryError {}
 impl From<VlessAuthorityError> for VlessQueryError {
     fn from(error: VlessAuthorityError) -> Self {
         Self::Authority(error)
+    }
+}
+
+impl From<VlessEncryptionError> for VlessQueryError {
+    fn from(error: VlessEncryptionError) -> Self {
+        Self::Encryption(error)
     }
 }
 
@@ -468,34 +480,8 @@ fn strict_boolean_alias(
     }
 }
 
-fn base64url_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'-' => Some(62),
-        b'_' => Some(63),
-        _ => None,
-    }
-}
-
-fn canonical_raw_urlsafe_base64_decoded_len(value: &str) -> Option<usize> {
-    let bytes = value.as_bytes();
-    let remainder = bytes.len() % 4;
-    if remainder == 1 || bytes.iter().any(|byte| base64url_value(*byte).is_none()) {
-        return None;
-    }
-    let final_value = bytes.last().and_then(|byte| base64url_value(*byte));
-    if (remainder == 2 && final_value.is_none_or(|value| value & 0x0f != 0))
-        || (remainder == 3 && final_value.is_none_or(|value| value & 0x03 != 0))
-    {
-        return None;
-    }
-    Some(bytes.len() / 4 * 3 + usize::from(remainder == 2) + 2 * usize::from(remainder == 3))
-}
-
 fn valid_reality_public_key(value: &str) -> bool {
-    canonical_raw_urlsafe_base64_decoded_len(value) == Some(32)
+    decoded_len_if_canonical(value) == Some(32)
 }
 
 fn valid_reality_short_id(value: &str) -> bool {
@@ -565,6 +551,8 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
     let transport = transport(&fields)?;
     let security = security(&fields)?;
     let reality = reality_metadata(&fields, security)?;
+    let encryption =
+        parse_vless_encryption(fields.get("encryption").map_or("none", String::as_str))?;
     let allow_insecure = boolean_alias(&fields, &["allowinsecure", "skip-cert-verify"])?;
     let (xhttp_mode, non_xhttp_mode_metadata) = xhttp_mode(&fields, transport)?;
     let flow = flow(&fields, transport, security)?;
@@ -580,6 +568,7 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
         xhttp_mode,
         flow,
         packet_encoding,
+        encryption,
         reality_pq: reality.pq,
         reality_pq_present: reality.pq_present,
         reality_short_id_present: reality.short_id_present,
