@@ -212,7 +212,7 @@ Catalog/contract tests are not visual acceptance: exercise the declared
 screen/state matrix on the exact installed head, protect private fixture data in
 screenshots and repeat affected captures after a fix.
 
-## Current continuity checkpoint — 2026-08-30
+## Current continuity checkpoint — 2026-08-31
 
 - Published marketplace baseline remains OmaVLESS `0.7.0` at exact reviewed SHA
   `69fe05b03129a23664fff3f8289821a7b7f80095`.
@@ -228,11 +228,12 @@ screenshots and repeat affected captures after a fix.
   (`#50`) are merged.
 - Arch + NixOS are the two initial standalone host families; Omarchy remains a
   first-class optional frontend.
-- Rust migration is now active: R0/R1, R2 protocol classification and the
-  bounded R2 VLESS authority/public-preview foundation are merged. Missing V0
-  protocol fixtures do not block further deterministic R2 slices. P4 remains
-  blocked by V0 and should additionally wait for sufficient R2 Rust
-  protocol-adapter coverage so WG/AWG is not implemented as a large new
+- Rust migration is now active: R0/R1, R2 protocol classification, VLESS
+  authority/public preview and strict query/coarse transport-security metadata
+  parity are merged. Python still owns the production path and remains the
+  oracle. Missing V0 protocol fixtures do not block further deterministic R2
+  slices. P4 remains blocked by V0 and should additionally wait for sufficient
+  R2 Rust protocol-adapter coverage so WG/AWG is not implemented as a large new
   Python-only parser.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work

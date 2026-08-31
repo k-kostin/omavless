@@ -232,9 +232,10 @@ Python remains temporarily as migration oracle, not a second runtime.
 
 ### R2 — Rust profile/protocol adapter parity
 
-State: **protocol classification foundation merged in PR #58 and bounded
-VLESS authority/public-preview parity merged in PR #60; remaining credential
-and config adapters are pending**.
+State: **protocol classification foundation merged in PR #58, bounded VLESS
+authority/public-preview parity merged in PR #60, and strict VLESS query/coarse
+transport-security metadata parity merged in PR #62; remaining credential and
+config adapters are pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -242,18 +243,23 @@ Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
 Accepted VLESS authority head: `be9668d34aab3ca26aaedd25896c913feb0a7910`.
 VLESS authority merge commit: `9d6d12f582689d75c19ed4ab823250bd2668b929`.
 
+Accepted VLESS query-metadata head: `5d477ce655a93db2343ecf412ad2b30d36c5ad54`.
+VLESS query-metadata merge commit: `02535146586146fbe20a73a024673c1296a0089a`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
-public preview/fact projection. A 31-case synthetic Python/Rust differential
-corpus covers accepted and rejected DNS, IPv4, IPv6, UUID, label and bounds
-behavior without emitting private input. Python remains the production owner
-and migration oracle.
+public preview/fact projection. It also owns the future strict query envelope,
+allowed-field/alias/provider-metadata checks and coarse transport, security,
+certificate-verification and XHTTP-mode vocabulary. Synthetic Python/Rust
+differentials cover 31 authority cases and 47 query-metadata cases without
+emitting private input. Python remains the production owner and migration
+oracle.
 
-The next bounded VLESS slices should cover query/transport/security metadata,
-then canonical identity and Mihomo rendering. Keep REALITY, XHTTP and VLESS
-Encryption semantics explicit and independently reviewable; do not combine
-every remaining protocol in one PR.
+The next bounded VLESS slices should cover the remaining security and transport
+parameters, then canonical identity and Mihomo rendering. Keep REALITY keys/PQ,
+XHTTP `extra`, VLESS Encryption, Vision flow and packet encoding explicit and
+independently reviewable; do not combine every remaining protocol in one PR.
 
 Migrate existing validated semantics:
 

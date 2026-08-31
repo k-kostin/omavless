@@ -323,9 +323,17 @@ The second bounded slice adds the future Rust-owned VLESS authority and public
 preview foundation: scheme/UUID/host/port validation, DNS/IPv4/IPv6 host
 classification, percent-decoded suggested labels, existing preview sanitation
 and fixed credential-safe parity facts. Its 31-case synthetic differential
-corpus never emits URI, UUID, server, label or password material. Python still
-owns the production path and remains the oracle while query/transport/security,
-identity and Mihomo rendering move in later slices.
+corpus never emits URI, UUID, server, label or password material.
+
+The third bounded slice adds the future strict VLESS query envelope and coarse
+transport/security metadata: form decoding, field-count/UTF-8/allowed-field
+bounds, case-insensitive duplicate and alias rejection, provider-metadata
+bounds, transport/security normalization, certificate-verification booleans and
+XHTTP mode vocabulary. Its 47-case synthetic differential exposes only fixed
+classifications, public enum values and booleans. Python still owns the
+production path and remains the oracle while REALITY keys/PQ, VLESS Encryption,
+Vision/packet encoding, transport options, XHTTP `extra`, identity and Mihomo
+rendering move in later slices.
 
 Migrate:
 
