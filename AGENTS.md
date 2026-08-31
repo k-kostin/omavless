@@ -236,12 +236,19 @@ screenshots and repeat affected captures after a fix.
   and merge commit `256669d7155766c9d1a0e05fe41a186cbd639458`:
   34 credential-free cases cover established path normalization,
   host/service-name/fingerprint presence, ALPN splitting/trimming, alias
-  conflicts and TCP-header validation. Python still owns the production path
-  and remains the oracle. The next bounded VLESS work is XHTTP `extra`, then
-  canonical identity/rendering; R2 is not complete. Missing V0 protocol fixtures
-  do not block further deterministic R2 slices. P4 remains blocked by V0 and
-  should additionally wait for sufficient R2 Rust protocol-adapter coverage so
-  WG/AWG is not implemented as a large new Python-only parser.
+  conflicts and TCP-header validation. PR `#74` then merged the bounded XHTTP
+  `extra` decoder/shape foundation at accepted head
+  `bf8aa50e3b3c1fa67cc9baf0924fe38d2a5da469` and merge commit
+  `a97871703c27c403f8be715889daa82ee755821e`: 62 credential-free cases cover
+  the 12-KiB raw bound, duplicate keys at every depth, depth/value/key/string
+  limits, accepted Python numeric forms and fail-closed surrogate handling.
+  Python still owns the production path and remains the oracle. The next bounded
+  VLESS work is normalized top-level XHTTP options, then `downloadSettings`,
+  canonical identity and Mihomo rendering; R2 is not complete. Missing V0
+  protocol fixtures do not block further deterministic R2 slices. P4 remains
+  blocked by V0 and should additionally wait for sufficient R2 Rust
+  protocol-adapter coverage so WG/AWG is not implemented as a large new
+  Python-only parser.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.

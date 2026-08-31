@@ -236,8 +236,9 @@ State: **protocol classification foundation merged in PR #58, bounded VLESS
 authority/public-preview parity merged in PR #60, and strict VLESS query/coarse
 transport-security metadata parity merged in PR #62. Vision-flow and
 packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
-#66, VLESS Encryption parity in PR #70 and transport-option parity in PR #72;
-XHTTP `extra`, canonical identity and Mihomo rendering remain pending**.
+#66, VLESS Encryption parity in PR #70, transport-option parity in PR #72 and
+XHTTP `extra` decoder/shape parity in PR #74; normalized XHTTP options,
+`downloadSettings`, canonical identity and Mihomo rendering remain pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -264,6 +265,11 @@ Accepted VLESS transport-option head:
 VLESS transport-option merge commit:
 `256669d7155766c9d1a0e05fe41a186cbd639458`.
 
+Accepted XHTTP `extra` shape head:
+`bf8aa50e3b3c1fa67cc9baf0924fe38d2a5da469`.
+XHTTP `extra` shape merge commit:
+`a97871703c27c403f8be715889daa82ee755821e`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -275,15 +281,18 @@ key/short-ID/PQ validation. It now also owns the future bounded VLESS Encryption
 grammar, canonical client-key validation, mode/RTT vocabulary and padding
 limits, plus established transport-option facts for path normalization,
 host/service-name/fingerprint presence, ALPN splitting/trimming, alias
-conflicts and TCP-header validation. Synthetic Python/Rust differentials cover
-31 authority, 47 query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption and
-34 transport-option cases without emitting private input or key material.
-Python remains the production owner and migration oracle.
+conflicts and TCP-header validation. Rust also owns the future bounded XHTTP
+`extra` decoder/shape contract: 12-KiB input, duplicate rejection at every
+object depth, depth/value/key/string bounds, accepted Python numeric forms and
+fixed credential-safe errors. Synthetic Python/Rust differentials cover 31
+authority, 47 query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption, 34
+transport-option and 62 XHTTP-shape cases without emitting private input or key
+material. Python remains the production owner and migration oracle.
 
-The next bounded VLESS slices should cover XHTTP `extra`, then canonical
-identity and Mihomo rendering. Keep those slices explicit and independently
-reviewable; do not combine every remaining protocol in one PR. R2 is not
-complete.
+The next bounded VLESS slices should cover normalized top-level XHTTP options,
+then `downloadSettings`, canonical identity and Mihomo rendering. Keep those
+slices explicit and independently reviewable; do not combine every remaining
+protocol in one PR. R2 is not complete.
 
 Migrate existing validated semantics:
 
