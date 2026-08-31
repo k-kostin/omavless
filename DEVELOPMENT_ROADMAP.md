@@ -1,6 +1,6 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-30.
+Status: active delivery ledger, updated 2026-08-31.
 
 This file is the compact source of truth for **what happens next**, dependency
 order and acceptance state. Detailed contracts live under `docs/roadmap/`.
@@ -235,9 +235,9 @@ Python remains temporarily as migration oracle, not a second runtime.
 State: **protocol classification foundation merged in PR #58, bounded VLESS
 authority/public-preview parity merged in PR #60, and strict VLESS query/coarse
 transport-security metadata parity merged in PR #62. Vision-flow and
-packet-encoding parity merged in PR #64, and REALITY key/short-ID/PQ parity
-merged in PR #66. VLESS Encryption parity merged in PR #70; remaining
-transport and config adapters are pending**.
+packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
+#66, VLESS Encryption parity in PR #70 and transport-option parity in PR #72;
+XHTTP `extra`, canonical identity and Mihomo rendering remain pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -259,6 +259,11 @@ Canonical-Base64 correction merge: `89a4d4e3ac77ac538bf884c79b308e974a03e710`.
 Accepted VLESS Encryption head: `bb4f4aeb653cc9f133538041af2663cb3dcf4d39`.
 VLESS Encryption merge commit: `bf16228e71fc48307c3beeed89927c79250c17ea`.
 
+Accepted VLESS transport-option head:
+`8f65628f57b8a7caaa801beb6b44a3a7894bbed6`.
+VLESS transport-option merge commit:
+`256669d7155766c9d1a0e05fe41a186cbd639458`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -268,15 +273,17 @@ certificate-verification and XHTTP-mode vocabulary, plus source-preserving
 Vision-flow/Mihomo normalization, packet-encoding semantics and bounded REALITY
 key/short-ID/PQ validation. It now also owns the future bounded VLESS Encryption
 grammar, canonical client-key validation, mode/RTT vocabulary and padding
-limits. Synthetic Python/Rust differentials cover 31 authority, 47
-query-metadata, 19 flow/packet, 43 REALITY and 42 Encryption cases without
-emitting private input or key material. Python remains the production owner and
-migration oracle.
+limits, plus established transport-option facts for path normalization,
+host/service-name/fingerprint presence, ALPN splitting/trimming, alias
+conflicts and TCP-header validation. Synthetic Python/Rust differentials cover
+31 authority, 47 query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption and
+34 transport-option cases without emitting private input or key material.
+Python remains the production owner and migration oracle.
 
-The next bounded VLESS slices should cover transport-specific parameters, then
-XHTTP `extra`, canonical identity and Mihomo rendering. Keep those slices
-explicit and independently reviewable; do not combine every remaining protocol
-in one PR.
+The next bounded VLESS slices should cover XHTTP `extra`, then canonical
+identity and Mihomo rendering. Keep those slices explicit and independently
+reviewable; do not combine every remaining protocol in one PR. R2 is not
+complete.
 
 Migrate existing validated semantics:
 

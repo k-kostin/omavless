@@ -1,7 +1,7 @@
 # OmaVLESS incremental Rust migration contract
 
 Status: selected implementation direction and migration contract. Updated
-2026-08-30.
+2026-08-31.
 
 This document is authoritative for implementation language, migration order and
 Python/Rust parity gates. It complements [`CONTROL_PLANE.md`](CONTROL_PLANE.md),
@@ -358,8 +358,17 @@ xorpub and random modes; 0-RTT/1-RTT vocabulary; canonical 32-byte and
 errors. Its 42-case synthetic differential exposes only public enum values,
 counts and booleans. Raw Encryption text and client key material never leave
 the adapters or enter the Rust metadata model. Python still owns the production
-path and remains the oracle while transport options, XHTTP `extra`, identity and
-Mihomo rendering move in later slices.
+path and remains the oracle for this accepted slice.
+
+The seventh bounded slice adds established VLESS transport-option parity:
+second path decoding and normalization, credential-safe host/service-name/
+fingerprint presence and Unicode facts, ALPN splitting/trimming, alias-conflict
+handling and TCP-header validation. Its 34-case synthetic differential never
+emits private path, host, service, fingerprint or ALPN values. Accepted head
+`8f65628f57b8a7caaa801beb6b44a3a7894bbed6` merged in PR `#72` as
+`256669d7155766c9d1a0e05fe41a186cbd639458`. Python still owns production and
+remains the oracle. The next bounded VLESS work is XHTTP `extra`, followed by
+canonical identity and Mihomo rendering; R2 is not complete.
 
 Migrate:
 
