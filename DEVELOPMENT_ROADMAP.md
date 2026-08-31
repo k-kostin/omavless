@@ -252,6 +252,8 @@ VLESS flow/packet merge commit: `6c688b848db97cfaf4b51f5dc8de97d41a13e450`.
 
 Accepted VLESS REALITY head: `22c60fae517b8f521d5c311273ce2ec25517cd26`.
 VLESS REALITY merge commit: `6e69bd7a32427de045938911702665accc67d7f1`.
+Canonical-Base64 correction head: `76d7132d55504dbedbab822c23160b7483ec1b52`.
+Canonical-Base64 correction merge: `89a4d4e3ac77ac538bf884c79b308e974a03e710`.
 
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
@@ -261,7 +263,7 @@ allowed-field/alias/provider-metadata checks and coarse transport, security,
 certificate-verification and XHTTP-mode vocabulary, plus source-preserving
 Vision-flow/Mihomo normalization, packet-encoding semantics and bounded REALITY
 key/short-ID/PQ validation. Synthetic Python/Rust differentials cover 31
-authority, 47 query-metadata, 19 flow/packet and 42 REALITY cases without
+authority, 47 query-metadata, 19 flow/packet and 43 REALITY cases without
 emitting private input. Python remains the production owner and migration
 oracle.
 
