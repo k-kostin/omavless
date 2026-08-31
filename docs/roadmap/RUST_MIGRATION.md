@@ -332,8 +332,17 @@ bounds, transport/security normalization, certificate-verification booleans and
 XHTTP mode vocabulary. Its 47-case synthetic differential exposes only fixed
 classifications, public enum values and booleans. Python still owns the
 production path and remains the oracle while REALITY keys/PQ, VLESS Encryption,
-Vision/packet encoding, transport options, XHTTP `extra`, identity and Mihomo
-rendering move in later slices.
+transport options, XHTTP `extra`, identity and Mihomo rendering move in later
+slices.
+
+The fourth bounded slice adds source-preserving Vision flow and packet-encoding
+semantics. Both Vision source variants normalize to Mihomo's supported flow,
+with TCP plus TLS/REALITY constraints enforced; `xudp` and `packetaddr` remain
+the only packet encodings. Its 19-case synthetic differential exposes only
+fixed classifications and public enum vocabulary. Python still owns the
+production path and remains the oracle while REALITY keys/PQ, VLESS Encryption,
+transport options, XHTTP `extra`, identity and Mihomo rendering move in later
+slices.
 
 Migrate:
 
