@@ -235,8 +235,8 @@ Python remains temporarily as migration oracle, not a second runtime.
 State: **protocol classification foundation merged in PR #58, bounded VLESS
 authority/public-preview parity merged in PR #60, and strict VLESS query/coarse
 transport-security metadata parity merged in PR #62. Vision-flow and
-packet-encoding parity merged in PR #64; remaining credential and config
-adapters are pending**.
+packet-encoding parity merged in PR #64, and REALITY key/short-ID/PQ parity
+merged in PR #66; remaining credential and config adapters are pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -250,21 +250,25 @@ VLESS query-metadata merge commit: `02535146586146fbe20a73a024673c1296a0089a`.
 Accepted VLESS flow/packet head: `d90252b2dc92bbbc34dbd481fc86278b6573b950`.
 VLESS flow/packet merge commit: `6c688b848db97cfaf4b51f5dc8de97d41a13e450`.
 
+Accepted VLESS REALITY head: `22c60fae517b8f521d5c311273ce2ec25517cd26`.
+VLESS REALITY merge commit: `6e69bd7a32427de045938911702665accc67d7f1`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
 public preview/fact projection. It also owns the future strict query envelope,
 allowed-field/alias/provider-metadata checks and coarse transport, security,
 certificate-verification and XHTTP-mode vocabulary, plus source-preserving
-Vision-flow/Mihomo normalization and packet-encoding semantics. Synthetic
-Python/Rust differentials cover 31 authority, 47 query-metadata and 19
-flow/packet cases without emitting private input. Python remains the production
-owner and migration oracle.
+Vision-flow/Mihomo normalization, packet-encoding semantics and bounded REALITY
+key/short-ID/PQ validation. Synthetic Python/Rust differentials cover 31
+authority, 47 query-metadata, 19 flow/packet and 42 REALITY cases without
+emitting private input. Python remains the production owner and migration
+oracle.
 
 The next bounded VLESS slices should cover the remaining security and transport
-parameters, then canonical identity and Mihomo rendering. Keep REALITY keys/PQ,
-XHTTP `extra` and VLESS Encryption explicit and independently reviewable; do
-not combine every remaining protocol in one PR.
+parameters, then canonical identity and Mihomo rendering. Keep XHTTP `extra`
+and VLESS Encryption explicit and independently reviewable; do not combine
+every remaining protocol in one PR.
 
 Migrate existing validated semantics:
 

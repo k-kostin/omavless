@@ -230,11 +230,12 @@ screenshots and repeat affected captures after a fix.
   first-class optional frontend.
 - Rust migration is now active: R0/R1, R2 protocol classification, VLESS
   authority/public preview and strict query/coarse transport-security metadata
-  parity are merged, as are Vision-flow and packet-encoding semantics. Python
-  still owns the production path and remains the oracle. Missing V0 protocol
-  fixtures do not block further deterministic R2 slices. P4 remains blocked by
-  V0 and should additionally wait for sufficient R2 Rust protocol-adapter
-  coverage so WG/AWG is not implemented as a large new Python-only parser.
+  parity are merged, as are Vision-flow, packet-encoding and REALITY key/PQ
+  semantics. Python still owns the production path and remains the oracle.
+  Missing V0 protocol fixtures do not block further deterministic R2 slices.
+  P4 remains blocked by V0 and should additionally wait for sufficient R2 Rust
+  protocol-adapter coverage so WG/AWG is not implemented as a large new
+  Python-only parser.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
