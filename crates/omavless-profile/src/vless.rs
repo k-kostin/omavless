@@ -2,10 +2,11 @@
 
 //! Bounded VLESS authority parsing for the incremental R2 migration.
 //!
-//! This slice deliberately stops before query/transport, REALITY, XHTTP,
-//! identity and Mihomo configuration semantics. Credentials and endpoint text
-//! remain available only in the in-memory model; differential reports use the
-//! coarse [`VlessAuthorityFacts`] projection instead.
+//! This module deliberately stops before query/transport, REALITY, XHTTP,
+//! identity and Mihomo configuration semantics. Query-envelope and coarse
+//! transport/security metadata live in the adjacent `vless_query` module.
+//! Credentials and endpoint text remain available only in the in-memory model;
+//! differential reports use the coarse [`VlessAuthorityFacts`] projection.
 
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -171,7 +172,7 @@ fn sanitize_label(value: &str) -> String {
         .to_owned()
 }
 
-fn hex_value(value: u8) -> Option<u8> {
+pub(crate) fn hex_value(value: u8) -> Option<u8> {
     match value {
         b'0'..=b'9' => Some(value - b'0'),
         b'a'..=b'f' => Some(value - b'a' + 10),
@@ -219,7 +220,7 @@ fn valid_uuid(value: &str) -> bool {
     hexadecimal == 32
 }
 
-fn extract_vless_uri(input: &str) -> Result<&str, VlessAuthorityError> {
+pub(crate) fn extract_vless_uri(input: &str) -> Result<&str, VlessAuthorityError> {
     for token in input.split_whitespace() {
         if token
             .get(..8)
