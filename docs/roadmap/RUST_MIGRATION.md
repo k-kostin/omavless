@@ -345,12 +345,13 @@ options, XHTTP `extra`, identity and Mihomo rendering move in later slices.
 
 The fifth bounded slice adds REALITY public-key/server-name requirements,
 canonical raw URL-safe X25519 key spelling, optional short-ID bounds,
-presence-aware PQ booleans and ML-DSA fail-closed handling. Its 42-case
+presence-aware PQ booleans and ML-DSA fail-closed handling. Its 43-case
 synthetic differential exposes only fixed classifications and boolean facts;
 public keys, server names, short IDs and spider metadata never leave the
-adapters. Python still owns the production path and remains the oracle while
-VLESS Encryption, transport options, XHTTP `extra`, identity and Mihomo
-rendering move in later slices.
+adapters. A follow-up canonical-Base64 correction covers every legal final
+character for a 32-byte raw URL-safe key. Python still owns the production path
+and remains the oracle while VLESS Encryption, transport options, XHTTP `extra`,
+identity and Mihomo rendering move in later slices.
 
 Migrate:
 
