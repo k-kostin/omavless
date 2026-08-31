@@ -468,16 +468,34 @@ fn strict_boolean_alias(
     }
 }
 
-fn valid_reality_public_key(value: &str) -> bool {
+fn base64url_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'-' => Some(62),
+        b'_' => Some(63),
+        _ => None,
+    }
+}
+
+fn canonical_raw_urlsafe_base64_decoded_len(value: &str) -> Option<usize> {
     let bytes = value.as_bytes();
-    bytes.len() == 43
-        && bytes
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        // A raw URL-safe Base64 encoding of 32 bytes has 43 characters. The
-        // final character contains two data bits, so its four padding bits
-        // must be zero for the spelling to be canonical.
-        && matches!(bytes.last(), Some(b'A' | b'Q' | b'g' | b'w'))
+    let remainder = bytes.len() % 4;
+    if remainder == 1 || bytes.iter().any(|byte| base64url_value(*byte).is_none()) {
+        return None;
+    }
+    let final_value = bytes.last().and_then(|byte| base64url_value(*byte));
+    if (remainder == 2 && final_value.is_none_or(|value| value & 0x0f != 0))
+        || (remainder == 3 && final_value.is_none_or(|value| value & 0x03 != 0))
+    {
+        return None;
+    }
+    Some(bytes.len() / 4 * 3 + usize::from(remainder == 2) + 2 * usize::from(remainder == 3))
+}
+
+fn valid_reality_public_key(value: &str) -> bool {
+    canonical_raw_urlsafe_base64_decoded_len(value) == Some(32)
 }
 
 fn valid_reality_short_id(value: &str) -> bool {
@@ -650,6 +668,14 @@ mod tests {
         .expect("disabled Reality PQ metadata");
         assert!(!disabled.reality_pq);
         assert!(disabled.reality_pq_present);
+
+        for final_character in "AEIMQUYcgkosw048".chars() {
+            let key = format!("{}{}", "A".repeat(42), final_character);
+            parse_vless_query_metadata(&uri(&format!(
+                "security=reality&sni=example.invalid&pbk={key}"
+            )))
+            .expect("every canonical 32-byte Base64 tail");
+        }
     }
 
     #[test]
