@@ -340,9 +340,17 @@ semantics. Both Vision source variants normalize to Mihomo's supported flow,
 with TCP plus TLS/REALITY constraints enforced; `xudp` and `packetaddr` remain
 the only packet encodings. Its 19-case synthetic differential exposes only
 fixed classifications and public enum vocabulary. Python still owns the
-production path and remains the oracle while REALITY keys/PQ, VLESS Encryption,
-transport options, XHTTP `extra`, identity and Mihomo rendering move in later
-slices.
+production path and remains the oracle while VLESS Encryption, transport
+options, XHTTP `extra`, identity and Mihomo rendering move in later slices.
+
+The fifth bounded slice adds REALITY public-key/server-name requirements,
+canonical raw URL-safe X25519 key spelling, optional short-ID bounds,
+presence-aware PQ booleans and ML-DSA fail-closed handling. Its 42-case
+synthetic differential exposes only fixed classifications and boolean facts;
+public keys, server names, short IDs and spider metadata never leave the
+adapters. Python still owns the production path and remains the oracle while
+VLESS Encryption, transport options, XHTTP `extra`, identity and Mihomo
+rendering move in later slices.
 
 Migrate:
 
