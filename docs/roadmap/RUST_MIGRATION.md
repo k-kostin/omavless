@@ -392,8 +392,21 @@ nested-download helper with a fixed sentinel, preserving every preceding
 production error in order without validating the next slice. Accepted head
 `50ae48f73448c720c41d89defe7d843ac0ed35ba` merged in PR `#78` as
 `fb08101e7d15b5484a1c4d729cf715e171b87161`. Python still owns production and
-remains the oracle. The next bounded VLESS work is `downloadSettings`,
-followed by canonical identity and Mihomo rendering; R2 is not complete.
+remains the oracle.
+
+The tenth bounded slice adds nested XHTTP `downloadSettings` parity. It models
+the secondary endpoint privately and preserves Python validation order for
+address/port, XHTTP network, none/TLS/REALITY security, TLS and REALITY options,
+nested transport settings, bounded headers, defaults, aliases and recursive-
+download rejection. Its 188-case synthetic differential exposes only fixed
+errors, endpoint/value classifications, booleans and counts; endpoint, SNI,
+REALITY public key/short ID, spider path, fingerprint and header values never
+leave the adapters or appear in `Debug`. Accepted head
+`58781daebb728a12d2639a5621d698982cfd03db` merged in PR `#80` as
+`f4c9d9eccfd0b76439c66265b700c19847b7f445`. Python still owns production and
+remains the oracle. The next bounded VLESS work is the canonical profile model,
+subscription identity, redacted preview and Mihomo rendering; R2 is not
+complete.
 
 Migrate:
 

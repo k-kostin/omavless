@@ -248,9 +248,16 @@ screenshots and repeat affected captures after a fix.
   cover allowlists, compatibility checks, server-only defaults, bounded
   headers, Python-compatible scalar/boolean/enum/token handling, session
   aliases and `xmux`/reuse semantics while stopping exactly at the
-  `downloadSettings` boundary. Python still owns the production path and
-  remains the oracle. The next bounded VLESS work is `downloadSettings`, then
-  canonical identity and Mihomo rendering; R2 is not complete. Missing V0
+  `downloadSettings` boundary. PR `#80` then merged nested XHTTP
+  `downloadSettings` parity at accepted head
+  `58781daebb728a12d2639a5621d698982cfd03db` and merge commit
+  `f4c9d9eccfd0b76439c66265b700c19847b7f445`: 188 credential-free cases
+  cover the secondary endpoint, network/security/TLS/REALITY, nested transport,
+  headers, defaults, aliases and recursive-download rejection while keeping
+  endpoint, SNI, REALITY key/short ID and header values private. Python still
+  owns the production path and remains the oracle. The next bounded VLESS work
+  is the canonical profile model, identity, redacted preview and Mihomo
+  rendering; R2 is not complete. Missing V0
   protocol fixtures do not block further deterministic R2 slices. P4 remains
   blocked by V0 and should additionally wait for sufficient R2 Rust
   protocol-adapter coverage so WG/AWG is not implemented as a large new

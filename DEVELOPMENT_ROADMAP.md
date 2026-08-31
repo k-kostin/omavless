@@ -237,9 +237,10 @@ authority/public-preview parity merged in PR #60, and strict VLESS query/coarse
 transport-security metadata parity merged in PR #62. Vision-flow and
 packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
 #66, VLESS Encryption parity in PR #70, transport-option parity in PR #72,
-XHTTP `extra` decoder/shape parity in PR #74 and normalized top-level XHTTP
-option parity in PR #78; `downloadSettings`, canonical identity and Mihomo
-rendering remain pending**.
+XHTTP `extra` decoder/shape parity in PR #74, normalized top-level XHTTP
+option parity in PR #78 and nested `downloadSettings` parity in PR #80;
+canonical profile identity, redacted preview and Mihomo rendering remain
+pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -276,6 +277,11 @@ Accepted normalized XHTTP-option head:
 Normalized XHTTP-option merge commit:
 `fb08101e7d15b5484a1c4d729cf715e171b87161`.
 
+Accepted XHTTP `downloadSettings` head:
+`58781daebb728a12d2639a5621d698982cfd03db`.
+XHTTP `downloadSettings` merge commit:
+`f4c9d9eccfd0b76439c66265b700c19847b7f445`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -293,17 +299,21 @@ object depth, depth/value/key/string bounds, accepted Python numeric forms and
 fixed credential-safe errors. Rust now also owns normalized top-level XHTTP
 options: allowlists, host/path/mode compatibility, recursive-extra rejection,
 server-only defaults, bounded headers, Python-compatible scalar/boolean/enum/
-token handling, session constraints and `xmux`/reuse semantics. Private custom
-values remain redacted, and `downloadSettings` is an explicit later boundary.
-Synthetic Python/Rust differentials cover 31 authority, 47 query-metadata, 19
-flow/packet, 43 REALITY, 42 Encryption, 34 transport-option, 62 XHTTP-shape and
-115 XHTTP-option cases without emitting private input or key material. Python
-remains the production owner and migration oracle.
+token handling, session constraints and `xmux`/reuse semantics. Rust now also
+owns the future private normalized XHTTP `downloadSettings` model and its
+Python-order validation of the secondary endpoint, network/security/TLS/REALITY,
+nested transport, headers, defaults, aliases and recursive-download rejection.
+Private endpoint, SNI, REALITY key/short ID, spider path and header values remain
+redacted. Synthetic Python/Rust differentials cover 31 authority, 47
+query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption, 34 transport-option,
+62 XHTTP-shape, 115 XHTTP-option and 188 XHTTP-download cases without emitting
+private input or key material. Python remains the production owner and migration
+oracle.
 
-The next bounded VLESS slice should cover `downloadSettings`, followed by
-canonical identity and Mihomo rendering. Keep those
-slices explicit and independently reviewable; do not combine every remaining
-protocol in one PR. R2 is not complete.
+The next bounded VLESS work should cover the canonical profile model,
+subscription identity, redacted preview and Mihomo rendering. Keep those slices
+explicit and independently reviewable; do not combine every remaining protocol
+in one PR. R2 is not complete.
 
 Migrate existing validated semantics:
 
