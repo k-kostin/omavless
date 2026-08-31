@@ -2,12 +2,12 @@
 
 //! Strict, bounded VLESS query-envelope and coarse transport metadata parsing.
 //!
-//! These R2 slices intentionally do not expose REALITY keys and do not yet
-//! validate VLESS Encryption, XHTTP `extra`, canonical identity, or Mihomo
-//! rendering. Query values remain private in memory; the public model exposes
-//! only the normalized non-credential semantics accepted by the existing
-//! Python path, including REALITY/PQ, Vision-flow and packet-encoding
-//! vocabulary.
+//! These R2 slices intentionally do not expose REALITY or Encryption keys and
+//! do not yet validate XHTTP `extra`, canonical identity, or Mihomo rendering.
+//! Query values remain private in memory; the public model exposes only the
+//! normalized non-credential semantics accepted by the existing Python path,
+//! including REALITY/PQ, Vision-flow, packet-encoding and transport-option
+//! facts.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -155,6 +155,26 @@ pub enum VlessPacketEncoding {
     PacketAddr,
 }
 
+/// Credential-safe facts about transport-specific query values.
+///
+/// Host, path, service-name, fingerprint and ALPN text is intentionally not
+/// exposed. Exact private values move only with the later canonical profile
+/// and rendering slices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VlessTransportOptions {
+    pub path_default: bool,
+    pub path_starts_with_slash: bool,
+    pub path_non_ascii: bool,
+    pub host_present: bool,
+    pub host_non_ascii: bool,
+    pub service_name_present: bool,
+    pub service_name_non_ascii: bool,
+    pub fingerprint_present: bool,
+    pub fingerprint_non_ascii: bool,
+    pub alpn_count: usize,
+    pub alpn_non_ascii: bool,
+}
+
 impl VlessPacketEncoding {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -175,6 +195,7 @@ pub struct VlessQueryMetadata {
     pub flow: Option<VlessFlow>,
     pub packet_encoding: Option<VlessPacketEncoding>,
     pub encryption: Option<VlessEncryption>,
+    pub transport_options: VlessTransportOptions,
     pub reality_pq: bool,
     pub reality_pq_present: bool,
     pub reality_short_id_present: bool,
@@ -212,6 +233,7 @@ pub enum VlessQueryError {
     RealityMldsaUnsupported,
     InvalidRealityPublicKey,
     InvalidRealityShortId,
+    UnsupportedTcpHeader,
     Encryption(VlessEncryptionError),
 }
 
@@ -239,6 +261,7 @@ impl VlessQueryError {
             Self::RealityMldsaUnsupported => "reality_mldsa_unsupported",
             Self::InvalidRealityPublicKey => "invalid_reality_public_key",
             Self::InvalidRealityShortId => "invalid_reality_short_id",
+            Self::UnsupportedTcpHeader => "unsupported_tcp_header",
             Self::Encryption(error) => error.code(),
         }
     }
@@ -271,6 +294,7 @@ impl fmt::Display for VlessQueryError {
             Self::RealityMldsaUnsupported => "VLESS Reality ML-DSA verification is unsupported",
             Self::InvalidRealityPublicKey => "VLESS Reality public key has an invalid format",
             Self::InvalidRealityShortId => "VLESS Reality short ID has an invalid format",
+            Self::UnsupportedTcpHeader => "VLESS TCP header type is unsupported",
             Self::Encryption(error) => return error.fmt(formatter),
         })
     }
@@ -464,6 +488,70 @@ fn packet_encoding(
     }
 }
 
+fn percent_decode_lossy(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+        {
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn transport_options(
+    fields: &BTreeMap<String, String>,
+    transport: VlessTransport,
+) -> Result<VlessTransportOptions, VlessQueryError> {
+    let header_type = first_alias(fields, &["headertype", "header-type"])?
+        .unwrap_or("")
+        .to_lowercase();
+    if transport == VlessTransport::Tcp && !matches!(header_type.as_str(), "" | "none") {
+        return Err(VlessQueryError::UnsupportedTcpHeader);
+    }
+
+    let fingerprint =
+        first_alias(fields, &["fp", "fingerprint", "client-fingerprint"])?.unwrap_or("");
+    let service_name = first_alias(fields, &["servicename", "service-name"])?.unwrap_or("");
+    let host = fields.get("host").map_or("", String::as_str);
+    // Python's parse_qsl performs the first form decode and parse_vless then
+    // applies urllib.parse.unquote once more to path. Preserve that established
+    // behavior, including lossy replacement for invalid bytes produced only by
+    // the second decode and leaving '+' untouched on that second pass.
+    let path = percent_decode_lossy(fields.get("path").map_or("/", String::as_str));
+    let path = if path.is_empty() { "/" } else { &path };
+    let alpn = fields
+        .get("alpn")
+        .map_or("", String::as_str)
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+
+    Ok(VlessTransportOptions {
+        path_default: path == "/",
+        path_starts_with_slash: path.starts_with('/'),
+        path_non_ascii: !path.is_ascii(),
+        host_present: !host.is_empty(),
+        host_non_ascii: !host.is_ascii(),
+        service_name_present: !service_name.is_empty(),
+        service_name_non_ascii: !service_name.is_ascii(),
+        fingerprint_present: !fingerprint.is_empty(),
+        fingerprint_non_ascii: !fingerprint.is_ascii(),
+        alpn_count: alpn.len(),
+        alpn_non_ascii: alpn.iter().any(|part| !part.is_ascii()),
+    })
+}
+
 fn strict_boolean_alias(
     fields: &BTreeMap<String, String>,
     names: &[&str],
@@ -557,6 +645,7 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
     let (xhttp_mode, non_xhttp_mode_metadata) = xhttp_mode(&fields, transport)?;
     let flow = flow(&fields, transport, security)?;
     let packet_encoding = packet_encoding(&fields)?;
+    let transport_options = transport_options(&fields, transport)?;
     let provider_metadata_present = PROVIDER_METADATA_FIELDS
         .iter()
         .any(|name| fields.contains_key(*name));
@@ -569,6 +658,7 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
         flow,
         packet_encoding,
         encryption,
+        transport_options,
         reality_pq: reality.pq,
         reality_pq_present: reality.pq_present,
         reality_short_id_present: reality.short_id_present,
