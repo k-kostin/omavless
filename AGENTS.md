@@ -242,8 +242,14 @@ screenshots and repeat affected captures after a fix.
   `a97871703c27c403f8be715889daa82ee755821e`: 62 credential-free cases cover
   the 12-KiB raw bound, duplicate keys at every depth, depth/value/key/string
   limits, accepted Python numeric forms and fail-closed surrogate handling.
-  Python still owns the production path and remains the oracle. The next bounded
-  VLESS work is normalized top-level XHTTP options, then `downloadSettings`,
+  PR `#78` then merged normalized top-level XHTTP option parity at accepted
+  head `50ae48f73448c720c41d89defe7d843ac0ed35ba` and merge commit
+  `fb08101e7d15b5484a1c4d729cf715e171b87161`: 115 credential-free cases
+  cover allowlists, compatibility checks, server-only defaults, bounded
+  headers, Python-compatible scalar/boolean/enum/token handling, session
+  aliases and `xmux`/reuse semantics while stopping exactly at the
+  `downloadSettings` boundary. Python still owns the production path and
+  remains the oracle. The next bounded VLESS work is `downloadSettings`, then
   canonical identity and Mihomo rendering; R2 is not complete. Missing V0
   protocol fixtures do not block further deterministic R2 slices. P4 remains
   blocked by V0 and should additionally wait for sufficient R2 Rust

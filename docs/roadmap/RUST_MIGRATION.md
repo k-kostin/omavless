@@ -379,10 +379,21 @@ fail closed under the fixed `invalid_json` class. Its 62-case synthetic
 differential exposes only acceptance, fixed error classes and safe shape facts;
 raw keys, strings and malformed fragments never leave the adapters. Accepted
 head `bf8aa50e3b3c1fa67cc9baf0924fe38d2a5da469` merged in PR `#74` as
-`a97871703c27c403f8be715889daa82ee755821e`. Python still owns production and
-remains the oracle. The next bounded VLESS work is normalized top-level XHTTP
-option parity, followed by `downloadSettings`, canonical identity and Mihomo
-rendering; R2 is not complete.
+`a97871703c27c403f8be715889daa82ee755821e`.
+
+The ninth bounded slice adds normalized top-level XHTTP option parity:
+supported and compatibility allowlists, host/path/mode checks, recursive
+`extra` rejection, server-only defaults, bounded headers, Python-compatible
+scalar/boolean/enum/token handling, session alias and placement constraints,
+and `xmux`/reuse semantics. Private header/token/session/padding values remain
+in memory only with redacted debug/error behavior. Its 115-case synthetic
+differential stops exactly at `downloadSettings` by replacing only the Python
+nested-download helper with a fixed sentinel, preserving every preceding
+production error in order without validating the next slice. Accepted head
+`50ae48f73448c720c41d89defe7d843ac0ed35ba` merged in PR `#78` as
+`fb08101e7d15b5484a1c4d729cf715e171b87161`. Python still owns production and
+remains the oracle. The next bounded VLESS work is `downloadSettings`,
+followed by canonical identity and Mihomo rendering; R2 is not complete.
 
 Migrate:
 
