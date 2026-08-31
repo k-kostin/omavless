@@ -367,8 +367,22 @@ handling and TCP-header validation. Its 34-case synthetic differential never
 emits private path, host, service, fingerprint or ALPN values. Accepted head
 `8f65628f57b8a7caaa801beb6b44a3a7894bbed6` merged in PR `#72` as
 `256669d7155766c9d1a0e05fe41a186cbd639458`. Python still owns production and
-remains the oracle. The next bounded VLESS work is XHTTP `extra`, followed by
-canonical identity and Mihomo rendering; R2 is not complete.
+remains the oracle.
+
+The eighth bounded slice adds the XHTTP `extra` decoder/shape foundation. It
+accepts empty input as an empty object; bounds raw UTF-8 at 12 KiB, nesting at
+depth 8, visited values at 160, keys at 128 UTF-8 bytes and strings at 2048
+UTF-8 bytes; rejects duplicate object keys at every depth; and requires an
+object root. It intentionally preserves accepted Python numeric forms including
+non-finite and overflow/arbitrary-size lexemes, while escaped lone surrogates
+fail closed under the fixed `invalid_json` class. Its 62-case synthetic
+differential exposes only acceptance, fixed error classes and safe shape facts;
+raw keys, strings and malformed fragments never leave the adapters. Accepted
+head `bf8aa50e3b3c1fa67cc9baf0924fe38d2a5da469` merged in PR `#74` as
+`a97871703c27c403f8be715889daa82ee755821e`. Python still owns production and
+remains the oracle. The next bounded VLESS work is normalized top-level XHTTP
+option parity, followed by `downloadSettings`, canonical identity and Mihomo
+rendering; R2 is not complete.
 
 Migrate:
 
