@@ -1,0 +1,46 @@
+name: Fix R2h1 compile bootstrap
+
+on:
+  push:
+    branches:
+      - codex/rust-vless-xhttp-extra-shape
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Fix parser helper and retrigger validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("crates/omavless-profile/src/xhttp_extra.rs")
+          text = path.read_text()
+          old = '''            value = value
+                .checked_mul(16)
+                .and_then(|current| current.checked_add(u16::from(hex_value(byte)?)))
+                .ok_or(XhttpExtraError::InvalidJson)?;
+'''
+          new = '''            let digit = hex_value(byte)?;
+            value = value
+                .checked_mul(16)
+                .and_then(|current| current.checked_add(u16::from(digit)))
+                .ok_or(XhttpExtraError::InvalidJson)?;
+'''
+          if old not in text:
+              raise SystemExit("expected parser block not found")
+          path.write_text(text.replace(old, new))
+          PY
+          rm -f .github/workflows/fix-r2h1-compile.yml
+          cargo fmt --all
+          git add -A
+          git diff --cached --check
+          git config user.name "Kirill Kostin"
+          git config user.email "clockworkman111@gmail.com"
+          git commit -m "Fix R2h1 hex parser bootstrap"
+          git push origin HEAD:codex/rust-vless-xhttp-extra-shape
