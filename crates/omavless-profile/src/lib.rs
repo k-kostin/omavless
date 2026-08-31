@@ -13,6 +13,7 @@ mod base64url;
 pub mod vless;
 pub mod vless_encryption;
 pub mod vless_query;
+pub mod vless_xhttp_extra;
 
 pub const MAX_CLASSIFICATION_INPUT_BYTES: usize = 64 * 1024;
 
