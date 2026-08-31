@@ -1,0 +1,49 @@
+name: Apply R2h1 XHTTP shape slice
+
+on:
+  push:
+    branches:
+      - codex/rust-vless-xhttp-extra-shape
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Rebuild, validate and publish clean R2h1 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git reset --soft origin/main
+          rm -f .github/workflows/apply-r2h1.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("crates/omavless-profile/src/lib.rs")
+          text = path.read_text()
+          line = "pub mod xhttp_extra;\n"
+          if line not in text:
+              text = text.rstrip() + "\n" + line
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          git add -A
+          git diff --cached --check
+          python3 -m py_compile tools/vless_xhttp_extra_shape_parity.py
+          cargo test -p omavless-profile --test vless_xhttp_extra_shape_differential --locked
+          ./tests/run.sh
+          ./tests/run-rust.sh
+          if command -v omarchy >/dev/null 2>&1; then
+            omarchy plugin validate .
+          else
+            echo "omarchy plugin validate: TOOL UNAVAILABLE"
+          fi
+          git config user.name "Kirill Kostin"
+          git config user.email "clockworkman111@gmail.com"
+          git commit -m "R2h1: add bounded VLESS XHTTP extra shape parity"
+          git push --force origin HEAD:codex/rust-vless-xhttp-extra-shape
