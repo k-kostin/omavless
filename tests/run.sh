@@ -10,7 +10,8 @@ python3 -m unittest -v \
   "$here/test_profile_classification_parity.py" \
   "$here/test_vless_authority_parity.py" \
   "$here/test_vless_query_metadata_parity.py" \
-  "$here/test_vless_flow_packet_parity.py"
+  "$here/test_vless_flow_packet_parity.py" \
+  "$here/test_vless_reality_parity.py"
 if command -v node >/dev/null 2>&1; then
   node "$here/test-i18n.js"
 else
