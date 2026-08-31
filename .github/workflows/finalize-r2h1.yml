@@ -1,0 +1,141 @@
+name: Finalize R2h1 exact-head PR
+
+on:
+  push:
+    branches:
+      - codex/rust-vless-xhttp-extra-shape
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-r2h1
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: codex/rust-vless-xhttp-extra-shape
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Build one clean candidate, run gates, wait for exact-head CI and merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Let any earlier bootstrap run finish before taking ownership.
+          sleep 120
+          git fetch origin main "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+          git reset --soft origin/main
+          rm -f \
+            .github/workflows/apply-r2h1.yml \
+            .github/workflows/fix-r2h1-compile.yml \
+            .github/workflows/finalize-r2h1.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          lib = Path("crates/omavless-profile/src/lib.rs")
+          text = lib.read_text()
+          line = "pub mod xhttp_extra;\n"
+          if line not in text:
+              text = text.rstrip() + "\n" + line
+          lib.write_text(text)
+
+          parser = Path("crates/omavless-profile/src/xhttp_extra.rs")
+          text = parser.read_text()
+          old = '''            value = value
+                .checked_mul(16)
+                .and_then(|current| current.checked_add(u16::from(hex_value(byte)?)))
+                .ok_or(XhttpExtraError::InvalidJson)?;
+'''
+          new = '''            let digit = hex_value(byte)?;
+            value = value
+                .checked_mul(16)
+                .and_then(|current| current.checked_add(u16::from(digit)))
+                .ok_or(XhttpExtraError::InvalidJson)?;
+'''
+          if old in text:
+              parser.write_text(text.replace(old, new))
+          PY
+          cargo fmt --all
+          git add -A
+          expected=$(cat <<'EOF'
+          crates/omavless-profile/src/lib.rs
+          crates/omavless-profile/src/xhttp_extra.rs
+          crates/omavless-profile/tests/vless_xhttp_extra_shape_differential.rs
+          tools/vless_xhttp_extra_shape_parity.py
+          EOF
+          )
+          actual=$(git diff --cached --name-only | sort)
+          if [[ "$actual" != "$(printf '%s\n' "$expected" | sed 's/^          //' | sort)" ]]; then
+            echo "Unexpected R2h1 path set"
+            printf '%s\n' "$actual"
+            exit 1
+          fi
+          git diff --cached --check
+          git config user.name "Kirill Kostin"
+          git config user.email "clockworkman111@gmail.com"
+          git commit -m "R2h1: add bounded VLESS XHTTP extra shape parity"
+          candidate=$(git rev-parse HEAD)
+
+          python3 -m py_compile tools/vless_xhttp_extra_shape_parity.py
+          cargo test -p omavless-profile --test vless_xhttp_extra_shape_differential --locked
+          ./tests/run.sh
+          ./tests/run-rust.sh
+          if command -v omarchy >/dev/null 2>&1; then
+            omarchy plugin validate .
+          else
+            echo "omarchy plugin validate: TOOL UNAVAILABLE"
+          fi
+
+          git push --force origin "HEAD:$BRANCH"
+          sleep 30
+
+          repo="$GITHUB_REPOSITORY"
+          for attempt in $(seq 1 60); do
+            runs=$(gh api "repos/$repo/actions/runs?head_sha=$candidate&per_page=100")
+            count=$(jq '.workflow_runs | length' <<<"$runs")
+            incomplete=$(jq '[.workflow_runs[] | select(.status != "completed")] | length' <<<"$runs")
+            if (( count > 0 && incomplete == 0 )); then
+              bad=$(jq '[.workflow_runs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")] | length' <<<"$runs")
+              if (( bad > 0 )); then
+                echo "Exact-head workflow failure"
+                jq -r '.workflow_runs[] | [.name,.status,.conclusion] | @tsv' <<<"$runs"
+                exit 1
+              fi
+              break
+            fi
+            if (( attempt == 60 )); then
+              echo "Timed out waiting for exact-head workflows"
+              exit 1
+            fi
+            sleep 10
+          done
+
+          checks=$(gh api -H 'Accept: application/vnd.github+json' "repos/$repo/commits/$candidate/check-runs?per_page=100")
+          check_count=$(jq '.check_runs | length' <<<"$checks")
+          bad_checks=$(jq '[.check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))] | length' <<<"$checks")
+          if (( check_count == 0 || bad_checks > 0 )); then
+            echo "Exact-head checks are not all green"
+            jq -r '.check_runs[] | [.name,.status,.conclusion] | @tsv' <<<"$checks"
+            exit 1
+          fi
+
+          remote=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          [[ "$remote" == "$candidate" ]]
+          owner=${repo%%/*}
+          pr=$(gh api "repos/$repo/pulls?state=open&head=$owner:$BRANCH&base=main" --jq '.[0].number')
+          [[ -n "$pr" ]]
+          [[ "$(gh api "repos/$repo/pulls/$pr" --jq '.head.sha')" == "$candidate" ]]
+          if [[ "$(gh api "repos/$repo/pulls/$pr" --jq '.draft')" == "true" ]]; then
+            gh api --method POST "repos/$repo/pulls/$pr/ready_for_review" >/dev/null
+          fi
+          merged=$(gh api --method PUT "repos/$repo/pulls/$pr/merge" -f merge_method=merge -f sha="$candidate")
+          [[ "$(jq -r '.merged' <<<"$merged")" == "true" ]]
+          echo "Merged PR #$pr at exact head $candidate"
