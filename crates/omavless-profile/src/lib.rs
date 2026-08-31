@@ -2,10 +2,13 @@
 
 //! Canonical pure profile-domain types for the incremental Rust migration.
 //!
-//! R2a owns protocol classification only. It does not parse credentials,
-//! access the private store, render Mihomo configuration, or enter production.
+//! R2a owns protocol classification and the next bounded slice owns VLESS
+//! authority/preview semantics. Neither slice accesses the private store,
+//! renders Mihomo configuration, or enters the production runtime path.
 
 use std::fmt;
+
+pub mod vless;
 
 pub const MAX_CLASSIFICATION_INPUT_BYTES: usize = 64 * 1024;
 
