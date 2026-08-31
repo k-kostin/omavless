@@ -350,8 +350,16 @@ synthetic differential exposes only fixed classifications and boolean facts;
 public keys, server names, short IDs and spider metadata never leave the
 adapters. A follow-up canonical-Base64 correction covers every legal final
 character for a 32-byte raw URL-safe key. Python still owns the production path
-and remains the oracle while VLESS Encryption, transport options, XHTTP `extra`,
-identity and Mihomo rendering move in later slices.
+and remains the oracle for this accepted slice.
+
+The sixth bounded slice adds the accepted VLESS Encryption grammar: native,
+xorpub and random modes; 0-RTT/1-RTT vocabulary; canonical 32-byte and
+1184-byte client keys; padding structure and aggregate bounds; and fixed safe
+errors. Its 42-case synthetic differential exposes only public enum values,
+counts and booleans. Raw Encryption text and client key material never leave
+the adapters or enter the Rust metadata model. Python still owns the production
+path and remains the oracle while transport options, XHTTP `extra`, identity and
+Mihomo rendering move in later slices.
 
 Migrate:
 
