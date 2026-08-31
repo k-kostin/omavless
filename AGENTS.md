@@ -230,13 +230,18 @@ screenshots and repeat affected captures after a fix.
   first-class optional frontend.
 - Rust migration is now active: R0/R1, R2 protocol classification, VLESS
   authority/public preview and strict query/coarse transport-security metadata
-  parity are merged, as are Vision-flow, packet-encoding and REALITY key/PQ
-  semantics. Bounded VLESS Encryption grammar/key/padding parity is also merged.
-  Python still owns the production path and remains the oracle.
-  Missing V0 protocol fixtures do not block further deterministic R2 slices.
-  P4 remains blocked by V0 and should additionally wait for sufficient R2 Rust
-  protocol-adapter coverage so WG/AWG is not implemented as a large new
-  Python-only parser.
+  parity are merged, as are Vision-flow, packet-encoding, REALITY key/PQ and
+  bounded VLESS Encryption semantics. PR `#72` also merged transport-option
+  parity at accepted head `8f65628f57b8a7caaa801beb6b44a3a7894bbed6`
+  and merge commit `256669d7155766c9d1a0e05fe41a186cbd639458`:
+  34 credential-free cases cover established path normalization,
+  host/service-name/fingerprint presence, ALPN splitting/trimming, alias
+  conflicts and TCP-header validation. Python still owns the production path
+  and remains the oracle. The next bounded VLESS work is XHTTP `extra`, then
+  canonical identity/rendering; R2 is not complete. Missing V0 protocol fixtures
+  do not block further deterministic R2 slices. P4 remains blocked by V0 and
+  should additionally wait for sufficient R2 Rust protocol-adapter coverage so
+  WG/AWG is not implemented as a large new Python-only parser.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
