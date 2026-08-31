@@ -2,11 +2,12 @@
 
 //! Strict, bounded VLESS query-envelope and coarse transport metadata parsing.
 //!
-//! These R2 slices intentionally do not validate or expose REALITY keys,
-//! VLESS Encryption, XHTTP `extra`, canonical identity, or Mihomo rendering.
-//! Query values remain private in memory; the public model exposes only the
-//! normalized non-credential semantics accepted by the existing Python path,
-//! including Vision-flow and packet-encoding vocabulary.
+//! These R2 slices intentionally do not expose REALITY keys and do not yet
+//! validate VLESS Encryption, XHTTP `extra`, canonical identity, or Mihomo
+//! rendering. Query values remain private in memory; the public model exposes
+//! only the normalized non-credential semantics accepted by the existing
+//! Python path, including REALITY/PQ, Vision-flow and packet-encoding
+//! vocabulary.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -171,6 +172,10 @@ pub struct VlessQueryMetadata {
     pub xhttp_mode: Option<XhttpMode>,
     pub flow: Option<VlessFlow>,
     pub packet_encoding: Option<VlessPacketEncoding>,
+    pub reality_pq: bool,
+    pub reality_pq_present: bool,
+    pub reality_short_id_present: bool,
+    pub reality_spider_x_present: bool,
     pub provider_metadata_present: bool,
     pub non_xhttp_mode_metadata: bool,
 }
@@ -198,6 +203,12 @@ pub enum VlessQueryError {
     VisionRequiresTcp,
     VisionRequiresSecurity,
     UnsupportedPacketEncoding,
+    RealityFieldsRequired,
+    InvalidRealityPqBoolean,
+    RealityPqRequiresReality,
+    RealityMldsaUnsupported,
+    InvalidRealityPublicKey,
+    InvalidRealityShortId,
 }
 
 impl VlessQueryError {
@@ -218,6 +229,12 @@ impl VlessQueryError {
             Self::VisionRequiresTcp => "vision_requires_tcp",
             Self::VisionRequiresSecurity => "vision_requires_security",
             Self::UnsupportedPacketEncoding => "unsupported_packet_encoding",
+            Self::RealityFieldsRequired => "reality_fields_required",
+            Self::InvalidRealityPqBoolean => "invalid_reality_pq_boolean",
+            Self::RealityPqRequiresReality => "reality_pq_requires_reality",
+            Self::RealityMldsaUnsupported => "reality_mldsa_unsupported",
+            Self::InvalidRealityPublicKey => "invalid_reality_public_key",
+            Self::InvalidRealityShortId => "invalid_reality_short_id",
         }
     }
 }
@@ -239,6 +256,16 @@ impl fmt::Display for VlessQueryError {
             Self::VisionRequiresTcp => "VLESS Vision flow requires the TCP transport",
             Self::VisionRequiresSecurity => "VLESS Vision flow requires TLS or Reality security",
             Self::UnsupportedPacketEncoding => "VLESS packet encoding is unsupported",
+            Self::RealityFieldsRequired => "VLESS Reality requires a public key and server name",
+            Self::InvalidRealityPqBoolean => {
+                "VLESS Reality post-quantum flag must be true or false"
+            }
+            Self::RealityPqRequiresReality => {
+                "VLESS Reality post-quantum flag requires Reality security"
+            }
+            Self::RealityMldsaUnsupported => "VLESS Reality ML-DSA verification is unsupported",
+            Self::InvalidRealityPublicKey => "VLESS Reality public key has an invalid format",
+            Self::InvalidRealityShortId => "VLESS Reality short ID has an invalid format",
         })
     }
 }
@@ -425,6 +452,84 @@ fn packet_encoding(
     }
 }
 
+fn strict_boolean_alias(
+    fields: &BTreeMap<String, String>,
+    names: &[&str],
+) -> Result<(bool, bool), VlessQueryError> {
+    let present = names.iter().any(|name| fields.contains_key(*name));
+    if !present {
+        return Ok((false, false));
+    }
+    let raw = first_alias(fields, names)?.unwrap_or("").to_lowercase();
+    match raw.as_str() {
+        "1" | "true" | "yes" | "on" => Ok((true, true)),
+        "" | "0" | "false" | "no" | "off" => Ok((false, true)),
+        _ => Err(VlessQueryError::InvalidRealityPqBoolean),
+    }
+}
+
+fn valid_reality_public_key(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 43
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        // A raw URL-safe Base64 encoding of 32 bytes has 43 characters. The
+        // final character contains two data bits, so its four padding bits
+        // must be zero for the spelling to be canonical.
+        && matches!(bytes.last(), Some(b'A' | b'Q' | b'g' | b'w'))
+}
+
+fn valid_reality_short_id(value: &str) -> bool {
+    value.len() <= 16
+        && value.len().is_multiple_of(2)
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RealityMetadata {
+    pq: bool,
+    pq_present: bool,
+    short_id_present: bool,
+    spider_x_present: bool,
+}
+
+fn reality_metadata(
+    fields: &BTreeMap<String, String>,
+    security: VlessSecurity,
+) -> Result<RealityMetadata, VlessQueryError> {
+    let public_key = first_alias(fields, &["pbk", "publickey", "public-key"])?.unwrap_or("");
+    let server_name = first_alias(fields, &["sni", "servername"])?.unwrap_or("");
+    if security == VlessSecurity::Reality && (public_key.is_empty() || server_name.is_empty()) {
+        return Err(VlessQueryError::RealityFieldsRequired);
+    }
+    let short_id = first_alias(fields, &["sid", "short-id"])?.unwrap_or("");
+    let spider_x = first_alias(fields, &["spx", "spider-x"])?.unwrap_or("");
+    let (pq, pq_present) =
+        strict_boolean_alias(fields, &["supportx25519mlkem768", "support-x25519mlkem768"])?;
+    if pq_present && security != VlessSecurity::Reality {
+        return Err(VlessQueryError::RealityPqRequiresReality);
+    }
+    let mldsa = first_alias(fields, &["mldsa65verify", "mldsa65-verify"])?.unwrap_or("");
+    if !mldsa.is_empty() {
+        return Err(VlessQueryError::RealityMldsaUnsupported);
+    }
+    if security == VlessSecurity::Reality {
+        if !valid_reality_public_key(public_key) {
+            return Err(VlessQueryError::InvalidRealityPublicKey);
+        }
+        if !valid_reality_short_id(short_id) {
+            return Err(VlessQueryError::InvalidRealityShortId);
+        }
+    }
+    Ok(RealityMetadata {
+        pq,
+        pq_present,
+        short_id_present: !short_id.is_empty(),
+        spider_x_present: !spider_x.is_empty(),
+    })
+}
+
 pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, VlessQueryError> {
     if input.len() > MAX_CLASSIFICATION_INPUT_BYTES {
         return Err(VlessQueryError::Authority(
@@ -441,6 +546,7 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
     let fields = parse_fields(query_text(uri))?;
     let transport = transport(&fields)?;
     let security = security(&fields)?;
+    let reality = reality_metadata(&fields, security)?;
     let allow_insecure = boolean_alias(&fields, &["allowinsecure", "skip-cert-verify"])?;
     let (xhttp_mode, non_xhttp_mode_metadata) = xhttp_mode(&fields, transport)?;
     let flow = flow(&fields, transport, security)?;
@@ -456,6 +562,10 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
         xhttp_mode,
         flow,
         packet_encoding,
+        reality_pq: reality.pq,
+        reality_pq_present: reality.pq_present,
+        reality_short_id_present: reality.short_id_present,
+        reality_spider_x_present: reality.spider_x_present,
         provider_metadata_present,
         non_xhttp_mode_metadata,
     })
@@ -521,6 +631,72 @@ mod tests {
             packet_addr.packet_encoding,
             Some(VlessPacketEncoding::PacketAddr)
         );
+    }
+
+    #[test]
+    fn validates_reality_keys_short_ids_and_post_quantum_flags() {
+        let parsed = parse_vless_query_metadata(&uri(
+            "security=reality&sni=example.invalid&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0123456789abcdef&spx=%2F&supportX25519MLKEM768=true",
+        ))
+        .expect("Reality metadata");
+        assert!(parsed.reality_pq);
+        assert!(parsed.reality_pq_present);
+        assert!(parsed.reality_short_id_present);
+        assert!(parsed.reality_spider_x_present);
+
+        let disabled = parse_vless_query_metadata(&uri(
+            "security=reality&sni=example.invalid&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&support-x25519mlkem768=false",
+        ))
+        .expect("disabled Reality PQ metadata");
+        assert!(!disabled.reality_pq);
+        assert!(disabled.reality_pq_present);
+    }
+
+    #[test]
+    fn rejects_invalid_reality_metadata_without_echoing_values() {
+        let private = "private-marker";
+        let cases = [
+            (
+                uri("security=reality"),
+                VlessQueryError::RealityFieldsRequired,
+            ),
+            (
+                uri(&format!(
+                    "security=reality&sni=example.invalid&pbk={private}"
+                )),
+                VlessQueryError::InvalidRealityPublicKey,
+            ),
+            (
+                uri(
+                    "security=reality&sni=example.invalid&pbk=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                ),
+                VlessQueryError::InvalidRealityPublicKey,
+            ),
+            (
+                uri(
+                    "security=reality&sni=example.invalid&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=abc",
+                ),
+                VlessQueryError::InvalidRealityShortId,
+            ),
+            (
+                uri(&format!("mldsa65Verify={private}")),
+                VlessQueryError::RealityMldsaUnsupported,
+            ),
+            (
+                uri("supportX25519MLKEM768=maybe"),
+                VlessQueryError::InvalidRealityPqBoolean,
+            ),
+            (
+                uri("security=tls&supportX25519MLKEM768=false"),
+                VlessQueryError::RealityPqRequiresReality,
+            ),
+        ];
+        for (input, expected) in cases {
+            let error = parse_vless_query_metadata(&input).expect_err("invalid Reality metadata");
+            assert_eq!(error, expected);
+            assert!(!error.to_string().contains(private));
+            assert!(error.to_string().len() <= 80);
+        }
     }
 
     #[test]
