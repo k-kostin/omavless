@@ -2,10 +2,11 @@
 
 //! Strict, bounded VLESS query-envelope and coarse transport metadata parsing.
 //!
-//! This R2 slice intentionally does not validate or expose REALITY keys,
+//! These R2 slices intentionally do not validate or expose REALITY keys,
 //! VLESS Encryption, XHTTP `extra`, canonical identity, or Mihomo rendering.
 //! Query values remain private in memory; the public model exposes only the
-//! normalized non-credential semantics accepted by the existing Python path.
+//! normalized non-credential semantics accepted by the existing Python path,
+//! including Vision-flow and packet-encoding vocabulary.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -124,6 +125,43 @@ impl XhttpMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VlessFlow {
+    Vision,
+    VisionUdp443,
+}
+
+impl VlessFlow {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Vision => "xtls-rprx-vision",
+            Self::VisionUdp443 => "xtls-rprx-vision-udp443",
+        }
+    }
+
+    #[must_use]
+    pub const fn mihomo_str(self) -> &'static str {
+        "xtls-rprx-vision"
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VlessPacketEncoding {
+    Xudp,
+    PacketAddr,
+}
+
+impl VlessPacketEncoding {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Xudp => "xudp",
+            Self::PacketAddr => "packetaddr",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessQueryMetadata {
     fields: BTreeMap<String, String>,
@@ -131,6 +169,8 @@ pub struct VlessQueryMetadata {
     pub security: VlessSecurity,
     pub allow_insecure: bool,
     pub xhttp_mode: Option<XhttpMode>,
+    pub flow: Option<VlessFlow>,
+    pub packet_encoding: Option<VlessPacketEncoding>,
     pub provider_metadata_present: bool,
     pub non_xhttp_mode_metadata: bool,
 }
@@ -154,6 +194,10 @@ pub enum VlessQueryError {
     UnsupportedSecurity,
     InvalidBoolean,
     UnsupportedXhttpMode,
+    UnsupportedFlow,
+    VisionRequiresTcp,
+    VisionRequiresSecurity,
+    UnsupportedPacketEncoding,
 }
 
 impl VlessQueryError {
@@ -170,6 +214,10 @@ impl VlessQueryError {
             Self::UnsupportedSecurity => "unsupported_security",
             Self::InvalidBoolean => "invalid_boolean",
             Self::UnsupportedXhttpMode => "unsupported_xhttp_mode",
+            Self::UnsupportedFlow => "unsupported_flow",
+            Self::VisionRequiresTcp => "vision_requires_tcp",
+            Self::VisionRequiresSecurity => "vision_requires_security",
+            Self::UnsupportedPacketEncoding => "unsupported_packet_encoding",
         }
     }
 }
@@ -187,6 +235,10 @@ impl fmt::Display for VlessQueryError {
             Self::UnsupportedSecurity => "VLESS security is unsupported",
             Self::InvalidBoolean => "VLESS boolean query field must be true or false",
             Self::UnsupportedXhttpMode => "VLESS XHTTP mode is unsupported",
+            Self::UnsupportedFlow => "VLESS flow is unsupported",
+            Self::VisionRequiresTcp => "VLESS Vision flow requires the TCP transport",
+            Self::VisionRequiresSecurity => "VLESS Vision flow requires TLS or Reality security",
+            Self::UnsupportedPacketEncoding => "VLESS packet encoding is unsupported",
         })
     }
 }
@@ -338,6 +390,41 @@ fn xhttp_mode(
     Ok((Some(mode), false))
 }
 
+fn flow(
+    fields: &BTreeMap<String, String>,
+    transport: VlessTransport,
+    security: VlessSecurity,
+) -> Result<Option<VlessFlow>, VlessQueryError> {
+    let raw = fields.get("flow").map_or("", String::as_str).to_lowercase();
+    let flow = match raw.as_str() {
+        "" => return Ok(None),
+        "xtls-rprx-vision" => VlessFlow::Vision,
+        "xtls-rprx-vision-udp443" => VlessFlow::VisionUdp443,
+        _ => return Err(VlessQueryError::UnsupportedFlow),
+    };
+    if transport != VlessTransport::Tcp {
+        return Err(VlessQueryError::VisionRequiresTcp);
+    }
+    if !matches!(security, VlessSecurity::Tls | VlessSecurity::Reality) {
+        return Err(VlessQueryError::VisionRequiresSecurity);
+    }
+    Ok(Some(flow))
+}
+
+fn packet_encoding(
+    fields: &BTreeMap<String, String>,
+) -> Result<Option<VlessPacketEncoding>, VlessQueryError> {
+    let raw = first_alias(fields, &["packetencoding", "packet-encoding"])?
+        .unwrap_or("")
+        .to_lowercase();
+    match raw.as_str() {
+        "" => Ok(None),
+        "xudp" => Ok(Some(VlessPacketEncoding::Xudp)),
+        "packetaddr" => Ok(Some(VlessPacketEncoding::PacketAddr)),
+        _ => Err(VlessQueryError::UnsupportedPacketEncoding),
+    }
+}
+
 pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, VlessQueryError> {
     if input.len() > MAX_CLASSIFICATION_INPUT_BYTES {
         return Err(VlessQueryError::Authority(
@@ -356,6 +443,8 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
     let security = security(&fields)?;
     let allow_insecure = boolean_alias(&fields, &["allowinsecure", "skip-cert-verify"])?;
     let (xhttp_mode, non_xhttp_mode_metadata) = xhttp_mode(&fields, transport)?;
+    let flow = flow(&fields, transport, security)?;
+    let packet_encoding = packet_encoding(&fields)?;
     let provider_metadata_present = PROVIDER_METADATA_FIELDS
         .iter()
         .any(|name| fields.contains_key(*name));
@@ -365,6 +454,8 @@ pub fn parse_vless_query_metadata(input: &str) -> Result<VlessQueryMetadata, Vle
         security,
         allow_insecure,
         xhttp_mode,
+        flow,
+        packet_encoding,
         provider_metadata_present,
         non_xhttp_mode_metadata,
     })
@@ -409,6 +500,56 @@ mod tests {
             .expect("XHTTP mode");
         assert_eq!(xhttp.xhttp_mode, Some(XhttpMode::StreamUp));
         assert!(!xhttp.non_xhttp_mode_metadata);
+    }
+
+    #[test]
+    fn normalizes_vision_flow_and_packet_encoding() {
+        let parsed = parse_vless_query_metadata(&uri(
+            "type=tcp&security=tls&flow=XTLS-RPRX-VISION-UDP443&packetEncoding=XUDP",
+        ))
+        .expect("Vision and packet metadata");
+        assert_eq!(parsed.flow, Some(VlessFlow::VisionUdp443));
+        assert_eq!(
+            parsed.flow.map(VlessFlow::mihomo_str),
+            Some("xtls-rprx-vision")
+        );
+        assert_eq!(parsed.packet_encoding, Some(VlessPacketEncoding::Xudp));
+
+        let packet_addr = parse_vless_query_metadata(&uri("packet-encoding=packetaddr"))
+            .expect("packetaddr metadata");
+        assert_eq!(
+            packet_addr.packet_encoding,
+            Some(VlessPacketEncoding::PacketAddr)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_vision_and_packet_semantics_without_echoing_values() {
+        let private = "private-marker";
+        let cases = [
+            (
+                uri(&format!("flow={private}")),
+                VlessQueryError::UnsupportedFlow,
+            ),
+            (
+                uri("type=ws&security=tls&flow=xtls-rprx-vision"),
+                VlessQueryError::VisionRequiresTcp,
+            ),
+            (
+                uri("type=tcp&security=none&flow=xtls-rprx-vision"),
+                VlessQueryError::VisionRequiresSecurity,
+            ),
+            (
+                uri(&format!("packetEncoding={private}")),
+                VlessQueryError::UnsupportedPacketEncoding,
+            ),
+        ];
+        for (input, expected) in cases {
+            let error = parse_vless_query_metadata(&input).expect_err("invalid flow metadata");
+            assert_eq!(error, expected);
+            assert!(!error.to_string().contains(private));
+            assert!(error.to_string().len() <= 80);
+        }
     }
 
     #[test]
