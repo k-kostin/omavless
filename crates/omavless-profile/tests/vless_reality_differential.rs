@@ -125,6 +125,15 @@ fn cases() -> Vec<Case> {
             false,
         ),
         accepted(
+            "canonical-final-e",
+            "security=reality&sni=example.invalid&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE",
+            true,
+            false,
+            false,
+            false,
+            false,
+        ),
+        accepted(
             "short-empty",
             &reality("&sid="),
             true,
@@ -465,7 +474,7 @@ fn report(values: &[(String, Outcome)]) -> Report {
 #[test]
 fn python_and_rust_vless_reality_match() {
     let cases = cases();
-    assert_eq!(cases.len(), 42);
+    assert_eq!(cases.len(), 43);
     let mut rust = Vec::new();
     let mut python = Vec::new();
     for case in &cases {
