@@ -416,8 +416,18 @@ and generated-config material never enters shareable output. Accepted head
 `7b186f79349b7d81101b55945154db44b3e1c8f3` merged in PR `#83` as
 `0b2a7d5f147c1c373ae491f1206695532e8c07d7` after cloud and Try Omarchy ARM64
 acceptance. Python still owns production and remains the oracle; no runtime,
-store, service or controller cutover occurred. R2j is the next pure-VLESS
-consolidation checkpoint, and R2 overall remains incomplete.
+store, service or controller cutover occurred.
+
+The twelfth checkpoint is the R2j pure-VLESS consolidation and privacy audit.
+It found one remaining credential-bearing derived `Debug` implementation on
+the authority preview and replaced it with bounded presence/classification
+facts. All 49 canonical differential cases remained green, alongside 71 Rust
+and 259 Python/QML tests on Try Omarchy ARM64. Accepted head
+`d82bf63bec44b259e67f422f967509d417fad4bc` merged in PR `#86` as
+`5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`. Pure-VLESS adapter parity is now
+complete. Python still owns production and remains the oracle, no runtime
+cutover occurred, and R2 overall remains incomplete until the non-VLESS
+adapters are accepted.
 
 Migrate:
 
