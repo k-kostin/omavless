@@ -11,6 +11,8 @@ repository.workspace = true
 serde_json = "1.0"
 
 [dev-dependencies]
+omavless-domain = { path = "../omavless-domain" }
+omavless-profile = { path = "../omavless-profile" }
 serde = { version = "1.0", features = ["derive"] }
 
 [lints]
