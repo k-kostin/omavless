@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub mod core;
 pub mod desired;
 pub mod mutation;
 pub mod store_preflight;
