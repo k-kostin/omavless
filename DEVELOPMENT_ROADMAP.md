@@ -238,9 +238,9 @@ transport-security metadata parity merged in PR #62. Vision-flow and
 packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
 #66, VLESS Encryption parity in PR #70, transport-option parity in PR #72,
 XHTTP `extra` decoder/shape parity in PR #74, normalized top-level XHTTP
-option parity in PR #78 and nested `downloadSettings` parity in PR #80;
-canonical profile identity, redacted preview and Mihomo rendering remain
-pending**.
+option parity in PR #78, nested `downloadSettings` parity in PR #80 and
+canonical profile/identity/preview/rendering parity in PR #83; pure-VLESS
+consolidation is next and non-VLESS adapters remain pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -282,6 +282,11 @@ Accepted XHTTP `downloadSettings` head:
 XHTTP `downloadSettings` merge commit:
 `f4c9d9eccfd0b76439c66265b700c19847b7f445`.
 
+Accepted canonical VLESS head:
+`7b186f79349b7d81101b55945154db44b3e1c8f3`.
+Canonical VLESS merge commit:
+`0b2a7d5f147c1c373ae491f1206695532e8c07d7`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -304,16 +309,18 @@ owns the future private normalized XHTTP `downloadSettings` model and its
 Python-order validation of the secondary endpoint, network/security/TLS/REALITY,
 nested transport, headers, defaults, aliases and recursive-download rejection.
 Private endpoint, SNI, REALITY key/short ID, spider path and header values remain
-redacted. Synthetic Python/Rust differentials cover 31 authority, 47
+redacted. Rust now also owns the future canonical private VLESS model, redacted
+preview semantics, normalized subscription identity and semantic Mihomo proxy
+rendering. Synthetic Python/Rust differentials cover 31 authority, 47
 query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption, 34 transport-option,
-62 XHTTP-shape, 115 XHTTP-option and 188 XHTTP-download cases without emitting
-private input or key material. Python remains the production owner and migration
-oracle.
+62 XHTTP-shape, 115 XHTTP-option, 188 XHTTP-download and 49 canonical VLESS
+cases without emitting private input or key material. Python remains the
+production owner and migration oracle; PR #83 did not cut over runtime behavior.
 
-The next bounded VLESS work should cover the canonical profile model,
-subscription identity, redacted preview and Mihomo rendering. Keep those slices
-explicit and independently reviewable; do not combine every remaining protocol
-in one PR. R2 is not complete.
+R2j should audit and consolidate the accepted pure-VLESS surface without
+ceremonial code churn. After that checkpoint, continue remaining protocol
+adapters in narrow independently reviewable slices. Pure VLESS parity does not
+make R2 overall complete.
 
 Migrate existing validated semantics:
 

@@ -404,9 +404,20 @@ REALITY public key/short ID, spider path, fingerprint and header values never
 leave the adapters or appear in `Debug`. Accepted head
 `58781daebb728a12d2639a5621d698982cfd03db` merged in PR `#80` as
 `f4c9d9eccfd0b76439c66265b700c19847b7f445`. Python still owns production and
-remains the oracle. The next bounded VLESS work is the canonical profile model,
-subscription identity, redacted preview and Mihomo rendering; R2 is not
-complete.
+remains the oracle for this accepted slice.
+
+The eleventh bounded slice composes the accepted VLESS authority, query,
+REALITY/PQ, Encryption, transport and XHTTP semantics into the future canonical
+private VLESS model. It adds credential-safe preview semantics, normalized
+subscription identity and semantic Mihomo proxy rendering without entering the
+production path. Its 49-case synthetic differential compares only fixed safe
+facts and parity fingerprints; reusable UUID, endpoint, key, path, host, header
+and generated-config material never enters shareable output. Accepted head
+`7b186f79349b7d81101b55945154db44b3e1c8f3` merged in PR `#83` as
+`0b2a7d5f147c1c373ae491f1206695532e8c07d7` after cloud and Try Omarchy ARM64
+acceptance. Python still owns production and remains the oracle; no runtime,
+store, service or controller cutover occurred. R2j is the next pure-VLESS
+consolidation checkpoint, and R2 overall remains incomplete.
 
 Migrate:
 

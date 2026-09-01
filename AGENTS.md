@@ -254,10 +254,15 @@ screenshots and repeat affected captures after a fix.
   `f4c9d9eccfd0b76439c66265b700c19847b7f445`: 188 credential-free cases
   cover the secondary endpoint, network/security/TLS/REALITY, nested transport,
   headers, defaults, aliases and recursive-download rejection while keeping
-  endpoint, SNI, REALITY key/short ID and header values private. Python still
-  owns the production path and remains the oracle. The next bounded VLESS work
-  is the canonical profile model, identity, redacted preview and Mihomo
-  rendering; R2 is not complete. Missing V0
+  endpoint, SNI, REALITY key/short ID and header values private. PR `#83` then
+  merged canonical VLESS model, redacted-preview, subscription-identity and
+  semantic Mihomo-rendering parity at accepted head
+  `7b186f79349b7d81101b55945154db44b3e1c8f3` and merge commit
+  `0b2a7d5f147c1c373ae491f1206695532e8c07d7`: all 49 credential-free
+  canonical cases matched on cloud and Try Omarchy ARM64. Python still owns the
+  production path and remains the oracle; no runtime cutover occurred. R2j is
+  the next pure-VLESS consolidation checkpoint, and R2 overall is not complete.
+  Missing V0
   protocol fixtures do not block further deterministic R2 slices. P4 remains
   blocked by V0 and should additionally wait for sufficient R2 Rust
   protocol-adapter coverage so WG/AWG is not implemented as a large new
