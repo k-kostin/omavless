@@ -44,6 +44,54 @@ codex/rust-runtime-cutover
 
 Do not put R0-R6 into one giant branch.
 
+### Concurrent agent ownership
+
+A remote branch plus its Draft PR is the visible ownership record for active
+work; chat and handoff files are supporting context, not locks or sources of
+truth.
+
+Before starting a branch, every local or cloud agent must fetch/prune and check:
+
+- open PRs for the same roadmap stage or subsystem;
+- recently updated remote branches with related names or changed files;
+- whether a handoff's base/head still matches GitHub;
+- whether the proposed diff overlaps another active branch.
+
+One branch has one active writer. A handoff transfers the exact remote head and
+states that the previous writer has stopped. If another agent advanced the
+branch unexpectedly, fetch and reconcile those commits before doing more work;
+do not overwrite them. Independent agents may work in parallel on independent
+branches.
+
+Push a meaningful checkpoint and open a Draft PR early enough that other agents
+can discover the active scope. Do not use empty commits or placeholder PRs as
+branch reservations. Before any history rewrite or merge, fetch again and
+compare the observed remote SHA. Reconstructed history may use
+`--force-with-lease` against that exact SHA; unguarded force pushes are not
+allowed.
+
+### Branch cleanup lifecycle
+
+After merge, delete the source branch and prune local remote-tracking refs.
+After closing a superseded PR, delete its branch once its unique commits have
+been classified. Temporary integration, recovery and CI-automation branches
+must be removed when their durable result is merged or recorded elsewhere.
+
+A cleanup audit classifies every retained branch as one of:
+
+- active open PR or intentionally preserved evidence branch;
+- fully reachable from `main` / merged PR;
+- closed and demonstrably superseded by accepted work;
+- unmerged work with unique commits requiring preservation or explicit owner
+  disposition;
+- disposable automation with no unique durable result.
+
+Never delete merely because a branch is old or has no PR. Inspect its unique
+log and diff first. Never delete the source branch of an open evidence PR solely
+to make the branch list tidy. If a concurrently produced PR describes stale or
+contradictory state, close it with a reason rather than merging misleading
+documentation.
+
 ## 3. Stacked branches
 
 Stack only for a real dependency.
