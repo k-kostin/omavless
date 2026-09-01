@@ -36,10 +36,17 @@ jobs:
           gzip -dc /tmp/r2i.patch.gz > /tmp/r2i.patch
           printf '%s  %s\n' b251947cab477ae3550fdae4ff4e829dc97588cd40e948a00384e69ec4011b6f /tmp/r2i.patch | sha256sum --check --strict
 
+          base64 -d .cloud/r2i/fixes/semantic-yaml.patch.gz.b64 > /tmp/r2i-semantic.patch.gz
+          printf '%s  %s\n' 77ddb8b863e539a7971fcffd7bffbca1a5abb8da12d391b51d1bd2f326c0958b /tmp/r2i-semantic.patch.gz | sha256sum --check --strict
+          gzip -dc /tmp/r2i-semantic.patch.gz > /tmp/r2i-semantic.patch
+          printf '%s  %s\n' 5537c2cff5471bfedf9c1c2f3af657b777bbb2b2b9e343c0c0334e02f4080578 /tmp/r2i-semantic.patch | sha256sum --check --strict
+
           git fetch origin main
           git reset --hard origin/main
           git apply --check /tmp/r2i.patch
           git apply /tmp/r2i.patch
+          git apply --check /tmp/r2i-semantic.patch
+          git apply /tmp/r2i-semantic.patch
           cargo fmt --all
           cargo fmt --all -- --check
           git diff --check
@@ -64,6 +71,7 @@ jobs:
             crates/omavless-profile/src/vless_xhttp_extra.rs \
             crates/omavless-profile/tests/vless_canonical_differential.rs \
             tests/parity_cases/vless-canonical-v1.json \
+            tests/run.sh \
             tests/test_vless_canonical_parity.py \
             tools/vless_canonical_parity.py | sort)"
           actual="$(git diff --name-only | sort)"
@@ -80,6 +88,7 @@ jobs:
             crates/omavless-profile/src/vless_xhttp_extra.rs \
             crates/omavless-profile/tests/vless_canonical_differential.rs \
             tests/parity_cases/vless-canonical-v1.json \
+            tests/run.sh \
             tests/test_vless_canonical_parity.py \
             tools/vless_canonical_parity.py
           test -z "$(git diff --name-only)"
