@@ -460,7 +460,28 @@ owns the target runtime.
 
 ### R5 / T1 — Rust shared runtime / daemon foundation
 
-State: **implementation-ready after accepted R2-R4 foundations; not started**.
+State: **in progress; foundations accepted, production ownership cutover not
+started**.
+
+Accepted incremental checkpoints:
+
+- PR #96: primary `omavless` binary, private same-UID Unix control socket,
+  singleton owner lock and read-only hello/status/capability surface;
+- PR #97: bounded private desired-state schema, pure restart reconciliation,
+  read-only preflight and hardened package-owned user-unit contract;
+- PR #98: one private canonical profile dispatcher and explicit Mihomo renderers
+  for every currently supported profile family;
+- PR #99: read-only v1-v3 private-store projection/config preparation, a
+  Python/Rust differential corpus and real existing-store + installed-Mihomo
+  preflight evidence;
+- PR #100: bounded mutation queue, expected-revision checks, urgent-disconnect
+  ordering and credential-free operation-ID replay cache.
+
+These checkpoints deliberately report `runtimeOwnership: false` and do not
+expose lifecycle mutations. The current QML -> `backend.py` path remains the
+only production owner. R5 is not complete until the explicit transactional
+cutover, native Mihomo ownership, restart reconciliation, plugin bridge and
+rollback gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 

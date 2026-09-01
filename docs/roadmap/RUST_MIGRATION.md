@@ -1,7 +1,7 @@
 # OmaVLESS incremental Rust migration contract
 
 Status: selected implementation direction and migration contract. Updated
-2026-08-31.
+2026-09-01.
 
 This document is authoritative for implementation language, migration order and
 Python/Rust parity gates. It complements [`CONTROL_PLANE.md`](CONTROL_PLANE.md),
@@ -479,6 +479,15 @@ to widen concurrency or retry semantics beyond the existing contract.
 ### R5 / T1 — Rust canonical runtime cutover
 
 Goal: make `omavless daemon` the one canonical owner.
+
+Implementation status: **foundations accepted; ownership cutover pending**.
+PRs #96-#100 provide the private control socket/owner lock, desired-state and
+reconciliation model, package-unit contract, canonical all-family rendering,
+read-only private-store/config preflight and the bounded mutation coordinator.
+They remain intentionally incapable of replacing the Python lifecycle owner.
+The next owning work is method-specific transactional actions, native Mihomo
+child supervision/readiness, actual-state reconciliation and the explicit
+plugin migration transaction.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
