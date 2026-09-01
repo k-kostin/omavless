@@ -27,6 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod core;
 pub mod desired;
+pub mod lifecycle;
 pub mod mutation;
 pub mod store_preflight;
 
