@@ -10,6 +10,10 @@
 use std::fmt;
 
 mod base64url;
+pub mod hysteria2;
+mod profile_uri;
+pub mod trojan;
+pub mod tuic;
 pub mod vless;
 pub mod vless_canonical;
 pub mod vless_encryption;
