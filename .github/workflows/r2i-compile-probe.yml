@@ -1,4 +1,4 @@
-name: R2i compile probe
+name: R2i build and preserve
 
 on:
   push:
@@ -9,20 +9,33 @@ permissions:
   contents: write
 
 jobs:
-  probe:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Format, compile and preserve current R2i candidate
+      - name: Verify, build and preserve exact R2i candidate
         run: |
           set -euxo pipefail
-          base64 -d .cloud/r2i/probe.patch.gz.b64 > /tmp/r2i.patch.gz
-          printf '%s  %s\n' b94781d2d8e51856022b7c45ebae3a5374d6a4aea864e9243ad1a0f4adc5982f /tmp/r2i.patch.gz | sha256sum --check --strict
+          printf '%s  %s\n' \
+            83f90fa90f8fe71a7bd1ce8113e2fc60d54f9d132d7d7f1f3c1f99ac8784749f .cloud/r2i/final/part-00 \
+            14b66ee8f0616439cf0574731112ac5ee970c740a6fa792f49ca69267e177670 .cloud/r2i/final/part-01 \
+            5c1d91f2a30eb3fe211066b5b0762d8610b32171e9a99f0da6a44e7dadcb2b80 .cloud/r2i/final/part-02 \
+            a8ce9d14b6b475ebae77f6d515910046ab2d5e0b414d45a613e9ca95a043d855 .cloud/r2i/final/part-03 \
+            a53d5970d9684d093cd787b80d5ea3357224dadc3c7e0009576f859b208b89c1 .cloud/r2i/final/part-04 \
+            87baeb164e237be8ca144f3f71d3de3b4ddee0c22e5339f4fd06f2ff92471361 .cloud/r2i/final/part-05 \
+            581bf42a530956607b14887fe7788bb2e16cb5079c82c30aabbe5ae2117bccf3 .cloud/r2i/final/part-06 \
+            e30f6c24f04e8afb881aaa4794093c2aed9b20f95d2bfc01327fe30b69f8b165 .cloud/r2i/final/part-07 \
+            1aa235503ed23f2205b795a9dbdd69668932b191cc6a4597ded0835f69184f02 .cloud/r2i/final/part-08 \
+            | sha256sum --check --strict
+          cat .cloud/r2i/final/part-* > /tmp/r2i.patch.gz.b64
+          base64 -d /tmp/r2i.patch.gz.b64 > /tmp/r2i.patch.gz
+          printf '%s  %s\n' 97aaac8999ce95966ba1c449c3cb76b2d64e368e6d44996a36fcb3bf422b854b /tmp/r2i.patch.gz | sha256sum --check --strict
           gzip -dc /tmp/r2i.patch.gz > /tmp/r2i.patch
-          printf '%s  %s\n' 022f0bdd8ca29c43ddd7664b1c83c80068d689407e7afa9734a6d82becb92c15 /tmp/r2i.patch | sha256sum --check --strict
+          printf '%s  %s\n' b251947cab477ae3550fdae4ff4e829dc97588cd40e948a00384e69ec4011b6f /tmp/r2i.patch | sha256sum --check --strict
+
           git fetch origin main
           git reset --hard origin/main
           git apply --check /tmp/r2i.patch
@@ -30,22 +43,46 @@ jobs:
           cargo fmt --all
           cargo fmt --all -- --check
           git diff --check
+
+          python3 -m py_compile backend.py tools/*vless*parity.py tests/test_vless_canonical_parity.py
+          python3 -m unittest tests.test_vless_canonical_parity -v
+          cargo metadata --locked --format-version 1 >/dev/null
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
+          ./tests/run-rust.sh
+          ./tests/run.sh
+          bash -n backend.sh install.sh uninstall.sh tests/run.sh tests/test-qml.sh tests/run-rust.sh
+          jq -e . manifest.json >/dev/null
+          git diff --check
+
           expected="$(printf '%s\n' \
             crates/omavless-profile/Cargo.toml \
             crates/omavless-profile/src/lib.rs \
+            crates/omavless-profile/src/vless.rs \
             crates/omavless-profile/src/vless_canonical.rs \
             crates/omavless-profile/src/vless_query.rs \
-            crates/omavless-profile/src/vless_xhttp_extra.rs | sort)"
+            crates/omavless-profile/src/vless_xhttp_extra.rs \
+            crates/omavless-profile/tests/vless_canonical_differential.rs \
+            tests/parity_cases/vless-canonical-v1.json \
+            tests/test_vless_canonical_parity.py \
+            tools/vless_canonical_parity.py | sort)"
           actual="$(git diff --name-only | sort)"
           test "$actual" = "$expected"
+
           git config user.name 'Kirill Kostin'
           git config user.email 'clockworkman111@gmail.com'
-          git add crates/omavless-profile/Cargo.toml \
+          git add \
+            crates/omavless-profile/Cargo.toml \
             crates/omavless-profile/src/lib.rs \
+            crates/omavless-profile/src/vless.rs \
             crates/omavless-profile/src/vless_canonical.rs \
             crates/omavless-profile/src/vless_query.rs \
-            crates/omavless-profile/src/vless_xhttp_extra.rs
-          git commit -m 'R2i WIP: compose canonical Rust VLESS model'
-          git push --force origin HEAD:codex/rust-vless-canonical-rendering-wip
+            crates/omavless-profile/src/vless_xhttp_extra.rs \
+            crates/omavless-profile/tests/vless_canonical_differential.rs \
+            tests/parity_cases/vless-canonical-v1.json \
+            tests/test_vless_canonical_parity.py \
+            tools/vless_canonical_parity.py
+          test -z "$(git diff --name-only)"
+          git diff --cached --check
+          git commit -m 'R2i: add canonical Rust VLESS model and rendering parity'
+          git push --force origin HEAD:codex/rust-vless-canonical-rendering
