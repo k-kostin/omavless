@@ -1,0 +1,20 @@
+[package]
+name = "omavless-runtime"
+description = "Private single-owner runtime and semantic CLI foundation for OmaVLESS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+nix = { version = "0.30", features = ["fs", "socket", "user"] }
+omavless-control-protocol = { path = "../omavless-control-protocol" }
+serde_json = "1.0"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "omavless"
+path = "src/main.rs"
