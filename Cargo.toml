@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/omavless-control-protocol",
+  "crates/omavless-domain",
   "crates/omavless-parity",
   "crates/omavless-profile",
 ]

@@ -151,6 +151,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "omavless-domain"
+version = "0.1.0"
+dependencies = [
+ "idna",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "omavless-parity"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "omavless-domain"
+description = "Pure store, subscription and routing semantics for OmaVLESS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+idna = "1.1"
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true
