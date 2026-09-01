@@ -240,8 +240,10 @@ packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
 XHTTP `extra` decoder/shape parity in PR #74, normalized top-level XHTTP
 option parity in PR #78, nested `downloadSettings` parity in PR #80 and
 canonical profile/identity/preview/rendering parity in PR #83, followed by the
-R2j pure-VLESS consolidation/privacy audit in PR #86; pure-VLESS adapter parity
-is complete and non-VLESS adapters remain pending**.
+R2j pure-VLESS consolidation/privacy audit in PR #86. Canonical Trojan,
+Hysteria2 and TUIC v5 adapters, shared profile-URI dispatch and credential-safe
+rendering parity merged with the accepted R2-R4 foundation in PR #90; R2
+adapter parity is complete without a production runtime cutover**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -293,6 +295,11 @@ Accepted R2j VLESS-consolidation head:
 R2j VLESS-consolidation merge commit:
 `5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`.
 
+Accepted R2-R4 foundation head:
+`8efd96a3a8fe34d8765224bc1a9a66c9a19bc86b`.
+R2-R4 foundation merge commit:
+`010938294f89c034392fa3cc6836bed67d4795d9`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -326,9 +333,9 @@ runtime behavior. The R2j audit kept all 49 canonical differential cases green,
 fixed the last credential-bearing authority-preview `Debug` representation and
 finished with 71 Rust and 259 Python/QML tests passing on Try Omarchy ARM64.
 
-Continue remaining non-VLESS protocol adapters in narrow independently
-reviewable slices. Pure VLESS parity is complete, but that does not make R2
-overall complete.
+R2 is complete at the adapter/parity boundary. Python remains the installed
+production owner and migration oracle until R5/T1; completing R2 does not
+authorize new protocol-family work or claim a runtime cutover.
 
 Migrate existing validated semantics:
 
@@ -392,7 +399,7 @@ credential handling or implicit protocol fallback.
 
 ### R3 — store, subscriptions and routing semantics
 
-State: **planned after sufficient R2 adapter coverage**.
+State: **accepted in PR #90; production ownership cutover remains R5/T1**.
 
 Migrate with differential tests:
 
@@ -403,12 +410,18 @@ Migrate with differential tests:
 - routing preset/custom-rule semantic model;
 - deterministic config assembly around Rust adapters.
 
-Remote fetch/process ownership may remain Python until R4. State semantics must
-already be language-neutral.
+Remote fetch/process ownership may remain Python until the R5/T1 runtime
+cutover. State semantics must already be language-neutral.
+
+The accepted Rust foundation now covers private-store schema/migration and
+active/last/favorite/startup state, subscription refresh planning and identity
+preservation, strict unified-import classification, routing rules and modes,
+deterministic config assembly and bounded same-user atomic `0600` store
+replacement. Remote fetching remains in the Python compatibility runtime.
 
 ### R4 — Mihomo operations, probes, diagnostics and host readiness
 
-State: **planned after R3 foundations; may be split into narrow PRs**.
+State: **accepted in PR #90; lifecycle ownership cutover remains R5/T1**.
 
 Migrate:
 
@@ -427,6 +440,14 @@ change timeout, retry, cancellation or concurrency semantics.
 Real Try Omarchy integration gates supplement differential tests for every
 OS/network-facing cutover.
 
+The accepted Rust foundation now covers fixed-argv Mihomo discovery and config
+validation, bounded private Unix-controller HTTP/JSON, credential-safe
+diagnostics and traffic projections, deterministic isolated-probe scheduling,
+process/service/TUN observation and Arch/NixOS host readiness. Acceptance used
+Mihomo 1.19.30 on Try Omarchy ARM64 with 115 Rust and 259 Python/QML tests; see
+`docs/testing/TRY_OMARCHY_R2_R4_RUST_ACCEPTANCE_2026-09-01.md`. Python still
+owns the live service and tunnel.
+
 ## 7. Canonical runtime cutover
 
 ### T0 / T0p — design contracts
@@ -439,7 +460,7 @@ owns the target runtime.
 
 ### R5 / T1 — Rust shared runtime / daemon foundation
 
-State: **planned after R4 reaches the required lifecycle/domain coverage**.
+State: **implementation-ready after accepted R2-R4 foundations; not started**.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
