@@ -26,6 +26,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod desired;
+pub mod mutation;
 pub mod store_preflight;
 
 pub const SOCKET_NAME: &str = "control.sock";
