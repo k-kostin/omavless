@@ -6,8 +6,9 @@ Parts of the OmaVLESS interface and interaction model are adapted from
 [Omarchy VPN](https://github.com/jkoestinger/omarchy-vpn) by Justin Köstinger.
 The project is also listed in the
 [Omarchy Plugins directory](https://omarchyplugins.com/plugin.html?id=jkoestinger.vpn).
-The adapted source files are `Panel.qml`, `Service.qml`, `NamePrompt.qml`,
-`RenameWindow.qml`, and `QrWindow.qml`.
+The adapted source files are `plugin/Panel.qml`, `plugin/Service.qml`,
+`plugin/NamePrompt.qml`, `plugin/RenameWindow.qml`, and
+`plugin/QrWindow.qml`.
 
 Omarchy VPN is distributed under the MIT License:
 

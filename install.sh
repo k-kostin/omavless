@@ -29,21 +29,6 @@ cleanup() {
 trap cleanup EXIT
 
 cp -a \
-  "$plugin_dir/Panel.qml" \
-  "$plugin_dir/Service.qml" \
-  "$plugin_dir/AdvancedDiagnostics.qml" \
-  "$plugin_dir/I18n.js" \
-  "$plugin_dir/PlainText.qml" \
-  "$plugin_dir/Sparkline.qml" \
-  "$plugin_dir/NamePrompt.qml" \
-  "$plugin_dir/ImportPreviewPrompt.qml" \
-  "$plugin_dir/SubscriptionPrompt.qml" \
-  "$plugin_dir/RoutingPresetPrompt.qml" \
-  "$plugin_dir/OnboardingWizard.qml" \
-  "$plugin_dir/StartupPrompt.qml" \
-  "$plugin_dir/RoutingToolsPrompt.qml" \
-  "$plugin_dir/RenameWindow.qml" \
-  "$plugin_dir/QrWindow.qml" \
   "$plugin_dir/backend.sh" \
   "$plugin_dir/backend.py" \
   "$plugin_dir/uninstall.sh" \
@@ -54,6 +39,7 @@ cp -a \
   "$plugin_dir/README.md" \
   "$plugin_dir/CHANGELOG.md" \
   "$stage/"
+cp -a "$plugin_dir/plugin" "$stage/plugin"
 mkdir -p "$stage/templates"
 cp -a "$plugin_dir/templates/." "$stage/templates/"
 mkdir -p "$stage/docs"

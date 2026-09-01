@@ -15,7 +15,7 @@ Item {
 
   property var settings: ({})
 
-  readonly property string backendPath: String(Qt.resolvedUrl("backend.sh")).replace(/^file:\/\//, "")
+  readonly property string backendPath: String(Qt.resolvedUrl("../backend.sh")).replace(/^file:\/\//, "")
 
   // Local profiles as {uuid, name, protocol, active}. Mutating actions address the
   // generated id, never the display label.
