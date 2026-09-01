@@ -172,9 +172,31 @@ the change.
 - `main` is the only long-lived development source of truth.
 - Use narrow feature/fix/docs branches and PRs; do not commit implementation
   work directly to `main`.
+- Before creating a branch, inspect open PRs and recently updated remote
+  branches for the same roadmap stage or subsystem. Continue or explicitly
+  supersede existing work instead of creating a second implementation from a
+  stale handoff.
+- One branch has one active writer. A handoff transfers ownership of the exact
+  remote head; two agents must not concurrently rewrite or force-push the same
+  branch. Independent branches may proceed in parallel when their scopes do
+  not overlap.
+- Push the first meaningful checkpoint and open a Draft PR early enough to make
+  active scope visible. Do not create empty commits or ceremonial PRs merely to
+  reserve a name.
+- Fetch again before rebasing, force-pushing, retargeting or merging. If the
+  remote head changed unexpectedly, stop and reconcile its commits before
+  writing. Use `--force-with-lease` only against the exact observed remote head;
+  never use an unguarded force push.
 - Preserve useful work on GitHub before ending an ephemeral/local VM session.
   Never leave the only copy of a useful commit or test report inside Try
   Omarchy.
+- After a PR merges or is conclusively superseded, delete its source branch and
+  prune remote-tracking refs. Keep branches for open evidence PRs, including a
+  long-lived Draft such as V0, until that PR is resolved.
+- Before deleting an unmerged branch with no active PR, inspect its unique
+  commits and diff. Delete it only when the work is merged, explicitly closed,
+  reproducibly superseded, or disposable automation with no unique durable
+  result; otherwise preserve it and record its status.
 - Runtime/security/network and migration fixes should include regression tests
   where practical.
 - Keep credentials, profile URIs, UUIDs, private keys, subscription URLs and
@@ -190,6 +212,8 @@ the change.
 An agent handing work to another environment should report at minimum:
 
 - repository/branch and exact HEAD SHA;
+- whether the previous writer has stopped and the recipient now owns the
+  branch, or whether work is intentionally read-only;
 - roadmap stage (`P`, `R0`...`R6`, `T1`, `T2`, etc.);
 - what changed and which implementation currently owns the behavior;
 - cloud/static and parity results;
