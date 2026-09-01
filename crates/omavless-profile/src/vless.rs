@@ -75,13 +75,28 @@ impl HostKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VlessAuthority {
     pub user_id: String,
     pub server: String,
     pub port: u16,
     pub suggested_name: String,
     pub host_kind: HostKind,
+}
+
+impl fmt::Debug for VlessAuthority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let facts = self.public_facts();
+        formatter
+            .debug_struct("VlessAuthority")
+            .field("host_kind", &facts.host_kind)
+            .field("standard_https_port", &facts.standard_https_port)
+            .field("label_kind", &facts.label_kind)
+            .field("label_sanitized", &facts.label_sanitized)
+            .field("label_truncated", &facts.label_truncated)
+            .field("private_value_count", &3_usize)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

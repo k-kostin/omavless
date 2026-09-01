@@ -185,7 +185,7 @@ impl VlessPacketEncoding {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VlessQueryMetadata {
     fields: BTreeMap<String, String>,
     pub transport: VlessTransport,
@@ -204,10 +204,98 @@ pub struct VlessQueryMetadata {
     pub non_xhttp_mode_metadata: bool,
 }
 
+/// Private connection values already validated by [`VlessQueryMetadata`].
+///
+/// This projection is crate-private so the canonical VLESS adapter can compose
+/// the accepted R2 query slices without exposing endpoints, keys, paths or
+/// credential-bearing Encryption text in public parity reports.
+pub(crate) struct VlessPrivateQuery {
+    pub encryption: String,
+    pub server_name: String,
+    pub fingerprint: String,
+    pub public_key: String,
+    pub short_id: String,
+    pub spider_x_present: bool,
+    pub path: String,
+    pub host: String,
+    pub service_name: String,
+    pub raw_xhttp_extra: String,
+    pub alpn: Vec<String>,
+}
+
 impl VlessQueryMetadata {
     #[must_use]
     pub fn field_count(&self) -> usize {
         self.fields.len()
+    }
+
+    pub(crate) fn private_projection(&self) -> VlessPrivateQuery {
+        let alias = |names: &[&str]| -> String {
+            names
+                .iter()
+                .find_map(|name| self.fields.get(*name))
+                .cloned()
+                .unwrap_or_default()
+        };
+        let path = percent_decode_lossy(self.fields.get("path").map_or("/", String::as_str));
+        let path = if path.is_empty() {
+            "/".to_owned()
+        } else {
+            path
+        };
+        let alpn = self
+            .fields
+            .get("alpn")
+            .map_or("", String::as_str)
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_owned)
+            .collect();
+        VlessPrivateQuery {
+            encryption: self
+                .fields
+                .get("encryption")
+                .filter(|value| !value.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "none".to_owned()),
+            server_name: alias(&["sni", "servername"]),
+            fingerprint: alias(&["fp", "fingerprint", "client-fingerprint"]),
+            public_key: alias(&["pbk", "publickey", "public-key"]),
+            short_id: alias(&["sid", "short-id"]),
+            spider_x_present: ["spx", "spider-x"]
+                .iter()
+                .find_map(|name| self.fields.get(*name))
+                .is_some_and(|value| !value.is_empty()),
+            path,
+            host: self.fields.get("host").cloned().unwrap_or_default(),
+            service_name: alias(&["servicename", "service-name"]),
+            raw_xhttp_extra: self.fields.get("extra").cloned().unwrap_or_default(),
+            alpn,
+        }
+    }
+}
+
+impl fmt::Debug for VlessQueryMetadata {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VlessQueryMetadata")
+            .field("transport", &self.transport)
+            .field("security", &self.security)
+            .field("allow_insecure", &self.allow_insecure)
+            .field("xhttp_mode", &self.xhttp_mode)
+            .field("flow", &self.flow)
+            .field("packet_encoding", &self.packet_encoding)
+            .field("encryption_enabled", &self.encryption.is_some())
+            .field("transport_options", &self.transport_options)
+            .field("reality_pq", &self.reality_pq)
+            .field("reality_pq_present", &self.reality_pq_present)
+            .field("reality_short_id_present", &self.reality_short_id_present)
+            .field("reality_spider_x_present", &self.reality_spider_x_present)
+            .field("provider_metadata_present", &self.provider_metadata_present)
+            .field("non_xhttp_mode_metadata", &self.non_xhttp_mode_metadata)
+            .field("private_field_count", &self.fields.len())
+            .finish_non_exhaustive()
     }
 }
 

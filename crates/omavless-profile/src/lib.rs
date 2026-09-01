@@ -3,14 +3,15 @@
 //! Canonical pure profile-domain types for the incremental Rust migration.
 //!
 //! R2a owns protocol classification; later bounded slices own VLESS authority,
-//! public preview and query-metadata semantics. None of these slices accesses
-//! the private store, renders Mihomo configuration, or enters the production
-//! runtime path.
+//! public preview and query-metadata semantics. R2i composes those slices into
+//! a private canonical VLESS model, subscription identity and Mihomo renderer;
+//! none of this code enters the current production runtime path.
 
 use std::fmt;
 
 mod base64url;
 pub mod vless;
+pub mod vless_canonical;
 pub mod vless_encryption;
 pub mod vless_query;
 pub mod vless_xhttp_extra;
