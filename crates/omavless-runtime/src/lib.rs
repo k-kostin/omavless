@@ -25,6 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub mod desired;
+
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
 pub const IO_TIMEOUT: Duration = Duration::from_secs(5);

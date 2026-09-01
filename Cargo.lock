@@ -255,6 +255,8 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "omavless-control-protocol",
+ "omavless-store",
+ "serde",
  "serde_json",
  "signal-hook",
 ]

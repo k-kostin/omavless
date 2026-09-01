@@ -49,6 +49,38 @@ fn command(base: &Path, action: &str) -> std::process::Output {
 }
 
 #[test]
+fn preflight_reads_desired_state_without_disclosing_profile_id() {
+    let base = runtime_base();
+    let state_root = base.join("state");
+    fs::create_dir(&state_root).unwrap();
+    fs::set_permissions(&state_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let state_dir = state_root.join("omavless");
+    fs::create_dir(&state_dir).unwrap();
+    fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    let desired = state_dir.join("desired.json");
+    fs::write(
+        &desired,
+        r#"{"schemaVersion":1,"generation":7,"connected":true,"profileId":"private-profile-id","mode":"global"}"#,
+    )
+    .unwrap();
+    fs::set_permissions(&desired, fs::Permissions::from_mode(0o600)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_omavless"))
+        .arg("preflight")
+        .env("XDG_STATE_HOME", &state_root)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let rendered = String::from_utf8(output.stdout).unwrap();
+    let payload: Value = serde_json::from_str(&rendered).unwrap();
+    assert_eq!(payload["generation"], 7);
+    assert_eq!(payload["connected"], true);
+    assert_eq!(payload["profilePresent"], true);
+    assert_eq!(payload["mode"], "global");
+    assert!(!rendered.contains("private-profile-id"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn daemon_and_semantic_cli_use_one_private_runtime() {
     let base = runtime_base();
     let child = Command::new(env!("CARGO_BIN_EXE_omavless"))
