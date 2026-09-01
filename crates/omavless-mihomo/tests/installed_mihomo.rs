@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
+use omavless_domain::config::assemble_runtime_config;
 use omavless_mihomo::{ErrorKind, ReadOnlyEndpoint, controller_get, validate_config};
+use omavless_profile::canonical::parse_canonical;
 use std::env;
 use std::fs;
 use std::io;
@@ -104,4 +106,40 @@ fn installed_mihomo_validates_and_serves_unix_only_controller() {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => panic!("cleanup failed: {error}"),
     }
+}
+
+#[test]
+fn installed_mihomo_accepts_every_canonical_profile_renderer() {
+    let Some(core) = configured_core() else {
+        eprintln!("set OMAVLESS_TEST_MIHOMO for the opt-in core integration test");
+        return;
+    };
+    let root = temporary_root("renderers");
+    let socket = root.join("controller.sock");
+    let profiles = [
+        "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp#Synthetic",
+        "trojan://synthetic-password@203.0.113.2:443?security=tls&sni=cdn.example.invalid#Synthetic",
+        "hy2://synthetic-auth@203.0.113.3:443?sni=cdn.example.invalid#Synthetic",
+        "tuic://22222222-2222-4222-8222-222222222222:synthetic-password@203.0.113.4:443?sni=cdn.example.invalid#Synthetic",
+    ];
+    let rendered = profiles
+        .iter()
+        .enumerate()
+        .map(|(index, input)| {
+            parse_canonical(input)
+                .expect("synthetic canonical profile")
+                .render_mihomo_proxy(&format!("Synthetic {index}"), None)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let template = "mixed-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nproxies:\n{{OMAVLESS_PROXY}}\nproxy-groups:\n- name: PROXY\n  type: select\n  proxies:\n  - Synthetic 0\n  - Synthetic 1\n  - Synthetic 2\n  - Synthetic 3\nrules:\n- MATCH,PROXY\n";
+    let config = assemble_runtime_config(template, &rendered, socket.to_str().unwrap(), &[])
+        .expect("runtime config");
+    let config_path = root.join("profiles.yaml");
+    fs::write(&config_path, config).expect("write private config");
+    fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600)).expect("private config");
+
+    validate_config(&core, &root, &config_path, Duration::from_secs(15))
+        .expect("installed Mihomo should accept every canonical renderer");
+    fs::remove_dir_all(root).expect("cleanup renderer config");
 }

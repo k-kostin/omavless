@@ -226,6 +226,8 @@ dependencies = [
 name = "omavless-mihomo"
 version = "0.1.0"
 dependencies = [
+ "omavless-domain",
+ "omavless-profile",
  "serde",
  "serde_json",
 ]

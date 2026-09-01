@@ -645,6 +645,15 @@ impl TrojanProfile {
     pub fn mihomo_render_fingerprint(&self, name: &str, server_override: Option<&str>) -> String {
         sha256_hex(canonical_json(&self.mihomo_value(name, server_override)).as_bytes())
     }
+
+    #[must_use]
+    pub fn render_mihomo_proxy(&self, name: &str, server_override: Option<&str>) -> String {
+        format!(
+            "- {}",
+            serde_json::to_string(&self.mihomo_value(name, server_override))
+                .expect("validated profile JSON is serializable")
+        )
+    }
 }
 
 #[cfg(test)]
