@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+use nix::unistd::Uid;
+use omavless_runtime::desired::{DesiredPaths, read_desired};
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
 use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
@@ -9,7 +11,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-const USAGE: &str = "Usage: omavless daemon|hello|status|capabilities";
+const USAGE: &str = "Usage: omavless daemon|hello|status|capabilities|preflight";
 
 fn run() -> Result<(), String> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
@@ -19,6 +21,23 @@ fn run() -> Result<(), String> {
     }
     if arguments.len() != 1 {
         return Err("Invalid command. Use --help.".to_owned());
+    }
+    if arguments[0] == "preflight" {
+        let paths = DesiredPaths::current().map_err(|error| error.to_string())?;
+        let state =
+            read_desired(&paths, Uid::current().as_raw()).map_err(|error| error.to_string())?;
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "schemaVersion": state.schema_version,
+                "generation": state.generation,
+                "connected": state.connected,
+                "profilePresent": !state.profile_id.is_empty(),
+                "mode": state.mode,
+            }))
+            .map_err(|_| "Output failed")?
+        );
+        return Ok(());
     }
     let paths = RuntimePaths::current().map_err(|error| error.to_string())?;
     if arguments[0] == "daemon" {

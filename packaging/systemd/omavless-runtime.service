@@ -1,0 +1,27 @@
+[Unit]
+Description=OmaVLESS canonical user runtime
+Documentation=https://github.com/k-kostin/omavless
+After=network-online.target
+ConditionFileIsExecutable=/usr/bin/omavless
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/omavless daemon
+Restart=on-failure
+RestartSec=2s
+RuntimeDirectory=omavless
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ConfigurationDirectory=omavless
+ConfigurationDirectoryMode=0700
+StateDirectory=omavless
+StateDirectoryMode=0700
+CacheDirectory=omavless
+CacheDirectoryMode=0700
+
+[Install]
+WantedBy=default.target
