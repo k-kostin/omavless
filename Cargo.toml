@@ -5,6 +5,7 @@ members = [
   "crates/omavless-mihomo",
   "crates/omavless-parity",
   "crates/omavless-profile",
+  "crates/omavless-store",
 ]
 resolver = "3"
 
