@@ -56,6 +56,8 @@ cp -a \
   "$stage/"
 mkdir -p "$stage/templates"
 cp -a "$plugin_dir/templates/." "$stage/templates/"
+mkdir -p "$stage/docs"
+cp -a "$plugin_dir/docs/user" "$stage/docs/user"
 chmod 755 "$stage/backend.sh" "$stage/backend.py" "$stage/uninstall.sh"
 
 if [[ -e "$target" ]]; then
