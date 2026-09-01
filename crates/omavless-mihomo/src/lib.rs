@@ -31,6 +31,7 @@ pub const MAX_CORE_PATH_BYTES: usize = 4096;
 pub const MAX_SOCKET_PATH_BYTES: usize = 4096;
 pub const MAX_PROBE_TARGETS: usize = 64;
 pub const MAX_PROBE_ALIAS_BYTES: usize = 128;
+pub const PROBE_REQUESTS_PER_TARGET: usize = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -399,6 +400,34 @@ pub fn merge_probe_response(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProbeStep {
+    pub target_index: usize,
+    pub url_index: usize,
+    pub sample_index: usize,
+}
+
+/// Build the fixed three-public-URL, three-sample sequence for already
+/// validated, IP-pinned isolated probe targets.
+pub fn probe_schedule(target_count: usize) -> Result<Vec<ProbeStep>> {
+    if target_count == 0 || target_count > MAX_PROBE_TARGETS {
+        return Err(MihomoError::new(ErrorKind::InvalidArgument));
+    }
+    let mut steps = Vec::with_capacity(target_count * PROBE_REQUESTS_PER_TARGET);
+    for sample_index in 0..3 {
+        for url_index in 0..3 {
+            for target_index in 0..target_count {
+                steps.push(ProbeStep {
+                    target_index,
+                    url_index,
+                    sample_index,
+                });
+            }
+        }
+    }
+    Ok(steps)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostPlatform {
     Arch,
     NixOs,
@@ -697,5 +726,29 @@ mod tests {
             }
             .clean_disconnected()
         );
+    }
+
+    #[test]
+    fn probe_schedule_is_deterministic_and_bounded() {
+        let steps = probe_schedule(2).unwrap();
+        assert_eq!(steps.len(), 18);
+        assert_eq!(
+            steps[0],
+            ProbeStep {
+                target_index: 0,
+                url_index: 0,
+                sample_index: 0
+            }
+        );
+        assert_eq!(
+            steps[2],
+            ProbeStep {
+                target_index: 0,
+                url_index: 1,
+                sample_index: 0
+            }
+        );
+        assert!(probe_schedule(0).is_err());
+        assert!(probe_schedule(MAX_PROBE_TARGETS + 1).is_err());
     }
 }

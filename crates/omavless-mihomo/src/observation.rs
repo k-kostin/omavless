@@ -6,6 +6,44 @@ use std::path::Path;
 
 pub const MAX_PROCESS_FAMILY: usize = 64;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserServiceState {
+    pub active: bool,
+    pub main_pid: u32,
+    pub exit_status: i32,
+    pub result: String,
+}
+
+pub fn parse_systemd_show(value: &str) -> Option<UserServiceState> {
+    if value.len() > 64 * 1024 {
+        return None;
+    }
+    let (mut active, mut main_pid, mut exit_status, mut result) = (None, None, None, None);
+    for line in value.lines() {
+        let (key, item) = line.split_once('=')?;
+        match key {
+            "ActiveState" => active = Some(item == "active"),
+            "MainPID" => main_pid = item.parse().ok(),
+            "ExecMainStatus" => exit_status = item.parse().ok(),
+            "Result"
+                if item.len() <= 80
+                    && item
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)) =>
+            {
+                result = Some(item.to_owned())
+            }
+            _ => {}
+        }
+    }
+    Some(UserServiceState {
+        active: active?,
+        main_pid: main_pid?,
+        exit_status: exit_status?,
+        result: result?,
+    })
+}
+
 pub fn process_family(root_pid: u32, proc_root: &Path) -> BTreeSet<u32> {
     if root_pid == 0 {
         return BTreeSet::new();
@@ -104,5 +142,20 @@ mod tests {
         fs::write(root.join("wg0/tun_flags"), "1").unwrap();
         assert_eq!(tun_interfaces(&root, "Meta", true), ["wg0"]);
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn systemd_projection_is_bounded_and_typed() {
+        let state = parse_systemd_show(
+            "ActiveState=active\nMainPID=42\nExecMainStatus=0\nResult=success\n",
+        )
+        .unwrap();
+        assert!(state.active);
+        assert_eq!(state.main_pid, 42);
+        assert!(
+            parse_systemd_show(
+                "ActiveState=active\nMainPID=private\nExecMainStatus=0\nResult=success\n"
+            )
+            .is_none()
+        );
     }
 }
