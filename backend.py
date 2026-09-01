@@ -4865,6 +4865,22 @@ def systemd_quote(value: str) -> str:
     return '"' + escaped + '"'
 
 
+def systemd_condition_path(value: str) -> str:
+    """Escape one absolute path without quotes becoming part of the condition."""
+    if not value.startswith("/"):
+        raise ValueError("systemd condition path must be absolute")
+    escaped: list[str] = []
+    safe = b"/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    for byte in value.encode("utf-8"):
+        if byte == ord("%"):
+            escaped.append("%%")
+        elif byte in safe:
+            escaped.append(chr(byte))
+        else:
+            escaped.append(f"\\x{byte:02x}")
+    return "".join(escaped)
+
+
 def ensure_unit(paths: Paths, core: Path) -> None:
     backend = PLUGIN_DIR / "backend.sh"
     manifest = PLUGIN_DIR / "manifest.json"
@@ -4872,7 +4888,7 @@ def ensure_unit(paths: Paths, core: Path) -> None:
 Description=OmaVLESS tunnel (Mihomo core)
 Wants=network-online.target
 After=network-online.target
-ConditionPathExists={systemd_quote(str(manifest))}
+ConditionPathExists={systemd_condition_path(str(manifest))}
 
 [Service]
 ExecStart={systemd_quote(str(backend))} run-core {systemd_quote(str(core))}
@@ -4898,7 +4914,7 @@ def ensure_startup_unit(paths: Paths) -> None:
 Description=OmaVLESS login autoconnect
 Wants=network-online.target
 After=network-online.target
-ConditionPathExists={systemd_quote(str(manifest))}
+ConditionPathExists={systemd_condition_path(str(manifest))}
 
 [Service]
 Type=oneshot

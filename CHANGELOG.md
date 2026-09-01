@@ -4,6 +4,9 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Fixed generated user-unit `ConditionPathExists=` escaping so systemd treats
+  the plugin manifest as an absolute path instead of ignoring a quoted
+  condition. Paths with whitespace, Unicode and `%` remain safely encoded.
 - Added the first R2 profile-domain slice: a canonical Rust protocol enum and
   credential-safe classifier with Python/Rust parity for supported schemes,
   the Hysteria2 alias, input bounds and fixed errors. Credential parsing and
