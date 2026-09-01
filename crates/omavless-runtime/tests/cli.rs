@@ -17,6 +17,18 @@ impl Drop for ChildGuard {
     }
 }
 
+impl ChildGuard {
+    fn terminate(mut self) {
+        let status = Command::new("kill")
+            .arg("-TERM")
+            .arg(self.0.id().to_string())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(self.0.wait().unwrap().success());
+    }
+}
+
 fn runtime_base() -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -76,6 +88,7 @@ fn daemon_and_semantic_cli_use_one_private_runtime() {
     assert!(error.contains("already owns this session"));
     assert!(!error.contains(base.to_string_lossy().as_ref()));
 
-    drop(guard);
+    guard.terminate();
+    assert!(!socket.exists());
     fs::remove_dir_all(base).unwrap();
 }

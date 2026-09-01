@@ -2,8 +2,12 @@
 
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
 use serde_json::json;
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
+use signal_hook::flag;
 use std::env;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 const USAGE: &str = "Usage: omavless daemon|hello|status|capabilities";
 
@@ -18,8 +22,11 @@ fn run() -> Result<(), String> {
     }
     let paths = RuntimePaths::current().map_err(|error| error.to_string())?;
     if arguments[0] == "daemon" {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
         return RuntimeServer::bind(paths)
-            .and_then(|server| server.serve(None))
+            .and_then(|server| server.serve_until(&stop))
             .map_err(|error| error.to_string());
     }
     let (method, params) = if arguments[0] == "hello" {

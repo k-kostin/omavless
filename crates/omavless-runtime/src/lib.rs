@@ -21,6 +21,8 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const SOCKET_NAME: &str = "control.sock";
@@ -193,6 +195,24 @@ impl RuntimeServer {
             }
             if maximum_connections.is_some_and(|maximum| handled + 1 >= maximum) {
                 break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn serve_until(self, stop: &AtomicBool) -> Result<()> {
+        self.listener
+            .set_nonblocking(true)
+            .map_err(|_| RuntimeError::Io)?;
+        while !stop.load(Ordering::Relaxed) {
+            match self.listener.accept() {
+                Ok((mut stream, _address)) => {
+                    let _ = self.handle(&mut stream);
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => return Err(RuntimeError::Io),
             }
         }
         Ok(())
