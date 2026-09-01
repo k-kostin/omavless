@@ -99,12 +99,24 @@ impl fmt::Debug for VlessAuthority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VlessAuthorityPreview {
     pub server: String,
     pub port: u16,
     pub credential_hint: String,
     pub suggested_name: String,
+}
+
+impl fmt::Debug for VlessAuthorityPreview {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VlessAuthorityPreview")
+            .field("standard_https_port", &(self.port == 443))
+            .field("server_present", &!self.server.is_empty())
+            .field("credential_hint_present", &!self.credential_hint.is_empty())
+            .field("suggested_name_present", &!self.suggested_name.is_empty())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -392,6 +404,24 @@ mod tests {
         let replacement = parse_vless_authority(&uri("example.invalid:443", "bad%C3"))
             .expect("lossy percent decoding");
         assert_eq!(replacement.suggested_name, "bad�");
+    }
+
+    #[test]
+    fn authority_preview_debug_does_not_reveal_endpoint_or_label() {
+        let value =
+            parse_vless_authority(&uri("private-endpoint.invalid:443", "Private%20profile"))
+                .expect("private authority");
+        let preview = value.preview();
+        let debug = format!("{preview:?}");
+        for marker in [
+            "private-endpoint.invalid",
+            "Private profile",
+            &preview.credential_hint,
+        ] {
+            assert!(!debug.contains(marker));
+        }
+        assert!(debug.contains("standard_https_port: true"));
+        assert!(debug.contains("server_present: true"));
     }
 
     #[test]
