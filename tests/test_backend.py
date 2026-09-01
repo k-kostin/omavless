@@ -20,6 +20,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / "plugin"
 SPEC = importlib.util.spec_from_file_location("omavless_backend", ROOT / "backend.py")
 backend = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -94,7 +95,7 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(manifest["version"], "0.7.0")
         self.assertEqual(backend.PLUGIN_VERSION, manifest["version"])
         self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
-        self.assertEqual(manifest["entryPoints"]["barWidget"], "Panel.qml")
+        self.assertEqual(manifest["entryPoints"]["barWidget"], "plugin/Panel.qml")
         self.assertIn("experimental Trojan, Hysteria2 and TUIC", manifest["description"])
         widget = manifest["barWidget"]
         self.assertEqual(widget["defaults"]["locale"], "system")
@@ -102,7 +103,7 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(locale_schema["type"], "enum")
         self.assertEqual(locale_schema["options"], ["system", "en", "ru"])
         self.assertEqual(locale_schema["defaultValue"], "system")
-        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        panel = (PLUGIN / "Panel.qml").read_text(encoding="utf-8")
         self.assertIn('moduleName: "kdk.omavless"', panel)
 
     def test_cli_file_paths_accept_an_explicit_option_boundary(self):
@@ -131,7 +132,7 @@ class BackendTests(unittest.TestCase):
         )
 
     def test_pointer_hover_never_scrolls_profile_lists(self):
-        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        panel = (PLUGIN / "Panel.qml").read_text(encoding="utf-8")
         subscription_hover = panel.split(
             "function setSubscriptionCursor(index) {", 1
         )[1].split("function scrollSubscriptionCursorIntoView()", 1)[0]
@@ -2878,7 +2879,7 @@ rules:
             self.assertEqual(cleaned["lastId"], "")
 
     def test_subscription_credentials_travel_over_stdin_not_argv(self):
-        service = (ROOT / "Service.qml").read_text(encoding="utf-8")
+        service = (PLUGIN / "Service.qml").read_text(encoding="utf-8")
         backend_source = (ROOT / "backend.py").read_text(encoding="utf-8")
         self.assertIn('runControl(["subscription-save"', service)
         self.assertIn('read_stdin_text(MAX_SUBSCRIPTION_URL_BYTES, "subscription URL")', backend_source)
@@ -3161,15 +3162,18 @@ rules:
 
     def test_no_privileged_or_crontab_mutation_in_plugin_code(self):
         command_sources = "\n".join(
-            (ROOT / name).read_text(encoding="utf-8")
-            for name in ("backend.py", "backend.sh", "install.sh", "uninstall.sh", "Service.qml")
+            path.read_text(encoding="utf-8")
+            for path in (
+                ROOT / "backend.py", ROOT / "backend.sh", ROOT / "install.sh",
+                ROOT / "uninstall.sh", PLUGIN / "Service.qml",
+            )
         )
         for forbidden in ("NOPASSWD", "/etc/sudoers", "crontab", "pkexec", "sudo "):
             self.assertNotIn(forbidden, command_sources)
         # The one privileged setup step is user-mediated text: the panel may
         # copy it to the clipboard, but neither QML service nor backend can
         # execute it on the user's behalf.
-        panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+        panel = (PLUGIN / "Panel.qml").read_text(encoding="utf-8")
         self.assertIn('mihomoCapabilityCommand: "sudo setcap ', panel)
         self.assertIn("onCopyCommand: function(command) { vless.copyText(command) }", panel)
         self.assertNotIn("runControl([root.mihomoCapabilityCommand", panel)
@@ -3901,10 +3905,12 @@ esac
     def test_distribution_has_no_embedded_profile_or_implicit_mihoro_config(self):
         distributed = [
             ROOT / name for name in (
-                "Panel.qml", "Service.qml", "NamePrompt.qml", "SubscriptionPrompt.qml",
-                "RoutingPresetPrompt.qml", "OnboardingWizard.qml", "StartupPrompt.qml",
-                "RoutingToolsPrompt.qml", "ImportPreviewPrompt.qml", "RenameWindow.qml",
-                "QrWindow.qml", "backend.py", "backend.sh", "install.sh",
+                "plugin/Panel.qml", "plugin/Service.qml", "plugin/NamePrompt.qml",
+                "plugin/SubscriptionPrompt.qml", "plugin/RoutingPresetPrompt.qml",
+                "plugin/OnboardingWizard.qml", "plugin/StartupPrompt.qml",
+                "plugin/RoutingToolsPrompt.qml", "plugin/ImportPreviewPrompt.qml",
+                "plugin/RenameWindow.qml", "plugin/QrWindow.qml",
+                "backend.py", "backend.sh", "install.sh",
                 "uninstall.sh",
                 "manifest.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
                 "templates/default.yaml", "templates/china.yaml", "templates/iran.yaml",
@@ -3933,7 +3939,7 @@ esac
             "Panel.qml", "Service.qml", "NamePrompt.qml", "ImportPreviewPrompt.qml",
             "RenameWindow.qml", "QrWindow.qml",
         ):
-            source = (ROOT / name).read_text(encoding="utf-8")
+            source = (PLUGIN / name).read_text(encoding="utf-8")
             self.assertIn("SPDX-License-Identifier: MIT", source)
             self.assertIn("Adapted from Omarchy VPN", source)
         self.assertIn("THIRD_PARTY_NOTICES.md", (ROOT / "install.sh").read_text(encoding="utf-8"))

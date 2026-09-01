@@ -1,5 +1,5 @@
 const assert = require("assert")
-const I18n = require("../I18n.js")
+const I18n = require("../plugin/I18n.js")
 
 assert.strictEqual(I18n.normalizeLocale("ru_RU.UTF-8"), "ru")
 assert.strictEqual(I18n.normalizeLocale("ru-RU"), "ru")

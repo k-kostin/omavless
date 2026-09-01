@@ -10,7 +10,7 @@
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "plugin/Panel.qml"
   },
   "barWidget": {
     "displayName": "OmaVLESS",
