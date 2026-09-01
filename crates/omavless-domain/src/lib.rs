@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod import;
+pub mod private_store;
 pub mod routing;
 pub mod store;
 pub mod subscription;

@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 nix = { version = "0.30", features = ["fs", "socket", "user"] }
 omavless-control-protocol = { path = "../omavless-control-protocol" }
+omavless-domain = { path = "../omavless-domain" }
 omavless-store = { path = "../omavless-store" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -17,6 +18,9 @@ signal-hook = "0.3"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+omavless-mihomo = { path = "../omavless-mihomo" }
 
 [[bin]]
 name = "omavless"

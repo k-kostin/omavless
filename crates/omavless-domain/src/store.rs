@@ -135,7 +135,10 @@ pub struct NormalizedStoreState {
     pub onboarding_complete: bool,
 }
 
-fn python_uuid_compatible(value: &str) -> bool {
+/// Match the record-ID spellings accepted by Python's `uuid.UUID` without
+/// retaining or publishing any other private record data.
+#[must_use]
+pub fn valid_record_id(value: &str) -> bool {
     let value = value.strip_prefix("urn:uuid:").unwrap_or(value);
     let value = if value.starts_with('{') {
         let Some(inner) = value
@@ -182,7 +185,7 @@ pub fn normalize_store_state(
     }
     let mut subscription_ids = BTreeSet::new();
     for subscription in &input.subscriptions {
-        if !python_uuid_compatible(&subscription.id) {
+        if !valid_record_id(&subscription.id) {
             return Err(StoreError::InvalidSubscriptionId);
         }
         if !subscription_ids.insert(subscription.id.as_str()) {
@@ -191,7 +194,7 @@ pub fn normalize_store_state(
     }
     let mut profile_ids = BTreeSet::new();
     for profile in &input.profiles {
-        if !python_uuid_compatible(&profile.id) {
+        if !valid_record_id(&profile.id) {
             return Err(StoreError::InvalidProfileId);
         }
         if !profile_ids.insert(profile.id.as_str()) {

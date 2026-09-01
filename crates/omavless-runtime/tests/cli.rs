@@ -81,6 +81,47 @@ fn preflight_reads_desired_state_without_disclosing_profile_id() {
 }
 
 #[test]
+fn store_preflight_validates_private_config_but_returns_only_safe_facts() {
+    let base = runtime_base();
+    let home = base.join("home");
+    let config = home.join(".config/omavless");
+    fs::create_dir_all(&config).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+    let id = "00000000-0000-0000-0000-000000000001";
+    let store = format!(
+        r#"{{"version":3,"activeId":"","lastId":"{id}","profiles":[{{"id":"{id}","name":"Synthetic","uri":"vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp","protocol":"vless"}}],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{{"enabled":false,"target":"last","profileId":"","mode":"rule"}},"onboardingComplete":true}}"#
+    );
+    fs::write(config.join("profiles.json"), &store).unwrap();
+    fs::write(
+        config.join("route-template.yaml"),
+        "proxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+    )
+    .unwrap();
+    for path in [
+        config.join("profiles.json"),
+        config.join("route-template.yaml"),
+    ] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_omavless"))
+        .arg("store-preflight")
+        .env("OMAVLESS_HOME", &home)
+        .env("XDG_RUNTIME_DIR", &base)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let rendered = String::from_utf8(output.stdout).unwrap();
+    let payload: Value = serde_json::from_str(&rendered).unwrap();
+    assert_eq!(payload["profileCount"], 1);
+    assert_eq!(payload["protocolCounts"]["vless"], 1);
+    assert_eq!(payload["configReady"], true);
+    for private in [id, "11111111", "203.0.113.1", "Synthetic"] {
+        assert!(!rendered.contains(private));
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn daemon_and_semantic_cli_use_one_private_runtime() {
     let base = runtime_base();
     let child = Command::new(env!("CARGO_BIN_EXE_omavless"))
