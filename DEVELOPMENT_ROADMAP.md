@@ -239,8 +239,9 @@ packet-encoding parity merged in PR #64, REALITY key/short-ID/PQ parity in PR
 #66, VLESS Encryption parity in PR #70, transport-option parity in PR #72,
 XHTTP `extra` decoder/shape parity in PR #74, normalized top-level XHTTP
 option parity in PR #78, nested `downloadSettings` parity in PR #80 and
-canonical profile/identity/preview/rendering parity in PR #83; pure-VLESS
-consolidation is next and non-VLESS adapters remain pending**.
+canonical profile/identity/preview/rendering parity in PR #83, followed by the
+R2j pure-VLESS consolidation/privacy audit in PR #86; pure-VLESS adapter parity
+is complete and non-VLESS adapters remain pending**.
 
 Accepted classification head: `0c11682284d451e5f43bd1ffc4c116a67b13fce9`.
 Classification merge commit: `1b481f60710fd84342aa5c01c4f1a73a76e88af1`.
@@ -287,6 +288,11 @@ Accepted canonical VLESS head:
 Canonical VLESS merge commit:
 `0b2a7d5f147c1c373ae491f1206695532e8c07d7`.
 
+Accepted R2j VLESS-consolidation head:
+`d82bf63bec44b259e67f422f967509d417fad4bc`.
+R2j VLESS-consolidation merge commit:
+`5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`.
+
 Continue as `codex/rust-profile-adapters-*` with narrow slices rather than one
 giant conversion. Rust now owns the future bounded VLESS authority model,
 scheme/UUID/host/port validation, suggested-label decoding and credential-safe
@@ -315,12 +321,14 @@ rendering. Synthetic Python/Rust differentials cover 31 authority, 47
 query-metadata, 19 flow/packet, 43 REALITY, 42 Encryption, 34 transport-option,
 62 XHTTP-shape, 115 XHTTP-option, 188 XHTTP-download and 49 canonical VLESS
 cases without emitting private input or key material. Python remains the
-production owner and migration oracle; PR #83 did not cut over runtime behavior.
+production owner and migration oracle; neither PR #83 nor the R2j audit cut over
+runtime behavior. The R2j audit kept all 49 canonical differential cases green,
+fixed the last credential-bearing authority-preview `Debug` representation and
+finished with 71 Rust and 259 Python/QML tests passing on Try Omarchy ARM64.
 
-R2j should audit and consolidate the accepted pure-VLESS surface without
-ceremonial code churn. After that checkpoint, continue remaining protocol
-adapters in narrow independently reviewable slices. Pure VLESS parity does not
-make R2 overall complete.
+Continue remaining non-VLESS protocol adapters in narrow independently
+reviewable slices. Pure VLESS parity is complete, but that does not make R2
+overall complete.
 
 Migrate existing validated semantics:
 

@@ -260,8 +260,13 @@ screenshots and repeat affected captures after a fix.
   `7b186f79349b7d81101b55945154db44b3e1c8f3` and merge commit
   `0b2a7d5f147c1c373ae491f1206695532e8c07d7`: all 49 credential-free
   canonical cases matched on cloud and Try Omarchy ARM64. Python still owns the
-  production path and remains the oracle; no runtime cutover occurred. R2j is
-  the next pure-VLESS consolidation checkpoint, and R2 overall is not complete.
+  production path and remains the oracle; no runtime cutover occurred. The R2j
+  consolidation audit then completed in PR `#86` at accepted head
+  `d82bf63bec44b259e67f422f967509d417fad4bc` and merge commit
+  `5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`. It found and fixed the remaining
+  credential-bearing `Debug` surface in the authority preview while preserving
+  all 49 canonical differential cases. Pure-VLESS adapter parity is complete;
+  R2 overall is not complete because non-VLESS adapters remain pending.
   Missing V0
   protocol fixtures do not block further deterministic R2 slices. P4 remains
   blocked by V0 and should additionally wait for sufficient R2 Rust
