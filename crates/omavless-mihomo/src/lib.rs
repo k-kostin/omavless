@@ -20,6 +20,9 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+pub mod diagnostics;
+pub mod observation;
+
 pub const MAX_CONTROLLER_RESPONSE_BYTES: usize = 512 * 1024;
 pub const MAX_CONTROLLER_HEADER_BYTES: usize = 32 * 1024;
 pub const MAX_CONTROLLER_JSON_STRING_BYTES: usize = 64 * 1024;
