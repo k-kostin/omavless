@@ -1,0 +1,33 @@
+name: R2i compile probe
+
+on:
+  push:
+    branches:
+      - ci/r2i-compile-probe-v1
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Apply and compile current R2i candidate
+        run: |
+          set -euxo pipefail
+          git fetch origin main
+          git reset --hard origin/main
+          base64 -d .cloud/r2i/probe.patch.gz.b64 > /tmp/r2i.patch.gz
+          printf '%s  %s\n' b94781d2d8e51856022b7c45ebae3a5374d6a4aea864e9243ad1a0f4adc5982f /tmp/r2i.patch.gz | sha256sum --check --strict
+          gzip -dc /tmp/r2i.patch.gz > /tmp/r2i.patch
+          printf '%s  %s\n' 022f0bdd8ca29c43ddd7664b1c83c80068d689407e7afa9734a6d82becb92c15 /tmp/r2i.patch | sha256sum --check --strict
+          git apply --check /tmp/r2i.patch
+          git apply /tmp/r2i.patch
+          git diff --check
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
