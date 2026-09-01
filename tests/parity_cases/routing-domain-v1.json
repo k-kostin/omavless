@@ -1,0 +1,21 @@
+[
+  {"id":"domain-proxy","kind":"domain","action":"proxy","value":" Example.Invalid. ","template":"mode: rule\nrules:\n  - MATCH,DIRECT\n","mode":"global","classification":"accepted"},
+  {"id":"suffix-direct","kind":"suffix","action":"direct","value":"*.edge.example","template":"rules:\n  - MATCH,PROXY\n","mode":"rule","classification":"accepted"},
+  {"id":"suffix-dot","kind":"suffix","action":"reject","value":".edge.example","template":"mode: direct # retained\nrules: # list\n  - MATCH,DIRECT\n","mode":"global","classification":"accepted"},
+  {"id":"unicode-domain","kind":"domain","action":"proxy","value":"täst.invalid","template":"rules:\n","mode":"direct","classification":"accepted"},
+  {"id":"ipv4-host","kind":"ipcidr","action":"direct","value":"192.0.2.42","template":"rules:\n  - MATCH,PROXY\n","mode":"rule","classification":"accepted"},
+  {"id":"ipv4-network","kind":"ipcidr","action":"reject","value":"192.0.2.42/24","template":"rules:\n  - MATCH,PROXY\n","mode":"global","classification":"accepted"},
+  {"id":"ipv6-host","kind":"ipcidr","action":"proxy","value":"2001:db8::42","template":"rules:\n  - MATCH,DIRECT\n","mode":"direct","classification":"accepted"},
+  {"id":"ipv6-network","kind":"ipcidr","action":"reject","value":"2001:db8::42/64","template":"rules:\n  - MATCH,DIRECT\n","mode":"rule","classification":"accepted"},
+  {"id":"bad-kind","kind":"regex","action":"proxy","value":"private.example","template":"rules:\n","mode":"rule","classification":"unsupported_kind"},
+  {"id":"bad-action","kind":"domain","action":"private","value":"private.example","template":"rules:\n","mode":"rule","classification":"unsupported_action"},
+  {"id":"empty-domain","kind":"domain","action":"proxy","value":"   ","template":"rules:\n","mode":"rule","classification":"empty_value"},
+  {"id":"domain-scheme","kind":"domain","action":"proxy","value":"https://private.example","template":"rules:\n","mode":"rule","classification":"invalid_domain"},
+  {"id":"domain-single-label","kind":"domain","action":"proxy","value":"localhost","template":"rules:\n","mode":"rule","classification":"invalid_domain"},
+  {"id":"network-invalid","kind":"ipcidr","action":"proxy","value":"private-network","template":"rules:\n","mode":"rule","classification":"invalid_network"},
+  {"id":"network-prefix","kind":"ipcidr","action":"proxy","value":"192.0.2.1/33","template":"rules:\n","mode":"rule","classification":"invalid_network"},
+  {"id":"missing-rules","kind":"domain","action":"proxy","value":"private.example","template":"mode: rule\nproxies: []\n","mode":"rule","classification":"missing_rules_section"},
+  {"id":"multiple-rules","kind":"domain","action":"proxy","value":"private.example","template":"rules:\n  - MATCH,DIRECT\nrules:\n  - MATCH,PROXY\n","mode":"rule","classification":"multiple_rules_sections"},
+  {"id":"bad-mode","kind":"domain","action":"proxy","value":"private.example","template":"rules:\n","mode":"private","classification":"unsupported_mode"},
+  {"id":"multiple-modes","kind":"domain","action":"proxy","value":"private.example","template":"mode: rule\nmode: global\nrules:\n","mode":"direct","classification":"multiple_modes"}
+]

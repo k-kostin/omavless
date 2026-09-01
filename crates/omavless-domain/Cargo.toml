@@ -1,6 +1,6 @@
 [package]
-name = "omavless-profile"
-description = "Canonical profile protocol model and pure adapters for OmaVLESS"
+name = "omavless-domain"
+description = "Pure store, subscription and routing semantics for OmaVLESS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,13 +8,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-base64 = "0.22"
 idna = "1.1"
+omavless-profile = { path = "../omavless-profile" }
 serde_json = "1.0"
 
 [dev-dependencies]
-omavless-parity = { path = "../omavless-parity" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [lints]
 workspace = true

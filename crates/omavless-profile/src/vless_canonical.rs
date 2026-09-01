@@ -762,7 +762,7 @@ fn xhttp_value_to_json(value: &XhttpValue) -> Value {
     }
 }
 
-fn canonical_json(value: &Value) -> String {
+pub(crate) fn canonical_json(value: &Value) -> String {
     serde_json::to_string(value).expect("serde_json::Value serialization is infallible")
 }
 
@@ -812,7 +812,7 @@ fn append_yaml_mapping(
     }
 }
 
-fn sha256_hex(input: &[u8]) -> String {
+pub(crate) fn sha256_hex(input: &[u8]) -> String {
     const INITIAL: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
         0x5be0cd19,

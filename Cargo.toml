@@ -1,8 +1,11 @@
 [workspace]
 members = [
   "crates/omavless-control-protocol",
+  "crates/omavless-domain",
+  "crates/omavless-mihomo",
   "crates/omavless-parity",
   "crates/omavless-profile",
+  "crates/omavless-store",
 ]
 resolver = "3"
 

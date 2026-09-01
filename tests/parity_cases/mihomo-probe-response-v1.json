@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"one-delay","status":200,"payload":{"probe-1":42},"samples":{"probe-1":[]}},
+    {"id":"two-targets","status":200,"payload":{"probe-1":10,"probe-2":20},"samples":{"probe-1":[5],"probe-2":[]}},
+    {"id":"unknown-alias-ignored","status":200,"payload":{"probe-9":99},"samples":{"probe-1":[]}},
+    {"id":"zero-ignored","status":200,"payload":{"probe-1":0},"samples":{"probe-1":[]}},
+    {"id":"negative-ignored","status":200,"payload":{"probe-1":-1},"samples":{"probe-1":[]}},
+    {"id":"over-limit-ignored","status":200,"payload":{"probe-1":60001},"samples":{"probe-1":[]}},
+    {"id":"float-ignored","status":200,"payload":{"probe-1":12.5},"samples":{"probe-1":[]}},
+    {"id":"string-ignored","status":200,"payload":{"probe-1":"42"},"samples":{"probe-1":[]}},
+    {"id":"python-boolean-compatibility","status":200,"payload":{"probe-1":true},"samples":{"probe-1":[]}},
+    {"id":"all-timeout","status":504,"payload":{"message":"get delay: all proxies timeout"},"samples":{"probe-1":[]}},
+    {"id":"other-timeout","status":504,"payload":{"message":"other"},"samples":{"probe-1":[]}},
+    {"id":"other-status","status":500,"payload":{},"samples":{"probe-1":[]}},
+    {"id":"non-object","status":200,"payload":[],"samples":{"probe-1":[]}},
+    {"id":"null-value","status":200,"payload":{"probe-1":null},"samples":{"probe-1":[]}}
+  ]
+}

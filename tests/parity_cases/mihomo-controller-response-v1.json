@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "version-object",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Type: application/json", "Content-Length: 18"],
+      "body": "{\"version\":\"1.20\"}",
+      "outcome": "ok",
+      "status": 200
+    },
+    {
+      "id": "empty-no-content",
+      "statusLine": "HTTP/1.1 204 No Content",
+      "headers": ["Content-Length: 0"],
+      "body": "",
+      "outcome": "ok",
+      "status": 204
+    },
+    {
+      "id": "close-delimited-unicode",
+      "statusLine": "HTTP/1.0 200 OK",
+      "headers": ["Content-Type: application/json; charset=utf-8"],
+      "body": "{\"message\":\"готово\"}",
+      "outcome": "ok",
+      "status": 200
+    },
+    {
+      "id": "non-success-json",
+      "statusLine": "HTTP/1.1 503 Service Unavailable",
+      "headers": ["Content-Length: 19"],
+      "body": "{\"message\":\"later\"}",
+      "outcome": "ok",
+      "status": 503
+    },
+    {
+      "id": "bad-protocol",
+      "statusLine": "HTTP/2 200",
+      "headers": ["Content-Length: 2"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "bad-status",
+      "statusLine": "HTTP/1.1 success OK",
+      "headers": ["Content-Length: 2"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "status-out-of-range",
+      "statusLine": "HTTP/1.1 700 Unknown",
+      "headers": ["Content-Length: 2"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "malformed-header",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Not-A-Header"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "duplicate-length",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 2", "content-length: 2"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "wrong-length",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 3"],
+      "body": "{}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "chunked-rejected-for-unary-client",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Transfer-Encoding: chunked"],
+      "body": "2\r\n{}\r\n0\r\n\r\n",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "invalid-json",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 8"],
+      "body": "not-json",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "trailing-json",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 5"],
+      "body": "{} {}",
+      "outcome": "invalid_response"
+    },
+    {
+      "id": "scalar-json-accepted-like-current-controller",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 4"],
+      "body": "true",
+      "outcome": "ok",
+      "status": 200
+    },
+    {
+      "id": "duplicate-json-key-current-compatible",
+      "statusLine": "HTTP/1.1 200 OK",
+      "headers": ["Content-Length: 13"],
+      "body": "{\"a\":1,\"a\":2}",
+      "outcome": "ok",
+      "status": 200
+    }
+  ]
+}
