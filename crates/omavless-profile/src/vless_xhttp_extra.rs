@@ -114,6 +114,7 @@ impl fmt::Display for XhttpExtraError {
 
 impl std::error::Error for XhttpExtraError {}
 
+#[derive(Clone)]
 enum JsonNumber {
     Integer(String),
     Float(String),
@@ -122,6 +123,7 @@ enum JsonNumber {
     NegativeInfinity,
 }
 
+#[derive(Clone)]
 enum JsonValue {
     Null,
     Boolean(bool),
@@ -718,6 +720,99 @@ impl XhttpOptions {
             + usize::from(self.session_key.is_some())
             + usize::from(self.session_table.is_some())
     }
+
+    pub(crate) fn normalized_entries(&self) -> Vec<(String, XhttpValue)> {
+        let mut entries = Vec::new();
+        if !self.headers.is_empty() {
+            entries.push(("headers".to_owned(), headers_value(&self.headers)));
+        }
+        for (name, value) in [
+            ("x-padding-bytes", self.facts.x_padding_bytes),
+            ("uplink-chunk-size", self.facts.uplink_chunk_size),
+            ("sc-max-each-post-bytes", self.facts.sc_max_each_post_bytes),
+            (
+                "sc-min-posts-interval-ms",
+                self.facts.sc_min_posts_interval_ms,
+            ),
+        ] {
+            if let Some(value) = value {
+                entries.push((name.to_owned(), XhttpValue::String(range_text(value))));
+            }
+        }
+        if self.facts.x_padding_obfs_mode {
+            entries.push(("x-padding-obfs-mode".to_owned(), XhttpValue::Boolean(true)));
+        }
+        if self.facts.no_grpc_header {
+            entries.push(("no-grpc-header".to_owned(), XhttpValue::Boolean(true)));
+        }
+        for (name, value) in [
+            (
+                "x-padding-placement",
+                self.facts
+                    .x_padding_placement
+                    .map(XhttpPaddingPlacement::code),
+            ),
+            (
+                "x-padding-method",
+                self.facts.x_padding_method.map(XhttpPaddingMethod::code),
+            ),
+            (
+                "uplink-http-method",
+                self.facts.uplink_http_method.map(XhttpHttpMethod::code),
+            ),
+            (
+                "seq-placement",
+                self.facts.seq_placement.map(XhttpPlacement::code),
+            ),
+            (
+                "uplink-data-placement",
+                self.facts
+                    .uplink_data_placement
+                    .map(XhttpDataPlacement::code),
+            ),
+        ] {
+            if let Some(value) = value {
+                entries.push((name.to_owned(), XhttpValue::String(value.to_owned())));
+            }
+        }
+        for (name, value) in [
+            ("x-padding-key", self.x_padding_key.as_deref()),
+            ("x-padding-header", self.x_padding_header.as_deref()),
+            ("seq-key", self.seq_key.as_deref()),
+            ("uplink-data-key", self.uplink_data_key.as_deref()),
+        ] {
+            if let Some(value) = value {
+                entries.push((name.to_owned(), XhttpValue::String(value.to_owned())));
+            }
+        }
+        if let Some(value) = self.facts.session_placement {
+            entries.push((
+                "session-placement".to_owned(),
+                XhttpValue::String(value.code().to_owned()),
+            ));
+        }
+        if let Some(value) = &self.session_key {
+            entries.push(("session-key".to_owned(), XhttpValue::String(value.clone())));
+        }
+        if let Some(value) = &self.session_table {
+            entries.push((
+                "session-table".to_owned(),
+                XhttpValue::String(value.clone()),
+            ));
+        }
+        if let Some(value) = self.facts.session_length {
+            entries.push((
+                "session-length".to_owned(),
+                XhttpValue::String(range_text(value)),
+            ));
+        }
+        let reuse = reuse_value_from_options(self.facts);
+        if let Some(reuse) = reuse {
+            entries.push(("reuse-settings".to_owned(), reuse));
+        }
+        debug_assert_eq!(entries.len(), self.facts.normalized_field_count);
+        entries
+    }
 }
 
 impl fmt::Debug for XhttpOptions {
@@ -844,14 +939,24 @@ pub fn parse_xhttp_options_bytes(input: &[u8]) -> Result<XhttpOptions, XhttpOpti
     normalize_xhttp_options(document)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum XhttpDownloadPolicy {
+    Reject,
+    Allow,
+}
+
 fn normalize_xhttp_options(
     document: XhttpExtraDocument,
 ) -> Result<XhttpOptions, XhttpOptionsError> {
     let data = &document.root;
-    if data.is_empty() {
-        return Ok(empty_xhttp_options());
-    }
+    validate_xhttp_options_envelope(data, XhttpDownloadPolicy::Reject)?;
+    normalize_xhttp_option_fields(data)
+}
 
+fn validate_xhttp_options_envelope(
+    data: &[(String, JsonValue)],
+    policy: XhttpDownloadPolicy,
+) -> Result<(), XhttpOptionsError> {
     const ALLOWED: &[&str] = &[
         "headers",
         "xPaddingBytes",
@@ -930,10 +1035,20 @@ fn normalize_xhttp_options(
             }
         }
     }
-    if field(data, "downloadSettings").is_some_and(|value| !matches!(value, JsonValue::Null)) {
+    if policy == XhttpDownloadPolicy::Reject
+        && field(data, "downloadSettings").is_some_and(|value| !matches!(value, JsonValue::Null))
+    {
         return Err(XhttpOptionsError::DownloadSettingsOutsideSlice);
     }
+    Ok(())
+}
 
+fn normalize_xhttp_option_fields(
+    data: &[(String, JsonValue)],
+) -> Result<XhttpOptions, XhttpOptionsError> {
+    if data.is_empty() {
+        return Ok(empty_xhttp_options());
+    }
     let headers = parse_headers(field(data, "headers"))?;
     let x_padding_bytes = parse_range(field(data, "xPaddingBytes"))?;
     let uplink_chunk_size = parse_range(field(data, "uplinkChunkSize"))?;
@@ -1614,6 +1729,67 @@ impl XhttpDownloadSettings {
             + usize::from(self.skip_cert_verify.is_some())
             + self.reuse.field_count
     }
+
+    fn normalized_entries(&self) -> Vec<(String, XhttpValue)> {
+        let mut entries = Vec::new();
+        if let Some(value) = &self.server {
+            entries.push(("server".to_owned(), XhttpValue::String(value.clone())));
+        }
+        if let Some(value) = self.port {
+            entries.push(("port".to_owned(), XhttpValue::Integer(i64::from(value))));
+        }
+        if let Some(value) = self.tls {
+            entries.push(("tls".to_owned(), XhttpValue::Boolean(value)));
+        }
+        if let Some(value) = &self.servername {
+            entries.push(("servername".to_owned(), XhttpValue::String(value.clone())));
+        }
+        if !self.alpn.is_empty() {
+            entries.push((
+                "alpn".to_owned(),
+                XhttpValue::Array(self.alpn.iter().cloned().map(XhttpValue::String).collect()),
+            ));
+        }
+        if let Some(value) = &self.fingerprint {
+            entries.push((
+                "client-fingerprint".to_owned(),
+                XhttpValue::String(value.clone()),
+            ));
+        }
+        if let Some(value) = self.skip_cert_verify {
+            entries.push(("skip-cert-verify".to_owned(), XhttpValue::Boolean(value)));
+        }
+        if let Some(reality) = &self.reality {
+            let mut values = vec![(
+                "public-key".to_owned(),
+                XhttpValue::String(reality.public_key.clone()),
+            )];
+            if let Some(value) = &reality.short_id {
+                values.push(("short-id".to_owned(), XhttpValue::String(value.clone())));
+            }
+            if reality.pq_enabled {
+                values.push((
+                    "support-x25519mlkem768".to_owned(),
+                    XhttpValue::Boolean(true),
+                ));
+            }
+            entries.push(("reality-opts".to_owned(), XhttpValue::Object(values)));
+        }
+        if let Some(value) = &self.path {
+            entries.push(("path".to_owned(), XhttpValue::String(value.clone())));
+        }
+        if let Some(value) = &self.host {
+            entries.push(("host".to_owned(), XhttpValue::String(value.clone())));
+        }
+        if !self.headers.is_empty() {
+            entries.push(("headers".to_owned(), headers_value(&self.headers)));
+        }
+        if let Some(value) = reuse_value_from_reuse(self.reuse) {
+            entries.push(("reuse-settings".to_owned(), value));
+        }
+        debug_assert_eq!(entries.len(), self.facts.normalized_field_count);
+        entries
+    }
 }
 
 impl fmt::Debug for XhttpDownloadSettings {
@@ -1624,6 +1800,183 @@ impl fmt::Debug for XhttpDownloadSettings {
             .field("private_value_count", &self.private_value_count())
             .finish_non_exhaustive()
     }
+}
+
+pub(crate) enum XhttpValue {
+    Boolean(bool),
+    Integer(i64),
+    String(String),
+    Array(Vec<Self>),
+    Object(Vec<(String, Self)>),
+}
+
+impl fmt::Debug for XhttpValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Boolean(_) => formatter.write_str("XhttpValue::Boolean(..)"),
+            Self::Integer(_) => formatter.write_str("XhttpValue::Integer(..)"),
+            Self::String(_) => formatter.write_str("XhttpValue::String(..)"),
+            Self::Array(values) => formatter
+                .debug_struct("XhttpValue::Array")
+                .field("len", &values.len())
+                .finish(),
+            Self::Object(values) => formatter
+                .debug_struct("XhttpValue::Object")
+                .field("len", &values.len())
+                .finish(),
+        }
+    }
+}
+
+pub(crate) struct XhttpConfiguration {
+    options: XhttpOptions,
+    download: Option<XhttpDownloadSettings>,
+}
+
+impl XhttpConfiguration {
+    #[must_use]
+    pub(crate) fn normalized_entries(&self) -> Vec<(String, XhttpValue)> {
+        let mut entries = Vec::new();
+        if let Some(download) = &self.download {
+            entries.push((
+                "download-settings".to_owned(),
+                XhttpValue::Object(download.normalized_entries()),
+            ));
+        }
+        entries.extend(self.options.normalized_entries());
+        entries
+    }
+
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.download.is_none() && self.options.facts.normalized_field_count == 0
+    }
+
+    #[must_use]
+    pub(crate) fn download_reality_pq(&self) -> bool {
+        self.download
+            .as_ref()
+            .is_some_and(|download| download.facts.reality_pq_enabled)
+    }
+
+    #[must_use]
+    pub(crate) fn download_reality_spider_compatibility(&self) -> bool {
+        self.download
+            .as_ref()
+            .is_some_and(|download| download.facts.reality_spider_compatibility)
+    }
+
+    #[must_use]
+    pub(crate) fn download_reality_pq_compatibility(&self) -> bool {
+        self.download
+            .as_ref()
+            .is_some_and(|download| download.facts.reality_pq_compatibility)
+    }
+}
+
+impl fmt::Debug for XhttpConfiguration {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XhttpConfiguration")
+            .field("normalized_field_count", &self.normalized_entries().len())
+            .field("download_present", &self.download.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XhttpConfigurationError {
+    Options(XhttpOptionsError),
+    Download(XhttpDownloadError),
+}
+
+impl XhttpConfigurationError {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Options(error) => error.code(),
+            Self::Download(error) => error.code(),
+        }
+    }
+}
+
+impl fmt::Display for XhttpConfigurationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Options(error) => error.fmt(formatter),
+            Self::Download(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for XhttpConfigurationError {}
+
+fn range_text(value: XhttpRange) -> String {
+    if value.is_single() {
+        value.start.to_string()
+    } else {
+        format!("{}-{}", value.start, value.end)
+    }
+}
+
+fn headers_value(headers: &[(String, String)]) -> XhttpValue {
+    XhttpValue::Object(
+        headers
+            .iter()
+            .map(|(name, value)| (name.clone(), XhttpValue::String(value.clone())))
+            .collect(),
+    )
+}
+
+fn reuse_value(
+    max_concurrency: Option<XhttpRange>,
+    max_connections: Option<XhttpRange>,
+    c_max_reuse_times: Option<XhttpRange>,
+    h_max_request_times: Option<XhttpRange>,
+    h_max_reusable_secs: Option<XhttpRange>,
+    h_keep_alive_period: Option<i32>,
+) -> Option<XhttpValue> {
+    let mut values = Vec::new();
+    for (name, value) in [
+        ("max-concurrency", max_concurrency),
+        ("max-connections", max_connections),
+        ("c-max-reuse-times", c_max_reuse_times),
+        ("h-max-request-times", h_max_request_times),
+        ("h-max-reusable-secs", h_max_reusable_secs),
+    ] {
+        if let Some(value) = value {
+            values.push((name.to_owned(), XhttpValue::String(range_text(value))));
+        }
+    }
+    if let Some(value) = h_keep_alive_period {
+        values.push((
+            "h-keep-alive-period".to_owned(),
+            XhttpValue::Integer(i64::from(value)),
+        ));
+    }
+    (!values.is_empty()).then_some(XhttpValue::Object(values))
+}
+
+fn reuse_value_from_options(facts: XhttpOptionsFacts) -> Option<XhttpValue> {
+    reuse_value(
+        facts.max_concurrency,
+        facts.max_connections,
+        facts.c_max_reuse_times,
+        facts.h_max_request_times,
+        facts.h_max_reusable_secs,
+        facts.h_keep_alive_period,
+    )
+}
+
+fn reuse_value_from_reuse(facts: ReuseFacts) -> Option<XhttpValue> {
+    reuse_value(
+        facts.max_concurrency,
+        facts.max_connections,
+        facts.c_max_reuse_times,
+        facts.h_max_request_times,
+        facts.h_max_reusable_secs,
+        facts.h_keep_alive_period,
+    )
 }
 
 /// Fixed, credential-safe XHTTP `downloadSettings` errors.
@@ -1811,15 +2164,60 @@ pub fn parse_xhttp_download_settings_bytes(
     normalize_xhttp_download(document, main_mode, main_security)
 }
 
+/// Compose the accepted top-level and download-side XHTTP semantic slices from
+/// one bounded JSON decode. This remains crate-private until the canonical
+/// VLESS adapter owns the complete private model and rendering boundary.
+pub(crate) fn parse_xhttp_configuration(
+    input: &str,
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpConfiguration, XhttpConfigurationError> {
+    let document = decode_xhttp_extra(input)
+        .map_err(|error| XhttpConfigurationError::Options(XhttpOptionsError::Decode(error)))?;
+    let data = &document.root;
+    validate_xhttp_options_envelope(data, XhttpDownloadPolicy::Allow)
+        .map_err(XhttpConfigurationError::Options)?;
+
+    // Python validates downloadSettings before the remaining top-level option
+    // fields. Preserve that ordering for inputs containing multiple faults.
+    let download = match field(data, "downloadSettings") {
+        None | Some(JsonValue::Null) => None,
+        Some(value) => Some(
+            normalize_xhttp_download_value(value, main_mode, main_security)
+                .map_err(XhttpConfigurationError::Download)?,
+        ),
+    };
+    let options = normalize_xhttp_option_fields(data).map_err(XhttpConfigurationError::Options)?;
+    Ok(XhttpConfiguration { options, download })
+}
+
 fn normalize_xhttp_download(
     document: XhttpExtraDocument,
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
+    normalize_xhttp_download_data(&document.root, main_mode, main_security)
+}
+
+fn normalize_xhttp_download_value(
+    value: &JsonValue,
+    main_mode: XhttpDownloadMode,
+    main_security: XhttpDownloadSecurity,
+) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
+    let JsonValue::Object(data) = value else {
+        return Err(XhttpDownloadError::Decode(XhttpExtraError::NonObjectRoot));
+    };
+    normalize_xhttp_download_data(data, main_mode, main_security)
+}
+
+fn normalize_xhttp_download_data(
+    data: &[(String, JsonValue)],
     main_mode: XhttpDownloadMode,
     main_security: XhttpDownloadSecurity,
 ) -> Result<XhttpDownloadSettings, XhttpDownloadError> {
     if main_mode == XhttpDownloadMode::StreamOne {
         return Err(XhttpDownloadError::StreamOne);
     }
-    let data = &document.root;
     const ALLOWED: &[&str] = &[
         "address",
         "port",

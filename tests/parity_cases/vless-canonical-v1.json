@@ -1,0 +1,345 @@
+[
+  {
+    "id": "tcp-default",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "tcp-explicit",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=none&encryption=none#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "tcp-upper",
+    "uri": "VLESS://11111111-1111-4111-8111-111111111111@EXAMPLE.INVALID:443?TYPE=TCP&SECURITY=NONE#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "ipv4",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.10:8443#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "ipv6",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@[2001:db8::1]:9443#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "tls-full",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=tls&sni=SNI.EXAMPLE.INVALID.&fp=Chrome&alpn=h2%2Chttp%2F1.1&allowInsecure=true#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "tls-aliases",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?network=raw&security=TLS&servername=sni.example.invalid&client-fingerprint=firefox&skip-cert-verify=1#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "reality-basic",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=reality&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sni=reality.example.invalid&sid=a1b2&fp=chrome#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "reality-pq-spx",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=reality&public-key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&servername=reality.example.invalid&short-id=A1B2&supportX25519MLKEM768=true&spx=%2Fspider&fp=chrome#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "vision",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=tls&sni=sni.example.invalid&flow=xtls-rprx-vision#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "vision-udp443",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=tls&sni=sni.example.invalid&flow=xtls-rprx-vision-udp443#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "packet-xudp",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?packetEncoding=xudp#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "packetaddr",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?packet-encoding=packetaddr#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "ws",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&security=tls&sni=sni.example.invalid&host=ws.example.invalid&path=%252Fws&fp=chrome#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "grpc",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=grpc&security=tls&sni=sni.example.invalid&serviceName=private-service#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "h2",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=h2&security=tls&sni=sni.example.invalid&host=h2.example.invalid&path=%2Fh2#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "http",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=http&security=tls&sni=sni.example.invalid&host=http.example.invalid&path=%2Fhttp#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-empty-default",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-empty-auto",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=auto#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-ignored-defaults",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&extra=%7B%22noSSEHeader%22%3Afalse%2C%22scMaxBufferedPosts%22%3A0%2C%22scStreamUpServerSecs%22%3A%220%22%2C%22serverMaxHeaderBytes%22%3Anull%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-rich",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-up&host=x.example.invalid&path=%2Fx&extra=%7B%22headers%22%3A%7B%22X-Test%22%3A%22synthetic%22%7D%2C%22xPaddingBytes%22%3A%22100-200%22%2C%22xPaddingObfsMode%22%3Atrue%2C%22xPaddingKey%22%3A%22padkey%22%2C%22xPaddingHeader%22%3A%22X-Pad%22%2C%22xPaddingPlacement%22%3A%22header%22%2C%22xPaddingMethod%22%3A%22tokenish%22%2C%22uplinkHTTPMethod%22%3A%22put%22%2C%22seqPlacement%22%3A%22query%22%2C%22seqKey%22%3A%22seq%22%2C%22uplinkDataPlacement%22%3A%22body%22%2C%22uplinkDataKey%22%3A%22data%22%2C%22uplinkChunkSize%22%3A4096%2C%22noGRPCHeader%22%3Atrue%2C%22scMaxEachPostBytes%22%3A%221000-2000%22%2C%22scMinPostsIntervalMs%22%3A15%2C%22sessionPlacement%22%3A%22query%22%2C%22sessionKey%22%3A%22session%22%2C%22sessionTable%22%3A%22table%22%2C%22sessionLength%22%3A%228-16%22%2C%22xmux%22%3A%7B%22maxConcurrency%22%3A%222-4%22%2C%22hKeepAlivePeriod%22%3A30%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-download-empty",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-up&extra=%7B%22downloadSettings%22%3A%7B%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-download-tls",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-up&security=tls&sni=upload.example.invalid&extra=%7B%22downloadSettings%22%3A%7B%22address%22%3A%22download.example.invalid%22%2C%22port%22%3A8443%2C%22network%22%3A%22xhttp%22%2C%22security%22%3A%22tls%22%2C%22tlsSettings%22%3A%7B%22serverName%22%3A%22download-sni.example.invalid%22%2C%22alpn%22%3A%5B%22h2%22%2C%22http%2F1.1%22%5D%2C%22fingerprint%22%3A%22firefox%22%2C%22allowInsecure%22%3Atrue%7D%2C%22xhttpSettings%22%3A%7B%22path%22%3A%22download%22%2C%22host%22%3A%22download-host.example.invalid%22%2C%22headers%22%3A%7B%22X-Download%22%3A%22synthetic%22%7D%2C%22extra%22%3A%7B%22xmux%22%3A%7B%22maxConnections%22%3A2%7D%7D%7D%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-download-reality",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=packet-up&security=tls&sni=upload.example.invalid&extra=%7B%22downloadSettings%22%3A%7B%22address%22%3A%22198.51.100.9%22%2C%22port%22%3A443%2C%22network%22%3A%22xhttp%22%2C%22security%22%3A%22reality%22%2C%22realitySettings%22%3A%7B%22publicKey%22%3A%22AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8%22%2C%22shortId%22%3A%22c3d4%22%2C%22serverName%22%3A%22download-reality.example.invalid%22%2C%22fingerprint%22%3A%22chrome%22%2C%22supportX25519MLKEM768%22%3Atrue%2C%22spiderX%22%3A%22%2Fsynthetic%22%7D%2C%22xhttpSettings%22%3A%7B%22path%22%3A%22%2Fdown%22%2C%22host%22%3A%22down.example.invalid%22%7D%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "xhttp-main-reality-download-inherit",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-up&security=reality&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sni=upload-reality.example.invalid&sid=a1&extra=%7B%22downloadSettings%22%3A%7B%22security%22%3A%22reality%22%2C%22xhttpSettings%22%3A%7B%22path%22%3A%22%2Fdownload%22%7D%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "encryption",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&encryption=mlkem768x25519plus.native.1rtt.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "unicode-label-path",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&host=%D1%82%D0%B5%D1%81%D1%82.example.invalid&path=%2F%E2%82%AC#%00%20%D0%9D%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%E2%82%AC%20",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "provider-metadata",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?concurrency=4&x-durev-prio=high&x-durev-block=synthetic#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "non-xhttp-mode",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&mode=provider-note&path=%2F#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "server-override",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=grpc&service-name=svc#Node",
+    "name": "Node Override",
+    "server_override": "override.example.invalid",
+    "classification": "accepted"
+  },
+  {
+    "id": "identity-base",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&security=tls&sni=SNI.EXAMPLE.INVALID.&fp=Chrome&path=%2Fws&host=host.example.invalid#Label%20A",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "identity-reordered",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?host=host.example.invalid&path=%2Fws&fingerprint=chrome&servername=sni.example.invalid&type=ws&security=tls#Label%20B",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "identity-provider",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&security=tls&sni=sni.example.invalid&fp=chrome&path=%2Fws&host=host.example.invalid&concurrency=8#Label%20C",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "accepted"
+  },
+  {
+    "id": "missing-link",
+    "uri": "ordinary text",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "missing_vless_link"
+  },
+  {
+    "id": "invalid-uuid",
+    "uri": "vless://not-a-uuid@example.invalid:443#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "invalid_user_id"
+  },
+  {
+    "id": "missing-port",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "missing_server_port"
+  },
+  {
+    "id": "unsupported-transport",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=kcp#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "unsupported_transport"
+  },
+  {
+    "id": "alias-conflict",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&network=grpc#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "conflicting_aliases"
+  },
+  {
+    "id": "non-xhttp-extra",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&extra=%7B%22headers%22%3A%7B%22X%22%3A%22y%22%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "xhttp_extra_requires_transport"
+  },
+  {
+    "id": "xhttp-unknown",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&extra=%7B%22unknown%22%3A%22value%22%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "unsupported_fields"
+  },
+  {
+    "id": "xhttp-stream-one-download",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-one&extra=%7B%22downloadSettings%22%3A%7B%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "stream_one"
+  },
+  {
+    "id": "invalid-reality-key",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=tcp&security=reality&pbk=bad&sni=sni.example.invalid#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "invalid_reality_public_key"
+  },
+  {
+    "id": "invalid-xhttp-mode",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=bad#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "unsupported_xhttp_mode"
+  },
+  {
+    "id": "download-mode-mismatch",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&mode=stream-up&extra=%7B%22downloadSettings%22%3A%7B%22xhttpSettings%22%3A%7B%22mode%22%3A%22packet-up%22%7D%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "mode_mismatch"
+  },
+  {
+    "id": "recursive-extra",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=xhttp&extra=%7B%22extra%22%3A%7B%7D%7D#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "recursive_extra"
+  },
+  {
+    "id": "invalid-packet",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?packetEncoding=bad#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "unsupported_packet_encoding"
+  },
+  {
+    "id": "vision-ws",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?type=ws&security=tls&sni=sni.example.invalid&flow=xtls-rprx-vision#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "vision_requires_tcp"
+  },
+  {
+    "id": "reality-pq-with-tls",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?security=tls&supportX25519MLKEM768=true#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "reality_pq_requires_reality"
+  },
+  {
+    "id": "bad-provider-metadata",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@example.invalid:443?concurrency=bad%0Avalue#Node",
+    "name": "Parity Node",
+    "server_override": null,
+    "classification": "invalid_provider_metadata"
+  }
+]
