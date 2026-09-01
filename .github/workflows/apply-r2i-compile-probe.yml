@@ -1,0 +1,132 @@
+name: Apply and verify embedded R2i candidate
+
+on:
+  push:
+    branches:
+      - ci/r2i-compile-probe-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: omavless-r2i-compile-probe-v1
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify embedded patch, run exact-head gates, and publish clean candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          printf '%s  %s\n' \
+            bf88ef41a8837e4edc1bdc60e5b76d4a1585efeea44ffd87596562ce2c435e4d .cloud/r2i/part-00 \
+            1bae8525043da8cdaca316dfb1a25ac19920874c96f8f5569a1825e8d3b8c1f8 .cloud/r2i/part-01 \
+            | sha256sum --check --strict
+          cat .cloud/r2i/part-00 .cloud/r2i/part-01 > /tmp/r2i.patch.gz.b64
+          printf '%s  %s\n' \
+            94f98b5db7419d917e82ef9316900cf843a626b3337ca955af255fb3c18fa1a2 \
+            /tmp/r2i.patch.gz.b64 | sha256sum --check --strict
+          base64 -d /tmp/r2i.patch.gz.b64 > /tmp/r2i.patch.gz
+          printf '%s  %s\n' \
+            c47fc92ce2d397182b8173a12dd71d2017860f671e37e7921838a248e376460f \
+            /tmp/r2i.patch.gz | sha256sum --check --strict
+          gzip -dc /tmp/r2i.patch.gz > /tmp/r2i.patch
+          printf '%s  %s\n' \
+            336df8f8060bc9136a5681731b2f8e764e37bfe683a9bb315ef38ab3c0b64259 \
+            /tmp/r2i.patch | sha256sum --check --strict
+
+          git config user.name 'Kirill Kostin'
+          git config user.email 'clockworkman111@gmail.com'
+          git fetch origin --prune
+          git checkout --detach origin/main
+          base="$(git rev-parse HEAD)"
+          test "$base" = a60d840d6901cebe7a90d79ce38da6bbe70e21aa
+
+          git apply --check /tmp/r2i.patch
+          git apply /tmp/r2i.patch
+
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          ./tests/run-rust.sh
+          ./tests/run.sh
+          python3 - <<'PY'
+          import glob
+          import py_compile
+          paths = ['backend.py'] + sorted(set(
+              glob.glob('tools/*vless*parity.py')
+              + glob.glob('tools/*xhttp*parity.py')
+              + glob.glob('tests/test_*vless*parity.py')
+          ))
+          for path in paths:
+              py_compile.compile(path, doraise=True)
+          print(f'compiled {len(paths)} Python files')
+          PY
+          bash -n backend.sh install.sh uninstall.sh tests/run.sh tests/test-qml.sh tests/run-rust.sh
+          jq -e . manifest.json >/dev/null
+          cargo metadata --locked --no-deps >/tmp/r2i-cargo-metadata.json
+          git diff --check
+
+          expected="$(cat <<'EOF'
+          crates/omavless-profile/Cargo.toml
+          crates/omavless-profile/src/lib.rs
+          crates/omavless-profile/src/vless.rs
+          crates/omavless-profile/src/vless_canonical.rs
+          crates/omavless-profile/src/vless_query.rs
+          crates/omavless-profile/src/vless_xhttp_extra.rs
+          crates/omavless-profile/tests/vless_canonical_differential.rs
+          tests/parity_cases/vless-canonical-v1.json
+          tests/run.sh
+          tests/test_vless_canonical_parity.py
+          tools/vless_canonical_parity.py
+          EOF
+          )"
+          actual="$(git diff --name-only | sort)"
+          test "$actual" = "$(printf '%s\n' "$expected" | sed 's/^          //' | sort)"
+
+          python3 - <<'PY'
+          import re
+          import subprocess
+          diff = subprocess.check_output(
+              ['git', 'diff', '--unified=0'], text=True, errors='replace'
+          )
+          urls = re.findall(
+              r'(?i)\b(?:vless|trojan|hysteria2|hy2|tuic)://[^\s"\'<>]+',
+              diff,
+          )
+          bad = [url for url in urls if '.invalid' not in url]
+          if bad:
+              raise SystemExit('non-documentation protocol URI found in candidate diff')
+          print(f'credential-safe synthetic protocol URIs inspected: {len(urls)}')
+          PY
+
+          git add \
+            crates/omavless-profile/Cargo.toml \
+            crates/omavless-profile/src/lib.rs \
+            crates/omavless-profile/src/vless.rs \
+            crates/omavless-profile/src/vless_canonical.rs \
+            crates/omavless-profile/src/vless_query.rs \
+            crates/omavless-profile/src/vless_xhttp_extra.rs \
+            crates/omavless-profile/tests/vless_canonical_differential.rs \
+            tests/parity_cases/vless-canonical-v1.json \
+            tests/run.sh \
+            tests/test_vless_canonical_parity.py \
+            tools/vless_canonical_parity.py
+          test -z "$(git diff --name-only)"
+          git diff --cached --check
+          test "$(git diff --cached --name-only | sort)" = "$(printf '%s\n' "$expected" | sed 's/^          //' | sort)"
+
+          git commit -m 'R2i: add canonical Rust VLESS parity'
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-list --count "$base"..HEAD)" -eq 1
+          git push --force origin HEAD:ci/r2i-compile-candidate-v1
+          echo "published exact candidate $candidate"
