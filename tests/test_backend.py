@@ -3594,6 +3594,12 @@ rules:
             with self.assertRaisesRegex(backend.BackendError, "symlinked systemd unit"):
                 backend.ensure_unit(paths, home / "mihomo")
         self.assertEqual(backend.systemd_quote('/tmp/100%/a"b'), '"/tmp/100%%/a\\"b"')
+        self.assertEqual(
+            backend.systemd_condition_path('/tmp/100%/a "é'),
+            '/tmp/100%%/a\\x20\\x22\\xc3\\xa9',
+        )
+        with self.assertRaisesRegex(ValueError, "must be absolute"):
+            backend.systemd_condition_path("relative/path")
 
     def test_systemd_unit_runs_the_plugin_supervisor_without_credentials(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -3612,8 +3618,11 @@ rules:
             with mock.patch.object(backend, "systemctl", return_value=ok):
                 backend.ensure_unit(paths, core)
             text = paths.unit.read_text(encoding="utf-8")
-            self.assertIn("ConditionPathExists=", text)
-            self.assertIn(str(backend.PLUGIN_DIR / "manifest.json"), text)
+            condition = backend.systemd_condition_path(
+                str(backend.PLUGIN_DIR / "manifest.json")
+            )
+            self.assertIn(f"ConditionPathExists={condition}", text)
+            self.assertNotIn('ConditionPathExists="', text)
             self.assertIn(" run-core ", text)
             self.assertIn(str(backend.PLUGIN_DIR / "backend.sh"), text)
             self.assertIn(str(core), text)
@@ -3635,8 +3644,11 @@ rules:
             text = helper.read_text(encoding="utf-8")
             self.assertIn("ExecStart=", text)
             self.assertIn(" startup-connect", text)
-            self.assertIn("ConditionPathExists=", text)
-            self.assertIn(str(backend.PLUGIN_DIR / "manifest.json"), text)
+            condition = backend.systemd_condition_path(
+                str(backend.PLUGIN_DIR / "manifest.json")
+            )
+            self.assertIn(f"ConditionPathExists={condition}", text)
+            self.assertNotIn('ConditionPathExists="', text)
             self.assertIn("WantedBy=default.target", text)
             self.assertNotIn("User=", text)
             helper.unlink()
