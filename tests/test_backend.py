@@ -3910,6 +3910,7 @@ esac
                 "templates/default.yaml", "templates/china.yaml", "templates/iran.yaml",
             )
         ]
+        distributed.extend(sorted((ROOT / "docs" / "user").glob("*.md")))
         texts = {path: path.read_text(encoding="utf-8") for path in distributed}
         credential = re.compile(
             r"(?:vless://[0-9a-fA-F-]{36}|trojan://[^\s/@]+|"
