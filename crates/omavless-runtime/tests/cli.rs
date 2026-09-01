@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -30,11 +31,14 @@ impl ChildGuard {
 }
 
 fn runtime_base() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("ovr-cli-{}-{nonce}", std::process::id()));
+    let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("ovr-cli-{}-{nonce}-{sequence}", std::process::id()));
     let mut builder = fs::DirBuilder::new();
     builder.mode(0o700).create(&path).unwrap();
     path
