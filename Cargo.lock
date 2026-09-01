@@ -257,6 +257,8 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "omavless-control-protocol",
+ "omavless-domain",
+ "omavless-mihomo",
  "omavless-store",
  "serde",
  "serde_json",

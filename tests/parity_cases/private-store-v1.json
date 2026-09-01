@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "current-vless",
+      "store": {
+        "version": 3,
+        "activeId": "00000000-0000-0000-0000-000000000001",
+        "lastId": "00000000-0000-0000-0000-000000000001",
+        "profiles": [{
+          "id": "00000000-0000-0000-0000-000000000001",
+          "name": "Synthetic VLESS",
+          "uri": "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp",
+          "protocol": "vless",
+          "favorite": true
+        }],
+        "subscriptions": [],
+        "routingPreset": "roscomvpn-default",
+        "customRules": [],
+        "rulesUpdatedAt": 0,
+        "startupConfigured": true,
+        "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
+        "onboardingComplete": true
+      }
+    },
+    {
+      "id": "legacy-v1-defaults",
+      "store": {
+        "profiles": [{
+          "id": "00000000-0000-0000-0000-000000000001",
+          "name": "Legacy",
+          "uri": "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp"
+        }]
+      }
+    },
+    {
+      "id": "all-non-vless-families",
+      "store": {
+        "version": 3,
+        "profiles": [
+          {"id":"00000000-0000-0000-0000-000000000001","name":"Trojan","uri":"trojan://password@203.0.113.2:443?security=tls&sni=cdn.example.invalid","protocol":"trojan"},
+          {"id":"00000000-0000-0000-0000-000000000002","name":"Hysteria2","uri":"hy2://auth@203.0.113.3:443?sni=cdn.example.invalid","protocol":"hysteria2"},
+          {"id":"00000000-0000-0000-0000-000000000003","name":"TUIC","uri":"tuic://22222222-2222-4222-8222-222222222222:password@203.0.113.4:443?sni=cdn.example.invalid","protocol":"tuic"}
+        ],
+        "subscriptions": [],
+        "activeId": "stale-private-pointer",
+        "lastId": "",
+        "routingPreset": "",
+        "customRules": [],
+        "rulesUpdatedAt": 0,
+        "startupConfigured": true,
+        "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
+        "onboardingComplete": true
+      }
+    },
+    {
+      "id": "subscription-and-custom-rule",
+      "store": {
+        "version": 3,
+        "profiles": [{
+          "id":"00000000-0000-0000-0000-000000000001","name":"Managed",
+          "uri":"vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp","protocol":"vless",
+          "subscriptionId":"10000000-0000-0000-0000-000000000001","subscriptionKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","missing":false,"favorite":false
+        }],
+        "subscriptions":[{"id":"10000000-0000-0000-0000-000000000001","name":"Source","url":"https://example.invalid/sub","updatedAt":1}],
+        "activeId":"","lastId":"00000000-0000-0000-0000-000000000001","routingPreset":"custom",
+        "customRules":[{"id":"20000000-0000-0000-0000-000000000001","kind":"suffix","value":"example.invalid","action":"direct"}],
+        "rulesUpdatedAt":1,"startupConfigured":true,
+        "startup":{"enabled":true,"target":"profile","profileId":"00000000-0000-0000-0000-000000000001","mode":"global"},
+        "onboardingComplete":true
+      }
+    },
+    {"id":"invalid-protocol-mismatch","store":{"version":3,"profiles":[{"id":"00000000-0000-0000-0000-000000000001","name":"Mismatch","uri":"trojan://password@203.0.113.2:443?security=tls&sni=cdn.example.invalid","protocol":"vless"}],"subscriptions":[]}},
+    {"id":"invalid-name","store":{"version":3,"profiles":[{"id":"00000000-0000-0000-0000-000000000001","name":" Padded ","uri":"vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp","protocol":"vless"}],"subscriptions":[]}},
+    {"id":"invalid-subscription-url","store":{"version":3,"profiles":[],"subscriptions":[{"id":"10000000-0000-0000-0000-000000000001","name":"Source","url":"http://example.invalid/sub","updatedAt":0}]}},
+    {"id":"invalid-subscription-relationship","store":{"version":3,"profiles":[{"id":"00000000-0000-0000-0000-000000000001","name":"Managed","uri":"vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp","protocol":"vless","subscriptionId":"10000000-0000-0000-0000-000000000001","subscriptionKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"subscriptions":[]}},
+    {"id":"invalid-custom-rule","store":{"version":3,"profiles":[],"subscriptions":[],"customRules":[{"id":"20000000-0000-0000-0000-000000000001","kind":"domain","value":"EXAMPLE.INVALID","action":"proxy"}]}},
+    {"id":"invalid-timestamp","store":{"version":3,"profiles":[],"subscriptions":[],"rulesUpdatedAt":-1}}
+  ]
+}
