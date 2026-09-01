@@ -6,7 +6,7 @@ on:
       - ci/r2i-compile-probe-v1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Apply and compile current R2i candidate
+      - name: Format, compile and preserve current R2i candidate
         run: |
           set -euxo pipefail
           base64 -d .cloud/r2i/probe.patch.gz.b64 > /tmp/r2i.patch.gz
@@ -27,7 +27,25 @@ jobs:
           git reset --hard origin/main
           git apply --check /tmp/r2i.patch
           git apply /tmp/r2i.patch
-          git diff --check
+          cargo fmt --all
           cargo fmt --all -- --check
+          git diff --check
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
+          expected="$(printf '%s\n' \
+            crates/omavless-profile/Cargo.toml \
+            crates/omavless-profile/src/lib.rs \
+            crates/omavless-profile/src/vless_canonical.rs \
+            crates/omavless-profile/src/vless_query.rs \
+            crates/omavless-profile/src/vless_xhttp_extra.rs | sort)"
+          actual="$(git diff --name-only | sort)"
+          test "$actual" = "$expected"
+          git config user.name 'Kirill Kostin'
+          git config user.email 'clockworkman111@gmail.com'
+          git add crates/omavless-profile/Cargo.toml \
+            crates/omavless-profile/src/lib.rs \
+            crates/omavless-profile/src/vless_canonical.rs \
+            crates/omavless-profile/src/vless_query.rs \
+            crates/omavless-profile/src/vless_xhttp_extra.rs
+          git commit -m 'R2i WIP: compose canonical Rust VLESS model'
+          git push --force origin HEAD:codex/rust-vless-canonical-rendering-wip
