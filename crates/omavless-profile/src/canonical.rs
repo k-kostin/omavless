@@ -10,7 +10,7 @@ use crate::{ClassificationError, Protocol, classify_protocol};
 use std::fmt;
 
 pub enum CanonicalProfile {
-    Vless(VlessCanonicalProfile),
+    Vless(Box<VlessCanonicalProfile>),
     Trojan(TrojanProfile),
     Hysteria2(Hysteria2Profile),
     Tuic(TuicProfile),
@@ -64,6 +64,7 @@ impl std::error::Error for CanonicalError {}
 pub fn parse_canonical(input: &str) -> Result<CanonicalProfile, CanonicalError> {
     match classify_protocol(input).map_err(CanonicalError::Classification)? {
         Protocol::Vless => parse_vless_canonical(input)
+            .map(Box::new)
             .map(CanonicalProfile::Vless)
             .map_err(CanonicalError::Vless),
         Protocol::Trojan => parse_trojan(input)
