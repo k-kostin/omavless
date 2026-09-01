@@ -2,7 +2,7 @@
 Description=OmaVLESS canonical user runtime
 Documentation=https://github.com/k-kostin/omavless
 After=network-online.target
-ConditionPathIsExecutable=/usr/bin/omavless
+ConditionFileIsExecutable=/usr/bin/omavless
 
 [Service]
 Type=simple
@@ -16,7 +16,12 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=-%h/.config/omavless -%h/.local/state/omavless -%h/.cache/omavless
+ConfigurationDirectory=omavless
+ConfigurationDirectoryMode=0700
+StateDirectory=omavless
+StateDirectoryMode=0700
+CacheDirectory=omavless
+CacheDirectoryMode=0700
 
 [Install]
 WantedBy=default.target
