@@ -2,9 +2,11 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 pub const MAX_PROCESS_FAMILY: usize = 64;
+pub const MAX_NAMED_PROCESSES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserServiceState {
@@ -82,6 +84,65 @@ pub fn process_family(root_pid: u32, proc_root: &Path) -> BTreeSet<u32> {
     found
 }
 
+/// Return a bounded set of processes with one exact Linux `comm` name.
+///
+/// The name is supplied by trusted host policy, not IPC. Individual files are
+/// capped before parsing so a synthetic or damaged procfs cannot allocate
+/// unbounded memory.
+pub fn processes_named(proc_root: &Path, name: &str) -> BTreeSet<u32> {
+    if name.is_empty()
+        || name.len() > 15
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return BTreeSet::new();
+    }
+    let Ok(entries) = fs::read_dir(proc_root) else {
+        return BTreeSet::new();
+    };
+    let mut found = BTreeSet::new();
+    for entry in entries.flatten().take(65_536) {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|pid| *pid > 0)
+        else {
+            continue;
+        };
+        let Ok(file) = fs::File::open(entry.path().join("comm")) else {
+            continue;
+        };
+        let mut raw = String::new();
+        if file.take(64).read_to_string(&mut raw).is_ok() && raw.trim_end() == name {
+            found.insert(pid);
+        }
+        if found.len() >= MAX_NAMED_PROCESSES {
+            break;
+        }
+    }
+    found
+}
+
+/// Count all visible TUN devices, capped above the healthy singleton value.
+#[must_use]
+pub fn tun_interface_count(sys_class_net: &Path) -> u8 {
+    let Ok(entries) = fs::read_dir(sys_class_net) else {
+        return 0;
+    };
+    let mut count = 0_u8;
+    for entry in entries.flatten().take(512) {
+        if entry.path().join("tun_flags").is_file() {
+            count = count.saturating_add(1);
+            if count >= 8 {
+                break;
+            }
+        }
+    }
+    count
+}
+
 pub fn tun_interfaces(sys_class_net: &Path, own_device: &str, running: bool) -> Vec<String> {
     let Ok(entries) = fs::read_dir(sys_class_net) else {
         return Vec::new();
@@ -133,6 +194,22 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn exact_process_name_scan_is_bounded_and_ignores_untrusted_names() {
+        let root = root("named");
+        for (pid, name) in [
+            ("10", "mihomo\n"),
+            ("11", "mihomo-helper\n"),
+            ("12", "mihomo\n"),
+        ] {
+            let path = root.join(pid);
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("comm"), name).unwrap();
+        }
+        assert_eq!(processes_named(&root, "mihomo"), BTreeSet::from([10, 12]));
+        assert!(processes_named(&root, "../mihomo").is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn tun_scan_excludes_owned_and_bounds_names() {
         let root = root("net");
         for name in ["Meta", "wg0", "ordinary"] {
@@ -141,6 +218,7 @@ mod tests {
         fs::write(root.join("Meta/tun_flags"), "1").unwrap();
         fs::write(root.join("wg0/tun_flags"), "1").unwrap();
         assert_eq!(tun_interfaces(&root, "Meta", true), ["wg0"]);
+        assert_eq!(tun_interface_count(&root), 2);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
