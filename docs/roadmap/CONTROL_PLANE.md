@@ -412,6 +412,17 @@ Preflight opens no competing canonical runtime if it cannot acquire ownership.
 
 While holding the shared migration ownership lock:
 
+- the shared lock is the existing same-user
+  `$XDG_RUNTIME_DIR/omavless.<uid>.lock`, reused by both the legacy Python
+  operation path and Rust migration tooling;
+- the durable ownership marker is the bounded private
+  `$XDG_STATE_HOME/omavless/ownership.json` (or the documented HOME fallback),
+  with explicit `legacy`, `cutoverPreparing`, `rust` and
+  `rollbackPreparing` phases;
+- an absent marker means legacy ownership for compatibility; an invalid,
+  unsafe, stale or preparing marker fails closed and requires an explicit
+  resume/rollback decision.
+
 1. quiesce new legacy mutations;
 2. inspect current service/controller/TUN ownership;
 3. write bounded desired state from consistent current state;
