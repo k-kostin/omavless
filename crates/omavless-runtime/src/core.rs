@@ -106,6 +106,22 @@ impl OwnedCore {
             .map_err(|_| CoreError::StopFailed)
     }
 
+    pub fn controller_ready(&self, timeout: Duration) -> Result<bool, CoreError> {
+        if timeout.is_zero() || timeout > Duration::from_secs(5) {
+            return Err(CoreError::InvalidArgument);
+        }
+        match controller_get(
+            &self.controller_socket,
+            ReadOnlyEndpoint::Version,
+            timeout,
+            16 * 1024,
+        ) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::ControllerUnavailable => Ok(false),
+            Err(_) => Err(CoreError::ReadinessTimedOut),
+        }
+    }
+
     pub fn wait_ready(&mut self, timeout: Duration) -> Result<(), CoreError> {
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
             return Err(CoreError::InvalidArgument);

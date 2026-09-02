@@ -29,6 +29,7 @@ pub mod core;
 pub mod desired;
 pub mod lifecycle;
 pub mod mutation;
+pub mod native_host;
 pub mod store_preflight;
 
 pub const SOCKET_NAME: &str = "control.sock";

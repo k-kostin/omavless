@@ -8,7 +8,7 @@
 
 use crate::config::{ConfigError, assemble_runtime_config};
 use crate::import::valid_subscription_url;
-use crate::routing::{CustomRule, RoutingError};
+use crate::routing::{CustomRule, RoutingError, template_with_mode};
 use crate::store::{
     CURRENT_STORE_VERSION, MAX_PROFILES, MAX_SUBSCRIPTIONS, ProfileState, StartupState, StoreError,
     StoreStateInput, SubscriptionState, normalize_store_state, valid_record_id,
@@ -429,6 +429,19 @@ impl PrivateStore {
             .map_err(PrivateStoreError::Config)
     }
 
+    /// Render one internal profile for an explicit connection mode without
+    /// mutating the stored routing preference or private profile store.
+    pub fn prepare_config_mode(
+        &self,
+        profile_id: &str,
+        template: &str,
+        controller_socket: &str,
+        mode: &str,
+    ) -> Result<String, PrivateStoreError> {
+        let template = template_with_mode(template, mode).map_err(PrivateStoreError::Routing)?;
+        self.prepare_config(profile_id, &template, controller_socket)
+    }
+
     /// Prepare the last-selected profile without exposing its opaque ID.
     pub fn prepare_last_config(
         &self,
@@ -514,6 +527,16 @@ mod tests {
         assert!(config.contains("external-controller-unix"));
         assert!(config.contains("DOMAIN,example.invalid,PROXY"));
         assert!(!config.contains("external-controller:"));
+        let direct = store
+            .prepare_config_mode(
+                PROFILE_ID,
+                "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+                "/run/user/1000/omavless/mihomo.sock",
+                "direct",
+            )
+            .unwrap();
+        assert!(direct.contains("\nmode: direct\n"));
+        assert!(!direct.contains("\nmode: rule\n"));
     }
 
     #[test]

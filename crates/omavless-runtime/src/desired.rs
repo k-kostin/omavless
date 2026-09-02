@@ -24,6 +24,17 @@ pub enum RoutingMode {
     Direct,
 }
 
+impl RoutingMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rule => "rule",
+            Self::Global => "global",
+            Self::Direct => "direct",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesiredState {
