@@ -480,12 +480,20 @@ Accepted incremental checkpoints:
   private-controller readiness, graceful termination and forced-stop fallback.
 - PR #104: desired-state lifecycle transaction ordering, restored failed-connect
   cleanup, explicit-disconnect semantics and one-shot restart reconciliation.
+- PR #106: explicit-mode private config staging plus the native package-host
+  adapter for installed-Mihomo validation, owned child/controller readiness and
+  bounded cleanup.
+- PR #107: the internal serialized owner engine combining revision/replay
+  coordination with lifecycle transactions, still unreachable from IPC.
+- PR #108: exact v1 connect/disconnect envelope parsing, semantic operation
+  digests and credential-safe mutation errors, still unreachable from daemon
+  dispatch.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until the package host adapter,
-mutation/IPC binding, explicit transactional cutover, plugin bridge and
-rollback acceptance gates below pass.
+only production owner. R5 is not complete until the one-owner cutover preflight,
+mutation/IPC binding, explicit transactional cutover, plugin bridge and rollback
+acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
