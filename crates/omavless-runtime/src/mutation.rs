@@ -155,6 +155,7 @@ pub enum BeginOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationResult {
     Success,
+    NoChange,
     Failure(StableErrorCode),
 }
 
@@ -319,6 +320,15 @@ impl MutationCoordinator {
         let Some(queued) = self.queue.pop_front() else {
             return Ok(BeginOutcome::Empty);
         };
+        if self.revision == MAX_REVISION {
+            let outcome = CachedOutcome {
+                revision: self.revision,
+                error: Some(StableErrorCode::InternalError),
+            };
+            let token = queued.token;
+            self.cache(queued.request.operation_id, queued.request.digest, outcome);
+            return Ok(BeginOutcome::Rejected { token, outcome });
+        }
         if queued
             .request
             .expected_revision
@@ -357,6 +367,7 @@ impl MutationCoordinator {
                 self.revision += 1;
                 None
             }
+            MutationResult::NoChange => None,
             MutationResult::Failure(error) => Some(error),
         };
         let outcome = CachedOutcome {
@@ -546,6 +557,30 @@ mod tests {
     }
 
     #[test]
+    fn successful_no_op_is_cached_without_incrementing_revision() {
+        let mut coordinator = MutationCoordinator::default();
+        let token = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("no-change"), None, 6))
+                .unwrap(),
+        );
+        let BeginOutcome::Started(active) = coordinator.begin_next().unwrap() else {
+            panic!("mutation did not start");
+        };
+        assert_eq!(active.token, token);
+        let outcome = coordinator.finish(token, MutationResult::NoChange).unwrap();
+        assert!(outcome.succeeded());
+        assert_eq!(outcome.revision, 0);
+        assert_eq!(coordinator.revision(), 0);
+        assert_eq!(
+            coordinator
+                .submit(request(MutationKind::Other, Some("no-change"), None, 6))
+                .unwrap(),
+            SubmitOutcome::Replay(outcome)
+        );
+    }
+
+    #[test]
     fn queue_and_result_cache_are_bounded() {
         let mut coordinator = MutationCoordinator::with_limits(1, 1).unwrap();
         coordinator
@@ -600,5 +635,29 @@ mod tests {
             coordinator.finish(MutationToken(999), MutationResult::Success),
             Err(CoordinatorError::InvalidToken)
         );
+    }
+
+    #[test]
+    fn exhausted_revision_is_rejected_before_any_side_effect_can_begin() {
+        let mut coordinator = MutationCoordinator {
+            revision: MAX_REVISION,
+            ..MutationCoordinator::default()
+        };
+        let token = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("last"), None, 9))
+                .unwrap(),
+        );
+        assert_eq!(
+            coordinator.begin_next().unwrap(),
+            BeginOutcome::Rejected {
+                token,
+                outcome: CachedOutcome {
+                    revision: MAX_REVISION,
+                    error: Some(StableErrorCode::InternalError),
+                },
+            }
+        );
+        assert!(!coordinator.active());
     }
 }
