@@ -30,6 +30,7 @@ pub mod cutover;
 pub mod desired;
 pub mod lifecycle;
 pub mod mutation;
+pub mod mutation_binding;
 pub mod mutation_protocol;
 pub mod native_host;
 pub mod owner;

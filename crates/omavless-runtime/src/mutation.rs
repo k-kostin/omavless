@@ -265,12 +265,11 @@ impl MutationCoordinator {
     }
 
     pub fn submit(&mut self, request: MutationRequest) -> Result<SubmitOutcome, CoordinatorError> {
-        if request
-            .expected_revision
-            .is_some_and(|expected| expected != self.revision)
-        {
-            return Err(CoordinatorError::RevisionConflict);
-        }
+        // Operation replay is checked before current-revision preconditions.
+        // An exact retry necessarily carries the revision from the original
+        // request and must recover its cached result after that mutation has
+        // advanced the daemon revision. Different input under the same ID is
+        // still a conflict, regardless of revision.
         if let Some(operation_id) = &request.operation_id
             && let Some((digest, cached)) = self.matching_operation(operation_id)
         {
@@ -280,6 +279,12 @@ impl MutationCoordinator {
             return cached.map_or(Err(CoordinatorError::Busy), |outcome| {
                 Ok(SubmitOutcome::Replay(outcome))
             });
+        }
+        if request
+            .expected_revision
+            .is_some_and(|expected| expected != self.revision)
+        {
+            return Err(CoordinatorError::RevisionConflict);
         }
         if self.queue.len() >= self.queue_limit {
             return Err(CoordinatorError::Busy);
