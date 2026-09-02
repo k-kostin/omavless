@@ -68,6 +68,9 @@ MAX_PROFILE_COUNT = 256
 MAX_STORE_BYTES = 5 * 1024 * 1024
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
 MAX_IMPORT_BYTES = 64 * 1024
+MAX_OWNERSHIP_MARKER_BYTES = 1024
+OWNERSHIP_SCHEMA_VERSION = 1
+OWNERSHIP_PHASES = frozenset(("legacy", "cutoverPreparing", "rust", "rollbackPreparing"))
 MAX_PICKER_PATH_BYTES = 4096
 MAX_SUBSCRIPTION_COUNT = 64
 MAX_SUBSCRIPTION_LINK_COUNT = 1024
@@ -168,6 +171,7 @@ class Paths:
     legacy_data_dir: Path
     legacy_last: Path
     runtime: Path
+    state_dir: Path | None = None
 
     @classmethod
     def current(cls) -> "Paths":
@@ -175,11 +179,13 @@ class Paths:
         config_dir = home / ".config" / "omavless"
         legacy_data_dir = home / ".config" / "omarchy" / "omavless"
         runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+        state_base = Path(os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state")))
         return cls(home, config_dir, config_dir / "profiles.json",
                    config_dir / "route-template.yaml", config_dir / "config.yaml",
                    home / ".config" / "systemd" / "user" / SERVICE,
                    legacy_data_dir,
-                   home / ".local" / "state" / "omarchy" / "vless-last", runtime)
+                   home / ".local" / "state" / "omarchy" / "vless-last", runtime,
+                   state_base / "omavless")
 
 
 def fail(message: str, code: int = 1) -> None:
@@ -272,6 +278,81 @@ def ensure_runtime(paths: Paths) -> None:
     info = paths.runtime.stat()
     if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
         raise BackendError("XDG_RUNTIME_DIR has unsafe permissions")
+
+
+@dataclass(frozen=True)
+class OwnershipMarker:
+    schema_version: int = OWNERSHIP_SCHEMA_VERSION
+    generation: int = 0
+    phase: str = "legacy"
+
+
+def ownership_marker_path(paths: Paths) -> Path:
+    state_dir = paths.state_dir or paths.home / ".local" / "state" / "omavless"
+    if not state_dir.is_absolute():
+        raise BackendError("OmaVLESS ownership state is unsafe")
+    return state_dir / "ownership.json"
+
+
+def _ownership_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate ownership field")
+        result[key] = value
+    return result
+
+
+def read_ownership_marker(paths: Paths) -> OwnershipMarker:
+    """Read the Rust cutover marker without enabling any ownership change."""
+    path = ownership_marker_path(paths)
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return OwnershipMarker()
+    except OSError as exc:
+        raise BackendError("OmaVLESS ownership state could not be read") from exc
+    try:
+        directory = path.parent.lstat()
+    except OSError as exc:
+        raise BackendError("OmaVLESS ownership state is unsafe") from exc
+    if (
+        path.parent.is_symlink()
+        or not stat.S_ISDIR(directory.st_mode)
+        or directory.st_uid != os.getuid()
+        or stat.S_IMODE(directory.st_mode) & 0o077
+        or path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise BackendError("OmaVLESS ownership state is unsafe")
+    if metadata.st_size > MAX_OWNERSHIP_MARKER_BYTES:
+        raise BackendError("OmaVLESS ownership state is too large")
+    try:
+        raw = path.read_bytes()
+        if len(raw) > MAX_OWNERSHIP_MARKER_BYTES:
+            raise BackendError("OmaVLESS ownership state is too large")
+        payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_ownership_object)
+    except BackendError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        raise BackendError("OmaVLESS ownership state is invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != {"schemaVersion", "generation", "phase"}:
+        raise BackendError("OmaVLESS ownership state is invalid")
+    version = payload["schemaVersion"]
+    generation = payload["generation"]
+    phase = payload["phase"]
+    if (
+        type(version) is not int
+        or version != OWNERSHIP_SCHEMA_VERSION
+        or type(generation) is not int
+        or not 0 <= generation <= (1 << 64) - 1
+        or not isinstance(phase, str)
+        or phase not in OWNERSHIP_PHASES
+    ):
+        raise BackendError("OmaVLESS ownership state is invalid")
+    return OwnershipMarker(version, generation, phase)
 
 
 @contextlib.contextmanager

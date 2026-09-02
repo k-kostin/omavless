@@ -3102,6 +3102,77 @@ rules:
             stdout, stderr = child.communicate(timeout=5)
             self.assertEqual(child.returncode, 0, stderr or stdout)
 
+    def test_python_reads_exact_private_rust_ownership_marker_schema(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            self.assertEqual(backend.read_ownership_marker(paths), backend.OwnershipMarker())
+            marker = backend.ownership_marker_path(paths)
+            marker.parent.mkdir(parents=True, mode=0o700)
+            for generation, phase in enumerate(sorted(backend.OWNERSHIP_PHASES), start=1):
+                marker.write_text(json.dumps({
+                    "schemaVersion": 1, "generation": generation, "phase": phase,
+                }), encoding="utf-8")
+                marker.chmod(0o600)
+                self.assertEqual(
+                    backend.read_ownership_marker(paths),
+                    backend.OwnershipMarker(1, generation, phase),
+                )
+
+    def test_python_ownership_marker_rejects_unsafe_or_invalid_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            marker = backend.ownership_marker_path(paths)
+            marker.parent.mkdir(parents=True, mode=0o700)
+            invalid = (
+                b'{"schemaVersion":1,"generation":0,"phase":"legacy","phase":"rust"}',
+                b'{"schemaVersion":1,"generation":true,"phase":"legacy"}',
+                b'{"schemaVersion":1,"generation":0,"phase":"unknown"}',
+                b'{"schemaVersion":2,"generation":0,"phase":"legacy"}',
+                b'{"schemaVersion":1,"generation":0,"phase":"legacy","extra":1}',
+            )
+            for payload in invalid:
+                marker.write_bytes(payload)
+                marker.chmod(0o600)
+                with self.assertRaisesRegex(backend.BackendError, "ownership state is invalid"):
+                    backend.read_ownership_marker(paths)
+            marker.write_bytes(b"x" * (backend.MAX_OWNERSHIP_MARKER_BYTES + 1))
+            marker.chmod(0o600)
+            with self.assertRaisesRegex(backend.BackendError, "ownership state is too large"):
+                backend.read_ownership_marker(paths)
+            marker.write_text('{"schemaVersion":1,"generation":0,"phase":"legacy"}')
+            marker.chmod(0o644)
+            with self.assertRaisesRegex(backend.BackendError, "ownership state is unsafe"):
+                backend.read_ownership_marker(paths)
+            marker.chmod(0o600)
+            marker.parent.chmod(0o755)
+            with self.assertRaisesRegex(backend.BackendError, "ownership state is unsafe"):
+                backend.read_ownership_marker(paths)
+
+    def test_python_ownership_marker_symlink_and_errors_do_not_leak_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            marker = backend.ownership_marker_path(paths)
+            marker.parent.mkdir(parents=True, mode=0o700)
+            private = home / "private.example-password"
+            private.write_text("unchanged", encoding="utf-8")
+            marker.symlink_to(private)
+            with self.assertRaises(backend.BackendError) as raised:
+                backend.read_ownership_marker(paths)
+            public = str(raised.exception)
+            self.assertNotIn(str(private), public)
+            self.assertNotIn("private.example", public)
+            self.assertNotIn("password", public)
+            self.assertEqual(private.read_text(encoding="utf-8"), "unchanged")
+
     def test_run_core_dispatch_bypasses_user_mutation_lock_and_migration(self):
         args = mock.Mock(command="run-core", core="/usr/bin/mihomo")
         paths = mock.Mock()
