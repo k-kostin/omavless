@@ -425,9 +425,9 @@ facts. All 49 canonical differential cases remained green, alongside 71 Rust
 and 259 Python/QML tests on Try Omarchy ARM64. Accepted head
 `d82bf63bec44b259e67f422f967509d417fad4bc` merged in PR `#86` as
 `5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`. Pure-VLESS adapter parity is now
-complete. Python still owns production and remains the oracle, no runtime
-cutover occurred, and R2 overall remains incomplete until the non-VLESS
-adapters are accepted.
+complete. The later R2-R4 foundation in PR `#90` accepted the remaining adapter
+and domain boundaries. Python still owns production until R5/T1; no runtime
+cutover occurred here.
 
 Migrate:
 
@@ -441,6 +441,11 @@ Migrate:
 
 After R2, new P4 WG/AWG adapters are Rust-first. Python-only implementation of a
 new large protocol parser requires an explicit roadmap exception.
+
+P4 development is not globally gated on the fixture-constrained V0 track.
+WG/AWG instead carries its own private-fixture, installed-core, security and
+live-host acceptance ledger; product exposure still waits for that evidence and
+the compatibility/runtime bridge.
 
 ### R3 — private store, subscriptions and routing semantics
 

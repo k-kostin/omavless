@@ -166,7 +166,8 @@ R0-R6 proceeds according to `RUST_MIGRATION.md`.
 
 Avoid expanding large Python backend areas which are about to move. Once R2 is
 available, new large protocol adapters are Rust-first. P4 WG/AWG depends on R2
-as well as V0.
+and its own protocol-specific private/core/live/security gates. V0 remains an
+independent maturity track and does not globally block P4 implementation.
 
 ## 6. Rust migration PR template requirements
 

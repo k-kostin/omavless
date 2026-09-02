@@ -91,9 +91,11 @@ V0 / PR `#30` remains Draft at exact tested head
 case passed; VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC v5 fixtures
 remain unavailable. Do not fabricate them or call V0 complete.
 
-Missing V0 fixtures block claims about those protocol families and P4 protocol
-expansion. They **do not block R0/R1/R2 Rust migration work** on already-defined
-semantics.
+Missing V0 fixtures block maturity claims about the corresponding existing
+protocol families. They **do not block Rust-first P4 implementation** after R2:
+WireGuard/AmneziaWG now has its own private-fixture, installed-core, security
+and host acceptance ledger. P4 remains unavailable to users until that ledger
+and the Rust compatibility/runtime bridge are complete.
 
 ## 3. The new global sequence
 
@@ -108,9 +110,9 @@ large new Python runtime surfaces merely to be rewritten:
 - current UI correctness/accessibility/navigation fixes;
 - current routing/import/subscription presentation and diagnostics polish;
 - opportunistic V0 live validation when legitimate fixtures become available;
-- P4 WireGuard/AmneziaWG **after both V0 and R2**, so new protocol parsers are
-  Rust-first while still becoming usable by the plugin through the migration
-  bridge.
+- P4 WireGuard/AmneziaWG after R2, developed Rust-first and independently of
+  fixture-constrained V0, then exposed only through the migration bridge after
+  P4-specific live/core/security gates pass.
 
 "Plugin-version complete" does **not** mean squeezing every future application
 feature into the bar. Full active-connections workspaces, App proxy host
@@ -356,10 +358,10 @@ is accepted.
 
 ### P4a — standard one-peer WireGuard `.conf`
 
-State: **planned after V0 + R2**.
+State: **Rust foundation active after completed R2; not product-enabled**.
 
-This dependency is deliberate. Do not implement P4a as a large new Python-only
-parser simply because the current plugin is Python-backed.
+V0 is no longer a global implementation blocker. Do not implement P4a as a
+large new Python-only parser simply because the current plugin is Python-backed.
 
 Scope remains:
 
@@ -380,20 +382,25 @@ reusable keys never reach public UI/logs/diagnostics/argv/environment.
 
 ### P4b — native AmneziaWG `.conf`
 
-State: **planned after P4a accepted**.
+State: **shared Rust parser/model/rendering foundation active with P4a; not
+product-enabled**.
 
-Reuse the R2/P4a Rust storage/parser boundary; accept only validated AWG
-families and emit documented Mihomo fields. Real matching server fixtures and
-old-core compatibility errors remain mandatory. Retain Experimental product
-label initially.
+Reuse the R2/P4a Rust storage/parser boundary; accept only deterministic AWG
+families and emit documented Mihomo fields. The first private AWG3 fixture and
+installed Mihomo `1.19.30` config-validation gate pass locally. Real connection,
+mode/lifecycle, old-core compatibility and runtime-bridge evidence remain
+mandatory. Retain Experimental product label initially.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-State: **planned after P4b**.
+State: **direct native-config decoder foundation active; structured Amnezia
+container extraction remains planned after P4b acceptance**.
 
-Bounded offline guest-key decoding only; extract one WG/AWG container through
-the exact Rust P4a/P4b validators. No embedded API call, SSH/root/admin
-credential handling or implicit protocol fallback.
+Bounded offline guest-key decoding only. Direct Qt `qCompress` payloads that
+expand to a native WG/AWG `.conf` feed the exact Rust P4a/P4b validator.
+Structured Amnezia JSON keys must later select exactly one WG/AWG container.
+No embedded API call, SSH/root/admin credential handling or implicit protocol
+fallback.
 
 ## 6. Continue migration beneath the finished plugin surface
 

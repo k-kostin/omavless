@@ -82,6 +82,9 @@ WireGuard, native AmneziaWG and AmneziaVPN `vpn://` keys are not supported yet.
 They will not be accepted until bounded import, private storage, compatibility
 and real-server gates are complete.
 
+A Rust-first parser/model foundation is under development, but it is not wired
+into the current plugin runtime and does not change the supported-input list.
+
 See [supported protocols](docs/user/PROTOCOLS.md) for detailed boundaries and
 known exclusions.
 

@@ -4,6 +4,15 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Started the Rust-first P4 WireGuard/AmneziaWG foundation without changing the
+  installed production path: strict bounded one-interface/one-peer parsing,
+  duplicate/unknown/directive rejection, private canonical identity, redacted
+  facts, Mihomo rendering, deterministic AWG 1/2/3/3.1 recognition and bounded
+  Base64URL + Qt `qCompress` decoding for direct native `vpn://` payloads. A
+  private AWG3 fixture with 425 split-tunnel prefixes passes parsing and Mihomo
+  `1.19.30` config validation; live connection and runtime/UI integration remain
+  gated. The roadmap now lets P4 proceed after R2 under its own evidence ledger
+  instead of waiting for unrelated missing V0 fixtures.
 - Fixed generated user-unit `ConditionPathExists=` escaping so systemd treats
   the plugin manifest as an absolute path instead of ignoring a quoted
   condition. Paths with whitespace, Unicode and `%` remain safely encoded.

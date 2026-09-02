@@ -12,6 +12,7 @@ use std::fmt;
 mod base64url;
 pub mod canonical;
 pub mod hysteria2;
+pub mod import;
 mod profile_uri;
 pub mod trojan;
 pub mod tuic;
@@ -20,6 +21,7 @@ pub mod vless_canonical;
 pub mod vless_encryption;
 pub mod vless_query;
 pub mod vless_xhttp_extra;
+pub mod wireguard;
 
 pub const MAX_CLASSIFICATION_INPUT_BYTES: usize = 64 * 1024;
 

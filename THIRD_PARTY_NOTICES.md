@@ -71,3 +71,11 @@ private URL handling and explicit refresh interaction were also informed by
 omarchy-mihoro's MIT-licensed multi-subscription work (PR #7). No source file
 from either project is bundled verbatim; their code remains subject to the
 respective project licenses.
+
+The Rust-first WireGuard/AmneziaWG import foundation was designed against
+[Amnezia Client](https://github.com/amnezia-vpn/amnezia-client) for native
+configuration fields, generation markers and Qt `qCompress` guest-link
+encoding, and against [Mihomo](https://github.com/MetaCubeX/mihomo) for the
+`wireguard` / `amnezia-wg-option` mapping. No source file from either project is
+bundled verbatim; the checked upstream revisions are recorded in
+`PROTOCOL_ROADMAP.md`.
