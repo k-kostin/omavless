@@ -481,16 +481,19 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102 and #104 provide the private control socket/owner lock, desired-state and
-reconciliation model, package-unit contract, canonical all-family rendering,
-read-only private-store/config preflight and the bounded mutation coordinator.
-The native supervisor also proves fixed-argv parent ownership, private-controller
-readiness and bounded child cleanup with installed Mihomo. The lifecycle
-executor makes connect/disconnect ordering, failed-connect rollback and one-shot
-restart reconciliation deterministic and fail-closed.
-They remain intentionally incapable of replacing the Python lifecycle owner.
-The next owning work is the package host adapter, mutation/IPC binding and the
-explicit plugin migration transaction.
+PRs #96-#100, #102, #104 and #106-#108 provide the private control socket/owner
+lock, desired-state and reconciliation model, package-unit contract, canonical
+all-family rendering, read-only private-store/config preflight, the bounded
+mutation coordinator and exact v1 connect/disconnect parsing. The native
+supervisor and host adapter prove fixed-argv parent ownership, private-controller
+readiness, explicit-mode private config staging and bounded child cleanup with
+installed Mihomo. The internal owner engine combines mutation serialization with
+deterministic, fail-closed lifecycle transactions. Semantic operation digests
+cover every connect/disconnect input without exposing credentials.
+These layers remain intentionally unreachable from daemon mutation dispatch and
+incapable of replacing the Python lifecycle owner. The next owning work is the
+one-owner cutover preflight/marker, mutation-to-owner IPC binding and explicit
+plugin migration transaction.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
