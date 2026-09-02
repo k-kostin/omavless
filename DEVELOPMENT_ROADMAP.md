@@ -478,12 +478,14 @@ Accepted incremental checkpoints:
   ordering and credential-free operation-ID replay cache.
 - PR #102: fixed-argv, parent-owned Mihomo child supervision with bounded
   private-controller readiness, graceful termination and forced-stop fallback.
+- PR #104: desired-state lifecycle transaction ordering, restored failed-connect
+  cleanup, explicit-disconnect semantics and one-shot restart reconciliation.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until the explicit transactional
-cutover, transactional lifecycle actions, restart reconciliation, plugin bridge
-and rollback gates below pass.
+only production owner. R5 is not complete until the package host adapter,
+mutation/IPC binding, explicit transactional cutover, plugin bridge and
+rollback acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
