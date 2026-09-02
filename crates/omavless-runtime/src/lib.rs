@@ -30,6 +30,7 @@ pub mod desired;
 pub mod lifecycle;
 pub mod mutation;
 pub mod native_host;
+pub mod owner;
 pub mod store_preflight;
 
 pub const SOCKET_NAME: &str = "control.sock";
