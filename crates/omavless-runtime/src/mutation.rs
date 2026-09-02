@@ -7,6 +7,7 @@
 //! or method-specific payloads and performs no VPN lifecycle operation.
 
 use omavless_control_protocol::{MAX_ID_LENGTH, MAX_REVISION, StableErrorCode};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
 
@@ -44,6 +45,11 @@ impl MutationDigest {
     #[must_use]
     pub const fn new(value: [u8; 32]) -> Self {
         Self(value)
+    }
+
+    #[must_use]
+    pub fn from_semantic_bytes(value: &[u8]) -> Self {
+        Self(Sha256::digest(value).into())
     }
 }
 
@@ -385,6 +391,18 @@ mod tests {
 
     fn digest(value: u8) -> MutationDigest {
         MutationDigest::new([value; 32])
+    }
+
+    #[test]
+    fn semantic_digest_is_deterministic_and_not_formattable() {
+        assert!(
+            MutationDigest::from_semantic_bytes(b"connection.disconnect")
+                == MutationDigest::from_semantic_bytes(b"connection.disconnect")
+        );
+        assert!(
+            MutationDigest::from_semantic_bytes(b"connection.disconnect")
+                != MutationDigest::from_semantic_bytes(b"connection.connect")
+        );
     }
 
     fn request(

@@ -228,6 +228,23 @@ Classification alone never fetches arbitrary remote content.
 There is no generic `run-core`, `systemctl`, controller-forward, process or shell
 method.
 
+The v1 connection mutation parameters are exact objects:
+
+- `connection.connect`: required `profileId`; optional `mode`, `operationId`
+  and `expectedRevision`;
+- `connection.disconnect`: optional `operationId` and `expectedRevision` only;
+- `mode`, when present, is exactly `rule`, `global` or `direct`; omission keeps
+  the current durable desired mode rather than guessing from host state;
+- `profileId` must use the bounded internal record-ID syntax already enforced
+  by the private store; URIs and arbitrary remote text are never accepted here;
+- unknown method-specific fields are rejected before queueing.
+
+The operation replay digest covers method, profile ID, explicit/omitted mode
+and explicit/omitted expected revision. It excludes `operationId` itself and
+uses a fixed 32-byte SHA-256 value, so the bounded cache never retains the
+private action payload. Implementing this parser does not enable mutations;
+daemon dispatch remains disabled until the one-owner cutover gate is present.
+
 ### Diagnostics and traffic
 
 - `diagnostics.summary`;

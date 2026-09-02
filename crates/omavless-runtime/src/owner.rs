@@ -23,7 +23,7 @@ use std::fmt;
 pub enum OwnerAction {
     Connect {
         profile_id: String,
-        mode: RoutingMode,
+        mode: Option<RoutingMode>,
     },
     Disconnect,
 }
@@ -172,7 +172,9 @@ impl<H: LifecycleHost> OwnerEngine<H> {
         }
 
         let lifecycle = match action {
-            OwnerAction::Connect { profile_id, mode } => self.lifecycle.connect(&profile_id, mode),
+            OwnerAction::Connect { profile_id, mode } => {
+                self.lifecycle.connect_requested(&profile_id, mode)
+            }
             OwnerAction::Disconnect => self.lifecycle.disconnect(),
         };
         let mutation_result = match lifecycle {
@@ -307,7 +309,7 @@ mod tests {
         let connect = OwnerRequest::new(
             OwnerAction::Connect {
                 profile_id: "opaque-id".to_owned(),
-                mode: RoutingMode::Global,
+                mode: Some(RoutingMode::Global),
             },
             Some("connect-1"),
             Some(0),
@@ -324,7 +326,7 @@ mod tests {
         let replay = OwnerRequest::new(
             OwnerAction::Connect {
                 profile_id: "opaque-id".to_owned(),
-                mode: RoutingMode::Global,
+                mode: Some(RoutingMode::Global),
             },
             Some("connect-1"),
             None,
@@ -390,7 +392,7 @@ mod tests {
         let request = OwnerRequest::new(
             OwnerAction::Connect {
                 profile_id: private.to_owned(),
-                mode: RoutingMode::Rule,
+                mode: Some(RoutingMode::Rule),
             },
             Some("failed"),
             Some(0),
@@ -413,7 +415,7 @@ mod tests {
         let replay = OwnerRequest::new(
             OwnerAction::Connect {
                 profile_id: private.to_owned(),
-                mode: RoutingMode::Rule,
+                mode: Some(RoutingMode::Rule),
             },
             Some("failed"),
             None,
@@ -447,7 +449,7 @@ mod tests {
             .execute(OwnerRequest::new(
                 OwnerAction::Connect {
                     profile_id: "opaque-private-id".to_owned(),
-                    mode: RoutingMode::Direct,
+                    mode: Some(RoutingMode::Direct),
                 },
                 None,
                 None,

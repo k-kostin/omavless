@@ -29,6 +29,7 @@ pub mod core;
 pub mod desired;
 pub mod lifecycle;
 pub mod mutation;
+pub mod mutation_protocol;
 pub mod native_host;
 pub mod owner;
 pub mod store_preflight;
