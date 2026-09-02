@@ -481,19 +481,24 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102, #104 and #106-#108 provide the private control socket/owner
-lock, desired-state and reconciliation model, package-unit contract, canonical
-all-family rendering, read-only private-store/config preflight, the bounded
-mutation coordinator and exact v1 connect/disconnect parsing. The native
+PRs #96-#100, #102, #104, #106-#108, #110 and #111 provide the private control
+socket/owner lock, desired-state and reconciliation model, package-unit
+contract, canonical all-family rendering, read-only private-store/config
+preflight, the bounded mutation coordinator and exact v1 connect/disconnect
+parsing. The native
 supervisor and host adapter prove fixed-argv parent ownership, private-controller
 readiness, explicit-mode private config staging and bounded child cleanup with
 installed Mihomo. The internal owner engine combines mutation serialization with
 deterministic, fail-closed lifecycle transactions. Semantic operation digests
 cover every connect/disconnect input without exposing credentials.
-These layers remain intentionally unreachable from daemon mutation dispatch and
-incapable of replacing the Python lifecycle owner. The next owning work is the
-one-owner cutover preflight/marker, mutation-to-owner IPC binding and explicit
-plugin migration transaction.
+The shared Python/Rust migration lock, private ownership marker and deterministic
+cutover/rollback state machine now reject stale, partial and duplicate-owner
+states. The ownership-gated offline binder produces bounded v1 mutation
+responses and preserves exact operation replay before revision checks. These
+layers remain intentionally unregistered from daemon mutation dispatch and
+incapable of replacing the Python lifecycle owner. The next owning work is
+production host observation, legacy mutation guarding, live owner construction,
+socket registration and the explicit plugin migration transaction.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

@@ -488,12 +488,17 @@ Accepted incremental checkpoints:
 - PR #108: exact v1 connect/disconnect envelope parsing, semantic operation
   digests and credential-safe mutation errors, still unreachable from daemon
   dispatch.
+- PR #110: the shared Python/Rust migration lock, bounded private ownership
+  marker and verified fail-closed cutover/rollback transition model.
+- PR #111: ownership-gated offline mutation response binding plus exact
+  operation replay before stale-revision rejection, still unregistered from
+  live daemon dispatch.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until the one-owner cutover preflight,
-mutation/IPC binding, explicit transactional cutover, plugin bridge and rollback
-acceptance gates below pass.
+only production owner. R5 is not complete until production host observation,
+legacy mutation guarding, live owner construction/IPC registration, the explicit
+transactional cutover, plugin bridge and rollback acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
