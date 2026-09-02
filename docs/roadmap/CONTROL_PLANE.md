@@ -245,6 +245,15 @@ uses a fixed 32-byte SHA-256 value, so the bounded cache never retains the
 private action payload. Implementing this parser does not enable mutations;
 daemon dispatch remains disabled until the one-owner cutover gate is present.
 
+Successful v1 connection mutations return the exact bounded result
+`{"accepted":true}` at the committed revision; clients fetch `status.get` for
+the resulting lifecycle state. An exact `operationId` + digest retry returns
+that cached response before current-revision preconditions are evaluated.
+Different input under the same operation ID remains `conflict`. The internal
+request-to-owner response binding remains offline until production dispatch can
+load a committed `rust` ownership marker and the full cutover transaction is
+accepted.
+
 ### Diagnostics and traffic
 
 - `diagnostics.summary`;
