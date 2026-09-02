@@ -239,7 +239,16 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         profile_id: &str,
         mode: RoutingMode,
     ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.connect_requested(profile_id, Some(mode))
+    }
+
+    pub fn connect_requested(
+        &mut self,
+        profile_id: &str,
+        mode: Option<RoutingMode>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
         let current = self.read()?;
+        let mode = mode.unwrap_or(current.mode);
         let target = DesiredState {
             schema_version: current.schema_version,
             generation: current.generation,
@@ -556,6 +565,22 @@ mod tests {
             ["observe", "prepare", "start", "observe", "commit"]
         );
         assert!(executor.host().connected_intent_seen_at_start);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn omitted_connect_mode_preserves_current_desired_mode() {
+        let (root, mut executor) = executor("connect-default-mode", FakeHost::default());
+        executor
+            .write(&DesiredState {
+                generation: 3,
+                mode: RoutingMode::Direct,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        let outcome = executor.connect_requested("opaque-id", None).unwrap();
+        assert_eq!(outcome.generation, 4);
+        assert_eq!(desired(&executor).mode, RoutingMode::Direct);
         fs::remove_dir_all(root).unwrap();
     }
 
