@@ -14,7 +14,7 @@ use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
     ConnectionTransactionState,
 };
-use crate::cutover::MigrationLock;
+use crate::cutover::{MigrationLock, OwnershipPhase, read_marker};
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
@@ -202,6 +202,8 @@ pub enum NativeOwnerExecution {
 pub enum NativeOwnerError {
     Protocol(MutationProtocolError),
     Coordinator(CoordinatorError),
+    OwnershipBusy,
+    OwnershipUnavailable,
     Invariant,
 }
 
@@ -211,6 +213,8 @@ impl NativeOwnerError {
         match self {
             Self::Protocol(error) => error.stable_code(),
             Self::Coordinator(error) => error.stable_code(),
+            Self::OwnershipBusy => StableErrorCode::Busy,
+            Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::Invariant => StableErrorCode::InternalError,
         }
     }
@@ -221,6 +225,8 @@ impl fmt::Display for NativeOwnerError {
         formatter.write_str(match self {
             Self::Protocol(_) => "Native mutation request is invalid",
             Self::Coordinator(_) => "Native mutation scheduling failed",
+            Self::OwnershipBusy => "Native mutation ownership is being changed",
+            Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
             Self::Invariant => "Native mutation coordinator invariant failed",
         })
     }
@@ -256,6 +262,7 @@ enum LockAdmission {
 pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
+    require_rust_ownership: bool,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -276,7 +283,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 cutover_paths,
                 uid,
             ),
+            require_rust_ownership: false,
         }
+    }
+
+    /// Construct the same coordinator with a fail-closed ownership gate.
+    /// Every mutation re-reads the private marker while holding the shared
+    /// Python/Rust migration lock. This does not register the coordinator with
+    /// the production socket by itself.
+    #[must_use]
+    pub fn new_ownership_gated(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: crate::cutover::CutoverPaths,
+        uid: u32,
+    ) -> Self {
+        let mut owner = Self::new(host, desired_paths, store_path, cutover_paths, uid);
+        owner.require_rust_ownership = true;
+        owner
     }
 
     #[must_use]
@@ -311,6 +336,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        if self.require_rust_ownership {
+            let lock = self
+                .transaction
+                .acquire_lock()
+                .map_err(|error| match error {
+                    ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                    _ => NativeOwnerError::OwnershipUnavailable,
+                })?;
+            let owned = read_marker(self.transaction.cutover_paths(), self.transaction.uid())
+                .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust);
+            drop(lock);
+            if !owned {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+        }
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
             SubmitOutcome::Queued { token } => token,
@@ -332,7 +372,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         family: fn(ConnectionTransactionError) -> NativeTransactionError,
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
-            Ok(lock) => Ok(LockAdmission::Locked(lock)),
+            Ok(lock) => {
+                if self.require_rust_ownership
+                    && !read_marker(self.transaction.cutover_paths(), self.transaction.uid())
+                        .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust)
+                {
+                    drop(lock);
+                    self.coordinator.abort_active_uncached(token)?;
+                    return Err(NativeOwnerError::OwnershipUnavailable);
+                }
+                Ok(LockAdmission::Locked(lock))
+            }
             Err(error) => {
                 self.coordinator.abort_active_uncached(token)?;
                 Ok(LockAdmission::Uncached(
@@ -564,17 +614,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 };
                 let subscription_id = next_record_id();
                 let entries = feed.into_private_entries(&mut next_record_id);
-                let lock = match self.transaction.acquire_lock() {
-                    Ok(lock) => lock,
-                    Err(error) => {
-                        return self.finish(
-                            token,
-                            Err(NativeTransactionError::Subscription(
-                                subscription_lock_error(error),
-                            )),
-                            false,
-                        );
-                    }
+                let lock = match self.preflight_lock(token, |error| {
+                    NativeTransactionError::Subscription(subscription_lock_error(error))
+                })? {
+                    LockAdmission::Locked(lock) => lock,
+                    LockAdmission::Uncached(outcome) => return Ok(outcome),
                 };
                 (
                     SubscriptionMutation::Add {
@@ -624,17 +668,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     }
                 };
                 let entries = feed.into_private_entries(&mut next_record_id);
-                let lock = match self.transaction.acquire_lock() {
-                    Ok(lock) => lock,
-                    Err(error) => {
-                        return self.finish(
-                            token,
-                            Err(NativeTransactionError::Subscription(
-                                subscription_lock_error(error),
-                            )),
-                            false,
-                        );
-                    }
+                let lock = match self.preflight_lock(token, |error| {
+                    NativeTransactionError::Subscription(subscription_lock_error(error))
+                })? {
+                    LockAdmission::Locked(lock) => lock,
+                    LockAdmission::Uncached(outcome) => return Ok(outcome),
                 };
                 (
                     SubscriptionMutation::Update {

@@ -487,7 +487,7 @@ Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
 PRs #96-#100, #102, #104, #106-#108, #110, #111, #113, #117-#121 and
-#125-#134 provide the private control
+#125-#134 and #136 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -599,9 +599,20 @@ work occurs outside the Python/Rust migration lock; commit re-acquires the
 shared lease and uses trusted runtime observation. Transport, feed and store
 failures expose only stable credential-free outcomes.
 
-These owners remain absent from runtime dispatch and capabilities. The next
-bounded checkpoint is mutation registration gated by verified native ownership.
-Transactional cutover and the plugin bridge still follow; R5 is not complete.
+These owners remain absent from production `RuntimeServer` dispatch and
+capabilities. The next checkpoint accepted in PR #136 adds one exact semantic
+mutation dispatcher and
+an ownership-gated coordinator constructor. Connection, profile and
+subscription requests use the same bounded accepted/error response contract.
+The private ownership marker is checked while holding the shared migration lock
+before admission, so cached replay cannot bypass an ownership change, and is
+checked again before every store/lifecycle effect and after subscription
+network work. Any legacy, preparing, rollback, missing, malformed or unsafe
+marker returns `capability_unavailable` without host/store effects.
+
+The dispatcher remains absent from `RuntimeServer` construction and advertised
+capabilities. Production owner construction/socket registration, transactional
+cutover and the plugin bridge still follow; R5 is not complete.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
