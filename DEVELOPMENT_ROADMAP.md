@@ -523,6 +523,11 @@ Accepted incremental checkpoints:
   a same-user, symlink-refusing atomic `0600` writer. The boundary remains
   unreachable from IPC until exact envelopes, owner binding and active-profile
   lifecycle coordination are accepted.
+- PR #121: exact v1 profile rename/favorite/delete envelopes now reject unknown
+  or wrongly typed fields, enforce record-ID/name/metadata bounds and compute
+  domain-separated replay digests without formatting private payloads. The
+  parser remains unregistered; serialized owner binding and active-profile
+  lifecycle coordination are still required before production dispatch.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
