@@ -16,11 +16,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use omavless_profile::wireguard::{
-    AwgGeneration, WireGuardFlavor, parse_amnezia_vpn_link, parse_wireguard_config,
+    AwgGeneration, WireGuardError, WireGuardFlavor, parse_amnezia_vpn_link, parse_wireguard_config,
 };
 
-fn private_fixture() -> Option<String> {
-    let path = env::var_os("OMAVLESS_AWG_FIXTURE")?;
+fn private_file(variable: &str) -> Option<String> {
+    let path = env::var_os(variable)?;
     let metadata = fs::symlink_metadata(&path).expect("private AWG fixture must be readable");
     assert!(
         metadata.is_file(),
@@ -32,6 +32,10 @@ fn private_fixture() -> Option<String> {
         "private AWG fixture must not be accessible by group or other users"
     );
     Some(fs::read_to_string(path).expect("private AWG fixture must be valid UTF-8"))
+}
+
+fn private_fixture() -> Option<String> {
+    private_file("OMAVLESS_AWG_FIXTURE")
 }
 
 #[test]
@@ -139,4 +143,16 @@ fn private_awg3_fixture_is_accepted_by_installed_mihomo() {
         output.status.success(),
         "installed Mihomo rejected the AWG3 mapping"
     );
+}
+
+#[test]
+#[ignore = "requires an owner-supplied private 0600 Amnezia API guest key"]
+fn private_api_guest_key_is_classified_without_disclosure() {
+    let Some(link) = private_file("OMAVLESS_AWG_GUEST_FIXTURE") else {
+        eprintln!("skipped: set OMAVLESS_AWG_GUEST_FIXTURE to a private 0600 guest key");
+        return;
+    };
+    let error = parse_amnezia_vpn_link(&link).expect_err("API guest key must remain offline-only");
+    assert_eq!(error, WireGuardError::UnsupportedVpnApiKey);
+    assert_eq!(error.code(), "unsupported_vpn_api_key");
 }

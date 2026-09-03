@@ -4,6 +4,9 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Recognize signed Amnezia API/subscription `vpn://` keys at the Rust import
+  boundary and reject them with a fixed credential-safe compatibility result;
+  OmaVLESS does not contact the embedded provider service or expose its API key.
 - Started the Rust-first P4 WireGuard/AmneziaWG foundation without changing the
   installed production path: strict bounded one-interface/one-peer parsing,
   duplicate/unknown/directive rejection, private canonical identity, redacted
