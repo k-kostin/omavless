@@ -5,7 +5,7 @@
 - Repository: `k-kostin/omavless`
 - Branch: `codex/r5-production-cutover-host`
 - Draft PR: `#140`
-- Tested code head: `40c6d7fb4ff74cf1d25f6c06bfa1e32f9364ed8a`
+- Tested implementation head: `5f9552c80dff4cb4be65a2df585d90051df0a83a`
 - Base: `3b22cb987007ab85150f5352016267aa15138905`
 
 The candidate composes the accepted pure cutover transaction with the fixed
@@ -24,7 +24,8 @@ configuration was copied into this report.
 
 ## Static and deterministic gate
 
-At the tested code head:
+At the tested implementation head (plus the report-only descendant carrying
+this evidence):
 
 - `./tests/run.sh`: pass; 270 Python tests passed, 2 opt-in core tests skipped;
   i18n contracts, QML contracts and `omarchy plugin validate` passed.
