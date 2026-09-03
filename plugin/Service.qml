@@ -154,6 +154,15 @@ Item {
   })
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
   property var filePicker: ({ available: false, provider: "" })
+  property var desktopHelpers: ({
+    configEditorAvailable: false,
+    qrEncoderAvailable: false
+  })
+  // Stable local presentation code. It never contains a helper path, profile
+  // value or backend stderr and lets the panel localize the recovery action.
+  property string desktopHelperErrorCode: ""
+  readonly property string configEditorMissingFallback:
+    "Profile editing unavailable — install Zenity. Run “omarchy pkg add zenity”"
   property var startup: ({
     enabled: false,
     configured: true,
@@ -486,7 +495,8 @@ Item {
     return text.replace(/&/g, "＆").replace(/</g, "‹").replace(/>/g, "›")
   }
 
-  function rejectAction(reason) {
+  function rejectAction(reason, semanticCode) {
+    desktopHelperErrorCode = String(semanticCode || "")
     actionRejection = String(reason)
     lastError = actionRejection
     return false
@@ -497,12 +507,14 @@ Item {
     _transientActionStatus = ""
     actionStatus = ""
     lastError = ""
+    desktopHelperErrorCode = ""
     _dropWarningText = ""
   }
 
   function showTransientStatus(message) {
     var value = String(message || "")
     lastError = ""
+    desktopHelperErrorCode = ""
     actionStatus = value
     _transientActionStatus = value
     if (value !== "") transientStatusTimer.restart()
@@ -959,6 +971,7 @@ Item {
       return rejectStatus()
     var setup = payload.coreSetup
     var picker = payload.filePicker
+    var helpers = payload.desktopHelpers
     var startupSource = payload.startup
     if (!setup || typeof setup.installed !== "boolean"
         || typeof setup.tunReady !== "boolean" || typeof setup.path !== "string"
@@ -966,7 +979,9 @@ Item {
         || typeof picker.available !== "boolean"
         || typeof picker.provider !== "string"
         || ["", "zenity", "kdialog", "yad", "gtk4"].indexOf(picker.provider) < 0
-        || picker.available !== (picker.provider !== "") || !startupSource
+        || picker.available !== (picker.provider !== "") || !helpers
+        || typeof helpers.configEditorAvailable !== "boolean"
+        || typeof helpers.qrEncoderAvailable !== "boolean" || !startupSource
         || typeof startupSource.enabled !== "boolean"
         || typeof startupSource.configured !== "boolean"
         || (startupSource.target !== "last" && startupSource.target !== "profile")
@@ -1065,6 +1080,10 @@ Item {
     filePicker = {
       available: picker.available,
       provider: picker.provider
+    }
+    desktopHelpers = {
+      configEditorAvailable: helpers.configEditorAvailable,
+      qrEncoderAvailable: helpers.qrEncoderAvailable
     }
     startup = {
       enabled: startupSource.enabled,
@@ -1761,6 +1780,10 @@ Item {
     if (editProcess.running) return rejectAction("the editor is already open")
     if (_pendingSaveUuid !== "" || _editRetryUuid !== "")
       return rejectAction("a previous editor save is still pending")
+    if (!desktopHelpers.configEditorAvailable) {
+      return rejectAction(configEditorMissingFallback, "config_editor_missing")
+    }
+    desktopHelperErrorCode = ""
     actionRejection = ""
     _editUuid = String(profile.uuid)
     _editName = String(profile.name)
@@ -1825,6 +1848,10 @@ Item {
     // Named now, not on exit: the window opens on the request, so its title
     // has to read right while the code is still being rendered.
     qrName = String(profile.name)
+    if (!desktopHelpers.qrEncoderAvailable) {
+      qrErrorCode = "dependency_missing"
+      return ""
+    }
     qrLoading = true
     qrProcess.command = ["bash", backendPath, "qr-png", profile.uuid]
     qrProcess.running = true
@@ -2303,7 +2330,8 @@ Item {
       root._editName = ""
       root.actionStatus = ""
       if (exitCode === 2) {
-        root.lastError = "zenity is not installed"
+        root.desktopHelperErrorCode = "config_editor_missing"
+        root.lastError = root.configEditorMissingFallback
         root.editFailed(root.lastError)
         return
       }

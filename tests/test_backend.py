@@ -1119,6 +1119,10 @@ rules:
                  }), \
                  mock.patch.object(backend, "file_picker_status", return_value={
                      "available": False, "provider": "",
+                 }), \
+                 mock.patch.object(backend, "desktop_helper_status", return_value={
+                     "configEditorAvailable": False,
+                     "qrEncoderAvailable": False,
                  }):
                 payload = json.loads(backend.status_text(paths))
             self.assertEqual(payload["routing"], {
@@ -1137,6 +1141,10 @@ rules:
             })
             self.assertEqual(payload["filePicker"], {
                 "available": False, "provider": "",
+            })
+            self.assertEqual(payload["desktopHelpers"], {
+                "configEditorAvailable": False,
+                "qrEncoderAvailable": False,
             })
             self.assertEqual(payload["startup"], {
                 "enabled": False, "configured": True, "target": "last",
@@ -3450,6 +3458,25 @@ rules:
             self.assertEqual(
                 backend.discover_file_picker(), ("kdialog", "/usr/bin/kdialog")
             )
+
+    def test_desktop_helper_status_exposes_only_readiness_booleans(self):
+        available = {
+            "zenity": "/private/bin/zenity",
+            "qrencode": "/private/bin/qrencode",
+        }
+        with mock.patch.object(backend.shutil, "which", side_effect=available.get):
+            payload = backend.desktop_helper_status()
+        self.assertEqual(payload, {
+            "configEditorAvailable": True,
+            "qrEncoderAvailable": True,
+        })
+        self.assertNotIn("/private", json.dumps(payload))
+
+        with mock.patch.object(backend.shutil, "which", return_value=None):
+            self.assertEqual(backend.desktop_helper_status(), {
+                "configEditorAvailable": False,
+                "qrEncoderAvailable": False,
+            })
 
     def test_missing_file_picker_has_actionable_public_error(self):
         with mock.patch.object(backend.shutil, "which", return_value=None), \

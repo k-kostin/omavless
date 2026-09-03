@@ -100,6 +100,16 @@ Panel {
     return I18n.translate(key, uiLocale, values || {})
   }
 
+  function visibleErrorText() {
+    var key = I18n.publicErrorKey(vless.desktopHelperErrorCode, vless.lastError)
+    if (key !== "") return textFor(key)
+    return vless.lastError
+  }
+
+  function desktopHelperRecoveryActive() {
+    return I18n.publicErrorKey(vless.desktopHelperErrorCode, vless.lastError) !== ""
+  }
+
   function localizedCount(baseKey, count) {
     return I18n.plural(baseKey, count, uiLocale)
   }
@@ -227,7 +237,7 @@ Panel {
     return false
   }
   readonly property string barTooltip: {
-    if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + vless.lastError, 180)
+    if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + visibleErrorText(), 180)
     if (!vless.active) {
       var down = "OmaVLESS · " + textFor("status.disconnected")
       return vless.hasRoutingConflict ? down + " · Possible conflict: " + vless.conflictSummary : down
@@ -239,6 +249,8 @@ Panel {
   }
   readonly property string mihomoInstallCommand: "omarchy pkg aur add mihomo-bin"
   readonly property string filePickerInstallCommand: "omarchy pkg add zenity"
+  readonly property string profileEditorInstallCommand: "omarchy pkg add zenity"
+  readonly property string qrEncoderInstallCommand: "omarchy pkg add qrencode"
   readonly property string mihomoCapabilityCommand: "sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep "
     + (vless.coreSetup.path !== "" ? Util.shellQuote(vless.coreSetup.path)
       : '"$(command -v mihomo)"')
@@ -410,6 +422,8 @@ Panel {
       settingsThroughputRow.focusTarget,
       settingsCoreRow.focusTarget,
       settingsFileImportRow.focusTarget,
+      settingsProfileEditorRow.focusTarget,
+      settingsQrExportRow.focusTarget,
       settingsStartupRow.focusTarget,
       settingsRoutingToolsRow.focusTarget,
       settingsRuleRefreshRow.focusTarget,
@@ -1602,11 +1616,22 @@ Panel {
 
             PlainText {
               Layout.fillWidth: true
-              text: vless.actionStatus !== "" ? vless.actionStatus : vless.lastError
+              text: vless.actionStatus !== "" ? vless.actionStatus : root.visibleErrorText()
               color: vless.lastError !== "" && vless.actionStatus === "" ? root.urgent : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
+            }
+
+            PanelActionButton {
+              visible: root.desktopHelperRecoveryActive() && vless.actionStatus === ""
+              iconText: "󰅍"
+              tooltipText: root.textFor("common.copy_command")
+              foreground: root.urgent
+              hoverColor: root.foreground
+              fontFamily: root.fontFamily
+              Layout.alignment: Qt.AlignTop
+              onClicked: vless.copyText(root.profileEditorInstallCommand)
             }
 
             PanelActionButton {
@@ -2166,7 +2191,7 @@ Panel {
           PlainText {
             visible: vless.actionStatus !== "" || vless.lastError !== ""
             width: parent.width
-            text: vless.actionStatus !== "" ? vless.actionStatus : vless.lastError
+            text: vless.actionStatus !== "" ? vless.actionStatus : root.visibleErrorText()
             color: vless.lastError !== "" && vless.actionStatus === "" ? root.urgent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -2231,6 +2256,30 @@ Panel {
               ? root.textFor("common.ready") : root.textFor("common.copy_command")
             actionEnabled: !vless.filePicker.available
             onAction: vless.copyText(root.filePickerInstallCommand)
+          }
+
+          SettingsActionRow {
+            id: settingsProfileEditorRow
+            title: root.textFor("settings.profile_editor")
+            description: vless.desktopHelpers.configEditorAvailable
+              ? root.textFor("settings.profile_editor_ready")
+              : root.textFor("settings.profile_editor_missing")
+            actionText: vless.desktopHelpers.configEditorAvailable
+              ? root.textFor("common.ready") : root.textFor("common.copy_command")
+            actionEnabled: !vless.desktopHelpers.configEditorAvailable
+            onAction: vless.copyText(root.profileEditorInstallCommand)
+          }
+
+          SettingsActionRow {
+            id: settingsQrExportRow
+            title: root.textFor("settings.qr_export")
+            description: vless.desktopHelpers.qrEncoderAvailable
+              ? root.textFor("settings.qr_export_ready")
+              : root.textFor("settings.qr_export_missing")
+            actionText: vless.desktopHelpers.qrEncoderAvailable
+              ? root.textFor("common.ready") : root.textFor("common.copy_command")
+            actionEnabled: !vless.desktopHelpers.qrEncoderAvailable
+            onAction: vless.copyText(root.qrEncoderInstallCommand)
           }
 
           SettingsActionRow {
@@ -2902,6 +2951,7 @@ Panel {
     urgent: root.urgent
     fontFamily: root.fontFamily
     onCloseRequested: vless.closeQr()
+    onCopyInstallCommandRequested: vless.copyText(root.qrEncoderInstallCommand)
   }
 
   // Screen-centred like the QR, and for the same reason: the popup is pinned

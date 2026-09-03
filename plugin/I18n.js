@@ -140,7 +140,7 @@ var CATALOG = {
   "qr.rendering": {"en":"Rendering the QR code…","ru":"Создание QR-кода…"},
   "qr.credential_warning": {"en":"Scan with an app compatible with this profile. The code contains the complete access credential — share it only with devices you control.","ru":"Отсканируйте код приложением, совместимым с этим профилем. Код содержит полные учётные данные — передавайте его только на устройства, которые вы контролируете."},
   "qr.error.busy": {"en":"Another QR code is still rendering — try again in a moment","ru":"Другой QR-код ещё создаётся — повторите попытку через несколько секунд"},
-  "qr.error.dependency_missing": {"en":"QR codes are unavailable — install qrencode","ru":"QR-коды недоступны — установите qrencode"},
+  "qr.error.dependency_missing": {"en":"QR codes are unavailable. Run “omarchy pkg add qrencode” to install qrencode.","ru":"QR-коды недоступны. Выполните «omarchy pkg add qrencode», чтобы установить qrencode."},
   "qr.error.render_failed": {"en":"Could not render the QR code","ru":"Не удалось создать QR-код"},
   "tooltip.settings": {"en":"OmaVLESS settings","ru":"Настройки OmaVLESS"},
   "tooltip.show_qr": {"en":"Show {name} as a QR code (q)","ru":"Показать QR-код профиля {name} (q)"},
@@ -212,6 +212,13 @@ var CATALOG = {
   "settings.file_picker_system": {"en":"Available through the system file picker","ru":"Доступен через системный выбор файлов"},
   "settings.file_picker_provider": {"en":"Available through {provider}","ru":"Доступен через {provider}"},
   "settings.file_picker_missing": {"en":"Unavailable — file picker missing. Run “omarchy pkg add zenity”","ru":"Недоступен — нет средства выбора файлов. Выполните «omarchy pkg add zenity»"},
+  "settings.profile_editor": {"en":"Profile configuration editor","ru":"Редактор конфигурации профиля"},
+  "settings.profile_editor_ready": {"en":"Available through Zenity","ru":"Доступен через Zenity"},
+  "settings.profile_editor_missing": {"en":"Unavailable — Zenity missing. Run “omarchy pkg add zenity”","ru":"Недоступен — нет Zenity. Выполните «omarchy pkg add zenity»"},
+  "settings.qr_export": {"en":"QR code export","ru":"Экспорт QR-кода"},
+  "settings.qr_export_ready": {"en":"Available through qrencode","ru":"Доступен через qrencode"},
+  "settings.qr_export_missing": {"en":"Unavailable — qrencode missing. Run “omarchy pkg add qrencode”","ru":"Недоступен — нет qrencode. Выполните «omarchy pkg add qrencode»"},
+  "error.config_editor_missing": {"en":"Profile editing unavailable — install Zenity. Run “omarchy pkg add zenity”","ru":"Редактирование профиля недоступно — установите Zenity. Выполните «omarchy pkg add zenity»"},
   "settings.start_at_login": {"en":"Start VPN at login","ru":"Запускать VPN при входе"},
   "settings.routing_profile": {"en":"ROUTING PROFILE","ru":"ПРОФИЛЬ МАРШРУТИЗАЦИИ"},
   "settings.routing_choose": {"en":"Choose a country preset before the first use of Routing.","ru":"Выберите страновой набор перед первым использованием маршрутизации."},
@@ -359,6 +366,18 @@ function translate(key, locale, values) {
   return text.substring(0, MAX_TEXT_LENGTH)
 }
 
+// A semantic code may outlive the message that originally set it while
+// asynchronous QML operations finish. Localize it only when the current safe
+// English fallback is the catalog fallback for that exact code; otherwise the
+// newer message must win.
+function publicErrorKey(code, fallback) {
+  var stableCode = String(code || "").substring(0, 64)
+  var key = "error." + stableCode
+  var entry = CATALOG[key]
+  return entry && typeof entry.en === "string" && String(fallback || "") === entry.en
+    ? key : ""
+}
+
 function plural(baseKey, count, locale) {
   var amount = Math.max(0, Math.floor(Number(count) || 0))
   var selected = normalizeLocale(locale)
@@ -380,6 +399,7 @@ if (typeof module !== "undefined" && module.exports) {
     normalizeLocale: normalizeLocale,
     boundedValue: boundedValue,
     translate: translate,
+    publicErrorKey: publicErrorKey,
     plural: plural
   }
 }

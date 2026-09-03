@@ -37,6 +37,35 @@ assert.strictEqual(
   I18n.translate("qr.error.render_failed", "ru"),
   "Не удалось создать QR-код"
 )
+assert.ok(I18n.translate("qr.error.dependency_missing", "en")
+  .includes("omarchy pkg add qrencode"))
+assert.ok(I18n.translate("qr.error.dependency_missing", "ru")
+  .includes("omarchy pkg add qrencode"))
+assert.ok(I18n.translate("settings.profile_editor_missing", "en")
+  .includes("omarchy pkg add zenity"))
+assert.ok(I18n.translate("settings.profile_editor_missing", "ru")
+  .includes("omarchy pkg add zenity"))
+assert.ok(I18n.translate("settings.qr_export_missing", "en")
+  .includes("omarchy pkg add qrencode"))
+assert.ok(I18n.translate("settings.qr_export_missing", "ru")
+  .includes("omarchy pkg add qrencode"))
+assert.strictEqual(
+  I18n.translate("error.config_editor_missing", "ru"),
+  "Редактирование профиля недоступно — установите Zenity. "
+    + "Выполните «omarchy pkg add zenity»"
+)
+const editorMissingFallback = I18n.translate("error.config_editor_missing", "en")
+assert.strictEqual(
+  I18n.publicErrorKey("config_editor_missing", editorMissingFallback),
+  "error.config_editor_missing"
+)
+// Regression: a later unrelated failure must not be hidden by the stale
+// semantic code from an earlier missing-Zenity action.
+assert.strictEqual(
+  I18n.publicErrorKey("config_editor_missing", "A later unrelated failure"),
+  ""
+)
+assert.strictEqual(I18n.publicErrorKey("", editorMissingFallback), "")
 assert.strictEqual(I18n.translate("edit.config", "ru"), "Конфигурация")
 assert.strictEqual(I18n.translate("common.delete", "ru"), "Удалить")
 assert.strictEqual(
