@@ -486,7 +486,7 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102, #104, #106-#108, #110, #111 and #113 provide the private control
+PRs #96-#100, #102, #104, #106-#108, #110, #111, #113 and #117 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -501,11 +501,13 @@ cutover/rollback state machine now reject stale, partial and duplicate-owner
 states. The ownership-gated offline binder produces bounded v1 mutation
 responses and preserves exact operation replay before revision checks. These
 layers now include a fail-closed legacy Python reader with exact marker-schema
-and private-filesystem parity, but that reader remains intentionally unwired
-from legacy command dispatch. They remain unregistered from daemon mutation dispatch and
+and private-filesystem parity. Legacy mutation admission and commit both check
+that marker under the shared lock, so preparing/native ownership quiesces
+Python mutation without disabling read-only compatibility or the internal
+supervisor path. They remain unregistered from daemon mutation dispatch and
 incapable of replacing the Python lifecycle owner. The next owning work is
-production host observation, legacy mutation guarding, live owner construction,
-socket registration and the explicit plugin migration transaction.
+production host observation, live owner construction, socket registration and
+the explicit plugin migration transaction.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

@@ -71,6 +71,31 @@ MAX_IMPORT_BYTES = 64 * 1024
 MAX_OWNERSHIP_MARKER_BYTES = 1024
 OWNERSHIP_SCHEMA_VERSION = 1
 OWNERSHIP_PHASES = frozenset(("legacy", "cutoverPreparing", "rust", "rollbackPreparing"))
+LEGACY_MUTATION_COMMANDS = frozenset((
+    "adopt-template",
+    "connect",
+    "custom-rule-add",
+    "custom-rule-delete",
+    "delete",
+    "down",
+    "down-all",
+    "favorite",
+    "import",
+    "mark-active",
+    "notify-drop",
+    "onboarding-complete",
+    "rename",
+    "rule-providers-refresh",
+    "set-mode",
+    "startup-configure",
+    "startup-connect",
+    "subscription-delete",
+    "subscription-refresh",
+    "subscription-refresh-all",
+    "subscription-save",
+    "subscription-save-file",
+    "use-routing",
+))
 MAX_PICKER_PATH_BYTES = 4096
 MAX_SUBSCRIPTION_COUNT = 64
 MAX_SUBSCRIPTION_LINK_COUNT = 1024
@@ -372,6 +397,20 @@ def operation_lock(paths: Paths, timeout: float = LOCK_TIMEOUT_SECONDS) -> Itera
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def legacy_mutation_lock(
+    paths: Paths, timeout: float = LOCK_TIMEOUT_SECONDS
+) -> Iterator[OwnershipMarker]:
+    """Serialize with Rust cutover and reject every non-legacy owner phase."""
+    with operation_lock(paths, timeout):
+        marker = read_ownership_marker(paths)
+        if marker.phase != "legacy":
+            raise BackendError(
+                "OmaVLESS native runtime ownership blocks this legacy operation"
+            )
+        yield marker
 
 
 def status_cache(paths: Paths) -> Path:
@@ -4267,7 +4306,7 @@ def refresh_rule_providers(paths: Paths) -> dict[str, int]:
             f"Could not refresh {failures} rule provider"
             + ("" if failures == 1 else "s")
         )
-    with operation_lock(paths):
+    with legacy_mutation_lock(paths):
         store = load_store(paths)
         store["rulesUpdatedAt"] = time.time_ns() // 1_000_000
         save_store(paths, store)
@@ -4620,7 +4659,7 @@ def watch_plugin_removal(paths: Paths) -> int:
     # unavailable (for example while it is shutting down), preserve state.
     if plugin_manifest_present() and plugin_enabled_state() is not False:
         return 0
-    with operation_lock(paths):
+    with legacy_mutation_lock(paths):
         return 0 if disable_runtime_integration(paths, stop_main=True) else 1
 
 
@@ -5849,7 +5888,17 @@ def main() -> int:
     if args.command == "run-core":
         return run_core_supervisor(paths, Path(args.core))
     with operation_lock(paths):
-        migrate_legacy_data(paths)
+        # The marker decision is made while holding the same lock used by the
+        # Rust cutover transaction. Mutation admission and implicit migration
+        # stop atomically when any transition begins. The narrower commit-time
+        # guards below close the race after deliberately unlocked network I/O.
+        marker = read_ownership_marker(paths)
+        if marker.phase == "legacy":
+            migrate_legacy_data(paths)
+        elif args.command in LEGACY_MUTATION_COMMANDS:
+            raise BackendError(
+                "OmaVLESS native runtime ownership blocks this legacy operation"
+            )
     if args.command == "status":
         status(paths)
     elif args.command == "pick-file":
@@ -5886,10 +5935,10 @@ def main() -> int:
     elif args.command == "edit":
         return edit_profile(paths, args.id, args.name, read_stdin_text(MAX_IMPORT_BYTES, "editor input"))
     elif args.command == "notify-drop":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             return notify_drop(paths, args.id)
     elif args.command == "mark-active":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             try:
                 observed_ms = normalize_epoch_ms(int(args.observed)) if args.observed else None
             except ValueError as exc:
@@ -5904,7 +5953,7 @@ def main() -> int:
             "protocol": profile_protocol(uri),
         }))
     elif args.command == "adopt-template":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             source = Path(args.path).expanduser()
             candidate = template_from_config(
                 read_text_file(source, MAX_TEMPLATE_BYTES, "route template source")
@@ -5916,11 +5965,11 @@ def main() -> int:
             store["routingPreset"] = "custom"
             save_store(paths, store)
     elif args.command == "use-routing":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             use_bundled_template(paths, args.profile, keep_mode=args.keep_mode)
             invalidate_status_cache(paths)
     elif args.command == "set-mode":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             set_routing_mode(paths, args.mode)
             invalidate_status_cache(paths)
     elif args.command == "custom-rules":
@@ -5928,14 +5977,14 @@ def main() -> int:
             print(custom_rules_text(paths), end="")
     elif args.command == "custom-rule-add":
         value = read_stdin_text(MAX_CUSTOM_RULE_VALUE_BYTES, "custom routing value")
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             print(json.dumps(
                 save_custom_rule(paths, args.kind, args.action, value),
                 ensure_ascii=False, separators=(",", ":"),
             ))
             invalidate_status_cache(paths)
     elif args.command == "custom-rule-delete":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             delete_custom_rule(paths, args.id)
             invalidate_status_cache(paths)
     elif args.command == "route-check":
@@ -5944,17 +5993,17 @@ def main() -> int:
     elif args.command == "rule-providers-refresh":
         print(json.dumps(refresh_rule_providers(paths), separators=(",", ":")))
     elif args.command == "startup-configure":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             configure_startup(
                 paths, args.enabled == "on", args.target, args.profile_id, args.mode
             )
             invalidate_status_cache(paths)
     elif args.command == "startup-connect":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             startup_connect(paths)
             invalidate_status_cache(paths)
     elif args.command == "onboarding-complete":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             store = load_store(paths)
             store["onboardingComplete"] = True
             save_store(paths, store)
@@ -5969,7 +6018,7 @@ def main() -> int:
         # out; only the final validated store update is serialized.
         canonical_url = validate_subscription_url(url)
         entries, skipped = parse_subscription(fetch_subscription(canonical_url))
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             result = commit_subscription(
                 paths, args.name, args.id, canonical_url, entries, skipped
             )
@@ -5978,7 +6027,7 @@ def main() -> int:
         with operation_lock(paths):
             original_url = str(subscription_by_id(load_store(paths), args.id)["url"])
         entries, skipped = parse_subscription(fetch_subscription(original_url))
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             store = load_store(paths)
             subscription = subscription_by_id(store, args.id)
             if subscription["url"] != original_url:
@@ -5998,7 +6047,7 @@ def main() -> int:
             (subscription_id, url, *parse_subscription(fetch_subscription(url)))
             for subscription_id, url in snapshot
         ]
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             store = load_store(paths)
             current = [(str(item["id"]), str(item["url"])) for item in store["subscriptions"]]
             if current != snapshot:
@@ -6015,7 +6064,7 @@ def main() -> int:
             save_store(paths, store)
         print(json.dumps(result, separators=(",", ":")))
     elif args.command == "subscription-delete":
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             delete_subscription(paths, args.id)
     elif args.command == "subscription-url":
         # Deliberately separate from status: the bearer URL is released only
@@ -6032,7 +6081,7 @@ def main() -> int:
         # or first successful end-to-end request finishes.
         probe_subscription_stream(paths, args.id)
     else:
-        with operation_lock(paths):
+        with legacy_mutation_lock(paths):
             if args.command == "connect":
                 connect_profile(paths, args.id)
             elif args.command == "down":

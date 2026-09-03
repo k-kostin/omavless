@@ -86,6 +86,19 @@ class BackendTests(unittest.TestCase):
             home / ".local" / "state" / "omarchy" / "vless-last", runtime,
         )
 
+    def write_ownership_marker(
+        self, paths: backend.Paths, phase: str, generation: int = 1
+    ) -> Path:
+        marker = backend.ownership_marker_path(paths)
+        marker.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        marker.write_text(json.dumps({
+            "schemaVersion": 1,
+            "generation": generation,
+            "phase": phase,
+        }), encoding="utf-8")
+        marker.chmod(0o600)
+        return marker
+
     def test_manifest_matches_plugin_entrypoint_and_release_version(self):
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["schemaVersion"], 1)
@@ -3173,6 +3186,137 @@ rules:
             self.assertNotIn("password", public)
             self.assertEqual(private.read_text(encoding="utf-8"), "unchanged")
 
+    def test_legacy_mutation_lock_allows_only_legacy_ownership(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+
+            entered: list[str] = []
+            with backend.legacy_mutation_lock(paths) as marker:
+                entered.append(marker.phase)
+            self.assertEqual(entered, ["legacy"])
+
+            for generation, phase in enumerate(
+                ("cutoverPreparing", "rust", "rollbackPreparing"), start=1
+            ):
+                with self.subTest(phase=phase):
+                    self.write_ownership_marker(paths, phase, generation)
+                    with self.assertRaises(backend.BackendError) as raised:
+                        with backend.legacy_mutation_lock(paths):
+                            entered.append(phase)
+                    self.assertEqual(
+                        str(raised.exception),
+                        "OmaVLESS native runtime ownership blocks this legacy operation",
+                    )
+            self.assertEqual(entered, ["legacy"])
+
+    def test_legacy_mutation_lock_checks_marker_after_shared_lock_entry(self):
+        paths = mock.Mock()
+        events: list[str] = []
+
+        @backend.contextlib.contextmanager
+        def recorded_lock(_paths, _timeout):
+            events.append("lock-enter")
+            try:
+                yield
+            finally:
+                events.append("lock-exit")
+
+        def marker_reader(_paths):
+            events.append("marker-read")
+            return backend.OwnershipMarker()
+
+        with mock.patch.object(backend, "operation_lock", recorded_lock), \
+             mock.patch.object(backend, "read_ownership_marker", marker_reader):
+            with backend.legacy_mutation_lock(paths, timeout=0.25):
+                events.append("body")
+        self.assertEqual(
+            events, ["lock-enter", "marker-read", "body", "lock-exit"]
+        )
+
+    def test_legacy_mutation_lock_fails_closed_before_body_on_invalid_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            marker = backend.ownership_marker_path(paths)
+            marker.parent.mkdir(parents=True, mode=0o700)
+            marker.write_text('{"phase":"rust"}', encoding="utf-8")
+            marker.chmod(0o600)
+            entered = False
+            with self.assertRaisesRegex(backend.BackendError, "ownership state is invalid"):
+                with backend.legacy_mutation_lock(paths):
+                    entered = True
+            self.assertFalse(entered)
+
+    def test_rust_ownership_blocks_legacy_import_without_reading_private_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env, runtime = self.make_env(home)
+            env["XDG_STATE_HOME"] = str(home / ".local" / "state")
+            paths = self.paths_for(home, runtime)
+            self.write_ownership_marker(paths, "rust", 9)
+            private_input = REALITY_URI.replace("Example", "private-password-fragment")
+            result = subprocess.run(
+                [str(ROOT / "backend.sh"), "import", "Example"],
+                input=private_input,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(
+                result.stderr.strip(),
+                "OmaVLESS native runtime ownership blocks this legacy operation",
+            )
+            self.assertNotIn("private-password-fragment", result.stderr)
+            self.assertFalse(paths.store.exists())
+
+    def test_rust_ownership_keeps_read_only_status_available_without_migration(self):
+        args = mock.Mock(command="status")
+        parser = mock.Mock()
+        parser.parse_args.return_value = args
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            self.write_ownership_marker(paths, "rust", 3)
+            with mock.patch.object(backend, "build_parser", return_value=parser), \
+                 mock.patch.object(backend.Paths, "current", return_value=paths), \
+                 mock.patch.object(backend, "migrate_legacy_data") as migrate, \
+                 mock.patch.object(backend, "status") as status:
+                self.assertEqual(backend.main(), 0)
+            migrate.assert_not_called()
+            status.assert_called_once_with(paths)
+
+    def test_every_declared_legacy_mutation_is_rejected_at_admission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            self.write_ownership_marker(paths, "cutoverPreparing", 2)
+            for command in sorted(backend.LEGACY_MUTATION_COMMANDS):
+                args = mock.Mock(command=command)
+                parser = mock.Mock()
+                parser.parse_args.return_value = args
+                with self.subTest(command=command), \
+                     mock.patch.object(backend, "build_parser", return_value=parser), \
+                     mock.patch.object(backend.Paths, "current", return_value=paths), \
+                     mock.patch.object(backend, "migrate_legacy_data") as migrate:
+                    with self.assertRaisesRegex(
+                        backend.BackendError, "native runtime ownership blocks"
+                    ):
+                        backend.main()
+                    migrate.assert_not_called()
+
     def test_run_core_dispatch_bypasses_user_mutation_lock_and_migration(self):
         args = mock.Mock(command="run-core", core="/usr/bin/mihomo")
         paths = mock.Mock()
@@ -3182,11 +3326,13 @@ rules:
              mock.patch.object(backend.Paths, "current", return_value=paths), \
              mock.patch.object(backend, "ensure_private_dir") as ensure_private, \
              mock.patch.object(backend, "operation_lock") as operation_lock, \
+             mock.patch.object(backend, "read_ownership_marker") as read_marker, \
              mock.patch.object(backend, "migrate_legacy_data") as migrate, \
              mock.patch.object(backend, "run_core_supervisor", return_value=7) as run_core:
             self.assertEqual(backend.main(), 7)
         ensure_private.assert_called_once_with(paths.config_dir)
         operation_lock.assert_not_called()
+        read_marker.assert_not_called()
         migrate.assert_not_called()
         run_core.assert_called_once_with(paths, Path("/usr/bin/mihomo"))
 
@@ -4250,6 +4396,26 @@ esac
                         state.assert_called_once_with()
                     else:
                         state.assert_not_called()
+
+    def test_removal_guard_cannot_stop_native_owned_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            self.write_ownership_marker(paths, "rust", 4)
+            with mock.patch.dict(
+                os.environ, {"OMAVLESS_REMOVAL_GRACE_SECONDS": "0"}
+            ), mock.patch.object(
+                backend, "plugin_manifest_present", return_value=False
+            ), mock.patch.object(
+                backend, "disable_runtime_integration"
+            ) as cleanup:
+                with self.assertRaisesRegex(
+                    backend.BackendError, "native runtime ownership blocks"
+                ):
+                    backend.watch_plugin_removal(paths)
+            cleanup.assert_not_called()
 
     def test_disabled_plugin_cleanup_runs_end_to_end_without_deleting_private_data(self):
         with tempfile.TemporaryDirectory() as temp:
