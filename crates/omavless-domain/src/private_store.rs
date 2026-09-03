@@ -44,6 +44,7 @@ pub enum PrivateStoreError {
     SubscribedProfile,
     DuplicateProfileName,
     SubscriptionNotFound,
+    SubscriptionChanged,
     ActiveSubscription,
     SubscriptionSync(SyncError),
 }
@@ -68,6 +69,7 @@ impl PrivateStoreError {
             Self::SubscribedProfile => "subscribed_profile",
             Self::DuplicateProfileName => "duplicate_profile_name",
             Self::SubscriptionNotFound => "subscription_not_found",
+            Self::SubscriptionChanged => "subscription_changed",
             Self::ActiveSubscription => "active_subscription",
             Self::SubscriptionSync(error) => error.code(),
         }
@@ -95,6 +97,9 @@ impl fmt::Display for PrivateStoreError {
             Self::SubscribedProfile => "Subscribed profile is managed by its provider",
             Self::DuplicateProfileName => "A profile with this name already exists",
             Self::SubscriptionNotFound => "Requested subscription record was not found",
+            Self::SubscriptionChanged => {
+                "Subscription changed while it was being updated; try again"
+            }
             Self::ActiveSubscription => {
                 "Disconnect the active subscribed profile before removing its subscription"
             }
@@ -166,6 +171,23 @@ pub struct IncomingSubscriptionProfile {
     pub new_id: String,
 }
 
+/// Private optimistic-concurrency snapshot captured before remote fetch.
+/// Subscription URL and record ID are bearer-like/private and this type
+/// deliberately has no formatting, cloning or serialization implementation.
+pub struct SubscriptionRefreshSnapshot {
+    subscription_id: String,
+    url: String,
+    updated_at: u64,
+}
+
+impl SubscriptionRefreshSnapshot {
+    /// Private transport input. Callers must not log or publish this value.
+    #[must_use]
+    pub fn private_url(&self) -> &str {
+        &self.url
+    }
+}
+
 /// One offline subscription-store mutation. Add/update include only data that
 /// a future bounded fetch/parser stage has already validated enough to pass to
 /// this canonical store boundary. No variant implements `Debug`, cloning or
@@ -206,6 +228,16 @@ pub struct SubscriptionMutationCounts {
     pub total: usize,
 }
 
+/// Credential-free result facts for one subscription refresh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubscriptionRefreshCounts {
+    pub added: usize,
+    pub removed: usize,
+    pub stale: usize,
+    pub total: usize,
+    pub skipped: usize,
+}
+
 /// Successfully validated private replacement payload plus one public fact.
 /// The payload is released only to the fixed atomic store writer.
 pub struct PrivateStoreMutation {
@@ -232,6 +264,91 @@ impl PrivateSubscriptionMutation {
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
+}
+
+/// Capture the exact fields which make a remote refresh stale. Name changes
+/// and unrelated store mutations are intentionally absent so they can be
+/// preserved when the final commit re-reads the latest store.
+pub fn prepare_subscription_refresh(
+    input: &str,
+    subscription_id: &str,
+) -> Result<SubscriptionRefreshSnapshot, PrivateStoreError> {
+    let store = parse_private_store(input)?;
+    let subscription = store
+        .subscriptions
+        .iter()
+        .find(|subscription| subscription.id == subscription_id)
+        .ok_or(PrivateStoreError::SubscriptionNotFound)?;
+    Ok(SubscriptionRefreshSnapshot {
+        subscription_id: subscription.id.clone(),
+        url: subscription.url.clone(),
+        updated_at: subscription.updated_at,
+    })
+}
+
+/// Apply one already-fetched feed to the latest complete store. The snapshot
+/// rejects deletion, URL replacement and a competing refresh (`updatedAt`),
+/// while a concurrent subscription rename and unrelated latest-store changes
+/// are retained. No partial payload is returned on failure.
+pub fn apply_subscription_refresh(
+    input: &str,
+    snapshot: SubscriptionRefreshSnapshot,
+    entries: Vec<IncomingSubscriptionProfile>,
+    updated_at: u64,
+    skipped: usize,
+) -> Result<(PrivateSubscriptionMutation, SubscriptionRefreshCounts), PrivateStoreError> {
+    if entries
+        .len()
+        .checked_add(skipped)
+        .is_none_or(|total| total > MAX_SUBSCRIPTION_ENTRIES)
+    {
+        return Err(PrivateStoreError::SubscriptionSync(
+            SyncError::TooManyEntries,
+        ));
+    }
+    let mut store = parse_private_store(input)?;
+    let subscription = store
+        .subscriptions
+        .iter()
+        .find(|subscription| subscription.id == snapshot.subscription_id)
+        .ok_or(PrivateStoreError::SubscriptionChanged)?;
+    if subscription.url != snapshot.url || subscription.updated_at != snapshot.updated_at {
+        return Err(PrivateStoreError::SubscriptionChanged);
+    }
+    // `updatedAt` is also the optimistic refresh token. Wall clocks can have
+    // millisecond collisions or move backwards, so every successful native
+    // refresh must advance it monotonically or fail closed at exhaustion.
+    let updated_at = snapshot
+        .updated_at
+        .checked_add(1)
+        .ok_or(PrivateStoreError::InvalidTimestamp)?
+        .max(updated_at);
+    let counts = sync_private_subscription(&mut store, &snapshot.subscription_id, entries)?;
+    store
+        .subscriptions
+        .iter_mut()
+        .find(|subscription| subscription.id == snapshot.subscription_id)
+        .ok_or(PrivateStoreError::SubscriptionChanged)?
+        .updated_at = updated_at;
+    store.normalize_document()?;
+    let candidate = store.private_payload()?;
+    let candidate = std::str::from_utf8(&candidate).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let validated = parse_private_store(candidate)?;
+    let mutation = PrivateSubscriptionMutation {
+        payload: validated.private_payload()?,
+        changed: true,
+        counts: public_counts(counts),
+    };
+    Ok((
+        mutation,
+        SubscriptionRefreshCounts {
+            added: counts.added,
+            removed: counts.removed,
+            stale: counts.stale,
+            total: counts.total,
+            skipped,
+        },
+    ))
 }
 
 /// Validated private store. Never derive `Debug`, `Clone`, or serialization.
@@ -1353,6 +1470,133 @@ mod tests {
                 PrivateStoreError::SubscribedProfile
             );
         }
+    }
+
+    #[test]
+    fn refresh_snapshot_preserves_concurrent_name_and_unrelated_changes() {
+        let input = store(PRIVATE_URI, "vless");
+        let snapshot = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+        let mut latest: Value = serde_json::from_str(&input).unwrap();
+        latest["subscriptions"][0]["name"] = Value::from("Renamed while fetching");
+        latest["onboardingComplete"] = Value::from(false);
+        let (result, counts) = apply_subscription_refresh(
+            &latest.to_string(),
+            snapshot,
+            vec![IncomingSubscriptionProfile {
+                uri: PRIVATE_URI.to_owned(),
+                new_id: "ignored-for-existing-row".to_owned(),
+            }],
+            9,
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            counts,
+            SubscriptionRefreshCounts {
+                added: 0,
+                removed: 0,
+                stale: 0,
+                total: 1,
+                skipped: 2,
+            }
+        );
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(
+            written["subscriptions"][0]["name"],
+            "Renamed while fetching"
+        );
+        assert_eq!(written["subscriptions"][0]["updatedAt"], 9);
+        assert_eq!(written["onboardingComplete"], false);
+        assert_eq!(written["profiles"][0]["id"], PROFILE_ID);
+        assert_eq!(written["profiles"][0]["favorite"], true);
+    }
+
+    #[test]
+    fn refresh_snapshot_conflicts_on_delete_url_or_updated_at_only() {
+        for change in ["delete", "url", "timestamp"] {
+            let input = store(PRIVATE_URI, "vless");
+            let snapshot = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+            let mut latest: Value = serde_json::from_str(&input).unwrap();
+            match change {
+                "delete" => {
+                    latest["subscriptions"] = Value::Array(Vec::new());
+                    latest["profiles"] = Value::Array(Vec::new());
+                    latest["activeId"] = Value::from("");
+                    latest["lastId"] = Value::from("");
+                    latest["startup"]["enabled"] = Value::from(false);
+                    latest["startup"]["profileId"] = Value::from("");
+                }
+                "url" => {
+                    latest["subscriptions"][0]["url"] =
+                        Value::from("https://example.invalid/replaced")
+                }
+                "timestamp" => latest["subscriptions"][0]["updatedAt"] = Value::from(2),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                apply_subscription_refresh(&latest.to_string(), snapshot, Vec::new(), 9, 0,)
+                    .err()
+                    .unwrap(),
+                PrivateStoreError::SubscriptionChanged
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_revalidates_combined_accepted_and_skipped_bound() {
+        let input = store(PRIVATE_URI, "vless");
+        let snapshot = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+        assert_eq!(
+            apply_subscription_refresh(
+                &input,
+                snapshot,
+                vec![IncomingSubscriptionProfile {
+                    uri: PRIVATE_URI.to_owned(),
+                    new_id: "ignored".to_owned(),
+                }],
+                9,
+                MAX_SUBSCRIPTION_ENTRIES,
+            )
+            .err()
+            .unwrap(),
+            PrivateStoreError::SubscriptionSync(SyncError::TooManyEntries)
+        );
+    }
+
+    #[test]
+    fn refresh_timestamp_is_monotonic_and_invalidates_parallel_snapshot() {
+        let input = store(PRIVATE_URI, "vless");
+        let first = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+        let stale_parallel = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+        let (result, _) = apply_subscription_refresh(&input, first, Vec::new(), 0, 0).unwrap();
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["subscriptions"][0]["updatedAt"], 2);
+        assert_eq!(
+            apply_subscription_refresh(
+                std::str::from_utf8(result.payload()).unwrap(),
+                stale_parallel,
+                Vec::new(),
+                3,
+                0,
+            )
+            .err()
+            .unwrap(),
+            PrivateStoreError::SubscriptionChanged
+        );
+    }
+
+    #[test]
+    fn exhausted_refresh_timestamp_fails_closed() {
+        let mut value: Value = serde_json::from_str(&store(PRIVATE_URI, "vless")).unwrap();
+        value["subscriptions"][0]["updatedAt"] = Value::from(u64::MAX);
+        let input = value.to_string();
+        let snapshot = prepare_subscription_refresh(&input, SUBSCRIPTION_ID).unwrap();
+        assert_eq!(
+            apply_subscription_refresh(&input, snapshot, Vec::new(), u64::MAX, 0)
+                .err()
+                .unwrap(),
+            PrivateStoreError::InvalidTimestamp
+        );
     }
 
     #[test]
