@@ -519,6 +519,15 @@ Python differential parity, a private atomic writer, and exact bounded v1
 request envelopes with domain-separated replay digests. It stays unreachable
 until owner serialization and active-profile lifecycle coordination land.
 
+Native subscription add/update/delete now also has an exact offline v1 request
+boundary. It admits only normalized name/URL and existing subscription-ID
+intent plus operation metadata, rejects generated IDs, fetched entries and
+caller-supplied host observations, and uses a subscription-specific replay
+digest which distinguishes omitted from explicit revision. The private intent
+types cannot be formatted, cloned or serialized. Fetching, generated data,
+atomic-store binding and IPC registration remain later owner work; this parser
+does not change the production path.
+
 The native subscription-store boundary deliberately accepts only ASCII or
 punycode URL authorities and RFC 3986 IPvFuture address characters. This is a
 fail-closed narrowing of the legacy Python `urlsplit` edge behavior: raw
