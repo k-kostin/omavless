@@ -14,7 +14,7 @@ use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
     ConnectionTransactionState,
 };
-use crate::cutover::MigrationLock;
+use crate::cutover::{MigrationLock, OwnershipPhase, read_marker};
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
@@ -257,13 +257,26 @@ enum LockAdmission {
     Uncached(NativeOwnerExecution),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OwnershipFence {
+    phase: OwnershipPhase,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CandidatePromotion {
+    Pending,
+    Promoted { rust_generation: u64 },
+    Stale,
+}
+
 /// Socket-independent composition of the accepted native mutation
 /// transactions. There is deliberately no socket constructor or registration
 /// side effect in this type.
 pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
-    required_rust_generation: Option<u64>,
+    required_ownership: Option<OwnershipFence>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -284,7 +297,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 cutover_paths,
                 uid,
             ),
-            required_rust_generation: None,
+            required_ownership: None,
         }
     }
 
@@ -302,7 +315,32 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         ownership_generation: u64,
     ) -> Self {
         let mut owner = Self::new(host, desired_paths, store_path, cutover_paths, uid);
-        owner.required_rust_generation = Some(ownership_generation);
+        owner.required_ownership = Some(OwnershipFence {
+            phase: OwnershipPhase::Rust,
+            generation: ownership_generation,
+        });
+        owner
+    }
+
+    /// Construct a transition candidate pinned to one exact durable
+    /// `cutoverPreparing` generation. The candidate can reconcile lifecycle
+    /// state under the migration lock, but every mutation remains unavailable
+    /// until [`Self::try_promote_candidate`] observes the immediate committed
+    /// Rust successor.
+    #[must_use]
+    pub(crate) fn new_transition_candidate(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: crate::cutover::CutoverPaths,
+        uid: u32,
+        preparing_generation: u64,
+    ) -> Self {
+        let mut owner = Self::new(host, desired_paths, store_path, cutover_paths, uid);
+        owner.required_ownership = Some(OwnershipFence {
+            phase: OwnershipPhase::CutoverPreparing,
+            generation: preparing_generation,
+        });
         owner
     }
 
@@ -323,8 +361,66 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn rust_ownership_available(&self) -> bool {
-        self.required_rust_generation
-            .is_some_and(|generation| self.transaction.rust_ownership_available(generation))
+        self.required_ownership.is_some_and(|fence| {
+            fence.phase == OwnershipPhase::Rust
+                && self
+                    .transaction
+                    .ownership_available(fence.phase, fence.generation)
+        })
+    }
+
+    /// Promote one already reconciled candidate without reconstructing its
+    /// lifecycle host, revision, or replay state. Promotion is a pure in-memory
+    /// fence update after the exact durable successor is observed under the
+    /// shared lock. A rollback, later attempt, malformed marker, or generation
+    /// gap makes this candidate permanently stale at the caller.
+    pub(crate) fn try_promote_candidate(&mut self) -> Result<CandidatePromotion, NativeOwnerError> {
+        let Some(fence) = self.required_ownership else {
+            return Ok(CandidatePromotion::Stale);
+        };
+        if fence.phase == OwnershipPhase::Rust {
+            return Ok(CandidatePromotion::Promoted {
+                rust_generation: fence.generation,
+            });
+        }
+        if fence.phase != OwnershipPhase::CutoverPreparing {
+            return Ok(CandidatePromotion::Stale);
+        }
+        let expected_rust_generation = match fence.generation.checked_add(1) {
+            Some(generation) => generation,
+            None => return Ok(CandidatePromotion::Stale),
+        };
+        let lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        let marker = read_marker(self.transaction.cutover_paths(), self.transaction.uid());
+        let promotion = match marker {
+            Ok(marker)
+                if marker.phase() == OwnershipPhase::CutoverPreparing
+                    && marker.generation() == fence.generation =>
+            {
+                CandidatePromotion::Pending
+            }
+            Ok(marker)
+                if marker.phase() == OwnershipPhase::Rust
+                    && marker.generation() == expected_rust_generation =>
+            {
+                self.required_ownership = Some(OwnershipFence {
+                    phase: OwnershipPhase::Rust,
+                    generation: expected_rust_generation,
+                });
+                CandidatePromotion::Promoted {
+                    rust_generation: expected_rust_generation,
+                }
+            }
+            Ok(_) | Err(_) => CandidatePromotion::Stale,
+        };
+        drop(lock);
+        Ok(promotion)
     }
 
     #[must_use]
@@ -356,7 +452,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
-        if let Some(generation) = self.required_rust_generation {
+        if let Some(fence) = self.required_ownership {
             let lock = self
                 .transaction
                 .acquire_lock()
@@ -364,7 +460,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
                     _ => NativeOwnerError::OwnershipUnavailable,
                 })?;
-            let owned = self.transaction.rust_ownership_matches(generation);
+            let owned = fence.phase == OwnershipPhase::Rust
+                && self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation);
             drop(lock);
             if !owned {
                 return Err(NativeOwnerError::OwnershipUnavailable);
@@ -392,10 +491,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
-                if self
-                    .required_rust_generation
-                    .is_some_and(|generation| !self.transaction.rust_ownership_matches(generation))
-                {
+                if self.required_ownership.is_some_and(|fence| {
+                    fence.phase != OwnershipPhase::Rust
+                        || !self
+                            .transaction
+                            .ownership_matches(fence.phase, fence.generation)
+                }) {
                     drop(lock);
                     self.coordinator.abort_active_uncached(token)?;
                     return Err(NativeOwnerError::OwnershipUnavailable);

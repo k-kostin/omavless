@@ -505,12 +505,12 @@ layers now include a fail-closed legacy Python reader with exact marker-schema
 and private-filesystem parity. Legacy mutation admission and commit both check
 that marker under the shared lock, so preparing/native ownership quiesces
 Python mutation without disabling read-only compatibility or the internal
-supervisor path. PR #137 supplied production owner construction and Draft PR
-#138 supplies ownership-gated socket registration without replacing the Python
+supervisor path. PR #137 supplied production owner construction and PR #138
+accepted ownership-gated socket registration without replacing the Python
 lifecycle owner. The locked production-host preflight proves disconnected,
 adoptable and inconsistent classification from fixed systemd, process, TUN,
 private-controller and exact active-config facts without changing host state.
-The next owning work is the transition bootstrap/handoff required to compose
+Draft PR #139 is the active transition bootstrap/handoff required to compose
 the cutover coordinator with that runtime before a production host can execute
 the transaction. Failed native stop still blocks legacy restoration,
 incompatible runtime verification cannot switch the bridge, and incomplete
@@ -528,7 +528,7 @@ uncached and do not change revision, allowing the same operation ID to retry
 after contention clears. Active rename quiesces while preserving connected
 intent and recovers the candidate; active delete durably disconnects before
 store removal and reconnects the exact old profile if store commit fails. Any
-uncertain store/runtime restoration requires manual recovery. Draft PR #138
+uncertain store/runtime restoration requires manual recovery. PR #138
 registers the engine only behind a committed Rust ownership marker, so Python
 remains the installed production profile-mutation owner until the full cutover
 gate lands.
@@ -618,7 +618,9 @@ and holds the shared Python/Rust migration lock continuously across marker
 validation and startup reconciliation. Constructing the owner alone does not
 expose IPC or change the production owner.
 
-Draft PR #138 is the active ownership-gated socket-registration checkpoint.
+PR #138 accepted the ownership-gated socket-registration checkpoint at
+candidate head `b9be21a9b44c7c0debb816e042bd2469a9e86639` and merge commit
+`5cc355ca87c4963cdd988a76c04395b7732f5b1a`.
 `omavless daemon` remains read-only for legacy, preparing, rollback, missing,
 malformed and unsafe ownership. Only a successfully constructed committed Rust
 owner registers the accepted connection/profile dispatcher and advertises
@@ -631,14 +633,17 @@ fetch can run without blocking status or urgent disconnect. The draft performs
 no marker write, transactional cutover or plugin-bridge switch, so Python
 remains the installed production owner and R5 is not complete.
 
-The next bounded checkpoint must resolve transition bootstrap rather than jump
-directly to a production cutover host. The accepted coordinator starts the
-runtime while the marker is `cutoverPreparing` and expects verification before
-committing `rust`, whereas the production owner currently requires committed
-`rust` while acquiring the same migration lock. The handoff must preserve
-legacy quiescence, keep candidate capabilities read-only before commit, prevent
-duplicate owner/core state, and define deterministic promotion or rollback at
-every crash boundary.
+Draft PR #139 resolves the in-process transition-bootstrap seam before a
+production cutover host is attached. The coordinator durably enters
+`cutoverPreparing`, releases the migration lock only for candidate startup,
+and verifies one exact runtime identity. The candidate independently acquires
+the lock, validates the exact preparing generation, reconciles while
+mutation-gated, and later promotes in memory only after observing the immediate
+committed `rust` successor. The coordinator must reacquire and revalidate the
+preparing marker before bridge/commit work. Marker-write errors are followed by
+a durable re-read, and rollback restores an exact captured desired-state
+snapshot. The production host, full crash matrix and installed bridge cutover
+remain pending.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

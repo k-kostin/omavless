@@ -91,6 +91,43 @@ impl OwnershipMarker {
     }
 }
 
+/// Credential-free generation fence for one explicit transition candidate.
+///
+/// The target Rust generation is derived exactly once from the durable
+/// `cutoverPreparing` marker. Callers never perform transition generation
+/// arithmetic independently, and overflow fails closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransitionBootstrap {
+    preparing_generation: u64,
+    rust_generation: u64,
+}
+
+impl TransitionBootstrap {
+    pub fn from_preparing(marker: &OwnershipMarker) -> Result<Self, CutoverError> {
+        if marker.phase() != OwnershipPhase::CutoverPreparing {
+            return Err(CutoverError::PreconditionsFailed);
+        }
+        let rust_generation = marker
+            .generation()
+            .checked_add(1)
+            .ok_or(CutoverError::InvalidTransition)?;
+        Ok(Self {
+            preparing_generation: marker.generation(),
+            rust_generation,
+        })
+    }
+
+    #[must_use]
+    pub const fn preparing_generation(self) -> u64 {
+        self.preparing_generation
+    }
+
+    #[must_use]
+    pub const fn rust_generation(self) -> u64 {
+        self.rust_generation
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CutoverPaths {
     pub runtime_base: PathBuf,
@@ -558,6 +595,30 @@ mod tests {
             tun_count: 1,
             active_profile_matches: true,
         }
+    }
+
+    #[test]
+    fn transition_bootstrap_requires_preparing_and_derives_exact_successor() {
+        let legacy = OwnershipMarker::default();
+        assert_eq!(
+            TransitionBootstrap::from_preparing(&legacy),
+            Err(CutoverError::PreconditionsFailed)
+        );
+
+        let preparing = legacy.successor(OwnershipPhase::CutoverPreparing).unwrap();
+        let bootstrap = TransitionBootstrap::from_preparing(&preparing).unwrap();
+        assert_eq!(bootstrap.preparing_generation(), 1);
+        assert_eq!(bootstrap.rust_generation(), 2);
+
+        let exhausted = OwnershipMarker {
+            schema_version: OWNERSHIP_SCHEMA_VERSION,
+            generation: u64::MAX,
+            phase: OwnershipPhase::CutoverPreparing,
+        };
+        assert_eq!(
+            TransitionBootstrap::from_preparing(&exhausted),
+            Err(CutoverError::InvalidTransition)
+        );
     }
 
     fn rust_connected() -> OwnershipObservation {

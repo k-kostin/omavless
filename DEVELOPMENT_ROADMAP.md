@@ -563,7 +563,9 @@ Accepted incremental checkpoints:
   package/current-user paths, requires a committed private `rust` marker, and
   holds the shared migration lock continuously through startup reconciliation.
   It remains unable to compete with the Python owner on its own.
-- Draft PR #138 is the active ownership-gated socket-registration checkpoint.
+- PR #138 accepted ownership-gated socket registration at candidate head
+  `b9be21a9b44c7c0debb816e042bd2469a9e86639` and merge commit
+  `5cc355ca87c4963cdd988a76c04395b7732f5b1a`.
   It keeps legacy/missing/invalid ownership read-only, registers connection and
   profile mutations only after the committed Rust owner reconciles, pins that
   owner to the exact marker generation, and withdraws advertised mutation
@@ -571,18 +573,20 @@ Accepted incremental checkpoints:
   Subscription socket mutations remain deliberately withheld until their
   bounded remote fetch can run without blocking status or urgent disconnect.
 
-The next bounded checkpoint after Draft PR #138 is the transition bootstrap
-and ownership handoff between the cutover coordinator and the runtime. The
-current production owner requires an already committed `rust` marker while the
-cutover transaction starts the runtime under `cutoverPreparing`; both also use
-the shared migration lock. Production cutover must not paper over that boundary
-with an ad-hoc marker write or a second lifecycle owner. The handoff contract
-must define exact generation/lock transfer, candidate-runtime startup,
-read-only capabilities before commit, promotion after commit and crash-safe
-rollback before a production transaction host is attached.
+Draft PR #139 is the active transition-bootstrap checkpoint. It gives the
+cutover coordinator one explicit same-UID bootstrap call after a durable exact
+`cutoverPreparing` marker, reconciles that candidate under the shared migration
+lock, exposes no mutation capability before commit, and promotes the same
+runtime instance only for the immediate committed `rust` successor. The pure
+transaction contract now makes the bounded lock handoff explicit, binds
+hello/status/observation to one credential-free candidate identity, restores
+an exact desired-state snapshot, and re-reads durable marker state after a
+write error before deciding whether compensation is legal. A production
+transaction host and controlled cutover remain later checkpoints.
 
 Legacy, preparing and rollback phases cannot mutate through the registered
-dispatcher, and Draft PR #138 does not write an ownership marker or switch an
+dispatcher, and PR #138 / Draft PR #139 do not expose a user cutover command or
+switch an
 installed client to Rust.
 
 The current QML -> `backend.py` path remains the only production owner until an
@@ -837,11 +841,9 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Finish Draft PR #138's ownership-gated socket registration, then implement
-the fail-closed transition bootstrap/handoff required to move from
-`cutoverPreparing` to a committed Rust owner without lock deadlock, early
-mutations or duplicate lifecycle ownership. Only afterward attach the
-production transaction host, execute and accept the controlled cutover, and
-switch the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained,
+**Finish Draft PR #139's fail-closed transition bootstrap/handoff and its
+exact-head static acceptance. Then attach the production transaction host,
+complete the crash/fault matrix, execute and accept the controlled cutover,
+and switch the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained,
 retire the Python runtime only at R6, and begin the Ratatui TUI only after that
 gate.**
