@@ -50,21 +50,21 @@ pub trait ProductionPluginBridge {
 /// type intentionally has no `Debug` implementation because some paths identify
 /// the current user's private profile store.
 #[derive(Clone)]
-pub struct ProductionCutoverPaths {
-    pub systemctl: PathBuf,
-    pub observation: ProductionObservationPaths,
-    pub runtime: RuntimePaths,
-    pub cutover: CutoverPaths,
-    pub desired: DesiredPaths,
-    pub store: PathBuf,
-    pub template: PathBuf,
-    pub active_config: PathBuf,
-    pub legacy_controller: PathBuf,
+struct ProductionCutoverPaths {
+    systemctl: PathBuf,
+    observation: ProductionObservationPaths,
+    runtime: RuntimePaths,
+    cutover: CutoverPaths,
+    desired: DesiredPaths,
+    store: PathBuf,
+    template: PathBuf,
+    active_config: PathBuf,
+    legacy_controller: PathBuf,
 }
 
 impl ProductionCutoverPaths {
     #[must_use]
-    pub fn below(
+    fn below(
         systemctl: PathBuf,
         home: &Path,
         runtime_base: &Path,
@@ -97,7 +97,7 @@ impl ProductionCutoverPaths {
         }
     }
 
-    pub fn current(uid: u32) -> Result<Self, CutoverHostError> {
+    fn current(uid: u32) -> Result<Self, CutoverHostError> {
         let home = env::var_os("OMAVLESS_HOME")
             .or_else(|| env::var_os("HOME"))
             .map(PathBuf::from)
@@ -144,11 +144,7 @@ pub struct ProductionCutoverHost<B> {
 }
 
 impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
-    pub fn new(
-        paths: ProductionCutoverPaths,
-        uid: u32,
-        bridge: B,
-    ) -> Result<Self, CutoverHostError> {
+    fn new(paths: ProductionCutoverPaths, uid: u32, bridge: B) -> Result<Self, CutoverHostError> {
         // Construct the observer before acquiring the lease so unsafe fixed
         // paths fail without creating the migration lock file.
         ProductionOwnershipObserver::new(paths.observation.clone(), uid)
