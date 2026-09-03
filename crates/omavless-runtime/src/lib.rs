@@ -38,6 +38,7 @@ pub mod owner;
 pub mod production_observation;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
+pub mod profile_transaction;
 pub mod store_bootstrap;
 pub mod store_preflight;
 pub mod subscription_mutation;

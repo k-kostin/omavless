@@ -111,6 +111,15 @@ pub struct LifecycleOutcome {
     pub changed: bool,
 }
 
+/// Trusted owner observation for one profile-store target. This contains no
+/// store-derived `activeId`: active status is proven from durable desired
+/// state plus the owned host observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProfileTargetObservation {
+    pub active: bool,
+    pub mode: RoutingMode,
+}
+
 pub struct LifecycleExecutor<H> {
     host: H,
     paths: DesiredPaths,
@@ -340,6 +349,90 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         self.verify_empty(&disconnected)?;
         self.actual = ActualState::Disconnected;
         Ok(self.outcome(&disconnected, true))
+    }
+
+    /// Classify a profile target from the canonical desired state and a fresh
+    /// owned-runtime observation. Ambiguous/recovering state is not treated as
+    /// inactive merely because the core is absent.
+    pub(crate) fn observe_profile_target(
+        &mut self,
+        profile_id: &str,
+    ) -> Result<ProfileTargetObservation, LifecycleError> {
+        let desired = self.read()?;
+        let observed = self.observe_or_manual(&desired)?;
+        match reconcile(&desired, observed) {
+            ReconcileAction::SettledDisconnected => {
+                self.actual = ActualState::Disconnected;
+                Ok(ProfileTargetObservation {
+                    active: false,
+                    mode: desired.mode,
+                })
+            }
+            ReconcileAction::AdoptConnected => {
+                self.actual = ActualState::Connected;
+                Ok(ProfileTargetObservation {
+                    active: desired.profile_id == profile_id,
+                    mode: desired.mode,
+                })
+            }
+            ReconcileAction::RecoverConnected
+            | ReconcileAction::StopOwned
+            | ReconcileAction::ManualRecoveryRequired => {
+                self.actual = ActualState::ManualRecoveryRequired;
+                Err(LifecycleError::ManualRecoveryRequired)
+            }
+        }
+    }
+
+    /// Stop the exact active target while deliberately retaining connected
+    /// desired state. This is the active-rename quiesce phase; any uncertainty
+    /// is a hard manual-recovery outcome.
+    pub(crate) fn quiesce_profile_preserving_desired(
+        &mut self,
+        profile_id: &str,
+    ) -> Result<(), LifecycleError> {
+        let desired = self.read()?;
+        if !desired.connected || desired.profile_id != profile_id {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let observed = self.observe_or_manual(&desired)?;
+        if reconcile(&desired, observed) != ReconcileAction::AdoptConnected {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = ActualState::Stopping;
+        if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        let empty = self.host.observe(&desired).is_ok_and(|value| {
+            !value.service_active
+                && !value.controller_ready
+                && value.core_count == 0
+                && value.tun_count == 0
+        });
+        if !empty {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = ActualState::Reconnecting;
+        Ok(())
+    }
+
+    /// Recover the exact still-desired profile after a store-side active rename
+    /// phase. The ordinary startup reconciler supplies the same bounded
+    /// prepare/start/verify/commit and cleanup semantics used after restart.
+    pub(crate) fn recover_preserved_profile(
+        &mut self,
+        profile_id: &str,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let desired = self.read()?;
+        if !desired.connected || desired.profile_id != profile_id {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.reconcile_startup()
     }
 
     /// Execute exactly one accepted restart-reconciliation decision. Callers
