@@ -646,14 +646,23 @@ a durable re-read, and rollback restores an exact captured desired-state
 snapshot. The production host, full crash matrix and installed bridge cutover
 remain pending.
 
-Draft PR #140 owns the next bounded production-host composition. It binds the
-accepted transaction to private desired/store/config state, fixed
+PR #140 accepted the bounded production-host composition at squash commit
+`5aba03a3eb29b45899cc8927703bacdad788b36f`. It binds the accepted
+transaction to private desired/store/config state, fixed
 `omavless.service` and `omavless-runtime.service` operations, the private
 runtime socket and same-candidate host observation. It also removes the
 incorrect `/usr/bin/mihomo` assumption from the native host in favor of the
 documented absolute override, user-local and absolute-PATH discovery classes.
 No CLI/socket cutover method or concrete plugin bridge is included, so the
 installed Python owner remains unchanged.
+
+Draft PR #141 adds the first concrete bridge component: a fixed private target
+selector fenced to the exact preparing generation and its immediate committed
+or compensated successor. Only the matching migration lock and unchanged
+preparing marker can replace it. The reader accepts absent state only for an
+exact legacy owner and fails closed for every stale, unsafe or ambiguous
+combination. QML/backend launcher integration and semantic command mapping are
+still absent, so this selector cannot activate a cutover by itself.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
