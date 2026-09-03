@@ -517,6 +517,12 @@ Accepted incremental checkpoints:
   trait. Failed native stop can never restore legacy ownership, incompatible
   hello/status cannot switch the bridge, and any incomplete compensation
   preserves `cutoverPreparing` as a hard manual-recovery blocker.
+- PR #120: native profile rename/favorite/delete semantics now validate and
+  normalize v1-v3 private stores, match the Python owner through a safe
+  differential corpus, and commit only complete bounded replacements through
+  a same-user, symlink-refusing atomic `0600` writer. The boundary remains
+  unreachable from IPC until exact envelopes, owner binding and active-profile
+  lifecycle coordination are accepted.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
