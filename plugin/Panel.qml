@@ -304,10 +304,10 @@ Panel {
     && vless.countByName(renameClean) > 0
   readonly property bool renameAccepted: pendingRename !== null && renameNameValid && !renameDuplicate
   readonly property string renameHint: !renameNameValid
-    ? "Use a non-empty name up to 80 characters"
+    ? textFor("rename.invalid_name")
     : (renameDuplicate
-      ? "A profile named " + renameClean + " already exists"
-      : "The profile link remains unchanged")
+      ? textFor("rename.duplicate", { name: renameClean })
+      : textFor("rename.link_unchanged"))
 
   readonly property string subscriptionNameClean: subscriptionPrompt.nameValue.trim()
   readonly property string subscriptionUrlClean: subscriptionPrompt.urlValue.trim()
@@ -1513,7 +1513,7 @@ Panel {
 
                   PanelActionButton {
                     iconText: "󰒓"
-                    tooltipText: "OmaVLESS settings"
+                    tooltipText: root.textFor("tooltip.settings")
                     anchors.verticalCenter: parent.verticalCenter
                     foreground: hero.foreground
                     bordered: true
@@ -1529,8 +1529,8 @@ Panel {
                   // it would have no subject.
                   PanelActionButton {
                     iconText: "󰐲"
-                    tooltipText: root.safeTooltip(
-                      "Show " + vless.primaryName + " as a QR code (q)", 180)
+                    tooltipText: root.safeTooltip(root.textFor("tooltip.show_qr",
+                      { name: vless.primaryName }), 180)
                     visible: vless.active && vless.supports("qr")
                     anchors.verticalCenter: parent.verticalCenter
                     // Full brightness at rest, like every other hero control:
@@ -1558,8 +1558,8 @@ Panel {
                     iconText: vless.testingConnection ? "󰑓" : ""
                     iconSpinning: vless.testingConnection
                     tooltipText: root.safeTooltip(vless.testingConnection
-                      ? "Testing the active tunnel…"
-                      : "Test the active tunnel to " + vless.pingHost, 180)
+                      ? root.textFor("tooltip.testing_active_tunnel")
+                      : root.textFor("tooltip.test_active_tunnel", { target: vless.pingHost }), 180)
                     visible: vless.active && vless.supports("connectionTest")
                     anchors.verticalCenter: parent.verticalCenter
                     bordered: true
@@ -1612,7 +1612,7 @@ Panel {
             PanelActionButton {
               visible: vless.messageDismissible
               iconText: "󰅖"
-              tooltipText: "Dismiss message"
+              tooltipText: root.textFor("tooltip.dismiss_message")
               foreground: vless.lastError !== "" ? root.urgent : root.dim
               hoverColor: root.foreground
               fontFamily: root.fontFamily
@@ -1823,12 +1823,12 @@ Panel {
               DetailPair {
                 label: root.textFor("metric.tun_address")
                 value: root.detailText(vless.detail("address"))
-                tooltipText: "Copy the tunnel address"
+                tooltipText: root.textFor("tooltip.copy_tunnel_address")
               }
               DetailPair {
                 label: root.textFor("metric.server")
                 value: root.detailText(vless.detail("server"))
-                tooltipText: "Copy the endpoint"
+                tooltipText: root.textFor("tooltip.copy_endpoint")
               }
 
               // Copyable like the two above, and for the same reason: a route
@@ -1836,12 +1836,12 @@ Panel {
               DetailPair {
                 label: root.textFor("metric.transport")
                 value: root.detailText(vless.detail("transport"))
-                tooltipText: "Copy transport and security"
+                tooltipText: root.textFor("tooltip.copy_transport_security")
               }
               DetailPair {
                 label: "SNI"
                 value: root.detailText(vless.detail("sni"))
-                tooltipText: "Copy the server name"
+                tooltipText: root.textFor("tooltip.copy_server_name")
               }
 
               DetailPair {
@@ -1850,7 +1850,7 @@ Panel {
                 value: vless.exitIpFetching ? "Checking…"
                   : (vless.exitIp !== "" ? vless.exitIp : "--")
                 tooltipText: vless.exitIp !== ""
-                  ? "Copy observed exit IP; this does not verify every routing rule" : ""
+                  ? root.textFor("tooltip.copy_exit_ip") : ""
               }
             }
 
@@ -1939,7 +1939,7 @@ Panel {
                   id: subscriptionsButton
                   text: root.textFor("subscriptions.open")
                   visible: vless.supports("subscriptions")
-                  tooltipText: "Manage profile subscriptions"
+                  tooltipText: root.textFor("tooltip.manage_subscriptions")
                   bordered: true
                   foreground: root.foreground
                   fontFamily: root.fontFamily
@@ -1958,8 +1958,8 @@ Panel {
                   id: fileImportButton
                   iconText: "󰐕"
                   tooltipText: vless.filePicker.available
-                    ? "Import a profile link file (i)"
-                    : "File import unavailable — run “omarchy pkg add zenity”"
+                    ? root.textFor("tooltip.import_file")
+                    : root.textFor("tooltip.import_file_unavailable")
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -1975,7 +1975,7 @@ Panel {
                 PanelActionButton {
                   id: clipboardImportButton
                   iconText: "󰅌"
-                  tooltipText: "Import from clipboard (v)"
+                  tooltipText: root.textFor("tooltip.import_clipboard")
                   foreground: root.dim
                   hoverColor: root.foreground
                   fontFamily: root.fontFamily
@@ -2134,7 +2134,7 @@ Panel {
             PanelActionButton {
               id: settingsBackButton
               iconText: "󰁍"
-              tooltipText: "Back to profiles (Esc)"
+              tooltipText: root.textFor("tooltip.back_profiles")
               foreground: root.foreground
               hoverColor: Color.accent
               fontFamily: root.fontFamily
@@ -2455,7 +2455,7 @@ Panel {
             PanelActionButton {
               id: subscriptionBackButton
               iconText: "󰁍"
-              tooltipText: "Back to profiles (Esc)"
+              tooltipText: root.textFor("tooltip.back_profiles")
               foreground: root.foreground
               hoverColor: Color.accent
               fontFamily: root.fontFamily
@@ -2487,7 +2487,7 @@ Panel {
             PanelActionButton {
               id: subscriptionRefreshButton
               iconText: "󰑓"
-              tooltipText: "Update all subscriptions (r)"
+              tooltipText: root.textFor("tooltip.update_all_subscriptions")
               foreground: root.dim
               hoverColor: root.foreground
               fontFamily: root.fontFamily
@@ -2500,7 +2500,7 @@ Panel {
             Button {
               id: subscriptionAddButton
               text: root.textFor("subscriptions.add")
-              tooltipText: "Add a profile subscription (a)"
+              tooltipText: root.textFor("tooltip.add_subscription")
               bordered: true
               foreground: root.foreground
               fontFamily: root.fontFamily
@@ -2710,9 +2710,9 @@ Panel {
 
         property int selectedIndex: 1
         readonly property var choices: [
-          { label: "Cancel", kind: "" },
-          { label: "Config", kind: "config" },
-          { label: "Name", kind: "name" }
+          { label: root.textFor("common.cancel"), kind: "" },
+          { label: root.textFor("edit.config"), kind: "config" },
+          { label: root.textFor("edit.name"), kind: "name" }
         ]
 
         onVisibleChanged: {
@@ -2770,7 +2770,8 @@ Panel {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                text: "Edit " + (root.pendingEdit ? root.pendingEdit.name : "") + "?"
+                text: root.textFor("edit.profile_question",
+                  { name: root.pendingEdit ? root.pendingEdit.name : "" })
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
@@ -2834,9 +2835,10 @@ Panel {
         // ConfirmDialog is a shared Omarchy control whose message uses an
         // AutoText-capable Text item. Keep imported metadata inert at this
         // final sink even though Service already normalizes public names.
-        message: root.safeTooltip("Delete profile "
-          + (root.pendingDelete ? root.pendingDelete.name : "") + "?", 180)
-        confirmText: "Delete"
+        message: root.safeTooltip(root.textFor("delete.profile_confirmation",
+          { name: root.pendingDelete ? root.pendingDelete.name : "" }), 180)
+        cancelText: root.textFor("common.cancel")
+        confirmText: root.textFor("common.delete")
         foreground: root.foreground
         fontFamily: root.fontFamily
         Keys.onPressed: function(event) { event.accepted = deleteDialog.handleKey(event) }
@@ -2860,10 +2862,10 @@ Panel {
         id: subscriptionDeleteDialog
         anchors.fill: parent
         opened: root.pendingSubscriptionDelete !== null
-        message: root.safeTooltip("Remove subscription "
-          + (root.pendingSubscriptionDelete ? root.pendingSubscriptionDelete.name : "")
-          + " and its managed profiles?", 220)
-        confirmText: "Remove"
+        message: root.safeTooltip(root.textFor("delete.subscription_confirmation",
+          { name: root.pendingSubscriptionDelete ? root.pendingSubscriptionDelete.name : "" }), 220)
+        cancelText: root.textFor("common.cancel")
+        confirmText: root.textFor("common.remove")
         foreground: root.foreground
         fontFamily: root.fontFamily
         Keys.onPressed: function(event) { event.accepted = subscriptionDeleteDialog.handleKey(event) }
@@ -2893,7 +2895,8 @@ Panel {
     name: vless.qrName
     path: vless.qrPath
     loading: vless.qrLoading
-    error: vless.qrError
+    errorCode: vless.qrErrorCode
+    locale: root.uiLocale
     foreground: root.foreground
     dim: root.dim
     urgent: root.urgent
@@ -2909,11 +2912,13 @@ Panel {
     id: renameWindow
     anchorItem: button
     open: root.pendingRename !== null
-    title: "Rename " + (root.pendingRename ? root.pendingRename.name : "")
-    placeholder: "Profile name"
+    title: root.textFor("rename.title",
+      { name: root.pendingRename ? root.pendingRename.name : "" })
+    placeholder: root.textFor("import.profile_name")
     hint: root.renameHint
     accepted: root.renameAccepted
-    confirmLabel: "Rename"
+    confirmLabel: root.textFor("common.rename")
+    locale: root.uiLocale
     foreground: root.foreground
     dim: root.dim
     urgent: root.urgent
@@ -2953,7 +2958,7 @@ Panel {
     PanelActionButton {
       visible: !vless.probingProfiles
       iconText: "󰅖"
-      tooltipText: "Dismiss message"
+      tooltipText: root.textFor("tooltip.dismiss_message")
       foreground: vless.subscriptionError !== "" ? root.urgent : root.dim
       hoverColor: root.foreground
       fontFamily: root.fontFamily
@@ -3189,8 +3194,8 @@ Panel {
         iconText: testing ? "󰑓" : ""
         iconSpinning: testing
         tooltipText: testing
-          ? "Cancel this server test"
-          : "Run an end-to-end proxy check through every server (p)"
+          ? root.textFor("tooltip.cancel_server_test")
+          : root.textFor("tooltip.test_all_servers")
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
@@ -3280,9 +3285,10 @@ Panel {
       }
       PanelActionButton {
         iconText: serverRow.profile && serverRow.profile.favorite ? "󰓎" : "󰓒"
-        tooltipText: root.safeTooltip(
-          (serverRow.profile && serverRow.profile.favorite ? "Unpin " : "Pin ")
-            + (serverRow.profile ? serverRow.profile.name : "profile"), 160)
+        tooltipText: root.safeTooltip(root.textFor(
+          serverRow.profile && serverRow.profile.favorite
+            ? "tooltip.unpin_profile" : "tooltip.pin_profile",
+          { name: serverRow.profile ? serverRow.profile.name : "" }), 160)
         foreground: serverRow.profile && serverRow.profile.favorite ? Color.accent : root.dim
         hoverColor: Color.accent
         fontFamily: root.fontFamily
@@ -3335,8 +3341,8 @@ Panel {
           : (sortRow.sortMode === "pingDesc" ? "Ping ↓" : root.textFor("profiles.sort_ping"))
         bordered: true
         tooltipText: sortRow.sortMode === "default"
-          ? "Sort reachable servers from fastest to slowest"
-          : "Reverse the latency order; failed checks stay last"
+          ? root.textFor("tooltip.sort_fastest")
+          : root.textFor("tooltip.reverse_latency")
         foreground: root.foreground
         fontFamily: root.fontFamily
         enabled: sortRow.subscription !== null && sortRow.testedCount > 0
@@ -3457,8 +3463,8 @@ Panel {
             iconText: testing ? "󰑓" : ""
             iconSpinning: testing
             tooltipText: testing
-              ? "Cancel this server test"
-              : "Run an end-to-end proxy check through every server (p)"
+              ? root.textFor("tooltip.cancel_server_test")
+              : root.textFor("tooltip.test_all_servers")
             bordered: true
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -3468,7 +3474,7 @@ Panel {
           }
           PanelActionButton {
             iconText: "󰏫"
-            tooltipText: "Edit subscription…"
+            tooltipText: root.textFor("tooltip.edit_subscription")
             foreground: root.dim
             hoverColor: root.foreground
             fontFamily: root.fontFamily
@@ -3477,7 +3483,7 @@ Panel {
           }
           PanelActionButton {
             iconText: "󰑓"
-            tooltipText: "Update subscription"
+            tooltipText: root.textFor("tooltip.update_subscription")
             foreground: root.dim
             hoverColor: root.foreground
             fontFamily: root.fontFamily
@@ -3486,7 +3492,7 @@ Panel {
           }
           PanelActionButton {
             iconText: "󰆴"
-            tooltipText: "Remove subscription and managed profiles"
+            tooltipText: root.textFor("tooltip.remove_subscription")
             foreground: root.dim
             hoverColor: root.urgent
             fontFamily: root.fontFamily
@@ -3614,9 +3620,10 @@ Panel {
 
       PanelActionButton {
         iconText: configRow.profile && configRow.profile.favorite ? "󰓎" : "󰓒"
-        tooltipText: root.safeTooltip(
-          (configRow.profile && configRow.profile.favorite ? "Unpin " : "Pin ")
-            + (configRow.profile ? configRow.profile.name : "profile"), 160)
+        tooltipText: root.safeTooltip(root.textFor(
+          configRow.profile && configRow.profile.favorite
+            ? "tooltip.unpin_profile" : "tooltip.pin_profile",
+          { name: configRow.profile ? configRow.profile.name : "" }), 160)
         foreground: configRow.profile && configRow.profile.favorite ? Color.accent : root.dim
         hoverColor: Color.accent
         fontFamily: root.fontFamily
@@ -3628,8 +3635,8 @@ Panel {
 
       PanelActionButton {
         iconText: "󰏫"
-        tooltipText: root.safeTooltip("Edit config or name for "
-          + (configRow.profile ? configRow.profile.name : "profile") + " (e / n)", 180)
+        tooltipText: root.safeTooltip(root.textFor("tooltip.edit_profile",
+          { name: configRow.profile ? configRow.profile.name : "" }), 180)
         foreground: root.dim
         hoverColor: root.foreground
         fontFamily: root.fontFamily
@@ -3641,9 +3648,8 @@ Panel {
 
       PanelActionButton {
         iconText: "󰐲"
-        tooltipText: root.safeTooltip("Show "
-          + (configRow.profile ? configRow.profile.name : "profile")
-          + " as a QR code (q)", 180)
+        tooltipText: root.safeTooltip(root.textFor("tooltip.show_qr",
+          { name: configRow.profile ? configRow.profile.name : "" }), 180)
         foreground: root.dim
         hoverColor: root.foreground
         fontFamily: root.fontFamily
@@ -3655,8 +3661,8 @@ Panel {
 
       PanelActionButton {
         iconText: "󰆴"
-        tooltipText: root.safeTooltip("Delete "
-          + (configRow.profile ? configRow.profile.name : "profile") + " (x)", 160)
+        tooltipText: root.safeTooltip(root.textFor("tooltip.delete_profile",
+          { name: configRow.profile ? configRow.profile.name : "" }), 160)
         foreground: root.dim
         hoverColor: root.urgent
         fontFamily: root.fontFamily

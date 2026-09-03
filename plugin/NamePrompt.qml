@@ -7,6 +7,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Modal name prompt — a card with a single-line field, a validation hint and
 // Cancel/confirm. The caller owns the validation: `accepted` gates both the
@@ -26,6 +27,7 @@ Item {
   property string hint: ""
   property bool accepted: false
   property string confirmLabel: "OK"
+  property string locale: "en"
   property alias value: promptField.text
   // The panel card is Style.space(340) wide, so the prompt inside it cannot
   // be wider; a window of its own can afford more.
@@ -37,6 +39,10 @@ Item {
 
   signal confirmed()
   signal canceled()
+
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
 
   visible: false
 
@@ -123,7 +129,7 @@ Item {
             spacing: Style.space(10)
 
             Button {
-              text: "Cancel"
+              text: prompt.textFor("common.cancel")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily

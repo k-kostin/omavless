@@ -30,6 +30,7 @@ PanelWindow {
   property alias hint: prompt.hint
   property alias accepted: prompt.accepted
   property alias confirmLabel: prompt.confirmLabel
+  property alias locale: prompt.locale
   property alias value: prompt.value
   property color foreground: Color.foreground
   property color dim: Qt.darker(foreground, 1.55)

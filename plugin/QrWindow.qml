@@ -9,6 +9,7 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // The QR code as a screen-centred window of its own, not an overlay inside
 // the bar popup: a profile URI can be several hundred bytes, so its code runs to
@@ -30,7 +31,8 @@ PanelWindow {
   property string name: ""
   property string path: ""
   property bool loading: false
-  property string error: ""
+  property string errorCode: ""
+  property string locale: "en"
   property color foreground: Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Color.urgent
@@ -38,7 +40,11 @@ PanelWindow {
 
   signal closeRequested()
 
-  readonly property bool showingCode: path !== "" && !loading && error === ""
+  function textFor(key, values) {
+    return I18n.translate(key, locale, values || {})
+  }
+
+  readonly property bool showingCode: path !== "" && !loading && errorCode === ""
   // The PNG's white quiet-zone margin, kept out of the image itself so the
   // backing rectangle can supply the contrast a phone camera wants.
   readonly property real codeInset: Style.space(6)
@@ -139,7 +145,7 @@ PanelWindow {
         PlainText {
           width: parent.width
           visible: root.loading
-          text: "Rendering the QR code…"
+          text: root.textFor("qr.rendering")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -148,8 +154,8 @@ PanelWindow {
 
         PlainText {
           width: parent.width
-          visible: root.error !== ""
-          text: root.error
+          visible: root.errorCode !== ""
+          text: root.textFor("qr.error." + root.errorCode)
           color: root.urgent
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -185,7 +191,7 @@ PanelWindow {
         PlainText {
           width: parent.width
           visible: root.showingCode
-          text: "Scan with an app compatible with this profile. The code contains the complete access credential — share it only with devices you control."
+          text: root.textFor("qr.credential_warning")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -194,7 +200,7 @@ PanelWindow {
 
         Button {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: "Close"
+          text: root.textFor("common.close")
           bordered: true
           foreground: root.foreground
           fontFamily: root.fontFamily

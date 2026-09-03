@@ -32,6 +32,29 @@ assert.strictEqual(I18n.translate("routing_preset.recommended", "ru"), "Реко
 assert.strictEqual(I18n.translate("diagnostics.title", "ru"), "ДИАГНОСТИКА MIHOMO")
 assert.strictEqual(I18n.translate("diagnostics.error.unavailable", "ru"),
   "Диагностика Mihomo сейчас недоступна")
+assert.strictEqual(I18n.translate("qr.rendering", "ru"), "Создание QR-кода…")
+assert.strictEqual(
+  I18n.translate("qr.error.render_failed", "ru"),
+  "Не удалось создать QR-код"
+)
+assert.strictEqual(I18n.translate("edit.config", "ru"), "Конфигурация")
+assert.strictEqual(I18n.translate("common.delete", "ru"), "Удалить")
+assert.strictEqual(
+  I18n.translate("tooltip.import_file", "en"),
+  "Import a profile or subscription link file (i)"
+)
+assert.strictEqual(
+  I18n.translate("tooltip.import_file", "ru"),
+  "Импортировать файл со ссылкой на профиль или подписку (i)"
+)
+assert.strictEqual(
+  I18n.translate("rename.title", "ru", {name: "Private fixture"}),
+  "Переименовать Private fixture"
+)
+assert.strictEqual(
+  I18n.translate("delete.subscription_confirmation", "ru", {name: "Private fixture"}),
+  "Удалить подписку Private fixture и управляемые ею профили?"
+)
 assert.strictEqual(I18n.plural("connection", 1, "ru"), "1 подключение")
 assert.strictEqual(I18n.plural("connection", 3, "ru"), "3 подключения")
 assert.strictEqual(I18n.plural("connection", 12, "ru"), "12 подключений")
@@ -44,6 +67,18 @@ const providerText = "<b>provider-owned</b>"
 const interpolated = I18n.translate("profile.showing", "ru", {name: providerText})
 assert.ok(interpolated.includes(providerText))
 assert.ok(!Object.prototype.hasOwnProperty.call(I18n.CATALOG, providerText))
+
+const localizedProfileTooltip = I18n.translate("tooltip.show_qr", "ru", {
+  name: providerText
+})
+assert.ok(localizedProfileTooltip.includes(providerText))
+assert.ok(!Object.prototype.hasOwnProperty.call(I18n.CATALOG, providerText))
+
+const boundedDialogName = I18n.translate("delete.profile_confirmation", "ru", {
+  name: "unsafe\u0000" + "x".repeat(1000)
+})
+assert.ok(!boundedDialogName.includes("\u0000"))
+assert.ok(boundedDialogName.length <= I18n.MAX_TEXT_LENGTH)
 
 const controlled = I18n.translate("profiles.no_match", "ru", {
   query: "unsafe\u0000value"
