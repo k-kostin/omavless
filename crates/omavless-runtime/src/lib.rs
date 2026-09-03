@@ -40,6 +40,7 @@ pub mod native_host;
 pub mod owner;
 pub mod private_store_transaction;
 pub mod production_observation;
+pub mod production_owner;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
 pub mod profile_transaction;

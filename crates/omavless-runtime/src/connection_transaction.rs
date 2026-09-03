@@ -226,6 +226,19 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             return Err(ConnectionTransactionError::ManualRecoveryRequired);
         }
         let lock = MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)?;
+        self.reconcile_startup_locked(&lock)
+    }
+
+    /// Reconcile while a trusted production constructor already owns the
+    /// shared migration lease. This prevents a check/drop/reacquire window
+    /// between validating the `rust` marker and touching lifecycle state.
+    pub(crate) fn reconcile_startup_locked(
+        &mut self,
+        lock: &MigrationLock,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        if self.blocked {
+            return Err(ConnectionTransactionError::ManualRecoveryRequired);
+        }
         let lifecycle = self.lifecycle.reconcile_startup();
         let desired = match read_desired(&self.desired_paths, self.uid) {
             Ok(desired) => desired,
@@ -284,7 +297,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             }
             Err(error) => return Err(store_error(error)),
         };
-        let write = match plan.commit_locked(&lock, &self.cutover_paths) {
+        let write = match plan.commit_locked(lock, &self.cutover_paths) {
             Ok(write) => write,
             Err(_) if self.lifecycle.actual() == ActualState::Connected => {
                 // Adoption/recovery already proved a healthy requested tunnel.

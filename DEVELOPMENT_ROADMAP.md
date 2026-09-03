@@ -559,12 +559,16 @@ Accepted incremental checkpoints:
   coordinator. The private marker is checked under the migration lock before
   admission/replay and again at every effect boundary, including after remote
   subscription work.
+- PR #137: the production native-owner constructor now resolves only fixed
+  package/current-user paths, requires a committed private `rust` marker, and
+  holds the shared migration lock continuously through startup reconciliation.
+  It remains unregistered from socket dispatch, so this checkpoint cannot
+  compete with the Python owner on its own.
 
-All PR #125-#136 mutation owners remain deliberately unreachable from
-production IPC. The next bounded checkpoint is production owner construction
-and socket registration, followed by the transactional cutover and plugin
-bridge. Legacy, preparing and rollback phases cannot mutate through the new
-dispatcher.
+The native mutation owner remains deliberately unreachable from production
+IPC. The next bounded checkpoint is ownership-gated socket registration,
+followed by the transactional cutover and plugin bridge. Legacy, preparing and
+rollback phases cannot mutate through the new dispatcher.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the

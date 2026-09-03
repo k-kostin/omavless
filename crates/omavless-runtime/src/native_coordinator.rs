@@ -329,6 +329,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.transaction.reconcile_startup()
     }
 
+    pub(crate) fn reconcile_startup_locked(
+        &mut self,
+        lock: &MigrationLock,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.transaction.reconcile_startup_locked(lock)
+    }
+
     fn admit(
         &mut self,
         kind: MutationKind,
