@@ -24,7 +24,14 @@ pub fn parse_systemd_show(value: &str) -> Option<UserServiceState> {
     for line in value.lines() {
         let (key, item) = line.split_once('=')?;
         match key {
-            "ActiveState" => active = Some(item == "active"),
+            "ActiveState" => {
+                active = Some(match item {
+                    "inactive" | "failed" => false,
+                    "active" | "activating" | "deactivating" | "reloading" | "maintenance"
+                    | "refreshing" => true,
+                    _ => return None,
+                })
+            }
             "MainPID" => main_pid = item.parse().ok(),
             "ExecMainStatus" => exit_status = item.parse().ok(),
             "Result"
@@ -228,6 +235,19 @@ mod tests {
         )
         .unwrap();
         assert!(state.active);
+        assert!(
+            parse_systemd_show(
+                "ActiveState=activating\nMainPID=0\nExecMainStatus=0\nResult=success\n"
+            )
+            .unwrap()
+            .active
+        );
+        assert!(
+            parse_systemd_show(
+                "ActiveState=private\nMainPID=0\nExecMainStatus=0\nResult=success\n"
+            )
+            .is_none()
+        );
         assert_eq!(state.main_pid, 42);
         assert!(
             parse_systemd_show(

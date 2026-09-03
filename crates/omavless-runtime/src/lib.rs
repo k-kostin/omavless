@@ -34,6 +34,7 @@ pub mod mutation_binding;
 pub mod mutation_protocol;
 pub mod native_host;
 pub mod owner;
+pub mod production_observation;
 pub mod store_preflight;
 
 pub const SOCKET_NAME: &str = "control.sock";
