@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-trait StorePlan {
+pub(crate) trait StorePlan {
     fn changed(&self) -> bool;
     fn commit(
         &self,
@@ -116,7 +116,7 @@ fn lock_error(error: CutoverError) -> ProfileTransactionError {
 
 impl std::error::Error for ProfileTransactionError {}
 
-fn store_error(error: ProfileMutationCommitError) -> ProfileTransactionError {
+pub(crate) fn store_error(error: ProfileMutationCommitError) -> ProfileTransactionError {
     match error {
         ProfileMutationCommitError::StoreChanged => ProfileTransactionError::Conflict,
         ProfileMutationCommitError::Mutation(PrivateStoreError::ProfileNotFound) => {
@@ -213,13 +213,13 @@ impl From<CoordinatorError> for ProfileOwnerError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ActionKind {
+pub(crate) enum ActionKind {
     Rename,
     Favorite,
     Delete,
 }
 
-fn mutation_identity(mutation: &ProfileMutation) -> (ActionKind, &str) {
+pub(crate) fn mutation_identity(mutation: &ProfileMutation) -> (ActionKind, &str) {
     match mutation {
         ProfileMutation::Rename { profile_id, .. } => (ActionKind::Rename, profile_id),
         ProfileMutation::Favorite { profile_id, .. } => (ActionKind::Favorite, profile_id),
@@ -271,7 +271,7 @@ fn commit_changed<P: StorePlan>(
     }
 }
 
-fn apply_transaction<H: LifecycleHost, P: StorePlan>(
+pub(crate) fn apply_transaction<H: LifecycleHost, P: StorePlan>(
     lifecycle: &mut LifecycleExecutor<H>,
     plan: &P,
     kind: ActionKind,

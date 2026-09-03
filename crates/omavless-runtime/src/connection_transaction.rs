@@ -144,13 +144,12 @@ impl From<CoordinatorError> for ConnectionOwnerError {
     }
 }
 
-enum Completion {
+pub(crate) enum Completion {
     Ordinary(Result<ConnectionTransactionOutcome, ConnectionTransactionError>),
     CommittedFailure(ConnectionTransactionError),
 }
 
-pub struct OfflineConnectionOwner<H> {
-    coordinator: MutationCoordinator,
+pub(crate) struct ConnectionTransactionState<H> {
     lifecycle: LifecycleExecutor<H>,
     desired_paths: DesiredPaths,
     store_path: PathBuf,
@@ -159,9 +158,8 @@ pub struct OfflineConnectionOwner<H> {
     blocked: bool,
 }
 
-impl<H: LifecycleHost> OfflineConnectionOwner<H> {
-    #[must_use]
-    pub fn new(
+impl<H: LifecycleHost> ConnectionTransactionState<H> {
+    pub(crate) fn new(
         host: H,
         desired_paths: DesiredPaths,
         store_path: &Path,
@@ -169,7 +167,6 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
         uid: u32,
     ) -> Self {
         Self {
-            coordinator: MutationCoordinator::default(),
             lifecycle: LifecycleExecutor::new(host, desired_paths.clone(), uid),
             desired_paths,
             store_path: store_path.to_path_buf(),
@@ -179,29 +176,50 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
         }
     }
 
-    #[must_use]
-    pub const fn revision(&self) -> u64 {
-        self.coordinator.revision()
-    }
-
-    #[must_use]
-    pub const fn actual(&self) -> ActualState {
+    pub(crate) const fn actual(&self) -> ActualState {
         self.lifecycle.actual()
     }
 
-    #[must_use]
-    pub const fn host(&self) -> &H {
+    pub(crate) const fn host(&self) -> &H {
         self.lifecycle.host()
     }
 
-    pub fn host_mut(&mut self) -> &mut H {
+    pub(crate) fn host_mut(&mut self) -> &mut H {
         self.lifecycle.host_mut()
+    }
+
+    pub(crate) fn lifecycle_mut(&mut self) -> &mut LifecycleExecutor<H> {
+        &mut self.lifecycle
+    }
+
+    pub(crate) fn store_path(&self) -> &Path {
+        &self.store_path
+    }
+
+    pub(crate) const fn cutover_paths(&self) -> &CutoverPaths {
+        &self.cutover_paths
+    }
+
+    pub(crate) const fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    pub(crate) fn acquire_lock(&self) -> Result<MigrationLock, ConnectionTransactionError> {
+        MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)
+    }
+
+    pub(crate) const fn blocked(&self) -> bool {
+        self.blocked
+    }
+
+    pub(crate) fn block(&mut self) {
+        self.blocked = true;
     }
 
     /// Execute one bounded restart reconciliation and then repair legacy
     /// pointers from desired state plus verified owned-host truth. This is an
     /// offline foundation and is not invoked by the production runtime yet.
-    pub fn reconcile_startup(
+    pub(crate) fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
         if self.blocked {
@@ -285,7 +303,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
         })
     }
 
-    fn connect(
+    pub(crate) fn connect(
         &mut self,
         lock: &MigrationLock,
         profile_id: String,
@@ -327,7 +345,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
         }
     }
 
-    fn disconnect(&mut self, lock: &MigrationLock) -> Completion {
+    pub(crate) fn disconnect(&mut self, lock: &MigrationLock) -> Completion {
         let plan = match prepare_pointer_mutation(
             &self.store_path,
             self.uid,
@@ -355,6 +373,58 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             Err(error) => Completion::Ordinary(Err(store_error(error))),
         }
     }
+}
+
+pub struct OfflineConnectionOwner<H> {
+    coordinator: MutationCoordinator,
+    transaction: ConnectionTransactionState<H>,
+}
+
+impl<H: LifecycleHost> OfflineConnectionOwner<H> {
+    #[must_use]
+    pub fn new(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+    ) -> Self {
+        Self {
+            coordinator: MutationCoordinator::default(),
+            transaction: ConnectionTransactionState::new(
+                host,
+                desired_paths,
+                store_path,
+                cutover_paths,
+                uid,
+            ),
+        }
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.coordinator.revision()
+    }
+
+    #[must_use]
+    pub const fn actual(&self) -> ActualState {
+        self.transaction.actual()
+    }
+
+    #[must_use]
+    pub const fn host(&self) -> &H {
+        self.transaction.host()
+    }
+
+    pub fn host_mut(&mut self) -> &mut H {
+        self.transaction.host_mut()
+    }
+
+    pub fn reconcile_startup(
+        &mut self,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.transaction.reconcile_startup()
+    }
 
     pub fn execute(
         &mut self,
@@ -380,7 +450,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             _ => return Err(ConnectionOwnerError::Invariant),
         }
 
-        if self.blocked {
+        if self.transaction.blocked() {
             let error = ConnectionTransactionError::ManualRecoveryRequired;
             let cached = self
                 .coordinator
@@ -391,19 +461,22 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             });
         }
 
-        let lock = match MigrationLock::acquire(&self.cutover_paths, self.uid) {
-            Ok(lock) => lock,
-            Err(error) => {
-                self.coordinator.abort_active_uncached(token)?;
-                return Ok(ConnectionOwnerExecution::UncachedPreflightFailure {
-                    revision: self.coordinator.revision(),
-                    error: lock_error(error),
-                });
-            }
-        };
+        let lock =
+            match MigrationLock::acquire(&self.transaction.cutover_paths, self.transaction.uid) {
+                Ok(lock) => lock,
+                Err(error) => {
+                    self.coordinator.abort_active_uncached(token)?;
+                    return Ok(ConnectionOwnerExecution::UncachedPreflightFailure {
+                        revision: self.coordinator.revision(),
+                        error: lock_error(error),
+                    });
+                }
+            };
         let completion = match action {
-            OwnerAction::Connect { profile_id, mode } => self.connect(&lock, profile_id, mode),
-            OwnerAction::Disconnect => self.disconnect(&lock),
+            OwnerAction::Connect { profile_id, mode } => {
+                self.transaction.connect(&lock, profile_id, mode)
+            }
+            OwnerAction::Disconnect => self.transaction.disconnect(&lock),
         };
         let (result, outcome) = match completion {
             Completion::Ordinary(outcome) => {
@@ -423,7 +496,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             .as_ref()
             .is_err_and(|error| *error == ConnectionTransactionError::ManualRecoveryRequired)
         {
-            self.blocked = true;
+            self.transaction.block();
         }
         let cached = self.coordinator.finish(token, result)?;
         if cached.error != outcome.as_ref().err().map(|error| error.stable_code()) {
