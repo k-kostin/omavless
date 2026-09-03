@@ -135,7 +135,11 @@ Item {
   readonly property int statusPollIntervalMs:
     statusBaseIntervalSec * 1000 * Math.pow(2, Math.min(statusFailureCount, 5))
 
-  readonly property bool busy: controlProcess.running
+  // A mode change remains busy through the first authoritative status read.
+  // The privileged process exiting only says that its transaction ended; it
+  // does not make an earlier staged-template observation safe to present.
+  readonly property bool busy: controlProcess.running || routingModePending
+  readonly property bool routingModePending: _pendingRoutingMode !== ""
   readonly property bool statusProcessRunning: statusProcess.running
   // Structured from the exact generated config while connected, or from the
   // template that the next connection will use while disconnected. "Rule" by
@@ -545,8 +549,10 @@ Item {
   function refreshAfterChange() {
     if (statusProcess.running) {
       _refreshAfterStatus = true
+      postChangeRefreshTimer.restart()
       return false
     }
+    _refreshAfterStatus = false
     return refresh()
   }
 
@@ -1124,6 +1130,8 @@ Item {
       _pendingRoutingMode = ""
       _routingModeBeforeChange = ""
       _routingModeRequiredStatusGeneration = 0
+      actionStatus = ""
+      if (_pendingSaveUuid !== "") Qt.callLater(_flushPendingSave)
     }
     conflicts = conflictList
     uptimeSeconds = Math.floor(payload.uptimeSeconds)
@@ -2250,6 +2258,26 @@ Item {
     onTriggered: root.refresh()
   }
 
+  // Process.onExited can run before Quickshell has cleared Process.running.
+  // A one-shot callLater from that signal can therefore find the status
+  // process busy again and strand the coalesced post-change refresh forever.
+  // Keep retrying the bounded local scheduling check until a fresh status
+  // request can actually start; no backend process is spawned while busy.
+  Timer {
+    id: postChangeRefreshTimer
+    interval: 60
+    repeat: false
+    onTriggered: {
+      if (!root._refreshAfterStatus) return
+      if (statusProcess.running) {
+        postChangeRefreshTimer.restart()
+        return
+      }
+      root._refreshAfterStatus = false
+      root.refresh()
+    }
+  }
+
   // Short-lived by design: refreshIntervalSec is far too coarse for a rate
   // readout, and a 2s cadence is only worth paying for while someone looks.
   Timer {
@@ -2295,8 +2323,7 @@ Item {
         root.statusFailureCount = Math.min(root.statusFailureCount + 1, 5)
       }
       if (root._refreshAfterStatus) {
-        root._refreshAfterStatus = false
-        Qt.callLater(root.refreshAfterChange)
+        postChangeRefreshTimer.restart()
       }
     }
   }
@@ -2975,7 +3002,8 @@ Item {
     onExited: function(exitCode) {
       var op = root._controlOperation
       root._controlOperation = ""
-      if (op === "set-mode" && root._pendingRoutingMode !== "") {
+      var routingModeOperationPending = op === "set-mode" && root.routingModePending
+      if (routingModeOperationPending) {
         // A poll already in flight may have observed only the temporary
         // template. Require a new request after this success/failure result.
         root._routingModeRequiredStatusGeneration = root._statusRequestGeneration + 1
@@ -2992,7 +3020,9 @@ Item {
         if (root._pendingConnect !== "") root.rememberLast(root._pendingConnect)
         root.lastError = ""
         root._dropWarningText = ""
-        root.actionStatus = ""
+        // Keep the bounded Switching state until the authoritative post-exit
+        // status snapshot settles the requested or rolled-back mode.
+        if (!routingModeOperationPending) root.actionStatus = ""
         root._editRetryUuid = ""
         root._editRetryName = ""
         root._editRetryText = ""
