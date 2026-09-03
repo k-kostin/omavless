@@ -308,11 +308,15 @@ screenshots and repeat affected captures after a fix.
   fixed two-service control and same-candidate verification at squash commit
   `5aba03a3eb29b45899cc8927703bacdad788b36f`. It remains unreachable from
   CLI and IPC and did not execute a cutover.
-- Draft PR `#141` owns the next bounded R5 checkpoint: private,
-  generation-fenced frontend bridge target state authorized by the exact
-  migration lock and marker. It does not yet connect QML/backend launchers to
-  the Rust semantic API; Python remains the installed owner and R5 is not
-  complete.
+- PR `#141` accepted the private, generation-fenced frontend bridge target at
+  squash commit `f23f599b8dc49e30cb3d118b015b1324f82c4ee8`. The selector is
+  authorized by the exact migration lock and marker but does not itself switch
+  an installed client.
+- Draft PR `#142` owns the next bounded R5 checkpoint: fixed semantic CLI
+  mappings for connect/disconnect and profile rename/favorite/delete. It
+  exposes no raw method/JSON passthrough, keeps private rename input out of
+  argv, and does not yet connect QML/backend launchers to Rust. Python remains
+  the installed owner and R5 is not complete.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.

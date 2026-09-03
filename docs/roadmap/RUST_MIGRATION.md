@@ -656,13 +656,22 @@ documented absolute override, user-local and absolute-PATH discovery classes.
 No CLI/socket cutover method or concrete plugin bridge is included, so the
 installed Python owner remains unchanged.
 
-Draft PR #141 adds the first concrete bridge component: a fixed private target
+PR #141 accepted the first concrete bridge component at squash commit
+`f23f599b8dc49e30cb3d118b015b1324f82c4ee8`: a fixed private target
 selector fenced to the exact preparing generation and its immediate committed
 or compensated successor. Only the matching migration lock and unchanged
 preparing marker can replace it. The reader accepts absent state only for an
 exact legacy owner and fails closed for every stale, unsafe or ambiguous
 combination. QML/backend launcher integration and semantic command mapping are
 still absent, so this selector cannot activate a cutover by itself.
+
+Draft PR #142 adds the first fixed executable-side semantic mutation mapping:
+connect/disconnect and profile rename/favorite/delete map to exact registered
+v1 methods. Unknown or extra arguments fail before socket dispatch, rename
+input is bounded and supplied through stdin rather than argv, and no raw
+method/JSON passthrough exists. Subscription CLI dispatch, read projections and
+QML/backend launcher integration remain later checkpoints, so the installed
+production owner is unchanged.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
