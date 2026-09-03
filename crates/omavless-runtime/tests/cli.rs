@@ -48,8 +48,23 @@ fn command(base: &Path, action: &str) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_omavless"))
         .arg(action)
         .env("XDG_RUNTIME_DIR", base)
+        .env("XDG_STATE_HOME", base.join("state"))
+        .env("XDG_CONFIG_HOME", base.join("xdg-config"))
+        .env("HOME", base.join("home"))
+        .env("OMAVLESS_HOME", base.join("home"))
         .output()
         .unwrap()
+}
+
+fn prepare_isolated_daemon_environment(base: &Path) {
+    for path in [
+        base.join("state"),
+        base.join("xdg-config"),
+        base.join("home"),
+    ] {
+        fs::create_dir(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
 }
 
 #[test]
@@ -128,9 +143,14 @@ fn store_preflight_validates_private_config_but_returns_only_safe_facts() {
 #[test]
 fn daemon_and_semantic_cli_use_one_private_runtime() {
     let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
     let child = Command::new(env!("CARGO_BIN_EXE_omavless"))
         .arg("daemon")
         .env("XDG_RUNTIME_DIR", &base)
+        .env("XDG_STATE_HOME", base.join("state"))
+        .env("XDG_CONFIG_HOME", base.join("xdg-config"))
+        .env("HOME", base.join("home"))
+        .env("OMAVLESS_HOME", base.join("home"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
