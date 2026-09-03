@@ -549,10 +549,8 @@ Item {
   function refreshAfterChange() {
     if (statusProcess.running) {
       _refreshAfterStatus = true
-      postChangeRefreshTimer.restart()
       return false
     }
-    _refreshAfterStatus = false
     return refresh()
   }
 
@@ -2258,26 +2256,6 @@ Item {
     onTriggered: root.refresh()
   }
 
-  // Process.onExited can run before Quickshell has cleared Process.running.
-  // A one-shot callLater from that signal can therefore find the status
-  // process busy again and strand the coalesced post-change refresh forever.
-  // Keep retrying the bounded local scheduling check until a fresh status
-  // request can actually start; no backend process is spawned while busy.
-  Timer {
-    id: postChangeRefreshTimer
-    interval: 60
-    repeat: false
-    onTriggered: {
-      if (!root._refreshAfterStatus) return
-      if (statusProcess.running) {
-        postChangeRefreshTimer.restart()
-        return
-      }
-      root._refreshAfterStatus = false
-      root.refresh()
-    }
-  }
-
   // Short-lived by design: refreshIntervalSec is far too coarse for a rate
   // readout, and a 2s cadence is only worth paying for while someone looks.
   Timer {
@@ -2323,7 +2301,8 @@ Item {
         root.statusFailureCount = Math.min(root.statusFailureCount + 1, 5)
       }
       if (root._refreshAfterStatus) {
-        postChangeRefreshTimer.restart()
+        root._refreshAfterStatus = false
+        Qt.callLater(root.refreshAfterChange)
       }
     }
   }

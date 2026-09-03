@@ -5340,6 +5340,12 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
             systemctl("enable", "--now", SERVICE)
         if not service_active(SERVICE):
             raise BackendError("OmaVLESS service did not remain active after startup")
+        # systemd marks the supervisor active before Mihomo has necessarily
+        # completed TUN/route setup.  In particular, a denied or cancelled
+        # host authorization can make that active state transient.  Treat the
+        # private controller as the readiness boundary for every routing mode,
+        # just as the native Rust lifecycle owner does.
+        wait_private_controller(paths)
         if routing_mode == "global":
             select_global_proxy(paths, str(profile["name"]))
         store["activeId"] = profile_id
@@ -5363,9 +5369,18 @@ def connect_profile(paths: Paths, profile_id: str) -> None:
         else:
             result = systemctl("disable", "--now", SERVICE, check=False)
         restored = service_active(SERVICE) if was_active else not service_active(SERVICE)
+        if result.returncode == 0 and restored and was_active:
+            try:
+                wait_private_controller(paths)
+            except BackendError as rollback_exc:
+                restored = False
+                rollback_errors.append(f"service restore: {rollback_exc}")
         if result.returncode != 0 or not restored:
-            reason = (result.stderr or result.stdout or "unexpected service state").strip()
-            rollback_errors.append(f"service restore: {reason}")
+            if result.returncode != 0 or not any(
+                detail.startswith("service restore:") for detail in rollback_errors
+            ):
+                reason = (result.stderr or result.stdout or "unexpected service state").strip()
+                rollback_errors.append(f"service restore: {reason}")
         if rollback_errors:
             raise BackendError(
                 f"{exc}; rollback needs manual recovery ({'; '.join(rollback_errors)})", 21
