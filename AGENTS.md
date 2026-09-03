@@ -303,14 +303,16 @@ screenshots and repeat affected captures after a fix.
   `b9be21a9b44c7c0debb816e042bd2469a9e86639` and merge commit
   `5cc355ca87c4963cdd988a76c04395b7732f5b1a`. PR `#139` then accepted the
   bounded generation-fenced transition-bootstrap/handoff slice at squash
-  commit `3b22cb987007ab85150f5352016267aa15138905`. It was not a production
-  cutover: Python remains the installed owner until the production transaction
-  host, crash matrix and plugin bridge pass their acceptance gates.
-- Draft PR `#140` owns the next bounded R5 checkpoint: the fixed-purpose
-  production transaction host, exact desired/config staging, fixed two-service
-  control and same-candidate verification. It remains unreachable from CLI and
-  IPC, and the plugin bridge is still an injected test boundary; do not treat
-  it as an executed cutover or as R5 completion.
+  commit `3b22cb987007ab85150f5352016267aa15138905`. PR `#140` then accepted the
+  fixed-purpose production transaction host, exact desired/config staging,
+  fixed two-service control and same-candidate verification at squash commit
+  `5aba03a3eb29b45899cc8927703bacdad788b36f`. It remains unreachable from
+  CLI and IPC and did not execute a cutover.
+- Draft PR `#141` owns the next bounded R5 checkpoint: private,
+  generation-fenced frontend bridge target state authorized by the exact
+  migration lock and marker. It does not yet connect QML/backend launchers to
+  the Rust semantic API; Python remains the installed owner and R5 is not
+  complete.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.

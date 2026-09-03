@@ -585,20 +585,28 @@ an exact desired-state snapshot, and re-reads durable marker state after a
 write error before deciding whether compensation is legal. A production
 transaction host and controlled cutover remain later checkpoints.
 
-Draft PR #140 owns the fixed-purpose production-host checkpoint. It composes
-that accepted transaction with private desired/store/config state, the two
-fixed user services, the private runtime socket and same-candidate production
-observation. It also restores the Python-compatible Mihomo discovery contract
+PR #140 accepted the fixed-purpose production-host checkpoint at squash commit
+`5aba03a3eb29b45899cc8927703bacdad788b36f`. It composes that accepted
+transaction with private desired/store/config state, the two fixed user
+services, the private runtime socket and same-candidate production observation.
+It also restores the Python-compatible Mihomo discovery contract
 (`OMAVLESS_MIHOMO`, `~/.local/bin/mihomo`, then absolute PATH entries) instead
-of assuming `/usr/bin/mihomo`. The host has no public cutover entry point and
-its compatibility bridge remains injected; its fault matrix and installed
-bridge acceptance are still required before any ownership switch. The
-credential-safe x86_64 installed-core and read-only host evidence is recorded
-in
+of assuming `/usr/bin/mihomo`. The host has no public cutover entry point; its
+fault matrix and installed bridge acceptance remain required before any
+ownership switch. The credential-safe x86_64 installed-core and read-only host
+evidence is recorded in
 `docs/testing/BARE_METAL_R5_PRODUCTION_CUTOVER_HOST_2026-09-03.md`.
 
+Draft PR #141 owns the next bounded bridge-state checkpoint. It adds a fixed
+private `0600` frontend target selector whose target is valid only for the
+exact preparing generation and its immediate committed Rust or restored legacy
+successor. Writes require the matching migration lock and unchanged preparing
+marker; missing, stale, malformed, oversized, permissive-mode and symlinked
+state fail closed. It does not yet route QML/backend commands to the semantic
+Rust API and remains unreachable from any cutover command.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
-dispatcher, and PRs #138-#139 do not expose a user cutover command or switch an
+dispatcher, and PRs #138-#141 do not expose a user cutover command or switch an
 installed client to Rust.
 
 The current QML -> `backend.py` path remains the only production owner until an

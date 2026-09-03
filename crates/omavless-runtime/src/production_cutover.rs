@@ -5,8 +5,9 @@
 //! This module deliberately exposes no CLI command. It binds the accepted pure
 //! cutover transaction to private desired/ownership state, the two fixed user
 //! services, the private runtime socket and credential-safe host observation.
-//! The Omarchy compatibility bridge remains an injected fixed-purpose adapter;
-//! the transaction cannot be made reachable until that adapter is accepted.
+//! The Omarchy compatibility bridge remains an injected fixed-purpose adapter.
+//! Its durable generation-fenced target state exists, but semantic plugin
+//! dispatch is not wired yet, so the transaction remains unreachable.
 
 use crate::RuntimePaths;
 use crate::call;
@@ -40,10 +41,16 @@ const SERVICE_SETTLE_TIMEOUT: Duration = Duration::from_secs(15);
 const SERVICE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Fixed-purpose frontend bridge operation. Implementations may select only a
-/// semantic legacy or Rust target; paths, commands and arbitrary arguments are
-/// never supplied by the transaction or an IPC client.
+/// semantic legacy or Rust target while holding the exact migration lease and
+/// marker; paths, commands and arbitrary arguments are never supplied by the
+/// transaction or an IPC client.
 pub trait ProductionPluginBridge {
-    fn switch(&mut self, target: BridgeTarget) -> Result<(), CutoverHostError>;
+    fn switch(
+        &mut self,
+        target: BridgeTarget,
+        marker: &OwnershipMarker,
+        lock: &MigrationLock,
+    ) -> Result<(), CutoverHostError>;
 }
 
 /// All filesystem and service entry points used by the production host. This
@@ -530,7 +537,9 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
     }
 
     fn switch_bridge(&mut self, target: BridgeTarget) -> Result<(), CutoverHostError> {
-        self.bridge.switch(target)
+        let marker = self.read_marker()?;
+        let lock = self.lock.as_ref().ok_or(CutoverHostError)?;
+        self.bridge.switch(target, &marker, lock)
     }
 
     fn stop_rust(&mut self) -> Result<(), CutoverHostError> {
@@ -611,7 +620,12 @@ mod tests {
     }
 
     impl ProductionPluginBridge for FakeBridge {
-        fn switch(&mut self, target: BridgeTarget) -> Result<(), CutoverHostError> {
+        fn switch(
+            &mut self,
+            target: BridgeTarget,
+            _marker: &OwnershipMarker,
+            _lock: &MigrationLock,
+        ) -> Result<(), CutoverHostError> {
             self.calls
                 .lock()
                 .map_err(|_| CutoverHostError)?
