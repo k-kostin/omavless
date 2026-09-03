@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-//! R5 runtime foundation: private IPC, lifetime ownership, and read-only
-//! semantic dispatch. This checkpoint deliberately cannot start or stop
-//! Mihomo and does not replace the Python production owner.
+//! R5 runtime foundation: private IPC, lifetime ownership, and ownership-gated
+//! semantic dispatch. A legacy/missing/invalid ownership marker keeps the
+//! daemon read-only; only a successfully reconciled committed Rust owner can
+//! register mutation methods.
 
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg, OFlag};
@@ -14,6 +15,7 @@ use omavless_control_protocol::{
     negotiate_version, read_unary_frame, success_response, write_unary_frame,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -21,6 +23,7 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -62,6 +65,7 @@ pub enum RuntimeError {
     SocketUnavailable,
     PermissionDenied,
     Protocol,
+    NativeOwnerUnavailable,
     Io,
 }
 
@@ -73,6 +77,7 @@ impl fmt::Display for RuntimeError {
             Self::SocketUnavailable => "OmaVLESS runtime socket is unavailable",
             Self::PermissionDenied => "OmaVLESS runtime peer is not permitted",
             Self::Protocol => "OmaVLESS control exchange is invalid",
+            Self::NativeOwnerUnavailable => "OmaVLESS native owner is unavailable",
             Self::Io => "OmaVLESS runtime I/O failed",
         })
     }
@@ -173,8 +178,147 @@ pub struct RuntimeServer {
     paths: RuntimePaths,
     uid: u32,
     instance_id: String,
-    revision: u64,
+    dispatcher: RuntimeDispatcher,
     _owner: OwnerLock,
+}
+
+const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
+// Subscription add/update performs bounded remote I/O. Keep the whole family
+// outside live socket dispatch until the server can admit status and urgent
+// disconnect while that fetch is in flight.
+const NATIVE_MUTATION_METHODS: &[&str] = &[
+    "connection.connect",
+    "connection.disconnect",
+    "profiles.rename",
+    "profiles.favorite",
+    "profiles.delete",
+];
+
+enum RuntimeDispatcher {
+    ReadOnly,
+    Native(Mutex<Box<dyn NativeRuntimeOwner>>),
+}
+
+trait NativeRuntimeOwner: Send {
+    fn revision(&self) -> u64;
+    fn runtime_ownership(&self) -> bool;
+    fn status(&self) -> Result<Value>;
+    fn mutate(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+}
+
+struct RecordIdGenerator {
+    seed: Vec<u8>,
+    counter: u128,
+}
+
+impl RecordIdGenerator {
+    fn new(instance_id: &str) -> Self {
+        Self {
+            seed: instance_id.as_bytes().to_vec(),
+            counter: 0,
+        }
+    }
+
+    fn next(&mut self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"omavless/runtime-record-id/v1\0");
+        hasher.update(&self.seed);
+        hasher.update(self.counter.to_be_bytes());
+        self.counter = self.counter.wrapping_add(1);
+        let digest = hasher.finalize();
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5],
+            bytes[6],
+            bytes[7],
+            bytes[8],
+            bytes[9],
+            bytes[10],
+            bytes[11],
+            bytes[12],
+            bytes[13],
+            bytes[14],
+            bytes[15]
+        )
+    }
+}
+
+struct RegisteredNativeOwner<H, T> {
+    owner: production_owner::ProductionNativeOwner<H>,
+    transport: T,
+    record_ids: RecordIdGenerator,
+}
+
+impl<H, T> NativeRuntimeOwner for RegisteredNativeOwner<H, T>
+where
+    H: lifecycle::LifecycleHost + Send + 'static,
+    T: subscription_transport::SubscriptionTransport + Send + 'static,
+{
+    fn revision(&self) -> u64 {
+        self.owner.revision()
+    }
+
+    fn runtime_ownership(&self) -> bool {
+        self.owner.rust_ownership_available()
+    }
+
+    fn status(&self) -> Result<Value> {
+        let desired = self
+            .owner
+            .desired()
+            .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        let actual = match self.owner.actual() {
+            lifecycle::ActualState::Disconnected => "disconnected",
+            lifecycle::ActualState::Starting => "starting",
+            lifecycle::ActualState::Connected => "connected",
+            lifecycle::ActualState::Reconnecting => "reconnecting",
+            lifecycle::ActualState::Stopping => "stopping",
+            lifecycle::ActualState::Failed => "failed",
+            lifecycle::ActualState::ManualRecoveryRequired => "manualRecoveryRequired",
+        };
+        Ok(json!({
+            "desired": if desired.connected { "connected" } else { "disconnected" },
+            "actual": actual,
+            "activeProfileId": if desired.connected { desired.profile_id.as_str() } else { "" },
+            "mode": desired.mode.as_str(),
+            "transition": null,
+            "runtimeOwnership": self.runtime_ownership()
+        }))
+    }
+
+    fn mutate(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let owner = &mut self.owner;
+        let transport = &self.transport;
+        let record_ids = &mut self.record_ids;
+        owner.respond(
+            request,
+            transport,
+            || record_ids.next(),
+            || {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX)
+            },
+        )
+    }
 }
 
 impl RuntimeServer {
@@ -201,9 +345,57 @@ impl RuntimeServer {
             paths,
             uid,
             instance_id: format!("{:x}-{nonce:x}", std::process::id()),
-            revision: 0,
+            dispatcher: RuntimeDispatcher::ReadOnly,
             _owner: owner,
         })
+    }
+
+    /// Bind the production socket and register native mutations only after a
+    /// committed Rust owner has been constructed and startup-reconciled. A
+    /// non-Rust/missing/invalid marker intentionally leaves the daemon
+    /// read-only; other owner-construction failures abort startup.
+    pub fn bind_current(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(paths, |runtime_paths| {
+            production_owner::ProductionNativeOwner::current(runtime_paths)
+        })
+    }
+
+    fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost + Send + 'static,
+        F: FnOnce(
+            &RuntimePaths,
+        ) -> std::result::Result<
+            production_owner::ProductionNativeOwner<H>,
+            production_owner::ProductionOwnerError,
+        >,
+    {
+        let mut server = Self::bind(paths)?;
+        match construct_owner(&server.paths) {
+            Ok(owner) => server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            ),
+            Err(production_owner::ProductionOwnerError::OwnershipUnavailable) => {}
+            Err(_) => return Err(RuntimeError::NativeOwnerUnavailable),
+        }
+        Ok(server)
+    }
+
+    fn register_native_owner<H, T>(
+        &mut self,
+        owner: production_owner::ProductionNativeOwner<H>,
+        transport: T,
+    ) where
+        H: lifecycle::LifecycleHost + Send + 'static,
+        T: subscription_transport::SubscriptionTransport + Send + 'static,
+    {
+        let registered = RegisteredNativeOwner {
+            owner,
+            transport,
+            record_ids: RecordIdGenerator::new(&self.instance_id),
+        };
+        self.dispatcher = RuntimeDispatcher::Native(Mutex::new(Box::new(registered)));
     }
 
     #[must_use]
@@ -259,10 +451,10 @@ impl RuntimeServer {
         let response = match read_unary_frame(stream, FrameKind::Request)
             .and_then(|frame| decode_request(&frame))
         {
-            Ok(request) => dispatch(&request, &self.instance_id, self.revision),
+            Ok(request) => self.dispatch(&request),
             Err(error) => error_response(
                 "invalid",
-                self.revision,
+                0,
                 error.code(),
                 false,
                 (error.code() == StableErrorCode::UnsupportedVersion)
@@ -272,6 +464,25 @@ impl RuntimeServer {
         .map_err(|_| RuntimeError::Protocol)?;
         let frame = encode_response(&response).map_err(|_| RuntimeError::Protocol)?;
         write_unary_frame(stream, &frame, FrameKind::Response).map_err(|_| RuntimeError::Io)
+    }
+
+    fn dispatch(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        match &self.dispatcher {
+            RuntimeDispatcher::ReadOnly => dispatch_read_only(request, &self.instance_id),
+            RuntimeDispatcher::Native(owner) => match owner.lock() {
+                Ok(mut owner) => dispatch_native(request, &self.instance_id, owner.as_mut()),
+                Err(_) => error_response(
+                    request["id"].as_str().unwrap_or("invalid"),
+                    0,
+                    StableErrorCode::InternalError,
+                    false,
+                    None,
+                ),
+            },
+        }
     }
 }
 
@@ -287,11 +498,11 @@ fn empty_params(request: &Value) -> bool {
         .is_some_and(serde_json::Map::is_empty)
 }
 
-fn dispatch(
+fn dispatch_read_only(
     request: &Value,
     instance_id: &str,
-    revision: u64,
 ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+    let revision = 0;
     let id = request["id"].as_str().unwrap_or("invalid");
     let method = request["method"].as_str().unwrap_or_default();
     let result = match method {
@@ -333,11 +544,80 @@ fn dispatch(
         "capabilities.get" if empty_params(request) => json!({
             "runtimeOwnership": false,
             "mutations": false,
-            "methods": ["system.hello", "status.get", "capabilities.get"]
+            "methods": READ_ONLY_METHODS
         }),
         "status.get" | "capabilities.get" => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
         }
+        _ => return error_response(id, revision, StableErrorCode::UnknownMethod, false, None),
+    };
+    success_response(id, revision, result)
+}
+
+fn dispatch_native(
+    request: &Value,
+    instance_id: &str,
+    owner: &mut dyn NativeRuntimeOwner,
+) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    let method = request["method"].as_str().unwrap_or_default();
+    let revision = owner.revision();
+    let runtime_ownership = owner.runtime_ownership();
+    let result = match method {
+        "system.hello" => {
+            let params = request["params"].as_object();
+            let versions = params.and_then(|value| value.get("versions"));
+            if params.is_none_or(|value| value.len() != 1) || versions.is_none() {
+                return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
+            }
+            if let Err(error) = negotiate_version(versions.unwrap_or(&Value::Null)) {
+                return error_response(
+                    id,
+                    revision,
+                    error.code(),
+                    false,
+                    (error.code() == StableErrorCode::UnsupportedVersion)
+                        .then(|| json!({"supported": [API_VERSION]})),
+                );
+            }
+            json!({
+                "instanceId": instance_id,
+                "version": API_VERSION,
+                "versions": [API_VERSION],
+                "limits": {
+                    "requestFrameBytes": MAX_REQUEST_FRAME_BYTES,
+                    "responseFrameBytes": MAX_RESPONSE_FRAME_BYTES
+                },
+                "runtimeOwnership": runtime_ownership
+            })
+        }
+        "status.get" if empty_params(request) => match owner.status() {
+            Ok(status) => status,
+            Err(_) => {
+                return error_response(id, revision, StableErrorCode::InternalError, false, None);
+            }
+        },
+        "capabilities.get" if empty_params(request) => {
+            let methods: Vec<_> = READ_ONLY_METHODS
+                .iter()
+                .chain(
+                    runtime_ownership
+                        .then_some(NATIVE_MUTATION_METHODS)
+                        .into_iter()
+                        .flatten(),
+                )
+                .copied()
+                .collect();
+            json!({
+                "runtimeOwnership": runtime_ownership,
+                "mutations": runtime_ownership,
+                "methods": methods
+            })
+        }
+        "status.get" | "capabilities.get" => {
+            return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
+        }
+        _ if NATIVE_MUTATION_METHODS.contains(&method) => return owner.mutate(request),
         _ => return error_response(id, revision, StableErrorCode::UnknownMethod, false, None),
     };
     success_response(id, revision, result)
@@ -368,7 +648,70 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cutover::{CutoverPaths, OwnershipPhase};
+    use crate::desired::{
+        DesiredPaths, DesiredState, OwnedObservation, RoutingMode, write_desired,
+    };
+    use crate::lifecycle::HostStepError;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
     use std::thread;
+
+    const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+    struct FakeHost {
+        observation: OwnedObservation,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl lifecycle::LifecycleHost for FakeHost {
+        fn observe(
+            &mut self,
+            _desired: &DesiredState,
+        ) -> std::result::Result<OwnedObservation, HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(self.observation)
+        }
+
+        fn prepare(&mut self, _desired: &DesiredState) -> std::result::Result<(), HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn start_prepared(&mut self) -> std::result::Result<(), HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.observation = OwnedObservation {
+                service_active: true,
+                controller_ready: true,
+                core_count: 1,
+                tun_count: 1,
+                active_profile_matches: true,
+            };
+            Ok(())
+        }
+
+        fn commit_prepared(&mut self) -> std::result::Result<(), HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn stop_owned(&mut self) -> std::result::Result<(), HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.observation = OwnedObservation {
+                service_active: false,
+                controller_ready: false,
+                core_count: 0,
+                tun_count: 0,
+                active_profile_matches: false,
+            };
+            Ok(())
+        }
+
+        fn discard_prepared(&mut self) -> std::result::Result<(), HostStepError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
 
     fn temporary_base(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -382,6 +725,83 @@ mod tests {
         let mut builder = fs::DirBuilder::new();
         builder.mode(0o700).create(&base).unwrap();
         base
+    }
+
+    fn write_marker(paths: &CutoverPaths, phase: OwnershipPhase, generation: u64) {
+        let marker = json!({
+            "schemaVersion": 1,
+            "generation": generation,
+            "phase": phase.as_str(),
+        });
+        fs::write(
+            &paths.ownership_marker,
+            serde_json::to_vec(&marker).unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&paths.ownership_marker, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn native_owner_fixture(
+        base: &Path,
+    ) -> (
+        production_owner::ProductionNativeOwner<FakeHost>,
+        CutoverPaths,
+        Arc<AtomicUsize>,
+    ) {
+        let runtime = base.join("runtime");
+        let state = base.join("state");
+        let config = base.join("config");
+        for path in [&runtime, &state, &config] {
+            fs::create_dir(path).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let uid = fs::metadata(base).unwrap().uid();
+        let desired = DesiredPaths::below(&state);
+        write_desired(&desired, uid, &DesiredState::default()).unwrap();
+        let cutover = CutoverPaths::below(&runtime, &state, uid);
+        write_marker(&cutover, OwnershipPhase::Rust, 1);
+        let store_path = config.join("profiles.json");
+        let store = json!({
+            "version": 3,
+            "activeId": "",
+            "lastId": "",
+            "profiles": [{
+                "id": PROFILE_ID,
+                "name": "Example",
+                "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example",
+                "protocol": "vless",
+                "favorite": false
+            }],
+            "subscriptions": [],
+            "routingPreset": "custom",
+            "customRules": [],
+            "rulesUpdatedAt": 0,
+            "startupConfigured": true,
+            "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
+            "onboardingComplete": true
+        });
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let host = FakeHost {
+            observation: OwnedObservation {
+                service_active: false,
+                controller_ready: false,
+                core_count: 0,
+                tun_count: 0,
+                active_profile_matches: false,
+            },
+            calls: Arc::clone(&calls),
+        };
+        let owner = production_owner::ProductionNativeOwner::initialize(
+            host,
+            desired,
+            &store_path,
+            cutover.clone(),
+            uid,
+        )
+        .unwrap();
+        (owner, cutover, calls)
     }
 
     #[test]
@@ -406,6 +826,24 @@ mod tests {
     }
 
     #[test]
+    fn trusted_runtime_record_ids_are_unique_and_store_compatible() {
+        use std::collections::HashSet;
+
+        let mut generator = RecordIdGenerator::new("instance-a");
+        let generated: HashSet<_> = (0..1_025).map(|_| generator.next()).collect();
+        assert_eq!(generated.len(), 1_025);
+        assert!(
+            generated
+                .iter()
+                .all(|value| omavless_domain::store::valid_record_id(value))
+        );
+        assert_ne!(
+            RecordIdGenerator::new("instance-a").next(),
+            RecordIdGenerator::new("instance-b").next()
+        );
+    }
+
+    #[test]
     fn read_only_unary_api_round_trips() {
         let base = temporary_base("api");
         let paths = RuntimePaths::below(&base);
@@ -425,9 +863,119 @@ mod tests {
     }
 
     #[test]
+    fn bind_current_factory_registers_mutations_and_revocation_fails_closed() {
+        let base = temporary_base("native-registration");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let expected_paths = paths.clone();
+        let constructor_calls = Arc::new(AtomicUsize::new(0));
+        let observed_calls = Arc::clone(&constructor_calls);
+        let server = RuntimeServer::bind_with_owner_factory(paths.clone(), move |runtime_paths| {
+            assert_eq!(runtime_paths, &expected_paths);
+            observed_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(owner)
+        })
+        .unwrap();
+        assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+
+        let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
+        assert_eq!(hello["result"]["runtimeOwnership"], true);
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities["result"]["mutations"], true);
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "connection.connect")
+        );
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|method| method != "subscriptions.add")
+        );
+        let withheld = call(&paths, "subscriptions.add", json!({})).unwrap();
+        assert_eq!(withheld["error"]["code"], "unknown_method");
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["result"]["actual"], "disconnected");
+
+        let connected = call(
+            &paths,
+            "connection.connect",
+            json!({
+                "profileId": PROFILE_ID,
+                "mode": RoutingMode::Global.as_str(),
+                "operationId": "connect-1",
+                "expectedRevision": 0
+            }),
+        )
+        .unwrap();
+        assert_eq!(connected["ok"], true);
+        assert_eq!(connected["revision"], 1);
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["result"]["actual"], "connected");
+        assert_eq!(status["result"]["mode"], "global");
+
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let calls_before_rejection = calls.load(Ordering::Relaxed);
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities["result"]["runtimeOwnership"], false);
+        assert_eq!(capabilities["result"]["mutations"], false);
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|method| method != "connection.connect")
+        );
+        let rejected = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId": "disconnect-1", "expectedRevision": 1}),
+        )
+        .unwrap();
+        assert_eq!(rejected["error"]["code"], "capability_unavailable");
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
+
+        write_marker(&cutover, OwnershipPhase::Rust, 3);
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities["result"]["runtimeOwnership"], false);
+        assert_eq!(capabilities["result"]["mutations"], false);
+        let stale_owner = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId": "disconnect-2", "expectedRevision": 1}),
+        )
+        .unwrap();
+        assert_eq!(stale_owner["error"]["code"], "capability_unavailable");
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
+
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn owner_constructor_failure_aborts_and_removes_socket() {
+        let base = temporary_base("native-constructor-failure");
+        let paths = RuntimePaths::below(&base);
+        let result = RuntimeServer::bind_with_owner_factory::<FakeHost, _>(paths.clone(), |_| {
+            Err(production_owner::ProductionOwnerError::HostUnavailable)
+        });
+        assert!(matches!(result, Err(RuntimeError::NativeOwnerUnavailable)));
+        assert!(!paths.socket.exists());
+
+        let server = RuntimeServer::bind(paths.clone()).unwrap();
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn errors_are_stable_and_do_not_echo_private_input() {
         let request = make_request("safe", "private.example/password", json!({})).unwrap();
-        let response = dispatch(&request, "instance", 0).unwrap();
+        let response = dispatch_read_only(&request, "instance").unwrap();
         let rendered = serde_json::to_string(&response).unwrap();
         assert_eq!(response["error"]["code"], "unknown_method");
         assert!(!rendered.contains("private.example"));

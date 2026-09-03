@@ -5,16 +5,16 @@
 //!
 //! This is the first composition boundary that gives all mutation families
 //! one revision, replay cache, lifecycle executor, migration lock namespace and
-//! manual-recovery barrier. It remains unreachable from `RuntimeServer` and is
-//! not advertised in capabilities. Subscription network work uses a fixed,
-//! bounded transport and never runs while the Python/Rust migration lock is
-//! held.
+//! manual-recovery barrier. It never registers itself with `RuntimeServer`;
+//! the production owner is the only ownership-gated registration boundary.
+//! Subscription network work uses a fixed, bounded transport and never runs
+//! while the Python/Rust migration lock is held.
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
     ConnectionTransactionState,
 };
-use crate::cutover::{MigrationLock, OwnershipPhase, read_marker};
+use crate::cutover::MigrationLock;
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
@@ -257,12 +257,13 @@ enum LockAdmission {
     Uncached(NativeOwnerExecution),
 }
 
-/// Offline-only composition of the accepted native mutation transactions.
-/// There is deliberately no socket constructor or production registration.
+/// Socket-independent composition of the accepted native mutation
+/// transactions. There is deliberately no socket constructor or registration
+/// side effect in this type.
 pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
-    require_rust_ownership: bool,
+    required_rust_generation: Option<u64>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -283,7 +284,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 cutover_paths,
                 uid,
             ),
-            require_rust_ownership: false,
+            required_rust_generation: None,
         }
     }
 
@@ -298,9 +299,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         store_path: &Path,
         cutover_paths: crate::cutover::CutoverPaths,
         uid: u32,
+        ownership_generation: u64,
     ) -> Self {
         let mut owner = Self::new(host, desired_paths, store_path, cutover_paths, uid);
-        owner.require_rust_ownership = true;
+        owner.required_rust_generation = Some(ownership_generation);
         owner
     }
 
@@ -312,6 +314,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     #[must_use]
     pub const fn actual(&self) -> ActualState {
         self.transaction.actual()
+    }
+
+    pub(crate) fn desired(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        self.transaction.desired()
+    }
+
+    pub(crate) fn rust_ownership_available(&self) -> bool {
+        self.required_rust_generation
+            .is_some_and(|generation| self.transaction.rust_ownership_available(generation))
     }
 
     #[must_use]
@@ -343,7 +356,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
-        if self.require_rust_ownership {
+        if let Some(generation) = self.required_rust_generation {
             let lock = self
                 .transaction
                 .acquire_lock()
@@ -351,8 +364,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
                     _ => NativeOwnerError::OwnershipUnavailable,
                 })?;
-            let owned = read_marker(self.transaction.cutover_paths(), self.transaction.uid())
-                .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust);
+            let owned = self.transaction.rust_ownership_matches(generation);
             drop(lock);
             if !owned {
                 return Err(NativeOwnerError::OwnershipUnavailable);
@@ -380,9 +392,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
-                if self.require_rust_ownership
-                    && !read_marker(self.transaction.cutover_paths(), self.transaction.uid())
-                        .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust)
+                if self
+                    .required_rust_generation
+                    .is_some_and(|generation| !self.transaction.rust_ownership_matches(generation))
                 {
                     drop(lock);
                     self.coordinator.abort_active_uncached(token)?;
@@ -546,10 +558,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
-    /// Execute one offline subscription mutation with injected trusted ID and
-    /// time sources. The concrete transport is bounded and credential-private;
-    /// no network work occurs while the shared Python/Rust migration lock is
-    /// held. This method remains unreachable from live IPC dispatch.
+    /// Execute one subscription mutation with injected trusted ID and time
+    /// sources. The concrete transport is bounded and credential-private; no
+    /// network work occurs while the shared Python/Rust migration lock is held.
     pub fn execute_subscription<T, G, N>(
         &mut self,
         request: &Value,

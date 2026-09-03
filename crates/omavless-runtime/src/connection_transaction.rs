@@ -3,11 +3,11 @@
 //! Offline owner-bound connection transactions with compatibility-pointer sync.
 //!
 //! This layer composes the accepted mutation coordinator, shared migration
-//! lock, lifecycle executor and exact private-store transaction. It is not
-//! registered with `RuntimeServer` or advertised as a production capability.
+//! lock, lifecycle executor and exact private-store transaction. It never
+//! registers itself; only the committed production owner may expose it.
 
-use crate::cutover::{CutoverError, CutoverPaths, MigrationLock};
-use crate::desired::{DesiredPaths, read_desired};
+use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, read_marker};
+use crate::desired::{DesiredPaths, DesiredState, read_desired};
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleExecutor, LifecycleHost};
 use crate::mutation::{
     BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationRequest,
@@ -204,6 +204,28 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         self.uid
     }
 
+    pub(crate) fn desired(&self) -> Result<DesiredState, ConnectionTransactionError> {
+        read_desired(&self.desired_paths, self.uid).map_err(|_| ConnectionTransactionError::Store)
+    }
+
+    /// Recheck durable native ownership while holding the same migration lock
+    /// used by mutation admission. Capability/status replies must never claim
+    /// a native owner during a concurrent cutover or rollback phase.
+    pub(crate) fn rust_ownership_available(&self, expected_generation: u64) -> bool {
+        let Ok(lock) = self.acquire_lock() else {
+            return false;
+        };
+        let available = self.rust_ownership_matches(expected_generation);
+        drop(lock);
+        available
+    }
+
+    pub(crate) fn rust_ownership_matches(&self, expected_generation: u64) -> bool {
+        read_marker(&self.cutover_paths, self.uid).is_ok_and(|marker| {
+            marker.phase() == OwnershipPhase::Rust && marker.generation() == expected_generation
+        })
+    }
+
     pub(crate) fn acquire_lock(&self) -> Result<MigrationLock, ConnectionTransactionError> {
         MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)
     }
@@ -217,8 +239,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
     }
 
     /// Execute one bounded restart reconciliation and then repair legacy
-    /// pointers from desired state plus verified owned-host truth. This is an
-    /// offline foundation and is not invoked by the production runtime yet.
+    /// pointers from desired state plus verified owned-host truth.
     pub(crate) fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {

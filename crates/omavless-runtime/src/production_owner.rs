@@ -4,9 +4,8 @@
 //!
 //! Construction is allowed only while the shared migration lock proves a
 //! committed `rust` ownership marker. Startup reconciliation completes under
-//! that same lease before the owner can be returned. This module deliberately
-//! does not register mutation methods with [`RuntimeServer`](crate::RuntimeServer);
-//! socket dispatch is the next bounded cutover checkpoint.
+//! that same lease before the owner can be returned. Socket registration is a
+//! separate boundary: constructing this value alone still exposes no IPC.
 
 use crate::RuntimePaths;
 use crate::connection_transaction::{ConnectionTransactionError, ConnectionTransactionOutcome};
@@ -14,8 +13,12 @@ use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, 
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
 use crate::native_coordinator::OfflineNativeCoordinator;
+use crate::native_dispatch::respond_to_native_mutation;
 use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
+use crate::subscription_transport::SubscriptionTransport;
 use nix::unistd::Uid;
+use omavless_control_protocol::ProtocolError;
+use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 
@@ -96,9 +99,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         uid: u32,
         lock: MigrationLock,
     ) -> Result<Self, ProductionOwnerError> {
-        let owned = read_marker(&cutover_paths, uid)
-            .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust);
-        if !owned {
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
         let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
@@ -107,6 +110,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             store_path,
             cutover_paths,
             uid,
+            marker.generation(),
         );
         let startup = coordinator
             .reconcile_startup_locked(&lock)
@@ -131,6 +135,37 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[must_use]
     pub const fn startup_outcome(&self) -> ConnectionTransactionOutcome {
         self.startup
+    }
+
+    pub(crate) fn desired(&self) -> Result<crate::desired::DesiredState, ProductionOwnerError> {
+        self.coordinator
+            .desired()
+            .map_err(|_| ProductionOwnerError::RecoveryFailed)
+    }
+
+    pub(crate) fn rust_ownership_available(&self) -> bool {
+        self.coordinator.rust_ownership_available()
+    }
+
+    pub(crate) fn respond<T, G, N>(
+        &mut self,
+        request: &Value,
+        transport: &T,
+        next_record_id: G,
+        now_millis: N,
+    ) -> Result<Value, ProtocolError>
+    where
+        T: SubscriptionTransport,
+        G: FnMut() -> String,
+        N: FnOnce() -> u64,
+    {
+        respond_to_native_mutation(
+            &mut self.coordinator,
+            request,
+            transport,
+            next_record_id,
+            now_millis,
+        )
     }
 }
 

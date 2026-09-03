@@ -5,8 +5,8 @@
 //! This module routes only the accepted v1 mutation method families. The
 //! coordinator supplied here must be constructed with `new_ownership_gated`,
 //! which rechecks the durable `rust` marker under the migration lock before
-//! every store/lifecycle phase. The production `RuntimeServer` does not yet
-//! construct or register this owner.
+//! every store/lifecycle phase. `RuntimeServer` reaches this binder only after
+//! the committed production-owner constructor succeeds.
 
 use crate::lifecycle::LifecycleHost;
 use crate::mutation::CachedOutcome;
@@ -310,6 +310,7 @@ mod tests {
             &store_path,
             cutover.clone(),
             uid,
+            7,
         );
         (root, store_path, cutover, owner)
     }

@@ -465,8 +465,11 @@ mod tests {
             &root,
             "#!/bin/sh\n[ \"$1 $2 $3\" = \"--user show omavless.service\" ] || exit 9\nprintf 'ActiveState=active\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n'\n",
         );
+        // Use the production query budget here. Under a fully parallel
+        // workspace test run the helper process can be descheduled long enough
+        // for a shorter test-only deadline to expire before it executes.
         let state =
-            service_state_with_timeout(&systemctl, LEGACY_SERVICE, Duration::from_secs(1)).unwrap();
+            service_state_with_timeout(&systemctl, LEGACY_SERVICE, SERVICE_QUERY_TIMEOUT).unwrap();
         assert!(state.active);
         assert_eq!(state.main_pid, 42);
         fs::remove_dir_all(root).unwrap();

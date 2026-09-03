@@ -2,9 +2,9 @@
 
 //! Exact v1 profile-mutation parameter validation and semantic digesting.
 //!
-//! This parser is deliberately not registered with the runtime socket. It
-//! produces a private domain mutation plus bounded scheduling metadata for a
-//! later owner binding; none of those values can be formatted or serialized.
+//! This parser is reachable only through ownership-gated runtime dispatch. It
+//! produces a private domain mutation plus bounded scheduling metadata; none
+//! of those values can be formatted or serialized.
 
 use crate::mutation::MutationDigest;
 use crate::mutation_protocol::{MutationProtocolError, append_field, exact_fields, metadata};

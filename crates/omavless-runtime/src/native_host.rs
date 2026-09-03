@@ -2,7 +2,7 @@
 
 //! Fixed-purpose package host adapter for the native lifecycle executor.
 //!
-//! This module is not wired to IPC or the production daemon yet. It composes
+//! This module contains no IPC surface of its own. The production owner composes
 //! private store/config preparation, Mihomo validation, parent-owned startup,
 //! private-controller readiness, process/TUN observation, and cleanup behind
 //! [`LifecycleHost`](crate::lifecycle::LifecycleHost).
