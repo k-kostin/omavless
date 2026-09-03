@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-//! Transaction ordering for the future native runtime owner.
+//! Transaction ordering for the native runtime owner.
 //!
-//! The executor deliberately has no IPC entry point and no production host
-//! adapter yet. It makes desired-state persistence, core preparation, startup,
-//! verification, commit, cleanup, and rollback ordering executable without
-//! allowing this R5 checkpoint to compete with the Python production owner.
+//! The executor deliberately has no IPC entry point. It makes desired-state
+//! persistence, core preparation, startup, verification, commit, cleanup, and
+//! rollback ordering executable behind the production ownership gate.
 
 use crate::desired::{
     DesiredError, DesiredPaths, DesiredState, MAX_GENERATION, OwnedObservation, ReconcileAction,

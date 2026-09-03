@@ -82,7 +82,7 @@ fn run() -> Result<(), String> {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
         flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
-        return RuntimeServer::bind(paths)
+        return RuntimeServer::bind_current(paths)
             .and_then(|server| server.serve_until(&stop))
             .map_err(|error| error.to_string());
     }

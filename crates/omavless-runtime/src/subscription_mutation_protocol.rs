@@ -2,8 +2,8 @@
 
 //! Exact v1 subscription-mutation parameter validation and semantic digesting.
 //!
-//! This parser is deliberately offline and unregistered. It accepts only the
-//! client-owned intent needed before a future bounded fetch/store transaction;
+//! This parser accepts only the client-owned intent needed before a bounded
+//! fetch/store transaction;
 //! generated IDs, fetched entries and trusted host observations cannot enter
 //! through this boundary. Private names and bearer URLs are neither formatted
 //! nor serialized by the resulting request types.

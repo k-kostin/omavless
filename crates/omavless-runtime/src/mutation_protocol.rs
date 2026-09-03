@@ -2,7 +2,7 @@
 
 //! Exact v1 connection-mutation parameter validation and semantic digesting.
 //!
-//! This parser is deliberately not registered with the runtime socket yet.
+//! This parser is reachable only through ownership-gated runtime dispatch.
 //! It converts an already bounded control request into the private owner action
 //! while rejecting unknown fields and never formatting private values.
 

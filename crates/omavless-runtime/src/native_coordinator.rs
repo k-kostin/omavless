@@ -5,10 +5,10 @@
 //!
 //! This is the first composition boundary that gives all mutation families
 //! one revision, replay cache, lifecycle executor, migration lock namespace and
-//! manual-recovery barrier. It remains unreachable from `RuntimeServer` and is
-//! not advertised in capabilities. Subscription network work uses a fixed,
-//! bounded transport and never runs while the Python/Rust migration lock is
-//! held.
+//! manual-recovery barrier. It never registers itself with `RuntimeServer`;
+//! the production owner is the only ownership-gated registration boundary.
+//! Subscription network work uses a fixed, bounded transport and never runs
+//! while the Python/Rust migration lock is held.
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -257,8 +257,9 @@ enum LockAdmission {
     Uncached(NativeOwnerExecution),
 }
 
-/// Offline-only composition of the accepted native mutation transactions.
-/// There is deliberately no socket constructor or production registration.
+/// Socket-independent composition of the accepted native mutation
+/// transactions. There is deliberately no socket constructor or registration
+/// side effect in this type.
 pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
@@ -312,6 +313,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     #[must_use]
     pub const fn actual(&self) -> ActualState {
         self.transaction.actual()
+    }
+
+    pub(crate) fn desired(
+        &self,
+    ) -> Result<crate::desired::DesiredState, ConnectionTransactionError> {
+        self.transaction.desired()
+    }
+
+    pub(crate) fn rust_ownership_available(&self) -> bool {
+        self.transaction.rust_ownership_available()
     }
 
     #[must_use]
@@ -546,10 +557,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
-    /// Execute one offline subscription mutation with injected trusted ID and
-    /// time sources. The concrete transport is bounded and credential-private;
-    /// no network work occurs while the shared Python/Rust migration lock is
-    /// held. This method remains unreachable from live IPC dispatch.
+    /// Execute one subscription mutation with injected trusted ID and time
+    /// sources. The concrete transport is bounded and credential-private; no
+    /// network work occurs while the shared Python/Rust migration lock is held.
     pub fn execute_subscription<T, G, N>(
         &mut self,
         request: &Value,
