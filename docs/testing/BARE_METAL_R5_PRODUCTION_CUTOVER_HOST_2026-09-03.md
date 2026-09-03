@@ -5,7 +5,7 @@
 - Repository: `k-kostin/omavless`
 - Branch: `codex/r5-production-cutover-host`
 - Draft PR: `#140`
-- Tested implementation head: `5f9552c80dff4cb4be65a2df585d90051df0a83a`
+- Tested implementation head: `fbe0933db6833b9e4f8e6d6ab12ae3684ed6c83e`
 - Base: `3b22cb987007ab85150f5352016267aa15138905`
 
 The candidate composes the accepted pure cutover transaction with the fixed
@@ -32,6 +32,10 @@ this evidence):
 - `./tests/run-rust.sh`: pass; workspace tests, formatting, clippy with warnings
   denied and the R0 parity smoke comparison passed. The runtime crate reported
   179 passing tests.
+- The 179-test runtime library suite passed 50 consecutive stress runs after
+  test-only executable fixtures were published atomically with a bounded
+  settling delay. This addresses an observed overlay-filesystem `ETXTBSY`
+  flake without changing production process-spawn behavior.
 - Production-host tests cover disconnected commit, exact connected staging,
   strict/duplicate routing-mode rejection, same-candidate verification and
   exact desired-state restoration after a plugin-bridge failure.
