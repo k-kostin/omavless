@@ -500,6 +500,9 @@ Accepted incremental checkpoints:
 - PR #111: ownership-gated offline mutation response binding plus exact
   operation replay before stale-revision rejection, still unregistered from
   live daemon dispatch.
+- PR #113: a fail-closed Python compatibility reader for the shared private
+  ownership marker, with exact Rust-schema, permission, ownership, symlink,
+  size and duplicate-key parity; it remains unwired from legacy dispatch.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
