@@ -1,7 +1,7 @@
 # OmaVLESS incremental Rust migration contract
 
 Status: selected implementation direction and migration contract. Updated
-2026-09-01.
+2026-09-03.
 
 This document is authoritative for implementation language, migration order and
 Python/Rust parity gates. It complements [`CONTROL_PLANE.md`](CONTROL_PLANE.md),
@@ -486,7 +486,7 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102, #104, #106-#108, #110, #111, #113 and #117-#120 provide the private control
+PRs #96-#100, #102, #104, #106-#108, #110, #111, #113 and #117-#121 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -515,9 +515,9 @@ production: failed native stop blocks legacy restoration, incompatible runtime
 verification cannot switch the bridge, and incomplete compensation preserves
 the preparing marker for manual recovery.
 Native profile rename/favorite/delete now also has v1-v3 normalization,
-Python differential parity and a private atomic writer, but stays unreachable
-until exact request envelopes, owner serialization and active-profile
-lifecycle coordination land.
+Python differential parity, a private atomic writer, and exact bounded v1
+request envelopes with domain-separated replay digests. It stays unreachable
+until owner serialization and active-profile lifecycle coordination land.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

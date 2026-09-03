@@ -245,6 +245,35 @@ uses a fixed 32-byte SHA-256 value, so the bounded cache never retains the
 private action payload. Implementing this parser does not enable mutations;
 daemon dispatch remains disabled until the one-owner cutover gate is present.
 
+The v1 local-profile mutation parameters are also exact objects:
+
+- `profiles.rename`: required `profileId` and `name`; optional `operationId`
+  and `expectedRevision`;
+- `profiles.favorite`: required `profileId` and boolean `enabled`; optional
+  `operationId` and `expectedRevision`;
+- `profiles.delete`: required `profileId`; optional `operationId` and
+  `expectedRevision`;
+- `profileId` uses the same bounded internal record-ID syntax as connection
+  mutations, and unknown fields are rejected;
+- rename input is non-empty UTF-8 and at most 320 bytes at the protocol
+  boundary. The private-store domain layer then removes control characters,
+  trims surrounding whitespace and enforces the canonical 80-character name
+  limit before any write;
+- provider-managed rename/delete restrictions, uniqueness and pointer/startup
+  repair remain private-store domain semantics rather than protocol guesses.
+
+Profile replay digests are domain-separated from connection digests and cover
+the method, profile ID, rename text or favorite boolean as applicable, and
+explicit/omitted expected revision. They exclude `operationId`; the request
+object and digest types deliberately provide no formatting or serialization of
+private fields. This exact parser remains offline and unregistered until the
+serialized owner also coordinates active-profile lifecycle effects.
+
+Once registered, successful profile mutations use the same exact bounded
+`{"accepted":true}` result and committed revision as connection mutations;
+clients obtain the resulting safe metadata through `profiles.list`. No private
+record data is returned from the mutation response.
+
 Successful v1 connection mutations return the exact bounded result
 `{"accepted":true}` at the committed revision; clients fetch `status.get` for
 the resulting lifecycle state. An exact `operationId` + digest retry returns

@@ -9,7 +9,7 @@
 use crate::desired::RoutingMode;
 use crate::mutation::MutationDigest;
 use crate::owner::{OwnerAction, OwnerRequest};
-use omavless_control_protocol::{MAX_REVISION, StableErrorCode, validate_request};
+use omavless_control_protocol::{MAX_ID_LENGTH, MAX_REVISION, StableErrorCode, validate_request};
 use omavless_domain::store::valid_record_id;
 use serde_json::{Map, Value};
 use std::fmt;
@@ -38,25 +38,54 @@ impl MutationProtocolError {
 impl fmt::Display for MutationProtocolError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::InvalidRequest => "Connection mutation request is invalid",
-            Self::UnknownMethod => "Connection mutation method is unsupported",
-            Self::InvalidArgument => "Connection mutation argument is invalid",
+            Self::InvalidRequest => "Runtime mutation request is invalid",
+            Self::UnknownMethod => "Runtime mutation method is unsupported",
+            Self::InvalidArgument => "Runtime mutation argument is invalid",
         })
     }
 }
 
 impl std::error::Error for MutationProtocolError {}
 
-fn exact_fields(params: &Map<String, Value>, allowed: &[&str], required: &[&str]) -> bool {
+pub(crate) fn exact_fields(
+    params: &Map<String, Value>,
+    allowed: &[&str],
+    required: &[&str],
+) -> bool {
     params.keys().all(|field| allowed.contains(&field.as_str()))
         && required.iter().all(|field| params.contains_key(*field))
 }
 
-fn metadata(params: &Map<String, Value>) -> (Option<&str>, Option<u64>) {
-    (
-        params.get("operationId").and_then(Value::as_str),
-        params.get("expectedRevision").and_then(Value::as_u64),
-    )
+pub(crate) struct MutationMetadata<'a> {
+    pub operation_id: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+pub(crate) fn metadata(
+    params: &Map<String, Value>,
+) -> Result<MutationMetadata<'_>, MutationProtocolError> {
+    let operation_id = params
+        .get("operationId")
+        .map(|value| value.as_str().ok_or(MutationProtocolError::InvalidArgument))
+        .transpose()?;
+    if operation_id.is_some_and(|value| {
+        value.is_empty()
+            || value.len() > MAX_ID_LENGTH
+            || !value.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+    }) {
+        return Err(MutationProtocolError::InvalidArgument);
+    }
+    let expected_revision = params
+        .get("expectedRevision")
+        .map(|value| value.as_u64().ok_or(MutationProtocolError::InvalidArgument))
+        .transpose()?;
+    if expected_revision.is_some_and(|revision| revision > MAX_REVISION) {
+        return Err(MutationProtocolError::InvalidArgument);
+    }
+    Ok(MutationMetadata {
+        operation_id,
+        expected_revision,
+    })
 }
 
 fn mode(value: Option<&Value>) -> Result<Option<RoutingMode>, MutationProtocolError> {
@@ -71,7 +100,7 @@ fn mode(value: Option<&Value>) -> Result<Option<RoutingMode>, MutationProtocolEr
     }
 }
 
-fn append_field(bytes: &mut Vec<u8>, value: &str) {
+pub(crate) fn append_field(bytes: &mut Vec<u8>, value: &str) {
     bytes.extend_from_slice(&(value.len() as u32).to_be_bytes());
     bytes.extend_from_slice(value.as_bytes());
 }
@@ -116,10 +145,7 @@ pub fn parse_owner_request(request: &Value) -> Result<OwnerRequest, MutationProt
     let params = request["params"]
         .as_object()
         .ok_or(MutationProtocolError::InvalidArgument)?;
-    let (operation_id, expected_revision) = metadata(params);
-    if expected_revision.is_some_and(|revision| revision > MAX_REVISION) {
-        return Err(MutationProtocolError::InvalidArgument);
-    }
+    let metadata = metadata(params)?;
     match method {
         "connection.connect" => {
             if !exact_fields(params, CONNECT_FIELDS, &["profileId"])
@@ -134,14 +160,15 @@ pub fn parse_owner_request(request: &Value) -> Result<OwnerRequest, MutationProt
                 .as_str()
                 .ok_or(MutationProtocolError::InvalidArgument)?;
             let mode = mode(params.get("mode"))?;
-            let digest = semantic_digest(method, Some(profile_id), mode, expected_revision);
+            let digest =
+                semantic_digest(method, Some(profile_id), mode, metadata.expected_revision);
             Ok(OwnerRequest::new(
                 OwnerAction::Connect {
                     profile_id: profile_id.to_owned(),
                     mode,
                 },
-                operation_id,
-                expected_revision,
+                metadata.operation_id,
+                metadata.expected_revision,
                 digest,
             ))
         }
@@ -149,11 +176,11 @@ pub fn parse_owner_request(request: &Value) -> Result<OwnerRequest, MutationProt
             if !exact_fields(params, DISCONNECT_FIELDS, &[]) {
                 return Err(MutationProtocolError::InvalidArgument);
             }
-            let digest = semantic_digest(method, None, None, expected_revision);
+            let digest = semantic_digest(method, None, None, metadata.expected_revision);
             Ok(OwnerRequest::new(
                 OwnerAction::Disconnect,
-                operation_id,
-                expected_revision,
+                metadata.operation_id,
+                metadata.expected_revision,
                 digest,
             ))
         }
@@ -164,13 +191,18 @@ pub fn parse_owner_request(request: &Value) -> Result<OwnerRequest, MutationProt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omavless_control_protocol::make_request;
     use serde_json::json;
 
     const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
 
     fn request(method: &str, params: Value) -> Value {
-        make_request("request-1", method, params).unwrap()
+        json!({
+            "api": "omavless.control",
+            "version": 1,
+            "id": "request-1",
+            "method": method,
+            "params": params,
+        })
     }
 
     #[test]
@@ -221,6 +253,33 @@ mod tests {
             parse_owner_request(&request("connection.restart", json!({}))),
             Err(MutationProtocolError::UnknownMethod)
         ));
+    }
+
+    #[test]
+    fn malformed_mutation_metadata_is_rejected_instead_of_treated_as_omitted() {
+        for params in [
+            json!({"profileId": PROFILE_ID, "operationId": 7}),
+            json!({"profileId": PROFILE_ID, "operationId": ""}),
+            json!({"profileId": PROFILE_ID, "operationId": "has space"}),
+            json!({"profileId": PROFILE_ID, "operationId": "x".repeat(65)}),
+            json!({"profileId": PROFILE_ID, "expectedRevision": "7"}),
+            json!({"profileId": PROFILE_ID, "expectedRevision": -1}),
+            json!({"profileId": PROFILE_ID, "expectedRevision": MAX_REVISION + 1}),
+        ] {
+            assert!(matches!(
+                parse_owner_request(&request("connection.connect", params)),
+                Err(MutationProtocolError::InvalidRequest)
+            ));
+        }
+        for params in [
+            json!({"operationId": false}),
+            json!({"expectedRevision": null}),
+        ] {
+            assert!(matches!(
+                parse_owner_request(&request("connection.disconnect", params)),
+                Err(MutationProtocolError::InvalidRequest)
+            ));
+        }
     }
 
     #[test]
