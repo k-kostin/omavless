@@ -486,7 +486,7 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102, #104, #106-#108, #110, #111, #113, #117 and #118 provide the private control
+PRs #96-#100, #102, #104, #106-#108, #110, #111, #113 and #117-#119 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -509,7 +509,11 @@ incapable of replacing the Python lifecycle owner. The locked production-host
 preflight now proves disconnected/adoptable/inconsistent classification from
 fixed systemd, process, TUN, private-controller and exact active-config facts
 without changing host state. The next owning work is live owner construction,
-socket registration and the explicit plugin migration transaction.
+socket registration and the production host implementation of the now-fixed
+transaction/compensation sequence. The coordinator itself is unreachable from
+production: failed native stop blocks legacy restoration, incompatible runtime
+verification cannot switch the bridge, and incomplete compensation preserves
+the preparing marker for manual recovery.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

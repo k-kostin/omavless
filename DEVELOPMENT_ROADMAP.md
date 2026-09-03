@@ -512,12 +512,17 @@ Accepted incremental checkpoints:
   controllers; verifies the active private config without publishing its
   identity; and classifies disconnected, adoptable and inconsistent states
   without writing the ownership marker or changing either lifecycle owner.
+- PR #119: the unreachable production-neutral cutover coordinator fixes the
+  full transition and reverse-compensation order behind a fixed-purpose host
+  trait. Failed native stop can never restore legacy ownership, incompatible
+  hello/status cannot switch the bridge, and any incomplete compensation
+  preserves `cutoverPreparing` as a hard manual-recovery blocker.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until live owner construction/IPC
-registration, the explicit transactional cutover, plugin bridge and rollback
-acceptance gates below pass.
+only production owner. R5 is not complete until a production transaction host,
+live owner construction/IPC registration, an executed transactional cutover,
+plugin bridge and rollback acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 

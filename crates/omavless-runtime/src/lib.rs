@@ -27,6 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod core;
 pub mod cutover;
+pub mod cutover_transaction;
 pub mod desired;
 pub mod lifecycle;
 pub mod mutation;
