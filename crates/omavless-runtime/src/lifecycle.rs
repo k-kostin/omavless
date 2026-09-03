@@ -384,6 +384,30 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         }
     }
 
+    /// Prove whether the canonical owned runtime is active before a mutation
+    /// whose safety depends on service liveness but not on one profile ID.
+    /// Recovering or otherwise ambiguous state is never reported as inactive.
+    pub(crate) fn observe_active_service(&mut self) -> Result<bool, LifecycleError> {
+        let desired = self.read()?;
+        let observed = self.observe_or_manual(&desired)?;
+        match reconcile(&desired, observed) {
+            ReconcileAction::SettledDisconnected => {
+                self.actual = ActualState::Disconnected;
+                Ok(false)
+            }
+            ReconcileAction::AdoptConnected => {
+                self.actual = ActualState::Connected;
+                Ok(true)
+            }
+            ReconcileAction::RecoverConnected
+            | ReconcileAction::StopOwned
+            | ReconcileAction::ManualRecoveryRequired => {
+                self.actual = ActualState::ManualRecoveryRequired;
+                Err(LifecycleError::ManualRecoveryRequired)
+            }
+        }
+    }
+
     /// Stop the exact active target while deliberately retaining connected
     /// desired state. This is the active-rename quiesce phase; any uncertainty
     /// is a hard manual-recovery outcome.

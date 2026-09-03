@@ -487,7 +487,7 @@ Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
 PRs #96-#100, #102, #104, #106-#108, #110, #111, #113, #117-#121 and
-#125-#130 provide the private control
+#125-#134 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -584,13 +584,24 @@ active-profile lifecycle compensation. PR #130 adds the corresponding offline
 connection transaction and startup-reconciliation boundary: compatibility
 `activeId`/`lastId` pointers follow verified desired/runtime outcomes, stale
 startup state is repaired, and uncertain restoration becomes a manual-recovery
-blocker without stopping an adopted healthy tunnel. Both remain absent from
-runtime dispatch and capabilities.
+blocker without stopping an adopted healthy tunnel. PR #133 converges the
+connection and profile paths behind one offline coordinator, shared revision,
+replay namespace, migration lock, lifecycle executor and global recovery
+barrier.
 
-The next bounded checkpoint is one live coordinator for these accepted offline
-owners, a production-safe subscription transport boundary, and mutation
-registration gated by verified native ownership. Transactional cutover and the
-plugin bridge still follow; R5 is not complete.
+PR #134 adds the production-safe subscription HTTP boundary and joins
+subscription add/update/delete to that coordinator. Requests use fixed GET and
+safe headers, platform-verified TLS, a 25-second global timeout, at most five
+manually revalidated redirects, a 32 KiB response-header cap and a 5 MiB body
+cap. Ambient proxy credentials, cookies and authorization forwarding are not
+accepted. Every target must remain HTTPS or canonical loopback HTTP. Remote
+work occurs outside the Python/Rust migration lock; commit re-acquires the
+shared lease and uses trusted runtime observation. Transport, feed and store
+failures expose only stable credential-free outcomes.
+
+These owners remain absent from runtime dispatch and capabilities. The next
+bounded checkpoint is mutation registration gated by verified native ownership.
+Transactional cutover and the plugin bridge still follow; R5 is not complete.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

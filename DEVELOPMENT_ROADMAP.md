@@ -547,12 +547,18 @@ Accepted incremental checkpoints:
   `activeId`/`lastId` pointers only after verified lifecycle outcomes, repair
   startup state, and fail closed at uncertain startup or compensation
   boundaries without killing an adopted healthy tunnel.
+- PR #133: connection and profile mutations now share one offline native
+  coordinator, revision/replay namespace, migration lock, lifecycle executor
+  and global manual-recovery barrier.
+- PR #134: the bounded Rust subscription transport validates every initial and
+  redirected target, enforces fixed TLS/time/header/body/redirect policy, and
+  binds subscription add/update/delete to that same offline owner without
+  holding the migration lock across network I/O.
 
-All PR #125-#130 owners remain deliberately unreachable from production IPC.
-The next bounded checkpoint is to converge the offline profile, subscription
-and connection transaction paths behind one live coordinator, add the
-production-safe subscription transport boundary, and register mutation
-dispatch only under verified native ownership.
+All PR #125-#134 mutation owners remain deliberately unreachable from
+production IPC. The next bounded checkpoint is to register their mutation
+dispatch only under verified native ownership, without enabling a legacy or
+preparing owner to mutate through the Rust socket.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
