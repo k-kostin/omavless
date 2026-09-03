@@ -47,6 +47,7 @@ pub mod store_preflight;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
 pub mod subscription_refresh;
+pub mod subscription_transport;
 
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";

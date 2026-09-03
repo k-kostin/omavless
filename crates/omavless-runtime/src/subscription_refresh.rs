@@ -12,6 +12,7 @@ use crate::subscription_mutation::{
     SubscriptionMutationCommitError, SubscriptionRefreshCommit, commit_subscription_refresh,
     snapshot_subscription_refresh,
 };
+pub use crate::subscription_transport::SubscriptionTransportError;
 use omavless_domain::private_store::{IncomingSubscriptionProfile, SubscriptionRefreshSnapshot};
 use omavless_domain::subscription_feed::{
     DecodedSubscriptionFeed, PrivateSubscriptionBody, SubscriptionFeedError,
@@ -19,19 +20,6 @@ use omavless_domain::subscription_feed::{
 };
 use std::fmt;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubscriptionTransportError {
-    Unavailable,
-}
-
-impl fmt::Display for SubscriptionTransportError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("Subscription transport is unavailable")
-    }
-}
-
-impl std::error::Error for SubscriptionTransportError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubscriptionRefreshError {
@@ -49,7 +37,7 @@ impl SubscriptionRefreshError {
             Self::Store(SubscriptionMutationCommitError::Busy) => "busy",
             Self::Store(SubscriptionMutationCommitError::UnsafeLock) => "unsafe_lock",
             Self::Store(SubscriptionMutationCommitError::Mutation(error)) => error.code(),
-            Self::Transport(_) => "subscription_transport_unavailable",
+            Self::Transport(error) => error.code(),
             Self::Feed(error) => error.code(),
         }
     }

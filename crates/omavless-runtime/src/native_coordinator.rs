@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 
-//! One offline coordinator for native connection and profile transactions.
+//! One offline coordinator for native connection, profile and subscription
+//! transactions.
 //!
-//! This is the first composition boundary that gives both mutation families
+//! This is the first composition boundary that gives all mutation families
 //! one revision, replay cache, lifecycle executor, migration lock namespace and
 //! manual-recovery barrier. It remains unreachable from `RuntimeServer` and is
-//! not advertised in capabilities. Subscription transactions join this owner
-//! after their bounded transport boundary is available.
+//! not advertised in capabilities. Subscription network work uses a fixed,
+//! bounded transport and never runs while the Python/Rust migration lock is
+//! held.
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -14,7 +16,7 @@ use crate::connection_transaction::{
 };
 use crate::cutover::MigrationLock;
 use crate::desired::DesiredPaths;
-use crate::lifecycle::{ActualState, LifecycleHost};
+use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
     BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationKind,
     MutationRequest, MutationResult, MutationToken, SubmitOutcome,
@@ -27,7 +29,18 @@ use crate::profile_transaction::{
     ProfileMutationOutcome, ProfileTransactionError, apply_transaction, mutation_identity,
     store_error,
 };
+use crate::subscription_mutation::{
+    SubscriptionMutationCommit, SubscriptionMutationCommitError, commit_subscription_mutation,
+};
+use crate::subscription_mutation_protocol::{
+    SubscriptionMutationIntent, parse_subscription_mutation_request,
+};
+use crate::subscription_transport::SubscriptionTransport;
 use omavless_control_protocol::StableErrorCode;
+use omavless_domain::private_store::{
+    PrivateStoreError, SubscriptionMutation, SubscriptionMutationContext,
+};
+use omavless_domain::subscription_feed::decode_subscription_feed;
 use serde_json::Value;
 use std::fmt;
 use std::path::Path;
@@ -36,6 +49,7 @@ use std::path::Path;
 pub enum NativeMutationOutcome {
     Connection(ConnectionTransactionOutcome),
     Profile(ProfileMutationOutcome),
+    Subscription(SubscriptionMutationCommit),
 }
 
 impl NativeMutationOutcome {
@@ -43,7 +57,91 @@ impl NativeMutationOutcome {
         match self {
             Self::Connection(outcome) => outcome.changed,
             Self::Profile(outcome) => outcome.changed,
+            Self::Subscription(outcome) => outcome.changed,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionTransactionError {
+    Busy,
+    NotFound,
+    InvalidArgument,
+    Conflict,
+    Transport,
+    Store,
+    ManualRecoveryRequired,
+}
+
+impl SubscriptionTransactionError {
+    #[must_use]
+    pub const fn stable_code(self) -> StableErrorCode {
+        match self {
+            Self::Busy => StableErrorCode::Busy,
+            Self::NotFound => StableErrorCode::NotFound,
+            Self::InvalidArgument => StableErrorCode::InvalidArgument,
+            Self::Conflict => StableErrorCode::Conflict,
+            Self::Transport => StableErrorCode::CoreRejected,
+            Self::Store => StableErrorCode::InternalError,
+            Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
+        }
+    }
+}
+
+impl fmt::Display for SubscriptionTransactionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Busy => "Another OmaVLESS operation is active",
+            Self::NotFound => "Requested subscription was not found",
+            Self::InvalidArgument => "Subscription mutation is not permitted",
+            Self::Conflict => "Subscription mutation conflicts with current state",
+            Self::Transport => "Subscription provider response could not be accepted",
+            Self::Store => "Subscription store transaction failed",
+            Self::ManualRecoveryRequired => "Manual recovery is required",
+        })
+    }
+}
+
+impl std::error::Error for SubscriptionTransactionError {}
+
+fn subscription_lock_error(error: ConnectionTransactionError) -> SubscriptionTransactionError {
+    match error {
+        ConnectionTransactionError::Busy => SubscriptionTransactionError::Busy,
+        _ => SubscriptionTransactionError::Store,
+    }
+}
+
+fn subscription_store_error(
+    error: SubscriptionMutationCommitError,
+) -> SubscriptionTransactionError {
+    match error {
+        SubscriptionMutationCommitError::Busy => SubscriptionTransactionError::Busy,
+        SubscriptionMutationCommitError::Mutation(PrivateStoreError::SubscriptionNotFound) => {
+            SubscriptionTransactionError::NotFound
+        }
+        SubscriptionMutationCommitError::Mutation(
+            PrivateStoreError::DuplicateSubscriptionUrl
+            | PrivateStoreError::SubscriptionChanged
+            | PrivateStoreError::ActiveSubscription,
+        ) => SubscriptionTransactionError::Conflict,
+        SubscriptionMutationCommitError::Mutation(
+            PrivateStoreError::InvalidName | PrivateStoreError::InvalidSubscriptionUrl,
+        ) => SubscriptionTransactionError::InvalidArgument,
+        SubscriptionMutationCommitError::UnsafeStore
+        | SubscriptionMutationCommitError::StoreIo
+        | SubscriptionMutationCommitError::UnsafeLock
+        | SubscriptionMutationCommitError::Mutation(_) => SubscriptionTransactionError::Store,
+    }
+}
+
+fn subscription_lifecycle_error(error: LifecycleError) -> SubscriptionTransactionError {
+    match error {
+        LifecycleError::ManualRecoveryRequired | LifecycleError::RecoveryFailed => {
+            SubscriptionTransactionError::ManualRecoveryRequired
+        }
+        LifecycleError::InvalidRequest
+        | LifecycleError::State
+        | LifecycleError::TransitionFailedRestored => SubscriptionTransactionError::Store,
     }
 }
 
@@ -51,6 +149,7 @@ impl NativeMutationOutcome {
 pub enum NativeTransactionError {
     Connection(ConnectionTransactionError),
     Profile(ProfileTransactionError),
+    Subscription(SubscriptionTransactionError),
 }
 
 impl NativeTransactionError {
@@ -59,6 +158,7 @@ impl NativeTransactionError {
         match self {
             Self::Connection(error) => error.stable_code(),
             Self::Profile(error) => error.stable_code(),
+            Self::Subscription(error) => error.stable_code(),
         }
     }
 
@@ -67,6 +167,7 @@ impl NativeTransactionError {
             self,
             Self::Connection(ConnectionTransactionError::ManualRecoveryRequired)
                 | Self::Profile(ProfileTransactionError::ManualRecoveryRequired)
+                | Self::Subscription(SubscriptionTransactionError::ManualRecoveryRequired)
         )
     }
 }
@@ -76,6 +177,7 @@ impl fmt::Display for NativeTransactionError {
         match self {
             Self::Connection(error) => error.fmt(formatter),
             Self::Profile(error) => error.fmt(formatter),
+            Self::Subscription(error) => error.fmt(formatter),
         }
     }
 }
@@ -386,6 +488,204 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             false,
         )
     }
+
+    /// Execute one offline subscription mutation with injected trusted ID and
+    /// time sources. The concrete transport is bounded and credential-private;
+    /// no network work occurs while the shared Python/Rust migration lock is
+    /// held. This method remains unreachable from live IPC dispatch.
+    pub fn execute_subscription<T, G, N>(
+        &mut self,
+        request: &Value,
+        transport: &T,
+        mut next_record_id: G,
+        now_millis: N,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError>
+    where
+        T: SubscriptionTransport,
+        G: FnMut() -> String,
+        N: FnOnce() -> u64,
+    {
+        let parsed = parse_subscription_mutation_request(request)?;
+        let (intent, operation_id, expected_revision, digest) = parsed.into_parts();
+        let admission = self.admit(
+            MutationKind::Other,
+            operation_id.as_deref(),
+            expected_revision,
+            digest,
+        )?;
+        let token = match admission {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Subscription(
+                SubscriptionTransactionError::ManualRecoveryRequired,
+            ),
+        )? {
+            return Ok(outcome);
+        }
+
+        let mutation_and_lock = match intent {
+            SubscriptionMutationIntent::Add { name, url } => {
+                // Reject an already-busy store owner before issuing a remote
+                // request, then release the lease for the bounded fetch.
+                let preflight = match self.preflight_lock(token, |error| {
+                    NativeTransactionError::Subscription(subscription_lock_error(error))
+                })? {
+                    LockAdmission::Locked(lock) => lock,
+                    LockAdmission::Uncached(outcome) => return Ok(outcome),
+                };
+                drop(preflight);
+                let body = match transport.fetch(&url) {
+                    Ok(body) => body,
+                    Err(_error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                SubscriptionTransactionError::Transport,
+                            )),
+                            false,
+                        );
+                    }
+                };
+                let feed = match decode_subscription_feed(body) {
+                    Ok(feed) => feed,
+                    Err(_error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                SubscriptionTransactionError::Transport,
+                            )),
+                            false,
+                        );
+                    }
+                };
+                let subscription_id = next_record_id();
+                let entries = feed.into_private_entries(&mut next_record_id);
+                let lock = match self.transaction.acquire_lock() {
+                    Ok(lock) => lock,
+                    Err(error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                subscription_lock_error(error),
+                            )),
+                            false,
+                        );
+                    }
+                };
+                (
+                    SubscriptionMutation::Add {
+                        subscription_id,
+                        name,
+                        url,
+                        entries,
+                        updated_at: now_millis(),
+                    },
+                    lock,
+                )
+            }
+            SubscriptionMutationIntent::Update {
+                subscription_id,
+                name,
+                url,
+            } => {
+                let preflight = match self.preflight_lock(token, |error| {
+                    NativeTransactionError::Subscription(subscription_lock_error(error))
+                })? {
+                    LockAdmission::Locked(lock) => lock,
+                    LockAdmission::Uncached(outcome) => return Ok(outcome),
+                };
+                drop(preflight);
+                let body = match transport.fetch(&url) {
+                    Ok(body) => body,
+                    Err(_error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                SubscriptionTransactionError::Transport,
+                            )),
+                            false,
+                        );
+                    }
+                };
+                let feed = match decode_subscription_feed(body) {
+                    Ok(feed) => feed,
+                    Err(_error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                SubscriptionTransactionError::Transport,
+                            )),
+                            false,
+                        );
+                    }
+                };
+                let entries = feed.into_private_entries(&mut next_record_id);
+                let lock = match self.transaction.acquire_lock() {
+                    Ok(lock) => lock,
+                    Err(error) => {
+                        return self.finish(
+                            token,
+                            Err(NativeTransactionError::Subscription(
+                                subscription_lock_error(error),
+                            )),
+                            false,
+                        );
+                    }
+                };
+                (
+                    SubscriptionMutation::Update {
+                        subscription_id,
+                        name,
+                        url,
+                        entries,
+                        updated_at: now_millis(),
+                    },
+                    lock,
+                )
+            }
+            SubscriptionMutationIntent::Delete { subscription_id } => {
+                let lock = match self.preflight_lock(token, |error| {
+                    NativeTransactionError::Subscription(subscription_lock_error(error))
+                })? {
+                    LockAdmission::Locked(lock) => lock,
+                    LockAdmission::Uncached(outcome) => return Ok(outcome),
+                };
+                (SubscriptionMutation::Delete { subscription_id }, lock)
+            }
+        };
+
+        let (mutation, _lock) = mutation_and_lock;
+        let active_service = match self.transaction.lifecycle_mut().observe_active_service() {
+            Ok(active) => active,
+            Err(error) => {
+                return self.finish(
+                    token,
+                    Err(NativeTransactionError::Subscription(
+                        subscription_lifecycle_error(error),
+                    )),
+                    false,
+                );
+            }
+        };
+        let outcome = commit_subscription_mutation(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            mutation,
+            SubscriptionMutationContext { active_service },
+        )
+        .map_err(subscription_store_error);
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Subscription)
+                .map_err(NativeTransactionError::Subscription),
+            false,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -395,13 +695,66 @@ mod tests {
     use crate::desired::{DesiredState, OwnedObservation, RoutingMode, write_desired};
     use crate::lifecycle::HostStepError;
     use crate::mutation::MutationDigest;
+    use crate::subscription_transport::SubscriptionTransportError;
+    use omavless_domain::subscription_feed::PrivateSubscriptionBody;
     use serde_json::json;
+    use std::cell::Cell;
     use std::fs;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
+    const SUBSCRIPTION: &str = "10000000-0000-4000-8000-000000000001";
+    const SUBSCRIPTION_PROFILE: &str = "20000000-0000-4000-8000-000000000001";
+    const SUBSCRIPTION_URL: &str = "https://provider.invalid/private-token";
+    const SUBSCRIPTION_BODY: &str =
+        "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed";
+
+    struct FakeTransport {
+        body: Option<&'static [u8]>,
+        calls: Cell<usize>,
+        lock_probe: Option<(CutoverPaths, u32)>,
+        lock_was_free: Cell<bool>,
+    }
+
+    impl FakeTransport {
+        fn success(owner: &OfflineNativeCoordinator<FakeHost>) -> Self {
+            Self {
+                body: Some(SUBSCRIPTION_BODY.as_bytes()),
+                calls: Cell::new(0),
+                lock_probe: Some((
+                    owner.transaction.cutover_paths().clone(),
+                    owner.transaction.uid(),
+                )),
+                lock_was_free: Cell::new(false),
+            }
+        }
+
+        fn failure() -> Self {
+            Self {
+                body: None,
+                calls: Cell::new(0),
+                lock_probe: None,
+                lock_was_free: Cell::new(false),
+            }
+        }
+    }
+
+    impl SubscriptionTransport for FakeTransport {
+        fn fetch(&self, _url: &str) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+            self.calls.set(self.calls.get() + 1);
+            if let Some((paths, uid)) = &self.lock_probe {
+                let probe = MigrationLock::acquire(paths, *uid)
+                    .expect("subscription fetch ran while the migration lock was held");
+                self.lock_was_free.set(true);
+                drop(probe);
+            }
+            self.body
+                .map(|body| PrivateSubscriptionBody::from_bytes(body.to_vec()).unwrap())
+                .ok_or(SubscriptionTransportError::Unavailable)
+        }
+    }
 
     fn empty() -> OwnedObservation {
         OwnedObservation {
@@ -553,6 +906,29 @@ mod tests {
             "method": method,
             "params": params,
         })
+    }
+
+    fn subscription_add(operation_id: &str, revision: u64) -> Value {
+        profile_request(
+            "subscriptions.add",
+            json!({
+                "name": "Private source",
+                "url": SUBSCRIPTION_URL,
+                "operationId": operation_id,
+                "expectedRevision": revision
+            }),
+        )
+    }
+
+    fn subscription_delete(operation_id: &str, revision: u64) -> Value {
+        profile_request(
+            "subscriptions.delete",
+            json!({
+                "subscriptionId": SUBSCRIPTION,
+                "operationId": operation_id,
+                "expectedRevision": revision
+            }),
+        )
     }
 
     fn applied(execution: NativeOwnerExecution) -> (CachedOutcome, NativeMutationOutcome) {
@@ -720,6 +1096,120 @@ mod tests {
         assert!(matches!(outcome, NativeMutationOutcome::Profile(_)));
         let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
         assert_eq!(store["profiles"][0]["favorite"], true);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_joins_shared_revision_and_fetches_without_store_lock() {
+        let (root, store_path, mut owner) = fixture("subscription-shared");
+        applied(owner.execute_connection(connect("connect-1", 0)).unwrap());
+        let transport = FakeTransport::success(&owner);
+        let ids = [SUBSCRIPTION.to_owned(), SUBSCRIPTION_PROFILE.to_owned()];
+        let mut ids = ids.into_iter();
+        let request = subscription_add("subscription-add-1", 1);
+        let (cached, outcome) = applied(
+            owner
+                .execute_subscription(
+                    &request,
+                    &transport,
+                    || ids.next().unwrap(),
+                    || 1_800_000_000_000,
+                )
+                .unwrap(),
+        );
+        assert_eq!(cached.revision, 2);
+        assert!(matches!(outcome, NativeMutationOutcome::Subscription(_)));
+        assert_eq!(transport.calls.get(), 1);
+        assert!(transport.lock_was_free.get());
+        assert_eq!(owner.actual(), ActualState::Connected);
+
+        let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
+        assert_eq!(store["subscriptions"].as_array().unwrap().len(), 1);
+        assert_eq!(store["profiles"].as_array().unwrap().len(), 2);
+        assert_eq!(store["profiles"][1]["subscriptionId"], SUBSCRIPTION);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_transport_failure_is_private_cached_and_has_no_store_effect() {
+        let (root, store_path, mut owner) = fixture("subscription-failure");
+        let before = fs::read(&store_path).unwrap();
+        let transport = FakeTransport::failure();
+        let request = subscription_add("subscription-failure-1", 0);
+        let first = owner
+            .execute_subscription(&request, &transport, || unreachable!(), || 0)
+            .unwrap();
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Err(error),
+        } = first
+        else {
+            panic!("transport failure was not returned as a bounded mutation error");
+        };
+        assert_eq!(cached.revision, 0);
+        assert_eq!(error.stable_code(), StableErrorCode::CoreRejected);
+        let public = error.to_string();
+        assert!(!public.contains("provider.invalid"));
+        assert!(!public.contains("private-token"));
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+
+        assert!(matches!(
+            owner
+                .execute_subscription(&request, &transport, || unreachable!(), || 0)
+                .unwrap(),
+            NativeOwnerExecution::Replay(_)
+        ));
+        assert_eq!(transport.calls.get(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_subscription_delete_uses_trusted_runtime_observation() {
+        let (root, store_path, mut owner) = fixture("subscription-active-delete");
+        let transport = FakeTransport::success(&owner);
+        let ids = [SUBSCRIPTION.to_owned(), SUBSCRIPTION_PROFILE.to_owned()];
+        let mut ids = ids.into_iter();
+        applied(
+            owner
+                .execute_subscription(
+                    &subscription_add("subscription-add-1", 0),
+                    &transport,
+                    || ids.next().unwrap(),
+                    || 1_800_000_000_000,
+                )
+                .unwrap(),
+        );
+        applied(
+            owner
+                .execute_connection(OwnerRequest::new(
+                    OwnerAction::Connect {
+                        profile_id: SUBSCRIPTION_PROFILE.to_owned(),
+                        mode: Some(RoutingMode::Global),
+                    },
+                    Some("connect-managed"),
+                    Some(1),
+                    MutationDigest::from_semantic_bytes(b"connect/managed/global"),
+                ))
+                .unwrap(),
+        );
+        let before = fs::read(&store_path).unwrap();
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Err(error),
+        } = owner
+            .execute_subscription(
+                &subscription_delete("subscription-delete-1", 2),
+                &transport,
+                || unreachable!(),
+                || 0,
+            )
+            .unwrap()
+        else {
+            panic!("active subscription delete was not rejected");
+        };
+        assert_eq!(cached.revision, 2);
+        assert_eq!(error.stable_code(), StableErrorCode::Conflict);
+        assert_eq!(fs::read(store_path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
 }
