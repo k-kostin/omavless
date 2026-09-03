@@ -5,135 +5,47 @@
 //! This module is not registered with IPC. A future owner must hold the
 //! migration lock and serialized mutation slot while a prepared value exists.
 
-use omavless_domain::private_store::{PrivateStoreError, ProfileMutation, apply_profile_mutation};
-use omavless_store::{StoreIoError, atomic_replace_private, read_private_utf8};
-use std::fmt;
-use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use crate::cutover::{CutoverPaths, MigrationLock};
+use crate::private_store_transaction::{PreparedPrivateStoreWrite, prepare_private_store_write};
+use omavless_domain::private_store::{ProfileMutation, apply_profile_mutation};
+use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProfileMutationCommitError {
-    UnsafeStore,
-    StoreChanged,
-    StoreIo,
-    Mutation(PrivateStoreError),
-}
-
-impl fmt::Display for ProfileMutationCommitError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnsafeStore => formatter.write_str("Private profile store path is unsafe"),
-            Self::StoreChanged => formatter.write_str("Private profile store changed concurrently"),
-            Self::StoreIo => formatter.write_str("Private profile store update failed"),
-            Self::Mutation(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for ProfileMutationCommitError {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PreparedWrite {
-    NoChange,
-    Changed,
-}
+pub use crate::private_store_transaction::{PreparedWrite, PrivateStoreWriteError};
+pub type ProfileMutationCommitError = PrivateStoreWriteError;
 
 /// One credential-bearing original/candidate pair. It intentionally cannot be
 /// formatted, cloned or serialized. `restore` accepts only the exact original
 /// or exact candidate bytes, never an unrelated same-user edit.
 pub struct PreparedProfileMutation {
-    store_path: PathBuf,
-    uid: u32,
-    original: Vec<u8>,
-    candidate: Vec<u8>,
-    changed: bool,
+    prepared: PreparedPrivateStoreWrite,
 }
 
 impl PreparedProfileMutation {
     #[must_use]
     pub const fn changed(&self) -> bool {
-        self.changed
-    }
-
-    fn current_bytes(&self) -> Result<Vec<u8>, ProfileMutationCommitError> {
-        validate_store_path(&self.store_path, self.uid)?;
-        read_private_utf8(&self.store_path, self.uid)
-            .map(String::into_bytes)
-            .map_err(map_io)
-    }
-
-    fn replace_and_verify(&self, payload: &[u8]) -> Result<(), ProfileMutationCommitError> {
-        atomic_replace_private(&self.store_path, payload, self.uid).map_err(map_io)?;
-        if self.current_bytes()?.as_slice() != payload {
-            return Err(ProfileMutationCommitError::StoreChanged);
-        }
-        Ok(())
+        self.prepared.changed()
     }
 
     /// Commit only while the store still has the exact bytes used to prepare
     /// this candidate. A semantic reparse is deliberately insufficient.
-    pub fn commit(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
-        if self.current_bytes()? != self.original {
-            return Err(ProfileMutationCommitError::StoreChanged);
-        }
-        if !self.changed {
-            return Ok(PreparedWrite::NoChange);
-        }
-        self.replace_and_verify(&self.candidate)?;
-        Ok(PreparedWrite::Changed)
+    pub fn commit_locked(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        self.prepared.commit_locked(lock, paths)
     }
 
     /// Restore the exact original after a failed active-profile transition.
     /// Already-restored bytes are accepted as an idempotent no-op. Anything
     /// else is ambiguous and fails closed.
-    pub fn restore(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
-        let current = self.current_bytes()?;
-        if current == self.original {
-            return Ok(PreparedWrite::NoChange);
-        }
-        if current != self.candidate {
-            return Err(ProfileMutationCommitError::StoreChanged);
-        }
-        self.replace_and_verify(&self.original)?;
-        Ok(PreparedWrite::Changed)
+    pub fn restore_locked(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        self.prepared.restore_locked(lock, paths)
     }
-}
-
-fn private_parent(path: &Path, uid: u32) -> bool {
-    path.parent().is_some_and(|parent| {
-        fs::symlink_metadata(parent).is_ok_and(|metadata| {
-            !metadata.file_type().is_symlink()
-                && metadata.is_dir()
-                && metadata.uid() == uid
-                && metadata.permissions().mode() & 0o077 == 0
-        })
-    })
-}
-
-fn private_store_file(path: &Path, uid: u32) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|metadata| {
-        !metadata.file_type().is_symlink()
-            && metadata.is_file()
-            && metadata.uid() == uid
-            && metadata.permissions().mode() & 0o077 == 0
-    })
-}
-
-fn validate_store_path(path: &Path, uid: u32) -> Result<(), ProfileMutationCommitError> {
-    if path.is_absolute()
-        && path.file_name().and_then(|name| name.to_str()) == Some("profiles.json")
-        && private_parent(path, uid)
-        && private_store_file(path, uid)
-    {
-        Ok(())
-    } else {
-        Err(ProfileMutationCommitError::UnsafeStore)
-    }
-}
-
-fn map_io(_error: StoreIoError) -> ProfileMutationCommitError {
-    ProfileMutationCommitError::StoreIo
 }
 
 /// Validate and render a complete replacement without changing the store.
@@ -142,33 +54,22 @@ pub fn prepare_profile_mutation(
     uid: u32,
     mutation: ProfileMutation,
 ) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
-    validate_store_path(store_path, uid)?;
-    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
-    let result =
-        apply_profile_mutation(&input, mutation).map_err(ProfileMutationCommitError::Mutation)?;
-    Ok(PreparedProfileMutation {
-        store_path: store_path.to_path_buf(),
-        uid,
-        original: input.into_bytes(),
-        candidate: result.payload().to_vec(),
-        changed: result.changed,
-    })
-}
-
-/// Compatibility helper for the existing offline store-only boundary.
-pub fn commit_profile_mutation(
-    store_path: &Path,
-    uid: u32,
-    mutation: ProfileMutation,
-) -> Result<PreparedWrite, ProfileMutationCommitError> {
-    prepare_profile_mutation(store_path, uid, mutation)?.commit()
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        let result = apply_profile_mutation(input, mutation)?;
+        Ok((result.payload().to_vec(), result.changed))
+    })?;
+    Ok(PreparedProfileMutation { prepared })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omavless_domain::private_store::PrivateStoreError;
     use serde_json::{Value, json};
+    use std::fs;
     use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
@@ -215,6 +116,12 @@ mod tests {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
+    fn locked(root: &Path, uid: u32) -> (CutoverPaths, MigrationLock) {
+        let paths = CutoverPaths::below(root, root, uid);
+        let lock = MigrationLock::acquire(&paths, uid).unwrap();
+        (paths, lock)
+    }
+
     #[test]
     fn prepare_is_read_only_and_commit_restore_are_exact_private_replacements() {
         let (root, uid) = root("prepared");
@@ -230,17 +137,27 @@ mod tests {
             },
         )
         .unwrap();
+        let (paths, lock) = locked(&root, uid);
         assert!(prepared.changed());
         assert_eq!(fs::read(&path).unwrap(), before);
-        assert_eq!(prepared.commit(), Ok(PreparedWrite::Changed));
+        assert_eq!(
+            prepared.commit_locked(&lock, &paths),
+            Ok(PreparedWrite::Changed)
+        );
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
         );
         assert_ne!(fs::read(&path).unwrap(), before);
-        assert_eq!(prepared.restore(), Ok(PreparedWrite::Changed));
+        assert_eq!(
+            prepared.restore_locked(&lock, &paths),
+            Ok(PreparedWrite::Changed)
+        );
         assert_eq!(fs::read(&path).unwrap(), before);
-        assert_eq!(prepared.restore(), Ok(PreparedWrite::NoChange));
+        assert_eq!(
+            prepared.restore_locked(&lock, &paths),
+            Ok(PreparedWrite::NoChange)
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -261,10 +178,12 @@ mod tests {
         let mut external = store();
         external["onboardingComplete"] = json!(false);
         fs::write(&path, serde_json::to_vec(&external).unwrap()).unwrap();
+        let (paths, lock) = locked(&root, uid);
         assert_eq!(
-            no_change.commit(),
+            no_change.commit_locked(&lock, &paths),
             Err(ProfileMutationCommitError::StoreChanged)
         );
+        drop(lock);
         write_store(&path);
 
         let prepared = prepare_profile_mutation(
@@ -279,12 +198,13 @@ mod tests {
         let mut external = store();
         external["onboardingComplete"] = json!(false);
         fs::write(&path, serde_json::to_vec(&external).unwrap()).unwrap();
+        let (paths, lock) = locked(&root, uid);
         assert_eq!(
-            prepared.commit(),
+            prepared.commit_locked(&lock, &paths),
             Err(ProfileMutationCommitError::StoreChanged)
         );
         assert_eq!(
-            prepared.restore(),
+            prepared.restore_locked(&lock, &paths),
             Err(ProfileMutationCommitError::StoreChanged)
         );
         assert_eq!(
@@ -308,9 +228,10 @@ mod tests {
             },
         )
         .unwrap();
+        let (paths, lock) = locked(&root, uid);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!(
-            prepared.commit(),
+            prepared.commit_locked(&lock, &paths),
             Err(ProfileMutationCommitError::UnsafeStore)
         );
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -320,7 +241,7 @@ mod tests {
         fs::remove_file(&path).unwrap();
         symlink(&destination, &path).unwrap();
         assert_eq!(
-            prepared.commit(),
+            prepared.commit_locked(&lock, &paths),
             Err(ProfileMutationCommitError::UnsafeStore)
         );
         assert_eq!(fs::read(&destination).unwrap(), b"private.example/password");
@@ -352,14 +273,16 @@ mod tests {
         fs::write(&destination, b"private.example/password").unwrap();
         fs::remove_file(&path).unwrap();
         symlink(&destination, &path).unwrap();
+        let (paths, lock) = locked(&root, uid);
         assert_eq!(
-            commit_profile_mutation(
+            prepare_profile_mutation(
                 &path,
                 uid,
                 ProfileMutation::Delete {
                     profile_id: PROFILE.to_owned()
                 }
-            ),
+            )
+            .and_then(|prepared| prepared.commit_locked(&lock, &paths)),
             Err(ProfileMutationCommitError::UnsafeStore)
         );
         assert_eq!(fs::read(&destination).unwrap(), b"private.example/password");
