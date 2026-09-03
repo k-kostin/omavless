@@ -614,6 +614,13 @@ The dispatcher remains absent from `RuntimeServer` construction and advertised
 capabilities. Production owner construction/socket registration, transactional
 cutover and the plugin bridge still follow; R5 is not complete.
 
+PR #137 adds the production native-owner construction boundary. It resolves
+only package/current-user paths, validates a committed private `rust` marker,
+and holds the shared Python/Rust migration lock continuously across marker
+validation and startup reconciliation. The constructed owner is still absent
+from `RuntimeServer` dispatch and advertised capabilities, so Python remains
+the sole production owner. Ownership-gated socket registration is next.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;
