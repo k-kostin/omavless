@@ -564,14 +564,25 @@ Accepted incremental checkpoints:
   holds the shared migration lock continuously through startup reconciliation.
   It remains unable to compete with the Python owner on its own.
 - Draft PR #138 is the active ownership-gated socket-registration checkpoint.
-  It keeps legacy/missing/invalid ownership read-only, registers the unified
-  mutation dispatcher only after the committed Rust owner reconciles, and
-  withdraws advertised mutation capabilities if ownership is no longer
-  provable under the shared lock.
+  It keeps legacy/missing/invalid ownership read-only, registers connection and
+  profile mutations only after the committed Rust owner reconciles, pins that
+  owner to the exact marker generation, and withdraws advertised mutation
+  capabilities if ownership is no longer provable under the shared lock.
+  Subscription socket mutations remain deliberately withheld until their
+  bounded remote fetch can run without blocking status or urgent disconnect.
 
-The transactional cutover and plugin bridge still follow Draft PR #138.
-Legacy, preparing and rollback phases cannot mutate through the new
-dispatcher, and this branch does not write an ownership marker or switch an
+The next bounded checkpoint after Draft PR #138 is the transition bootstrap
+and ownership handoff between the cutover coordinator and the runtime. The
+current production owner requires an already committed `rust` marker while the
+cutover transaction starts the runtime under `cutoverPreparing`; both also use
+the shared migration lock. Production cutover must not paper over that boundary
+with an ad-hoc marker write or a second lifecycle owner. The handoff contract
+must define exact generation/lock transfer, candidate-runtime startup,
+read-only capabilities before commit, promotion after commit and crash-safe
+rollback before a production transaction host is attached.
+
+Legacy, preparing and rollback phases cannot mutate through the registered
+dispatcher, and Draft PR #138 does not write an ownership marker or switch an
 installed client to Rust.
 
 The current QML -> `backend.py` path remains the only production owner until an
@@ -826,9 +837,11 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Finish R5/T1 through bounded ownership-cutover slices: bind profile and
-subscription mutations to the serialized owner, coordinate active-profile
-lifecycle, register the verified native owner behind the private control
-socket, execute and accept the transactional production cutover, then switch
-the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained, retire the
-Python runtime only at R6, and begin the Ratatui TUI only after that gate.**
+**Finish Draft PR #138's ownership-gated socket registration, then implement
+the fail-closed transition bootstrap/handoff required to move from
+`cutoverPreparing` to a committed Rust owner without lock deadlock, early
+mutations or duplicate lifecycle ownership. Only afterward attach the
+production transaction host, execute and accept the controlled cutover, and
+switch the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained,
+retire the Python runtime only at R6, and begin the Ratatui TUI only after that
+gate.**

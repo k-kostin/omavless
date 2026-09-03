@@ -505,16 +505,16 @@ layers now include a fail-closed legacy Python reader with exact marker-schema
 and private-filesystem parity. Legacy mutation admission and commit both check
 that marker under the shared lock, so preparing/native ownership quiesces
 Python mutation without disabling read-only compatibility or the internal
-supervisor path. They remain unregistered from daemon mutation dispatch and
-incapable of replacing the Python lifecycle owner. The locked production-host
-preflight now proves disconnected/adoptable/inconsistent classification from
-fixed systemd, process, TUN, private-controller and exact active-config facts
-without changing host state. The next owning work is live owner construction,
-socket registration and the production host implementation of the now-fixed
-transaction/compensation sequence. The coordinator itself is unreachable from
-production: failed native stop blocks legacy restoration, incompatible runtime
-verification cannot switch the bridge, and incomplete compensation preserves
-the preparing marker for manual recovery.
+supervisor path. PR #137 supplied production owner construction and Draft PR
+#138 supplies ownership-gated socket registration without replacing the Python
+lifecycle owner. The locked production-host preflight proves disconnected,
+adoptable and inconsistent classification from fixed systemd, process, TUN,
+private-controller and exact active-config facts without changing host state.
+The next owning work is the transition bootstrap/handoff required to compose
+the cutover coordinator with that runtime before a production host can execute
+the transaction. Failed native stop still blocks legacy restoration,
+incompatible runtime verification cannot switch the bridge, and incomplete
+compensation preserves the preparing marker for manual recovery.
 Native profile rename/favorite/delete now also has v1-v3 normalization,
 Python differential parity, a private atomic writer, and exact bounded v1
 request envelopes with domain-separated replay digests. Its offline owner
@@ -528,20 +528,21 @@ uncached and do not change revision, allowing the same operation ID to retry
 after contention clears. Active rename quiesces while preserving connected
 intent and recovers the candidate; active delete durably disconnects before
 store removal and reconnects the exact old profile if store commit fails. Any
-uncertain store/runtime restoration requires manual recovery. The engine is
-still absent from runtime dispatch/capabilities, so Python remains the only
-production profile-mutation owner until the full cutover gate lands.
+uncertain store/runtime restoration requires manual recovery. Draft PR #138
+registers the engine only behind a committed Rust ownership marker, so Python
+remains the installed production profile-mutation owner until the full cutover
+gate lands.
 
 Native subscription add/update/delete now also has an exact offline v1 request
 boundary. It admits only normalized name/URL and existing subscription-ID
 intent plus operation metadata, rejects generated IDs, fetched entries and
 caller-supplied host observations, and uses a subscription-specific replay
 digest which distinguishes omitted from explicit revision. The private intent
-types cannot be formatted, cloned or serialized. Fetching, generated data,
-and IPC registration remain later owner work; this parser does not change the
-production path. PR #125 supplies the complete bounded atomic-store mutation
-boundary and Python differential parity; PR #126 supplies the exact request
-protocol and replay identity.
+types cannot be formatted, cloned or serialized. At this checkpoint fetching,
+generated data and IPC registration remained later owner work; this parser did
+not change the production path. PR #125 supplies the complete bounded
+atomic-store mutation boundary and Python differential parity; PR #126 supplies
+the exact request protocol and replay identity.
 
 PR #127 adds the credential-private offline feed decoder
 and optimistic store snapshot/commit seam. It bounds already-fetched bodies at
@@ -556,8 +557,9 @@ competing refresh conflict. Record IDs and timestamps come only from trusted
 owner callbacks; the refresh token advances monotonically even if the wall
 clock repeats or moves backwards, and fails closed at integer exhaustion. This
 is an intentional correction to the millisecond-collision weakness in the
-legacy Python timestamp. This remains offline and unregistered: it contains no
-HTTP client, IPC dispatch, lifecycle or production ownership change.
+legacy Python timestamp. At the PR #127 checkpoint this remained offline and
+unregistered: it contained no HTTP client, IPC dispatch, lifecycle or
+production ownership change.
 
 The native subscription-store boundary deliberately accepts only ASCII or
 punycode URL authorities and RFC 3986 IPvFuture address characters. This is a
@@ -599,9 +601,9 @@ work occurs outside the Python/Rust migration lock; commit re-acquires the
 shared lease and uses trusted runtime observation. Transport, feed and store
 failures expose only stable credential-free outcomes.
 
-These owners remain absent from production `RuntimeServer` dispatch and
-capabilities. The next checkpoint accepted in PR #136 adds one exact semantic
-mutation dispatcher and
+Through PR #134 these owners remained absent from production `RuntimeServer`
+dispatch and capabilities. PR #136 then added one exact semantic mutation
+dispatcher and
 an ownership-gated coordinator constructor. Connection, profile and
 subscription requests use the same bounded accepted/error response contract.
 The private ownership marker is checked while holding the shared migration lock
@@ -619,12 +621,24 @@ expose IPC or change the production owner.
 Draft PR #138 is the active ownership-gated socket-registration checkpoint.
 `omavless daemon` remains read-only for legacy, preparing, rollback, missing,
 malformed and unsafe ownership. Only a successfully constructed committed Rust
-owner registers the accepted connection/profile/subscription dispatcher and
-advertises those methods. Status and capability reads recheck ownership under
-the shared lock; revocation withdraws capabilities, and mutation admission
-still rechecks before every effect. The draft performs no marker write,
-transactional cutover or plugin-bridge switch, so Python remains the installed
-production owner and R5 is not complete.
+owner registers the accepted connection/profile dispatcher and advertises
+those methods. The registered owner is pinned to the exact committed marker
+generation; rollback followed by a later Rust generation cannot revive stale
+revision, replay or host state. Status and capability reads recheck ownership
+under the shared lock, and mutation admission still rechecks before every
+effect. Subscription socket mutations remain withheld until bounded remote
+fetch can run without blocking status or urgent disconnect. The draft performs
+no marker write, transactional cutover or plugin-bridge switch, so Python
+remains the installed production owner and R5 is not complete.
+
+The next bounded checkpoint must resolve transition bootstrap rather than jump
+directly to a production cutover host. The accepted coordinator starts the
+runtime while the marker is `cutoverPreparing` and expects verification before
+committing `rust`, whereas the production owner currently requires committed
+`rust` while acquiring the same migration lock. The handoff must preserve
+legacy quiescence, keep candidate capabilities read-only before commit, prevent
+duplicate owner/core state, and define deterministic promotion or rollback at
+every crash boundary.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

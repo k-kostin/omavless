@@ -310,6 +310,7 @@ mod tests {
             &store_path,
             cutover.clone(),
             uid,
+            7,
         );
         (root, store_path, cutover, owner)
     }

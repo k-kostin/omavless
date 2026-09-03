@@ -14,7 +14,7 @@ use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
     ConnectionTransactionState,
 };
-use crate::cutover::{MigrationLock, OwnershipPhase, read_marker};
+use crate::cutover::MigrationLock;
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
@@ -263,7 +263,7 @@ enum LockAdmission {
 pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
-    require_rust_ownership: bool,
+    required_rust_generation: Option<u64>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -284,7 +284,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 cutover_paths,
                 uid,
             ),
-            require_rust_ownership: false,
+            required_rust_generation: None,
         }
     }
 
@@ -299,9 +299,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         store_path: &Path,
         cutover_paths: crate::cutover::CutoverPaths,
         uid: u32,
+        ownership_generation: u64,
     ) -> Self {
         let mut owner = Self::new(host, desired_paths, store_path, cutover_paths, uid);
-        owner.require_rust_ownership = true;
+        owner.required_rust_generation = Some(ownership_generation);
         owner
     }
 
@@ -322,7 +323,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     }
 
     pub(crate) fn rust_ownership_available(&self) -> bool {
-        self.transaction.rust_ownership_available()
+        self.required_rust_generation
+            .is_some_and(|generation| self.transaction.rust_ownership_available(generation))
     }
 
     #[must_use]
@@ -354,7 +356,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
-        if self.require_rust_ownership {
+        if let Some(generation) = self.required_rust_generation {
             let lock = self
                 .transaction
                 .acquire_lock()
@@ -362,8 +364,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
                     _ => NativeOwnerError::OwnershipUnavailable,
                 })?;
-            let owned = read_marker(self.transaction.cutover_paths(), self.transaction.uid())
-                .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust);
+            let owned = self.transaction.rust_ownership_matches(generation);
             drop(lock);
             if !owned {
                 return Err(NativeOwnerError::OwnershipUnavailable);
@@ -391,9 +392,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
-                if self.require_rust_ownership
-                    && !read_marker(self.transaction.cutover_paths(), self.transaction.uid())
-                        .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust)
+                if self
+                    .required_rust_generation
+                    .is_some_and(|generation| !self.transaction.rust_ownership_matches(generation))
                 {
                     drop(lock);
                     self.coordinator.abort_active_uncached(token)?;

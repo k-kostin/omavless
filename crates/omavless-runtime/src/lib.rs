@@ -183,15 +183,15 @@ pub struct RuntimeServer {
 }
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
+// Subscription add/update performs bounded remote I/O. Keep the whole family
+// outside live socket dispatch until the server can admit status and urgent
+// disconnect while that fetch is in flight.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
-    "subscriptions.add",
-    "subscriptions.update",
-    "subscriptions.delete",
 ];
 
 enum RuntimeDispatcher {
@@ -355,8 +355,23 @@ impl RuntimeServer {
     /// non-Rust/missing/invalid marker intentionally leaves the daemon
     /// read-only; other owner-construction failures abort startup.
     pub fn bind_current(paths: RuntimePaths) -> Result<Self> {
+        Self::bind_with_owner_factory(paths, |runtime_paths| {
+            production_owner::ProductionNativeOwner::current(runtime_paths)
+        })
+    }
+
+    fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>
+    where
+        H: lifecycle::LifecycleHost + Send + 'static,
+        F: FnOnce(
+            &RuntimePaths,
+        ) -> std::result::Result<
+            production_owner::ProductionNativeOwner<H>,
+            production_owner::ProductionOwnerError,
+        >,
+    {
         let mut server = Self::bind(paths)?;
-        match production_owner::ProductionNativeOwner::current(&server.paths) {
+        match construct_owner(&server.paths) {
             Ok(owner) => server.register_native_owner(
                 owner,
                 subscription_transport::HttpsSubscriptionTransport::new(),
@@ -602,7 +617,8 @@ fn dispatch_native(
         "status.get" | "capabilities.get" => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
         }
-        _ => return owner.mutate(request),
+        _ if NATIVE_MUTATION_METHODS.contains(&method) => return owner.mutate(request),
+        _ => return error_response(id, revision, StableErrorCode::UnknownMethod, false, None),
     };
     success_response(id, revision, result)
 }
@@ -637,8 +653,6 @@ mod tests {
         DesiredPaths, DesiredState, OwnedObservation, RoutingMode, write_desired,
     };
     use crate::lifecycle::HostStepError;
-    use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
-    use omavless_domain::subscription_feed::PrivateSubscriptionBody;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::thread;
@@ -699,17 +713,6 @@ mod tests {
         }
     }
 
-    struct UnusedTransport;
-
-    impl SubscriptionTransport for UnusedTransport {
-        fn fetch(
-            &self,
-            _url: &str,
-        ) -> std::result::Result<PrivateSubscriptionBody, SubscriptionTransportError> {
-            Err(SubscriptionTransportError::Unavailable)
-        }
-    }
-
     fn temporary_base(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -724,10 +727,10 @@ mod tests {
         base
     }
 
-    fn write_marker(paths: &CutoverPaths, phase: OwnershipPhase) {
+    fn write_marker(paths: &CutoverPaths, phase: OwnershipPhase, generation: u64) {
         let marker = json!({
             "schemaVersion": 1,
-            "generation": 1,
+            "generation": generation,
             "phase": phase.as_str(),
         });
         fs::write(
@@ -756,7 +759,7 @@ mod tests {
         let desired = DesiredPaths::below(&state);
         write_desired(&desired, uid, &DesiredState::default()).unwrap();
         let cutover = CutoverPaths::below(&runtime, &state, uid);
-        write_marker(&cutover, OwnershipPhase::Rust);
+        write_marker(&cutover, OwnershipPhase::Rust, 1);
         let store_path = config.join("profiles.json");
         let store = json!({
             "version": 3,
@@ -860,13 +863,21 @@ mod tests {
     }
 
     #[test]
-    fn committed_owner_registers_mutations_and_revocation_fails_closed() {
+    fn bind_current_factory_registers_mutations_and_revocation_fails_closed() {
         let base = temporary_base("native-registration");
         let (owner, cutover, calls) = native_owner_fixture(&base);
         let paths = RuntimePaths::below(&base.join("runtime"));
-        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
-        server.register_native_owner(owner, UnusedTransport);
-        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let expected_paths = paths.clone();
+        let constructor_calls = Arc::new(AtomicUsize::new(0));
+        let observed_calls = Arc::clone(&constructor_calls);
+        let server = RuntimeServer::bind_with_owner_factory(paths.clone(), move |runtime_paths| {
+            assert_eq!(runtime_paths, &expected_paths);
+            observed_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(owner)
+        })
+        .unwrap();
+        assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -879,6 +890,15 @@ mod tests {
                 .iter()
                 .any(|method| method == "connection.connect")
         );
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|method| method != "subscriptions.add")
+        );
+        let withheld = call(&paths, "subscriptions.add", json!({})).unwrap();
+        assert_eq!(withheld["error"]["code"], "unknown_method");
         let status = call(&paths, "status.get", json!({})).unwrap();
         assert_eq!(status["result"]["actual"], "disconnected");
 
@@ -899,7 +919,7 @@ mod tests {
         assert_eq!(status["result"]["actual"], "connected");
         assert_eq!(status["result"]["mode"], "global");
 
-        write_marker(&cutover, OwnershipPhase::RollbackPreparing);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
         let calls_before_rejection = calls.load(Ordering::Relaxed);
         let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
         assert_eq!(capabilities["result"]["runtimeOwnership"], false);
@@ -920,7 +940,35 @@ mod tests {
         assert_eq!(rejected["error"]["code"], "capability_unavailable");
         assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
 
+        write_marker(&cutover, OwnershipPhase::Rust, 3);
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities["result"]["runtimeOwnership"], false);
+        assert_eq!(capabilities["result"]["mutations"], false);
+        let stale_owner = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId": "disconnect-2", "expectedRevision": 1}),
+        )
+        .unwrap();
+        assert_eq!(stale_owner["error"]["code"], "capability_unavailable");
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
+
         worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn owner_constructor_failure_aborts_and_removes_socket() {
+        let base = temporary_base("native-constructor-failure");
+        let paths = RuntimePaths::below(&base);
+        let result = RuntimeServer::bind_with_owner_factory::<FakeHost, _>(paths.clone(), |_| {
+            Err(production_owner::ProductionOwnerError::HostUnavailable)
+        });
+        assert!(matches!(result, Err(RuntimeError::NativeOwnerUnavailable)));
+        assert!(!paths.socket.exists());
+
+        let server = RuntimeServer::bind(paths.clone()).unwrap();
+        drop(server);
         fs::remove_dir_all(base).unwrap();
     }
 

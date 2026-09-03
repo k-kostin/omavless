@@ -99,9 +99,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         uid: u32,
         lock: MigrationLock,
     ) -> Result<Self, ProductionOwnerError> {
-        let owned = read_marker(&cutover_paths, uid)
-            .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust);
-        if !owned {
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
         let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
@@ -110,6 +110,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             store_path,
             cutover_paths,
             uid,
+            marker.generation(),
         );
         let startup = coordinator
             .reconcile_startup_locked(&lock)
