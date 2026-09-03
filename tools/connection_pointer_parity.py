@@ -34,10 +34,10 @@ def main() -> int:
         target = request["target"]
         if not isinstance(target, dict) or not isinstance(target.get("kind"), str):
             raise ValueError
-        store = backend.validate_store(request["store"])
         before = json.dumps(
-            store, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            request["store"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
         )
+        store = backend.validate_store(request["store"])
         pruned = 0
         if target["kind"] == "connected" and set(target) == {"kind", "profileId"}:
             profile_id = target["profileId"]

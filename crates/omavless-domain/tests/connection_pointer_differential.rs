@@ -120,6 +120,9 @@ fn python_result(store: &Value, target: &Value) -> Value {
 
 #[test]
 fn python_and_rust_connection_pointer_updates_match() {
+    let mut stale = store(false);
+    stale["activeId"] = Value::from("00000000-0000-4000-8000-000000000098");
+    stale["lastId"] = Value::from("00000000-0000-4000-8000-000000000099");
     let cases = [
         (
             store(false),
@@ -144,6 +147,10 @@ fn python_and_rust_connection_pointer_updates_match() {
         (
             store(true),
             json!({"kind": "disconnected", "pruneMissing": true}),
+        ),
+        (
+            stale,
+            json!({"kind": "disconnected", "pruneMissing": false}),
         ),
         (
             store(false),
