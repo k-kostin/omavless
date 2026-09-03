@@ -15,6 +15,7 @@ use omavless_domain::private_store::parse_private_store;
 use omavless_mihomo::observation::{processes_named, tun_interface_count};
 use omavless_mihomo::validate_config;
 use omavless_store::{atomic_replace_private, read_private_utf8};
+use std::env;
 use std::fs;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -65,6 +66,30 @@ impl NativeHostPaths {
             proc_root,
             sys_class_net,
         }
+    }
+
+    /// Resolve the fixed package-owned host paths for the current user.
+    ///
+    /// The optional `OMAVLESS_HOME` override exists only for isolated package
+    /// acceptance tests. No path is accepted from IPC, and the Mihomo/proc/sys
+    /// entry points remain fixed by package policy.
+    pub fn current(runtime_directory: &Path) -> Result<Self, HostStepError> {
+        let home = env::var_os("OMAVLESS_HOME")
+            .or_else(|| env::var_os("HOME"))
+            .map(PathBuf::from)
+            .ok_or(HostStepError::Prepare)?;
+        if !valid_absolute(&home) || !valid_absolute(runtime_directory) {
+            return Err(HostStepError::Prepare);
+        }
+        let config = home.join(".config/omavless");
+        Ok(Self::new(
+            PathBuf::from("/usr/bin/mihomo"),
+            config.clone(),
+            config,
+            runtime_directory.to_path_buf(),
+            PathBuf::from("/proc"),
+            PathBuf::from("/sys/class/net"),
+        ))
     }
 }
 
