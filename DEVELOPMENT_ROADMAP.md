@@ -573,7 +573,8 @@ Accepted incremental checkpoints:
   Subscription socket mutations remain deliberately withheld until their
   bounded remote fetch can run without blocking status or urgent disconnect.
 
-Draft PR #139 is the active transition-bootstrap checkpoint. It gives the
+PR #139 accepted the transition-bootstrap checkpoint at squash commit
+`3b22cb987007ab85150f5352016267aa15138905`. It gives the
 cutover coordinator one explicit same-UID bootstrap call after a durable exact
 `cutoverPreparing` marker, reconciles that candidate under the shared migration
 lock, exposes no mutation capability before commit, and promotes the same
@@ -584,9 +585,20 @@ an exact desired-state snapshot, and re-reads durable marker state after a
 write error before deciding whether compensation is legal. A production
 transaction host and controlled cutover remain later checkpoints.
 
+Draft PR #140 owns the fixed-purpose production-host checkpoint. It composes
+that accepted transaction with private desired/store/config state, the two
+fixed user services, the private runtime socket and same-candidate production
+observation. It also restores the Python-compatible Mihomo discovery contract
+(`OMAVLESS_MIHOMO`, `~/.local/bin/mihomo`, then absolute PATH entries) instead
+of assuming `/usr/bin/mihomo`. The host has no public cutover entry point and
+its compatibility bridge remains injected; its fault matrix and installed
+bridge acceptance are still required before any ownership switch. The
+credential-safe x86_64 installed-core and read-only host evidence is recorded
+in
+`docs/testing/BARE_METAL_R5_PRODUCTION_CUTOVER_HOST_2026-09-03.md`.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
-dispatcher, and PR #138 / Draft PR #139 do not expose a user cutover command or
-switch an
+dispatcher, and PRs #138-#139 do not expose a user cutover command or switch an
 installed client to Rust.
 
 The current QML -> `backend.py` path remains the only production owner until an
@@ -841,9 +853,9 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Finish Draft PR #139's fail-closed transition bootstrap/handoff and its
-exact-head static acceptance. Then attach the production transaction host,
-complete the crash/fault matrix, execute and accept the controlled cutover,
-and switch the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained,
-retire the Python runtime only at R6, and begin the Ratatui TUI only after that
-gate.**
+**Attach the fixed-purpose production transaction host to PR #139's accepted
+generation-fenced handoff, then prove its crash/fault matrix and plugin bridge
+without exposing arbitrary service/process control. Execute the controlled
+cutover only after those gates. Keep V0 / PR #30 Draft and
+fixture-constrained, retire the Python runtime only at R6, and begin the
+Ratatui TUI only after that gate.**

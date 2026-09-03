@@ -83,7 +83,7 @@ impl NativeHostPaths {
         }
         let config = home.join(".config/omavless");
         Ok(Self::new(
-            PathBuf::from("/usr/bin/mihomo"),
+            resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?,
             config.clone(),
             config,
             runtime_directory.to_path_buf(),
@@ -91,6 +91,43 @@ impl NativeHostPaths {
             PathBuf::from("/sys/class/net"),
         ))
     }
+}
+
+/// Resolve the same stable Mihomo entry-point classes accepted by the current
+/// plugin: an explicit absolute override, the current user's local binary, or
+/// an absolute PATH entry. The resolved target is canonicalized before it is
+/// retained so a later lifecycle step never executes a relative path or a
+/// caller-controlled shell lookup.
+fn resolve_core(
+    home: &Path,
+    override_path: Option<std::ffi::OsString>,
+    search_path: Option<std::ffi::OsString>,
+) -> Result<PathBuf, HostStepError> {
+    let mut candidates = Vec::new();
+    if let Some(value) = override_path {
+        let candidate = PathBuf::from(value);
+        if !valid_absolute(&candidate) {
+            return Err(HostStepError::Prepare);
+        }
+        candidates.push(candidate);
+    }
+    candidates.push(home.join(".local/bin/mihomo"));
+    if let Some(value) = search_path {
+        for directory in env::split_paths(&value) {
+            if valid_absolute(&directory) {
+                candidates.push(directory.join("mihomo"));
+            }
+        }
+    }
+    for candidate in candidates {
+        let Ok(canonical) = fs::canonicalize(candidate) else {
+            continue;
+        };
+        if valid_absolute(&canonical) && executable(&canonical) {
+            return Ok(canonical);
+        }
+    }
+    Err(HostStepError::Prepare)
 }
 
 fn valid_absolute(path: &Path) -> bool {
@@ -395,6 +432,72 @@ mod tests {
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
         (root, uid)
+    }
+
+    fn executable_at(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[test]
+    fn core_discovery_preserves_override_local_and_absolute_path_contract() {
+        let (root, _uid) = root("core-discovery");
+        let home = root.join("home");
+        let local = home.join(".local/bin/mihomo");
+        let path_core = root.join("bin/mihomo");
+        let override_core = root.join("override/mihomo");
+        executable_at(&local);
+        executable_at(&path_core);
+        executable_at(&override_core);
+
+        assert_eq!(
+            resolve_core(
+                &home,
+                Some(override_core.clone().into_os_string()),
+                Some(root.join("bin").into_os_string()),
+            )
+            .unwrap(),
+            override_core
+        );
+        assert_eq!(
+            resolve_core(&home, None, Some(root.join("bin").into_os_string())).unwrap(),
+            local
+        );
+        fs::remove_file(&local).unwrap();
+        assert_eq!(
+            resolve_core(&home, None, Some(root.join("bin").into_os_string())).unwrap(),
+            path_core
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_explicit_override_and_relative_path_fail_closed() {
+        let (root, _uid) = root("core-discovery-invalid");
+        let home = root.join("home");
+        let local = home.join(".local/bin/mihomo");
+        executable_at(&local);
+        assert_eq!(
+            resolve_core(
+                &home,
+                Some(std::ffi::OsString::from("relative/mihomo")),
+                None,
+            ),
+            Err(HostStepError::Prepare)
+        );
+        fs::remove_file(local).unwrap();
+        assert_eq!(
+            resolve_core(
+                &home,
+                None,
+                Some(std::ffi::OsString::from("relative:also-relative")),
+            ),
+            Err(HostStepError::Prepare)
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -217,8 +217,15 @@ mod tests {
 
     fn script(root: &Path, body: &str) -> PathBuf {
         let path = root.join("fake-core");
-        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let staged = root.join(".fake-core.staged");
+        fs::write(&staged, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(staged, &path).unwrap();
+        // Some overlay-backed test runners briefly report ETXTBSY when an
+        // executable is spawned immediately after publication. Production
+        // starts an already-installed Mihomo binary, so keep this bounded
+        // settling delay confined to the ephemeral test fixture.
+        thread::sleep(Duration::from_millis(20));
         path
     }
 
