@@ -823,6 +823,24 @@ mod tests {
     }
 
     #[test]
+    fn trusted_runtime_record_ids_are_unique_and_store_compatible() {
+        use std::collections::HashSet;
+
+        let mut generator = RecordIdGenerator::new("instance-a");
+        let generated: HashSet<_> = (0..1_025).map(|_| generator.next()).collect();
+        assert_eq!(generated.len(), 1_025);
+        assert!(
+            generated
+                .iter()
+                .all(|value| omavless_domain::store::valid_record_id(value))
+        );
+        assert_ne!(
+            RecordIdGenerator::new("instance-a").next(),
+            RecordIdGenerator::new("instance-b").next()
+        );
+    }
+
+    #[test]
     fn read_only_unary_api_round_trips() {
         let base = temporary_base("api");
         let paths = RuntimePaths::below(&base);

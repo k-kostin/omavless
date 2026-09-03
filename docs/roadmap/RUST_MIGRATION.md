@@ -610,16 +610,21 @@ checked again before every store/lifecycle effect and after subscription
 network work. Any legacy, preparing, rollback, missing, malformed or unsafe
 marker returns `capability_unavailable` without host/store effects.
 
-The dispatcher remains absent from `RuntimeServer` construction and advertised
-capabilities. Production owner construction/socket registration, transactional
-cutover and the plugin bridge still follow; R5 is not complete.
-
 PR #137 adds the production native-owner construction boundary. It resolves
 only package/current-user paths, validates a committed private `rust` marker,
 and holds the shared Python/Rust migration lock continuously across marker
-validation and startup reconciliation. The constructed owner is still absent
-from `RuntimeServer` dispatch and advertised capabilities, so Python remains
-the sole production owner. Ownership-gated socket registration is next.
+validation and startup reconciliation. Constructing the owner alone does not
+expose IPC or change the production owner.
+
+Draft PR #138 is the active ownership-gated socket-registration checkpoint.
+`omavless daemon` remains read-only for legacy, preparing, rollback, missing,
+malformed and unsafe ownership. Only a successfully constructed committed Rust
+owner registers the accepted connection/profile/subscription dispatcher and
+advertises those methods. Status and capability reads recheck ownership under
+the shared lock; revocation withdraws capabilities, and mutation admission
+still rechecks before every effect. The draft performs no marker write,
+transactional cutover or plugin-bridge switch, so Python remains the installed
+production owner and R5 is not complete.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

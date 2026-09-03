@@ -562,19 +562,22 @@ Accepted incremental checkpoints:
 - PR #137: the production native-owner constructor now resolves only fixed
   package/current-user paths, requires a committed private `rust` marker, and
   holds the shared migration lock continuously through startup reconciliation.
-  It remains unregistered from socket dispatch, so this checkpoint cannot
-  compete with the Python owner on its own.
+  It remains unable to compete with the Python owner on its own.
+- Draft PR #138 is the active ownership-gated socket-registration checkpoint.
+  It keeps legacy/missing/invalid ownership read-only, registers the unified
+  mutation dispatcher only after the committed Rust owner reconciles, and
+  withdraws advertised mutation capabilities if ownership is no longer
+  provable under the shared lock.
 
-The native mutation owner remains deliberately unreachable from production
-IPC. The next bounded checkpoint is ownership-gated socket registration,
-followed by the transactional cutover and plugin bridge. Legacy, preparing and
-rollback phases cannot mutate through the new dispatcher.
+The transactional cutover and plugin bridge still follow Draft PR #138.
+Legacy, preparing and rollback phases cannot mutate through the new
+dispatcher, and this branch does not write an ownership marker or switch an
+installed client to Rust.
 
-These checkpoints deliberately report `runtimeOwnership: false` and do not
-expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until a production transaction host,
-live owner construction/IPC registration, an executed transactional cutover,
-plugin bridge and rollback acceptance gates below pass.
+The current QML -> `backend.py` path remains the only production owner until an
+executed transactional cutover and plugin bridge pass the acceptance gates
+below. R5 is not complete merely because socket registration exists behind the
+unreachable committed-Rust marker.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
