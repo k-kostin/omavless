@@ -1,6 +1,6 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger, updated 2026-08-31.
+Status: active delivery ledger, updated 2026-09-03.
 
 This file is the compact source of truth for **what happens next**, dependency
 order and acceptance state. Detailed contracts live under `docs/roadmap/`.
@@ -782,7 +782,9 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Finish bounded plugin-facing work while immediately building R0/R1/R2; add
-new protocol parsers only after the Rust adapter boundary; complete R3/R4 and
-Rust T1 cutover; retire Python at R6; then build the Ratatui TUI on the already
-native Arch/Nix-ready runtime.**
+**Finish R5/T1 through bounded ownership-cutover slices: bind profile and
+subscription mutations to the serialized owner, coordinate active-profile
+lifecycle, register the verified native owner behind the private control
+socket, execute and accept the transactional production cutover, then switch
+the plugin bridge. Keep V0 / PR #30 Draft and fixture-constrained, retire the
+Python runtime only at R6, and begin the Ratatui TUI only after that gate.**
