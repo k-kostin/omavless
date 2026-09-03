@@ -592,7 +592,10 @@ observation. It also restores the Python-compatible Mihomo discovery contract
 (`OMAVLESS_MIHOMO`, `~/.local/bin/mihomo`, then absolute PATH entries) instead
 of assuming `/usr/bin/mihomo`. The host has no public cutover entry point and
 its compatibility bridge remains injected; its fault matrix and installed
-bridge acceptance are still required before any ownership switch.
+bridge acceptance are still required before any ownership switch. The
+credential-safe x86_64 installed-core and read-only host evidence is recorded
+in
+`docs/testing/BARE_METAL_R5_PRODUCTION_CUTOVER_HOST_2026-09-03.md`.
 
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#139 do not expose a user cutover command or switch an
