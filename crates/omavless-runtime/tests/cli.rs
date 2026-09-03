@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -56,6 +57,17 @@ fn command(base: &Path, action: &str) -> std::process::Output {
         .unwrap()
 }
 
+fn isolated_command(base: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omavless"));
+    command
+        .env("XDG_RUNTIME_DIR", base)
+        .env("XDG_STATE_HOME", base.join("state"))
+        .env("XDG_CONFIG_HOME", base.join("xdg-config"))
+        .env("HOME", base.join("home"))
+        .env("OMAVLESS_HOME", base.join("home"));
+    command
+}
+
 fn prepare_isolated_daemon_environment(base: &Path) {
     for path in [
         base.join("state"),
@@ -65,6 +77,79 @@ fn prepare_isolated_daemon_environment(base: &Path) {
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
     }
+}
+
+#[test]
+fn help_exposes_only_fixed_semantic_mutations() {
+    let output = Command::new(env!("CARGO_BIN_EXE_omavless"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let help = String::from_utf8(output.stdout).unwrap();
+    for command in [
+        "connect PROFILE_ID [rule|global|direct]",
+        "disconnect",
+        "profile rename PROFILE_ID",
+        "profile favorite PROFILE_ID on|off",
+        "profile delete PROFILE_ID",
+    ] {
+        assert!(help.contains(command));
+    }
+    assert!(!help.contains("METHOD"));
+    assert!(!help.contains("JSON"));
+}
+
+#[test]
+fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let private = "private.example/password";
+    for arguments in [
+        vec!["request", private],
+        vec!["connect", private, "rule", "extra"],
+    ] {
+        let output = isolated_command(&base).args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("semantic command"));
+        assert!(!error.contains("private.example"));
+        assert!(!error.contains("password"));
+    }
+    assert!(!base.join("omavless/control.sock").exists());
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn rename_stdin_is_bounded_and_never_echoed() {
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let profile = "00000000-0000-4000-8000-000000000001";
+    let private = "private.example/password".repeat(20);
+    let mut child = isolated_command(&base)
+        .args(["profile", "rename", profile])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(private.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("input is too large"));
+    assert!(!error.contains("private.example"));
+    assert!(!error.contains("password"));
+    assert!(!base.join("omavless/control.sock").exists());
+    fs::remove_dir_all(base).unwrap();
 }
 
 #[test]

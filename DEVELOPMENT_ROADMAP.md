@@ -597,7 +597,8 @@ ownership switch. The credential-safe x86_64 installed-core and read-only host
 evidence is recorded in
 `docs/testing/BARE_METAL_R5_PRODUCTION_CUTOVER_HOST_2026-09-03.md`.
 
-Draft PR #141 owns the next bounded bridge-state checkpoint. It adds a fixed
+PR #141 accepted the bounded bridge-state checkpoint at squash commit
+`f23f599b8dc49e30cb3d118b015b1324f82c4ee8`. It adds a fixed
 private `0600` frontend target selector whose target is valid only for the
 exact preparing generation and its immediate committed Rust or restored legacy
 successor. Writes require the matching migration lock and unchanged preparing
@@ -605,8 +606,15 @@ marker; missing, stale, malformed, oversized, permissive-mode and symlinked
 state fail closed. It does not yet route QML/backend commands to the semantic
 Rust API and remains unreachable from any cutover command.
 
+Draft PR #142 owns the first fixed semantic mutation CLI checkpoint. It maps
+only connect/disconnect and profile rename/favorite/delete command shapes to
+the registered v1 socket methods, reads the private rename value through
+bounded stdin, and deliberately exposes no raw method/JSON passthrough. It does
+not add subscription commands, connect QML/backend launchers, or make cutover
+reachable.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
-dispatcher, and PRs #138-#141 do not expose a user cutover command or switch an
+dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
 
 The current QML -> `backend.py` path remains the only production owner until an
