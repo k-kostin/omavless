@@ -552,6 +552,17 @@ future admission layer before they may reach the atomic mutation boundary. It
 prevents Unicode NFKC delimiter ambiguity without widening remote fetching or
 making the offline boundary responsible for URL repair.
 
+The first-install private-store bootstrap is a separate offline Rust boundary.
+Under the shared migration lock it can publish only the fixed
+`~/.config/omavless/profiles.json` name and the exact credential-free Python
+v3 empty-store payload. Publication uses atomic create-if-absent semantics and
+never replaces a concurrent winner. A winner or pre-existing target is accepted
+only after its same-user `0600`, regular non-symlink shape and complete v1-v3
+store payload validate; malformed or unsafe state fails closed and is never
+reset. The existing config directory must already be same-user `0700`. This
+helper remains unregistered from CLI, IPC, daemon startup and the current
+plugin path.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

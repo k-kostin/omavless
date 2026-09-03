@@ -529,6 +529,13 @@ Accepted incremental checkpoints:
   parser remains unregistered; serialized owner binding and active-profile
   lifecycle coordination are still required before production dispatch.
 
+The next bounded store checkpoint adds a create-only first-install bootstrap
+under the shared migration lock. It uses the fixed canonical store path and
+exact Python v3 empty-store semantics, never overwrites an existing or racing
+target, and fails closed rather than resetting malformed or unsafe state. It
+remains offline and unregistered; Python continues to own first-install product
+behavior until the later cutover.
+
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
 only production owner. R5 is not complete until a production transaction host,
