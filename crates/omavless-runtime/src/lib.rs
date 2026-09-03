@@ -35,6 +35,7 @@ pub mod mutation;
 pub mod mutation_binding;
 pub mod mutation_protocol;
 pub mod native_coordinator;
+pub mod native_dispatch;
 pub mod native_host;
 pub mod owner;
 pub mod private_store_transaction;

@@ -554,11 +554,17 @@ Accepted incremental checkpoints:
   redirected target, enforces fixed TLS/time/header/body/redirect policy, and
   binds subscription add/update/delete to that same offline owner without
   holding the migration lock across network I/O.
+- PR #136: one exact semantic dispatcher now routes the accepted connection,
+  profile and subscription mutations only through an ownership-gated native
+  coordinator. The private marker is checked under the migration lock before
+  admission/replay and again at every effect boundary, including after remote
+  subscription work.
 
-All PR #125-#134 mutation owners remain deliberately unreachable from
-production IPC. The next bounded checkpoint is to register their mutation
-dispatch only under verified native ownership, without enabling a legacy or
-preparing owner to mutate through the Rust socket.
+All PR #125-#136 mutation owners remain deliberately unreachable from
+production IPC. The next bounded checkpoint is production owner construction
+and socket registration, followed by the transactional cutover and plugin
+bridge. Legacy, preparing and rollback phases cannot mutate through the new
+dispatcher.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
