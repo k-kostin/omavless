@@ -40,6 +40,7 @@ pub mod profile_mutation;
 pub mod profile_mutation_protocol;
 pub mod store_preflight;
 pub mod subscription_mutation;
+pub mod subscription_mutation_protocol;
 
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";

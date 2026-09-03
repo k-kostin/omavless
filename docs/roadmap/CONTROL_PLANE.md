@@ -269,6 +269,33 @@ object and digest types deliberately provide no formatting or serialization of
 private fields. This exact parser remains offline and unregistered until the
 serialized owner also coordinates active-profile lifecycle effects.
 
+The v1 subscription mutation parameters are exact objects:
+
+- `subscriptions.add`: required `name` and `url`; optional `operationId` and
+  `expectedRevision`;
+- `subscriptions.update`: required `subscriptionId`, `name` and `url`; optional
+  `operationId` and `expectedRevision`;
+- `subscriptions.delete`: required `subscriptionId`; optional `operationId` and
+  `expectedRevision`;
+- `subscriptionId` uses the existing bounded internal record-ID syntax. Add
+  never accepts a client-selected/generated ID;
+- name input is at most 320 UTF-8 bytes and must normalize, using the private
+  store's control-removal/trim rules, to 1..80 Unicode scalar values;
+- URL input is at most 8 KiB and must pass the canonical subscription URL
+  validator before it can become fetch intent;
+- generated subscription/profile IDs, fetched entries, timestamps, service
+  liveness, filesystem paths, commands and other host observations are not
+  request fields. Trusted owner stages supply them after bounded fetch and
+  before one atomic store transaction.
+
+Subscription replay digests are domain-separated from connection and profile
+digests. They cover the method, normalized name/URL and subscription ID where
+applicable, plus the presence and value of `expectedRevision`; `operationId`
+is excluded. The private intent/request types have no `Debug`, cloning or
+serialization implementation. This exact parser performs no fetch or write and
+remains unregistered until the serialized subscription owner/fetch binding is
+accepted.
+
 Once registered, successful profile mutations use the same exact bounded
 `{"accepted":true}` result and committed revision as connection mutations;
 clients obtain the resulting safe metadata through `profiles.list`. No private
