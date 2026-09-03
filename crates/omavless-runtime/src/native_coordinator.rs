@@ -1,0 +1,725 @@
+// SPDX-License-Identifier: MIT
+
+//! One offline coordinator for native connection and profile transactions.
+//!
+//! This is the first composition boundary that gives both mutation families
+//! one revision, replay cache, lifecycle executor, migration lock namespace and
+//! manual-recovery barrier. It remains unreachable from `RuntimeServer` and is
+//! not advertised in capabilities. Subscription transactions join this owner
+//! after their bounded transport boundary is available.
+
+use crate::connection_transaction::{
+    Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
+    ConnectionTransactionState,
+};
+use crate::cutover::MigrationLock;
+use crate::desired::DesiredPaths;
+use crate::lifecycle::{ActualState, LifecycleHost};
+use crate::mutation::{
+    BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationKind,
+    MutationRequest, MutationResult, MutationToken, SubmitOutcome,
+};
+use crate::mutation_protocol::MutationProtocolError;
+use crate::owner::{OwnerAction, OwnerRequest};
+use crate::profile_mutation::prepare_profile_mutation;
+use crate::profile_mutation_protocol::parse_profile_mutation_request;
+use crate::profile_transaction::{
+    ProfileMutationOutcome, ProfileTransactionError, apply_transaction, mutation_identity,
+    store_error,
+};
+use omavless_control_protocol::StableErrorCode;
+use serde_json::Value;
+use std::fmt;
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeMutationOutcome {
+    Connection(ConnectionTransactionOutcome),
+    Profile(ProfileMutationOutcome),
+}
+
+impl NativeMutationOutcome {
+    const fn changed(self) -> bool {
+        match self {
+            Self::Connection(outcome) => outcome.changed,
+            Self::Profile(outcome) => outcome.changed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeTransactionError {
+    Connection(ConnectionTransactionError),
+    Profile(ProfileTransactionError),
+}
+
+impl NativeTransactionError {
+    #[must_use]
+    pub const fn stable_code(self) -> StableErrorCode {
+        match self {
+            Self::Connection(error) => error.stable_code(),
+            Self::Profile(error) => error.stable_code(),
+        }
+    }
+
+    const fn requires_manual_recovery(self) -> bool {
+        matches!(
+            self,
+            Self::Connection(ConnectionTransactionError::ManualRecoveryRequired)
+                | Self::Profile(ProfileTransactionError::ManualRecoveryRequired)
+        )
+    }
+}
+
+impl fmt::Display for NativeTransactionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connection(error) => error.fmt(formatter),
+            Self::Profile(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for NativeTransactionError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeOwnerExecution {
+    Applied {
+        cached: CachedOutcome,
+        outcome: Result<NativeMutationOutcome, NativeTransactionError>,
+    },
+    UncachedPreflightFailure {
+        revision: u64,
+        error: NativeTransactionError,
+    },
+    Replay(CachedOutcome),
+    Rejected(CachedOutcome),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeOwnerError {
+    Protocol(MutationProtocolError),
+    Coordinator(CoordinatorError),
+    Invariant,
+}
+
+impl NativeOwnerError {
+    #[must_use]
+    pub const fn stable_code(self) -> StableErrorCode {
+        match self {
+            Self::Protocol(error) => error.stable_code(),
+            Self::Coordinator(error) => error.stable_code(),
+            Self::Invariant => StableErrorCode::InternalError,
+        }
+    }
+}
+
+impl fmt::Display for NativeOwnerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Protocol(_) => "Native mutation request is invalid",
+            Self::Coordinator(_) => "Native mutation scheduling failed",
+            Self::Invariant => "Native mutation coordinator invariant failed",
+        })
+    }
+}
+
+impl std::error::Error for NativeOwnerError {}
+
+impl From<MutationProtocolError> for NativeOwnerError {
+    fn from(value: MutationProtocolError) -> Self {
+        Self::Protocol(value)
+    }
+}
+
+impl From<CoordinatorError> for NativeOwnerError {
+    fn from(value: CoordinatorError) -> Self {
+        Self::Coordinator(value)
+    }
+}
+
+enum Admission {
+    Execute(MutationToken),
+    Replay(CachedOutcome),
+    Rejected(CachedOutcome),
+}
+
+enum LockAdmission {
+    Locked(MigrationLock),
+    Uncached(NativeOwnerExecution),
+}
+
+/// Offline-only composition of the accepted native mutation transactions.
+/// There is deliberately no socket constructor or production registration.
+pub struct OfflineNativeCoordinator<H> {
+    coordinator: MutationCoordinator,
+    transaction: ConnectionTransactionState<H>,
+}
+
+impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[must_use]
+    pub fn new(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: crate::cutover::CutoverPaths,
+        uid: u32,
+    ) -> Self {
+        Self {
+            coordinator: MutationCoordinator::default(),
+            transaction: ConnectionTransactionState::new(
+                host,
+                desired_paths,
+                store_path,
+                cutover_paths,
+                uid,
+            ),
+        }
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.coordinator.revision()
+    }
+
+    #[must_use]
+    pub const fn actual(&self) -> ActualState {
+        self.transaction.actual()
+    }
+
+    #[must_use]
+    pub const fn host(&self) -> &H {
+        self.transaction.host()
+    }
+
+    pub fn host_mut(&mut self) -> &mut H {
+        self.transaction.host_mut()
+    }
+
+    pub fn reconcile_startup(
+        &mut self,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.transaction.reconcile_startup()
+    }
+
+    fn admit(
+        &mut self,
+        kind: MutationKind,
+        operation_id: Option<&str>,
+        expected_revision: Option<u64>,
+        digest: crate::mutation::MutationDigest,
+    ) -> Result<Admission, NativeOwnerError> {
+        let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
+        let token = match self.coordinator.submit(scheduling)? {
+            SubmitOutcome::Queued { token } => token,
+            SubmitOutcome::Replay(outcome) => return Ok(Admission::Replay(outcome)),
+        };
+        match self.coordinator.begin_next()? {
+            BeginOutcome::Started(active) if active.token == token => Ok(Admission::Execute(token)),
+            BeginOutcome::Rejected {
+                token: rejected,
+                outcome,
+            } if rejected == token => Ok(Admission::Rejected(outcome)),
+            _ => Err(NativeOwnerError::Invariant),
+        }
+    }
+
+    fn preflight_lock(
+        &mut self,
+        token: MutationToken,
+        family: fn(ConnectionTransactionError) -> NativeTransactionError,
+    ) -> Result<LockAdmission, NativeOwnerError> {
+        match self.transaction.acquire_lock() {
+            Ok(lock) => Ok(LockAdmission::Locked(lock)),
+            Err(error) => {
+                self.coordinator.abort_active_uncached(token)?;
+                Ok(LockAdmission::Uncached(
+                    NativeOwnerExecution::UncachedPreflightFailure {
+                        revision: self.coordinator.revision(),
+                        error: family(error),
+                    },
+                ))
+            }
+        }
+    }
+
+    fn finish(
+        &mut self,
+        token: MutationToken,
+        outcome: Result<NativeMutationOutcome, NativeTransactionError>,
+        committed_failure: bool,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        if outcome
+            .as_ref()
+            .is_err_and(|error| error.requires_manual_recovery())
+        {
+            self.transaction.block();
+        }
+        let result = match outcome {
+            Ok(value) if value.changed() => MutationResult::Success,
+            Ok(_) => MutationResult::NoChange,
+            Err(error) if committed_failure => {
+                MutationResult::CommittedFailure(error.stable_code())
+            }
+            Err(error) => MutationResult::Failure(error.stable_code()),
+        };
+        let cached = self.coordinator.finish(token, result)?;
+        if cached.error != outcome.as_ref().err().map(|error| error.stable_code()) {
+            return Err(NativeOwnerError::Invariant);
+        }
+        Ok(NativeOwnerExecution::Applied { cached, outcome })
+    }
+
+    fn blocked(
+        &mut self,
+        token: MutationToken,
+        error: NativeTransactionError,
+    ) -> Result<Option<NativeOwnerExecution>, NativeOwnerError> {
+        if !self.transaction.blocked() {
+            return Ok(None);
+        }
+        self.finish(token, Err(error), false).map(Some)
+    }
+
+    pub fn execute_connection(
+        &mut self,
+        request: OwnerRequest,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let (action, operation_id, expected_revision, digest) = request.into_parts();
+        let admission = self.admit(
+            action.kind(),
+            operation_id.as_deref(),
+            expected_revision,
+            digest,
+        )?;
+        let token = match admission {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Connection(ConnectionTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, NativeTransactionError::Connection)? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let completion = match action {
+            OwnerAction::Connect { profile_id, mode } => {
+                self.transaction.connect(&lock, profile_id, mode)
+            }
+            OwnerAction::Disconnect => self.transaction.disconnect(&lock),
+        };
+        match completion {
+            Completion::Ordinary(outcome) => self.finish(
+                token,
+                outcome
+                    .map(NativeMutationOutcome::Connection)
+                    .map_err(NativeTransactionError::Connection),
+                false,
+            ),
+            Completion::CommittedFailure(error) => {
+                self.finish(token, Err(NativeTransactionError::Connection(error)), true)
+            }
+        }
+    }
+
+    pub fn execute_profile(
+        &mut self,
+        request: &Value,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let parsed = parse_profile_mutation_request(request)?;
+        let (mutation, operation_id, expected_revision, digest) = parsed.into_parts();
+        let (kind, profile_id) = mutation_identity(&mutation);
+        let profile_id = profile_id.to_owned();
+        let admission = self.admit(
+            MutationKind::Other,
+            operation_id.as_deref(),
+            expected_revision,
+            digest,
+        )?;
+        let token = match admission {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, |error| {
+            NativeTransactionError::Profile(match error {
+                ConnectionTransactionError::Busy => ProfileTransactionError::Busy,
+                _ => ProfileTransactionError::Store,
+            })
+        })? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let plan = prepare_profile_mutation(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            mutation,
+        )
+        .map_err(store_error);
+        let outcome = plan.and_then(|plan| {
+            let paths = self.transaction.cutover_paths().clone();
+            apply_transaction(
+                self.transaction.lifecycle_mut(),
+                &plan,
+                kind,
+                &profile_id,
+                &lock,
+                &paths,
+            )
+        });
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Profile)
+                .map_err(NativeTransactionError::Profile),
+            false,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cutover::CutoverPaths;
+    use crate::desired::{DesiredState, OwnedObservation, RoutingMode, write_desired};
+    use crate::lifecycle::HostStepError;
+    use crate::mutation::MutationDigest;
+    use serde_json::json;
+    use std::fs;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
+
+    fn empty() -> OwnedObservation {
+        OwnedObservation {
+            service_active: false,
+            controller_ready: false,
+            core_count: 0,
+            tun_count: 0,
+            active_profile_matches: false,
+        }
+    }
+
+    fn healthy() -> OwnedObservation {
+        OwnedObservation {
+            service_active: true,
+            controller_ready: true,
+            core_count: 1,
+            tun_count: 1,
+            active_profile_matches: true,
+        }
+    }
+
+    struct FakeHost {
+        observation: OwnedObservation,
+        fail_stop: bool,
+        calls: usize,
+    }
+
+    impl LifecycleHost for FakeHost {
+        fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
+            self.calls += 1;
+            Ok(self.observation)
+        }
+
+        fn prepare(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
+            self.calls += 1;
+            Ok(())
+        }
+
+        fn start_prepared(&mut self) -> Result<(), HostStepError> {
+            self.calls += 1;
+            self.observation = healthy();
+            Ok(())
+        }
+
+        fn commit_prepared(&mut self) -> Result<(), HostStepError> {
+            self.calls += 1;
+            Ok(())
+        }
+
+        fn stop_owned(&mut self) -> Result<(), HostStepError> {
+            self.calls += 1;
+            if self.fail_stop {
+                return Err(HostStepError::Stop);
+            }
+            self.observation = empty();
+            Ok(())
+        }
+
+        fn discard_prepared(&mut self) -> Result<(), HostStepError> {
+            self.calls += 1;
+            Ok(())
+        }
+    }
+
+    fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omavless-native-coordinator-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        let config = root.join("config");
+        let runtime = root.join("runtime");
+        let state = root.join("state");
+        for path in [&root, &config, &runtime, &state] {
+            fs::create_dir_all(path).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let uid = fs::metadata(&root).unwrap().uid();
+        let store_path = config.join("profiles.json");
+        let store = json!({
+            "version": 3,
+            "activeId": "",
+            "lastId": "",
+            "profiles": [{
+                "id": PROFILE,
+                "name": "Example",
+                "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example",
+                "protocol": "vless",
+                "favorite": false
+            }],
+            "subscriptions": [],
+            "routingPreset": "custom",
+            "customRules": [],
+            "rulesUpdatedAt": 0,
+            "startupConfigured": true,
+            "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
+            "onboardingComplete": true
+        });
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let desired_paths = DesiredPaths::below(&state);
+        write_desired(
+            &desired_paths,
+            uid,
+            &DesiredState {
+                schema_version: 1,
+                generation: 0,
+                connected: false,
+                profile_id: String::new(),
+                mode: RoutingMode::Rule,
+            },
+        )
+        .unwrap();
+        let cutover = CutoverPaths::below(&runtime, &state, uid);
+        let owner = OfflineNativeCoordinator::new(
+            FakeHost {
+                observation: empty(),
+                fail_stop: false,
+                calls: 0,
+            },
+            desired_paths,
+            &store_path,
+            cutover,
+            uid,
+        );
+        (root, store_path, owner)
+    }
+
+    fn connect(operation_id: &str, revision: u64) -> OwnerRequest {
+        OwnerRequest::new(
+            OwnerAction::Connect {
+                profile_id: PROFILE.to_owned(),
+                mode: Some(RoutingMode::Global),
+            },
+            Some(operation_id),
+            Some(revision),
+            MutationDigest::from_semantic_bytes(b"connect/example/global"),
+        )
+    }
+
+    fn profile_request(method: &str, params: Value) -> Value {
+        json!({
+            "api": "omavless.control",
+            "version": 1,
+            "id": "request-1",
+            "method": method,
+            "params": params,
+        })
+    }
+
+    fn applied(execution: NativeOwnerExecution) -> (CachedOutcome, NativeMutationOutcome) {
+        match execution {
+            NativeOwnerExecution::Applied {
+                cached,
+                outcome: Ok(outcome),
+            } => (cached, outcome),
+            _ => panic!("native mutation was not successfully applied"),
+        }
+    }
+
+    #[test]
+    fn connection_and_profile_share_revision_lifecycle_and_replay_owner() {
+        let (root, store_path, mut owner) = fixture("shared");
+        let (connected, outcome) =
+            applied(owner.execute_connection(connect("connect-1", 0)).unwrap());
+        assert_eq!(connected.revision, 1);
+        assert!(matches!(outcome, NativeMutationOutcome::Connection(_)));
+        assert_eq!(owner.actual(), ActualState::Connected);
+
+        let rename = profile_request(
+            "profiles.rename",
+            json!({
+                "profileId": PROFILE,
+                "name": "Renamed",
+                "operationId": "rename-1",
+                "expectedRevision": 1
+            }),
+        );
+        let (renamed, outcome) = applied(owner.execute_profile(&rename).unwrap());
+        assert_eq!(renamed.revision, 2);
+        assert!(matches!(outcome, NativeMutationOutcome::Profile(_)));
+        assert_eq!(owner.actual(), ActualState::Connected);
+        let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
+        assert_eq!(store["profiles"][0]["name"], "Renamed");
+        assert_eq!(store["activeId"], PROFILE);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn operation_ids_conflict_across_mutation_families() {
+        let (root, store_path, mut owner) = fixture("operation-conflict");
+        applied(owner.execute_connection(connect("shared-id", 0)).unwrap());
+        let before = fs::read(&store_path).unwrap();
+        let calls = owner.host().calls;
+        let favorite = profile_request(
+            "profiles.favorite",
+            json!({
+                "profileId": PROFILE,
+                "enabled": true,
+                "operationId": "shared-id",
+                "expectedRevision": 1
+            }),
+        );
+        assert_eq!(
+            owner.execute_profile(&favorite),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::OperationConflict
+            ))
+        );
+        assert_eq!(owner.revision(), 1);
+        assert_eq!(owner.host().calls, calls);
+        assert_eq!(fs::read(store_path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manual_recovery_blocks_every_mutation_family() {
+        let (root, store_path, mut owner) = fixture("manual-block");
+        applied(owner.execute_connection(connect("connect-1", 0)).unwrap());
+        owner.host_mut().fail_stop = true;
+        let disconnect = OwnerRequest::new(
+            OwnerAction::Disconnect,
+            Some("disconnect-1"),
+            Some(1),
+            MutationDigest::from_semantic_bytes(b"disconnect"),
+        );
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Err(NativeTransactionError::Connection(error)),
+        } = owner.execute_connection(disconnect).unwrap()
+        else {
+            panic!("disconnect did not reach the expected blocker");
+        };
+        assert_eq!(error, ConnectionTransactionError::ManualRecoveryRequired);
+        assert_eq!(cached.revision, 1);
+
+        let before = fs::read(&store_path).unwrap();
+        let favorite = profile_request(
+            "profiles.favorite",
+            json!({
+                "profileId": PROFILE,
+                "enabled": true,
+                "operationId": "favorite-1",
+                "expectedRevision": 1
+            }),
+        );
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Err(error),
+        } = owner.execute_profile(&favorite).unwrap()
+        else {
+            panic!("profile mutation bypassed the manual-recovery barrier");
+        };
+        assert_eq!(cached.revision, 1);
+        assert_eq!(error.stable_code(), StableErrorCode::ManualRecoveryRequired);
+        assert_eq!(fs::read(store_path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_revision_is_shared_across_families_before_side_effects() {
+        let (root, store_path, mut owner) = fixture("revision-conflict");
+        applied(owner.execute_connection(connect("connect-1", 0)).unwrap());
+        let before = fs::read(&store_path).unwrap();
+        let calls = owner.host().calls;
+        let favorite = profile_request(
+            "profiles.favorite",
+            json!({
+                "profileId": PROFILE,
+                "enabled": true,
+                "operationId": "favorite-1",
+                "expectedRevision": 0
+            }),
+        );
+        assert_eq!(
+            owner.execute_profile(&favorite),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict
+            ))
+        );
+        assert_eq!(owner.host().calls, calls);
+        assert_eq!(fs::read(store_path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shared_python_lock_contention_is_uncached_and_retryable() {
+        let (root, store_path, mut owner) = fixture("lock-retry");
+        let external =
+            MigrationLock::acquire(owner.transaction.cutover_paths(), owner.transaction.uid())
+                .unwrap();
+        let favorite = profile_request(
+            "profiles.favorite",
+            json!({
+                "profileId": PROFILE,
+                "enabled": true,
+                "operationId": "favorite-retry",
+                "expectedRevision": 0
+            }),
+        );
+        assert_eq!(
+            owner.execute_profile(&favorite).unwrap(),
+            NativeOwnerExecution::UncachedPreflightFailure {
+                revision: 0,
+                error: NativeTransactionError::Profile(ProfileTransactionError::Busy)
+            }
+        );
+        assert_eq!(owner.revision(), 0);
+        drop(external);
+
+        let (cached, outcome) = applied(owner.execute_profile(&favorite).unwrap());
+        assert_eq!(cached.revision, 1);
+        assert!(matches!(outcome, NativeMutationOutcome::Profile(_)));
+        let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();
+        assert_eq!(store["profiles"][0]["favorite"], true);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
