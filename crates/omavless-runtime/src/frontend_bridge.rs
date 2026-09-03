@@ -13,11 +13,10 @@ use crate::cutover_transaction::{BridgeTarget, CutoverHostError};
 use crate::production_cutover::ProductionPluginBridge;
 use nix::unistd::Uid;
 use omavless_store::{atomic_replace_private, read_private_utf8};
-use std::env;
 use std::fmt;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const FRONTEND_BRIDGE_TARGET_NAME: &str = "frontend-bridge.target";
 pub const MAX_FRONTEND_BRIDGE_TARGET_BYTES: u64 = 64;
@@ -53,24 +52,10 @@ pub struct FrontendBridgePaths {
 
 impl FrontendBridgePaths {
     #[must_use]
-    fn below(state_base: &Path) -> Self {
+    fn for_cutover(cutover: &CutoverPaths) -> Self {
         Self {
-            target: state_base
-                .join("omavless")
-                .join(FRONTEND_BRIDGE_TARGET_NAME),
+            target: cutover.state_directory.join(FRONTEND_BRIDGE_TARGET_NAME),
         }
-    }
-
-    pub fn current() -> Result<Self, FrontendBridgeError> {
-        let state_base = match env::var_os("XDG_STATE_HOME") {
-            Some(value) => PathBuf::from(value),
-            None => PathBuf::from(env::var_os("HOME").ok_or(FrontendBridgeError::UnsafeState)?)
-                .join(".local/state"),
-        };
-        if !state_base.is_absolute() {
-            return Err(FrontendBridgeError::UnsafeState);
-        }
-        Ok(Self::below(&state_base))
     }
 }
 
@@ -212,9 +197,10 @@ impl FixedFrontendBridge {
 
     pub fn current() -> Result<Self, FrontendBridgeError> {
         let uid = Uid::current().as_raw();
+        let cutover = CutoverPaths::current(uid).map_err(|_| FrontendBridgeError::UnsafeState)?;
         Ok(Self::below(
-            FrontendBridgePaths::current()?,
-            CutoverPaths::current(uid).map_err(|_| FrontendBridgeError::UnsafeState)?,
+            FrontendBridgePaths::for_cutover(&cutover),
+            cutover,
             uid,
         ))
     }
@@ -272,6 +258,7 @@ mod tests {
         LegacyCommitEvidence, OwnershipObservation, RustCommitEvidence, abort_cutover,
         begin_cutover, commit_cutover, write_marker_locked,
     };
+    use std::env;
     use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -299,9 +286,10 @@ mod tests {
                 fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
             }
             let uid = fs::metadata(&root).unwrap().uid();
+            let cutover = CutoverPaths::below(&runtime, &state, uid);
             Self {
-                paths: FrontendBridgePaths::below(&state),
-                cutover: CutoverPaths::below(&runtime, &state, uid),
+                paths: FrontendBridgePaths::for_cutover(&cutover),
+                cutover,
                 root,
                 uid,
             }
