@@ -342,6 +342,7 @@ mod tests {
         current: OwnershipObservation,
         fail_at: Option<(Step, usize)>,
         fail_after_persist_at: Option<usize>,
+        fail_read_marker_at: Option<usize>,
         hello: bool,
         status: bool,
         lock_held: bool,
@@ -387,6 +388,7 @@ mod tests {
                 current: initial,
                 fail_at: None,
                 fail_after_persist_at: None,
+                fail_read_marker_at: None,
                 hello: true,
                 status: true,
                 lock_held: true,
@@ -417,7 +419,17 @@ mod tests {
         }
 
         fn read_marker(&mut self) -> Result<OwnershipMarker, CutoverHostError> {
-            self.fail(Step::ReadMarker)?;
+            let occurrence = self
+                .calls
+                .iter()
+                .filter(|item| **item == Step::ReadMarker)
+                .count()
+                + 1;
+            self.calls.push(Step::ReadMarker);
+            if self.fail_read_marker_at == Some(occurrence) {
+                self.fail_read_marker_at = None;
+                return Err(CutoverHostError);
+            }
             Ok(self.marker.clone())
         }
 
@@ -727,6 +739,34 @@ mod tests {
             Err(CutoverTransactionError::TransitionFailedRestored)
         );
         assert_eq!(host.marker.phase(), OwnershipPhase::Legacy);
+    }
+
+    #[test]
+    fn unreadable_state_after_marker_error_never_guesses_or_compensates() {
+        let marker = OwnershipMarker::default();
+        let mut initial_unknown = FakeHost::new(disconnected());
+        initial_unknown.fail_at = Some((Step::Persist, 1));
+        initial_unknown.fail_read_marker_at = Some(1);
+        assert_eq!(
+            execute_cutover(&mut initial_unknown, &marker),
+            Err(CutoverTransactionError::ManualRecoveryRequired)
+        );
+        assert_eq!(initial_unknown.marker.phase(), OwnershipPhase::Legacy);
+        assert!(!initial_unknown.calls.contains(&Step::StageDesired));
+
+        let mut final_unknown = FakeHost::new(legacy_connected());
+        final_unknown.fail_at = Some((Step::Persist, 2));
+        final_unknown.fail_read_marker_at = Some(2);
+        assert_eq!(
+            execute_cutover(&mut final_unknown, &marker),
+            Err(CutoverTransactionError::ManualRecoveryRequired)
+        );
+        assert_eq!(
+            final_unknown.marker.phase(),
+            OwnershipPhase::CutoverPreparing
+        );
+        assert!(!final_unknown.calls.contains(&Step::BridgeLegacy));
+        assert!(!final_unknown.calls.contains(&Step::RestoreLegacy));
     }
 
     #[test]
