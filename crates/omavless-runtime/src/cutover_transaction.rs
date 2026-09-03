@@ -70,7 +70,9 @@ impl CandidateIdentity {
 /// the candidate acquires the same lock for reconciliation. Every
 /// compensation method must be idempotent. `stop_rust` must positively prove
 /// the runtime, owner lock, socket, controller, core, and owned TUN absent
-/// before `restore_legacy` may be called.
+/// before `restore_legacy` may be called. A successful bridge operation means
+/// the target was positively observed, not merely that a command was sent.
+/// A failed `release_for_candidate` must leave the caller's lock held.
 pub trait CutoverTransactionHost {
     type DesiredSnapshot;
 
@@ -296,9 +298,7 @@ pub fn execute_cutover<H: CutoverTransactionHost>(
             if released {
                 host.reacquire_after_candidate(&preparing)
                     .map_err(|_| CutoverTransactionError::ManualRecoveryRequired)?;
-                released = false;
             }
-            let _ = released;
             if failure == TransitionFailure::ManualRecovery
                 || host.read_marker().ok().as_ref() != Some(&preparing)
             {
