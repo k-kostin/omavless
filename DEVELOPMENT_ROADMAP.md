@@ -502,13 +502,17 @@ Accepted incremental checkpoints:
   live daemon dispatch.
 - PR #113: a fail-closed Python compatibility reader for the shared private
   ownership marker, with exact Rust-schema, permission, ownership, symlink,
-  size and duplicate-key parity; it remains unwired from legacy dispatch.
+  size and duplicate-key parity.
+- PR #117: legacy Python mutation admission and commit now re-check that marker
+  under the shared migration lock, block every preparing/native phase before
+  canonical or network work, preserve read-only compatibility, and prevent the
+  legacy removal watcher from stopping a native-owned runtime.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
 only production owner. R5 is not complete until production host observation,
-legacy mutation guarding, live owner construction/IPC registration, the explicit
-transactional cutover, plugin bridge and rollback acceptance gates below pass.
+live owner construction/IPC registration, the explicit transactional cutover,
+plugin bridge and rollback acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
