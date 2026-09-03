@@ -266,8 +266,28 @@ Profile replay digests are domain-separated from connection digests and cover
 the method, profile ID, rename text or favorite boolean as applicable, and
 explicit/omitted expected revision. They exclude `operationId`; the request
 object and digest types deliberately provide no formatting or serialization of
-private fields. This exact parser remains offline and unregistered until the
-serialized owner also coordinates active-profile lifecycle effects.
+private fields.
+
+The offline profile owner foundation now composes that parser with the shared
+mutation coordinator and a prepared exact-byte store transaction. It holds the
+established migration lock shared with Python across preparation, trusted
+lifecycle observation, every store write and all compensation. The byte check
+guards unexpected edits inside that exclusion boundary; it is not claimed as a
+standalone lock-free filesystem CAS. A shared-lock acquisition failure occurs
+before preparation or observation and retires the coordinator slot without a
+replay-cache entry or revision change; an identical operation-ID retry may
+therefore execute after transient contention clears. Favorite and inactive
+rename/delete are store-only. Active status comes only from durable desired
+state plus a fresh owned-runtime observation; the legacy store's
+`activeId` and client input are never liveness authority. Active rename keeps
+desired connected while it quiesces the owned core, commits the candidate and
+recovers it; a recoverable failure restores the exact old bytes and old runtime.
+Active delete first commits durable disconnect and verifies no owned core/TUN,
+then deletes; any result other than a verified changed commit restores and
+reconnects the old profile. Unexpected store bytes, incomplete cleanup or
+failed compensation becomes
+`manual_recovery_required`. This engine remains offline and unregistered; it
+does not make profile mutations a live daemon capability.
 
 The v1 subscription mutation parameters are exact objects:
 

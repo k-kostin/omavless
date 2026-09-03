@@ -388,6 +388,21 @@ impl MutationCoordinator {
         self.cache(active.request.operation_id, active.request.digest, outcome);
         Ok(outcome)
     }
+
+    /// Retires the active slot without changing revision or recording a replay
+    /// result. This is only for failures that happen before the caller can
+    /// perform any externally observable mutation. In particular, a busy
+    /// owner-exclusion lock must remain retryable under the same operation ID.
+    pub(crate) fn abort_active_uncached(
+        &mut self,
+        token: MutationToken,
+    ) -> Result<(), CoordinatorError> {
+        if self.active.as_ref().map(|active| active.token) != Some(token) {
+            return Err(CoordinatorError::InvalidToken);
+        }
+        self.active.take().ok_or(CoordinatorError::InvalidToken)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -601,6 +616,63 @@ mod tests {
                 .unwrap(),
             SubmitOutcome::Replay(outcome)
         );
+    }
+
+    #[test]
+    fn pre_effect_abort_is_uncached_and_preserves_revision_and_queue() {
+        let mut coordinator = MutationCoordinator::default();
+        let first_request = || request(MutationKind::Other, Some("retryable"), Some(0), 6);
+        let first = token(coordinator.submit(first_request()).unwrap());
+        let second = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("next"), Some(0), 7))
+                .unwrap(),
+        );
+        let BeginOutcome::Started(active) = coordinator.begin_next().unwrap() else {
+            panic!("first mutation did not start");
+        };
+        assert_eq!(active.token, first);
+
+        coordinator.abort_active_uncached(first).unwrap();
+
+        assert!(!coordinator.active());
+        assert_eq!(coordinator.revision(), 0);
+        assert_eq!(coordinator.queued(), 1);
+        assert_eq!(
+            coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(ActiveMutation {
+                token: second,
+                kind: MutationKind::Other,
+            })
+        );
+        coordinator
+            .finish(second, MutationResult::NoChange)
+            .unwrap();
+        assert!(matches!(
+            coordinator.submit(first_request()).unwrap(),
+            SubmitOutcome::Queued { .. }
+        ));
+        assert_eq!(coordinator.revision(), 0);
+    }
+
+    #[test]
+    fn uncached_abort_rejects_wrong_token_without_retiring_active_slot() {
+        let mut coordinator = MutationCoordinator::default();
+        let token = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("active"), None, 1))
+                .unwrap(),
+        );
+        let BeginOutcome::Started(active) = coordinator.begin_next().unwrap() else {
+            panic!("mutation did not start");
+        };
+        assert_eq!(active.token, token);
+        assert_eq!(
+            coordinator.abort_active_uncached(MutationToken(999)),
+            Err(CoordinatorError::InvalidToken)
+        );
+        assert!(coordinator.active());
+        coordinator.finish(token, MutationResult::NoChange).unwrap();
     }
 
     #[test]

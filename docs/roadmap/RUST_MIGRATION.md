@@ -516,8 +516,20 @@ verification cannot switch the bridge, and incomplete compensation preserves
 the preparing marker for manual recovery.
 Native profile rename/favorite/delete now also has v1-v3 normalization,
 Python differential parity, a private atomic writer, and exact bounded v1
-request envelopes with domain-separated replay digests. It stays unreachable
-until owner serialization and active-profile lifecycle coordination land.
+request envelopes with domain-separated replay digests. Its offline owner
+transaction now uses the shared revision/replay coordinator, prepared
+exact-byte compare/commit/restore under the established Python/Rust migration
+lock, trusted desired-plus-observed active state, and fail-closed lifecycle
+compensation. The lock spans preparation through lifecycle/store compensation;
+the byte comparison is an additional unexpected-change guard rather than a
+standalone lock-free CAS. Pre-effect lock acquisition failures are explicitly
+uncached and do not change revision, allowing the same operation ID to retry
+after contention clears. Active rename quiesces while preserving connected
+intent and recovers the candidate; active delete durably disconnects before
+store removal and reconnects the exact old profile if store commit fails. Any
+uncertain store/runtime restoration requires manual recovery. The engine is
+still absent from runtime dispatch/capabilities, so Python remains the only
+production profile-mutation owner until the full cutover gate lands.
 
 Native subscription add/update/delete now also has an exact offline v1 request
 boundary. It admits only normalized name/URL and existing subscription-ID
