@@ -100,6 +100,18 @@ impl CanonicalProfile {
         }
     }
 
+    /// Private provider-supplied label used only while constructing a local
+    /// subscription row. Callers must not publish or log this value.
+    #[must_use]
+    pub fn subscription_name_candidate(&self) -> String {
+        match self {
+            Self::Vless(profile) => profile.subscription_name_candidate(),
+            Self::Trojan(profile) => profile.subscription_name_candidate(),
+            Self::Hysteria2(profile) => profile.subscription_name_candidate(),
+            Self::Tuic(profile) => profile.subscription_name_candidate(),
+        }
+    }
+
     #[must_use]
     pub fn render_mihomo_proxy(&self, name: &str, server_override: Option<&str>) -> String {
         match self {

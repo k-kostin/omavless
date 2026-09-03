@@ -13,13 +13,17 @@ use crate::store::{
     CURRENT_STORE_VERSION, MAX_PROFILES, MAX_SUBSCRIPTIONS, ProfileState, StartupState, StoreError,
     StoreStateInput, SubscriptionState, normalize_store_state, valid_record_id,
 };
+use crate::subscription::{
+    IncomingProfile, ManagedProfile, SyncCounts, SyncError, plan_subscription_sync,
+};
 use omavless_profile::Protocol;
 use omavless_profile::canonical::{CanonicalError, CanonicalProfile, parse_canonical};
 use serde_json::{Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 const MAX_NAME_CHARS: usize = 80;
+const MAX_SUBSCRIPTION_ENTRIES: usize = 1024;
 pub const MAX_PRIVATE_STORE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +43,9 @@ pub enum PrivateStoreError {
     ProfileNotFound,
     SubscribedProfile,
     DuplicateProfileName,
+    SubscriptionNotFound,
+    ActiveSubscription,
+    SubscriptionSync(SyncError),
 }
 
 impl PrivateStoreError {
@@ -60,6 +67,9 @@ impl PrivateStoreError {
             Self::ProfileNotFound => "profile_not_found",
             Self::SubscribedProfile => "subscribed_profile",
             Self::DuplicateProfileName => "duplicate_profile_name",
+            Self::SubscriptionNotFound => "subscription_not_found",
+            Self::ActiveSubscription => "active_subscription",
+            Self::SubscriptionSync(error) => error.code(),
         }
     }
 }
@@ -84,6 +94,11 @@ impl fmt::Display for PrivateStoreError {
             Self::ProfileNotFound => "Requested profile record was not found",
             Self::SubscribedProfile => "Subscribed profile is managed by its provider",
             Self::DuplicateProfileName => "A profile with this name already exists",
+            Self::SubscriptionNotFound => "Requested subscription record was not found",
+            Self::ActiveSubscription => {
+                "Disconnect the active subscribed profile before removing its subscription"
+            }
+            Self::SubscriptionSync(error) => return error.fmt(formatter),
         })
     }
 }
@@ -93,6 +108,7 @@ impl std::error::Error for PrivateStoreError {}
 struct PrivateProfile {
     id: String,
     name: String,
+    uri: String,
     canonical: CanonicalProfile,
     subscription_id: String,
     subscription_key: String,
@@ -101,6 +117,7 @@ struct PrivateProfile {
 }
 
 struct PrivateSubscription {
+    id: String,
     name: String,
     url: String,
     updated_at: u64,
@@ -141,6 +158,54 @@ pub enum ProfileMutation {
     },
 }
 
+/// One caller-prepared profile from an already fetched subscription. Network
+/// retrieval stays outside this boundary. URI, provider label and generated
+/// record ID are private and deliberately have no formatting implementation.
+pub struct IncomingSubscriptionProfile {
+    pub uri: String,
+    pub new_id: String,
+}
+
+/// One offline subscription-store mutation. Add/update include only data that
+/// a future bounded fetch/parser stage has already validated enough to pass to
+/// this canonical store boundary. No variant implements `Debug`, cloning or
+/// serialization because URLs and profile links carry reusable credentials.
+pub enum SubscriptionMutation {
+    Add {
+        subscription_id: String,
+        name: String,
+        url: String,
+        entries: Vec<IncomingSubscriptionProfile>,
+        updated_at: u64,
+    },
+    Update {
+        subscription_id: String,
+        name: String,
+        url: String,
+        entries: Vec<IncomingSubscriptionProfile>,
+        updated_at: u64,
+    },
+    Delete {
+        subscription_id: String,
+    },
+}
+
+/// Trusted runtime observation supplied beside, never inside, a client
+/// mutation request. IPC parsing must not let a caller assert service liveness.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SubscriptionMutationContext {
+    pub active_service: bool,
+}
+
+/// Credential-free result facts for add/update/delete commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubscriptionMutationCounts {
+    pub added: usize,
+    pub removed: usize,
+    pub stale: usize,
+    pub total: usize,
+}
+
 /// Successfully validated private replacement payload plus one public fact.
 /// The payload is released only to the fixed atomic store writer.
 pub struct PrivateStoreMutation {
@@ -149,6 +214,20 @@ pub struct PrivateStoreMutation {
 }
 
 impl PrivateStoreMutation {
+    #[must_use]
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+}
+
+/// Fully validated private replacement plus bounded public refresh counts.
+pub struct PrivateSubscriptionMutation {
+    payload: Vec<u8>,
+    pub changed: bool,
+    pub counts: SubscriptionMutationCounts,
+}
+
+impl PrivateSubscriptionMutation {
     #[must_use]
     pub fn payload(&self) -> &[u8] {
         &self.payload
@@ -344,6 +423,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         let updated_at = optional_u64(record, "updatedAt", 0)?;
         subscription_states.push(SubscriptionState { id: id.to_owned() });
         subscriptions.push(PrivateSubscription {
+            id: id.to_owned(),
             name: name.to_owned(),
             url: url.to_owned(),
             updated_at,
@@ -387,6 +467,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         profiles.push(PrivateProfile {
             id: id.to_owned(),
             name: name.to_owned(),
+            uri: uri.to_owned(),
             canonical,
             subscription_id: subscription_id.to_owned(),
             subscription_key: subscription_key.to_owned(),
@@ -792,6 +873,358 @@ pub fn apply_profile_mutation(
     Ok(PrivateStoreMutation {
         payload: store.private_payload()?,
         changed,
+    })
+}
+
+struct PreparedSubscriptionProfile {
+    uri: String,
+    desired_name: String,
+    new_id: String,
+    key: String,
+    canonical: CanonicalProfile,
+}
+
+fn mutation_subscription_url(value: &str) -> Result<String, PrivateStoreError> {
+    let value = value.trim();
+    if !valid_subscription_url(value) {
+        return Err(PrivateStoreError::InvalidSubscriptionUrl);
+    }
+    Ok(value.to_owned())
+}
+
+fn valid_generated_record_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            14 => byte == b'4',
+            19 => matches!(byte, b'8' | b'9' | b'a' | b'b'),
+            _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+        })
+}
+
+fn sync_private_subscription(
+    store: &mut PrivateStore,
+    subscription_id: &str,
+    entries: Vec<IncomingSubscriptionProfile>,
+) -> Result<SyncCounts, PrivateStoreError> {
+    if entries.len() > MAX_SUBSCRIPTION_ENTRIES {
+        return Err(PrivateStoreError::SubscriptionSync(
+            SyncError::TooManyEntries,
+        ));
+    }
+    let mut prepared = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let canonical = parse_canonical(&entry.uri).map_err(PrivateStoreError::Profile)?;
+        let key = canonical.subscription_identity();
+        let desired_name = canonical.subscription_name_candidate();
+        prepared.push(PreparedSubscriptionProfile {
+            uri: entry.uri,
+            desired_name,
+            new_id: entry.new_id,
+            key,
+            canonical,
+        });
+    }
+
+    let managed = store
+        .profiles
+        .iter()
+        .map(|profile| ManagedProfile {
+            id: profile.id.clone(),
+            name: profile.name.clone(),
+            subscription_id: profile.subscription_id.clone(),
+            subscription_key: profile.subscription_key.clone(),
+            derived_key: profile.canonical.subscription_identity(),
+            missing: profile.missing,
+            favorite: profile.favorite,
+        })
+        .collect::<Vec<_>>();
+    let incoming = prepared
+        .iter()
+        .map(|profile| IncomingProfile {
+            key: profile.key.clone(),
+            desired_name: profile.desired_name.clone(),
+            new_id: profile.new_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    let subscription_name = store
+        .subscriptions
+        .iter()
+        .find(|subscription| subscription.id == subscription_id)
+        .ok_or(PrivateStoreError::SubscriptionNotFound)?
+        .name
+        .clone();
+    let plan = plan_subscription_sync(
+        &managed,
+        subscription_id,
+        &subscription_name,
+        &incoming,
+        &store.active_id,
+        &store.last_id,
+    )
+    .map_err(PrivateStoreError::SubscriptionSync)?;
+
+    let profile_values = store
+        .document
+        .get_mut("profiles")
+        .and_then(Value::as_array_mut)
+        .ok_or(PrivateStoreError::InvalidShape)?;
+    let old_values = std::mem::take(profile_values);
+    let mut values_by_id = BTreeMap::new();
+    for value in old_values {
+        let id = value
+            .as_object()
+            .and_then(|record| record.get("id"))
+            .and_then(Value::as_str)
+            .ok_or(PrivateStoreError::InvalidShape)?
+            .to_owned();
+        values_by_id.insert(id, value);
+    }
+    let mut profiles_by_id = std::mem::take(&mut store.profiles)
+        .into_iter()
+        .map(|profile| (profile.id.clone(), profile))
+        .collect::<BTreeMap<_, _>>();
+    let mut incoming_by_key = prepared
+        .into_iter()
+        .map(|profile| (profile.key.clone(), profile))
+        .collect::<BTreeMap<_, _>>();
+    let mut next_profiles = Vec::with_capacity(plan.profiles.len());
+    let mut next_values = Vec::with_capacity(plan.profiles.len());
+    for profile in plan.profiles {
+        let (uri, canonical, mut value) = if profile.subscription_id == subscription_id
+            && !profile.missing
+        {
+            let incoming = incoming_by_key
+                .remove(&profile.subscription_key)
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            let value = values_by_id
+                .remove(&profile.id)
+                .unwrap_or_else(|| serde_json::json!({"id": profile.id}));
+            if !profiles_by_id.contains_key(&profile.id) && !valid_generated_record_id(&profile.id)
+            {
+                return Err(PrivateStoreError::Store(StoreError::InvalidProfileId));
+            }
+            (incoming.uri, incoming.canonical, value)
+        } else {
+            let current = profiles_by_id
+                .remove(&profile.id)
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            let value = values_by_id
+                .remove(&profile.id)
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            (current.uri, current.canonical, value)
+        };
+        let record = value
+            .as_object_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        record.insert("id".to_owned(), Value::from(profile.id.clone()));
+        record.insert("uri".to_owned(), Value::from(uri.clone()));
+        record.insert(
+            "protocol".to_owned(),
+            Value::from(canonical.protocol().as_str()),
+        );
+        next_values.push(value);
+        next_profiles.push(PrivateProfile {
+            id: profile.id,
+            name: profile.name,
+            uri,
+            canonical,
+            subscription_id: profile.subscription_id,
+            subscription_key: profile.subscription_key,
+            missing: profile.missing,
+            favorite: profile.favorite,
+        });
+    }
+    *profile_values = next_values;
+    store.profiles = next_profiles;
+    store.last_id = plan.last_id;
+    if !store.startup.profile_id.is_empty()
+        && !store
+            .profiles
+            .iter()
+            .any(|profile| profile.id == store.startup.profile_id)
+    {
+        store.startup.enabled = false;
+        store.startup.profile_id.clear();
+    }
+    if store.startup.target == "last" && store.profiles.is_empty() {
+        store.startup.enabled = false;
+    }
+    Ok(plan.counts)
+}
+
+fn public_counts(counts: SyncCounts) -> SubscriptionMutationCounts {
+    SubscriptionMutationCounts {
+        added: counts.added,
+        removed: counts.removed,
+        stale: counts.stale,
+        total: counts.total,
+    }
+}
+
+/// Validate, normalize and apply one already-fetched subscription mutation in
+/// memory. This function performs no network, filesystem, lifecycle or IPC
+/// work, and returns no partial payload when a gate fails.
+pub fn apply_subscription_mutation(
+    input: &str,
+    mutation: SubscriptionMutation,
+    context: SubscriptionMutationContext,
+) -> Result<PrivateSubscriptionMutation, PrivateStoreError> {
+    let mut store = parse_private_store(input)?;
+    let (changed, counts) =
+        match mutation {
+            SubscriptionMutation::Add {
+                subscription_id,
+                name,
+                url,
+                entries,
+                updated_at,
+            } => {
+                if !valid_generated_record_id(&subscription_id) {
+                    return Err(PrivateStoreError::Store(StoreError::InvalidSubscriptionId));
+                }
+                if store
+                    .subscriptions
+                    .iter()
+                    .any(|subscription| subscription.id == subscription_id)
+                {
+                    return Err(PrivateStoreError::Store(
+                        StoreError::DuplicateSubscriptionId,
+                    ));
+                }
+                if store.subscriptions.len() >= MAX_SUBSCRIPTIONS {
+                    return Err(PrivateStoreError::Store(StoreError::TooManySubscriptions));
+                }
+                let name = clean_mutation_name(&name)?;
+                let url = mutation_subscription_url(&url)?;
+                if store
+                    .subscriptions
+                    .iter()
+                    .any(|subscription| subscription.url == url)
+                {
+                    return Err(PrivateStoreError::DuplicateSubscriptionUrl);
+                }
+                store.subscriptions.push(PrivateSubscription {
+                    id: subscription_id.clone(),
+                    name: name.clone(),
+                    url: url.clone(),
+                    updated_at,
+                });
+                store
+                    .document
+                    .get_mut("subscriptions")
+                    .and_then(Value::as_array_mut)
+                    .ok_or(PrivateStoreError::InvalidShape)?
+                    .push(serde_json::json!({
+                        "id": subscription_id,
+                        "name": name,
+                        "url": url,
+                        "updatedAt": updated_at,
+                    }));
+                let counts = sync_private_subscription(&mut store, &subscription_id, entries)?;
+                (true, public_counts(counts))
+            }
+            SubscriptionMutation::Update {
+                subscription_id,
+                name,
+                url,
+                entries,
+                updated_at,
+            } => {
+                let name = clean_mutation_name(&name)?;
+                let url = mutation_subscription_url(&url)?;
+                if store.subscriptions.iter().any(|subscription| {
+                    subscription.id != subscription_id && subscription.url == url
+                }) {
+                    return Err(PrivateStoreError::DuplicateSubscriptionUrl);
+                }
+                let subscription = store
+                    .subscriptions
+                    .iter_mut()
+                    .find(|subscription| subscription.id == subscription_id)
+                    .ok_or(PrivateStoreError::SubscriptionNotFound)?;
+                subscription.name = name;
+                subscription.url = url;
+                subscription.updated_at = updated_at;
+                let counts = sync_private_subscription(&mut store, &subscription_id, entries)?;
+                (true, public_counts(counts))
+            }
+            SubscriptionMutation::Delete { subscription_id } => {
+                let subscription_index = store
+                    .subscriptions
+                    .iter()
+                    .position(|subscription| subscription.id == subscription_id)
+                    .ok_or(PrivateStoreError::SubscriptionNotFound)?;
+                let managed_ids = store
+                    .profiles
+                    .iter()
+                    .filter(|profile| profile.subscription_id == subscription_id)
+                    .map(|profile| profile.id.clone())
+                    .collect::<BTreeSet<_>>();
+                if context.active_service && managed_ids.contains(store.active_id.as_str()) {
+                    return Err(PrivateStoreError::ActiveSubscription);
+                }
+                let removed = managed_ids.len();
+                let profile_values = store
+                    .document
+                    .get_mut("profiles")
+                    .and_then(Value::as_array_mut)
+                    .ok_or(PrivateStoreError::InvalidShape)?;
+                let mut retained_values = Vec::with_capacity(profile_values.len() - removed);
+                let mut retained_profiles = Vec::with_capacity(store.profiles.len() - removed);
+                for (profile, value) in std::mem::take(&mut store.profiles)
+                    .into_iter()
+                    .zip(std::mem::take(profile_values))
+                {
+                    if profile.subscription_id != subscription_id {
+                        retained_profiles.push(profile);
+                        retained_values.push(value);
+                    }
+                }
+                *profile_values = retained_values;
+                store.profiles = retained_profiles;
+                store.subscriptions.remove(subscription_index);
+                store
+                    .document
+                    .get_mut("subscriptions")
+                    .and_then(Value::as_array_mut)
+                    .ok_or(PrivateStoreError::InvalidShape)?
+                    .remove(subscription_index);
+                if managed_ids.contains(store.active_id.as_str()) {
+                    store.active_id.clear();
+                }
+                if managed_ids.contains(store.last_id.as_str()) {
+                    store.last_id = store
+                        .profiles
+                        .first()
+                        .map_or_else(String::new, |profile| profile.id.clone());
+                }
+                if managed_ids.contains(store.startup.profile_id.as_str()) {
+                    store.startup.enabled = false;
+                    store.startup.profile_id.clear();
+                }
+                if store.startup.target == "last" && store.profiles.is_empty() {
+                    store.startup.enabled = false;
+                }
+                (
+                    true,
+                    SubscriptionMutationCounts {
+                        added: 0,
+                        removed,
+                        stale: 0,
+                        total: 0,
+                    },
+                )
+            }
+        };
+    store.normalize_document()?;
+    let candidate = store.private_payload()?;
+    let candidate = std::str::from_utf8(&candidate).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let validated = parse_private_store(candidate)?;
+    Ok(PrivateSubscriptionMutation {
+        payload: validated.private_payload()?,
+        changed,
+        counts,
     })
 }
 
