@@ -209,8 +209,16 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
         }
         let lock = MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)?;
         let lifecycle = self.lifecycle.reconcile_startup();
-        let desired = read_desired(&self.desired_paths, self.uid)
-            .map_err(|_| ConnectionTransactionError::Store)?;
+        let desired = match read_desired(&self.desired_paths, self.uid) {
+            Ok(desired) => desired,
+            Err(_) => {
+                // Reconciliation may already have changed owned host state.
+                // Losing the durable authority at this boundary is never a
+                // retryable metadata-only failure.
+                self.blocked = true;
+                return Err(ConnectionTransactionError::ManualRecoveryRequired);
+            }
+        };
         let (target, lifecycle_changed, deferred_error) = match lifecycle {
             Ok(outcome) if outcome.actual == ActualState::Connected && desired.connected => (
                 CompatibilityPointerTarget::Connected {
@@ -248,8 +256,16 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
                 return Err(ConnectionTransactionError::ManualRecoveryRequired);
             }
         };
-        let plan =
-            prepare_pointer_mutation(&self.store_path, self.uid, target).map_err(store_error)?;
+        let plan = match prepare_pointer_mutation(&self.store_path, self.uid, target) {
+            Ok(plan) => plan,
+            Err(_) if self.lifecycle.actual() == ActualState::Connected => {
+                // A healthy native tunnel without a valid compatibility-store
+                // target must remain owned but cannot accept more mutations.
+                self.blocked = true;
+                return Err(ConnectionTransactionError::ManualRecoveryRequired);
+            }
+            Err(error) => return Err(store_error(error)),
+        };
         let write = match plan.commit_locked(&lock, &self.cutover_paths) {
             Ok(write) => write,
             Err(_) if self.lifecycle.actual() == ActualState::Connected => {
@@ -854,6 +870,50 @@ mod tests {
         let written: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
         assert_eq!(written["activeId"], PROFILE);
         assert_eq!(written["lastId"], PROFILE);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_never_kills_healthy_owned_runtime_when_store_target_is_missing() {
+        let (root, store_path, desired, cutover, uid) =
+            fixture("startup-missing-target", true, "", "");
+        write_desired(
+            &desired,
+            uid,
+            &DesiredState {
+                schema_version: 1,
+                generation: 1,
+                connected: true,
+                profile_id: "00000000-0000-4000-8000-000000000099".to_owned(),
+                mode: RoutingMode::Rule,
+            },
+        )
+        .unwrap();
+        let host = FakeHost {
+            observation: healthy(),
+            store_path: store_path.clone(),
+            sabotage_observe: false,
+            sabotage_commit: false,
+            sabotage_stop: false,
+            fail_start: false,
+        };
+        let mut owner =
+            OfflineConnectionOwner::new(host, desired.clone(), &store_path, cutover, uid);
+        assert_eq!(
+            owner.reconcile_startup(),
+            Err(ConnectionTransactionError::ManualRecoveryRequired)
+        );
+        assert!(read_desired(&desired, uid).unwrap().connected);
+        assert_eq!(owner.actual(), ActualState::Connected);
+        let (_, blocked) = applied(
+            owner
+                .execute(request(OwnerAction::Disconnect, "blocked-startup", 0))
+                .unwrap(),
+        );
+        assert_eq!(
+            blocked.unwrap_err(),
+            ConnectionTransactionError::ManualRecoveryRequired
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
