@@ -528,6 +528,22 @@ types cannot be formatted, cloned or serialized. Fetching, generated data,
 atomic-store binding and IPC registration remain later owner work; this parser
 does not change the production path.
 
+The next offline refresh checkpoint adds the credential-private feed decoder
+and optimistic store snapshot/commit seam. It bounds already-fetched bodies at
+5 MiB and 1,024 supported candidates, accepts UTF-8 raw or strict
+base64/base64url feeds, canonicalizes and deduplicates all currently supported
+profile families, and exposes only fixed codes/counts. The runtime orchestration
+captures URL plus `updatedAt` under one short owner lease, performs injected
+transport outside that lease, then re-acquires serialization to compare and
+atomically replace one fully validated latest store. Concurrent subscription
+renames and unrelated store changes survive; deletion, URL replacement or a
+competing refresh conflict. Record IDs and timestamps come only from trusted
+owner callbacks; the refresh token advances monotonically even if the wall
+clock repeats or moves backwards, and fails closed at integer exhaustion. This
+is an intentional correction to the millisecond-collision weakness in the
+legacy Python timestamp. This remains offline and unregistered: it contains no
+HTTP client, IPC dispatch, lifecycle or production ownership change.
+
 The native subscription-store boundary deliberately accepts only ASCII or
 punycode URL authorities and RFC 3986 IPvFuture address characters. This is a
 fail-closed narrowing of the legacy Python `urlsplit` edge behavior: raw

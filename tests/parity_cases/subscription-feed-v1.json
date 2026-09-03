@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "raw-vless",
+      "body": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example"
+    },
+    {
+      "id": "raw-deduplicate-and-skip",
+      "body": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#First\nvless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?type=tcp&security=none#Renamed\nvless://broken\nss://unsupported"
+    },
+    {
+      "id": "standard-base64",
+      "body": "dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMTkyLjAuMi4xOjQ0Mz9zZWN1cml0eT1ub25lJnR5cGU9dGNwI0Jhc2U2NA=="
+    },
+    {
+      "id": "urlsafe-unpadded-base64",
+      "body": "dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMTkyLjAuMi4xOjQ0Mz9zZWN1cml0eT1ub25lJnR5cGU9dGNwI0Jhc2U2NA"
+    },
+    {
+      "id": "utf8-bom",
+      "body": "﻿trojan://example-password@192.0.2.2:443?security=tls&sni=edge.example.invalid#Example"
+    },
+    {
+      "id": "python-control-whitespace-raw",
+      "body": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#First\u001cvless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Second"
+    },
+    {
+      "id": "python-control-whitespace-base64",
+      "body": "dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMTkyLjAuMi4xOjQ0Mz9zZWN1cml0eT1ub25lJnR5cGU9dGNwI0Jhc2U2\u001cNA=="
+    },
+    {
+      "id": "python-nonzero-unused-base64-bits",
+      "body": "dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMTkyLjAuMi4xOjQ0Mz9zZWN1cml0eT1ub25lJnR5cGU9dGNwI0Jhc2U2NB=="
+    },
+    {
+      "id": "all-supported-families",
+      "body": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#VLESS\ntrojan://example-password@192.0.2.2:443?security=tls&sni=edge.example.invalid#Trojan\nhy2://example-auth@192.0.2.3:443?sni=edge.example.invalid#Hysteria2\ntuic://22222222-2222-4222-8222-222222222222:example-password@192.0.2.4:443?sni=edge.example.invalid#TUIC"
+    },
+    {
+      "id": "unsupported-only",
+      "body": "ss://unsupported.example.invalid"
+    },
+    {
+      "id": "invalid-base64",
+      "body": "bm90IGEgcHJvZmlsZSBmZWVk==="
+    },
+    {
+      "id": "invalid-supported-only",
+      "body": "vless://private-invalid-marker"
+    }
+  ]
+}

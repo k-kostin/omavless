@@ -299,6 +299,7 @@ dependencies = [
 name = "omavless-domain"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "idna",
  "omavless-profile",
  "serde",

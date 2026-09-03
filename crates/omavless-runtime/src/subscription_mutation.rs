@@ -8,8 +8,10 @@
 //! slot before calling it.
 
 use omavless_domain::private_store::{
-    PrivateStoreError, SubscriptionMutation, SubscriptionMutationContext,
-    SubscriptionMutationCounts, apply_subscription_mutation,
+    IncomingSubscriptionProfile, PrivateStoreError, SubscriptionMutation,
+    SubscriptionMutationContext, SubscriptionMutationCounts, SubscriptionRefreshCounts,
+    SubscriptionRefreshSnapshot, apply_subscription_mutation, apply_subscription_refresh,
+    prepare_subscription_refresh,
 };
 use omavless_store::{StoreIoError, atomic_replace_private, read_private_utf8};
 use std::fmt;
@@ -21,6 +23,8 @@ use std::path::Path;
 pub enum SubscriptionMutationCommitError {
     UnsafeStore,
     StoreIo,
+    Busy,
+    UnsafeLock,
     Mutation(PrivateStoreError),
 }
 
@@ -29,6 +33,8 @@ impl fmt::Display for SubscriptionMutationCommitError {
         match self {
             Self::UnsafeStore => formatter.write_str("Private profile store path is unsafe"),
             Self::StoreIo => formatter.write_str("Private profile store update failed"),
+            Self::Busy => formatter.write_str("Another OmaVLESS mutation is already running"),
+            Self::UnsafeLock => formatter.write_str("OmaVLESS mutation lock is unsafe"),
             Self::Mutation(error) => error.fmt(formatter),
         }
     }
@@ -40,6 +46,11 @@ impl std::error::Error for SubscriptionMutationCommitError {}
 pub struct SubscriptionMutationCommit {
     pub changed: bool,
     pub counts: SubscriptionMutationCounts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubscriptionRefreshCommit {
+    pub counts: SubscriptionRefreshCounts,
 }
 
 fn private_parent(path: &Path, uid: u32) -> bool {
@@ -96,6 +107,54 @@ pub fn commit_subscription_mutation(
     };
     atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
     Ok(commit)
+}
+
+fn validate_existing_store(
+    store_path: &Path,
+    uid: u32,
+) -> Result<(), SubscriptionMutationCommitError> {
+    if !store_path.is_absolute()
+        || store_path.file_name().and_then(|name| name.to_str()) != Some("profiles.json")
+        || !private_parent(store_path, uid)
+        || !private_store_file(store_path, uid)
+    {
+        return Err(SubscriptionMutationCommitError::UnsafeStore);
+    }
+    Ok(())
+}
+
+/// Capture a private optimistic-concurrency snapshot while the future owner
+/// holds its short mutation/read lease. No network work occurs here.
+pub fn snapshot_subscription_refresh(
+    store_path: &Path,
+    uid: u32,
+    subscription_id: &str,
+) -> Result<SubscriptionRefreshSnapshot, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    prepare_subscription_refresh(&input, subscription_id)
+        .map_err(SubscriptionMutationCommitError::Mutation)
+}
+
+/// Re-read the latest complete store, compare the private refresh snapshot,
+/// fully validate the merged result and perform exactly one private atomic
+/// replacement. The future owner must invoke this in a newly acquired
+/// serialized mutation lease; remote fetch is never accepted by this API.
+pub fn commit_subscription_refresh(
+    store_path: &Path,
+    uid: u32,
+    snapshot: SubscriptionRefreshSnapshot,
+    entries: Vec<IncomingSubscriptionProfile>,
+    updated_at: u64,
+    skipped: usize,
+) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    let (result, counts) =
+        apply_subscription_refresh(&input, snapshot, entries, updated_at, skipped)
+            .map_err(SubscriptionMutationCommitError::Mutation)?;
+    atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
+    Ok(SubscriptionRefreshCommit { counts })
 }
 
 #[cfg(test)]
@@ -243,6 +302,81 @@ mod tests {
         let public = format!("{}", SubscriptionMutationCommitError::StoreIo);
         assert!(!public.contains("private.example"));
         assert!(!public.contains("password"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn refresh_reloads_latest_store_and_commits_one_private_replacement() {
+        let (root, uid) = root("refresh");
+        let path = root.join("profiles.json");
+        let mut initial = store();
+        initial["subscriptions"] = json!([{
+            "id": SUBSCRIPTION,
+            "name": "Original",
+            "url": "https://provider.invalid/private-token",
+            "updatedAt": 1,
+        }]);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let snapshot = snapshot_subscription_refresh(&path, uid, SUBSCRIPTION).unwrap();
+
+        // A concurrent name and unrelated preference change is read from the
+        // latest store and must survive the refresh commit.
+        initial["subscriptions"][0]["name"] = Value::from("Concurrent rename");
+        initial["onboardingComplete"] = Value::from(false);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let result = commit_subscription_refresh(
+            &path,
+            uid,
+            snapshot,
+            vec![IncomingSubscriptionProfile {
+                uri: PRIVATE_URI.to_owned(),
+                new_id: PROFILE.to_owned(),
+            }],
+            9,
+            3,
+        )
+        .unwrap();
+        assert_eq!(result.counts.added, 1);
+        assert_eq!(result.counts.skipped, 3);
+        let written: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(written["subscriptions"][0]["name"], "Concurrent rename");
+        assert_eq!(written["subscriptions"][0]["updatedAt"], 9);
+        assert_eq!(written["onboardingComplete"], false);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_or_invalid_refresh_never_changes_destination() {
+        let (root, uid) = root("refresh-rejected");
+        let path = root.join("profiles.json");
+        let mut initial = store();
+        initial["subscriptions"] = json!([{
+            "id": SUBSCRIPTION,
+            "name": "Original",
+            "url": "https://provider.invalid/private-token",
+            "updatedAt": 1,
+        }]);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let snapshot = snapshot_subscription_refresh(&path, uid, SUBSCRIPTION).unwrap();
+        initial["subscriptions"][0]["updatedAt"] = Value::from(2);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&path).unwrap();
+        assert_eq!(
+            commit_subscription_refresh(&path, uid, snapshot, Vec::new(), 9, 0),
+            Err(SubscriptionMutationCommitError::Mutation(
+                PrivateStoreError::SubscriptionChanged
+            ))
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
 }
