@@ -585,6 +585,15 @@ an exact desired-state snapshot, and re-reads durable marker state after a
 write error before deciding whether compensation is legal. A production
 transaction host and controlled cutover remain later checkpoints.
 
+Draft PR #140 owns the fixed-purpose production-host checkpoint. It composes
+that accepted transaction with private desired/store/config state, the two
+fixed user services, the private runtime socket and same-candidate production
+observation. It also restores the Python-compatible Mihomo discovery contract
+(`OMAVLESS_MIHOMO`, `~/.local/bin/mihomo`, then absolute PATH entries) instead
+of assuming `/usr/bin/mihomo`. The host has no public cutover entry point and
+its compatibility bridge remains injected; its fault matrix and installed
+bridge acceptance are still required before any ownership switch.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#139 do not expose a user cutover command or switch an
 installed client to Rust.

@@ -580,8 +580,9 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
 mod tests {
     use super::*;
     use crate::cutover::{OwnershipPhase, read_marker};
-    use crate::cutover_transaction::CutoverTransactionHost;
-    use crate::cutover_transaction::execute_cutover;
+    use crate::cutover_transaction::{
+        CutoverTransactionError, CutoverTransactionHost, execute_cutover,
+    };
     use std::fs;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -592,17 +593,36 @@ mod tests {
     const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
 
     #[derive(Clone)]
-    struct FakeBridge(Arc<Mutex<Vec<BridgeTarget>>>);
+    struct FakeBridge {
+        calls: Arc<Mutex<Vec<BridgeTarget>>>,
+        fail_rust: bool,
+    }
 
     impl FakeBridge {
         fn new() -> Self {
-            Self(Arc::new(Mutex::new(Vec::new())))
+            Self {
+                calls: Arc::new(Mutex::new(Vec::new())),
+                fail_rust: false,
+            }
+        }
+
+        fn failing_rust() -> Self {
+            Self {
+                calls: Arc::new(Mutex::new(Vec::new())),
+                fail_rust: true,
+            }
         }
     }
 
     impl ProductionPluginBridge for FakeBridge {
         fn switch(&mut self, target: BridgeTarget) -> Result<(), CutoverHostError> {
-            self.0.lock().map_err(|_| CutoverHostError)?.push(target);
+            self.calls
+                .lock()
+                .map_err(|_| CutoverHostError)?
+                .push(target);
+            if self.fail_rust && target == BridgeTarget::Rust {
+                return Err(CutoverHostError);
+            }
             Ok(())
         }
     }
@@ -873,7 +893,120 @@ mod tests {
             read_marker(&cutover_paths, fixture.uid).unwrap(),
             outcome.marker
         );
-        assert_eq!(*observed_bridge.0.lock().unwrap(), vec![BridgeTarget::Rust]);
+        assert_eq!(
+            *observed_bridge.calls.lock().unwrap(),
+            vec![BridgeTarget::Rust]
+        );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn failed_bridge_switch_stops_candidate_and_restores_exact_desired_state() {
+        let fixture = Fixture::new("bridge-rollback");
+        fixture.write_private(
+            &fixture.paths.store,
+            r#"{"version":3,"activeId":"","lastId":"","profiles":[],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":false}"#,
+        );
+        fixture.write_private(
+            &fixture.paths.template,
+            "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+        );
+        let captured = DesiredState {
+            generation: 7,
+            mode: RoutingMode::Direct,
+            ..DesiredState::default()
+        };
+        write_desired(&fixture.paths.desired, fixture.uid, &captured).unwrap();
+
+        let service_state = fixture.root.join("rust-service-state");
+        fs::write(&service_state, "inactive\n").unwrap();
+        let socket = fixture.paths.runtime.socket.clone();
+        let script = format!(
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; rm -f -- \"$socket\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
+            service_state.display(),
+            socket.display()
+        );
+        fs::write(&fixture.paths.systemctl, script).unwrap();
+        fs::set_permissions(&fixture.paths.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let runtime_directory = fixture.paths.runtime.directory.clone();
+        let service_state_for_server = service_state.clone();
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while fs::read_to_string(&service_state_for_server).unwrap() != "active\n" {
+                assert!(Instant::now() < deadline, "runtime service did not start");
+                thread::sleep(Duration::from_millis(10));
+            }
+            fs::create_dir(&runtime_directory).unwrap();
+            fs::set_permissions(&runtime_directory, fs::Permissions::from_mode(0o700)).unwrap();
+            let listener = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request_line = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request_line)
+                    .unwrap();
+                let request: Value = serde_json::from_str(&request_line).unwrap();
+                let result = match request["method"].as_str().unwrap() {
+                    "runtime.transitionBootstrap" => json!({
+                        "instanceId": "rollback-candidate",
+                        "preparingGeneration": 1,
+                        "rustGeneration": 2,
+                        "runtimeOwnership": false
+                    }),
+                    "system.hello" => json!({
+                        "instanceId": "rollback-candidate",
+                        "version": 1,
+                        "versions": [1],
+                        "limits": {"requestFrameBytes": 65536, "responseFrameBytes": 262144},
+                        "runtimeOwnership": false
+                    }),
+                    "status.get" => json!({
+                        "desired": "disconnected",
+                        "actual": "disconnected",
+                        "activeProfileId": "",
+                        "mode": "rule",
+                        "transition": "cutoverPreparing",
+                        "runtimeOwnership": false
+                    }),
+                    _ => panic!("unexpected runtime method"),
+                };
+                let response = json!({
+                    "api": "omavless.control",
+                    "version": 1,
+                    "id": request["id"],
+                    "ok": true,
+                    "revision": 0,
+                    "result": result
+                });
+                writeln!(stream, "{}", serde_json::to_string(&response).unwrap()).unwrap();
+            }
+        });
+
+        let bridge = FakeBridge::failing_rust();
+        let observed_bridge = bridge.clone();
+        let cutover_paths = fixture.paths.cutover.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+        assert_eq!(
+            execute_cutover(&mut host, &OwnershipMarker::default()),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        server.join().unwrap();
+
+        assert_eq!(
+            read_desired(&fixture.paths.desired, fixture.uid).unwrap(),
+            captured
+        );
+        let marker = read_marker(&cutover_paths, fixture.uid).unwrap();
+        assert_eq!(marker.phase(), OwnershipPhase::Legacy);
+        assert_eq!(marker.generation(), 2);
+        assert_eq!(
+            *observed_bridge.calls.lock().unwrap(),
+            vec![BridgeTarget::Rust, BridgeTarget::Legacy]
+        );
+        assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
+        assert!(!fixture.paths.runtime.socket.exists());
     }
 }

@@ -306,6 +306,11 @@ screenshots and repeat affected captures after a fix.
   commit `3b22cb987007ab85150f5352016267aa15138905`. It was not a production
   cutover: Python remains the installed owner until the production transaction
   host, crash matrix and plugin bridge pass their acceptance gates.
+- Draft PR `#140` owns the next bounded R5 checkpoint: the fixed-purpose
+  production transaction host, exact desired/config staging, fixed two-service
+  control and same-candidate verification. It remains unreachable from CLI and
+  IPC, and the plugin bridge is still an injected test boundary; do not treat
+  it as an executed cutover or as R5 completion.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
