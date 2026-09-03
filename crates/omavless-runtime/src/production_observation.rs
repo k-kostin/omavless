@@ -437,8 +437,15 @@ mod tests {
 
     fn executable(root: &Path, body: &str) -> PathBuf {
         let path = root.join("systemctl");
-        fs::write(&path, body).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let staged = root.join(".systemctl.staged");
+        fs::write(&staged, body).unwrap();
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(staged, &path).unwrap();
+        // Some overlay-backed test runners briefly report ETXTBSY when an
+        // executable is spawned immediately after publication. Production
+        // calls the stable systemctl binary, so keep this bounded settling
+        // delay confined to the ephemeral test fixture.
+        thread::sleep(Duration::from_millis(20));
         path
     }
 
