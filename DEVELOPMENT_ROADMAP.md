@@ -528,13 +528,31 @@ Accepted incremental checkpoints:
   domain-separated replay digests without formatting private payloads. The
   parser remains unregistered; serialized owner binding and active-profile
   lifecycle coordination are still required before production dispatch.
+- PR #125: native subscription add/update/delete now prepares complete bounded
+  store replacements with Python differential parity and same-user atomic
+  `0600` persistence. It remains offline and unregistered.
+- PR #126: exact v1 subscription mutation envelopes now validate bounded
+  normalized intent and compute credential-safe replay digests without
+  accepting fetched profiles or caller-selected generated IDs.
+- PR #127: the offline subscription-refresh foundation bounds and decodes
+  already-fetched feeds, canonicalizes all supported families, and commits
+  through optimistic owner serialization without embedding an HTTP client.
+- PR #128: create-only first-install bootstrap now publishes only the exact
+  canonical Python v3 empty store under the migration lock and never replaces
+  an existing, racing, malformed or unsafe target.
+- PR #129: offline profile rename/favorite/delete now binds the accepted domain
+  operations to the shared revision/replay coordinator, migration lock and
+  lifecycle compensation rules, including active-profile recovery.
+- PR #130: offline connection transactions now synchronize compatibility
+  `activeId`/`lastId` pointers only after verified lifecycle outcomes, repair
+  startup state, and fail closed at uncertain startup or compensation
+  boundaries without killing an adopted healthy tunnel.
 
-The next bounded store checkpoint adds a create-only first-install bootstrap
-under the shared migration lock. It uses the fixed canonical store path and
-exact Python v3 empty-store semantics, never overwrites an existing or racing
-target, and fails closed rather than resetting malformed or unsafe state. It
-remains offline and unregistered; Python continues to own first-install product
-behavior until the later cutover.
+All PR #125-#130 owners remain deliberately unreachable from production IPC.
+The next bounded checkpoint is to converge the offline profile, subscription
+and connection transaction paths behind one live coordinator, add the
+production-safe subscription transport boundary, and register mutation
+dispatch only under verified native ownership.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
