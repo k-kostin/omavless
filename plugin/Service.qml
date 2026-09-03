@@ -1786,8 +1786,9 @@ Item {
   // visible there rather than in lastError (which would also leave the bar
   // icon urgent for a problem the user has already dismissed).
   property bool qrLoading: false
-  property string qrError: ""
-  readonly property bool qrVisible: qrLoading || qrPath !== "" || qrError !== ""
+  // Stable local UI code only. Never forward qrencode/backend stderr to QML.
+  property string qrErrorCode: ""
+  readonly property bool qrVisible: qrLoading || qrPath !== "" || qrErrorCode !== ""
 
   function exportToPath(profile, path) {
     if (!profile || !profile.uuid) return rejectAction("no such profile")
@@ -1815,7 +1816,7 @@ Item {
       // already says what it is doing, so leave it alone.
       if (!_qrWanted) {
         qrName = String(profile.name)
-        qrError = "Another QR code is still rendering — try again in a moment"
+        qrErrorCode = "busy"
       }
       return "another QR code is still rendering"
     }
@@ -1841,7 +1842,7 @@ Item {
     qrPath = ""
     qrName = ""
     qrLoading = false
-    qrError = ""
+    qrErrorCode = ""
   }
 
   // Each path gets its own detached remover. A shared Process can have its
@@ -2588,8 +2589,9 @@ Item {
       if (exitCode === 0 && path !== "") {
         root.qrPath = path
       } else {
-        // 2 = qrencode missing, with the install hint on stderr.
-        root.qrError = root.elide(qrStderr.text || "Could not render the QR code")
+        // 2 is the backend's fixed dependency-missing exit. All other
+        // backend/qrencode output remains private and becomes one safe code.
+        root.qrErrorCode = exitCode === 2 ? "dependency_missing" : "render_failed"
       }
     }
   }
