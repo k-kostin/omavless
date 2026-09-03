@@ -606,11 +606,13 @@ marker; missing, stale, malformed, oversized, permissive-mode and symlinked
 state fail closed. It does not yet route QML/backend commands to the semantic
 Rust API and remains unreachable from any cutover command.
 
-Draft PR #142 owns the first fixed semantic mutation CLI checkpoint. It maps
-only connect/disconnect and profile rename/favorite/delete command shapes to
-the registered v1 socket methods, reads the private rename value through
-bounded stdin, and deliberately exposes no raw method/JSON passthrough. It does
-not add subscription commands, connect QML/backend launchers, or make cutover
+PR #142 accepted the first fixed semantic mutation CLI checkpoint at tested
+head `977d38a4cf6274286e8731d315c6b5a327a26b83` and squash commit
+`006ea7944242d076e1bfa59be85e10be92106df4`. It maps only
+connect/disconnect and profile rename/favorite/delete command shapes to the
+registered v1 socket methods, reads the private rename value through bounded
+stdin, and deliberately exposes no raw method/JSON passthrough. It does not add
+subscription commands, connect QML/backend launchers, or make cutover
 reachable.
 
 Legacy, preparing and rollback phases cannot mutate through the registered

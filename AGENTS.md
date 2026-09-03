@@ -312,11 +312,12 @@ screenshots and repeat affected captures after a fix.
   squash commit `f23f599b8dc49e30cb3d118b015b1324f82c4ee8`. The selector is
   authorized by the exact migration lock and marker but does not itself switch
   an installed client.
-- Draft PR `#142` owns the next bounded R5 checkpoint: fixed semantic CLI
-  mappings for connect/disconnect and profile rename/favorite/delete. It
-  exposes no raw method/JSON passthrough, keeps private rename input out of
-  argv, and does not yet connect QML/backend launchers to Rust. Python remains
-  the installed owner and R5 is not complete.
+- PR `#142` accepted the fixed semantic CLI checkpoint at tested head
+  `977d38a4cf6274286e8731d315c6b5a327a26b83` and squash commit
+  `006ea7944242d076e1bfa59be85e10be92106df4`: connect/disconnect and profile
+  rename/favorite/delete have exact mappings, no raw method/JSON passthrough,
+  and private rename input stays out of argv. QML/backend launchers are not yet
+  connected to Rust; Python remains the installed owner and R5 is not complete.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
