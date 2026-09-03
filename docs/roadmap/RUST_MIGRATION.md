@@ -486,7 +486,8 @@ to widen concurrency or retry semantics beyond the existing contract.
 Goal: make `omavless daemon` the one canonical owner.
 
 Implementation status: **foundations accepted; ownership cutover pending**.
-PRs #96-#100, #102, #104, #106-#108, #110, #111, #113 and #117-#121 provide the private control
+PRs #96-#100, #102, #104, #106-#108, #110, #111, #113, #117-#121 and
+#125-#130 provide the private control
 socket/owner lock, desired-state and reconciliation model, package-unit
 contract, canonical all-family rendering, read-only private-store/config
 preflight, the bounded mutation coordinator and exact v1 connect/disconnect
@@ -537,10 +538,12 @@ intent plus operation metadata, rejects generated IDs, fetched entries and
 caller-supplied host observations, and uses a subscription-specific replay
 digest which distinguishes omitted from explicit revision. The private intent
 types cannot be formatted, cloned or serialized. Fetching, generated data,
-atomic-store binding and IPC registration remain later owner work; this parser
-does not change the production path.
+and IPC registration remain later owner work; this parser does not change the
+production path. PR #125 supplies the complete bounded atomic-store mutation
+boundary and Python differential parity; PR #126 supplies the exact request
+protocol and replay identity.
 
-The next offline refresh checkpoint adds the credential-private feed decoder
+PR #127 adds the credential-private offline feed decoder
 and optimistic store snapshot/commit seam. It bounds already-fetched bodies at
 5 MiB and 1,024 supported candidates, accepts UTF-8 raw or strict
 base64/base64url feeds, canonicalizes and deduplicates all currently supported
@@ -573,7 +576,21 @@ only after its same-user `0600`, regular non-symlink shape and complete v1-v3
 store payload validate; malformed or unsafe state fails closed and is never
 reset. The existing config directory must already be same-user `0700`. This
 helper remains unregistered from CLI, IPC, daemon startup and the current
-plugin path.
+plugin path. This checkpoint was accepted in PR #128.
+
+PR #129 binds offline profile rename/favorite/delete to the shared
+revision/replay coordinator, migration lock, exact-byte store transaction and
+active-profile lifecycle compensation. PR #130 adds the corresponding offline
+connection transaction and startup-reconciliation boundary: compatibility
+`activeId`/`lastId` pointers follow verified desired/runtime outcomes, stale
+startup state is repaired, and uncertain restoration becomes a manual-recovery
+blocker without stopping an adopted healthy tunnel. Both remain absent from
+runtime dispatch and capabilities.
+
+The next bounded checkpoint is one live coordinator for these accepted offline
+owners, a production-safe subscription transport boundary, and mutation
+registration gated by verified native ownership. Transactional cutover and the
+plugin bridge still follow; R5 is not complete.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
