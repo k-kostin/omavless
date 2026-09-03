@@ -665,13 +665,15 @@ exact legacy owner and fails closed for every stale, unsafe or ambiguous
 combination. QML/backend launcher integration and semantic command mapping are
 still absent, so this selector cannot activate a cutover by itself.
 
-Draft PR #142 adds the first fixed executable-side semantic mutation mapping:
-connect/disconnect and profile rename/favorite/delete map to exact registered
-v1 methods. Unknown or extra arguments fail before socket dispatch, rename
-input is bounded and supplied through stdin rather than argv, and no raw
-method/JSON passthrough exists. Subscription CLI dispatch, read projections and
-QML/backend launcher integration remain later checkpoints, so the installed
-production owner is unchanged.
+PR #142 accepted the first fixed executable-side semantic mutation mapping at
+tested head `977d38a4cf6274286e8731d315c6b5a327a26b83` and squash commit
+`006ea7944242d076e1bfa59be85e10be92106df4`: connect/disconnect and profile
+rename/favorite/delete map to exact registered v1 methods. Unknown or extra
+arguments fail before socket dispatch, rename input is bounded and supplied
+through stdin rather than argv, and no raw method/JSON passthrough exists.
+Subscription CLI dispatch, read projections and QML/backend launcher
+integration remain later checkpoints, so the installed production owner is
+unchanged.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
