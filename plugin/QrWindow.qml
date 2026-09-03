@@ -39,6 +39,7 @@ PanelWindow {
   property string fontFamily: Style.font.family
 
   signal closeRequested()
+  signal copyInstallCommandRequested()
 
   function textFor(key, values) {
     return I18n.translate(key, locale, values || {})
@@ -198,13 +199,26 @@ PanelWindow {
           wrapMode: Text.WordWrap
         }
 
-        Button {
+        Row {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: root.textFor("common.close")
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onClicked: root.closeRequested()
+          spacing: Style.space(8)
+
+          Button {
+            visible: root.errorCode === "dependency_missing"
+            text: root.textFor("common.copy_command")
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.copyInstallCommandRequested()
+          }
+
+          Button {
+            text: root.textFor("common.close")
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.closeRequested()
+          }
         }
       }
     }

@@ -4745,6 +4745,14 @@ def file_picker_status() -> dict[str, Any]:
     return {"available": bool(provider), "provider": provider}
 
 
+def desktop_helper_status() -> dict[str, bool]:
+    """Return public readiness booleans for optional desktop-only helpers."""
+    return {
+        "configEditorAvailable": shutil.which("zenity") is not None,
+        "qrEncoderAvailable": shutil.which("qrencode") is not None,
+    }
+
+
 def pick_import_file_gtk4() -> str:
     """Open Omarchy's installed GTK4 native chooser and return a local path."""
     try:
@@ -5555,6 +5563,7 @@ def status_text(paths: Paths) -> str:
         "routing": routing,
         "coreSetup": core_setup_status(paths),
         "filePicker": file_picker_status(),
+        "desktopHelpers": desktop_helper_status(),
         "startup": startup_status(store, str(routing["mode"])),
         "onboardingComplete": bool(store.get("onboardingComplete", False)),
         "uptimeSeconds": service_uptime_seconds(SERVICE, running),
