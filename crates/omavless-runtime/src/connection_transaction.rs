@@ -208,21 +208,30 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         read_desired(&self.desired_paths, self.uid).map_err(|_| ConnectionTransactionError::Store)
     }
 
-    /// Recheck durable native ownership while holding the same migration lock
-    /// used by mutation admission. Capability/status replies must never claim
-    /// a native owner during a concurrent cutover or rollback phase.
-    pub(crate) fn rust_ownership_available(&self, expected_generation: u64) -> bool {
+    /// Recheck one exact durable ownership fence while holding the same
+    /// migration lock used by mutation admission. Capability/status replies
+    /// must never claim a native owner during a concurrent cutover or rollback
+    /// phase.
+    pub(crate) fn ownership_available(
+        &self,
+        expected_phase: OwnershipPhase,
+        expected_generation: u64,
+    ) -> bool {
         let Ok(lock) = self.acquire_lock() else {
             return false;
         };
-        let available = self.rust_ownership_matches(expected_generation);
+        let available = self.ownership_matches(expected_phase, expected_generation);
         drop(lock);
         available
     }
 
-    pub(crate) fn rust_ownership_matches(&self, expected_generation: u64) -> bool {
+    pub(crate) fn ownership_matches(
+        &self,
+        expected_phase: OwnershipPhase,
+        expected_generation: u64,
+    ) -> bool {
         read_marker(&self.cutover_paths, self.uid).is_ok_and(|marker| {
-            marker.phase() == OwnershipPhase::Rust && marker.generation() == expected_generation
+            marker.phase() == expected_phase && marker.generation() == expected_generation
         })
     }
 

@@ -178,7 +178,7 @@ pub struct RuntimeServer {
     paths: RuntimePaths,
     uid: u32,
     instance_id: String,
-    dispatcher: RuntimeDispatcher,
+    dispatcher: Mutex<RuntimeDispatcher>,
     _owner: OwnerLock,
 }
 
@@ -196,13 +196,14 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
 
 enum RuntimeDispatcher {
     ReadOnly,
-    Native(Mutex<Box<dyn NativeRuntimeOwner>>),
+    Native(Box<dyn NativeRuntimeOwner>),
 }
 
 trait NativeRuntimeOwner: Send {
     fn revision(&self) -> u64;
-    fn runtime_ownership(&self) -> bool;
-    fn status(&self) -> Result<Value>;
+    fn runtime_ownership(&mut self) -> bool;
+    fn status(&self, runtime_ownership: bool) -> Result<Value>;
+    fn bootstrap_generations(&self) -> Option<(u64, u64)>;
     fn mutate(
         &mut self,
         request: &Value,
@@ -270,11 +271,11 @@ where
         self.owner.revision()
     }
 
-    fn runtime_ownership(&self) -> bool {
+    fn runtime_ownership(&mut self) -> bool {
         self.owner.rust_ownership_available()
     }
 
-    fn status(&self) -> Result<Value> {
+    fn status(&self, runtime_ownership: bool) -> Result<Value> {
         let desired = self
             .owner
             .desired()
@@ -293,9 +294,13 @@ where
             "actual": actual,
             "activeProfileId": if desired.connected { desired.profile_id.as_str() } else { "" },
             "mode": desired.mode.as_str(),
-            "transition": null,
-            "runtimeOwnership": self.runtime_ownership()
+            "transition": self.owner.transition(),
+            "runtimeOwnership": runtime_ownership
         }))
+    }
+
+    fn bootstrap_generations(&self) -> Option<(u64, u64)> {
+        self.owner.bootstrap_generations()
     }
 
     fn mutate(
@@ -345,7 +350,7 @@ impl RuntimeServer {
             paths,
             uid,
             instance_id: format!("{:x}-{nonce:x}", std::process::id()),
-            dispatcher: RuntimeDispatcher::ReadOnly,
+            dispatcher: Mutex::new(RuntimeDispatcher::ReadOnly),
             _owner: owner,
         })
     }
@@ -395,7 +400,7 @@ impl RuntimeServer {
             transport,
             record_ids: RecordIdGenerator::new(&self.instance_id),
         };
-        self.dispatcher = RuntimeDispatcher::Native(Mutex::new(Box::new(registered)));
+        self.dispatcher = Mutex::new(RuntimeDispatcher::Native(Box::new(registered)));
     }
 
     #[must_use]
@@ -470,19 +475,96 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
-        match &self.dispatcher {
-            RuntimeDispatcher::ReadOnly => dispatch_read_only(request, &self.instance_id),
-            RuntimeDispatcher::Native(owner) => match owner.lock() {
-                Ok(mut owner) => dispatch_native(request, &self.instance_id, owner.as_mut()),
-                Err(_) => error_response(
+        let mut dispatcher = match self.dispatcher.lock() {
+            Ok(dispatcher) => dispatcher,
+            Err(_) => {
+                return error_response(
                     request["id"].as_str().unwrap_or("invalid"),
                     0,
                     StableErrorCode::InternalError,
                     false,
                     None,
-                ),
-            },
+                );
+            }
+        };
+        if request["method"] == "runtime.transitionBootstrap" {
+            return self.dispatch_transition_bootstrap(request, &mut dispatcher);
         }
+        match &mut *dispatcher {
+            RuntimeDispatcher::ReadOnly => dispatch_read_only(request, &self.instance_id),
+            RuntimeDispatcher::Native(owner) => {
+                dispatch_native(request, &self.instance_id, owner.as_mut())
+            }
+        }
+    }
+
+    fn dispatch_transition_bootstrap(
+        &self,
+        request: &Value,
+        dispatcher: &mut RuntimeDispatcher,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let Some(params) = request["params"].as_object() else {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        };
+        if params.len() != 1 {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        }
+        let Some(preparing_generation) = params.get("preparingGeneration").and_then(Value::as_u64)
+        else {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        };
+
+        if matches!(dispatcher, RuntimeDispatcher::ReadOnly) {
+            let owner = match production_owner::ProductionNativeOwner::candidate_current(
+                &self.paths,
+                preparing_generation,
+            ) {
+                Ok(owner) => owner,
+                Err(production_owner::ProductionOwnerError::Busy) => {
+                    return error_response(id, 0, StableErrorCode::Busy, true, None);
+                }
+                Err(production_owner::ProductionOwnerError::OwnershipUnavailable) => {
+                    return error_response(id, 0, StableErrorCode::Conflict, false, None);
+                }
+                Err(_) => {
+                    return error_response(
+                        id,
+                        0,
+                        StableErrorCode::ManualRecoveryRequired,
+                        false,
+                        None,
+                    );
+                }
+            };
+            let registered = RegisteredNativeOwner {
+                owner,
+                transport: subscription_transport::HttpsSubscriptionTransport::new(),
+                record_ids: RecordIdGenerator::new(&self.instance_id),
+            };
+            *dispatcher = RuntimeDispatcher::Native(Box::new(registered));
+        }
+
+        let RuntimeDispatcher::Native(owner) = dispatcher else {
+            unreachable!("transition bootstrap installs a native candidate")
+        };
+        let Some((actual_preparing, rust_generation)) = owner.bootstrap_generations() else {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        };
+        if actual_preparing != preparing_generation {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, false, None);
+        }
+        let runtime_ownership = owner.runtime_ownership();
+        success_response(
+            id,
+            owner.revision(),
+            json!({
+                "instanceId": self.instance_id,
+                "preparingGeneration": actual_preparing,
+                "rustGeneration": rust_generation,
+                "runtimeOwnership": runtime_ownership
+            }),
+        )
     }
 }
 
@@ -591,7 +673,7 @@ fn dispatch_native(
                 "runtimeOwnership": runtime_ownership
             })
         }
-        "status.get" if empty_params(request) => match owner.status() {
+        "status.get" if empty_params(request) => match owner.status(runtime_ownership) {
             Ok(status) => status,
             Err(_) => {
                 return error_response(id, revision, StableErrorCode::InternalError, false, None);
@@ -741,8 +823,9 @@ mod tests {
         fs::set_permissions(&paths.ownership_marker, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
-    fn native_owner_fixture(
+    fn owner_fixture(
         base: &Path,
+        phase: OwnershipPhase,
     ) -> (
         production_owner::ProductionNativeOwner<FakeHost>,
         CutoverPaths,
@@ -759,7 +842,7 @@ mod tests {
         let desired = DesiredPaths::below(&state);
         write_desired(&desired, uid, &DesiredState::default()).unwrap();
         let cutover = CutoverPaths::below(&runtime, &state, uid);
-        write_marker(&cutover, OwnershipPhase::Rust, 1);
+        write_marker(&cutover, phase, 1);
         let store_path = config.join("profiles.json");
         let store = json!({
             "version": 3,
@@ -793,15 +876,36 @@ mod tests {
             },
             calls: Arc::clone(&calls),
         };
-        let owner = production_owner::ProductionNativeOwner::initialize(
-            host,
-            desired,
-            &store_path,
-            cutover.clone(),
-            uid,
-        )
+        let owner = if phase == OwnershipPhase::Rust {
+            production_owner::ProductionNativeOwner::initialize(
+                host,
+                desired,
+                &store_path,
+                cutover.clone(),
+                uid,
+            )
+        } else {
+            production_owner::ProductionNativeOwner::initialize_candidate(
+                host,
+                desired,
+                &store_path,
+                cutover.clone(),
+                uid,
+                1,
+            )
+        }
         .unwrap();
         (owner, cutover, calls)
+    }
+
+    fn native_owner_fixture(
+        base: &Path,
+    ) -> (
+        production_owner::ProductionNativeOwner<FakeHost>,
+        CutoverPaths,
+        Arc<AtomicUsize>,
+    ) {
+        owner_fixture(base, OwnershipPhase::Rust)
     }
 
     #[test]
@@ -952,6 +1056,86 @@ mod tests {
         .unwrap();
         assert_eq!(stale_owner["error"]["code"], "capability_unavailable");
         assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
+
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn transition_candidate_is_read_only_then_promotes_in_the_same_runtime() {
+        let base = temporary_base("candidate");
+        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+
+        let hello_before = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
+        let instance_id = hello_before["result"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(hello_before["result"]["runtimeOwnership"], false);
+        let status_before = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status_before["result"]["actual"], "disconnected");
+        assert_eq!(status_before["result"]["transition"], "cutoverPreparing");
+        let capabilities_before = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities_before["result"]["mutations"], false);
+        let calls_before_rejection = calls.load(Ordering::Relaxed);
+        let rejected = call(
+            &paths,
+            "connection.connect",
+            json!({
+                "profileId": PROFILE_ID,
+                "mode": RoutingMode::Global.as_str(),
+                "operationId": "candidate-connect",
+                "expectedRevision": 0
+            }),
+        )
+        .unwrap();
+        assert_eq!(rejected["error"]["code"], "capability_unavailable");
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
+
+        let bootstrap = call(
+            &paths,
+            "runtime.transitionBootstrap",
+            json!({"preparingGeneration": 1}),
+        )
+        .unwrap();
+        assert_eq!(bootstrap["ok"], true);
+        assert_eq!(bootstrap["result"]["instanceId"], instance_id);
+        assert_eq!(bootstrap["result"]["rustGeneration"], 2);
+        let wrong_bootstrap = call(
+            &paths,
+            "runtime.transitionBootstrap",
+            json!({"preparingGeneration": 2}),
+        )
+        .unwrap();
+        assert_eq!(wrong_bootstrap["error"]["code"], "conflict");
+
+        write_marker(&cutover, OwnershipPhase::Rust, 2);
+        let capabilities_after = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert_eq!(capabilities_after["result"]["mutations"], true);
+        let hello_after = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
+        assert_eq!(hello_after["result"]["instanceId"], instance_id);
+        assert_eq!(hello_after["result"]["runtimeOwnership"], true);
+        let status_after = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status_after["result"]["transition"], Value::Null);
+        let connected = call(
+            &paths,
+            "connection.connect",
+            json!({
+                "profileId": PROFILE_ID,
+                "mode": RoutingMode::Global.as_str(),
+                "operationId": "promoted-connect",
+                "expectedRevision": 0
+            }),
+        )
+        .unwrap();
+        assert_eq!(connected["ok"], true);
 
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();

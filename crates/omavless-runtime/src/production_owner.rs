@@ -9,10 +9,12 @@
 
 use crate::RuntimePaths;
 use crate::connection_transaction::{ConnectionTransactionError, ConnectionTransactionOutcome};
-use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, read_marker};
+use crate::cutover::{
+    CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, TransitionBootstrap, read_marker,
+};
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
-use crate::native_coordinator::OfflineNativeCoordinator;
+use crate::native_coordinator::{CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator};
 use crate::native_dispatch::respond_to_native_mutation;
 use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::SubscriptionTransport;
@@ -74,6 +76,17 @@ fn recovery_error(error: ConnectionTransactionError) -> ProductionOwnerError {
 pub struct ProductionNativeOwner<H = NativeLifecycleHost> {
     coordinator: OfflineNativeCoordinator<H>,
     startup: ConnectionTransactionOutcome,
+    ownership: ProductionOwnership,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProductionOwnership {
+    Candidate(TransitionBootstrap),
+    Committed {
+        rust_generation: u64,
+        origin_preparing_generation: Option<u64>,
+    },
+    Stale,
 }
 
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
@@ -119,6 +132,69 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         Ok(Self {
             coordinator,
             startup,
+            ownership: ProductionOwnership::Committed {
+                rust_generation: marker.generation(),
+                origin_preparing_generation: None,
+            },
+        })
+    }
+
+    /// Build a reconciled read-only candidate for one exact preparing marker.
+    /// The candidate never writes the marker and remains mutation-gated until
+    /// the immediate committed Rust successor is observed.
+    #[cfg(test)]
+    pub(crate) fn initialize_candidate(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        preparing_generation: u64,
+    ) -> Result<Self, ProductionOwnerError> {
+        let lock = MigrationLock::acquire(&cutover_paths, uid).map_err(lock_error)?;
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        let bootstrap = TransitionBootstrap::from_preparing(&marker)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if bootstrap.preparing_generation() != preparing_generation {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        Self::initialize_candidate_locked(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            bootstrap,
+            lock,
+        )
+    }
+
+    fn initialize_candidate_locked(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        bootstrap: TransitionBootstrap,
+        lock: MigrationLock,
+    ) -> Result<Self, ProductionOwnerError> {
+        let mut coordinator = OfflineNativeCoordinator::new_transition_candidate(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            bootstrap.preparing_generation(),
+        );
+        let startup = coordinator
+            .reconcile_startup_locked(&lock)
+            .map_err(recovery_error)?;
+        drop(lock);
+        Ok(Self {
+            coordinator,
+            startup,
+            ownership: ProductionOwnership::Candidate(bootstrap),
         })
     }
 
@@ -143,8 +219,74 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .map_err(|_| ProductionOwnerError::RecoveryFailed)
     }
 
-    pub(crate) fn rust_ownership_available(&self) -> bool {
-        self.coordinator.rust_ownership_available()
+    pub(crate) fn rust_ownership_available(&mut self) -> bool {
+        match self.ownership {
+            ProductionOwnership::Committed {
+                rust_generation,
+                origin_preparing_generation: _,
+            } => {
+                let _ = rust_generation;
+                self.coordinator.rust_ownership_available()
+            }
+            ProductionOwnership::Candidate(bootstrap) => {
+                match self.coordinator.try_promote_candidate() {
+                    Ok(CandidatePromotion::Pending) | Err(NativeOwnerError::OwnershipBusy) => false,
+                    Ok(CandidatePromotion::Promoted { rust_generation })
+                        if rust_generation == bootstrap.rust_generation() =>
+                    {
+                        self.ownership = ProductionOwnership::Committed {
+                            rust_generation,
+                            origin_preparing_generation: Some(bootstrap.preparing_generation()),
+                        };
+                        true
+                    }
+                    Ok(CandidatePromotion::Promoted { .. })
+                    | Ok(CandidatePromotion::Stale)
+                    | Err(_) => {
+                        self.ownership = ProductionOwnership::Stale;
+                        false
+                    }
+                }
+            }
+            ProductionOwnership::Stale => false,
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) const fn preparing_generation(&self) -> Option<u64> {
+        match self.ownership {
+            ProductionOwnership::Candidate(bootstrap) => Some(bootstrap.preparing_generation()),
+            ProductionOwnership::Committed { .. } | ProductionOwnership::Stale => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn bootstrap_generations(&self) -> Option<(u64, u64)> {
+        match self.ownership {
+            ProductionOwnership::Candidate(bootstrap) => Some((
+                bootstrap.preparing_generation(),
+                bootstrap.rust_generation(),
+            )),
+            ProductionOwnership::Committed {
+                rust_generation,
+                origin_preparing_generation: Some(preparing_generation),
+            } => Some((preparing_generation, rust_generation)),
+            ProductionOwnership::Committed {
+                origin_preparing_generation: None,
+                ..
+            }
+            | ProductionOwnership::Stale => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn transition(&self) -> Option<&'static str> {
+        match self.ownership {
+            ProductionOwnership::Candidate(_) => Some("cutoverPreparing"),
+            ProductionOwnership::Stale => Some("staleCandidate"),
+            ProductionOwnership::Committed { .. } => None,
+        }
     }
 
     pub(crate) fn respond<T, G, N>(
@@ -191,6 +333,41 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         let host = NativeLifecycleHost::new(host_paths, uid)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         Self::initialize_locked(host, desired_paths, &store_path, cutover_paths, uid, lock)
+    }
+
+    /// Construct a transition candidate only through the package-fixed current
+    /// paths. The caller supplies no path, command, service, or phase value.
+    pub(crate) fn candidate_current(
+        runtime_paths: &RuntimePaths,
+        preparing_generation: u64,
+    ) -> Result<Self, ProductionOwnerError> {
+        let uid = Uid::current().as_raw();
+        let desired_paths =
+            DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let cutover_paths =
+            CutoverPaths::current(uid).map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let lock = MigrationLock::acquire(&cutover_paths, uid).map_err(lock_error)?;
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        let bootstrap = TransitionBootstrap::from_preparing(&marker)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if bootstrap.preparing_generation() != preparing_generation {
+            return Err(ProductionOwnerError::OwnershipUnavailable);
+        }
+        let host_paths = NativeHostPaths::current(&runtime_paths.directory)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let store_path = host_paths.store.clone();
+        let host = NativeLifecycleHost::new(host_paths, uid)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        Self::initialize_candidate_locked(
+            host,
+            desired_paths,
+            &store_path,
+            cutover_paths,
+            uid,
+            bootstrap,
+            lock,
+        )
     }
 }
 
@@ -319,6 +496,24 @@ mod tests {
                 lock_was_held: false,
             }
         }
+
+        fn write_marker(&self, phase: OwnershipPhase, generation: u64) {
+            let marker = json!({
+                "schemaVersion": 1,
+                "generation": generation,
+                "phase": phase.as_str(),
+            });
+            fs::write(
+                &self.cutover.ownership_marker,
+                serde_json::to_vec(&marker).unwrap(),
+            )
+            .unwrap();
+            fs::set_permissions(
+                &self.cutover.ownership_marker,
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
     }
 
     impl Drop for Fixture {
@@ -384,5 +579,87 @@ mod tests {
         };
         assert_eq!(error, ProductionOwnerError::OwnershipUnavailable);
         assert!(!format!("{error}").contains("private-broken"));
+    }
+
+    #[test]
+    fn candidate_reconciles_read_only_then_promotes_only_to_exact_successor() {
+        let fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
+        let mut owner = ProductionNativeOwner::initialize_candidate(
+            fixture.host(),
+            fixture.desired.clone(),
+            &fixture.store,
+            fixture.cutover.clone(),
+            fixture.uid,
+            1,
+        )
+        .unwrap();
+        assert_eq!(owner.actual(), ActualState::Disconnected);
+        assert_eq!(owner.preparing_generation(), Some(1));
+        assert_eq!(owner.transition(), Some("cutoverPreparing"));
+        assert!(!owner.rust_ownership_available());
+        assert_eq!(owner.coordinator.host().calls, 1);
+
+        fixture.write_marker(OwnershipPhase::Rust, 2);
+        assert!(owner.rust_ownership_available());
+        assert_eq!(owner.preparing_generation(), None);
+        assert_eq!(owner.transition(), None);
+
+        fixture.write_marker(OwnershipPhase::RollbackPreparing, 3);
+        assert!(!owner.rust_ownership_available());
+    }
+
+    #[test]
+    fn wrong_marker_permanently_stales_candidate() {
+        let fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
+        let mut owner = ProductionNativeOwner::initialize_candidate(
+            fixture.host(),
+            fixture.desired.clone(),
+            &fixture.store,
+            fixture.cutover.clone(),
+            fixture.uid,
+            1,
+        )
+        .unwrap();
+
+        fixture.write_marker(OwnershipPhase::Legacy, 2);
+        assert!(!owner.rust_ownership_available());
+        assert_eq!(owner.transition(), Some("staleCandidate"));
+        fixture.write_marker(OwnershipPhase::Rust, 2);
+        assert!(!owner.rust_ownership_available());
+    }
+
+    #[test]
+    fn busy_promotion_is_retryable_but_wrong_generation_is_not() {
+        let fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
+        let mut owner = ProductionNativeOwner::initialize_candidate(
+            fixture.host(),
+            fixture.desired.clone(),
+            &fixture.store,
+            fixture.cutover.clone(),
+            fixture.uid,
+            1,
+        )
+        .unwrap();
+        fixture.write_marker(OwnershipPhase::Rust, 2);
+        let lock = MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap();
+        assert!(!owner.rust_ownership_available());
+        assert_eq!(owner.transition(), Some("cutoverPreparing"));
+        drop(lock);
+        assert!(owner.rust_ownership_available());
+
+        let stale_fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
+        let mut stale = ProductionNativeOwner::initialize_candidate(
+            stale_fixture.host(),
+            stale_fixture.desired.clone(),
+            &stale_fixture.store,
+            stale_fixture.cutover.clone(),
+            stale_fixture.uid,
+            1,
+        )
+        .unwrap();
+        stale_fixture.write_marker(OwnershipPhase::Rust, 3);
+        assert!(!stale.rust_ownership_available());
+        stale_fixture.write_marker(OwnershipPhase::Rust, 2);
+        assert!(!stale.rust_ownership_available());
     }
 }
