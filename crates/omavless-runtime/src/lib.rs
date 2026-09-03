@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub mod connection_transaction;
 pub mod core;
 pub mod cutover;
 pub mod cutover_transaction;
@@ -35,6 +36,7 @@ pub mod mutation_binding;
 pub mod mutation_protocol;
 pub mod native_host;
 pub mod owner;
+pub mod private_store_transaction;
 pub mod production_observation;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;

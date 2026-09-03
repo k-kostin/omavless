@@ -242,6 +242,11 @@ impl MigrationLock {
             _file: file,
         })
     }
+
+    #[must_use]
+    pub(crate) fn authorizes(&self, paths: &CutoverPaths, uid: u32) -> bool {
+        self.uid == uid && self.path == paths.operation_lock
+    }
 }
 
 pub fn read_marker(paths: &CutoverPaths, uid: u32) -> Result<OwnershipMarker, CutoverError> {

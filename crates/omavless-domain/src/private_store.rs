@@ -252,6 +252,29 @@ impl PrivateStoreMutation {
     }
 }
 
+/// Compatibility pointers written only after the native owner has established
+/// the corresponding lifecycle fact. `desired.json`, never these pointers,
+/// remains the durable connection authority.
+pub enum CompatibilityPointerTarget {
+    Connected { profile_id: String },
+    Disconnected { prune_missing: bool },
+}
+
+/// One fully validated compatibility-pointer replacement. The payload remains
+/// private and is released only to the fixed private-store transaction layer.
+pub struct PrivatePointerMutation {
+    payload: Vec<u8>,
+    pub changed: bool,
+    pub pruned: usize,
+}
+
+impl PrivatePointerMutation {
+    #[must_use]
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+}
+
 /// Fully validated private replacement plus bounded public refresh counts.
 pub struct PrivateSubscriptionMutation {
     payload: Vec<u8>,
@@ -993,6 +1016,106 @@ pub fn apply_profile_mutation(
     })
 }
 
+/// Synchronize legacy profile pointers with an already verified native
+/// lifecycle outcome. This function performs no lifecycle observation itself:
+/// callers must derive `target` from desired state plus owned-host evidence.
+pub fn apply_compatibility_pointer_update(
+    input: &str,
+    target: CompatibilityPointerTarget,
+) -> Result<PrivatePointerMutation, PrivateStoreError> {
+    let raw: Value = serde_json::from_str(input).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let raw_root = object(&raw)?;
+    let original_active = optional_string(raw_root, "activeId", "")?.to_owned();
+    let original_last = optional_string(raw_root, "lastId", "")?.to_owned();
+    let original_startup_enabled = raw_root
+        .get("startup")
+        .and_then(Value::as_object)
+        .and_then(|startup| startup.get("enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let original_startup_profile = raw_root
+        .get("startup")
+        .and_then(Value::as_object)
+        .and_then(|startup| startup.get("profileId"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let mut store = parse_private_store(input)?;
+    let original_profile_count = store.profiles.len();
+
+    match target {
+        CompatibilityPointerTarget::Connected { profile_id } => {
+            if !store
+                .profiles
+                .iter()
+                .any(|profile| profile.id == profile_id)
+            {
+                return Err(PrivateStoreError::ProfileNotFound);
+            }
+            store.active_id = profile_id.clone();
+            store.last_id = profile_id;
+        }
+        CompatibilityPointerTarget::Disconnected { prune_missing } => {
+            store.active_id.clear();
+            if prune_missing {
+                let values = store
+                    .document
+                    .get_mut("profiles")
+                    .and_then(Value::as_array_mut)
+                    .ok_or(PrivateStoreError::InvalidShape)?;
+                let old_values = std::mem::take(values);
+                *values = store
+                    .profiles
+                    .iter()
+                    .zip(old_values)
+                    .filter_map(|(profile, value)| (!profile.missing).then_some(value))
+                    .collect();
+                store.profiles.retain(|profile| !profile.missing);
+
+                if !store
+                    .profiles
+                    .iter()
+                    .any(|profile| profile.id == store.last_id)
+                {
+                    store.last_id = store
+                        .profiles
+                        .first()
+                        .map_or_else(String::new, |profile| profile.id.clone());
+                }
+                if !store.startup.profile_id.is_empty()
+                    && !store
+                        .profiles
+                        .iter()
+                        .any(|profile| profile.id == store.startup.profile_id)
+                {
+                    store.startup.enabled = false;
+                    store.startup.profile_id.clear();
+                }
+                if store.startup.target == "last" && store.profiles.is_empty() {
+                    store.startup.enabled = false;
+                }
+            }
+        }
+    }
+
+    let pruned = original_profile_count.saturating_sub(store.profiles.len());
+    let changed = original_active != store.active_id
+        || original_last != store.last_id
+        || pruned != 0
+        || original_startup_enabled != store.startup.enabled
+        || original_startup_profile != store.startup.profile_id;
+    store.normalize_document()?;
+    let candidate = store.private_payload()?;
+    let candidate_text =
+        std::str::from_utf8(&candidate).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let validated = parse_private_store(candidate_text)?;
+    Ok(PrivatePointerMutation {
+        payload: validated.private_payload()?,
+        changed,
+        pruned,
+    })
+}
+
 struct PreparedSubscriptionProfile {
     uri: String,
     desired_name: String,
@@ -1663,6 +1786,106 @@ mod tests {
                 .unwrap()
                 .contains("22222222")
         );
+    }
+
+    #[test]
+    fn compatibility_connect_sets_active_and_last_for_retained_missing_profile() {
+        let mut value: Value = serde_json::from_str(&store(PRIVATE_URI, "vless")).unwrap();
+        value["activeId"] = Value::from("");
+        value["lastId"] = Value::from("");
+        value["profiles"][0]["missing"] = Value::from(true);
+        let result = apply_compatibility_pointer_update(
+            &value.to_string(),
+            CompatibilityPointerTarget::Connected {
+                profile_id: PROFILE_ID.to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        assert_eq!(result.pruned, 0);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["activeId"], PROFILE_ID);
+        assert_eq!(written["lastId"], PROFILE_ID);
+        assert_eq!(written["profiles"][0]["missing"], true);
+
+        assert_eq!(
+            apply_compatibility_pointer_update(
+                &value.to_string(),
+                CompatibilityPointerTarget::Connected {
+                    profile_id: "00000000-0000-0000-0000-000000000099".to_owned(),
+                },
+            )
+            .err()
+            .unwrap(),
+            PrivateStoreError::ProfileNotFound
+        );
+    }
+
+    #[test]
+    fn compatibility_disconnect_prunes_missing_and_repairs_last_and_startup() {
+        let mut value: Value = serde_json::from_str(&store(PRIVATE_URI, "vless")).unwrap();
+        let mut retained = value["profiles"][0].clone();
+        retained["id"] = Value::from("00000000-0000-0000-0000-000000000002");
+        retained["name"] = Value::from("Retained");
+        retained["uri"] = Value::from(
+            "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Retained",
+        );
+        retained["missing"] = Value::from(false);
+        value["profiles"].as_array_mut().unwrap().push(retained);
+        value["profiles"][0]["missing"] = Value::from(true);
+        let result = apply_compatibility_pointer_update(
+            &value.to_string(),
+            CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        assert_eq!(result.pruned, 1);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["lastId"], "00000000-0000-0000-0000-000000000002");
+        assert_eq!(written["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(written["startup"]["enabled"], false);
+        assert_eq!(written["startup"]["profileId"], "");
+    }
+
+    #[test]
+    fn compatibility_disconnect_without_pruning_preserves_missing_and_last() {
+        let mut value: Value = serde_json::from_str(&store(PRIVATE_URI, "vless")).unwrap();
+        value["profiles"][0]["missing"] = Value::from(true);
+        let result = apply_compatibility_pointer_update(
+            &value.to_string(),
+            CompatibilityPointerTarget::Disconnected {
+                prune_missing: false,
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        assert_eq!(result.pruned, 0);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["lastId"], PROFILE_ID);
+        assert_eq!(written["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(written["profiles"][0]["missing"], true);
+    }
+
+    #[test]
+    fn compatibility_disconnect_persists_repair_of_raw_stale_pointers() {
+        let mut value = local_document();
+        value["activeId"] = Value::from("00000000-0000-0000-0000-000000000099");
+        value["lastId"] = Value::from("00000000-0000-0000-0000-000000000098");
+        let result = apply_compatibility_pointer_update(
+            &value.to_string(),
+            CompatibilityPointerTarget::Disconnected {
+                prune_missing: false,
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["lastId"], "");
     }
 
     #[test]

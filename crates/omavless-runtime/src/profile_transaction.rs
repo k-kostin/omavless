@@ -27,8 +27,16 @@ use std::path::{Path, PathBuf};
 
 trait StorePlan {
     fn changed(&self) -> bool;
-    fn commit(&self) -> Result<PreparedWrite, ProfileMutationCommitError>;
-    fn restore(&self) -> Result<PreparedWrite, ProfileMutationCommitError>;
+    fn commit(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError>;
+    fn restore(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError>;
 }
 
 impl StorePlan for PreparedProfileMutation {
@@ -36,12 +44,20 @@ impl StorePlan for PreparedProfileMutation {
         self.changed()
     }
 
-    fn commit(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
-        self.commit()
+    fn commit(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        self.commit_locked(lock, paths)
     }
 
-    fn restore(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
-        self.restore()
+    fn restore(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        self.restore_locked(lock, paths)
     }
 }
 
@@ -115,6 +131,7 @@ fn store_error(error: ProfileMutationCommitError) -> ProfileTransactionError {
         }
         ProfileMutationCommitError::UnsafeStore
         | ProfileMutationCommitError::StoreIo
+        | ProfileMutationCommitError::LockMismatch
         | ProfileMutationCommitError::Mutation(_) => ProfileTransactionError::Store,
     }
 }
@@ -214,8 +231,10 @@ fn rollback_rename<H: LifecycleHost, P: StorePlan>(
     lifecycle: &mut LifecycleExecutor<H>,
     plan: &P,
     profile_id: &str,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
 ) -> ProfileTransactionError {
-    if plan.restore().is_err() {
+    if plan.restore(lock, paths).is_err() {
         return ProfileTransactionError::ManualRecoveryRequired;
     }
     match lifecycle.recover_preserved_profile(profile_id) {
@@ -229,8 +248,10 @@ fn rollback_delete<H: LifecycleHost, P: StorePlan>(
     plan: &P,
     profile_id: &str,
     mode: RoutingMode,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
 ) -> ProfileTransactionError {
-    if plan.restore().is_err() {
+    if plan.restore(lock, paths).is_err() {
         return ProfileTransactionError::ManualRecoveryRequired;
     }
     match lifecycle.connect(profile_id, mode) {
@@ -239,8 +260,12 @@ fn rollback_delete<H: LifecycleHost, P: StorePlan>(
     }
 }
 
-fn commit_changed<P: StorePlan>(plan: &P) -> Result<(), ProfileTransactionError> {
-    match plan.commit().map_err(store_error)? {
+fn commit_changed<P: StorePlan>(
+    plan: &P,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
+) -> Result<(), ProfileTransactionError> {
+    match plan.commit(lock, paths).map_err(store_error)? {
         PreparedWrite::Changed => Ok(()),
         PreparedWrite::NoChange => Err(ProfileTransactionError::Store),
     }
@@ -251,15 +276,17 @@ fn apply_transaction<H: LifecycleHost, P: StorePlan>(
     plan: &P,
     kind: ActionKind,
     profile_id: &str,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
 ) -> Result<ProfileMutationOutcome, ProfileTransactionError> {
     if !plan.changed() {
-        return match plan.commit().map_err(store_error)? {
+        return match plan.commit(lock, paths).map_err(store_error)? {
             PreparedWrite::NoChange => Ok(ProfileMutationOutcome { changed: false }),
             PreparedWrite::Changed => Err(ProfileTransactionError::Store),
         };
     }
     if kind == ActionKind::Favorite {
-        commit_changed(plan)?;
+        commit_changed(plan, lock, paths)?;
         return Ok(ProfileMutationOutcome { changed: true });
     }
 
@@ -267,7 +294,7 @@ fn apply_transaction<H: LifecycleHost, P: StorePlan>(
         .observe_profile_target(profile_id)
         .map_err(lifecycle_error)?;
     if !target.active {
-        commit_changed(plan)?;
+        commit_changed(plan, lock, paths)?;
         return Ok(ProfileMutationOutcome { changed: true });
     }
 
@@ -276,25 +303,37 @@ fn apply_transaction<H: LifecycleHost, P: StorePlan>(
             lifecycle
                 .quiesce_profile_preserving_desired(profile_id)
                 .map_err(lifecycle_error)?;
-            if commit_changed(plan).is_err() {
-                return Err(rollback_rename(lifecycle, plan, profile_id));
+            if commit_changed(plan, lock, paths).is_err() {
+                return Err(rollback_rename(lifecycle, plan, profile_id, lock, paths));
             }
             match lifecycle.recover_preserved_profile(profile_id) {
                 Ok(_) => Ok(ProfileMutationOutcome { changed: true }),
                 Err(LifecycleError::ManualRecoveryRequired) => {
                     Err(ProfileTransactionError::ManualRecoveryRequired)
                 }
-                Err(_) => Err(rollback_rename(lifecycle, plan, profile_id)),
+                Err(_) => Err(rollback_rename(lifecycle, plan, profile_id, lock, paths)),
             }
         }
         ActionKind::Delete => {
             lifecycle.disconnect().map_err(lifecycle_error)?;
-            match plan.commit() {
+            match plan.commit(lock, paths) {
                 Ok(PreparedWrite::Changed) => Ok(ProfileMutationOutcome { changed: true }),
-                Ok(PreparedWrite::NoChange) => {
-                    Err(rollback_delete(lifecycle, plan, profile_id, target.mode))
-                }
-                Err(_) => Err(rollback_delete(lifecycle, plan, profile_id, target.mode)),
+                Ok(PreparedWrite::NoChange) => Err(rollback_delete(
+                    lifecycle,
+                    plan,
+                    profile_id,
+                    target.mode,
+                    lock,
+                    paths,
+                )),
+                Err(_) => Err(rollback_delete(
+                    lifecycle,
+                    plan,
+                    profile_id,
+                    target.mode,
+                    lock,
+                    paths,
+                )),
             }
         }
         ActionKind::Favorite => unreachable!("favorite returned before lifecycle inspection"),
@@ -402,7 +441,16 @@ impl<H: LifecycleHost> OfflineProfileOwner<H> {
         };
         let outcome = prepare_profile_mutation(&self.store_path, self.uid, mutation)
             .map_err(store_error)
-            .and_then(|plan| apply_transaction(&mut self.lifecycle, &plan, kind, &profile_id));
+            .and_then(|plan| {
+                apply_transaction(
+                    &mut self.lifecycle,
+                    &plan,
+                    kind,
+                    &profile_id,
+                    &_owner_lock,
+                    &self.cutover_paths,
+                )
+            });
         let result = match outcome {
             Ok(value) if value.changed => MutationResult::Success,
             Ok(_) => MutationResult::NoChange,
@@ -898,13 +946,21 @@ mod tests {
         fn changed(&self) -> bool {
             self.changed
         }
-        fn commit(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        fn commit(
+            &self,
+            _lock: &MigrationLock,
+            _paths: &CutoverPaths,
+        ) -> Result<PreparedWrite, ProfileMutationCommitError> {
             self.commit_results
                 .borrow_mut()
                 .pop_front()
                 .unwrap_or(Ok(PreparedWrite::Changed))
         }
-        fn restore(&self) -> Result<PreparedWrite, ProfileMutationCommitError> {
+        fn restore(
+            &self,
+            _lock: &MigrationLock,
+            _paths: &CutoverPaths,
+        ) -> Result<PreparedWrite, ProfileMutationCommitError> {
             self.restore_result
         }
     }
@@ -930,11 +986,25 @@ mod tests {
         (root, LifecycleExecutor::new(host, desired, uid))
     }
 
+    fn apply_fixture<P: StorePlan>(
+        root: &Path,
+        lifecycle: &mut LifecycleExecutor<FakeHost>,
+        plan: &P,
+        kind: ActionKind,
+        profile_id: &str,
+    ) -> Result<ProfileMutationOutcome, ProfileTransactionError> {
+        let uid = fs::metadata(root).unwrap().uid();
+        let paths = cutover(root, uid);
+        let lock = MigrationLock::acquire(&paths, uid).unwrap();
+        apply_transaction(lifecycle, plan, kind, profile_id, &lock, &paths)
+    }
+
     #[test]
     fn active_rename_commit_failure_restores_and_recovers_old() {
         let (root, mut lifecycle) =
             lifecycle_fixture("rename-commit-fail", FakeHost::connected(), PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(
                 Err(ProfileMutationCommitError::StoreIo),
@@ -954,7 +1024,8 @@ mod tests {
         let mut host = FakeHost::connected();
         host.start_results = VecDeque::from([false, true]);
         let (root, mut lifecycle) = lifecycle_fixture("rename-recover-fail", host, PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(Ok(PreparedWrite::Changed), Ok(PreparedWrite::Changed)),
             ActionKind::Rename,
@@ -970,7 +1041,8 @@ mod tests {
     fn failed_restore_or_uncertain_quiesce_requires_manual_recovery() {
         let (root, mut lifecycle) =
             lifecycle_fixture("restore-fail", FakeHost::connected(), PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(
                 Err(ProfileMutationCommitError::StoreIo),
@@ -986,7 +1058,8 @@ mod tests {
         let mut host = FakeHost::connected();
         host.leave_running = true;
         let (root, mut lifecycle) = lifecycle_fixture("quiesce-uncertain", host, PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(Ok(PreparedWrite::Changed), Ok(PreparedWrite::Changed)),
             ActionKind::Rename,
@@ -1001,7 +1074,8 @@ mod tests {
     fn active_delete_commit_failure_reconnects_old_or_blocks() {
         let (root, mut lifecycle) =
             lifecycle_fixture("delete-rollback", FakeHost::connected(), PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(
                 Err(ProfileMutationCommitError::StoreIo),
@@ -1018,7 +1092,8 @@ mod tests {
         let mut host = FakeHost::connected();
         host.start_results = VecDeque::from([false]);
         let (root, mut lifecycle) = lifecycle_fixture("delete-reconnect-fail", host, PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(
                 Err(ProfileMutationCommitError::StoreIo),
@@ -1036,7 +1111,8 @@ mod tests {
     fn active_delete_unexpected_no_change_reconnects_old_or_blocks() {
         let (root, mut lifecycle) =
             lifecycle_fixture("delete-no-change", FakeHost::connected(), PROFILE);
-        let error = apply_transaction(
+        let error = apply_fixture(
+            &root,
             &mut lifecycle,
             &plan(Ok(PreparedWrite::NoChange), Ok(PreparedWrite::NoChange)),
             ActionKind::Delete,

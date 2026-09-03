@@ -161,6 +161,10 @@ pub enum BeginOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationResult {
     Success,
+    /// Durable semantic state changed, but a bounded follow-up failed. Cache
+    /// the stable error and advance revision so clients cannot act on the old
+    /// precondition.
+    CommittedFailure(StableErrorCode),
     NoChange,
     Failure(StableErrorCode),
 }
@@ -369,7 +373,11 @@ impl MutationCoordinator {
         if self.active.as_ref().map(|active| active.token) != Some(token) {
             return Err(CoordinatorError::InvalidToken);
         }
-        if result == MutationResult::Success && self.revision == MAX_REVISION {
+        if matches!(
+            result,
+            MutationResult::Success | MutationResult::CommittedFailure(_)
+        ) && self.revision == MAX_REVISION
+        {
             return Err(CoordinatorError::RevisionExhausted);
         }
         let active = self.active.take().ok_or(CoordinatorError::InvalidToken)?;
@@ -377,6 +385,10 @@ impl MutationCoordinator {
             MutationResult::Success => {
                 self.revision += 1;
                 None
+            }
+            MutationResult::CommittedFailure(error) => {
+                self.revision += 1;
+                Some(error)
             }
             MutationResult::NoChange => None,
             MutationResult::Failure(error) => Some(error),
@@ -589,6 +601,45 @@ mod tests {
         assert_eq!(
             coordinator
                 .submit(request(MutationKind::Other, Some("failed"), None, 9))
+                .unwrap(),
+            SubmitOutcome::Replay(outcome)
+        );
+    }
+
+    #[test]
+    fn committed_failure_advances_revision_and_replays_the_stable_error() {
+        let mut coordinator = MutationCoordinator::default();
+        let token = token(
+            coordinator
+                .submit(request(
+                    MutationKind::Disconnect,
+                    Some("committed-error"),
+                    Some(0),
+                    10,
+                ))
+                .unwrap(),
+        );
+        let BeginOutcome::Started(active) = coordinator.begin_next().unwrap() else {
+            panic!("mutation did not start");
+        };
+        assert_eq!(active.token, token);
+        let outcome = coordinator
+            .finish(
+                token,
+                MutationResult::CommittedFailure(StableErrorCode::InternalError),
+            )
+            .unwrap();
+        assert_eq!(outcome.revision, 1);
+        assert_eq!(outcome.error, Some(StableErrorCode::InternalError));
+        assert_eq!(coordinator.revision(), 1);
+        assert_eq!(
+            coordinator
+                .submit(request(
+                    MutationKind::Disconnect,
+                    Some("committed-error"),
+                    Some(0),
+                    10,
+                ))
                 .unwrap(),
             SubmitOutcome::Replay(outcome)
         );

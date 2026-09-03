@@ -29,7 +29,7 @@ pub enum OwnerAction {
 }
 
 impl OwnerAction {
-    const fn kind(&self) -> MutationKind {
+    pub(crate) const fn kind(&self) -> MutationKind {
         match self {
             Self::Disconnect => MutationKind::Disconnect,
             Self::Connect { .. } => MutationKind::Other,
@@ -60,6 +60,15 @@ impl OwnerRequest {
             expected_revision,
             digest,
         }
+    }
+
+    pub(crate) fn into_parts(self) -> (OwnerAction, Option<String>, Option<u64>, MutationDigest) {
+        (
+            self.action,
+            self.operation_id,
+            self.expected_revision,
+            self.digest,
+        )
     }
 }
 
