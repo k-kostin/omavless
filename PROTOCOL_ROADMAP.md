@@ -1,7 +1,7 @@
 # OmaVLESS protocol roadmap
 
-Status: 0.7.0 implementation baseline and forward compatibility roadmap,
-updated 2026-08-30.
+Status: 0.7.0 product baseline and forward compatibility roadmap,
+updated 2026-09-03.
 
 This document specifies protocol/share-format support and compatibility
 boundaries. Delivery order lives in [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md).
@@ -29,10 +29,12 @@ VLESS/Trojan/Hysteria2/TUIC adapter semantics into the selected Rust domain
 layer using differential/golden parity. **After R2, new large protocol adapters
 are Rust-first.**
 
-This means P4 WireGuard/AmneziaWG has two independent prerequisites:
-
-1. the required V0/live protocol evidence state from the delivery ledger;
-2. the R2 Rust protocol/profile adapter boundary.
+P4 WireGuard/AmneziaWG requires the completed R2 Rust protocol/profile adapter
+boundary. V0 continues as an independent evidence track for already implemented
+VLESS/Trojan/Hysteria2/TUIC families; missing V0 provider fixtures no longer
+block P4 implementation. P4 has its own private-fixture, installed-core,
+security and live-host gates, and remains unavailable in the product until they
+and the compatibility/runtime bridge are complete.
 
 Do not add P4 as a large new Python-only parser immediately before Python
 runtime retirement. The current QML plugin will consume Rust-owned protocol
@@ -53,9 +55,9 @@ Detailed architecture: [`docs/roadmap/ARCHITECTURE.md`](docs/roadmap/ARCHITECTUR
 | Trojan | Experimental implementation | R2 Rust parity + independent validation |
 | Hysteria2 | Experimental implementation | R2 Rust parity + UDP-friendly/restricted validation |
 | TUIC v5 | Experimental implementation | R2 Rust parity + independent validation |
-| Standard WireGuard `.conf` | Planned P4a | V0 + R2, then Rust-first one-peer adapter |
-| Native AmneziaWG `.conf` | Planned P4b | P4a + generation-aware Rust validation |
-| AmneziaVPN guest `vpn://` | Planned P4c | Offline extraction through Rust P4a/P4b validators |
+| Standard WireGuard `.conf` | P4a Rust foundation in development | Runtime bridge + private/live/security gates |
+| Native AmneziaWG `.conf` | P4b Rust foundation in development | AWG3 core validation passes; live/runtime gates remain |
+| AmneziaVPN guest `vpn://` | Partial P4c Rust foundation | Direct native payload supported; structured-container extraction remains |
 
 Mihomo supporting an outbound does not mean OmaVLESS supports the provider
 key/config format. Manifest/marketplace description lists only implemented
@@ -264,8 +266,8 @@ R2 ports current v5 semantics to Rust before adding unrelated TUIC dialects.
 
 ## Phase P4 — experimental WireGuard and AmneziaWG import
 
-State: **planned after both V0 and R2**. Current 0.7.0 runtime does not import
-these formats.
+State: **Rust foundation in development after completed R2**. Current 0.7.0
+runtime does not import these formats and the manifest must not advertise them.
 
 P4 is the first new major credential-family expansion after the Rust adapter
 boundary and is therefore Rust-first. The current QML plugin remains the user
@@ -294,6 +296,10 @@ Required gates include real matching server, installed-core validation,
 Full/Routing/Direct, reconnect/autoconnect/update/remove rollback, IPv4/IPv6
 where available and credential-leak review.
 
+The foundation accepts large but bounded provider-generated `AllowedIPs` lists
+without treating them as host route commands. It keeps at most one IPv4 and one
+IPv6 local address because Mihomo's one-peer outbound has one field per family.
+
 ### P4b — native AmneziaWG `.conf`
 
 Reuse Rust P4a parser/storage boundaries. Accept only documented deterministic
@@ -302,15 +308,29 @@ AWG generations; mixed/incomplete generations fail.
 Map only Mihomo `amnezia-wg-option` semantics supported by installed version.
 Newer generations get precise minimum-core errors rather than field loss.
 
+The 2026-09-03 source audit used Amnezia Client `dev` commit
+`398697c101d27d9d4fb2f9a25ebe7749925f0d61` and Mihomo tag `v1.19.30`.
+The initial Rust model distinguishes AWG 1, 2, 3 and 3.1 markers, rejects
+incomplete/mixed generations and rejects the unvalidated 1.5-only `J1`/`J2`/
+`J3`/`Itime` family. A private AWG3 config maps successfully through
+`amnezia-wg-option` and passes installed-core config validation. Mihomo 1.19.30
+exposes `persistent-keepalive` as one integer while AWG3 configs may carry a
+range; the renderer deterministically uses the lower bound and exposes that
+normalization in safe facts instead of silently dropping the field.
+Credential-safe local evidence is recorded in
+[`docs/testing/BARE_METAL_P4_AWG3_FOUNDATION_2026-09-03.md`](docs/testing/BARE_METAL_P4_AWG3_FOUNDATION_2026-09-03.md).
+
 Rare/legacy families remain rejected until real fixtures justify support.
 
 ### P4c — AmneziaVPN guest `vpn://`
 
-Later bounded offline Rust adapter only:
+Bounded offline Rust adapter only:
 
-- bounded guest decode;
-- select one explicit WG/AWG container;
-- feed native config through exact P4a/P4b validators;
+- decode Base64URL + Qt `qCompress` with declared-size, compressed-stream and
+  decompressed-size bounds;
+- pass a directly decoded native `.conf` through P4a/P4b unchanged;
+- later select exactly one explicit WG/AWG container from structured Amnezia
+  JSON keys;
 - never call embedded API endpoint;
 - never import SSH/root/server-admin credentials;
 - never silently choose another protocol container.

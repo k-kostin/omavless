@@ -236,7 +236,7 @@ Catalog/contract tests are not visual acceptance: exercise the declared
 screen/state matrix on the exact installed head, protect private fixture data in
 screenshots and repeat affected captures after a fix.
 
-## Current continuity checkpoint — 2026-08-31
+## Current continuity checkpoint — 2026-09-03
 
 - Published marketplace baseline remains OmaVLESS `0.7.0` at exact reviewed SHA
   `69fe05b03129a23664fff3f8289821a7b7f80095`.
@@ -289,13 +289,16 @@ screenshots and repeat affected captures after a fix.
   `d82bf63bec44b259e67f422f967509d417fad4bc` and merge commit
   `5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`. It found and fixed the remaining
   credential-bearing `Debug` surface in the authority preview while preserving
-  all 49 canonical differential cases. Pure-VLESS adapter parity is complete;
-  R2 overall is not complete because non-VLESS adapters remain pending.
-  Missing V0
-  protocol fixtures do not block further deterministic R2 slices. P4 remains
-  blocked by V0 and should additionally wait for sufficient R2 Rust
-  protocol-adapter coverage so WG/AWG is not implemented as a large new
-  Python-only parser.
+  all 49 canonical differential cases. The subsequent R2-R4 foundation in PR
+  `#90` completed the remaining adapter/parity boundary and established the
+  Rust domain/store/Mihomo seams; Python remains the installed production owner
+  until R5/T1 cutover.
+- Missing V0 fixtures continue to block maturity claims for the corresponding
+  VLESS/Trojan/Hysteria2/TUIC cases. They no longer globally block P4
+  development: after completed R2, WG/AWG may proceed Rust-first under its own
+  private-fixture, installed-core, security and host acceptance gates. P4 must
+  remain unavailable in the product until those P4-specific gates and the
+  compatibility/runtime bridge are complete.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.

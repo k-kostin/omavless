@@ -133,7 +133,8 @@ Keep improving the current plugin where work is genuinely plugin-facing:
 - bug fixes/accessibility/navigation;
 - current routing/import/subscription/diagnostic presentation;
 - opportunistic V0 fixture validation;
-- P4 protocols only after V0 + R2 so new parsers are Rust-first.
+- P4 protocols after R2, implemented Rust-first and product-enabled only after
+  their own private/core/live/security gates and runtime bridge pass.
 
 Do not force every future app feature into the bar merely to call the plugin
 "complete".
@@ -163,14 +164,14 @@ implemented as a large new Python parser immediately before Python retirement.
 The dependency is now:
 
 ```text
-V0 required protocol evidence
-           +
 R2 Rust adapter boundary
            |
            v
 P4a WireGuard Rust adapter
  -> P4b AmneziaWG Rust adapter
  -> P4c vpn:// guest decoder
+
+V0 existing-family evidence --------------------> independent maturity claims
 ```
 
 The QML plugin can expose those Rust-owned semantics through the migration/runtime
@@ -231,7 +232,7 @@ The practical order is:
 1. keep bounded current plugin/QML work moving;
 2. start R0/R1 now;
 3. move existing protocol/domain semantics through R2;
-4. add P4 only once V0 + R2 permit Rust-first implementation;
+4. develop P4 Rust-first after R2, then expose it only after P4-specific gates;
 5. complete R3/R4 while the plugin remains usable;
 6. perform R5/T1 ownership cutover;
 7. prove R6 with Python unavailable;

@@ -89,4 +89,8 @@ Mihomo core support alone is not sufficient. These formats require bounded
 parsing, structured private storage, redacted preview, installed-core checks
 and representative server acceptance before they can be advertised.
 
+The repository contains an in-development Rust parser/model foundation for
+these formats. It is not connected to the current plugin runtime, so users
+should not expect `.conf` or `vpn://` import until the remaining P4 gates land.
+
 Protocol roadmap details live in [PROTOCOL_ROADMAP.md](../../PROTOCOL_ROADMAP.md).

@@ -175,9 +175,10 @@ Adapters own:
 R2 migrates existing VLESS/Trojan/Hysteria2/TUIC adapters to Rust.
 
 After R2, new large protocol adapters are Rust-first. P4 WireGuard/AmneziaWG is
-therefore gated on R2 as well as its protocol-validation prerequisites. The QML
-plugin can still expose these protocols through the compatibility/runtime bridge
-without recreating their parser in Python.
+therefore gated on R2 and its own protocol-specific validation ledger; missing
+V0 fixtures for other families are not a global implementation blocker. The
+QML plugin can expose P4 only through the compatibility/runtime bridge without
+recreating its parser in Python.
 
 ## 7. Runtime/control-plane ownership
 
