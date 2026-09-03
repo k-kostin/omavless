@@ -92,5 +92,7 @@ and representative server acceptance before they can be advertised.
 The repository contains an in-development Rust parser/model foundation for
 these formats. It is not connected to the current plugin runtime, so users
 should not expect `.conf` or `vpn://` import until the remaining P4 gates land.
+Signed Amnezia API/subscription guest keys require remote provider access and
+are intentionally outside the current offline-only importer boundary.
 
 Protocol roadmap details live in [PROTOCOL_ROADMAP.md](../../PROTOCOL_ROADMAP.md).

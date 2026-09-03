@@ -23,6 +23,7 @@ use crate::vless_canonical::sha256_hex;
 
 pub const MAX_WIREGUARD_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_VPN_LINK_BYTES: usize = 128 * 1024;
+const AMNEZIA_API_CONFIG_SIGNATURE: [u8; 4] = [0, 0, 0, 0xff];
 const MAX_CONFIG_LINES: usize = 512;
 const MAX_LINE_BYTES: usize = 8 * 1024;
 // Provider-generated split-tunnel configs routinely expand the complement of
@@ -60,6 +61,7 @@ pub enum WireGuardError {
     InvalidVpnEncoding,
     InvalidCompressedPayload,
     DecompressedTooLarge,
+    UnsupportedVpnApiKey,
     UnsupportedVpnContainer,
 }
 
@@ -94,6 +96,7 @@ impl WireGuardError {
             Self::InvalidVpnEncoding => "invalid_vpn_encoding",
             Self::InvalidCompressedPayload => "invalid_compressed_payload",
             Self::DecompressedTooLarge => "decompressed_payload_too_large",
+            Self::UnsupportedVpnApiKey => "unsupported_vpn_api_key",
             Self::UnsupportedVpnContainer => "unsupported_vpn_container",
         }
     }
@@ -133,6 +136,9 @@ impl fmt::Display for WireGuardError {
                 "AmneziaVPN guest payload is not a valid compressed config"
             }
             Self::DecompressedTooLarge => "AmneziaVPN guest payload expands beyond the safe limit",
+            Self::UnsupportedVpnApiKey => {
+                "AmneziaVPN API subscription keys require unsupported remote provider access"
+            }
             Self::UnsupportedVpnContainer => {
                 "Structured AmneziaVPN containers are not supported by this adapter yet"
             }
@@ -800,6 +806,18 @@ fn decode_amnezia_vpn_link(input: &str) -> Result<String, WireGuardError> {
     if decoded.len() > MAX_WIREGUARD_CONFIG_BYTES {
         return Err(WireGuardError::DecompressedTooLarge);
     }
+    if compressed[..4] == AMNEZIA_API_CONFIG_SIGNATURE
+        && serde_json::from_slice::<serde_json::Value>(&decoded).is_ok_and(|value| {
+            value
+                .as_object()
+                .and_then(|root| root.get("auth_data"))
+                .and_then(serde_json::Value::as_object)
+                .and_then(|auth| auth.get("api_key"))
+                .is_some_and(serde_json::Value::is_string)
+        })
+    {
+        return Err(WireGuardError::UnsupportedVpnApiKey);
+    }
     if decoded.len() != declared || !decoder.into_inner().is_empty() {
         return Err(WireGuardError::InvalidCompressedPayload);
     }
@@ -1014,6 +1032,15 @@ mod tests {
         format!("vpn://{}", URL_SAFE_NO_PAD.encode(qcompressed))
     }
 
+    fn signed_api_link() -> String {
+        let payload = r#"{"name":"Example","config_version":1,"api_config":{},"auth_data":{"api_key":"private-api-token"}}"#;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(6));
+        encoder.write_all(payload.as_bytes()).unwrap();
+        let mut signed = AMNEZIA_API_CONFIG_SIGNATURE.to_vec();
+        signed.extend(encoder.finish().unwrap());
+        format!("vpn://{}", URL_SAFE_NO_PAD.encode(signed))
+    }
+
     #[test]
     fn parses_standard_one_peer_config_and_renders_mihomo() {
         let profile = parse_wireguard_config(&standard()).unwrap();
@@ -1095,6 +1122,27 @@ mod tests {
             parse_amnezia_vpn_link(&link).unwrap_err(),
             WireGuardError::UnsupportedVpnContainer
         );
+    }
+
+    #[test]
+    fn signed_api_guest_key_is_rejected_without_remote_access_or_disclosure() {
+        let link = signed_api_link();
+        let error = parse_amnezia_vpn_link(&link).unwrap_err();
+        assert_eq!(error, WireGuardError::UnsupportedVpnApiKey);
+        assert_eq!(error.code(), "unsupported_vpn_api_key");
+        assert!(!error.to_string().contains("private-api-token"));
+    }
+
+    #[test]
+    fn valid_255_byte_qcompress_config_is_not_mistaken_for_api_signature() {
+        let mut config = format!(
+            "[Interface]\nPrivateKey={PRIVATE_KEY}\nAddress=10.0.0.2/32\n[Peer]\nPublicKey={PUBLIC_KEY}\nAllowedIPs=0.0.0.0/0\nEndpoint=192.0.2.1:51820\n"
+        );
+        assert!(config.len() < 255);
+        config.push('#');
+        config.push_str(&"x".repeat(255 - config.len()));
+        assert_eq!(config.len(), 255);
+        assert!(parse_amnezia_vpn_link(&vpn_link(&config)).is_ok());
     }
 
     #[test]

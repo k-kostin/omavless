@@ -331,6 +331,9 @@ Bounded offline Rust adapter only:
 - pass a directly decoded native `.conf` through P4a/P4b unchanged;
 - later select exactly one explicit WG/AWG container from structured Amnezia
   JSON keys;
+- recognize signed Amnezia API/subscription guest keys and reject them with a
+  credential-safe compatibility result rather than contacting the embedded
+  provider service;
 - never call embedded API endpoint;
 - never import SSH/root/server-admin credentials;
 - never silently choose another protocol container.
