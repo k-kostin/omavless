@@ -837,6 +837,14 @@ impl PrivateStore {
         }
     }
 
+    /// Return the opaque active record identifier for trusted runtime
+    /// migration code. This is never a profile URI and does not expose the
+    /// corresponding endpoint or credentials.
+    #[must_use]
+    pub fn active_profile_id(&self) -> Option<&str> {
+        (!self.active_id.is_empty()).then_some(self.active_id.as_str())
+    }
+
     /// Render one internal profile into a complete private Mihomo config.
     pub fn prepare_config(
         &self,

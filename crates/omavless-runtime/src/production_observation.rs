@@ -31,9 +31,9 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const LEGACY_SERVICE: &str = "omavless.service";
-const RUST_SERVICE: &str = "omavless-runtime.service";
-const SERVICE_QUERY_TIMEOUT: Duration = Duration::from_secs(3);
+pub(crate) const LEGACY_SERVICE: &str = "omavless.service";
+pub(crate) const RUST_SERVICE: &str = "omavless-runtime.service";
+pub(crate) const SERVICE_QUERY_TIMEOUT: Duration = Duration::from_secs(3);
 const CONTROLLER_TIMEOUT: Duration = Duration::from_millis(300);
 const MAX_SERVICE_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
@@ -67,6 +67,7 @@ impl From<CutoverError> for ProductionObservationError {
     }
 }
 
+#[derive(Clone)]
 pub struct ProductionObservationPaths {
     pub systemctl: PathBuf,
     pub config_directory: PathBuf,
@@ -168,7 +169,7 @@ fn read_bounded(mut reader: impl Read, maximum: usize) -> std::io::Result<Vec<u8
     Ok(output)
 }
 
-fn service_state_with_timeout(
+pub(crate) fn service_state_with_timeout(
     systemctl: &Path,
     service: &str,
     timeout: Duration,
@@ -269,6 +270,7 @@ fn controller_ready(path: &Path, uid: u32) -> Result<bool, ProductionObservation
 fn active_config_matches(
     paths: &ProductionObservationPaths,
     uid: u32,
+    controller_path: &Path,
 ) -> Result<bool, ProductionObservationError> {
     let store_text = read_private_utf8(&paths.store, uid)
         .map_err(|_| ProductionObservationError::PrivateState)?;
@@ -281,8 +283,7 @@ fn active_config_matches(
     }
     let store =
         parse_private_store(&store_text).map_err(|_| ProductionObservationError::PrivateState)?;
-    let controller = paths
-        .legacy_controller
+    let controller = controller_path
         .to_str()
         .ok_or(ProductionObservationError::UnsafePath)?;
     store
@@ -342,13 +343,19 @@ impl ProductionOwnershipObserver {
         let core_pids = processes_named(&self.paths.proc_root, "mihomo");
         let core_count = u8::try_from(core_pids.len()).unwrap_or(u8::MAX);
         let legacy_family = process_family(legacy.main_pid, &self.paths.proc_root);
+        let rust_family = process_family(rust.main_pid, &self.paths.proc_root);
         let exactly_one_legacy_core = legacy.active
             && core_pids.len() == 1
             && core_pids.iter().all(|pid| legacy_family.contains(pid));
+        let exactly_one_rust_core = rust.active
+            && core_pids.len() == 1
+            && core_pids.iter().all(|pid| rust_family.contains(pid));
         let rust_control_present =
             socket_presence(&self.paths.rust_control_socket, self.uid, true)?;
         let active_profile_matches = if exactly_one_legacy_core {
-            active_config_matches(&self.paths, self.uid)?
+            active_config_matches(&self.paths, self.uid, &self.paths.legacy_controller)?
+        } else if exactly_one_rust_core {
+            active_config_matches(&self.paths, self.uid, &self.paths.rust_controller)?
         } else {
             false
         };
@@ -646,6 +653,72 @@ mod tests {
         for private in [profile_id, "11111111", "203.0.113.1", "Private"] {
             assert!(!rendered.contains(private));
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn one_exact_rust_owner_matches_config_against_native_controller() {
+        let (root, uid) = root("rust-owner");
+        let systemctl = executable(
+            &root,
+            "#!/bin/sh\ncase \"$3\" in\n  omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ;;\n  omavless-runtime.service) printf 'ActiveState=active\\nMainPID=52\\nExecMainStatus=0\\nResult=success\\n' ;;\n  *) exit 9 ;;\nesac\n",
+        );
+        let paths = observer_paths(&root, uid, systemctl);
+        let child_task = paths.proc_root.join("52/task/52");
+        fs::create_dir_all(&child_task).unwrap();
+        fs::write(child_task.join("children"), "53\n").unwrap();
+        fs::create_dir(paths.proc_root.join("53")).unwrap();
+        fs::write(paths.proc_root.join("53/comm"), "mihomo\n").unwrap();
+        fs::create_dir(paths.sys_class_net.join("Meta")).unwrap();
+        fs::write(paths.sys_class_net.join("Meta/tun_flags"), "1\n").unwrap();
+
+        let profile_id = "00000000-0000-0000-0000-000000000001";
+        let private_uri = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp#Private";
+        let store_text = format!(
+            r#"{{"version":3,"activeId":"{profile_id}","lastId":"{profile_id}","profiles":[{{"id":"{profile_id}","name":"Private","uri":"{private_uri}","protocol":"vless"}}],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{{"enabled":false,"target":"last","profileId":"","mode":"rule"}},"onboardingComplete":true}}"#
+        );
+        let template = "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n";
+        let store = parse_private_store(&store_text).unwrap();
+        let active = store
+            .prepare_config_mode(
+                profile_id,
+                template,
+                paths.rust_controller.to_str().unwrap(),
+                "rule",
+            )
+            .unwrap();
+        for (path, value) in [
+            (&paths.store, store_text.as_str()),
+            (&paths.template, template),
+            (&paths.active_config, active.as_str()),
+        ] {
+            fs::write(path, value).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        let rust_runtime = paths.rust_control_socket.parent().unwrap();
+        fs::create_dir(rust_runtime).unwrap();
+        fs::set_permissions(rust_runtime, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(&paths.rust_controller).unwrap();
+        fs::set_permissions(&paths.rust_controller, fs::Permissions::from_mode(0o600)).unwrap();
+        let controller = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 512];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                .unwrap();
+        });
+        let observation = ProductionOwnershipObserver::new(paths, uid)
+            .unwrap()
+            .observe()
+            .unwrap();
+        controller.join().unwrap();
+        assert!(observation.rust_owner_active);
+        assert!(observation.rust_controller_ready);
+        assert!(observation.active_profile_matches);
+        assert_eq!(observation.core_count, 1);
+        assert_eq!(observation.tun_count, 1);
         fs::remove_dir_all(root).unwrap();
     }
 }

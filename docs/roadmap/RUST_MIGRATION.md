@@ -510,9 +510,10 @@ accepted ownership-gated socket registration without replacing the Python
 lifecycle owner. The locked production-host preflight proves disconnected,
 adoptable and inconsistent classification from fixed systemd, process, TUN,
 private-controller and exact active-config facts without changing host state.
-Draft PR #139 is the active transition bootstrap/handoff required to compose
-the cutover coordinator with that runtime before a production host can execute
-the transaction. Failed native stop still blocks legacy restoration,
+PR #139 accepted the transition bootstrap/handoff at squash commit
+`3b22cb987007ab85150f5352016267aa15138905`, providing the seam required to
+compose the cutover coordinator with that runtime before a production host can
+execute the transaction. Failed native stop still blocks legacy restoration,
 incompatible runtime verification cannot switch the bridge, and incomplete
 compensation preserves the preparing marker for manual recovery.
 Native profile rename/favorite/delete now also has v1-v3 normalization,
@@ -633,7 +634,7 @@ fetch can run without blocking status or urgent disconnect. The draft performs
 no marker write, transactional cutover or plugin-bridge switch, so Python
 remains the installed production owner and R5 is not complete.
 
-Draft PR #139 resolves the in-process transition-bootstrap seam before a
+PR #139 resolved the in-process transition-bootstrap seam before a
 production cutover host is attached. The coordinator durably enters
 `cutoverPreparing`, releases the migration lock only for candidate startup,
 and verifies one exact runtime identity. The candidate independently acquires
