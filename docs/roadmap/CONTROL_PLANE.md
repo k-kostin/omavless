@@ -511,11 +511,24 @@ While holding the shared migration ownership lock:
 1. quiesce new legacy mutations;
 2. inspect current service/controller/TUN ownership;
 3. write bounded desired state from consistent current state;
-4. start/enable `omavless-runtime.service`;
-5. Rust runtime adopts a matching healthy owned core or records disconnected;
-6. verify `system.hello` and `status.get`;
-7. switch plugin compatibility bridge to semantic Rust CLI/socket;
-8. mark Rust runtime ownership.
+4. persist the exact `cutoverPreparing` generation and stop the legacy owner;
+5. release the migration lock for one bounded candidate bootstrap;
+6. the Rust runtime acquires that lock, validates the exact preparing
+   generation, reconciles a mutation-free candidate, and releases the lock;
+7. verify `system.hello`, `status.get` and host observation against the same
+   candidate instance and immediate target Rust generation;
+8. reacquire the migration lock and revalidate the exact preparing marker;
+9. switch the plugin compatibility bridge to semantic Rust CLI/socket;
+10. mark Rust runtime ownership, after which that same candidate may expose
+    mutations.
+
+This generation-fenced handoff is the only exception to continuous migration
+lock ownership. A runtime merely started during `cutoverPreparing` stays
+read-only until the explicit same-UID bootstrap. A write error is not proof
+that a marker write failed: the coordinator re-reads durable marker state
+before compensation. An exact committed Rust successor resumes Rust recovery;
+an unchanged preparing marker may be compensated; divergent or unreadable
+state requires manual recovery.
 
 Any inconsistent state aborts without creating two owners.
 

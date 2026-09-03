@@ -299,6 +299,13 @@ screenshots and repeat affected captures after a fix.
   private-fixture, installed-core, security and host acceptance gates. P4 must
   remain unavailable in the product until those P4-specific gates and the
   compatibility/runtime bridge are complete.
+- R5 socket registration was accepted in PR `#138` at candidate head
+  `b9be21a9b44c7c0debb816e042bd2469a9e86639` and merge commit
+  `5cc355ca87c4963cdd988a76c04395b7732f5b1a`. Draft PR `#139` now owns the
+  bounded generation-fenced transition-bootstrap/handoff slice. It must not be
+  described as a production cutover: Python remains the installed owner until
+  the production transaction host, crash matrix and plugin bridge pass their
+  acceptance gates.
 
 Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
 advanced, or begin production TUI implementation before R6.
