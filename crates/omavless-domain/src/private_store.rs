@@ -37,6 +37,8 @@ pub enum PrivateStoreError {
     Routing(RoutingError),
     Config(ConfigError),
     ProfileNotFound,
+    SubscribedProfile,
+    DuplicateProfileName,
 }
 
 impl PrivateStoreError {
@@ -56,6 +58,8 @@ impl PrivateStoreError {
             Self::Routing(error) => error.code(),
             Self::Config(_) => "invalid_runtime_config",
             Self::ProfileNotFound => "profile_not_found",
+            Self::SubscribedProfile => "subscribed_profile",
+            Self::DuplicateProfileName => "duplicate_profile_name",
         }
     }
 }
@@ -78,6 +82,8 @@ impl fmt::Display for PrivateStoreError {
             Self::Routing(error) => return error.fmt(formatter),
             Self::Config(error) => return error.fmt(formatter),
             Self::ProfileNotFound => "Requested profile record was not found",
+            Self::SubscribedProfile => "Subscribed profile is managed by its provider",
+            Self::DuplicateProfileName => "A profile with this name already exists",
         })
     }
 }
@@ -88,11 +94,16 @@ struct PrivateProfile {
     id: String,
     name: String,
     canonical: CanonicalProfile,
+    subscription_id: String,
+    subscription_key: String,
+    missing: bool,
+    favorite: bool,
 }
 
 struct PrivateSubscription {
-    _name: String,
-    _url: String,
+    name: String,
+    url: String,
+    updated_at: u64,
 }
 
 /// Credential-free facts which may safely cross the future control boundary.
@@ -113,8 +124,40 @@ pub struct StoreProjection {
     pub onboarding_complete: bool,
 }
 
+/// One exact profile-store mutation. It deliberately has no formatting or
+/// serialization implementation because rename input and record IDs are
+/// private user data.
+pub enum ProfileMutation {
+    Rename {
+        profile_id: String,
+        new_name: String,
+    },
+    Favorite {
+        profile_id: String,
+        enabled: bool,
+    },
+    Delete {
+        profile_id: String,
+    },
+}
+
+/// Successfully validated private replacement payload plus one public fact.
+/// The payload is released only to the fixed atomic store writer.
+pub struct PrivateStoreMutation {
+    payload: Vec<u8>,
+    pub changed: bool,
+}
+
+impl PrivateStoreMutation {
+    #[must_use]
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+}
+
 /// Validated private store. Never derive `Debug`, `Clone`, or serialization.
 pub struct PrivateStore {
+    document: Value,
     version: u8,
     profiles: Vec<PrivateProfile>,
     subscriptions: Vec<PrivateSubscription>,
@@ -122,7 +165,8 @@ pub struct PrivateStore {
     last_id: String,
     routing_preset: String,
     custom_rules: Vec<CustomRule>,
-    _rules_updated_at: u64,
+    rules_updated_at: u64,
+    startup: StartupState,
     startup_configured: bool,
     onboarding_complete: bool,
 }
@@ -189,6 +233,18 @@ fn canonical_name(value: &str) -> bool {
         .collect::<String>();
     let cleaned = cleaned.trim();
     !cleaned.is_empty() && cleaned.chars().count() <= MAX_NAME_CHARS && cleaned == value
+}
+
+fn clean_mutation_name(value: &str) -> Result<String, PrivateStoreError> {
+    let cleaned = value
+        .chars()
+        .filter(|character| !matches!(*character as u32, 0..=31 | 127))
+        .collect::<String>();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned.chars().count() > MAX_NAME_CHARS {
+        return Err(PrivateStoreError::InvalidName);
+    }
+    Ok(cleaned.to_owned())
 }
 
 fn public_yaml_scalar<'a>(line: &'a str, key: &str, allowed: &[&str]) -> Option<&'a str> {
@@ -285,11 +341,12 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         if !subscription_urls.insert(url) {
             return Err(PrivateStoreError::DuplicateSubscriptionUrl);
         }
-        optional_u64(record, "updatedAt", 0)?;
+        let updated_at = optional_u64(record, "updatedAt", 0)?;
         subscription_states.push(SubscriptionState { id: id.to_owned() });
         subscriptions.push(PrivateSubscription {
-            _name: name.to_owned(),
-            _url: url.to_owned(),
+            name: name.to_owned(),
+            url: url.to_owned(),
+            updated_at,
         });
     }
 
@@ -331,6 +388,10 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
             id: id.to_owned(),
             name: name.to_owned(),
             canonical,
+            subscription_id: subscription_id.to_owned(),
+            subscription_key: subscription_key.to_owned(),
+            missing,
+            favorite,
         });
     }
 
@@ -407,7 +468,8 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         onboarding_complete,
     };
     let normalized = normalize_store_state(input).map_err(PrivateStoreError::Store)?;
-    Ok(PrivateStore {
+    let mut store = PrivateStore {
+        document: value,
         version: normalized.version,
         profiles,
         subscriptions,
@@ -415,13 +477,116 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
         last_id: normalized.last_id,
         routing_preset: normalized.routing_preset,
         custom_rules,
-        _rules_updated_at: rules_updated_at,
+        rules_updated_at,
+        startup: normalized.startup,
         startup_configured: normalized.startup_configured,
         onboarding_complete: normalized.onboarding_complete,
-    })
+    };
+    store.normalize_document()?;
+    Ok(store)
 }
 
 impl PrivateStore {
+    fn normalize_document(&mut self) -> Result<(), PrivateStoreError> {
+        let root = self
+            .document
+            .as_object_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        root.insert("version".to_owned(), Value::from(CURRENT_STORE_VERSION));
+        root.insert("activeId".to_owned(), Value::from(self.active_id.clone()));
+        root.insert("lastId".to_owned(), Value::from(self.last_id.clone()));
+        root.insert(
+            "routingPreset".to_owned(),
+            Value::from(self.routing_preset.clone()),
+        );
+        root.insert(
+            "rulesUpdatedAt".to_owned(),
+            Value::from(self.rules_updated_at),
+        );
+        root.insert(
+            "startupConfigured".to_owned(),
+            Value::from(self.startup_configured),
+        );
+        root.insert(
+            "onboardingComplete".to_owned(),
+            Value::from(self.onboarding_complete),
+        );
+        root.entry("customRules".to_owned())
+            .or_insert_with(|| Value::Array(Vec::new()));
+
+        let subscription_values = root
+            .entry("subscriptions".to_owned())
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        if subscription_values.len() != self.subscriptions.len() {
+            return Err(PrivateStoreError::InvalidShape);
+        }
+        for (value, subscription) in subscription_values.iter_mut().zip(&self.subscriptions) {
+            let record = value
+                .as_object_mut()
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            record.insert("name".to_owned(), Value::from(subscription.name.clone()));
+            record.insert("url".to_owned(), Value::from(subscription.url.clone()));
+            record.insert("updatedAt".to_owned(), Value::from(subscription.updated_at));
+        }
+
+        let profile_values = root
+            .get_mut("profiles")
+            .and_then(Value::as_array_mut)
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        if profile_values.len() != self.profiles.len() {
+            return Err(PrivateStoreError::InvalidShape);
+        }
+        for (value, profile) in profile_values.iter_mut().zip(&self.profiles) {
+            let record = value
+                .as_object_mut()
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            record.insert("name".to_owned(), Value::from(profile.name.clone()));
+            record.insert(
+                "protocol".to_owned(),
+                Value::from(profile.canonical.protocol().as_str()),
+            );
+            record.insert("favorite".to_owned(), Value::from(profile.favorite));
+            if profile.subscription_id.is_empty() {
+                for key in ["subscriptionId", "subscriptionKey", "missing"] {
+                    record.remove(key);
+                }
+            } else {
+                record.insert(
+                    "subscriptionId".to_owned(),
+                    Value::from(profile.subscription_id.clone()),
+                );
+                record.insert(
+                    "subscriptionKey".to_owned(),
+                    Value::from(profile.subscription_key.clone()),
+                );
+                record.insert("missing".to_owned(), Value::from(profile.missing));
+            }
+        }
+
+        root.insert(
+            "startup".to_owned(),
+            serde_json::json!({
+                "enabled": self.startup.enabled,
+                "target": self.startup.target,
+                "profileId": self.startup.profile_id,
+                "mode": self.startup.mode,
+            }),
+        );
+        Ok(())
+    }
+
+    fn private_payload(&self) -> Result<Vec<u8>, PrivateStoreError> {
+        let mut payload = serde_json::to_vec_pretty(&self.document)
+            .map_err(|_| PrivateStoreError::InvalidJson)?;
+        payload.push(b'\n');
+        if payload.len() > MAX_PRIVATE_STORE_BYTES {
+            return Err(PrivateStoreError::TooLarge);
+        }
+        Ok(payload)
+    }
+
     #[must_use]
     pub fn projection(&self) -> StoreProjection {
         let mut counts = [0_usize; 4];
@@ -542,12 +707,101 @@ impl PrivateStore {
     }
 }
 
+/// Validate, normalize and apply one profile mutation entirely in memory.
+/// No partial payload is returned when any validation or size gate fails.
+pub fn apply_profile_mutation(
+    input: &str,
+    mutation: ProfileMutation,
+) -> Result<PrivateStoreMutation, PrivateStoreError> {
+    let mut store = parse_private_store(input)?;
+    let changed = match mutation {
+        ProfileMutation::Rename {
+            profile_id,
+            new_name,
+        } => {
+            let new_name = clean_mutation_name(&new_name)?;
+            let index = store
+                .profiles
+                .iter()
+                .position(|profile| profile.id == profile_id)
+                .ok_or(PrivateStoreError::ProfileNotFound)?;
+            if !store.profiles[index].subscription_id.is_empty() {
+                return Err(PrivateStoreError::SubscribedProfile);
+            }
+            if store
+                .profiles
+                .iter()
+                .enumerate()
+                .any(|(other, profile)| other != index && profile.name == new_name)
+            {
+                return Err(PrivateStoreError::DuplicateProfileName);
+            }
+            let changed = store.profiles[index].name != new_name;
+            store.profiles[index].name = new_name;
+            changed
+        }
+        ProfileMutation::Favorite {
+            profile_id,
+            enabled,
+        } => {
+            let profile = store
+                .profiles
+                .iter_mut()
+                .find(|profile| profile.id == profile_id)
+                .ok_or(PrivateStoreError::ProfileNotFound)?;
+            let changed = profile.favorite != enabled;
+            profile.favorite = enabled;
+            changed
+        }
+        ProfileMutation::Delete { profile_id } => {
+            let index = store
+                .profiles
+                .iter()
+                .position(|profile| profile.id == profile_id)
+                .ok_or(PrivateStoreError::ProfileNotFound)?;
+            if !store.profiles[index].subscription_id.is_empty() {
+                return Err(PrivateStoreError::SubscribedProfile);
+            }
+            store.profiles.remove(index);
+            store
+                .document
+                .get_mut("profiles")
+                .and_then(Value::as_array_mut)
+                .ok_or(PrivateStoreError::InvalidShape)?
+                .remove(index);
+            if store.active_id == profile_id {
+                store.active_id.clear();
+            }
+            if store.last_id == profile_id {
+                store.last_id = store
+                    .profiles
+                    .first()
+                    .map_or_else(String::new, |profile| profile.id.clone());
+            }
+            if store.startup.profile_id == profile_id {
+                store.startup.enabled = false;
+                store.startup.profile_id.clear();
+            }
+            if store.startup.target == "last" && store.profiles.is_empty() {
+                store.startup.enabled = false;
+            }
+            true
+        }
+    };
+    store.normalize_document()?;
+    Ok(PrivateStoreMutation {
+        payload: store.private_payload()?,
+        changed,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const PROFILE_ID: &str = "00000000-0000-0000-0000-000000000001";
     const SUBSCRIPTION_ID: &str = "10000000-0000-0000-0000-000000000001";
+    const PRIVATE_URI: &str = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp#Private";
 
     fn store(uri: &str, protocol: &str) -> String {
         format!(
@@ -577,6 +831,161 @@ mod tests {
             }}"#,
             "a".repeat(64)
         )
+    }
+
+    fn local_document() -> Value {
+        let mut value: Value = serde_json::from_str(&store(PRIVATE_URI, "vless")).unwrap();
+        value["subscriptions"] = serde_json::json!([]);
+        let profile = value["profiles"][0].as_object_mut().unwrap();
+        for key in ["subscriptionId", "subscriptionKey", "missing"] {
+            profile.remove(key);
+        }
+        value
+    }
+
+    fn mutation_error(
+        result: Result<PrivateStoreMutation, PrivateStoreError>,
+    ) -> PrivateStoreError {
+        match result {
+            Ok(_) => panic!("private mutation unexpectedly succeeded"),
+            Err(error) => error,
+        }
+    }
+
+    #[test]
+    fn profile_favorite_and_legacy_normalization_preserve_private_values() {
+        let mut value = local_document();
+        value["version"] = Value::from(1);
+        value["profiles"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("protocol");
+        value["profiles"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("favorite");
+        for key in [
+            "routingPreset",
+            "customRules",
+            "rulesUpdatedAt",
+            "startup",
+            "startupConfigured",
+            "onboardingComplete",
+        ] {
+            value.as_object_mut().unwrap().remove(key);
+        }
+        let input = serde_json::to_string(&value).unwrap();
+        let result = apply_profile_mutation(
+            &input,
+            ProfileMutation::Favorite {
+                profile_id: PROFILE_ID.to_owned(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["version"], 3);
+        assert_eq!(written["profiles"][0]["protocol"], "vless");
+        assert_eq!(written["profiles"][0]["favorite"], true);
+        assert_eq!(written["profiles"][0]["uri"], PRIVATE_URI);
+        assert_eq!(written["routingPreset"], "roscomvpn-default");
+        assert_eq!(written["startupConfigured"], false);
+        assert_eq!(written["onboardingComplete"], true);
+    }
+
+    #[test]
+    fn subscribed_profile_allows_favorite_but_rejects_rename_and_delete() {
+        let input = store(PRIVATE_URI, "vless");
+        let favorite = apply_profile_mutation(
+            &input,
+            ProfileMutation::Favorite {
+                profile_id: PROFILE_ID.to_owned(),
+                enabled: false,
+            },
+        )
+        .unwrap();
+        assert!(favorite.changed);
+        for mutation in [
+            ProfileMutation::Rename {
+                profile_id: PROFILE_ID.to_owned(),
+                new_name: "Renamed".to_owned(),
+            },
+            ProfileMutation::Delete {
+                profile_id: PROFILE_ID.to_owned(),
+            },
+        ] {
+            assert_eq!(
+                mutation_error(apply_profile_mutation(&input, mutation)),
+                PrivateStoreError::SubscribedProfile
+            );
+        }
+    }
+
+    #[test]
+    fn rename_is_canonical_unique_and_errors_do_not_echo_private_input() {
+        let mut value = local_document();
+        let mut second = value["profiles"][0].clone();
+        second["id"] = Value::from("00000000-0000-0000-0000-000000000002");
+        second["name"] = Value::from("Second");
+        value["profiles"].as_array_mut().unwrap().push(second);
+        let input = serde_json::to_string(&value).unwrap();
+        assert_eq!(
+            mutation_error(apply_profile_mutation(
+                &input,
+                ProfileMutation::Rename {
+                    profile_id: PROFILE_ID.to_owned(),
+                    new_name: "Second".to_owned(),
+                },
+            )),
+            PrivateStoreError::DuplicateProfileName
+        );
+        let private_name = "private.example/password".repeat(8);
+        let error = mutation_error(apply_profile_mutation(
+            &input,
+            ProfileMutation::Rename {
+                profile_id: PROFILE_ID.to_owned(),
+                new_name: private_name.clone(),
+            },
+        ));
+        let public = format!("{error:?} {error}");
+        assert_eq!(error, PrivateStoreError::InvalidName);
+        assert!(!public.contains("private.example"));
+        assert!(!public.contains("password"));
+    }
+
+    #[test]
+    fn delete_repairs_active_last_and_startup_without_touching_other_profile() {
+        let mut value = local_document();
+        let mut second = value["profiles"][0].clone();
+        second["id"] = Value::from("00000000-0000-0000-0000-000000000002");
+        second["name"] = Value::from("Second");
+        second["uri"] = Value::from(
+            "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Second",
+        );
+        value["profiles"].as_array_mut().unwrap().push(second);
+        let input = serde_json::to_string(&value).unwrap();
+        let result = apply_profile_mutation(
+            &input,
+            ProfileMutation::Delete {
+                profile_id: PROFILE_ID.to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(result.changed);
+        let written: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(written["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["lastId"], "00000000-0000-0000-0000-000000000002");
+        assert_eq!(written["startup"]["enabled"], false);
+        assert_eq!(written["startup"]["profileId"], "");
+        assert_eq!(written["profiles"][0]["name"], "Second");
+        assert!(
+            written["profiles"][0]["uri"]
+                .as_str()
+                .unwrap()
+                .contains("22222222")
+        );
     }
 
     #[test]
