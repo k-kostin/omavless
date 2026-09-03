@@ -2,6 +2,7 @@
 
 use nix::unistd::Uid;
 use omavless_runtime::desired::{DesiredPaths, read_desired};
+use omavless_runtime::production_observation::current_cutover_preflight;
 use omavless_runtime::store_preflight::current_store_preflight;
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
 use serde_json::json;
@@ -12,7 +13,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-const USAGE: &str = "Usage: omavless daemon|hello|status|capabilities|preflight|store-preflight";
+const USAGE: &str =
+    "Usage: omavless daemon|hello|status|capabilities|preflight|store-preflight|cutover-preflight";
 
 fn run() -> Result<(), String> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
@@ -64,6 +66,14 @@ fn run() -> Result<(), String> {
                 "configReady": result.config_ready,
             }))
             .map_err(|_| "Output failed")?
+        );
+        return Ok(());
+    }
+    if arguments[0] == "cutover-preflight" {
+        let result = current_cutover_preflight().map_err(|error| error.to_string())?;
+        println!(
+            "{}",
+            serde_json::to_string(&result.public_json()).map_err(|_| "Output failed")?
         );
         return Ok(());
     }

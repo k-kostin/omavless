@@ -30,6 +30,18 @@ pub enum OwnershipPhase {
     RollbackPreparing,
 }
 
+impl OwnershipPhase {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy",
+            Self::CutoverPreparing => "cutoverPreparing",
+            Self::Rust => "rust",
+            Self::RollbackPreparing => "rollbackPreparing",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OwnershipMarker {
@@ -341,6 +353,23 @@ pub enum CutoverReadiness {
     ReadyDisconnected,
     ReadyToAdopt,
     Blocked(CutoverBlocker),
+}
+
+impl CutoverReadiness {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadyDisconnected => "ready_disconnected",
+            Self::ReadyToAdopt => "ready_to_adopt",
+            Self::Blocked(CutoverBlocker::MarkerNotLegacy) => "blocked_marker_not_legacy",
+            Self::Blocked(CutoverBlocker::RustLifecycleAlreadyActive) => {
+                "blocked_rust_lifecycle_active"
+            }
+            Self::Blocked(CutoverBlocker::InconsistentHostState) => {
+                "blocked_inconsistent_host_state"
+            }
+        }
+    }
 }
 
 fn settled_disconnected(observation: OwnershipObservation) -> bool {

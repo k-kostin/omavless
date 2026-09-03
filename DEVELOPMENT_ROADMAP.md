@@ -467,8 +467,8 @@ owns the target runtime.
 
 ### R5 / T1 — Rust shared runtime / daemon foundation
 
-State: **in progress; foundations accepted, production ownership cutover not
-started**.
+State: **in progress; foundations and production-host preflight accepted,
+production ownership transition not executed**.
 
 Accepted incremental checkpoints:
 
@@ -507,12 +507,17 @@ Accepted incremental checkpoints:
   under the shared migration lock, block every preparing/native phase before
   canonical or network work, preserve read-only compatibility, and prevent the
   legacy removal watcher from stopping a native-owned runtime.
+- PR #118: the locked, read-only production-host preflight observes only the
+  two fixed user services, exact Mihomo ownership, TUNs and private Unix
+  controllers; verifies the active private config without publishing its
+  identity; and classifies disconnected, adoptable and inconsistent states
+  without writing the ownership marker or changing either lifecycle owner.
 
 These checkpoints deliberately report `runtimeOwnership: false` and do not
 expose lifecycle mutations. The current QML -> `backend.py` path remains the
-only production owner. R5 is not complete until production host observation,
-live owner construction/IPC registration, the explicit transactional cutover,
-plugin bridge and rollback acceptance gates below pass.
+only production owner. R5 is not complete until live owner construction/IPC
+registration, the explicit transactional cutover, plugin bridge and rollback
+acceptance gates below pass.
 
 This is one track, not a Rust daemon plus a separate T1 daemon.
 

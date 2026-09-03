@@ -6,7 +6,7 @@
 //! not implement `Debug` or serialization. Callers may publish only
 //! [`StoreProjection`], which contains counts and booleans.
 
-use crate::config::{ConfigError, assemble_runtime_config};
+use crate::config::{ConfigError, MAX_TEMPLATE_BYTES, assemble_runtime_config};
 use crate::import::valid_subscription_url;
 use crate::routing::{CustomRule, RoutingError, template_with_mode};
 use crate::store::{
@@ -189,6 +189,45 @@ fn canonical_name(value: &str) -> bool {
         .collect::<String>();
     let cleaned = cleaned.trim();
     !cleaned.is_empty() && cleaned.chars().count() <= MAX_NAME_CHARS && cleaned == value
+}
+
+fn public_yaml_scalar<'a>(line: &'a str, key: &str, allowed: &[&str]) -> Option<&'a str> {
+    let (candidate, value) = line.split_once(':')?;
+    if candidate.trim() != key {
+        return None;
+    }
+    let value = value.trim();
+    let value = match value.as_bytes() {
+        [b'\'', .., b'\''] | [b'"', .., b'"'] if value.len() >= 2 => &value[1..value.len() - 1],
+        [b'\'', ..] | [b'"', ..] | [.., b'\''] | [.., b'"'] => return None,
+        _ => value,
+    };
+    allowed.contains(&value).then_some(value)
+}
+
+fn equivalent_legacy_config(expected: &str, actual: &str) -> bool {
+    if expected == actual {
+        return true;
+    }
+    let expected = expected.lines().collect::<Vec<_>>();
+    let actual = actual.lines().collect::<Vec<_>>();
+    expected.len() == actual.len()
+        && expected.iter().zip(actual).all(|(left, right)| {
+            left == &right
+                || [
+                    ("type", &["vless", "trojan", "hysteria2", "tuic"] as &[&str]),
+                    (
+                        "network",
+                        &["tcp", "ws", "grpc", "h2", "http", "xhttp"] as &[&str],
+                    ),
+                ]
+                .into_iter()
+                .any(|(key, allowed)| {
+                    public_yaml_scalar(left, key, allowed)
+                        .zip(public_yaml_scalar(right, key, allowed))
+                        .is_some_and(|(left, right)| left == right)
+                })
+        })
 }
 
 fn protocol(value: &str) -> Option<Protocol> {
@@ -453,6 +492,54 @@ impl PrivateStore {
         }
         self.prepare_config(&self.last_id, template, controller_socket)
     }
+
+    /// Compare the active legacy config to the exact canonical rendering
+    /// without exposing the private record ID, endpoint, name, or credentials.
+    ///
+    /// This is intentionally a boolean ownership fact. A missing active
+    /// profile, unknown/duplicated mode, or byte mismatch is not relaxed into
+    /// adoption by the R5 cutover preflight.
+    pub fn active_config_matches(
+        &self,
+        template: &str,
+        controller_socket: &str,
+        active_config: &str,
+    ) -> Result<bool, PrivateStoreError> {
+        if self.active_id.is_empty() || active_config.len() > MAX_TEMPLATE_BYTES {
+            return Ok(false);
+        }
+        let mut mode = None;
+        for line in active_config.lines() {
+            if line.starts_with([' ', '\t']) {
+                continue;
+            }
+            let Some((key, raw_value)) = line.split_once(':') else {
+                continue;
+            };
+            if key.trim() != "mode" {
+                continue;
+            }
+            if mode.is_some() {
+                return Ok(false);
+            }
+            let value = raw_value
+                .split_once('#')
+                .map_or(raw_value, |(value, _comment)| value)
+                .trim()
+                .trim_matches(['\'', '"'])
+                .to_ascii_lowercase();
+            if !matches!(value.as_str(), "rule" | "global" | "direct") {
+                return Ok(false);
+            }
+            mode = Some(value);
+        }
+        let Some(mode) = mode else {
+            return Ok(false);
+        };
+        let expected =
+            self.prepare_config_mode(&self.active_id, template, controller_socket, &mode)?;
+        Ok(equivalent_legacy_config(&expected, active_config))
+    }
 }
 
 #[cfg(test)]
@@ -537,6 +624,60 @@ mod tests {
             .unwrap();
         assert!(direct.contains("\nmode: direct\n"));
         assert!(!direct.contains("\nmode: rule\n"));
+    }
+
+    #[test]
+    fn active_config_match_is_exact_private_and_fail_closed() {
+        let private_uri = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?security=none&type=tcp#Private";
+        let store = parse_private_store(&store(private_uri, "vless")).unwrap();
+        let template = "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n";
+        let controller = "/run/user/1000/legacy-private.sock";
+        let active = store
+            .prepare_config_mode(PROFILE_ID, template, controller, "global")
+            .unwrap();
+        assert!(
+            store
+                .active_config_matches(template, controller, &active)
+                .unwrap()
+        );
+        let legacy_format = active
+            .replace("type: \"vless\"", "type: vless")
+            .replace("network: \"tcp\"", "network: tcp");
+        assert!(
+            store
+                .active_config_matches(template, controller, &legacy_format)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .active_config_matches(
+                    template,
+                    controller,
+                    &legacy_format.replace("type: vless", "type: \'vless\"")
+                )
+                .unwrap()
+        );
+        assert!(
+            !store
+                .active_config_matches(
+                    template,
+                    controller,
+                    &active.replace("203.0.113.1", "203.0.113.9"),
+                )
+                .unwrap()
+        );
+        assert!(
+            !store
+                .active_config_matches(template, controller, &format!("mode: global\n{active}"),)
+                .unwrap()
+        );
+        let debug = format!(
+            "{:?}",
+            store.active_config_matches(template, controller, &active)
+        );
+        for private in ["11111111", "203.0.113.1", "Private"] {
+            assert!(!debug.contains(private));
+        }
     }
 
     #[test]
