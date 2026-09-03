@@ -515,6 +515,15 @@ impl TrojanProfile {
         sha256_hex(canonical.as_bytes())
     }
 
+    #[must_use]
+    pub fn subscription_name_candidate(&self) -> String {
+        if self.suggested_name.is_empty() {
+            self.server.clone()
+        } else {
+            self.suggested_name.clone()
+        }
+    }
+
     fn preview_value(&self) -> Value {
         let mut value = Map::new();
         value.insert("version".to_owned(), Value::Number(Number::from(1)));

@@ -38,6 +38,45 @@ fn authority(url: &str) -> Option<(&str, &str)> {
     Some((scheme, &remainder[..end]))
 }
 
+fn bracket_host(value: &str) -> bool {
+    if let Some((version, address)) = value.split_once('.')
+        && version.strip_prefix(['v', 'V']).is_some_and(|version| {
+            !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return !address.is_empty()
+            && address.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(
+                        byte,
+                        b'-' | b'.'
+                            | b'_'
+                            | b'~'
+                            | b'!'
+                            | b'$'
+                            | b'&'
+                            | b'\''
+                            | b'('
+                            | b')'
+                            | b'*'
+                            | b'+'
+                            | b','
+                            | b';'
+                            | b'='
+                            | b':'
+                    )
+            });
+    }
+    if let Some((address, zone)) = value.split_once('%') {
+        return !zone.is_empty() && !zone.contains('%') && address.parse::<Ipv6Addr>().is_ok();
+    }
+    value.parse::<Ipv6Addr>().is_ok()
+}
+
+fn valid_port(value: Option<&str>) -> bool {
+    value.is_none_or(|value| value.is_empty() || value.parse::<u16>().is_ok_and(|port| port > 0))
+}
+
 pub fn valid_subscription_url(value: &str) -> bool {
     if value.is_empty()
         || value.len() > MAX_SUBSCRIPTION_URL_BYTES
@@ -52,25 +91,39 @@ pub fn valid_subscription_url(value: &str) -> bool {
     if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") {
         return false;
     }
-    if authority.is_empty() || authority.contains('@') {
+    // The legacy Python fetch path cannot reliably send raw Unicode
+    // authorities. Require their ASCII/punycode spelling at this native
+    // boundary and avoid Unicode NFKC delimiter ambiguities.
+    if authority.is_empty() || !authority.is_ascii() || authority.contains('@') {
         return false;
     }
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let Some((host, suffix)) = rest.split_once(']') else {
             return false;
         };
-        if host.parse::<Ipv6Addr>().is_err() {
+        if !bracket_host(host) {
             return false;
         }
-        (host, suffix.strip_prefix(':'))
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            let Some(port) = suffix.strip_prefix(':') else {
+                return false;
+            };
+            Some(port)
+        };
+        (host, port)
     } else if authority.matches(':').count() <= 1 {
+        if authority.contains(['[', ']']) {
+            return false;
+        }
         authority
             .split_once(':')
             .map_or((authority, None), |(host, port)| (host, Some(port)))
     } else {
         return false;
     };
-    if host.is_empty() || port.is_some_and(|port| port.parse::<u16>().is_err() || port == "0") {
+    if host.is_empty() || !valid_port(port) {
         return false;
     }
     if scheme.eq_ignore_ascii_case("http") {
@@ -146,5 +199,14 @@ mod tests {
         let error = classify_import("https://user:secret@private.invalid/sub", &[]).unwrap_err();
         assert!(!error.to_string().contains("secret"));
         assert!(!error.to_string().contains("private.invalid"));
+    }
+
+    #[test]
+    fn native_subscription_authorities_are_ascii_and_ipvfuture_is_rfc_bounded() {
+        assert!(valid_subscription_url(
+            "https://[v1.a:b-c._~!$&'()*+,;=]/sub"
+        ));
+        assert!(!valid_subscription_url("https://[v1.a%b]/sub"));
+        assert!(!valid_subscription_url("https://example.invalid／sub"));
     }
 }

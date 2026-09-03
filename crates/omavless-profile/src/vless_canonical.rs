@@ -390,6 +390,15 @@ impl VlessCanonicalProfile {
     }
 
     #[must_use]
+    pub fn subscription_name_candidate(&self) -> String {
+        if self.suggested_name.is_empty() {
+            self.server.clone()
+        } else {
+            self.suggested_name.clone()
+        }
+    }
+
+    #[must_use]
     pub fn preview_fingerprint(&self) -> String {
         sha256_hex(canonical_json(&self.preview_value()).as_bytes())
     }

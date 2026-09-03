@@ -12,6 +12,7 @@ pub const MAX_PROFILE_NAME_CHARS: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncError {
+    TooManyEntries,
     DuplicateEntry,
     AmbiguousExistingIdentity,
     DuplicateGeneratedId,
@@ -19,9 +20,24 @@ pub enum SyncError {
     NameExhausted,
 }
 
+impl SyncError {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TooManyEntries => "too_many_subscription_entries",
+            Self::DuplicateEntry => "duplicate_subscription_entry",
+            Self::AmbiguousExistingIdentity => "ambiguous_subscription_identity",
+            Self::DuplicateGeneratedId => "duplicate_generated_profile_id",
+            Self::TooManyProfiles => "too_many_profiles",
+            Self::NameExhausted => "profile_name_exhausted",
+        }
+    }
+}
+
 impl fmt::Display for SyncError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::TooManyEntries => "Subscription contains too many profiles",
             Self::DuplicateEntry => "Subscription contains a duplicate profile",
             Self::AmbiguousExistingIdentity => "Subscription identity is ambiguous",
             Self::DuplicateGeneratedId => "Generated profile record ID is duplicated",
@@ -71,7 +87,7 @@ pub struct SyncPlan {
 fn clean_provider_name(value: &str) -> String {
     value
         .chars()
-        .filter(|character| !character.is_control())
+        .filter(|character| !matches!(*character as u32, 0x00..=0x1f | 0x7f))
         .collect::<String>()
         .trim()
         .chars()
@@ -166,7 +182,9 @@ pub fn plan_subscription_sync(
         }
         let name = unique_name(&entry.desired_name, subscription_name, &mut used_names)?;
         let profile = if let Some(current) = existing.get(entry.key.as_str()) {
-            matched.insert(current.id.as_str());
+            if !matched.insert(current.id.as_str()) {
+                return Err(SyncError::AmbiguousExistingIdentity);
+            }
             ManagedProfile {
                 id: current.id.clone(),
                 name,
@@ -315,6 +333,28 @@ mod tests {
             )
             .unwrap_err(),
             SyncError::DuplicateEntry
+        );
+    }
+
+    #[test]
+    fn one_existing_profile_cannot_satisfy_two_incoming_identities() {
+        let mut old = profile("one", "provider-key", true);
+        old.derived_key = "canonical-key".into();
+        let entries = [
+            IncomingProfile {
+                key: "provider-key".into(),
+                desired_name: "First".into(),
+                new_id: "unused-one".into(),
+            },
+            IncomingProfile {
+                key: "canonical-key".into(),
+                desired_name: "Second".into(),
+                new_id: "unused-two".into(),
+            },
+        ];
+        assert_eq!(
+            plan_subscription_sync(&[old], "sub", "S", &entries, "", "").unwrap_err(),
+            SyncError::AmbiguousExistingIdentity
         );
     }
 

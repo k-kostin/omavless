@@ -519,6 +519,14 @@ Python differential parity, a private atomic writer, and exact bounded v1
 request envelopes with domain-separated replay digests. It stays unreachable
 until owner serialization and active-profile lifecycle coordination land.
 
+The native subscription-store boundary deliberately accepts only ASCII or
+punycode URL authorities and RFC 3986 IPvFuture address characters. This is a
+fail-closed narrowing of the legacy Python `urlsplit` edge behavior: raw
+Unicode authorities and non-RFC IPvFuture spellings must be canonicalized by a
+future admission layer before they may reach the atomic mutation boundary. It
+prevents Unicode NFKC delimiter ambiguity without widening remote fetching or
+making the offline boundary responsible for URL repair.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;
