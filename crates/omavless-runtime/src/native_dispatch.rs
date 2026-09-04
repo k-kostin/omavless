@@ -20,7 +20,11 @@ use omavless_control_protocol::{
 };
 use serde_json::{Value, json};
 
-const CONNECTION_METHODS: &[&str] = &["connection.connect", "connection.disconnect"];
+const LIFECYCLE_METHODS: &[&str] = &[
+    "connection.connect",
+    "connection.disconnect",
+    "routing.set_mode",
+];
 const PROFILE_METHODS: &[&str] = &["profiles.rename", "profiles.favorite", "profiles.delete"];
 const SUBSCRIPTION_METHODS: &[&str] = &[
     "subscriptions.add",
@@ -98,7 +102,7 @@ where
     }
     let request_id = request["id"].as_str().unwrap_or("invalid");
     let method = request["method"].as_str().unwrap_or_default();
-    let execution = if CONNECTION_METHODS.contains(&method) {
+    let execution = if LIFECYCLE_METHODS.contains(&method) {
         match parse_owner_request(request) {
             Ok(parsed) => owner.execute_connection(parsed),
             Err(error) => {
@@ -341,11 +345,25 @@ mod tests {
         assert_eq!(connected["ok"], true);
         assert_eq!(connected["revision"], 1);
 
+        let mode = respond_to_native_mutation(
+            &mut owner,
+            &request(
+                "routing.set_mode",
+                json!({"mode": "direct", "operationId": "mode-1", "expectedRevision": 1}),
+            ),
+            &transport,
+            || unreachable!(),
+            || 0,
+        )
+        .unwrap();
+        assert_eq!(mode["ok"], true);
+        assert_eq!(mode["revision"], 2);
+
         let favorite = respond_to_native_mutation(
             &mut owner,
             &request(
                 "profiles.favorite",
-                json!({"profileId": PROFILE, "enabled": true, "operationId": "favorite-1", "expectedRevision": 1}),
+                json!({"profileId": PROFILE, "enabled": true, "operationId": "favorite-1", "expectedRevision": 2}),
             ),
             &transport,
             || unreachable!(),
@@ -353,7 +371,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(favorite["ok"], true);
-        assert_eq!(favorite["revision"], 2);
+        assert_eq!(favorite["revision"], 3);
 
         let ids = [SUBSCRIPTION.to_owned(), MANAGED_PROFILE.to_owned()];
         let mut ids = ids.into_iter();
@@ -361,7 +379,7 @@ mod tests {
             &mut owner,
             &request(
                 "subscriptions.add",
-                json!({"name": "Source", "url": PRIVATE_URL, "operationId": "add-1", "expectedRevision": 2}),
+                json!({"name": "Source", "url": PRIVATE_URL, "operationId": "add-1", "expectedRevision": 3}),
             ),
             &transport,
             || ids.next().unwrap(),
@@ -369,7 +387,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(added["ok"], true);
-        assert_eq!(added["revision"], 3);
+        assert_eq!(added["revision"], 4);
         assert_eq!(transport.calls.get(), 1);
         assert_eq!(added["result"], json!({"accepted": true}));
         let store: Value = serde_json::from_slice(&fs::read(store_path).unwrap()).unwrap();

@@ -129,6 +129,10 @@ pub fn parse_semantic_mutation(
             method: "connection.disconnect",
             params: json!({}),
         }),
+        ["mode", requested_mode] => Ok(SemanticRequest {
+            method: "routing.set_mode",
+            params: json!({"mode": mode(requested_mode)?.as_str()}),
+        }),
         ["profile", "rename", id] => Ok(SemanticRequest {
             method: "profiles.rename",
             params: json!({
@@ -151,7 +155,7 @@ pub fn parse_semantic_mutation(
             method: "profiles.delete",
             params: json!({"profileId": profile_id(id)?}),
         }),
-        [] | ["connect"] | ["profile", ..] => Err(SemanticCliError::InvalidArgument),
+        [] | ["connect"] | ["mode"] | ["profile", ..] => Err(SemanticCliError::InvalidArgument),
         _ => Err(SemanticCliError::InvalidCommand),
     }
 }
@@ -195,6 +199,10 @@ mod tests {
         assert_eq!(
             parsed(&["disconnect"], None),
             ("connection.disconnect", json!({}))
+        );
+        assert_eq!(
+            parsed(&["mode", "direct"], None),
+            ("routing.set_mode", json!({"mode": "direct"}))
         );
     }
 
@@ -260,6 +268,7 @@ mod tests {
         for values in [
             vec!["connect", "private.example/password"],
             vec!["connect", PROFILE, "unsafe-mode"],
+            vec!["mode", "unsafe-mode"],
             vec!["profile", "favorite", PROFILE, "yes"],
         ] {
             let error = rejected(&values, None);

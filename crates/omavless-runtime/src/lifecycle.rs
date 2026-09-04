@@ -242,6 +242,79 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         Ok(())
     }
 
+    fn restore_previous_connected(
+        &mut self,
+        attempted: &DesiredState,
+        rollback: &DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.actual = ActualState::Stopping;
+        if self.host.stop_owned().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.discard_or_manual()?;
+        let empty = self.observe_or_manual(attempted)?;
+        if empty.service_active
+            || empty.controller_ready
+            || empty.core_count != 0
+            || empty.tun_count != 0
+        {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        if self.host.prepare(rollback).is_err() || self.write(rollback).is_err() {
+            let _ = self.host.discard_prepared();
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        self.actual = ActualState::Reconnecting;
+        let started = self.host.start_prepared().is_ok();
+        let verified = started && self.verify_connected(rollback).is_ok();
+        let committed = verified && self.host.commit_prepared().is_ok();
+        if committed {
+            self.actual = ActualState::Connected;
+            return Err(LifecycleError::TransitionFailedRestored);
+        }
+        self.actual = ActualState::ManualRecoveryRequired;
+        Err(LifecycleError::ManualRecoveryRequired)
+    }
+
+    fn replace_connected(
+        &mut self,
+        current: &DesiredState,
+        target: DesiredState,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let attempted = DesiredState {
+            generation: Self::next_generation(current.generation, 1)?,
+            ..target
+        };
+        let rollback = DesiredState {
+            generation: Self::next_generation(current.generation, 2)?,
+            ..current.clone()
+        };
+
+        // Persist the requested target before stopping the old owner. A crash
+        // can therefore reconcile toward the user's latest intent instead of
+        // silently resurrecting an obsolete profile or mode.
+        self.write(&attempted)?;
+        self.actual = ActualState::Reconnecting;
+        if self.host.stop_owned().is_err() {
+            self.actual = ActualState::ManualRecoveryRequired;
+            return Err(LifecycleError::ManualRecoveryRequired);
+        }
+        if self.host.prepare(&attempted).is_err() {
+            return self.restore_previous_connected(&attempted, &rollback);
+        }
+        let started = self.host.start_prepared().is_ok();
+        let verified = started && self.verify_connected(&attempted).is_ok();
+        let committed = verified && self.host.commit_prepared().is_ok();
+        if committed {
+            self.actual = ActualState::Connected;
+            return Ok(self.outcome(&attempted, true));
+        }
+        self.restore_previous_connected(&attempted, &rollback)
+    }
+
     pub fn connect(
         &mut self,
         profile_id: &str,
@@ -315,6 +388,43 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         }
         self.cleanup_failed_connect(&armed, &rollback)?;
         Err(LifecycleError::TransitionFailedRestored)
+    }
+
+    pub fn set_mode(&mut self, mode: RoutingMode) -> Result<LifecycleOutcome, LifecycleError> {
+        let current = self.read()?;
+        let observed = self.observe_or_manual(&current)?;
+        match reconcile(&current, observed) {
+            ReconcileAction::SettledDisconnected => {
+                self.actual = ActualState::Disconnected;
+                if current.mode == mode {
+                    return Ok(self.outcome(&current, false));
+                }
+                let target = DesiredState {
+                    generation: Self::next_generation(current.generation, 1)?,
+                    mode,
+                    ..current
+                };
+                self.write(&target)?;
+                Ok(self.outcome(&target, true))
+            }
+            ReconcileAction::AdoptConnected => {
+                if current.mode == mode {
+                    self.actual = ActualState::Connected;
+                    return Ok(self.outcome(&current, false));
+                }
+                let target = DesiredState {
+                    mode,
+                    ..current.clone()
+                };
+                self.replace_connected(&current, target)
+            }
+            ReconcileAction::RecoverConnected
+            | ReconcileAction::StopOwned
+            | ReconcileAction::ManualRecoveryRequired => {
+                self.actual = ActualState::ManualRecoveryRequired;
+                Err(LifecycleError::ManualRecoveryRequired)
+            }
+        }
     }
 
     pub fn disconnect(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
@@ -534,6 +644,7 @@ mod tests {
         observation: OwnedObservation,
         fail_prepare: bool,
         fail_start: bool,
+        remaining_start_failures: usize,
         fail_commit: bool,
         fail_stop: bool,
         fail_discard: bool,
@@ -550,6 +661,7 @@ mod tests {
                 observation: empty(),
                 fail_prepare: false,
                 fail_start: false,
+                remaining_start_failures: 0,
                 fail_commit: false,
                 fail_stop: false,
                 fail_discard: false,
@@ -580,7 +692,8 @@ mod tests {
                 self.connected_intent_seen_at_start =
                     read_desired(paths, *uid).is_ok_and(|state| state.connected);
             }
-            if self.fail_start {
+            if self.fail_start || self.remaining_start_failures > 0 {
+                self.remaining_start_failures = self.remaining_start_failures.saturating_sub(1);
                 // Readiness can fail after a child was spawned.
                 self.observation = healthy();
                 return Err(HostStepError::Start);
@@ -697,6 +810,128 @@ mod tests {
         let outcome = executor.connect_requested("opaque-id", None).unwrap();
         assert_eq!(outcome.generation, 4);
         assert_eq!(desired(&executor).mode, RoutingMode::Direct);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn disconnected_mode_change_is_durable_without_host_lifecycle_work() {
+        let (root, mut executor) = executor("mode-disconnected", FakeHost::default());
+        executor
+            .write(&DesiredState {
+                generation: 4,
+                mode: RoutingMode::Rule,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        let outcome = executor.set_mode(RoutingMode::Direct).unwrap();
+        assert_eq!(outcome.actual, ActualState::Disconnected);
+        assert_eq!(outcome.generation, 5);
+        assert!(outcome.changed);
+        let state = desired(&executor);
+        assert!(!state.connected);
+        assert_eq!(state.mode, RoutingMode::Direct);
+        assert_eq!(executor.host().calls, ["observe"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connected_mode_change_replaces_the_owned_core_transactionally() {
+        let (root, mut executor) = executor(
+            "mode-connected",
+            FakeHost {
+                observation: healthy(),
+                ..FakeHost::default()
+            },
+        );
+        executor
+            .write(&DesiredState {
+                generation: 7,
+                connected: true,
+                profile_id: "opaque-id".to_owned(),
+                mode: RoutingMode::Rule,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        let outcome = executor.set_mode(RoutingMode::Global).unwrap();
+        assert_eq!(outcome.actual, ActualState::Connected);
+        assert_eq!(outcome.generation, 8);
+        let state = desired(&executor);
+        assert!(state.connected);
+        assert_eq!(state.profile_id, "opaque-id");
+        assert_eq!(state.mode, RoutingMode::Global);
+        assert_eq!(
+            executor.host().calls,
+            ["observe", "stop", "prepare", "start", "observe", "commit"]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_connected_mode_change_recovers_the_previous_connection() {
+        let (root, mut executor) = executor(
+            "mode-restore",
+            FakeHost {
+                observation: healthy(),
+                remaining_start_failures: 1,
+                ..FakeHost::default()
+            },
+        );
+        executor
+            .write(&DesiredState {
+                generation: 10,
+                connected: true,
+                profile_id: "opaque-id".to_owned(),
+                mode: RoutingMode::Rule,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        assert_eq!(
+            executor.set_mode(RoutingMode::Direct),
+            Err(LifecycleError::TransitionFailedRestored)
+        );
+        assert_eq!(executor.actual(), ActualState::Connected);
+        let state = desired(&executor);
+        assert!(state.connected);
+        assert_eq!(state.mode, RoutingMode::Rule);
+        assert_eq!(state.generation, 12);
+        assert_eq!(
+            executor.host().calls,
+            [
+                "observe", "stop", "prepare", "start", "stop", "discard", "observe", "prepare",
+                "start", "observe", "commit"
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn uncertain_connected_mode_stop_keeps_new_intent_and_blocks() {
+        let (root, mut executor) = executor(
+            "mode-stop-uncertain",
+            FakeHost {
+                observation: healthy(),
+                fail_stop: true,
+                ..FakeHost::default()
+            },
+        );
+        executor
+            .write(&DesiredState {
+                generation: 2,
+                connected: true,
+                profile_id: "opaque-id".to_owned(),
+                mode: RoutingMode::Rule,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        assert_eq!(
+            executor.set_mode(RoutingMode::Direct),
+            Err(LifecycleError::ManualRecoveryRequired)
+        );
+        let state = desired(&executor);
+        assert!(state.connected);
+        assert_eq!(state.mode, RoutingMode::Direct);
+        assert_eq!(state.generation, 3);
+        assert_eq!(executor.host().calls, ["observe", "stop"]);
         fs::remove_dir_all(root).unwrap();
     }
 

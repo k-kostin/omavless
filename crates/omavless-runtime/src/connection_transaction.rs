@@ -416,6 +416,23 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             Err(error) => Completion::Ordinary(Err(store_error(error))),
         }
     }
+
+    pub(crate) fn set_mode(
+        &mut self,
+        lock: &MigrationLock,
+        mode: crate::desired::RoutingMode,
+    ) -> Completion {
+        if !lock.authorizes(&self.cutover_paths, self.uid) {
+            return Completion::Ordinary(Err(ConnectionTransactionError::Store));
+        }
+        match self.lifecycle.set_mode(mode) {
+            Ok(outcome) => Completion::Ordinary(Ok(ConnectionTransactionOutcome {
+                changed: outcome.changed,
+                pruned: 0,
+            })),
+            Err(error) => Completion::Ordinary(Err(lifecycle_error(error))),
+        }
+    }
 }
 
 pub struct OfflineConnectionOwner<H> {
@@ -520,6 +537,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
                 self.transaction.connect(&lock, profile_id, mode)
             }
             OwnerAction::Disconnect => self.transaction.disconnect(&lock),
+            OwnerAction::SetMode { mode } => self.transaction.set_mode(&lock, mode),
         };
         let (result, outcome) = match completion {
             Completion::Ordinary(outcome) => {
@@ -777,6 +795,41 @@ mod tests {
         assert_eq!(written["activeId"], PROFILE);
         assert_eq!(written["lastId"], PROFILE);
         assert_eq!(owner.actual(), ActualState::Connected);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn disconnected_mode_change_joins_revision_without_rewriting_profile_store() {
+        let (root, store_path, desired, cutover, uid) = fixture("mode", false, "", "");
+        let before = fs::read(&store_path).unwrap();
+        let host = FakeHost {
+            observation: empty(),
+            store_path: store_path.clone(),
+            sabotage_observe: false,
+            sabotage_commit: false,
+            sabotage_stop: false,
+            fail_start: false,
+        };
+        let mut owner =
+            OfflineConnectionOwner::new(host, desired.clone(), &store_path, cutover, uid);
+        let (cached, outcome) = applied(
+            owner
+                .execute(request(
+                    OwnerAction::SetMode {
+                        mode: RoutingMode::Direct,
+                    },
+                    "mode-1",
+                    0,
+                ))
+                .unwrap(),
+        );
+        assert_eq!(cached.revision, 1);
+        assert!(outcome.unwrap().changed);
+        assert_eq!(
+            read_desired(&desired, uid).unwrap().mode,
+            RoutingMode::Direct
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
 

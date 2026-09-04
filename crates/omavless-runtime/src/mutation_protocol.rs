@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Exact v1 connection-mutation parameter validation and semantic digesting.
+//! Exact v1 connection/routing-lifecycle mutation validation and digests.
 //!
 //! This parser is reachable only through ownership-gated runtime dispatch.
 //! It converts an already bounded control request into the private owner action
@@ -16,6 +16,7 @@ use std::fmt;
 
 const CONNECT_FIELDS: &[&str] = &["profileId", "mode", "operationId", "expectedRevision"];
 const DISCONNECT_FIELDS: &[&str] = &["operationId", "expectedRevision"];
+const SET_MODE_FIELDS: &[&str] = &["mode", "operationId", "expectedRevision"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationProtocolError {
@@ -184,6 +185,19 @@ pub fn parse_owner_request(request: &Value) -> Result<OwnerRequest, MutationProt
                 digest,
             ))
         }
+        "routing.set_mode" => {
+            if !exact_fields(params, SET_MODE_FIELDS, &["mode"]) {
+                return Err(MutationProtocolError::InvalidArgument);
+            }
+            let mode = mode(params.get("mode"))?.ok_or(MutationProtocolError::InvalidArgument)?;
+            let digest = semantic_digest(method, None, Some(mode), metadata.expected_revision);
+            Ok(OwnerRequest::new(
+                OwnerAction::SetMode { mode },
+                metadata.operation_id,
+                metadata.expected_revision,
+                digest,
+            ))
+        }
         _ => Err(MutationProtocolError::UnknownMethod),
     }
 }
@@ -225,6 +239,13 @@ mod tests {
             ))
             .is_ok()
         );
+        assert!(
+            parse_owner_request(&request(
+                "routing.set_mode",
+                json!({"mode": "direct", "operationId": "operation-3", "expectedRevision": 9})
+            ))
+            .is_ok()
+        );
     }
 
     #[test]
@@ -253,6 +274,16 @@ mod tests {
             parse_owner_request(&request("connection.restart", json!({}))),
             Err(MutationProtocolError::UnknownMethod)
         ));
+        for params in [
+            json!({}),
+            json!({"mode": "full"}),
+            json!({"mode": "rule", "profileId": PROFILE_ID}),
+        ] {
+            assert!(matches!(
+                parse_owner_request(&request("routing.set_mode", params)),
+                Err(MutationProtocolError::InvalidArgument)
+            ));
+        }
     }
 
     #[test]
@@ -280,6 +311,13 @@ mod tests {
                 Err(MutationProtocolError::InvalidRequest)
             ));
         }
+        assert!(matches!(
+            parse_owner_request(&request(
+                "routing.set_mode",
+                json!({"mode": "rule", "operationId": "has space"})
+            )),
+            Err(MutationProtocolError::InvalidRequest)
+        ));
     }
 
     #[test]
