@@ -202,8 +202,8 @@ impl SubscriptionBatchWork {
         let Some(permit) = pool.try_acquire() else {
             return Ok(BatchWorkStep::Busy);
         };
-        let budget = check_worker(&self.cancellation, self.deadline, clock())?
-            .min(SUBSCRIPTION_TIMEOUT);
+        let budget =
+            check_worker(&self.cancellation, self.deadline, clock())?.min(SUBSCRIPTION_TIMEOUT);
         let url = snapshot
             .private_urls()
             .nth(self.completed)
@@ -214,9 +214,8 @@ impl SubscriptionBatchWork {
         let body = fetched.map_err(|error| {
             BatchWorkError::Preparation(SubscriptionRefreshError::Transport(error))
         })?;
-        let feed = decode_subscription_feed(body).map_err(|error| {
-            BatchWorkError::Preparation(SubscriptionRefreshError::Feed(error))
-        })?;
+        let feed = decode_subscription_feed(body)
+            .map_err(|error| BatchWorkError::Preparation(SubscriptionRefreshError::Feed(error)))?;
         let retained_bytes = self
             .retained_bytes
             .checked_add(feed.private_payload_bytes())
@@ -228,7 +227,8 @@ impl SubscriptionBatchWork {
         let skipped = feed.counts().skipped;
         let entries = feed.into_private_entries(next_record_id);
         check_worker(&self.cancellation, self.deadline, clock())?;
-        self.updates.push(SubscriptionRefreshBatchEntries { entries, skipped });
+        self.updates
+            .push(SubscriptionRefreshBatchEntries { entries, skipped });
         self.retained_bytes = retained_bytes;
         self.completed += 1;
         Ok(if self.completed == self.total {
@@ -260,7 +260,10 @@ impl PreparedSubscriptionBatch {
     pub fn into_parts(
         self,
     ) -> Result<
-        (SubscriptionRefreshBatchSnapshot, Vec<SubscriptionRefreshBatchEntries>),
+        (
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+        ),
         BatchWorkError,
     > {
         check_worker(&self.cancellation, self.deadline, Instant::now())?;
@@ -272,30 +275,38 @@ impl PreparedSubscriptionBatch {
 mod tests {
     use super::*;
     use crate::remote_fetch::MAX_CONCURRENT_REMOTE_FETCHES;
-    use crate::subscription_mutation::{SubscriptionMutationCommitError, SubscriptionRefreshCommit};
-    use crate::subscription_refresh::{SubscriptionRefreshBatchStore, refresh_subscriptions_offline};
+    use crate::subscription_mutation::{
+        SubscriptionMutationCommitError, SubscriptionRefreshCommit,
+    };
+    use crate::subscription_refresh::{
+        SubscriptionRefreshBatchStore, refresh_subscriptions_offline,
+    };
     use omavless_domain::private_store::{
         apply_subscription_refresh_batch, prepare_subscription_refresh_batch,
     };
     use serde_json::json;
     use std::cell::{Cell, RefCell};
 
-    const URI: &str = "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example";
+    const URI: &str =
+        "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Example";
 
     fn input(count: usize) -> String {
         let subscriptions: Vec<_> = (0..count)
-            .map(|index| json!({
-                "id": format!("10000000-0000-4000-8000-{index:012}"),
-                "name": "Synthetic", "url": format!("https://provider.invalid/{index}"),
-                "updatedAt": 1,
-            }))
+            .map(|index| {
+                json!({
+                    "id": format!("10000000-0000-4000-8000-{index:012}"),
+                    "name": "Synthetic", "url": format!("https://provider.invalid/{index}"),
+                    "updatedAt": 1,
+                })
+            })
             .collect();
         json!({
             "version": 3, "activeId": "", "lastId": "", "profiles": [],
             "subscriptions": subscriptions, "routingPreset": "custom", "customRules": [],
             "rulesUpdatedAt": 0, "startupConfigured": true, "onboardingComplete": true,
             "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn ids() -> impl FnMut() -> String {
@@ -372,20 +383,31 @@ mod tests {
             |_| Ok(PrivateSubscriptionBody::from_bytes(URI.as_bytes().to_vec()).unwrap()),
             ids(),
             || 9,
-        ).unwrap();
+        )
+        .unwrap();
         let cancel = BatchCancellation::default();
         let mut job = work(2, &cancel);
         let transport = Transport::default();
         let pool = RemoteFetchPool::default();
         let mut ids = ids();
-        assert_eq!(job.step(&transport, &pool, &mut ids), Ok(BatchWorkStep::Advanced));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids),
+            Ok(BatchWorkStep::Advanced)
+        );
         assert_eq!(job.progress(), (1, 2));
-        assert_eq!(job.step(&transport, &pool, &mut ids), Ok(BatchWorkStep::Ready));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids),
+            Ok(BatchWorkStep::Ready)
+        );
         assert_eq!(job.progress(), (2, 2));
-        assert_eq!(job.step(&transport, &pool, &mut ids), Ok(BatchWorkStep::Ready));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids),
+            Ok(BatchWorkStep::Ready)
+        );
         assert_eq!(transport.calls.get(), 2);
         let (snapshot, updates) = job.into_prepared().unwrap().into_parts().unwrap();
-        let (prepared, _) = apply_subscription_refresh_batch(&original, snapshot, updates, 9).unwrap();
+        let (prepared, _) =
+            apply_subscription_refresh_batch(&original, snapshot, updates, 9).unwrap();
         assert_eq!(prepared.payload(), reference.0.as_bytes());
     }
 
@@ -393,14 +415,21 @@ mod tests {
     fn saturated_pool_preserves_progress_and_fetches_nothing() {
         let pool = RemoteFetchPool::default();
         let mut permits: Vec<_> = (0..MAX_CONCURRENT_REMOTE_FETCHES)
-            .map(|_| pool.try_acquire().unwrap()).collect();
+            .map(|_| pool.try_acquire().unwrap())
+            .collect();
         let mut job = work(1, &BatchCancellation::default());
         let transport = Transport::default();
-        assert_eq!(job.step(&transport, &pool, &mut ids()), Ok(BatchWorkStep::Busy));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids()),
+            Ok(BatchWorkStep::Busy)
+        );
         assert_eq!(job.progress(), (0, 1));
         assert_eq!(transport.calls.get(), 0);
         permits.pop();
-        assert_eq!(job.step(&transport, &pool, &mut ids()), Ok(BatchWorkStep::Ready));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids()),
+            Ok(BatchWorkStep::Ready)
+        );
         assert!(pool.try_acquire().is_some());
     }
 
@@ -410,7 +439,10 @@ mod tests {
         let mut job = work(2, &cancel);
         cancel.request();
         let transport = Transport::default();
-        assert_eq!(job.step(&transport, &RemoteFetchPool::default(), &mut ids()), Err(BatchWorkError::Cancelled));
+        assert_eq!(
+            job.step(&transport, &RemoteFetchPool::default(), &mut ids()),
+            Err(BatchWorkError::Cancelled)
+        );
         assert_eq!(transport.calls.get(), 0);
         assert!(job.into_prepared().is_err());
     }
@@ -419,26 +451,47 @@ mod tests {
     fn cancellation_wins_over_an_inflight_provider_failure() {
         let cancel = BatchCancellation::default();
         let mut job = work(2, &cancel);
-        let transport = Transport { cancel: Some(cancel), fail_at: Some(1), ..Transport::default() };
+        let transport = Transport {
+            cancel: Some(cancel),
+            fail_at: Some(1),
+            ..Transport::default()
+        };
         let pool = RemoteFetchPool::default();
-        assert_eq!(job.step(&transport, &pool, &mut ids()), Err(BatchWorkError::Cancelled));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids()),
+            Err(BatchWorkError::Cancelled)
+        );
         assert_eq!(transport.calls.get(), 1);
         assert!(job.into_prepared().is_err());
-        let permits: Vec<_> = (0..MAX_CONCURRENT_REMOTE_FETCHES).map(|_| pool.try_acquire().unwrap()).collect();
+        let permits: Vec<_> = (0..MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| pool.try_acquire().unwrap())
+            .collect();
         assert_eq!(permits.len(), MAX_CONCURRENT_REMOTE_FETCHES);
     }
 
     #[test]
     fn provider_failure_discards_the_entire_prepared_prefix() {
         let mut job = work(2, &BatchCancellation::default());
-        let transport = Transport { fail_at: Some(2), ..Transport::default() };
+        let transport = Transport {
+            fail_at: Some(2),
+            ..Transport::default()
+        };
         let pool = RemoteFetchPool::default();
         let mut ids = ids();
-        assert_eq!(job.step(&transport, &pool, &mut ids), Ok(BatchWorkStep::Advanced));
-        assert!(matches!(job.step(&transport, &pool, &mut ids), Err(BatchWorkError::Preparation(_))));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids),
+            Ok(BatchWorkStep::Advanced)
+        );
+        assert!(matches!(
+            job.step(&transport, &pool, &mut ids),
+            Err(BatchWorkError::Preparation(_))
+        ));
         assert_eq!(job.progress(), (1, 2));
         assert!(job.updates.is_empty());
-        assert_eq!(job.step(&transport, &pool, &mut ids), Err(BatchWorkError::InvalidState));
+        assert_eq!(
+            job.step(&transport, &pool, &mut ids),
+            Err(BatchWorkError::InvalidState)
+        );
         assert_eq!(transport.calls.get(), 2);
         assert!(job.into_prepared().is_err());
     }
@@ -449,14 +502,20 @@ mod tests {
         let mut job = work(1, &BatchCancellation::default());
         let transport = Transport::default();
         let deadline = job.deadline;
-        assert_eq!(job.step_with_clock(&transport, &pool, &mut ids(), || deadline), Err(BatchWorkError::Deadline));
+        assert_eq!(
+            job.step_with_clock(&transport, &pool, &mut ids(), || deadline),
+            Err(BatchWorkError::Deadline)
+        );
         assert_eq!(transport.calls.get(), 0);
 
         let mut job = work(1, &BatchCancellation::default());
         let deadline = job.deadline;
         let early = deadline - Duration::from_millis(12);
         let mut clock = [early, early, deadline].into_iter();
-        assert_eq!(job.step_with_clock(&transport, &pool, &mut ids(), || clock.next().unwrap()), Err(BatchWorkError::Deadline));
+        assert_eq!(
+            job.step_with_clock(&transport, &pool, &mut ids(), || clock.next().unwrap()),
+            Err(BatchWorkError::Deadline)
+        );
         assert_eq!(&*transport.budgets.borrow(), &[Duration::from_millis(12)]);
         assert!(job.into_prepared().is_err());
     }
@@ -465,7 +524,12 @@ mod tests {
     fn cancellation_is_rechecked_after_ready_before_handoff() {
         let cancel = BatchCancellation::default();
         let mut job = work(1, &cancel);
-        job.step(&Transport::default(), &RemoteFetchPool::default(), &mut ids()).unwrap();
+        job.step(
+            &Transport::default(),
+            &RemoteFetchPool::default(),
+            &mut ids(),
+        )
+        .unwrap();
         let ready = job.into_prepared().unwrap();
         cancel.request();
         assert!(matches!(ready.into_parts(), Err(BatchWorkError::Cancelled)));
@@ -476,8 +540,15 @@ mod tests {
         let mut job = work(0, &BatchCancellation::default());
         let transport = Transport::default();
         let pool = RemoteFetchPool::default();
-        let _permits: Vec<_> = (0..MAX_CONCURRENT_REMOTE_FETCHES).map(|_| pool.try_acquire().unwrap()).collect();
-        assert_eq!(job.step(&transport, &pool, &mut || panic!("empty batch needs no IDs")), Ok(BatchWorkStep::Ready));
+        let _permits: Vec<_> = (0..MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| pool.try_acquire().unwrap())
+            .collect();
+        assert_eq!(
+            job.step(&transport, &pool, &mut || panic!(
+                "empty batch needs no IDs"
+            )),
+            Ok(BatchWorkStep::Ready)
+        );
         assert_eq!(transport.calls.get(), 0);
         let (snapshot, updates) = job.into_prepared().unwrap().into_parts().unwrap();
         assert!(snapshot.is_empty());
@@ -488,8 +559,17 @@ mod tests {
     fn aggregate_overflow_is_terminal_and_has_no_private_error_output() {
         let mut job = work(1, &BatchCancellation::default());
         job.retained_bytes = MAX_PRIVATE_STORE_BYTES;
-        let error = job.step(&Transport::default(), &RemoteFetchPool::default(), &mut ids()).unwrap_err();
-        assert_eq!(error, BatchWorkError::Preparation(SubscriptionRefreshError::AggregateTooLarge));
+        let error = job
+            .step(
+                &Transport::default(),
+                &RemoteFetchPool::default(),
+                &mut ids(),
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            BatchWorkError::Preparation(SubscriptionRefreshError::AggregateTooLarge)
+        );
         assert!(job.into_prepared().is_err());
         let output = format!("{error:?} {error}");
         for private in ["provider.invalid", "192.0.2.1", "11111111-1111", URI] {

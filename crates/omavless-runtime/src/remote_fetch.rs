@@ -81,7 +81,10 @@ mod tests {
             }
             start.wait();
             admitted.wait();
-            assert_eq!(pool.active.load(Ordering::Acquire), MAX_CONCURRENT_REMOTE_FETCHES);
+            assert_eq!(
+                pool.active.load(Ordering::Acquire),
+                MAX_CONCURRENT_REMOTE_FETCHES
+            );
             release.wait();
         });
         assert_eq!(pool.active.load(Ordering::Acquire), 0);
