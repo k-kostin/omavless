@@ -1791,6 +1791,11 @@ mod tests {
                 release: Mutex::new(release_rx),
             },
         );
+        let connected = server.dispatch(&make_request("connect", "connection.connect", json!({
+            "profileId": PROFILE_ID, "mode": "global"
+        })).unwrap()).unwrap();
+        assert_eq!(connected["ok"], true);
+        assert_eq!(connected["revision"], 1);
         assert_eq!(
             batch_call(&server, "subscriptions.refresh_all", "one")["ok"],
             true
@@ -1800,6 +1805,7 @@ mod tests {
             .dispatch(&make_request("disconnect", "connection.disconnect", json!({})).unwrap())
             .unwrap();
         assert_eq!(disconnect["ok"], true);
+        assert_eq!(disconnect["revision"], 2);
         let after_disconnect = fs::read(&store).unwrap();
         release_tx.send(()).unwrap();
         let completed = wait_batch(&server, "one");
@@ -1809,6 +1815,84 @@ mod tests {
             "conflict"
         );
         assert_eq!(fs::read(store).unwrap(), after_disconnect);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn batch_shutdown_revokes_inflight_work_before_joining() {
+        let base = temporary_base("batch-shutdown-inflight");
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(owner, BlockingTransport {
+            started: started_tx,
+            release: Mutex::new(release_rx),
+        });
+        let server = Arc::new(server);
+        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "one")["ok"], true);
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let stopping_server = Arc::clone(&server);
+        let shutdown = thread::spawn(move || {
+            stopping_server.batch_scheduler.stop(&stopping_server.dispatcher);
+        });
+        let lookup = make_request("inspect-shutdown", "operations.get", json!({
+            "instanceId": server.instance_id, "operationId": "one"
+        })).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut dispatcher = server.dispatcher.lock().unwrap();
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else { panic!("native fixture"); };
+            let (result, _) = owner.batch_control(&lookup, &server.instance_id).unwrap();
+            if result["operation"]["state"] == "failed" {
+                assert_eq!(result["operation"]["error"]["code"], "daemon_restarting");
+                break;
+            }
+            drop(dispatcher);
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!shutdown.is_finished(), "shutdown must join the in-flight fetch");
+        release_tx.send(()).unwrap();
+        shutdown.join().unwrap();
+        assert_eq!(fs::read(store).unwrap(), before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    struct PanickingBatchTransport;
+    impl subscription_transport::SubscriptionTransport for PanickingBatchTransport {
+        fn fetch(&self, _url: &str) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            panic!("synthetic worker failure");
+        }
+    }
+    impl subscription_batch_work::BudgetedSubscriptionTransport for PanickingBatchTransport {
+        fn fetch_with_budget(&self, url: &str, _budget: Duration) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            subscription_transport::SubscriptionTransport::fetch(self, url)
+        }
+    }
+
+    #[test]
+    fn batch_supervisor_reclaims_panicked_worker_and_allows_successor() {
+        let base = temporary_base("batch-worker-panic");
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(owner, PanickingBatchTransport);
+        for operation in ["first", "successor"] {
+            assert_eq!(batch_call(&server, "subscriptions.refresh_all", operation)["ok"], true);
+            let failed = wait_batch(&server, operation);
+            assert_eq!(failed["result"]["operation"]["state"], "failed");
+            assert_eq!(failed["result"]["operation"]["error"]["code"], "internal_error");
+        }
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }
