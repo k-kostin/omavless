@@ -8,7 +8,7 @@
 //! through this boundary. Private names and bearer URLs are neither formatted
 //! nor serialized by the resulting request types.
 
-use crate::mutation::MutationDigest;
+use crate::mutation::{CoordinatorError, MutationDigest, MutationKind, MutationRequest};
 use crate::mutation_protocol::{MutationProtocolError, append_field, exact_fields, metadata};
 use omavless_control_protocol::validate_request;
 use omavless_domain::import::{MAX_SUBSCRIPTION_URL_BYTES, valid_subscription_url};
@@ -74,6 +74,24 @@ impl SubscriptionMutationRequest {
             SubscriptionMutationIntent::Update { .. } => SubscriptionMutationKind::Update,
             SubscriptionMutationIntent::Delete { .. } => SubscriptionMutationKind::Delete,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn remote_url(&self) -> Option<&str> {
+        match &self.intent {
+            SubscriptionMutationIntent::Add { url, .. }
+            | SubscriptionMutationIntent::Update { url, .. } => Some(url),
+            SubscriptionMutationIntent::Delete { .. } => None,
+        }
+    }
+
+    pub(crate) fn external_work_request(&self) -> Result<MutationRequest, CoordinatorError> {
+        MutationRequest::new(
+            MutationKind::Other,
+            self.operation_id.as_deref(),
+            self.expected_revision,
+            self.digest,
+        )
     }
 
     /// Consume the request at the future serialized owner/fetch boundary.

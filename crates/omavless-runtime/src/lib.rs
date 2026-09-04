@@ -23,8 +23,8 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -61,6 +61,7 @@ pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
 pub const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CONCURRENT_CLIENTS: usize = 16;
+const MAX_CONCURRENT_REMOTE_FETCHES: usize = 4;
 
 struct ActiveClient<'a>(&'a AtomicUsize);
 
@@ -70,10 +71,10 @@ impl Drop for ActiveClient<'_> {
     }
 }
 
-fn claim_client(active: &AtomicUsize) -> Option<ActiveClient<'_>> {
+fn claim_slot(active: &AtomicUsize, maximum: usize) -> Option<ActiveClient<'_>> {
     active
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < MAX_CONCURRENT_CLIENTS).then_some(count + 1)
+            (count < maximum).then_some(count + 1)
         })
         .ok()
         .map(|_| ActiveClient(active))
@@ -200,15 +201,15 @@ pub struct RuntimeServer {
     uid: u32,
     instance_id: String,
     dispatcher: Mutex<RuntimeDispatcher>,
+    remote_fetches: AtomicUsize,
     _owner: OwnerLock,
 }
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &["profiles.list", "subscriptions.list"];
-// Subscription add/update performs bounded remote I/O. Keep those methods
-// outside live socket dispatch until the server can admit status and urgent
-// disconnect while that fetch is in flight. Delete is store/lifecycle-local
-// and can use the existing serialized owner safely.
+// Remote subscription fetch uses the bounded concurrent client layer and a
+// reservation-free preflight. Its final decode/commit re-enters this one
+// serialized owner and rechecks revision plus exact durable ownership.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
@@ -216,6 +217,8 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
+    "subscriptions.add",
+    "subscriptions.update",
     "subscriptions.delete",
 ];
 
@@ -235,6 +238,45 @@ trait NativeRuntimeOwner: Send {
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn preflight_remote_subscription(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<NativeRemotePreflight, omavless_control_protocol::ProtocolError>;
+    fn complete_remote_subscription(
+        &mut self,
+        request: &Value,
+        preflight_revision: u64,
+        fetched: std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        >,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+}
+
+#[derive(Clone)]
+struct SharedSubscriptionTransport(
+    Arc<dyn subscription_transport::SubscriptionTransport + Send + Sync>,
+);
+
+impl subscription_transport::SubscriptionTransport for SharedSubscriptionTransport {
+    fn fetch(
+        &self,
+        url: &str,
+    ) -> std::result::Result<
+        omavless_domain::subscription_feed::PrivateSubscriptionBody,
+        subscription_transport::SubscriptionTransportError,
+    > {
+        self.0.fetch(url)
+    }
+}
+
+enum NativeRemotePreflight {
+    Fetch {
+        url: String,
+        transport: SharedSubscriptionTransport,
+        revision: u64,
+    },
+    Respond(Value),
 }
 
 struct RecordIdGenerator {
@@ -283,9 +325,9 @@ impl RecordIdGenerator {
     }
 }
 
-struct RegisteredNativeOwner<H, T> {
+struct RegisteredNativeOwner<H> {
     owner: production_owner::ProductionNativeOwner<H>,
-    transport: T,
+    transport: SharedSubscriptionTransport,
     record_ids: RecordIdGenerator,
 }
 
@@ -329,10 +371,9 @@ fn subscription_list_json(
     json!({"subscriptions": subscriptions})
 }
 
-impl<H, T> NativeRuntimeOwner for RegisteredNativeOwner<H, T>
+impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
-    T: subscription_transport::SubscriptionTransport + Send + 'static,
 {
     fn revision(&self) -> u64 {
         self.owner.revision()
@@ -407,6 +448,50 @@ where
             },
         )
     }
+
+    fn preflight_remote_subscription(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<NativeRemotePreflight, omavless_control_protocol::ProtocolError> {
+        match self.owner.preflight_remote_subscription(request)? {
+            native_dispatch::RemoteSubscriptionPreflight::Fetch(prepared) => {
+                Ok(NativeRemotePreflight::Fetch {
+                    url: prepared.private_url().to_owned(),
+                    transport: self.transport.clone(),
+                    revision: self.owner.revision(),
+                })
+            }
+            native_dispatch::RemoteSubscriptionPreflight::Respond(response) => {
+                Ok(NativeRemotePreflight::Respond(response))
+            }
+        }
+    }
+
+    fn complete_remote_subscription(
+        &mut self,
+        request: &Value,
+        preflight_revision: u64,
+        fetched: std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        >,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let record_ids = &mut self.record_ids;
+        self.owner.respond_to_fetched_subscription(
+            request,
+            preflight_revision,
+            fetched,
+            || record_ids.next(),
+            || {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX)
+            },
+        )
+    }
 }
 
 impl RuntimeServer {
@@ -434,6 +519,7 @@ impl RuntimeServer {
             uid,
             instance_id: format!("{:x}-{nonce:x}", std::process::id()),
             dispatcher: Mutex::new(RuntimeDispatcher::ReadOnly),
+            remote_fetches: AtomicUsize::new(0),
             _owner: owner,
         })
     }
@@ -476,11 +562,11 @@ impl RuntimeServer {
         transport: T,
     ) where
         H: lifecycle::LifecycleHost + Send + 'static,
-        T: subscription_transport::SubscriptionTransport + Send + 'static,
+        T: subscription_transport::SubscriptionTransport + Send + Sync + 'static,
     {
         let registered = RegisteredNativeOwner {
             owner,
-            transport,
+            transport: SharedSubscriptionTransport(Arc::new(transport)),
             record_ids: RecordIdGenerator::new(&self.instance_id),
         };
         self.dispatcher = Mutex::new(RuntimeDispatcher::Native(Box::new(registered)));
@@ -497,7 +583,7 @@ impl RuntimeServer {
         thread::scope(|scope| {
             for (handled, incoming) in self.listener.incoming().enumerate() {
                 if let Ok(mut stream) = incoming
-                    && let Some(slot) = claim_client(&active)
+                    && let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS)
                 {
                     // A malformed, slow, disconnected, or unauthorized client
                     // receives one bounded worker slot. Saturation closes the
@@ -525,7 +611,7 @@ impl RuntimeServer {
             while !stop.load(Ordering::Relaxed) {
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
-                        if let Some(slot) = claim_client(&active) {
+                        if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
                             scope.spawn(move || {
                                 let _slot = slot;
                                 let _ = server.handle(&mut stream);
@@ -576,6 +662,12 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        if matches!(
+            request["method"].as_str(),
+            Some("subscriptions.add" | "subscriptions.update")
+        ) {
+            return self.dispatch_remote_subscription(request);
+        }
         let mut dispatcher = match self.dispatcher.lock() {
             Ok(dispatcher) => dispatcher,
             Err(_) => {
@@ -595,6 +687,56 @@ impl RuntimeServer {
             RuntimeDispatcher::ReadOnly => dispatch_read_only(request, &self.instance_id),
             RuntimeDispatcher::Native(owner) => {
                 dispatch_native(request, &self.instance_id, owner.as_mut())
+            }
+        }
+    }
+
+    fn dispatch_remote_subscription(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let preflight = {
+            let mut dispatcher = match self.dispatcher.lock() {
+                Ok(dispatcher) => dispatcher,
+                Err(_) => {
+                    return error_response(id, 0, StableErrorCode::InternalError, false, None);
+                }
+            };
+            match &mut *dispatcher {
+                RuntimeDispatcher::ReadOnly => {
+                    return dispatch_read_only(request, &self.instance_id);
+                }
+                RuntimeDispatcher::Native(owner) => owner.preflight_remote_subscription(request)?,
+            }
+        };
+
+        let (url, transport, revision) = match preflight {
+            NativeRemotePreflight::Fetch {
+                url,
+                transport,
+                revision,
+            } => (url, transport, revision),
+            NativeRemotePreflight::Respond(response) => return Ok(response),
+        };
+        let Some(_remote_slot) = claim_slot(&self.remote_fetches, MAX_CONCURRENT_REMOTE_FETCHES)
+        else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let fetched = subscription_transport::SubscriptionTransport::fetch(&transport, &url);
+
+        let mut dispatcher = match self.dispatcher.lock() {
+            Ok(dispatcher) => dispatcher,
+            Err(_) => {
+                return error_response(id, 0, StableErrorCode::InternalError, false, None);
+            }
+        };
+        match &mut *dispatcher {
+            RuntimeDispatcher::ReadOnly => {
+                error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None)
+            }
+            RuntimeDispatcher::Native(owner) => {
+                owner.complete_remote_subscription(request, revision, fetched)
             }
         }
     }
@@ -640,7 +782,9 @@ impl RuntimeServer {
             };
             let registered = RegisteredNativeOwner {
                 owner,
-                transport: subscription_transport::HttpsSubscriptionTransport::new(),
+                transport: SharedSubscriptionTransport(Arc::new(
+                    subscription_transport::HttpsSubscriptionTransport::new(),
+                )),
                 record_ids: RecordIdGenerator::new(&self.instance_id),
             };
             *dispatcher = RuntimeDispatcher::Native(Box::new(registered));
@@ -884,6 +1028,34 @@ mod tests {
     struct FakeHost {
         observation: OwnedObservation,
         calls: Arc<AtomicUsize>,
+    }
+
+    struct BlockingTransport {
+        started: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl subscription_transport::SubscriptionTransport for BlockingTransport {
+        fn fetch(
+            &self,
+            _url: &str,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            self.started
+                .send(())
+                .map_err(|_| subscription_transport::SubscriptionTransportError::Unavailable)?;
+            self.release
+                .lock()
+                .map_err(|_| subscription_transport::SubscriptionTransportError::Unavailable)?
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|_| subscription_transport::SubscriptionTransportError::Timeout)?;
+            omavless_domain::subscription_feed::PrivateSubscriptionBody::from_bytes(
+                b"vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed".to_vec(),
+            )
+            .map_err(|_| subscription_transport::SubscriptionTransportError::Unavailable)
+        }
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
@@ -1169,13 +1341,21 @@ mod tests {
     fn concurrent_client_slots_are_bounded_and_reusable() {
         let active = AtomicUsize::new(0);
         let slots = (0..MAX_CONCURRENT_CLIENTS)
-            .map(|_| claim_client(&active).unwrap())
+            .map(|_| claim_slot(&active, MAX_CONCURRENT_CLIENTS).unwrap())
             .collect::<Vec<_>>();
-        assert!(claim_client(&active).is_none());
+        assert!(claim_slot(&active, MAX_CONCURRENT_CLIENTS).is_none());
         assert_eq!(active.load(Ordering::Acquire), MAX_CONCURRENT_CLIENTS);
         drop(slots);
         assert_eq!(active.load(Ordering::Acquire), 0);
-        assert!(claim_client(&active).is_some());
+        assert!(claim_slot(&active, MAX_CONCURRENT_CLIENTS).is_some());
+
+        let remote = AtomicUsize::new(0);
+        let slots = (0..MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| claim_slot(&remote, MAX_CONCURRENT_REMOTE_FETCHES).unwrap())
+            .collect::<Vec<_>>();
+        assert!(claim_slot(&remote, MAX_CONCURRENT_REMOTE_FETCHES).is_none());
+        drop(slots);
+        assert_eq!(remote.load(Ordering::Acquire), 0);
     }
 
     #[test]
@@ -1207,6 +1387,256 @@ mod tests {
     }
 
     #[test]
+    fn remote_subscription_fetch_does_not_block_status_or_disconnect() {
+        use std::time::Instant;
+
+        let base = temporary_base("remote-fetch");
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+
+        let connected = call(
+            &paths,
+            "connection.connect",
+            json!({
+                "profileId": PROFILE_ID,
+                "mode": "global",
+                "operationId": "connect-before-fetch",
+                "expectedRevision": 0
+            }),
+        )
+        .unwrap();
+        assert_eq!(connected["ok"], true);
+        assert_eq!(connected["revision"], 1);
+
+        let add_paths = paths.clone();
+        let add = thread::spawn(move || {
+            call(
+                &add_paths,
+                "subscriptions.add",
+                json!({
+                    "name": "Private source",
+                    "url": "https://private.example/subscription-token",
+                    "operationId": "subscription-fetch-1"
+                }),
+            )
+            .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let started = Instant::now();
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["result"]["actual"], "connected");
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        let started = Instant::now();
+        let disconnected = call(
+            &paths,
+            "connection.disconnect",
+            json!({
+                "operationId": "disconnect-during-fetch",
+                "expectedRevision": 1
+            }),
+        )
+        .unwrap();
+        assert_eq!(disconnected["ok"], true);
+        assert_eq!(disconnected["revision"], 2);
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        release_tx.send(()).unwrap();
+        let rejected_add = add.join().unwrap();
+        assert_eq!(rejected_add["ok"], false);
+        assert_eq!(rejected_add["error"]["code"], "conflict");
+        let rendered = rejected_add.to_string();
+        for private in [
+            "private.example",
+            "subscription-token",
+            "vless://",
+            "192.0.2.2",
+        ] {
+            assert!(!rendered.contains(private));
+        }
+
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let add_paths = paths.clone();
+        let add = thread::spawn(move || {
+            call(
+                &add_paths,
+                "subscriptions.add",
+                json!({
+                    "name": "Second source",
+                    "url": "https://second.invalid/subscription-token",
+                    "operationId": "subscription-fetch-2"
+                }),
+            )
+            .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        release_tx.send(()).unwrap();
+        let accepted_add = add.join().unwrap();
+        assert_eq!(accepted_add["ok"], true);
+        assert_eq!(accepted_add["revision"], 3);
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let update_paths = paths.clone();
+        let update = thread::spawn(move || {
+            call(
+                &update_paths,
+                "subscriptions.update",
+                json!({
+                    "subscriptionId": SUBSCRIPTION_ID,
+                    "name": "Updated source",
+                    "url": "https://updated.invalid/subscription-token",
+                    "operationId": "subscription-fetch-3"
+                }),
+            )
+            .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        release_tx.send(()).unwrap();
+        let accepted_update = update.join().unwrap();
+        assert_eq!(accepted_update["ok"], true);
+        assert_eq!(accepted_update["revision"], 4);
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|subscription| subscription["name"] == "Updated source")
+        );
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn remote_fetch_saturation_preserves_an_urgent_disconnect_path() {
+        use std::time::Instant;
+
+        let base = temporary_base("fetch-cap");
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(MAX_CONCURRENT_REMOTE_FETCHES);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(MAX_CONCURRENT_REMOTE_FETCHES);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        let worker = thread::spawn(move || server.serve(Some(6)).unwrap());
+
+        let mut fetches = Vec::new();
+        for index in 0..MAX_CONCURRENT_REMOTE_FETCHES {
+            let fetch_paths = paths.clone();
+            fetches.push(thread::spawn(move || {
+                call(
+                    &fetch_paths,
+                    "subscriptions.add",
+                    json!({
+                        "name": format!("Source {index}"),
+                        "url": format!("https://provider{index}.invalid/private"),
+                        "operationId": format!("parallel-fetch-{index}")
+                    }),
+                )
+                .unwrap()
+            }));
+        }
+        for _ in 0..MAX_CONCURRENT_REMOTE_FETCHES {
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+
+        let saturated = call(
+            &paths,
+            "subscriptions.add",
+            json!({
+                "name": "Saturated source",
+                "url": "https://saturated.invalid/private",
+                "operationId": "parallel-fetch-saturated"
+            }),
+        )
+        .unwrap();
+        assert_eq!(saturated["ok"], false);
+        assert_eq!(saturated["error"]["code"], "busy");
+        assert_eq!(saturated["error"]["retryable"], true);
+
+        let started = Instant::now();
+        let disconnected = call(
+            &paths,
+            "connection.disconnect",
+            json!({
+                "operationId": "disconnect-at-fetch-cap",
+                "expectedRevision": 0
+            }),
+        )
+        .unwrap();
+        assert_eq!(disconnected["ok"], true);
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        for _ in 0..MAX_CONCURRENT_REMOTE_FETCHES {
+            release_tx.send(()).unwrap();
+        }
+        let responses = fetches
+            .into_iter()
+            .map(|fetch| fetch.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            responses
+                .iter()
+                .filter(|response| response["ok"] == true)
+                .count(),
+            1
+        );
+        assert_eq!(
+            responses
+                .iter()
+                .filter(|response| response["error"]["code"] == "conflict")
+                .count(),
+            MAX_CONCURRENT_REMOTE_FETCHES - 1
+        );
+        let rendered = format!("{saturated}{responses:?}");
+        for private in ["provider", "saturated.invalid", "private", "vless://"] {
+            assert!(!rendered.contains(private));
+        }
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn bind_current_factory_registers_mutations_and_revocation_fails_closed() {
         let base = temporary_base("native-registration");
         let (owner, cutover, calls) = native_owner_fixture(&base);
@@ -1221,7 +1651,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
-        let worker = thread::spawn(move || server.serve(Some(18)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(17)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -1250,22 +1680,19 @@ mod tests {
                     .any(|candidate| candidate == method)
             );
         }
-        assert!(
-            capabilities["result"]["methods"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|method| method != "subscriptions.add")
-        );
-        assert!(
-            capabilities["result"]["methods"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|method| method == "subscriptions.delete")
-        );
-        let withheld = call(&paths, "subscriptions.add", json!({})).unwrap();
-        assert_eq!(withheld["error"]["code"], "unknown_method");
+        for method in [
+            "subscriptions.add",
+            "subscriptions.update",
+            "subscriptions.delete",
+        ] {
+            assert!(
+                capabilities["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|candidate| candidate == method)
+            );
+        }
         let status = call(&paths, "status.get", json!({})).unwrap();
         assert_eq!(status["result"]["actual"], "disconnected");
         let profiles = call(&paths, "profiles.list", json!({})).unwrap();

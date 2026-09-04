@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use omavless_runtime::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
@@ -97,6 +98,8 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile favorite PROFILE_ID on|off",
         "profile delete PROFILE_ID",
         "subscription list",
+        "subscription add",
+        "subscription update SUBSCRIPTION_ID",
         "subscription delete SUBSCRIPTION_ID",
     ] {
         assert!(help.contains(command));
@@ -140,12 +143,46 @@ fn rename_stdin_is_bounded_and_never_echoed() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(private.as_bytes())
+    let write_result = child.stdin.take().unwrap().write_all(private.as_bytes());
+    assert!(
+        write_result.is_ok()
+            || write_result
+                .as_ref()
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::BrokenPipe)
+    );
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("input is too large"));
+    assert!(!error.contains("private.example"));
+    assert!(!error.contains("password"));
+    assert!(!base.join("omavless/control.sock").exists());
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn subscription_stdin_is_bounded_and_never_echoed() {
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let private = format!(
+        "Private source\nhttps://private.example/{}",
+        "password".repeat(MAX_SUBSCRIPTION_STDIN_BYTES)
+    );
+    let mut child = isolated_command(&base)
+        .args(["subscription", "add"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    let write_result = child.stdin.take().unwrap().write_all(private.as_bytes());
+    assert!(
+        write_result.is_ok()
+            || write_result
+                .as_ref()
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::BrokenPipe)
+    );
     let output = child.wait_with_output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());

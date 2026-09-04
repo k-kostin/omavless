@@ -4,7 +4,9 @@ use nix::unistd::Uid;
 use omavless_runtime::desired::{DesiredPaths, read_desired};
 use omavless_runtime::production_observation::current_cutover_preflight;
 use omavless_runtime::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
-use omavless_runtime::semantic_cli::{parse_semantic_mutation, parse_semantic_read};
+use omavless_runtime::semantic_cli::{
+    MAX_SUBSCRIPTION_STDIN_BYTES, parse_semantic_mutation, parse_semantic_read,
+};
 use omavless_runtime::store_preflight::current_store_preflight;
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
 use serde_json::json;
@@ -16,16 +18,16 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  mode rule|global|direct\n  profile list\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  subscription list\n  subscription delete SUBSCRIPTION_ID\n  preflight\n  store-preflight\n  cutover-preflight";
+const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  mode rule|global|direct\n  profile list\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  subscription list\n  subscription add                read name + URL lines from stdin\n  subscription update SUBSCRIPTION_ID\n                                  read name + URL lines from stdin\n  subscription delete SUBSCRIPTION_ID\n  preflight\n  store-preflight\n  cutover-preflight";
 
-fn read_rename_input() -> Result<String, String> {
+fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
     let mut bytes = Vec::new();
     io::stdin()
         .lock()
-        .take((MAX_PROFILE_NAME_INPUT_BYTES + 1) as u64)
+        .take((maximum_bytes + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| "OmaVLESS semantic command input could not be read".to_owned())?;
-    if bytes.len() > MAX_PROFILE_NAME_INPUT_BYTES {
+    if bytes.len() > maximum_bytes {
         return Err("OmaVLESS semantic command input is too large".to_owned());
     }
     String::from_utf8(bytes).map_err(|_| "OmaVLESS semantic command input is invalid".to_owned())
@@ -108,11 +110,24 @@ fn run() -> Result<(), String> {
         match parse_semantic_read(&arguments).map_err(|error| error.to_string())? {
             Some(request) => request.into_parts(),
             None => {
-                let rename_input =
-                    (arguments.len() == 3 && arguments[0] == "profile" && arguments[1] == "rename")
-                        .then(read_rename_input)
-                        .transpose()?;
-                parse_semantic_mutation(&arguments, rename_input.as_deref())
+                let input_limit = if arguments.len() == 3
+                    && arguments[0] == "profile"
+                    && arguments[1] == "rename"
+                {
+                    Some(MAX_PROFILE_NAME_INPUT_BYTES)
+                } else if (arguments.len() == 2
+                    && arguments[0] == "subscription"
+                    && arguments[1] == "add")
+                    || (arguments.len() == 3
+                        && arguments[0] == "subscription"
+                        && arguments[1] == "update")
+                {
+                    Some(MAX_SUBSCRIPTION_STDIN_BYTES)
+                } else {
+                    None
+                };
+                let private_input = input_limit.map(read_semantic_input).transpose()?;
+                parse_semantic_mutation(&arguments, private_input.as_deref())
                     .map_err(|error| error.to_string())?
                     .into_parts()
             }
