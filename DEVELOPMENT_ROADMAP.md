@@ -638,6 +638,12 @@ ordinary candidate failure. Uncertain stop or failed recovery becomes a hard
 manual-recovery state. This closes a primary frontend-bridge prerequisite but
 does not route QML to Rust or expose cutover.
 
+The next subscription-dispatch checkpoint exposes only
+`subscriptions.delete` plus the fixed `omavless subscription delete` command.
+Deletion uses the existing serialized store/lifecycle owner and performs no
+remote I/O. Add/update remain deliberately withheld until their bounded fetch
+can run without blocking status or urgent disconnect.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

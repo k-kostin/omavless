@@ -699,6 +699,12 @@ change, restores the prior connected target after ordinary candidate failure,
 and blocks on uncertain cleanup. It is registered only for an exact committed
 Rust owner; the plugin launcher and production owner remain unchanged.
 
+The next socket checkpoint registers only `subscriptions.delete` and maps it
+from a fixed semantic CLI command. It is safe on the existing serialized owner
+because deletion performs no provider fetch. Subscription add/update remain
+offline until the server can keep reads and urgent disconnect responsive while
+bounded remote I/O is in flight.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

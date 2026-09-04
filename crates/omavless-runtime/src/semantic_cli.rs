@@ -79,7 +79,7 @@ fn utf8(arguments: &[OsString]) -> Result<Vec<&str>, SemanticCliError> {
         .collect()
 }
 
-fn profile_id(value: &str) -> Result<&str, SemanticCliError> {
+fn record_id(value: &str) -> Result<&str, SemanticCliError> {
     valid_record_id(value)
         .then_some(value)
         .ok_or(SemanticCliError::InvalidArgument)
@@ -116,12 +116,12 @@ pub fn parse_semantic_mutation(
     match arguments.as_slice() {
         ["connect", id] => Ok(SemanticRequest {
             method: "connection.connect",
-            params: json!({"profileId": profile_id(id)?}),
+            params: json!({"profileId": record_id(id)?}),
         }),
         ["connect", id, requested_mode] => Ok(SemanticRequest {
             method: "connection.connect",
             params: json!({
-                "profileId": profile_id(id)?,
+                "profileId": record_id(id)?,
                 "mode": mode(requested_mode)?.as_str()
             }),
         }),
@@ -136,7 +136,7 @@ pub fn parse_semantic_mutation(
         ["profile", "rename", id] => Ok(SemanticRequest {
             method: "profiles.rename",
             params: json!({
-                "profileId": profile_id(id)?,
+                "profileId": record_id(id)?,
                 "name": rename_name(rename_stdin)?
             }),
         }),
@@ -148,14 +148,20 @@ pub fn parse_semantic_mutation(
             };
             Ok(SemanticRequest {
                 method: "profiles.favorite",
-                params: json!({"profileId": profile_id(id)?, "enabled": enabled}),
+                params: json!({"profileId": record_id(id)?, "enabled": enabled}),
             })
         }
         ["profile", "delete", id] => Ok(SemanticRequest {
             method: "profiles.delete",
-            params: json!({"profileId": profile_id(id)?}),
+            params: json!({"profileId": record_id(id)?}),
         }),
-        [] | ["connect"] | ["mode"] | ["profile", ..] => Err(SemanticCliError::InvalidArgument),
+        ["subscription", "delete", id] => Ok(SemanticRequest {
+            method: "subscriptions.delete",
+            params: json!({"subscriptionId": record_id(id)?}),
+        }),
+        [] | ["connect"] | ["mode"] | ["profile", ..] | ["subscription", ..] => {
+            Err(SemanticCliError::InvalidArgument)
+        }
         _ => Err(SemanticCliError::InvalidCommand),
     }
 }
@@ -165,6 +171,7 @@ mod tests {
     use super::*;
 
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
+    const SUBSCRIPTION: &str = "10000000-0000-4000-8000-000000000001";
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -226,6 +233,13 @@ mod tests {
             parsed(&["profile", "delete", PROFILE], None),
             ("profiles.delete", json!({"profileId": PROFILE}))
         );
+        assert_eq!(
+            parsed(&["subscription", "delete", SUBSCRIPTION], None),
+            (
+                "subscriptions.delete",
+                json!({"subscriptionId": SUBSCRIPTION})
+            )
+        );
     }
 
     #[test]
@@ -270,6 +284,7 @@ mod tests {
             vec!["connect", PROFILE, "unsafe-mode"],
             vec!["mode", "unsafe-mode"],
             vec!["profile", "favorite", PROFILE, "yes"],
+            vec!["subscription", "delete", "private.example/password"],
         ] {
             let error = rejected(&values, None);
             let rendered = format!("{error:?} {error}");

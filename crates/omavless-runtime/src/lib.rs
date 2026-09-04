@@ -187,9 +187,10 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &["profiles.list", "subscriptions.list"];
-// Subscription add/update performs bounded remote I/O. Keep the whole family
+// Subscription add/update performs bounded remote I/O. Keep those methods
 // outside live socket dispatch until the server can admit status and urgent
-// disconnect while that fetch is in flight.
+// disconnect while that fetch is in flight. Delete is store/lifecycle-local
+// and can use the existing serialized owner safely.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
@@ -197,6 +198,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
+    "subscriptions.delete",
 ];
 
 enum RuntimeDispatcher {
@@ -841,6 +843,7 @@ mod tests {
     use std::thread;
 
     const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
+    const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
         observation: OwnedObservation,
@@ -1141,7 +1144,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
-        let worker = thread::spawn(move || server.serve(Some(16)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(18)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -1176,6 +1179,13 @@ mod tests {
                 .unwrap()
                 .iter()
                 .all(|method| method != "subscriptions.add")
+        );
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "subscriptions.delete")
         );
         let withheld = call(&paths, "subscriptions.add", json!({})).unwrap();
         assert_eq!(withheld["error"]["code"], "unknown_method");
@@ -1235,6 +1245,26 @@ mod tests {
         let status = call(&paths, "status.get", json!({})).unwrap();
         assert_eq!(status["result"]["actual"], "connected");
         assert_eq!(status["result"]["mode"], "direct");
+        let deleted = call(
+            &paths,
+            "subscriptions.delete",
+            json!({
+                "subscriptionId": SUBSCRIPTION_ID,
+                "operationId": "subscription-delete-1",
+                "expectedRevision": 2
+            }),
+        )
+        .unwrap();
+        assert_eq!(deleted["ok"], true);
+        assert_eq!(deleted["revision"], 3);
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
 
         write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
         let calls_before_rejection = calls.load(Ordering::Relaxed);
@@ -1253,7 +1283,7 @@ mod tests {
         let rejected = call(
             &paths,
             "connection.disconnect",
-            json!({"operationId": "disconnect-1", "expectedRevision": 2}),
+            json!({"operationId": "disconnect-1", "expectedRevision": 3}),
         )
         .unwrap();
         assert_eq!(rejected["error"]["code"], "capability_unavailable");

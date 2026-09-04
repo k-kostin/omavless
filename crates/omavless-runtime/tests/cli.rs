@@ -97,6 +97,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile favorite PROFILE_ID on|off",
         "profile delete PROFILE_ID",
         "subscription list",
+        "subscription delete SUBSCRIPTION_ID",
     ] {
         assert!(help.contains(command));
     }
