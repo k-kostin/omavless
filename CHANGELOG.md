@@ -4,11 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
-- Added an inactive v1 long-operation protocol/state foundation for future
-  subscription refresh-all: strict start/get/cancel shapes, bounded safe
-  instance-bound projections, exact retry identity, monotonic progress and
-  revisions, cooperative cancellation fencing and per-instance FIFO retention.
-  No method is yet advertised or scheduled by the runtime.
+- Compose native refresh-all workers with the serialized owner: shared operation
+  IDs, safe progress/replay, cancellation, ownership/revision rechecks and one
+  atomic batch commit. Scheduler and live IPC activation remain pending.
+
 - Added inactive incremental refresh-all preparation with cooperative
   cancellation, a fixed whole-job deadline, shared provider-fetch permits and
   bounded private batch retention. Failed preparation cannot yield a partial
@@ -16,6 +15,11 @@ All notable changes to OmaVLESS are documented here.
 - Bound native subscription transport by one total deadline across manual
   redirects and body reads. A trusted enclosing job may shorten this budget;
   no remote caller can extend the provider timeout.
+- Added an inactive v1 long-operation protocol/state foundation for future
+  subscription refresh-all: strict start/get/cancel shapes, bounded safe
+  instance-bound projections, exact retry identity, monotonic progress and
+  revisions, cooperative cancellation fencing and per-instance FIFO retention.
+  No method is yet advertised or scheduled by the runtime.
 - Added the inactive native refresh-all transaction foundation. It snapshots
   the complete ordered private subscription set, fetches outside store locks,
   bounds aggregate retained URI data, rejects any stale member, and commits all

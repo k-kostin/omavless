@@ -10,6 +10,9 @@
 //! Subscription network work uses a fixed, bounded transport and never runs
 //! while the Python/Rust migration lock is held.
 
+mod batch;
+pub use batch::NativeSubscriptionBatch;
+
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
     ConnectionTransactionState,
@@ -209,6 +212,7 @@ pub enum NativeOwnerExecution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeOwnerError {
     Protocol(MutationProtocolError),
+    LongOperation(crate::long_operation::LongOperationError),
     Coordinator(CoordinatorError),
     Subscription(SubscriptionTransactionError),
     OwnershipBusy,
@@ -222,6 +226,7 @@ impl NativeOwnerError {
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
             Self::Protocol(error) => error.stable_code(),
+            Self::LongOperation(error) => error.stable_code(),
             Self::Coordinator(error) => error.stable_code(),
             Self::Subscription(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
@@ -236,6 +241,7 @@ impl fmt::Display for NativeOwnerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Protocol(_) => "Native mutation request is invalid",
+            Self::LongOperation(_) => "Native batch operation failed",
             Self::Coordinator(_) => "Native mutation scheduling failed",
             Self::Subscription(_) => "Native subscription refresh failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
@@ -339,6 +345,7 @@ pub struct OfflineNativeCoordinator<H> {
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
     required_ownership: Option<OwnershipFence>,
+    batch: Option<batch::BatchOwnerState>,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -360,6 +367,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 uid,
             ),
             required_ownership: None,
+            batch: None,
         }
     }
 
@@ -514,6 +522,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let url = parsed.remote_url().ok_or(NativeOwnerError::Protocol(
             MutationProtocolError::InvalidArgument,
         ))?;
+        self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
 
         let lock = self
@@ -557,6 +566,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         request: &Value,
     ) -> Result<SubscriptionRefreshPreflight, NativeOwnerError> {
         let parsed = parse_subscription_refresh_request(request)?;
+        self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
 
         let _lock = self
@@ -662,6 +672,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
         }
+        self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
             SubmitOutcome::Queued { token } => token,
@@ -1055,6 +1066,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         N: FnOnce() -> u64,
     {
         let parsed = parse_subscription_mutation_request(request)?;
+        self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
         match self.coordinator.preflight_external_work(&scheduling)? {
             ExternalWorkPreflight::Replay(outcome) => {
@@ -1087,6 +1099,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         N: FnOnce() -> u64,
     {
         let parsed = parse_subscription_refresh_request(request)?;
+        self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
         match self.coordinator.preflight_external_work(&scheduling)? {
             ExternalWorkPreflight::Replay(outcome) => {
@@ -1835,4 +1848,178 @@ mod tests {
         assert_eq!(fs::read(store_path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
+    impl crate::subscription_batch_work::BudgetedSubscriptionTransport for FakeTransport {
+        fn fetch_with_budget(&self, url: &str, _budget: std::time::Duration)
+            -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+            SubscriptionTransport::fetch(self, url)
+        }
+    }
+
+    fn batch_request(method: &str, operation: &str) -> Value {
+        json!({"api": "omavless.control", "version": 1, "id": "batch-test", "method": method,
+            "params": {"instanceId": "owner-instance", "operationId": operation}})
+    }
+
+    fn batch_fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let (root, path, mut owner) = fixture(label);
+        let transport = FakeTransport::success(&owner);
+        let mut ids = [SUBSCRIPTION.to_owned(), SUBSCRIPTION_PROFILE.to_owned()].into_iter();
+        applied(owner.execute_subscription(&subscription_add("ordinary-add", 0), &transport,
+            || ids.next().unwrap(), || 10).unwrap());
+        owner.initialize_batch_operations("owner-instance").unwrap();
+        (root, path, owner)
+    }
+
+    fn run_batch(owner: &OfflineNativeCoordinator<FakeHost>, job: &mut NativeSubscriptionBatch) {
+        let transport = FakeTransport::success(owner);
+        assert_eq!(job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default(),
+            &mut || SUBSCRIPTION_PROFILE.to_owned()).unwrap(),
+            crate::subscription_batch_work::BatchWorkStep::Ready);
+        assert!(transport.lock_was_free.get());
+    }
+
+    fn batch_status(owner: &OfflineNativeCoordinator<FakeHost>, id: &str) -> Value {
+        owner.subscription_batch_status(&batch_request("operations.get", id)).unwrap()["operation"].clone()
+    }
+
+    #[test]
+    fn batch_owner_commits_once_and_replays_without_fetch_or_store_read() {
+        let (root, path, mut owner) = batch_fixture("batch-success");
+        let mut request = batch_request("subscriptions.refresh_all", "batch-1");
+        request["params"]["expectedRevision"] = json!(1);
+        let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+        run_batch(&owner, &mut job);
+        owner.publish_subscription_batch_progress(&job).unwrap();
+        assert_eq!(batch_status(&owner, "batch-1")["progress"]["completed"], 1);
+        owner.complete_subscription_batch(job, || 20).unwrap();
+        assert_eq!(owner.revision(), 2);
+        assert_eq!(batch_status(&owner, "batch-1")["state"], "succeeded");
+        assert_eq!(batch_status(&owner, "batch-1")["outcomeRevision"], 2);
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap()["subscriptions"][0]["updatedAt"], 20);
+        fs::remove_file(&path).unwrap();
+        assert!(owner.start_subscription_batch(&request).unwrap().is_none());
+        assert!(!owner.cancel_subscription_batch(&batch_request("operations.cancel", "batch-1")).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_cancellation_before_fetch_and_after_preparation_never_writes() {
+        for prepared in [false, true] {
+            let (root, path, mut owner) = batch_fixture("batch-cancel");
+            let before = fs::read(&path).unwrap();
+            let mut job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "cancel")).unwrap().unwrap();
+            if prepared { run_batch(&owner, &mut job); }
+            assert!(owner.cancel_subscription_batch(&batch_request("operations.cancel", "cancel")).unwrap());
+            if !prepared {
+                let transport = FakeTransport::failure();
+                assert_eq!(job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default(),
+                    &mut || panic!("cancelled work generated an ID")), Err(crate::subscription_batch_work::BatchWorkError::Cancelled));
+                assert_eq!(transport.calls.get(), 0);
+            }
+            assert!(owner.complete_subscription_batch(job, || panic!("cancelled batch read clock")).is_err());
+            assert_eq!(batch_status(&owner, "cancel")["state"], "cancelled");
+            assert_eq!(owner.revision(), 1);
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "next")).unwrap().is_some());
+            owner.stop_batch_operations().unwrap();
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn batch_owner_disconnect_revision_wins_over_ready_batch() {
+        let (root, path, mut owner) = batch_fixture("batch-disconnect");
+        applied(owner.execute_connection(connect("connect-before", 1)).unwrap());
+        let mut job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "stale")).unwrap().unwrap();
+        run_batch(&owner, &mut job);
+        let request = OwnerRequest::new(OwnerAction::Disconnect, Some("disconnect"), Some(2), MutationDigest::new([42;32]));
+        applied(owner.execute_connection(request).unwrap());
+        let before = fs::read(&path).unwrap();
+        assert_eq!(owner.complete_subscription_batch(job, || panic!("stale batch read clock")),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::RevisionConflict)));
+        assert_eq!(owner.revision(), 3);
+        assert_eq!(batch_status(&owner, "stale")["state"], "failed");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_namespace_blocks_both_directions_and_external_preflight() {
+        let (root, _path, mut owner) = batch_fixture("batch-ids");
+        assert!(matches!(owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "ordinary-add")),
+            Err(NativeOwnerError::LongOperation(crate::long_operation::LongOperationError::OperationConflict))));
+        let _job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "long-id")).unwrap().unwrap();
+        assert!(matches!(owner.preflight_subscription_fetch(&subscription_add("long-id", 1)),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::OperationConflict))));
+        assert!(matches!(owner.preflight_subscription_refresh(&subscription_refresh("long-id", 1)),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::OperationConflict))));
+        assert!(matches!(owner.execute_connection(connect("long-id", 1)),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::OperationConflict))));
+        assert!(matches!(owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "another")),
+            Err(NativeOwnerError::LongOperation(crate::long_operation::LongOperationError::Busy))));
+        owner.stop_batch_operations().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_empty_success_does_not_write_or_read_clock_or_advance_revision() {
+        let (root, path, mut owner) = fixture("batch-empty");
+        owner.initialize_batch_operations("owner-instance").unwrap();
+        let before = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        let job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "empty")).unwrap().unwrap();
+        owner.complete_subscription_batch(job, || panic!("empty batch read clock")).unwrap();
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(batch_status(&owner, "empty")["state"], "succeeded");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_rejects_changed_store_without_overwriting_external_change() {
+        let (root, path, mut owner) = batch_fixture("batch-store-change");
+        let mut job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "store-change")).unwrap().unwrap();
+        run_batch(&owner, &mut job);
+        let mut store: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        store["subscriptions"][0]["url"] = json!("https://changed.invalid/feed");
+        let before = serde_json::to_vec(&store).unwrap();
+        fs::write(&path, &before).unwrap();
+        assert!(owner.complete_subscription_batch(job, || 20).is_err());
+        assert_eq!(owner.revision(), 1);
+        assert_eq!(batch_status(&owner, "store-change")["state"], "failed");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_shutdown_revokes_ready_work_and_stops_admission() {
+        let (root, path, mut owner) = batch_fixture("batch-shutdown");
+        let before = fs::read(&path).unwrap();
+        let mut job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "shutdown")).unwrap().unwrap();
+        run_batch(&owner, &mut job);
+        owner.stop_batch_operations().unwrap();
+        owner.stop_batch_operations().unwrap();
+        assert!(owner.complete_subscription_batch(job, || panic!("revoked job read clock")).is_err());
+        assert!(owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "new")).is_err());
+        assert_eq!(batch_status(&owner, "shutdown")["state"], "failed");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_ownership_withdrawal_prevents_commit() {
+        let (root, path, mut owner) = batch_fixture("batch-ownership");
+        let before = fs::read(&path).unwrap();
+        let mut job = owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "ownership")).unwrap().unwrap();
+        run_batch(&owner, &mut job);
+        owner.required_ownership = Some(OwnershipFence { phase: OwnershipPhase::Rust, generation: 99 });
+        assert_eq!(owner.complete_subscription_batch(job, || panic!("unowned job read clock")), Err(NativeOwnerError::OwnershipUnavailable));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
 }
