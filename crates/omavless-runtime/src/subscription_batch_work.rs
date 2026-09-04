@@ -536,6 +536,25 @@ mod tests {
     }
 
     #[test]
+    fn completed_work_still_requires_unchanged_store_members_and_a_live_deadline() {
+        let original = input(2);
+        let mut job = work(2, &BatchCancellation::default());
+        let pool = RemoteFetchPool::default();
+        let transport = Transport::default();
+        let mut ids = ids();
+        job.step(&transport, &pool, &mut ids).unwrap();
+        job.step(&transport, &pool, &mut ids).unwrap();
+        let (snapshot, updates) = job.into_prepared().unwrap().into_parts().unwrap();
+        let mut changed: serde_json::Value = serde_json::from_str(&original).unwrap();
+        changed["subscriptions"][1]["url"] = json!("https://replacement.invalid/private");
+        assert!(apply_subscription_refresh_batch(&changed.to_string(), snapshot, updates, 9).is_err());
+
+        let mut empty = work(0, &BatchCancellation::default()).into_prepared().unwrap();
+        empty.deadline = Instant::now();
+        assert!(matches!(empty.into_parts(), Err(BatchWorkError::Deadline)));
+    }
+
+    #[test]
     fn empty_batch_needs_no_fetch_permit_or_record_id() {
         let mut job = work(0, &BatchCancellation::default());
         let transport = Transport::default();
