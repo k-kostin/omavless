@@ -622,6 +622,14 @@ endpoints, subscription bearer URLs, identity keys or protocol credentials.
 Only an exact committed Rust owner advertises the methods. QML remains on the
 Python production path and the cutover transaction remains unreachable.
 
+The following production-host fault-matrix checkpoint exercises the real
+fixed service/socket/marker/desired-state/bridge composition for runtime-start
+failure, mismatched candidate generation, inconsistent candidate status and an
+uncertain native stop. Recoverable cases restore the exact disconnected legacy
+state; uncertain native cleanup deliberately preserves `cutoverPreparing` and
+requires manual recovery. This is deterministic host-adapter evidence, not a
+user-reachable cutover.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

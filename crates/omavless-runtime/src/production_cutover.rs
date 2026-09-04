@@ -700,6 +700,85 @@ mod tests {
         }
     }
 
+    fn prepare_disconnected_fixture(fixture: &Fixture) {
+        fixture.write_private(
+            &fixture.paths.store,
+            r#"{"version":3,"activeId":"","lastId":"","profiles":[],"subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startupConfigured":true,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"onboardingComplete":false}"#,
+        );
+        fixture.write_private(
+            &fixture.paths.template,
+            "mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+        );
+    }
+
+    fn install_service_harness(
+        fixture: &Fixture,
+        fail_runtime_start: bool,
+        fail_runtime_stop: bool,
+    ) -> PathBuf {
+        let state = fixture.root.join("rust-service-state");
+        fs::write(&state, "inactive\n").unwrap();
+        let script = format!(
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) {} printf 'active\\n' > \"$state\"; exit 0 ;;\n  stop:omavless-runtime.service) {} printf 'inactive\\n' > \"$state\"; rm -f -- \"$socket\"; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  start:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\"; exit 0 ;;\nesac\nexit 9\n",
+            state.display(),
+            fixture.paths.runtime.socket.display(),
+            if fail_runtime_start { "exit 7;" } else { "" },
+            if fail_runtime_stop { "exit 8;" } else { "" },
+        );
+        fs::write(&fixture.paths.systemctl, script).unwrap();
+        fs::set_permissions(&fixture.paths.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        state
+    }
+
+    fn spawn_candidate_server(
+        fixture: &Fixture,
+        exchanges: Vec<(&'static str, Value)>,
+    ) -> thread::JoinHandle<()> {
+        let socket = fixture.paths.runtime.socket.clone();
+        let runtime_directory = fixture.paths.runtime.directory.clone();
+        let state = fixture.root.join("rust-service-state");
+        thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while fs::read_to_string(&state).unwrap() != "active\n" {
+                assert!(Instant::now() < deadline, "runtime service did not start");
+                thread::sleep(Duration::from_millis(10));
+            }
+            fs::create_dir(&runtime_directory).unwrap();
+            fs::set_permissions(&runtime_directory, fs::Permissions::from_mode(0o700)).unwrap();
+            let listener = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            for (expected_method, result) in exchanges {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request_line = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request_line)
+                    .unwrap();
+                let request: Value = serde_json::from_str(&request_line).unwrap();
+                assert_eq!(request["method"], expected_method);
+                let response = json!({
+                    "api": "omavless.control",
+                    "version": 1,
+                    "id": request["id"],
+                    "ok": true,
+                    "revision": 0,
+                    "result": result
+                });
+                writeln!(stream, "{}", serde_json::to_string(&response).unwrap()).unwrap();
+            }
+        })
+    }
+
+    fn assert_disconnected_restored(fixture: &Fixture, bridge: &FakeBridge) {
+        assert_eq!(
+            read_desired(&fixture.paths.desired, fixture.uid).unwrap(),
+            DesiredState::default()
+        );
+        let marker = read_marker(&fixture.paths.cutover, fixture.uid).unwrap();
+        assert_eq!(marker.phase(), OwnershipPhase::Legacy);
+        assert_eq!(marker.generation(), 2);
+        assert_eq!(*bridge.calls.lock().unwrap(), vec![BridgeTarget::Legacy]);
+    }
+
     #[test]
     fn disconnected_staging_preserves_template_mode_and_is_private() {
         let fixture = Fixture::new("disconnected");
@@ -810,6 +889,139 @@ mod tests {
         ] {
             assert_eq!(parse_mode_scalar(raw), Err(CutoverHostError));
         }
+    }
+
+    #[test]
+    fn runtime_start_failure_restores_legacy_without_a_candidate_socket() {
+        let fixture = Fixture::new("start-failure");
+        prepare_disconnected_fixture(&fixture);
+        let service_state = install_service_harness(&fixture, true, false);
+        let bridge = FakeBridge::new();
+        let observed_bridge = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+
+        assert_eq!(
+            execute_cutover(&mut host, &OwnershipMarker::default()),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        assert_disconnected_restored(&fixture, &observed_bridge);
+        assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
+        assert!(!fixture.paths.runtime.socket.exists());
+    }
+
+    #[test]
+    fn uncertain_runtime_stop_preserves_preparing_marker_for_manual_recovery() {
+        let fixture = Fixture::new("stop-uncertain");
+        prepare_disconnected_fixture(&fixture);
+        let service_state = install_service_harness(&fixture, true, true);
+        let bridge = FakeBridge::new();
+        let observed_bridge = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+
+        assert_eq!(
+            execute_cutover(&mut host, &OwnershipMarker::default()),
+            Err(CutoverTransactionError::ManualRecoveryRequired)
+        );
+        let marker = read_marker(&fixture.paths.cutover, fixture.uid).unwrap();
+        assert_eq!(marker.phase(), OwnershipPhase::CutoverPreparing);
+        assert_eq!(marker.generation(), 1);
+        let desired = read_desired(&fixture.paths.desired, fixture.uid).unwrap();
+        assert_eq!(desired.generation, 1);
+        assert!(!desired.connected);
+        assert_eq!(
+            *observed_bridge.calls.lock().unwrap(),
+            vec![BridgeTarget::Legacy]
+        );
+        assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
+    }
+
+    #[test]
+    fn wrong_bootstrap_generation_stops_candidate_and_restores_legacy() {
+        let fixture = Fixture::new("wrong-bootstrap");
+        prepare_disconnected_fixture(&fixture);
+        let service_state = install_service_harness(&fixture, false, false);
+        let server = spawn_candidate_server(
+            &fixture,
+            vec![(
+                "runtime.transitionBootstrap",
+                json!({
+                    "instanceId": "wrong-generation-candidate",
+                    "preparingGeneration": 1,
+                    "rustGeneration": 3,
+                    "runtimeOwnership": false
+                }),
+            )],
+        );
+        let bridge = FakeBridge::new();
+        let observed_bridge = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+
+        assert_eq!(
+            execute_cutover(&mut host, &OwnershipMarker::default()),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        server.join().unwrap();
+        assert_disconnected_restored(&fixture, &observed_bridge);
+        assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
+        assert!(!fixture.paths.runtime.socket.exists());
+    }
+
+    #[test]
+    fn inconsistent_candidate_status_stops_candidate_and_restores_legacy() {
+        let fixture = Fixture::new("bad-status");
+        prepare_disconnected_fixture(&fixture);
+        let service_state = install_service_harness(&fixture, false, false);
+        let server = spawn_candidate_server(
+            &fixture,
+            vec![
+                (
+                    "runtime.transitionBootstrap",
+                    json!({
+                        "instanceId": "status-candidate",
+                        "preparingGeneration": 1,
+                        "rustGeneration": 2,
+                        "runtimeOwnership": false
+                    }),
+                ),
+                (
+                    "system.hello",
+                    json!({
+                        "instanceId": "status-candidate",
+                        "version": 1,
+                        "versions": [1],
+                        "limits": {"requestFrameBytes": 65536, "responseFrameBytes": 262144},
+                        "runtimeOwnership": false
+                    }),
+                ),
+                (
+                    "status.get",
+                    json!({
+                        "desired": "disconnected",
+                        "actual": "connected",
+                        "activeProfileId": "",
+                        "mode": "rule",
+                        "transition": "cutoverPreparing",
+                        "runtimeOwnership": false
+                    }),
+                ),
+            ],
+        );
+        let bridge = FakeBridge::new();
+        let observed_bridge = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+
+        assert_eq!(
+            execute_cutover(&mut host, &OwnershipMarker::default()),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        server.join().unwrap();
+        assert_disconnected_restored(&fixture, &observed_bridge);
+        assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
+        assert!(!fixture.paths.runtime.socket.exists());
     }
 
     #[test]
