@@ -156,7 +156,7 @@ fn normalized_url(params: &Map<String, Value>) -> Result<String, MutationProtoco
     Ok(value.to_owned())
 }
 
-fn semantic_digest(
+pub(crate) fn semantic_digest(
     method: &str,
     subscription_id: Option<&str>,
     name: Option<&str>,

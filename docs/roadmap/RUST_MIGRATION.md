@@ -734,6 +734,16 @@ manager, enables/starts a unit, edits ownership/private state or touches a
 tunnel. Product/plugin version 0.7.0 and the pre-release native workspace
 version 0.1.0 therefore remain distinct; no 0.8.0 release is implied.
 
+The next single-refresh dispatch checkpoint registers exact
+`subscriptions.refresh` requests and a fixed `subscription refresh ID` CLI
+command. The URL never appears in the request or argv: the native owner carries
+one non-formatable private store snapshot across bounded provider I/O, sharing
+the existing four-fetch cap. Completion re-enters the serialized owner and
+rechecks global revision, exact Rust ownership, subscription URL and update
+identity before committing. A concurrent disconnect wins and exact operation
+replay does not fetch twice. Refresh-all scheduling, the QML bridge and the
+production cutover remain out of scope.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

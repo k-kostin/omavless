@@ -101,6 +101,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "subscription add",
         "subscription update SUBSCRIPTION_ID",
         "subscription delete SUBSCRIPTION_ID",
+        "subscription refresh SUBSCRIPTION_ID",
     ] {
         assert!(help.contains(command));
     }

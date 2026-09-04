@@ -14,10 +14,13 @@ use crate::cutover::{
 };
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
-use crate::native_coordinator::{CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator};
+use crate::native_coordinator::{
+    CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator, PreparedSubscriptionRefresh,
+};
 use crate::native_dispatch::{
-    RemoteSubscriptionPreflight, preflight_native_subscription, respond_to_fetched_subscription,
-    respond_to_native_mutation,
+    RemoteSubscriptionPreflight, RemoteSubscriptionRefreshPreflight, preflight_native_subscription,
+    preflight_native_subscription_refresh, respond_to_fetched_subscription,
+    respond_to_fetched_subscription_refresh, respond_to_native_mutation,
 };
 use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
@@ -333,6 +336,13 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         preflight_native_subscription(&mut self.coordinator, request)
     }
 
+    pub(crate) fn preflight_remote_subscription_refresh(
+        &mut self,
+        request: &Value,
+    ) -> Result<RemoteSubscriptionRefreshPreflight, ProtocolError> {
+        preflight_native_subscription_refresh(&mut self.coordinator, request)
+    }
+
     pub(crate) fn respond_to_fetched_subscription<G, N>(
         &mut self,
         request: &Value,
@@ -349,6 +359,30 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             &mut self.coordinator,
             request,
             preflight_revision,
+            fetched,
+            next_record_id,
+            now_millis,
+        )
+    }
+
+    pub(crate) fn respond_to_fetched_subscription_refresh<G, N>(
+        &mut self,
+        request: &Value,
+        preflight_revision: u64,
+        prepared: PreparedSubscriptionRefresh,
+        fetched: Result<PrivateSubscriptionBody, SubscriptionTransportError>,
+        next_record_id: G,
+        now_millis: N,
+    ) -> Result<Value, ProtocolError>
+    where
+        G: FnMut() -> String,
+        N: FnOnce() -> u64,
+    {
+        respond_to_fetched_subscription_refresh(
+            &mut self.coordinator,
+            request,
+            preflight_revision,
+            prepared,
             fetched,
             next_record_id,
             now_millis,

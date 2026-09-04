@@ -230,6 +230,16 @@ committed Rust owner; a transition candidate or stale owner fails closed.
 
 Classification alone never fetches arbitrary remote content.
 
+The first native single-refresh request is an exact object with required
+`subscriptionId` and optional `operationId` and `expectedRevision`. The
+runtime resolves the bearer URL only from its private store; callers cannot
+supply or override it. Provider I/O runs outside the serialized owner and
+migration lock, then completion rechecks the captured global revision, exact
+ownership and the original subscription URL/update snapshot before one atomic
+commit. The success result is only `{"accepted":true}`; clients obtain updated
+bounded metadata through `subscriptions.list`. `subscriptions.refresh_all`
+remains a separate later scheduling contract.
+
 ### Connection and routing
 
 - `connection.connect` with opaque profile ID and optional mode;
