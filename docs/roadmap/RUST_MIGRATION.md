@@ -705,6 +705,13 @@ because deletion performs no provider fetch. Subscription add/update remain
 offline until the server can keep reads and urgent disconnect responsive while
 bounded remote I/O is in flight.
 
+The subsequent client-admission checkpoint handles at most 16 same-user unary
+exchanges concurrently. Each frame retains its fixed five-second I/O deadline;
+a partial/slow peer no longer monopolizes the accept loop, and saturation drops
+the newly accepted stream rather than allocating an unbounded worker. The
+native owner mutex continues to serialize semantic state operations. This is a
+transport-isolation prerequisite, not yet the subscription fetch/commit split.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

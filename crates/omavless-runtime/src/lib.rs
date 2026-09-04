@@ -24,7 +24,7 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt,
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -60,6 +60,24 @@ pub mod subscription_transport;
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
 pub const IO_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_CONCURRENT_CLIENTS: usize = 16;
+
+struct ActiveClient<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveClient<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn claim_client(active: &AtomicUsize) -> Option<ActiveClient<'_>> {
+    active
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < MAX_CONCURRENT_CLIENTS).then_some(count + 1)
+        })
+        .ok()
+        .map(|_| ActiveClient(active))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeError {
@@ -474,17 +492,26 @@ impl RuntimeServer {
     }
 
     pub fn serve(self, maximum_connections: Option<usize>) -> Result<()> {
-        for (handled, incoming) in self.listener.incoming().enumerate() {
-            if let Ok(mut stream) = incoming {
-                // A malformed, slow, disconnected, or unauthorized client is
-                // isolated to its bounded unary exchange. Client failure must
-                // never terminate the canonical runtime process.
-                let _ = self.handle(&mut stream);
+        let active = AtomicUsize::new(0);
+        let server = &self;
+        thread::scope(|scope| {
+            for (handled, incoming) in self.listener.incoming().enumerate() {
+                if let Ok(mut stream) = incoming
+                    && let Some(slot) = claim_client(&active)
+                {
+                    // A malformed, slow, disconnected, or unauthorized client
+                    // receives one bounded worker slot. Saturation closes the
+                    // newly accepted stream instead of creating unbounded work.
+                    scope.spawn(move || {
+                        let _slot = slot;
+                        let _ = server.handle(&mut stream);
+                    });
+                }
+                if maximum_connections.is_some_and(|maximum| handled + 1 >= maximum) {
+                    break;
+                }
             }
-            if maximum_connections.is_some_and(|maximum| handled + 1 >= maximum) {
-                break;
-            }
-        }
+        });
         Ok(())
     }
 
@@ -492,18 +519,27 @@ impl RuntimeServer {
         self.listener
             .set_nonblocking(true)
             .map_err(|_| RuntimeError::Io)?;
-        while !stop.load(Ordering::Relaxed) {
-            match self.listener.accept() {
-                Ok((mut stream, _address)) => {
-                    let _ = self.handle(&mut stream);
+        let active = AtomicUsize::new(0);
+        let server = &self;
+        thread::scope(|scope| {
+            while !stop.load(Ordering::Relaxed) {
+                match self.listener.accept() {
+                    Ok((mut stream, _address)) => {
+                        if let Some(slot) = claim_client(&active) {
+                            scope.spawn(move || {
+                                let _slot = slot;
+                                let _ = server.handle(&mut stream);
+                            });
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    Err(_) => return Err(RuntimeError::Io),
                 }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
-                }
-                Err(_) => return Err(RuntimeError::Io),
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn handle(&self, stream: &mut UnixStream) -> Result<()> {
@@ -1125,6 +1161,47 @@ mod tests {
             assert_eq!(response["ok"], true);
             assert_eq!(response["result"]["runtimeOwnership"], false);
         }
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn concurrent_client_slots_are_bounded_and_reusable() {
+        let active = AtomicUsize::new(0);
+        let slots = (0..MAX_CONCURRENT_CLIENTS)
+            .map(|_| claim_client(&active).unwrap())
+            .collect::<Vec<_>>();
+        assert!(claim_client(&active).is_none());
+        assert_eq!(active.load(Ordering::Acquire), MAX_CONCURRENT_CLIENTS);
+        drop(slots);
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert!(claim_client(&active).is_some());
+    }
+
+    #[test]
+    fn slow_client_does_not_monopolize_read_only_runtime() {
+        use std::io::Write;
+        use std::time::Instant;
+
+        let base = temporary_base("slow-client");
+        let paths = RuntimePaths::below(&base);
+        let server = RuntimeServer::bind(paths.clone()).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+
+        let mut slow = UnixStream::connect(&paths.socket).unwrap();
+        slow.write_all(b"{").unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        let started = Instant::now();
+        let response = call(&paths, "status.get", json!({})).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(response["ok"], true);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "a slow peer delayed an independent status request"
+        );
+
+        drop(slow);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
