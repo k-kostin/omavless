@@ -26,13 +26,16 @@ pub enum OwnerAction {
         mode: Option<RoutingMode>,
     },
     Disconnect,
+    SetMode {
+        mode: RoutingMode,
+    },
 }
 
 impl OwnerAction {
     pub(crate) const fn kind(&self) -> MutationKind {
         match self {
             Self::Disconnect => MutationKind::Disconnect,
-            Self::Connect { .. } => MutationKind::Other,
+            Self::Connect { .. } | Self::SetMode { .. } => MutationKind::Other,
         }
     }
 }
@@ -185,6 +188,7 @@ impl<H: LifecycleHost> OwnerEngine<H> {
                 self.lifecycle.connect_requested(&profile_id, mode)
             }
             OwnerAction::Disconnect => self.lifecycle.disconnect(),
+            OwnerAction::SetMode { mode } => self.lifecycle.set_mode(mode),
         };
         let mutation_result = match lifecycle {
             Ok(outcome) if outcome.changed => MutationResult::Success,

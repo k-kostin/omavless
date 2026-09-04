@@ -253,6 +253,14 @@ The v1 connection mutation parameters are exact objects:
   by the private store; URIs and arbitrary remote text are never accepted here;
 - unknown method-specific fields are rejected before queueing.
 
+The v1 routing-mode mutation is `routing.set_mode` with required `mode` and
+optional `operationId` / `expectedRevision`. It uses the same three exact mode
+values and the same replay/revision rules. While disconnected it changes only
+durable desired state. While connected it replaces the one owned core and, if
+the candidate fails, restores the previous profile/mode at a later generation
+or returns `manual_recovery_required`; it never reports success from a UI-only
+selection change.
+
 The operation replay digest covers method, profile ID, explicit/omitted mode
 and explicit/omitted expected revision. It excludes `operationId` itself and
 uses a fixed 32-byte SHA-256 value, so the bounded cache never retains the

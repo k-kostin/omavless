@@ -630,6 +630,14 @@ state; uncertain native cleanup deliberately preserves `cutoverPreparing` and
 requires manual recovery. This is deterministic host-adapter evidence, not a
 user-reachable cutover.
 
+The native routing-mode checkpoint adds the accepted exact
+`routing.set_mode` mutation and fixed `omavless mode` command. Disconnected
+changes update only durable desired state; connected changes replace the one
+owned core transactionally and recover the previous mode/profile on an
+ordinary candidate failure. Uncertain stop or failed recovery becomes a hard
+manual-recovery state. This closes a primary frontend-bridge prerequisite but
+does not route QML to Rust or expose cutover.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

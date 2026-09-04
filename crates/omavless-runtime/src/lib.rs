@@ -193,6 +193,7 @@ const NATIVE_READ_METHODS: &[&str] = &["profiles.list", "subscriptions.list"];
 const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
+    "routing.set_mode",
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
@@ -1140,7 +1141,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
-        let worker = thread::spawn(move || server.serve(Some(14)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(16)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -1152,6 +1153,13 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|method| method == "connection.connect")
+        );
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "routing.set_mode")
         );
         for method in ["profiles.list", "subscriptions.list"] {
             assert!(
@@ -1212,6 +1220,21 @@ mod tests {
         let status = call(&paths, "status.get", json!({})).unwrap();
         assert_eq!(status["result"]["actual"], "connected");
         assert_eq!(status["result"]["mode"], "global");
+        let mode = call(
+            &paths,
+            "routing.set_mode",
+            json!({
+                "mode": "direct",
+                "operationId": "mode-1",
+                "expectedRevision": 1
+            }),
+        )
+        .unwrap();
+        assert_eq!(mode["ok"], true);
+        assert_eq!(mode["revision"], 2);
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert_eq!(status["result"]["actual"], "connected");
+        assert_eq!(status["result"]["mode"], "direct");
 
         write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
         let calls_before_rejection = calls.load(Ordering::Relaxed);
@@ -1230,7 +1253,7 @@ mod tests {
         let rejected = call(
             &paths,
             "connection.disconnect",
-            json!({"operationId": "disconnect-1", "expectedRevision": 1}),
+            json!({"operationId": "disconnect-1", "expectedRevision": 2}),
         )
         .unwrap();
         assert_eq!(rejected["error"]["code"], "capability_unavailable");

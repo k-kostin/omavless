@@ -692,6 +692,13 @@ wrong bootstrap generation and inconsistent status, while an uncertain native
 stop preserves the preparing blocker for manual recovery. No public cutover
 entry point or installed-owner switch is added.
 
+The subsequent native routing-mode checkpoint implements the contract's exact
+`routing.set_mode` request and fixed semantic CLI mapping. It persists an
+offline mode without host work, replaces the owned core for a connected mode
+change, restores the prior connected target after ordinary candidate failure,
+and blocks on uncertain cleanup. It is registered only for an exact committed
+Rust owner; the plugin launcher and production owner remain unchanged.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

@@ -592,6 +592,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 self.transaction.connect(&lock, profile_id, mode)
             }
             OwnerAction::Disconnect => self.transaction.disconnect(&lock),
+            OwnerAction::SetMode { mode } => self.transaction.set_mode(&lock, mode),
         };
         match completion {
             Completion::Ordinary(outcome) => self.finish(

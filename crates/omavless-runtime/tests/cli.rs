@@ -91,6 +91,7 @@ fn help_exposes_only_fixed_semantic_commands() {
     for command in [
         "connect PROFILE_ID [rule|global|direct]",
         "disconnect",
+        "mode rule|global|direct",
         "profile list",
         "profile rename PROFILE_ID",
         "profile favorite PROFILE_ID on|off",
@@ -111,6 +112,7 @@ fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
     for arguments in [
         vec!["request", private],
         vec!["connect", private, "rule", "extra"],
+        vec!["mode", private],
     ] {
         let output = isolated_command(&base).args(arguments).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
