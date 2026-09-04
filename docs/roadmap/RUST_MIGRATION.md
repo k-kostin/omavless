@@ -752,6 +752,17 @@ diagnostics stay credential-free. The read holds the shared migration lock
 through exact ownership revalidation and store lookup. It performs no network,
 store or lifecycle mutation and does not activate the QML bridge or cutover.
 
+The inactive refresh-all transaction checkpoint preserves the current
+all-or-nothing batch behavior without registering a live control method. It
+captures every ordered private subscription identity under one short lease,
+fetches and decodes sequentially outside both leases, caps aggregate retained
+private URI bytes at the private-store bound, and revalidates the entire set
+before at most one atomic replacement. One failed provider, stale member,
+invalid feed, count overflow or timestamp exhaustion produces no write; an
+empty set performs no network, clock read or write. Live `refresh_all` remains
+blocked on the accepted control plane's still-missing long-operation scheduling
+contract rather than extending the five-second unary deadline.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

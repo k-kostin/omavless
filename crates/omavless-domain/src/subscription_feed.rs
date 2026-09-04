@@ -98,6 +98,13 @@ impl DecodedSubscriptionFeed {
         }
     }
 
+    /// Aggregate size of retained private URI data. Refresh-all orchestration
+    /// uses this count to cap memory across feeds without exposing contents.
+    #[must_use]
+    pub fn private_payload_bytes(&self) -> usize {
+        self.entries.iter().map(|entry| entry.uri.len()).sum()
+    }
+
     /// Bind owner-generated record IDs after parsing. The returned URIs and
     /// IDs stay private and are consumed only by the store mutation boundary.
     pub fn into_private_entries(

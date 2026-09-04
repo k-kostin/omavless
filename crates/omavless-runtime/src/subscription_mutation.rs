@@ -9,9 +9,10 @@
 
 use omavless_domain::private_store::{
     IncomingSubscriptionProfile, PrivateStoreError, SubscriptionEditInput, SubscriptionMutation,
-    SubscriptionMutationContext, SubscriptionMutationCounts, SubscriptionRefreshCounts,
-    SubscriptionRefreshSnapshot, apply_subscription_mutation, apply_subscription_refresh,
-    parse_private_store, prepare_subscription_refresh,
+    SubscriptionMutationContext, SubscriptionMutationCounts, SubscriptionRefreshBatchEntries,
+    SubscriptionRefreshBatchSnapshot, SubscriptionRefreshCounts, SubscriptionRefreshSnapshot,
+    apply_subscription_mutation, apply_subscription_refresh, apply_subscription_refresh_batch,
+    parse_private_store, prepare_subscription_refresh, prepare_subscription_refresh_batch,
 };
 use omavless_store::{StoreIoError, atomic_replace_private, read_private_utf8};
 use std::fmt;
@@ -136,6 +137,17 @@ pub fn snapshot_subscription_refresh(
         .map_err(SubscriptionMutationCommitError::Mutation)
 }
 
+/// Capture the complete ordered subscription set under one short private-store
+/// lease. The returned IDs and URLs remain non-formatable private data.
+pub fn snapshot_subscription_refresh_batch(
+    store_path: &Path,
+    uid: u32,
+) -> Result<SubscriptionRefreshBatchSnapshot, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    prepare_subscription_refresh_batch(&input).map_err(SubscriptionMutationCommitError::Mutation)
+}
+
 /// Read one intentional editor payload from a validated private store. The
 /// caller must hold the migration lock and keep the returned URL out of
 /// ordinary status, logs, diagnostics and argv.
@@ -172,6 +184,26 @@ pub fn commit_subscription_refresh(
     Ok(SubscriptionRefreshCommit { counts })
 }
 
+/// Re-read and revalidate the entire ordered subscription set, prepare every
+/// feed in memory, then perform at most one private atomic replacement. An
+/// empty batch is accepted without touching the store file.
+pub fn commit_subscription_refresh_batch(
+    store_path: &Path,
+    uid: u32,
+    snapshot: SubscriptionRefreshBatchSnapshot,
+    updates: Vec<SubscriptionRefreshBatchEntries>,
+    updated_at: u64,
+) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    let (result, counts) = apply_subscription_refresh_batch(&input, snapshot, updates, updated_at)
+        .map_err(SubscriptionMutationCommitError::Mutation)?;
+    if result.changed {
+        atomic_replace_private(store_path, result.payload(), uid).map_err(map_io)?;
+    }
+    Ok(SubscriptionRefreshCommit { counts })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +213,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const SUBSCRIPTION: &str = "10000000-0000-4000-8000-000000000001";
+    const SECOND_SUBSCRIPTION: &str = "10000000-0000-4000-8000-000000000002";
     const PROFILE: &str = "00000000-0000-4000-8000-000000000001";
     const PRIVATE_URI: &str =
         "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Private";
@@ -415,6 +448,94 @@ mod tests {
         let before = fs::read(&path).unwrap();
         assert_eq!(
             commit_subscription_refresh(&path, uid, snapshot, Vec::new(), 9, 0),
+            Err(SubscriptionMutationCommitError::Mutation(
+                PrivateStoreError::SubscriptionChanged
+            ))
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn refresh_batch_performs_one_atomic_replace_and_empty_batch_performs_none() {
+        let (root, uid) = root("refresh-batch");
+        let path = root.join("profiles.json");
+        let mut initial = store();
+        initial["subscriptions"] = json!([
+            {
+                "id": SUBSCRIPTION, "name": "First",
+                "url": "https://provider.invalid/private-token", "updatedAt": 1,
+            },
+            {
+                "id": SECOND_SUBSCRIPTION, "name": "Second",
+                "url": "https://second.invalid/private-token", "updatedAt": 2,
+            }
+        ]);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_inode = fs::metadata(&path).unwrap().ino();
+        let snapshot = snapshot_subscription_refresh_batch(&path, uid).unwrap();
+        let result = commit_subscription_refresh_batch(
+            &path,
+            uid,
+            snapshot,
+            vec![
+                SubscriptionRefreshBatchEntries {
+                    entries: Vec::new(),
+                    skipped: 1,
+                },
+                SubscriptionRefreshBatchEntries {
+                    entries: Vec::new(),
+                    skipped: 2,
+                },
+            ],
+            9,
+        )
+        .unwrap();
+        assert_eq!(result.counts.skipped, 3);
+        assert_ne!(fs::metadata(&path).unwrap().ino(), before_inode);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+
+        let mut empty = store();
+        empty["subscriptions"] = json!([]);
+        fs::write(&path, serde_json::to_vec(&empty).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let empty_inode = fs::metadata(&path).unwrap().ino();
+        let snapshot = snapshot_subscription_refresh_batch(&path, uid).unwrap();
+        let result =
+            commit_subscription_refresh_batch(&path, uid, snapshot, Vec::new(), 10).unwrap();
+        assert_eq!(result.counts.total, 0);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), empty_inode);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_refresh_batch_never_changes_destination() {
+        let (root, uid) = root("refresh-batch-stale");
+        let path = root.join("profiles.json");
+        let mut initial = store();
+        initial["subscriptions"] = json!([{
+            "id": SUBSCRIPTION, "name": "First",
+            "url": "https://provider.invalid/private-token", "updatedAt": 1,
+        }]);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let snapshot = snapshot_subscription_refresh_batch(&path, uid).unwrap();
+        initial["subscriptions"][0]["updatedAt"] = Value::from(2);
+        fs::write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(&path).unwrap();
+        assert_eq!(
+            commit_subscription_refresh_batch(
+                &path,
+                uid,
+                snapshot,
+                vec![SubscriptionRefreshBatchEntries {
+                    entries: Vec::new(),
+                    skipped: 0,
+                }],
+                9,
+            ),
             Err(SubscriptionMutationCommitError::Mutation(
                 PrivateStoreError::SubscriptionChanged
             ))

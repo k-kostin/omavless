@@ -684,6 +684,15 @@ bounded name and bearer URL; ordinary status/lists, errors, logs, argv and
 diagnostics remain credential-free. Together with native update it completes
 the semantic editor core, but QML still uses the Python bridge until cutover.
 
+The inactive refresh-all transaction checkpoint snapshots the complete ordered
+subscription set, performs sequential bounded feed work outside store locks,
+caps aggregate retained private data and revalidates all members before at most
+one atomic replacement. Any failed provider or stale member yields zero writes;
+an empty set performs no fetch or write. It deliberately does not advertise
+`subscriptions.refresh_all`: the future start/poll/cancel scheduling contract
+must first reconcile a potentially long batch with the five-second unary
+deadline and safe retry semantics.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

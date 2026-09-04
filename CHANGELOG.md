@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added the inactive native refresh-all transaction foundation. It snapshots
+  the complete ordered private subscription set, fetches outside store locks,
+  bounds aggregate retained URI data, rejects any stale member, and commits all
+  decoded feeds through at most one atomic replacement. Live socket/CLI
+  registration remains withheld pending the bounded long-operation contract.
 - Added an explicit native subscription-editor read behind exact Rust
   ownership. Only that intentional same-user response can return one bounded
   stored name and bearer URL; ordinary status/lists, errors, logs, argv and
