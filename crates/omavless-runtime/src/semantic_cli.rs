@@ -66,6 +66,10 @@ pub fn parse_semantic_read(
             method: "subscriptions.list",
             params: json!({}),
         }),
+        ["subscription", "edit-input", id] => Some(SemanticRequest {
+            method: "subscriptions.edit_input",
+            params: json!({"subscriptionId": record_id(id)?}),
+        }),
         _ => None,
     })
 }
@@ -351,6 +355,16 @@ mod tests {
                 .unwrap()
                 .into_parts(),
             ("subscriptions.list", json!({}))
+        );
+        assert_eq!(
+            parse_semantic_read(&args(&["subscription", "edit-input", SUBSCRIPTION]))
+                .unwrap()
+                .unwrap()
+                .into_parts(),
+            (
+                "subscriptions.edit_input",
+                json!({"subscriptionId": SUBSCRIPTION})
+            )
         );
         assert!(
             parse_semantic_read(&args(&["profile", "list", "extra"]))

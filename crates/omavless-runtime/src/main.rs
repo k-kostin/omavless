@@ -18,7 +18,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  mode rule|global|direct\n  profile list\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  subscription list\n  subscription add                read name + URL lines from stdin\n  subscription update SUBSCRIPTION_ID\n                                  read name + URL lines from stdin\n  subscription delete SUBSCRIPTION_ID\n  subscription refresh SUBSCRIPTION_ID\n  preflight\n  store-preflight\n  cutover-preflight";
+const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  mode rule|global|direct\n  profile list\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  subscription list\n  subscription edit-input SUBSCRIPTION_ID\n  subscription add                read name + URL lines from stdin\n  subscription update SUBSCRIPTION_ID\n                                  read name + URL lines from stdin\n  subscription delete SUBSCRIPTION_ID\n  subscription refresh SUBSCRIPTION_ID\n  preflight\n  store-preflight\n  cutover-preflight";
 
 fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
     let mut bytes = Vec::new();

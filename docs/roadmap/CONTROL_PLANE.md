@@ -224,11 +224,23 @@ committed Rust owner; a transition candidate or stale owner fails closed.
 - `subscriptions.list` — safe metadata/counts, no bearer URL;
 - `subscriptions.preview`, `subscriptions.add`, `subscriptions.update` — bearer
   URL accepted only as bounded sensitive request data;
+- `subscriptions.edit_input` — explicit same-user editor read for one opaque
+  subscription ID; its bounded success result contains exactly the stored
+  `name` and bearer `url` and is therefore sensitive rather than an ordinary
+  list/status response;
 - `subscriptions.refresh`, `subscriptions.refresh_all`;
 - `subscriptions.test`;
 - `subscriptions.delete`.
 
 Classification alone never fetches arbitrary remote content.
+
+`subscriptions.edit_input` accepts exactly `{"subscriptionId": ID}` with no
+mutation metadata or extra fields. It is advertised and served only while the
+same process proves exact committed Rust ownership under the migration lock.
+The bearer URL is permitted only in this intentional success response and must
+remain absent from capabilities, status, list output, errors, logs, process
+argv and shareable diagnostics. A missing record returns the stable
+`not_found` error without echoing the ID or any stored value.
 
 The first native single-refresh request is an exact object with required
 `subscriptionId` and optional `operationId` and `expectedRevision`. The

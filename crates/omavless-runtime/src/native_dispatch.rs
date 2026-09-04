@@ -131,6 +131,24 @@ pub(crate) fn preflight_native_subscription_refresh<H: LifecycleHost>(
     }
 }
 
+/// Release one bounded explicit editor payload through the private same-user
+/// control response. This is the sole runtime response allowed to contain a
+/// subscription bearer URL.
+pub(crate) fn respond_to_subscription_edit_input<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.subscription_edit_input(request) {
+        Ok(input) => success_response(
+            request_id,
+            owner.revision(),
+            json!({"name": input.private_name(), "url": input.private_url()}),
+        ),
+        Err(error) => owner_error_response(request_id, owner.revision(), error),
+    }
+}
+
 /// Complete one externally fetched subscription request through the same
 /// serialized owner and stable response contract as every other mutation.
 pub(crate) fn respond_to_fetched_subscription<H, G, N>(

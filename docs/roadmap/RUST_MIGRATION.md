@@ -744,6 +744,14 @@ identity before committing. A concurrent disconnect wins and exact operation
 replay does not fetch twice. Refresh-all scheduling, the QML bridge and the
 production cutover remain out of scope.
 
+The explicit editor-read checkpoint adds `subscriptions.edit_input` for one
+opaque local ID plus a fixed semantic CLI command. The private same-user socket
+may return exactly the validated stored name and bearer URL only for this
+intentional request, while capabilities, status, lists, errors, logs, argv and
+diagnostics stay credential-free. The read holds the shared migration lock
+through exact ownership revalidation and store lookup. It performs no network,
+store or lifecycle mutation and does not activate the QML bridge or cutover.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

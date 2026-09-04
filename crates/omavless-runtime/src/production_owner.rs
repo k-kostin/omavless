@@ -21,6 +21,7 @@ use crate::native_dispatch::{
     RemoteSubscriptionPreflight, RemoteSubscriptionRefreshPreflight, preflight_native_subscription,
     preflight_native_subscription_refresh, respond_to_fetched_subscription,
     respond_to_fetched_subscription_refresh, respond_to_native_mutation,
+    respond_to_subscription_edit_input,
 };
 use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
@@ -341,6 +342,13 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         request: &Value,
     ) -> Result<RemoteSubscriptionRefreshPreflight, ProtocolError> {
         preflight_native_subscription_refresh(&mut self.coordinator, request)
+    }
+
+    pub(crate) fn subscription_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> Result<Value, ProtocolError> {
+        respond_to_subscription_edit_input(&mut self.coordinator, request)
     }
 
     pub(crate) fn respond_to_fetched_subscription<G, N>(
