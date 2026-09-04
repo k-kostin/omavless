@@ -638,18 +638,26 @@ ordinary candidate failure. Uncertain stop or failed recovery becomes a hard
 manual-recovery state. This closes a primary frontend-bridge prerequisite but
 does not route QML to Rust or expose cutover.
 
-The next subscription-dispatch checkpoint exposes only
+The subscription-delete checkpoint exposes only
 `subscriptions.delete` plus the fixed `omavless subscription delete` command.
 Deletion uses the existing serialized store/lifecycle owner and performs no
 remote I/O. Add/update remain deliberately withheld until their bounded fetch
 can run without blocking status or urgent disconnect.
 
-The following socket-admission checkpoint isolates unary exchanges in at most
+The socket-admission checkpoint isolates unary exchanges in at most
 16 concurrent same-user worker slots. A partial/slow client can no longer hold
 the listener loop for the five-second frame deadline, while saturation closes
-new streams instead of creating unbounded threads. Owner operations remain
-serialized; subscription add/update still require a separate fetch/commit
-split before they may be advertised.
+new streams instead of creating unbounded threads.
+
+The subsequent subscription fetch/commit checkpoint advertises native
+`subscriptions.add` and `subscriptions.update` and adds fixed semantic CLI
+commands whose private name/URL input is read from bounded stdin, never argv.
+At most four provider GETs run concurrently outside the owner mutex and the
+migration lock, leaving capacity for status and urgent disconnect. Completion
+re-admits the original request under exact ownership/revision checks before
+bounded decode and atomic commit; a concurrent disconnect therefore wins and
+the stale subscription result is rejected. QML and installed production
+ownership remain unchanged.
 
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an

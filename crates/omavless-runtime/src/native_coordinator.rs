@@ -18,8 +18,8 @@ use crate::cutover::{MigrationLock, OwnershipPhase, read_marker};
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleError, LifecycleHost};
 use crate::mutation::{
-    BeginOutcome, CachedOutcome, CoordinatorError, MutationCoordinator, MutationKind,
-    MutationRequest, MutationResult, MutationToken, SubmitOutcome,
+    BeginOutcome, CachedOutcome, CoordinatorError, ExternalWorkPreflight, MutationCoordinator,
+    MutationKind, MutationRequest, MutationResult, MutationToken, SubmitOutcome,
 };
 use crate::mutation_protocol::MutationProtocolError;
 use crate::owner::{OwnerAction, OwnerRequest};
@@ -35,13 +35,14 @@ use crate::subscription_mutation::{
 use crate::subscription_mutation_protocol::{
     SubscriptionMutationIntent, parse_subscription_mutation_request,
 };
-use crate::subscription_transport::SubscriptionTransport;
+use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use omavless_control_protocol::StableErrorCode;
 use omavless_domain::private_store::{
     PrivateStoreError, SubscriptionMutation, SubscriptionMutationContext,
 };
-use omavless_domain::subscription_feed::decode_subscription_feed;
+use omavless_domain::subscription_feed::{PrivateSubscriptionBody, decode_subscription_feed};
 use serde_json::Value;
+use std::cell::RefCell;
 use std::fmt;
 use std::path::Path;
 
@@ -204,6 +205,7 @@ pub enum NativeOwnerError {
     Coordinator(CoordinatorError),
     OwnershipBusy,
     OwnershipUnavailable,
+    ManualRecoveryRequired,
     Invariant,
 }
 
@@ -215,6 +217,7 @@ impl NativeOwnerError {
             Self::Coordinator(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
             Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
+            Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
             Self::Invariant => StableErrorCode::InternalError,
         }
     }
@@ -227,6 +230,7 @@ impl fmt::Display for NativeOwnerError {
             Self::Coordinator(_) => "Native mutation scheduling failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
             Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
+            Self::ManualRecoveryRequired => "Native mutation requires manual recovery",
             Self::Invariant => "Native mutation coordinator invariant failed",
         })
     }
@@ -255,6 +259,37 @@ enum Admission {
 enum LockAdmission {
     Locked(MigrationLock),
     Uncached(NativeOwnerExecution),
+}
+
+/// Private remote target accepted for one bounded subscription fetch. It is a
+/// reservation-free snapshot: the original request must be admitted again
+/// after fetch before any commit, so a concurrent mutation wins by revision.
+pub(crate) struct PreparedSubscriptionFetch {
+    url: String,
+}
+
+impl PreparedSubscriptionFetch {
+    pub(crate) fn private_url(&self) -> &str {
+        &self.url
+    }
+}
+
+pub(crate) enum SubscriptionFetchPreflight {
+    Ready(PreparedSubscriptionFetch),
+    Replay(CachedOutcome),
+}
+
+struct FetchedSubscriptionTransport(
+    RefCell<Option<Result<PrivateSubscriptionBody, SubscriptionTransportError>>>,
+);
+
+impl SubscriptionTransport for FetchedSubscriptionTransport {
+    fn fetch(&self, _url: &str) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+        self.0
+            .borrow_mut()
+            .take()
+            .unwrap_or(Err(SubscriptionTransportError::Unavailable))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,6 +473,53 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 
     pub fn host_mut(&mut self) -> &mut H {
         self.transaction.host_mut()
+    }
+
+    /// Validate a network-backed subscription request before the caller
+    /// releases the serialized owner for bounded transport work. This method
+    /// performs no fetch, queue reservation, store write, or lifecycle work.
+    /// The final mutation path must parse and admit the same request again.
+    pub(crate) fn preflight_subscription_fetch(
+        &mut self,
+        request: &Value,
+    ) -> Result<SubscriptionFetchPreflight, NativeOwnerError> {
+        let parsed = parse_subscription_mutation_request(request)?;
+        let url = parsed.remote_url().ok_or(NativeOwnerError::Protocol(
+            MutationProtocolError::InvalidArgument,
+        ))?;
+        let scheduling = parsed.external_work_request()?;
+
+        let lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        if self.required_ownership.is_some_and(|fence| {
+            fence.phase != OwnershipPhase::Rust
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        if self.transaction.blocked() {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        let preflight = self.coordinator.preflight_external_work(&scheduling)?;
+        drop(lock);
+
+        match preflight {
+            ExternalWorkPreflight::Ready => Ok(SubscriptionFetchPreflight::Ready(
+                PreparedSubscriptionFetch {
+                    url: url.to_owned(),
+                },
+            )),
+            ExternalWorkPreflight::Replay(outcome) => {
+                Ok(SubscriptionFetchPreflight::Replay(outcome))
+            }
+        }
     }
 
     pub fn reconcile_startup(
@@ -851,6 +933,39 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .map_err(NativeTransactionError::Subscription),
             false,
         )
+    }
+
+    /// Re-admit one request after its bounded provider fetch completed outside
+    /// the serialized owner. The normal subscription transaction performs all
+    /// ownership, replay, revision, lock, decode and commit checks again; the
+    /// in-memory transport can be consumed at most once.
+    pub(crate) fn execute_fetched_subscription<G, N>(
+        &mut self,
+        request: &Value,
+        preflight_revision: u64,
+        fetched: Result<PrivateSubscriptionBody, SubscriptionTransportError>,
+        next_record_id: G,
+        now_millis: N,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError>
+    where
+        G: FnMut() -> String,
+        N: FnOnce() -> u64,
+    {
+        let parsed = parse_subscription_mutation_request(request)?;
+        let scheduling = parsed.external_work_request()?;
+        match self.coordinator.preflight_external_work(&scheduling)? {
+            ExternalWorkPreflight::Replay(outcome) => {
+                return Ok(NativeOwnerExecution::Replay(outcome));
+            }
+            ExternalWorkPreflight::Ready => {}
+        }
+        if self.coordinator.revision() != preflight_revision {
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict,
+            ));
+        }
+        let transport = FetchedSubscriptionTransport(RefCell::new(Some(fetched)));
+        self.execute_subscription(request, &transport, next_record_id, now_millis)
     }
 }
 
@@ -1293,6 +1408,76 @@ mod tests {
         assert_eq!(store["subscriptions"].as_array().unwrap().len(), 1);
         assert_eq!(store["profiles"].as_array().unwrap().len(), 2);
         assert_eq!(store["profiles"][1]["subscriptionId"], SUBSCRIPTION);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_fetch_preflight_is_private_reservation_free_and_rechecked() {
+        let (root, store_path, mut owner) = fixture("subscription-preflight");
+        let request = subscription_add("subscription-preflight-1", 0);
+        let before = fs::read(&store_path).unwrap();
+        let SubscriptionFetchPreflight::Ready(prepared) =
+            owner.preflight_subscription_fetch(&request).unwrap()
+        else {
+            panic!("fresh remote mutation unexpectedly replayed");
+        };
+        assert_eq!(prepared.private_url(), SUBSCRIPTION_URL);
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+
+        applied(
+            owner
+                .execute_connection(connect("connect-after-preflight", 0))
+                .unwrap(),
+        );
+        let transport = FakeTransport::success(&owner);
+        assert_eq!(
+            owner.execute_subscription(&request, &transport, || unreachable!(), || 0),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict
+            ))
+        );
+        assert_eq!(transport.calls.get(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn subscription_fetch_preflight_replays_and_blocks_unsafe_external_work() {
+        let (root, _store_path, mut owner) = fixture("subscription-preflight-replay");
+        let request = subscription_add("subscription-preflight-replay-1", 0);
+        let transport = FakeTransport::success(&owner);
+        let ids = [SUBSCRIPTION.to_owned(), SUBSCRIPTION_PROFILE.to_owned()];
+        let mut ids = ids.into_iter();
+        let (cached, _) = applied(
+            owner
+                .execute_subscription(
+                    &request,
+                    &transport,
+                    || ids.next().unwrap(),
+                    || 1_800_000_000_000,
+                )
+                .unwrap(),
+        );
+        assert_eq!(cached.revision, 1);
+        assert!(matches!(
+            owner.preflight_subscription_fetch(&request).unwrap(),
+            SubscriptionFetchPreflight::Replay(CachedOutcome {
+                revision: 1,
+                error: None
+            })
+        ));
+
+        assert!(matches!(
+            owner.preflight_subscription_fetch(&subscription_delete("delete", 1)),
+            Err(NativeOwnerError::Protocol(
+                MutationProtocolError::InvalidArgument
+            ))
+        ));
+        owner.transaction.block();
+        assert!(matches!(
+            owner.preflight_subscription_fetch(&subscription_add("blocked", 1)),
+            Err(NativeOwnerError::ManualRecoveryRequired)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 

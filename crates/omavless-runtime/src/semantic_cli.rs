@@ -11,6 +11,8 @@
 
 use crate::desired::RoutingMode;
 use crate::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
+use crate::subscription_mutation_protocol::MAX_SUBSCRIPTION_NAME_INPUT_BYTES;
+use omavless_domain::import::{MAX_SUBSCRIPTION_URL_BYTES, valid_subscription_url};
 use omavless_domain::store::valid_record_id;
 use serde_json::{Value, json};
 use std::ffi::OsString;
@@ -23,6 +25,9 @@ pub enum SemanticCliError {
     MissingInput,
     InputTooLarge,
 }
+
+pub const MAX_SUBSCRIPTION_STDIN_BYTES: usize =
+    MAX_SUBSCRIPTION_NAME_INPUT_BYTES + 1 + MAX_SUBSCRIPTION_URL_BYTES + 1;
 
 impl fmt::Display for SemanticCliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -105,12 +110,33 @@ fn rename_name(stdin: Option<&str>) -> Result<&str, SemanticCliError> {
     Ok(name)
 }
 
-/// Map fixed user-facing argv plus optional bounded rename stdin to one exact
+fn subscription_input(stdin: Option<&str>) -> Result<(&str, &str), SemanticCliError> {
+    let input = stdin.ok_or(SemanticCliError::MissingInput)?;
+    if input.is_empty() || input.len() > MAX_SUBSCRIPTION_STDIN_BYTES || input.contains('\r') {
+        return Err(SemanticCliError::InvalidArgument);
+    }
+    let input = input.strip_suffix('\n').unwrap_or(input);
+    let Some((name, url)) = input.split_once('\n') else {
+        return Err(SemanticCliError::InvalidArgument);
+    };
+    if name.is_empty()
+        || name.len() > MAX_SUBSCRIPTION_NAME_INPUT_BYTES
+        || url.is_empty()
+        || url.len() > MAX_SUBSCRIPTION_URL_BYTES
+        || url.contains('\n')
+        || !valid_subscription_url(url)
+    {
+        return Err(SemanticCliError::InvalidArgument);
+    }
+    Ok((name, url))
+}
+
+/// Map fixed user-facing argv plus optional bounded private stdin to one exact
 /// runtime request. Unknown commands, extra arguments and invalid UTF-8 fail
 /// before any socket connection is attempted.
 pub fn parse_semantic_mutation(
     arguments: &[OsString],
-    rename_stdin: Option<&str>,
+    private_stdin: Option<&str>,
 ) -> Result<SemanticRequest, SemanticCliError> {
     let arguments = utf8(arguments)?;
     match arguments.as_slice() {
@@ -137,7 +163,7 @@ pub fn parse_semantic_mutation(
             method: "profiles.rename",
             params: json!({
                 "profileId": record_id(id)?,
-                "name": rename_name(rename_stdin)?
+                "name": rename_name(private_stdin)?
             }),
         }),
         ["profile", "favorite", id, enabled] => {
@@ -155,6 +181,24 @@ pub fn parse_semantic_mutation(
             method: "profiles.delete",
             params: json!({"profileId": record_id(id)?}),
         }),
+        ["subscription", "add"] => {
+            let (name, url) = subscription_input(private_stdin)?;
+            Ok(SemanticRequest {
+                method: "subscriptions.add",
+                params: json!({"name": name, "url": url}),
+            })
+        }
+        ["subscription", "update", id] => {
+            let (name, url) = subscription_input(private_stdin)?;
+            Ok(SemanticRequest {
+                method: "subscriptions.update",
+                params: json!({
+                    "subscriptionId": record_id(id)?,
+                    "name": name,
+                    "url": url
+                }),
+            })
+        }
         ["subscription", "delete", id] => Ok(SemanticRequest {
             method: "subscriptions.delete",
             params: json!({"subscriptionId": record_id(id)?}),
@@ -240,6 +284,45 @@ mod tests {
                 json!({"subscriptionId": SUBSCRIPTION})
             )
         );
+    }
+
+    #[test]
+    fn subscription_remote_commands_use_one_exact_private_stdin_shape() {
+        let input = "Private source\nhttps://provider.invalid/subscription-token\n";
+        assert_eq!(
+            parsed(&["subscription", "add"], Some(input)),
+            (
+                "subscriptions.add",
+                json!({
+                    "name": "Private source",
+                    "url": "https://provider.invalid/subscription-token"
+                })
+            )
+        );
+        assert_eq!(
+            parsed(&["subscription", "update", SUBSCRIPTION], Some(input)),
+            (
+                "subscriptions.update",
+                json!({
+                    "subscriptionId": SUBSCRIPTION,
+                    "name": "Private source",
+                    "url": "https://provider.invalid/subscription-token"
+                })
+            )
+        );
+        for private_input in [
+            None,
+            Some("only-one-line"),
+            Some("Source\nhttp://remote.invalid/private"),
+            Some("Source\r\nhttps://provider.invalid/private"),
+            Some("Source\nhttps://provider.invalid/private\nextra"),
+        ] {
+            let error = rejected(&["subscription", "add"], private_input);
+            let rendered = format!("{error:?} {error}");
+            for private in ["remote.invalid", "provider.invalid", "private"] {
+                assert!(!rendered.contains(private));
+            }
+        }
     }
 
     #[test]

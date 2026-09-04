@@ -143,6 +143,12 @@ pub enum SubmitOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalWorkPreflight {
+    Ready,
+    Replay(CachedOutcome),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActiveMutation {
     pub token: MutationToken,
     pub kind: MutationKind,
@@ -266,6 +272,41 @@ impl MutationCoordinator {
                     .is_some_and(|queued_id| queued_id.0 == operation_id.0)
             })
             .map(|queued| (&queued.request.digest, None))
+    }
+
+    /// Check whether bounded work outside the serialized owner may begin.
+    ///
+    /// This deliberately does not enqueue or reserve a mutation slot. The
+    /// caller must submit the original request again after external work and
+    /// compare against the then-current revision before any commit. Cached
+    /// retries are returned immediately so they never repeat external work.
+    pub fn preflight_external_work(
+        &self,
+        request: &MutationRequest,
+    ) -> Result<ExternalWorkPreflight, CoordinatorError> {
+        if let Some(operation_id) = &request.operation_id
+            && let Some((digest, cached)) = self.matching_operation(operation_id)
+        {
+            if digest != &request.digest {
+                return Err(CoordinatorError::OperationConflict);
+            }
+            return cached.map_or(Err(CoordinatorError::Busy), |outcome| {
+                Ok(ExternalWorkPreflight::Replay(outcome))
+            });
+        }
+        if request
+            .expected_revision
+            .is_some_and(|expected| expected != self.revision)
+        {
+            return Err(CoordinatorError::RevisionConflict);
+        }
+        if self.revision == MAX_REVISION {
+            return Err(CoordinatorError::RevisionExhausted);
+        }
+        if self.active.is_some() || !self.queue.is_empty() {
+            return Err(CoordinatorError::Busy);
+        }
+        Ok(ExternalWorkPreflight::Ready)
     }
 
     pub fn submit(&mut self, request: MutationRequest) -> Result<SubmitOutcome, CoordinatorError> {
@@ -507,6 +548,96 @@ mod tests {
                 token: second,
                 kind: MutationKind::Other
             })
+        );
+    }
+
+    #[test]
+    fn external_work_preflight_is_replay_aware_and_reservation_free() {
+        let mut coordinator = MutationCoordinator::default();
+        assert_eq!(
+            coordinator
+                .preflight_external_work(&request(
+                    MutationKind::Other,
+                    Some("remote-1"),
+                    Some(0),
+                    1,
+                ))
+                .unwrap(),
+            ExternalWorkPreflight::Ready
+        );
+        assert_eq!(coordinator.queued(), 0);
+        assert!(!coordinator.active());
+
+        let token = token(
+            coordinator
+                .submit(request(MutationKind::Other, Some("remote-1"), Some(0), 1))
+                .unwrap(),
+        );
+        assert!(matches!(
+            coordinator.preflight_external_work(&request(
+                MutationKind::Other,
+                Some("remote-2"),
+                None,
+                2,
+            )),
+            Err(CoordinatorError::Busy)
+        ));
+        assert_eq!(
+            coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(ActiveMutation {
+                token,
+                kind: MutationKind::Other,
+            })
+        );
+        assert!(
+            coordinator
+                .finish(token, MutationResult::Success)
+                .unwrap()
+                .succeeded()
+        );
+
+        assert_eq!(
+            coordinator
+                .preflight_external_work(&request(
+                    MutationKind::Other,
+                    Some("remote-1"),
+                    Some(0),
+                    1,
+                ))
+                .unwrap(),
+            ExternalWorkPreflight::Replay(CachedOutcome {
+                revision: 1,
+                error: None,
+            })
+        );
+        assert_eq!(
+            coordinator.preflight_external_work(&request(
+                MutationKind::Other,
+                Some("remote-1"),
+                Some(1),
+                9,
+            )),
+            Err(CoordinatorError::OperationConflict)
+        );
+        assert_eq!(
+            coordinator.preflight_external_work(&request(
+                MutationKind::Other,
+                Some("remote-3"),
+                Some(0),
+                3,
+            )),
+            Err(CoordinatorError::RevisionConflict)
+        );
+
+        coordinator.revision = MAX_REVISION;
+        assert_eq!(
+            coordinator.preflight_external_work(&request(
+                MutationKind::Other,
+                Some("remote-4"),
+                Some(MAX_REVISION),
+                4,
+            )),
+            Err(CoordinatorError::RevisionExhausted)
         );
     }
 

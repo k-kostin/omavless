@@ -334,9 +334,12 @@ Subscription replay digests are domain-separated from connection and profile
 digests. They cover the method, normalized name/URL and subscription ID where
 applicable, plus the presence and value of `expectedRevision`; `operationId`
 is excluded. The private intent/request types have no `Debug`, cloning or
-serialization implementation. This exact parser performs no fetch or write and
-remains unregistered until the serialized subscription owner/fetch binding is
-accepted.
+serialization implementation. Native socket add/update first perform a
+reservation-free ownership/revision/manual-recovery preflight, then run at most
+four bounded provider fetches outside the owner mutex and migration lock.
+Finalization re-parses and re-admits the original request before decode/commit,
+so concurrent disconnect or ownership change wins and stale fetched data is
+discarded. Delete remains a local serialized store/lifecycle mutation.
 
 Once registered, successful profile mutations use the same exact bounded
 `{"accepted":true}` result and committed revision as connection mutations;

@@ -13,11 +13,13 @@ use crate::mutation::CachedOutcome;
 use crate::mutation_protocol::parse_owner_request;
 use crate::native_coordinator::{
     NativeOwnerError, NativeOwnerExecution, NativeTransactionError, OfflineNativeCoordinator,
+    PreparedSubscriptionFetch, SubscriptionFetchPreflight,
 };
-use crate::subscription_transport::SubscriptionTransport;
+use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use omavless_control_protocol::{
     ProtocolError, StableErrorCode, error_response, success_response, validate_request,
 };
+use omavless_domain::subscription_feed::PrivateSubscriptionBody;
 use serde_json::{Value, json};
 
 const LIFECYCLE_METHODS: &[&str] = &[
@@ -76,6 +78,59 @@ fn owner_error_response(
 ) -> Result<Value, ProtocolError> {
     let code = error.stable_code();
     error_response(request_id, revision, code, retryable(code), None)
+}
+
+pub(crate) enum RemoteSubscriptionPreflight {
+    Fetch(PreparedSubscriptionFetch),
+    Respond(Value),
+}
+
+/// Bind reservation-free external-work preflight to the ordinary v1 response
+/// envelope. Only add/update can return a private fetch target; delete and all
+/// invalid inputs receive a bounded response without transport work.
+pub(crate) fn preflight_native_subscription<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<RemoteSubscriptionPreflight, ProtocolError> {
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.preflight_subscription_fetch(request) {
+        Ok(SubscriptionFetchPreflight::Ready(prepared)) => {
+            Ok(RemoteSubscriptionPreflight::Fetch(prepared))
+        }
+        Ok(SubscriptionFetchPreflight::Replay(cached)) => {
+            cached_response(request_id, cached).map(RemoteSubscriptionPreflight::Respond)
+        }
+        Err(error) => owner_error_response(request_id, owner.revision(), error)
+            .map(RemoteSubscriptionPreflight::Respond),
+    }
+}
+
+/// Complete one externally fetched subscription request through the same
+/// serialized owner and stable response contract as every other mutation.
+pub(crate) fn respond_to_fetched_subscription<H, G, N>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+    preflight_revision: u64,
+    fetched: Result<PrivateSubscriptionBody, SubscriptionTransportError>,
+    next_record_id: G,
+    now_millis: N,
+) -> Result<Value, ProtocolError>
+where
+    H: LifecycleHost,
+    G: FnMut() -> String,
+    N: FnOnce() -> u64,
+{
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.execute_fetched_subscription(
+        request,
+        preflight_revision,
+        fetched,
+        next_record_id,
+        now_millis,
+    ) {
+        Ok(execution) => execution_response(request_id, execution),
+        Err(error) => owner_error_response(request_id, owner.revision(), error),
+    }
 }
 
 /// Route one decoded mutation request to the single native owner.

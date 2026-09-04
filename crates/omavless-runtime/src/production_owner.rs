@@ -15,12 +15,16 @@ use crate::cutover::{
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
 use crate::native_coordinator::{CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator};
-use crate::native_dispatch::respond_to_native_mutation;
+use crate::native_dispatch::{
+    RemoteSubscriptionPreflight, preflight_native_subscription, respond_to_fetched_subscription,
+    respond_to_native_mutation,
+};
 use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
-use crate::subscription_transport::SubscriptionTransport;
+use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use nix::unistd::Uid;
 use omavless_control_protocol::ProtocolError;
 use omavless_domain::private_store::{StoreListProjection, parse_private_store};
+use omavless_domain::subscription_feed::PrivateSubscriptionBody;
 use omavless_store::read_private_utf8;
 use serde_json::Value;
 use std::fmt;
@@ -317,6 +321,35 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             &mut self.coordinator,
             request,
             transport,
+            next_record_id,
+            now_millis,
+        )
+    }
+
+    pub(crate) fn preflight_remote_subscription(
+        &mut self,
+        request: &Value,
+    ) -> Result<RemoteSubscriptionPreflight, ProtocolError> {
+        preflight_native_subscription(&mut self.coordinator, request)
+    }
+
+    pub(crate) fn respond_to_fetched_subscription<G, N>(
+        &mut self,
+        request: &Value,
+        preflight_revision: u64,
+        fetched: Result<PrivateSubscriptionBody, SubscriptionTransportError>,
+        next_record_id: G,
+        now_millis: N,
+    ) -> Result<Value, ProtocolError>
+    where
+        G: FnMut() -> String,
+        N: FnOnce() -> u64,
+    {
+        respond_to_fetched_subscription(
+            &mut self.coordinator,
+            request,
+            preflight_revision,
+            fetched,
             next_record_id,
             now_millis,
         )

@@ -699,18 +699,31 @@ change, restores the prior connected target after ordinary candidate failure,
 and blocks on uncertain cleanup. It is registered only for an exact committed
 Rust owner; the plugin launcher and production owner remain unchanged.
 
-The next socket checkpoint registers only `subscriptions.delete` and maps it
+The subscription-delete socket checkpoint registers only
+`subscriptions.delete` and maps it
 from a fixed semantic CLI command. It is safe on the existing serialized owner
 because deletion performs no provider fetch. Subscription add/update remain
 offline until the server can keep reads and urgent disconnect responsive while
 bounded remote I/O is in flight.
 
-The subsequent client-admission checkpoint handles at most 16 same-user unary
+The client-admission checkpoint handles at most 16 same-user unary
 exchanges concurrently. Each frame retains its fixed five-second I/O deadline;
 a partial/slow peer no longer monopolizes the accept loop, and saturation drops
 the newly accepted stream rather than allocating an unbounded worker. The
-native owner mutex continues to serialize semantic state operations. This is a
-transport-isolation prerequisite, not yet the subscription fetch/commit split.
+native owner mutex continues to serialize semantic state operations.
+
+The following fetch/commit checkpoint registers `subscriptions.add` and
+`subscriptions.update`. A reservation-free preflight resolves exact cached
+replays without another fetch and rejects invalid, stale, conflicting,
+ownership-revoked, busy and manual-recovery requests before network I/O. At
+most four strict provider fetches run concurrently outside both the
+owner mutex and migration lock. Finalization re-enters the one owner, re-parses
+and re-admits the original request, and rechecks durable ownership/revision
+before decoded entries can reach one atomic commit. Status and disconnect are
+therefore admitted while fetch is in flight; a concurrent disconnect advances
+revision and makes that fetched result conflict. Fixed CLI add/update commands
+take the private name and URL as two bounded stdin lines rather than argv. The
+installed Python/QML path and cutover reachability remain unchanged.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
