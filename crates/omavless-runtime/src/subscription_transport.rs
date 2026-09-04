@@ -407,23 +407,18 @@ mod tests {
 
     #[test]
     fn redirect_chain_cannot_reset_the_total_budget() {
-        let (url, worker) = server(vec![response(
-            "302 Found",
-            "Location: /next\r\n",
-            b"",
-        )]);
+        let (url, worker) = server(vec![response("302 Found", "Location: /next\r\n", b"")]);
         let transport = HttpsSubscriptionTransport::with_bounds(
             Duration::from_secs(2),
             MAX_SUBSCRIPTION_FEED_BYTES,
             5,
         );
-        let mut times = [Duration::ZERO, Duration::ZERO, Duration::from_secs(2)]
-            .into_iter();
-        let error = fetch_error(transport.fetch_with_elapsed(
-            &url,
-            Duration::from_secs(9),
-            || times.next().expect("no work after deadline"),
-        ));
+        let mut times = [Duration::ZERO, Duration::ZERO, Duration::from_secs(2)].into_iter();
+        let error = fetch_error(
+            transport.fetch_with_elapsed(&url, Duration::from_secs(9), || {
+                times.next().expect("no work after deadline")
+            }),
+        );
         assert_eq!(error, SubscriptionTransportError::Timeout);
         assert_eq!(worker.join().unwrap().len(), 1);
         assert!(times.next().is_none());
@@ -441,11 +436,11 @@ mod tests {
         ]
         .into_iter();
         assert_eq!(
-            fetch_error(transport.fetch_with_elapsed(
-                &url,
-                Duration::from_secs(1),
-                || times.next().expect("no work after body deadline"),
-            )),
+            fetch_error(
+                transport.fetch_with_elapsed(&url, Duration::from_secs(1), || times
+                    .next()
+                    .expect("no work after body deadline"),)
+            ),
             SubscriptionTransportError::Timeout
         );
         assert_eq!(worker.join().unwrap().len(), 1);
@@ -460,7 +455,10 @@ mod tests {
             fetch_error(HttpsSubscriptionTransport::new().fetch_with_budget(&url, Duration::ZERO)),
             SubscriptionTransportError::Timeout
         );
-        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     #[test]
@@ -474,10 +472,10 @@ mod tests {
             let _ = stream.write_all(&response("200 OK", "", PROFILE.as_bytes()));
         });
         assert_eq!(
-            fetch_error(HttpsSubscriptionTransport::new().fetch_with_budget(
-                &url,
-                Duration::from_millis(40),
-            )),
+            fetch_error(
+                HttpsSubscriptionTransport::new()
+                    .fetch_with_budget(&url, Duration::from_millis(40),)
+            ),
             SubscriptionTransportError::Timeout
         );
         worker.join().unwrap();
