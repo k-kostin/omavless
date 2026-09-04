@@ -644,6 +644,13 @@ Deletion uses the existing serialized store/lifecycle owner and performs no
 remote I/O. Add/update remain deliberately withheld until their bounded fetch
 can run without blocking status or urgent disconnect.
 
+The following socket-admission checkpoint isolates unary exchanges in at most
+16 concurrent same-user worker slots. A partial/slow client can no longer hold
+the listener loop for the five-second frame deadline, while saturation closes
+new streams instead of creating unbounded threads. Owner operations remain
+serialized; subscription add/update still require a separate fetch/commit
+split before they may be advertised.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
