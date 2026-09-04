@@ -186,6 +186,7 @@ pub struct RuntimeServer {
 }
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
+const NATIVE_READ_METHODS: &[&str] = &["profiles.list", "subscriptions.list"];
 // Subscription add/update performs bounded remote I/O. Keep the whole family
 // outside live socket dispatch until the server can admit status and urgent
 // disconnect while that fetch is in flight.
@@ -206,6 +207,8 @@ trait NativeRuntimeOwner: Send {
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
     fn status(&self, runtime_ownership: bool) -> Result<Value>;
+    fn profiles(&self) -> Result<Value>;
+    fn subscriptions(&self) -> Result<Value>;
     fn bootstrap_generations(&self) -> Option<(u64, u64)>;
     fn mutate(
         &mut self,
@@ -265,6 +268,46 @@ struct RegisteredNativeOwner<H, T> {
     record_ids: RecordIdGenerator,
 }
 
+fn profile_list_json(projection: &omavless_domain::private_store::StoreListProjection) -> Value {
+    let profiles = projection
+        .profiles()
+        .iter()
+        .map(|profile| {
+            json!({
+                "id": profile.id(),
+                "name": profile.name(),
+                "protocol": profile.protocol().as_str(),
+                "subscriptionId": profile.subscription_id(),
+                "missing": profile.missing(),
+                "favorite": profile.favorite()
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "profiles": profiles,
+        "lastProfileId": projection.last_profile_id()
+    })
+}
+
+fn subscription_list_json(
+    projection: &omavless_domain::private_store::StoreListProjection,
+) -> Value {
+    let subscriptions = projection
+        .subscriptions()
+        .iter()
+        .map(|subscription| {
+            json!({
+                "id": subscription.id(),
+                "name": subscription.name(),
+                "updatedAt": subscription.updated_at(),
+                "profileCount": subscription.profile_count(),
+                "staleCount": subscription.stale_count()
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"subscriptions": subscriptions})
+}
+
 impl<H, T> NativeRuntimeOwner for RegisteredNativeOwner<H, T>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
@@ -300,6 +343,22 @@ where
             "transition": self.owner.transition(),
             "runtimeOwnership": runtime_ownership
         }))
+    }
+
+    fn profiles(&self) -> Result<Value> {
+        let projection = self
+            .owner
+            .list_projection()
+            .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        Ok(profile_list_json(&projection))
+    }
+
+    fn subscriptions(&self) -> Result<Value> {
+        let projection = self
+            .owner
+            .list_projection()
+            .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
+        Ok(subscription_list_json(&projection))
     }
 
     fn bootstrap_generations(&self) -> Option<(u64, u64)> {
@@ -687,6 +746,12 @@ fn dispatch_native(
                 .iter()
                 .chain(
                     runtime_ownership
+                        .then_some(NATIVE_READ_METHODS)
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    runtime_ownership
                         .then_some(NATIVE_MUTATION_METHODS)
                         .into_iter()
                         .flatten(),
@@ -700,6 +765,38 @@ fn dispatch_native(
             })
         }
         "status.get" | "capabilities.get" => {
+            return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
+        }
+        "profiles.list" if runtime_ownership && empty_params(request) => match owner.profiles() {
+            Ok(profiles) => profiles,
+            Err(_) => {
+                return error_response(id, revision, StableErrorCode::InternalError, false, None);
+            }
+        },
+        "subscriptions.list" if runtime_ownership && empty_params(request) => {
+            match owner.subscriptions() {
+                Ok(subscriptions) => subscriptions,
+                Err(_) => {
+                    return error_response(
+                        id,
+                        revision,
+                        StableErrorCode::InternalError,
+                        false,
+                        None,
+                    );
+                }
+            }
+        }
+        _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        }
+        _ if NATIVE_READ_METHODS.contains(&method) => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
         }
         _ if NATIVE_MUTATION_METHODS.contains(&method) => return owner.mutate(request),
@@ -858,7 +955,12 @@ mod tests {
                 "protocol": "vless",
                 "favorite": false
             }],
-            "subscriptions": [],
+            "subscriptions": [{
+                "id": "10000000-0000-4000-8000-000000000001",
+                "name": "Example source",
+                "url": "https://private.example/subscription-token",
+                "updatedAt": 7
+            }],
             "routingPreset": "custom",
             "customRules": [],
             "rulesUpdatedAt": 0,
@@ -951,6 +1053,60 @@ mod tests {
     }
 
     #[test]
+    fn maximum_store_list_projections_fit_the_response_frame() {
+        let profiles = (1..=omavless_domain::store::MAX_PROFILES)
+            .map(|index| {
+                json!({
+                    "id": format!("00000000-0000-4000-8000-{index:012x}"),
+                    "name": format!("{index:03}-{}", "界".repeat(76)),
+                    "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp",
+                    "protocol": "vless",
+                    "favorite": index % 2 == 0
+                })
+            })
+            .collect::<Vec<_>>();
+        let subscriptions = (1..=omavless_domain::store::MAX_SUBSCRIPTIONS)
+            .map(|index| {
+                json!({
+                    "id": format!("10000000-0000-4000-8000-{index:012x}"),
+                    "name": format!("{index:03}-{}", "Я".repeat(76)),
+                    "url": format!("https://private{index}.example/subscription-token"),
+                    "updatedAt": index
+                })
+            })
+            .collect::<Vec<_>>();
+        let private = json!({
+            "version": 3,
+            "activeId": "",
+            "lastId": "00000000-0000-4000-8000-000000000001",
+            "profiles": profiles,
+            "subscriptions": subscriptions,
+            "routingPreset": "custom",
+            "customRules": [],
+            "rulesUpdatedAt": 0,
+            "startupConfigured": true,
+            "startup": {"enabled": false, "target": "last", "profileId": "", "mode": "rule"},
+            "onboardingComplete": true
+        });
+        let private = private.to_string();
+        let store = omavless_domain::private_store::parse_private_store(&private).unwrap();
+        let projection = store.list_projection();
+        let profiles = success_response("max-profiles", 1, profile_list_json(&projection)).unwrap();
+        let subscriptions =
+            success_response("max-subscriptions", 1, subscription_list_json(&projection)).unwrap();
+        let profiles = encode_response(&profiles).unwrap();
+        let subscriptions = encode_response(&subscriptions).unwrap();
+        assert!(profiles.len() <= MAX_RESPONSE_FRAME_BYTES);
+        assert!(subscriptions.len() <= MAX_RESPONSE_FRAME_BYTES);
+        for output in [&profiles, &subscriptions] {
+            let output = std::str::from_utf8(output).unwrap();
+            for secret in ["vless://", "11111111", "192.0.2.1", "subscription-token"] {
+                assert!(!output.contains(secret));
+            }
+        }
+    }
+
+    #[test]
     fn read_only_unary_api_round_trips() {
         let base = temporary_base("api");
         let paths = RuntimePaths::below(&base);
@@ -984,7 +1140,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
-        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(14)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -997,6 +1153,15 @@ mod tests {
                 .iter()
                 .any(|method| method == "connection.connect")
         );
+        for method in ["profiles.list", "subscriptions.list"] {
+            assert!(
+                capabilities["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|candidate| candidate == method)
+            );
+        }
         assert!(
             capabilities["result"]["methods"]
                 .as_array()
@@ -1008,6 +1173,28 @@ mod tests {
         assert_eq!(withheld["error"]["code"], "unknown_method");
         let status = call(&paths, "status.get", json!({})).unwrap();
         assert_eq!(status["result"]["actual"], "disconnected");
+        let profiles = call(&paths, "profiles.list", json!({})).unwrap();
+        assert_eq!(profiles["result"]["profiles"][0]["id"], PROFILE_ID);
+        assert_eq!(profiles["result"]["profiles"][0]["protocol"], "vless");
+        assert_eq!(profiles["result"]["profiles"][0]["favorite"], false);
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"][0]["profileCount"],
+            0
+        );
+        assert_eq!(subscriptions["result"]["subscriptions"][0]["staleCount"], 0);
+        let rendered = format!("{profiles}{subscriptions}");
+        for private in [
+            "vless://",
+            "11111111",
+            "192.0.2.1",
+            "private.example",
+            "subscription-token",
+        ] {
+            assert!(!rendered.contains(private));
+        }
+        let bad_list = call(&paths, "profiles.list", json!({"extra": true})).unwrap();
+        assert_eq!(bad_list["error"]["code"], "invalid_argument");
 
         let connected = call(
             &paths,
@@ -1038,6 +1225,8 @@ mod tests {
                 .iter()
                 .all(|method| method != "connection.connect")
         );
+        let rejected_list = call(&paths, "profiles.list", json!({})).unwrap();
+        assert_eq!(rejected_list["error"]["code"], "capability_unavailable");
         let rejected = call(
             &paths,
             "connection.disconnect",

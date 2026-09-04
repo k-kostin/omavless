@@ -80,7 +80,7 @@ fn prepare_isolated_daemon_environment(base: &Path) {
 }
 
 #[test]
-fn help_exposes_only_fixed_semantic_mutations() {
+fn help_exposes_only_fixed_semantic_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_omavless"))
         .arg("--help")
         .output()
@@ -91,9 +91,11 @@ fn help_exposes_only_fixed_semantic_mutations() {
     for command in [
         "connect PROFILE_ID [rule|global|direct]",
         "disconnect",
+        "profile list",
         "profile rename PROFILE_ID",
         "profile favorite PROFILE_ID on|off",
         "profile delete PROFILE_ID",
+        "subscription list",
     ] {
         assert!(help.contains(command));
     }
@@ -262,6 +264,14 @@ fn daemon_and_semantic_cli_use_one_private_runtime() {
         assert_eq!(payload["ok"], true);
         assert_eq!(payload["result"]["runtimeOwnership"], false);
         assert!(output.stderr.is_empty());
+    }
+
+    for arguments in [["profile", "list"], ["subscription", "list"]] {
+        let output = isolated_command(&base).args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(payload["error"]["code"], "unknown_method");
+        assert!(output.stderr.starts_with(b"OmaVLESS runtime rejected"));
     }
 
     let second = command(&base, "daemon");

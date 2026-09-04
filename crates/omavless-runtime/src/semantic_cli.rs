@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Fixed semantic CLI mutation mapping for the canonical runtime.
+//! Fixed semantic CLI request mapping for the canonical runtime.
 //!
 //! This is deliberately not a raw method/JSON passthrough. Each accepted
 //! command maps to one exact v1 method and parameter shape which the runtime
 //! validates again. Credential-bearing profile material is never accepted by
 //! this boundary; rename text is supplied through bounded stdin rather than
-//! process argv.
+//! process argv. Read commands return only the runtime's bounded same-user
+//! metadata projections.
 
 use crate::desired::RoutingMode;
 use crate::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
@@ -42,6 +43,26 @@ impl std::error::Error for SemanticCliError {}
 pub struct SemanticRequest {
     method: &'static str,
     params: Value,
+}
+
+/// Map the fixed credential-free list commands to their exact v1 requests.
+/// `None` means the argv belongs to another semantic command family; malformed
+/// UTF-8 still fails before any socket connection.
+pub fn parse_semantic_read(
+    arguments: &[OsString],
+) -> Result<Option<SemanticRequest>, SemanticCliError> {
+    let arguments = utf8(arguments)?;
+    Ok(match arguments.as_slice() {
+        ["profile", "list"] => Some(SemanticRequest {
+            method: "profiles.list",
+            params: json!({}),
+        }),
+        ["subscription", "list"] => Some(SemanticRequest {
+            method: "subscriptions.list",
+            params: json!({}),
+        }),
+        _ => None,
+    })
 }
 
 impl SemanticRequest {
@@ -196,6 +217,29 @@ mod tests {
         assert_eq!(
             parsed(&["profile", "delete", PROFILE], None),
             ("profiles.delete", json!({"profileId": PROFILE}))
+        );
+    }
+
+    #[test]
+    fn read_commands_map_to_exact_runtime_shapes() {
+        assert_eq!(
+            parse_semantic_read(&args(&["profile", "list"]))
+                .unwrap()
+                .unwrap()
+                .into_parts(),
+            ("profiles.list", json!({}))
+        );
+        assert_eq!(
+            parse_semantic_read(&args(&["subscription", "list"]))
+                .unwrap()
+                .unwrap()
+                .into_parts(),
+            ("subscriptions.list", json!({}))
+        );
+        assert!(
+            parse_semantic_read(&args(&["profile", "list", "extra"]))
+                .unwrap()
+                .is_none()
         );
     }
 

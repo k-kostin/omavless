@@ -360,6 +360,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.transaction.desired()
     }
 
+    pub(crate) fn store_path(&self) -> &Path {
+        self.transaction.store_path()
+    }
+
+    pub(crate) const fn uid(&self) -> u32 {
+        self.transaction.uid()
+    }
+
     pub(crate) fn rust_ownership_available(&self) -> bool {
         self.required_ownership.is_some_and(|fence| {
             fence.phase == OwnershipPhase::Rust

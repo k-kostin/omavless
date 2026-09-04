@@ -675,6 +675,15 @@ Subscription CLI dispatch, read projections and QML/backend launcher
 integration remain later checkpoints, so the installed production owner is
 unchanged.
 
+The next bounded read-projection checkpoint adds exact empty-parameter
+`profiles.list` and `subscriptions.list` methods plus fixed `profile list` and
+`subscription list` CLI commands. Only an exact committed Rust owner advertises
+or serves them. Their bounded same-user responses contain opaque record IDs,
+local display labels, protocol/favorite/stale metadata and counts, but no
+profile URI, endpoint, subscription bearer URL, identity key or protocol
+credential. This enables later bridge composition without switching QML or
+making the cutover transaction reachable.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

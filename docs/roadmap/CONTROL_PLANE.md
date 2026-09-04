@@ -205,6 +205,20 @@ versioned and bounded.
 Credential-bearing import/export data never appears in argv, ordinary status,
 logs or event broadcasts. V1 has no generic filesystem-write method.
 
+The first exact v1 list projections use empty parameter objects. A successful
+`profiles.list` result is
+`{"profiles":[{"id", "name", "protocol", "subscriptionId", "missing", "favorite"}], "lastProfileId"}`;
+a successful `subscriptions.list` result is
+`{"subscriptions":[{"id", "name", "updatedAt", "profileCount", "staleCount"}]}`.
+The arrays inherit the canonical store caps of 256 profiles and 64
+subscriptions, names inherit the 80-scalar store bound, and the complete
+response still must fit the ordinary 256-KiB frame cap. IDs and labels are
+private local display metadata released only over the same-user socket; they
+must not be copied to journals or shareable diagnostics. Profile URI,
+endpoint, subscription bearer URL, subscription identity key and protocol
+credentials are absent. These methods are advertised only by an exact
+committed Rust owner; a transition candidate or stale owner fails closed.
+
 ### Subscriptions
 
 - `subscriptions.list` — safe metadata/counts, no bearer URL;

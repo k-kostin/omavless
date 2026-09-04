@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -23,6 +24,46 @@ def project(raw: object) -> dict[str, object]:
     counts = {name: 0 for name in ("vless", "trojan", "hysteria2", "tuic")}
     for profile in store["profiles"]:
         counts[str(profile["protocol"])] += 1
+    subscription_counts = {
+        str(subscription["id"]): {
+            "profileCount": sum(
+                1 for profile in store["profiles"]
+                if profile.get("subscriptionId") == subscription["id"]
+            ),
+            "staleCount": sum(
+                1 for profile in store["profiles"]
+                if profile.get("subscriptionId") == subscription["id"]
+                and bool(profile.get("missing", False))
+            ),
+        }
+        for subscription in store["subscriptions"]
+    }
+    list_projection = {
+        "profiles": [
+            {
+                "id": str(profile["id"]),
+                "name": str(profile["name"]),
+                "protocol": str(profile["protocol"]),
+                "subscriptionId": str(profile.get("subscriptionId", "")),
+                "missing": bool(profile.get("missing", False)),
+                "favorite": bool(profile.get("favorite", False)),
+            }
+            for profile in store["profiles"]
+        ],
+        "subscriptions": [
+            {
+                "id": str(subscription["id"]),
+                "name": str(subscription["name"]),
+                "updatedAt": int(subscription.get("updatedAt", 0)),
+                **subscription_counts[str(subscription["id"])],
+            }
+            for subscription in store["subscriptions"]
+        ],
+        "lastProfileId": str(store["lastId"]),
+    }
+    canonical_list = json.dumps(
+        list_projection, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
     return {
         "accepted": True,
         "version": store["version"],
@@ -35,6 +76,9 @@ def project(raw: object) -> dict[str, object]:
         "customRuleCount": len(store["customRules"]),
         "startupConfigured": store["startupConfigured"],
         "onboardingComplete": store["onboardingComplete"],
+        # Compare exact private display metadata without publishing it from
+        # the differential adapter. Only the one-way digest crosses stdout.
+        "listDigest": hashlib.sha256(canonical_list).hexdigest(),
     }
 
 
