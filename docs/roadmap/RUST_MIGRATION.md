@@ -790,6 +790,13 @@ add fixed CLI commands. The QML/Python production path remains unchanged.
 
 This is the T1 control-plane cutover, not an additional daemon track.
 
+The subscription transport deadline checkpoint gives manual redirects and the
+final body read one shared monotonic budget. An enclosing native job can only
+shorten the fixed provider timeout. This closes a prerequisite for bounded
+refresh-all execution without registering that operation or changing the
+installed Python owner. Loopback tests cover redirect/body deadline exhaustion,
+zero-budget no-I/O and a shortened actual request timeout.
+
 ### R6 — Python runtime retirement / native application gate
 
 Goal: prove that the product no longer requires Python before TUI implementation

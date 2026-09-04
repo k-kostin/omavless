@@ -9,6 +9,9 @@ All notable changes to OmaVLESS are documented here.
   instance-bound projections, exact retry identity, monotonic progress and
   revisions, cooperative cancellation fencing and per-instance FIFO retention.
   No method is yet advertised or scheduled by the runtime.
+- Bound native subscription transport by one total deadline across manual
+  redirects and body reads. A trusted enclosing job may shorten this budget;
+  no remote caller can extend the provider timeout.
 - Added the inactive native refresh-all transaction foundation. It snapshots
   the complete ordered private subscription set, fetches outside store locks,
   bounds aggregate retained URI data, rejects any stale member, and commits all
