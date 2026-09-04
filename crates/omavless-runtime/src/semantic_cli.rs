@@ -58,6 +58,9 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["operation", "get", instance, operation] => Some(long_request(
+            "operations.get", instance, operation, None,
+        )?),
         ["profile", "list"] => Some(SemanticRequest {
             method: "profiles.list",
             params: json!({}),
@@ -79,6 +82,26 @@ impl SemanticRequest {
     pub fn into_parts(self) -> (&'static str, Value) {
         (self.method, self.params)
     }
+}
+
+// Correlation IDs are non-credential identifiers supplied by hello/the caller.
+// Reuse the exact protocol parser; never accept a generic method or JSON argv.
+fn long_request(method: &'static str, instance: &str, operation: &str, revision: Option<&str>)
+    -> Result<SemanticRequest, SemanticCliError> {
+    use crate::long_operation_protocol::{parse_operation_get, parse_operation_cancel, parse_refresh_all_start};
+    let mut params = json!({"instanceId": instance, "operationId": operation});
+    if let Some(revision) = revision {
+        params["expectedRevision"] = json!(revision.parse::<u64>().map_err(|_| SemanticCliError::InvalidArgument)?);
+    }
+    let request = omavless_control_protocol::make_request("semantic-cli", method, params.clone())
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    match method {
+        "subscriptions.refresh_all" => parse_refresh_all_start(&request).map(|_| ()),
+        "operations.get" => parse_operation_get(&request).map(|_| ()),
+        "operations.cancel" => parse_operation_cancel(&request).map(|_| ()),
+        _ => return Err(SemanticCliError::InvalidCommand),
+    }.map_err(|_| SemanticCliError::InvalidArgument)?;
+    Ok(SemanticRequest { method, params })
 }
 
 fn utf8(arguments: &[OsString]) -> Result<Vec<&str>, SemanticCliError> {
@@ -144,6 +167,12 @@ pub fn parse_semantic_mutation(
 ) -> Result<SemanticRequest, SemanticCliError> {
     let arguments = utf8(arguments)?;
     match arguments.as_slice() {
+        ["subscription", "refresh-all", instance, operation] =>
+            long_request("subscriptions.refresh_all", instance, operation, None),
+        ["subscription", "refresh-all", instance, operation, revision] =>
+            long_request("subscriptions.refresh_all", instance, operation, Some(revision)),
+        ["operation", "cancel", instance, operation] =>
+            long_request("operations.cancel", instance, operation, None),
         ["connect", id] => Ok(SemanticRequest {
             method: "connection.connect",
             params: json!({"profileId": record_id(id)?}),
@@ -422,5 +451,28 @@ mod tests {
         let rendered = format!("{error:?} {error}");
         assert!(!rendered.contains("private.example"));
         assert!(!rendered.contains("password"));
+    }
+}
+
+#[cfg(test)]
+mod long_operation_tests {
+    use super::*;
+    fn args(values: &[&str]) -> Vec<OsString> { values.iter().map(OsString::from).collect() }
+
+    #[test]
+    fn maps_only_fixed_long_commands_and_validated_metadata() {
+        let start = parse_semantic_mutation(&args(&["subscription", "refresh-all", "instance-1", "op-1", "7"]), None).unwrap().into_parts();
+        assert_eq!(start.0, "subscriptions.refresh_all");
+        assert_eq!(start.1["expectedRevision"], 7);
+        let get = parse_semantic_read(&args(&["operation", "get", "instance-1", "op-1"])).unwrap().unwrap().into_parts();
+        assert_eq!(get.0, "operations.get");
+        let cancel = parse_semantic_mutation(&args(&["operation", "cancel", "instance-1", "op-1"]), None).unwrap().into_parts();
+        assert_eq!(cancel.0, "operations.cancel");
+        for bad in ["", "has space", "private\nvalue"] {
+            assert!(parse_semantic_mutation(&args(&["subscription", "refresh-all", bad, "op-1"]), None).is_err());
+            assert!(parse_semantic_read(&args(&["operation", "get", "instance-1", bad])).is_err());
+        }
+        assert!(parse_semantic_mutation(&args(&["subscription", "refresh-all", "instance-1", "op-1", "-1"]), None).is_err());
+        assert!(parse_semantic_mutation(&args(&["operations.cancel", "{}"]), None).is_err());
     }
 }
