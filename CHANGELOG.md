@@ -9,6 +9,10 @@ All notable changes to OmaVLESS are documented here.
   instance-bound projections, exact retry identity, monotonic progress and
   revisions, cooperative cancellation fencing and per-instance FIFO retention.
   No method is yet advertised or scheduled by the runtime.
+- Added inactive incremental refresh-all preparation with cooperative
+  cancellation, a fixed whole-job deadline, shared provider-fetch permits and
+  bounded private batch retention. Failed preparation cannot yield a partial
+  commit. Socket scheduling and final owner/operation fencing remain pending.
 - Bound native subscription transport by one total deadline across manual
   redirects and body reads. A trusted enclosing job may shorten this budget;
   no remote caller can extend the provider timeout.
