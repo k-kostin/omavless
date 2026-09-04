@@ -1577,7 +1577,7 @@ Panel {
                     // dimming until hover is for the row actions, which are
                     // many and would otherwise shout over the list. This one
                     // is alone beside the switch and reads as disabled when
-                    // it is merely unhovered. Hover then adds only its fill.
+                    // it is merely unhovered. Hover/focus use the shared role.
                     foreground: hero.foreground
                     bordered: true
                     fontFamily: hero.fontFamily

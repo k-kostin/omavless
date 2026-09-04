@@ -8,6 +8,9 @@ import qs.Commons
 // scaled gutter so the thumb never covers text or shifts it when scrolling.
 ScrollBar {
   id: control
+  // Replacing the style thumb also replaces its auto-hide state machine.
+  // Enforce AsNeeded here so short content never shows a full-height thumb.
+  visible: policy === ScrollBar.AlwaysOn || (policy === ScrollBar.AsNeeded && size < 1)
   hoverEnabled: true
   implicitWidth: Style.space(12)
   minimumSize: Math.min(1, Style.space(24) / Math.max(1, availableHeight))
