@@ -4,7 +4,7 @@ use nix::unistd::Uid;
 use omavless_runtime::desired::{DesiredPaths, read_desired};
 use omavless_runtime::production_observation::current_cutover_preflight;
 use omavless_runtime::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
-use omavless_runtime::semantic_cli::parse_semantic_mutation;
+use omavless_runtime::semantic_cli::{parse_semantic_mutation, parse_semantic_read};
 use omavless_runtime::store_preflight::current_store_preflight;
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
 use serde_json::json;
@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  preflight\n  store-preflight\n  cutover-preflight";
+const USAGE: &str = "Usage: omavless COMMAND\n\nCommands:\n  daemon\n  hello\n  status\n  capabilities\n  connect PROFILE_ID [rule|global|direct]\n  disconnect\n  profile list\n  profile rename PROFILE_ID       read the new name from stdin\n  profile favorite PROFILE_ID on|off\n  profile delete PROFILE_ID\n  subscription list\n  preflight\n  store-preflight\n  cutover-preflight";
 
 fn read_rename_input() -> Result<String, String> {
     let mut bytes = Vec::new();
@@ -105,13 +105,18 @@ fn run() -> Result<(), String> {
     } else if arguments == ["capabilities"] {
         ("capabilities.get", json!({}))
     } else {
-        let rename_input =
-            (arguments.len() == 3 && arguments[0] == "profile" && arguments[1] == "rename")
-                .then(read_rename_input)
-                .transpose()?;
-        parse_semantic_mutation(&arguments, rename_input.as_deref())
-            .map_err(|error| error.to_string())?
-            .into_parts()
+        match parse_semantic_read(&arguments).map_err(|error| error.to_string())? {
+            Some(request) => request.into_parts(),
+            None => {
+                let rename_input =
+                    (arguments.len() == 3 && arguments[0] == "profile" && arguments[1] == "rename")
+                        .then(read_rename_input)
+                        .transpose()?;
+                parse_semantic_mutation(&arguments, rename_input.as_deref())
+                    .map_err(|error| error.to_string())?
+                    .into_parts()
+            }
+        }
     };
     let response = call(&paths, method, params).map_err(|error| error.to_string())?;
     println!(

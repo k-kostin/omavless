@@ -3,8 +3,11 @@
 //! Read-only validation and projection of the current private Python store.
 //!
 //! Values in this module include reusable credentials. They deliberately do
-//! not implement `Debug` or serialization. Callers may publish only
-//! [`StoreProjection`], which contains counts and booleans.
+//! not implement `Debug` or serialization. Shareable diagnostics may publish
+//! only [`StoreProjection`], which contains counts and booleans.
+//! [`StoreListProjection`] additionally releases bounded labels and opaque IDs
+//! only to the private same-user UI control path; it is never shareable
+//! diagnostic output.
 
 use crate::config::{ConfigError, MAX_TEMPLATE_BYTES, assemble_runtime_config};
 use crate::import::valid_subscription_url;
@@ -144,6 +147,114 @@ pub struct StoreProjection {
     pub custom_rule_count: usize,
     pub startup_configured: bool,
     pub onboarding_complete: bool,
+}
+
+/// Bounded local display metadata for one profile. The record label and IDs
+/// are private user metadata, so this type deliberately has no `Debug` or
+/// serialization implementation. It never contains the profile URI, endpoint
+/// or protocol credentials.
+pub struct ProfileListItem {
+    id: String,
+    name: String,
+    protocol: Protocol,
+    subscription_id: String,
+    missing: bool,
+    favorite: bool,
+}
+
+impl ProfileListItem {
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn protocol(&self) -> Protocol {
+        self.protocol
+    }
+
+    #[must_use]
+    pub fn subscription_id(&self) -> &str {
+        &self.subscription_id
+    }
+
+    #[must_use]
+    pub const fn missing(&self) -> bool {
+        self.missing
+    }
+
+    #[must_use]
+    pub const fn favorite(&self) -> bool {
+        self.favorite
+    }
+}
+
+/// Bounded local display metadata for one subscription. Its bearer URL is
+/// intentionally absent. Labels and opaque IDs remain private user metadata,
+/// so this type also cannot be formatted or serialized generically.
+pub struct SubscriptionListItem {
+    id: String,
+    name: String,
+    updated_at: u64,
+    profile_count: usize,
+    stale_count: usize,
+}
+
+impl SubscriptionListItem {
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn updated_at(&self) -> u64 {
+        self.updated_at
+    }
+
+    #[must_use]
+    pub const fn profile_count(&self) -> usize {
+        self.profile_count
+    }
+
+    #[must_use]
+    pub const fn stale_count(&self) -> usize {
+        self.stale_count
+    }
+}
+
+/// Exact private-socket list projection. Only fixed accessors can release its
+/// local display metadata to the same-user frontend bridge.
+pub struct StoreListProjection {
+    profiles: Vec<ProfileListItem>,
+    subscriptions: Vec<SubscriptionListItem>,
+    last_profile_id: String,
+}
+
+impl StoreListProjection {
+    #[must_use]
+    pub fn profiles(&self) -> &[ProfileListItem] {
+        &self.profiles
+    }
+
+    #[must_use]
+    pub fn subscriptions(&self) -> &[SubscriptionListItem] {
+        &self.subscriptions
+    }
+
+    #[must_use]
+    pub fn last_profile_id(&self) -> &str {
+        &self.last_profile_id
+    }
 }
 
 /// One exact profile-store mutation. It deliberately has no formatting or
@@ -834,6 +945,49 @@ impl PrivateStore {
             custom_rule_count: self.custom_rules.len(),
             startup_configured: self.startup_configured,
             onboarding_complete: self.onboarding_complete,
+        }
+    }
+
+    /// Project only metadata required by local profile/subscription list
+    /// clients. Reusable connection and subscription credentials are never
+    /// copied into the returned value.
+    #[must_use]
+    pub fn list_projection(&self) -> StoreListProjection {
+        let profiles = self
+            .profiles
+            .iter()
+            .map(|profile| ProfileListItem {
+                id: profile.id.clone(),
+                name: profile.name.clone(),
+                protocol: profile.canonical.protocol(),
+                subscription_id: profile.subscription_id.clone(),
+                missing: profile.missing,
+                favorite: profile.favorite,
+            })
+            .collect();
+        let subscriptions = self
+            .subscriptions
+            .iter()
+            .map(|subscription| {
+                let managed = self
+                    .profiles
+                    .iter()
+                    .filter(|profile| profile.subscription_id == subscription.id);
+                let profile_count = managed.clone().count();
+                let stale_count = managed.filter(|profile| profile.missing).count();
+                SubscriptionListItem {
+                    id: subscription.id.clone(),
+                    name: subscription.name.clone(),
+                    updated_at: subscription.updated_at,
+                    profile_count,
+                    stale_count,
+                }
+            })
+            .collect();
+        StoreListProjection {
+            profiles,
+            subscriptions,
+            last_profile_id: self.last_id.clone(),
         }
     }
 
@@ -1941,6 +2095,51 @@ mod tests {
             .unwrap();
         assert!(direct.contains("\nmode: direct\n"));
         assert!(!direct.contains("\nmode: rule\n"));
+    }
+
+    #[test]
+    fn list_projection_contains_display_metadata_but_no_reusable_credentials() {
+        let input = store(PRIVATE_URI, "vless");
+        let projection = parse_private_store(&input).unwrap().list_projection();
+        assert_eq!(projection.last_profile_id(), PROFILE_ID);
+        assert_eq!(projection.profiles().len(), 1);
+        let profile = &projection.profiles()[0];
+        assert_eq!(profile.id(), PROFILE_ID);
+        assert_eq!(profile.name(), "Synthetic");
+        assert_eq!(profile.protocol(), Protocol::Vless);
+        assert_eq!(profile.subscription_id(), SUBSCRIPTION_ID);
+        assert!(profile.favorite());
+        assert!(!profile.missing());
+
+        assert_eq!(projection.subscriptions().len(), 1);
+        let subscription = &projection.subscriptions()[0];
+        assert_eq!(subscription.id(), SUBSCRIPTION_ID);
+        assert_eq!(subscription.name(), "Synthetic source");
+        assert_eq!(subscription.updated_at(), 1);
+        assert_eq!(subscription.profile_count(), 1);
+        assert_eq!(subscription.stale_count(), 0);
+
+        let public = serde_json::json!({
+            "profiles": projection.profiles().iter().map(|item| serde_json::json!({
+                "id": item.id(),
+                "name": item.name(),
+                "protocol": item.protocol().as_str(),
+                "subscriptionId": item.subscription_id(),
+                "missing": item.missing(),
+                "favorite": item.favorite()
+            })).collect::<Vec<_>>(),
+            "subscriptions": projection.subscriptions().iter().map(|item| serde_json::json!({
+                "id": item.id(),
+                "name": item.name(),
+                "updatedAt": item.updated_at(),
+                "profileCount": item.profile_count(),
+                "staleCount": item.stale_count()
+            })).collect::<Vec<_>>()
+        })
+        .to_string();
+        for private in ["vless://", "11111111", "203.0.113.1", "https://"] {
+            assert!(!public.contains(private));
+        }
     }
 
     #[test]

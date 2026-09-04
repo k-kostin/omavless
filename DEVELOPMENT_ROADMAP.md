@@ -615,6 +615,13 @@ stdin, and deliberately exposes no raw method/JSON passthrough. It does not add
 subscription commands, connect QML/backend launchers, or make cutover
 reachable.
 
+The current bounded read-projection checkpoint adds exact `profiles.list` and
+`subscriptions.list` socket methods plus fixed semantic CLI commands. It
+releases only capped same-user display metadata and counts, never profile URIs,
+endpoints, subscription bearer URLs, identity keys or protocol credentials.
+Only an exact committed Rust owner advertises the methods. QML remains on the
+Python production path and the cutover transaction remains unreachable.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
@@ -871,9 +878,9 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Attach the fixed-purpose production transaction host to PR #139's accepted
-generation-fenced handoff, then prove its crash/fault matrix and plugin bridge
-without exposing arbitrary service/process control. Execute the controlled
-cutover only after those gates. Keep V0 / PR #30 Draft and
+**Finish the fixed semantic frontend bridge and prove the accepted production
+transaction host's crash/fault matrix without exposing arbitrary
+service/process control. Execute the controlled cutover only after those
+gates. Keep V0 / PR #30 Draft and
 fixture-constrained, retire the Python runtime only at R6, and begin the
 Ratatui TUI only after that gate.**

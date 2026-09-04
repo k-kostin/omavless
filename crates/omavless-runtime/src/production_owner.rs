@@ -20,6 +20,8 @@ use crate::native_host::{NativeHostPaths, NativeLifecycleHost};
 use crate::subscription_transport::SubscriptionTransport;
 use nix::unistd::Uid;
 use omavless_control_protocol::ProtocolError;
+use omavless_domain::private_store::{StoreListProjection, parse_private_store};
+use omavless_store::read_private_utf8;
 use serde_json::Value;
 use std::fmt;
 use std::path::Path;
@@ -217,6 +219,16 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.coordinator
             .desired()
             .map_err(|_| ProductionOwnerError::RecoveryFailed)
+    }
+
+    /// Read the current private store and release only the bounded metadata
+    /// projection accepted for the same-user frontend control socket.
+    pub(crate) fn list_projection(&self) -> Result<StoreListProjection, ProductionOwnerError> {
+        let input = read_private_utf8(self.coordinator.store_path(), self.coordinator.uid())
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let store =
+            parse_private_store(&input).map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        Ok(store.list_projection())
     }
 
     pub(crate) fn rust_ownership_available(&mut self) -> bool {

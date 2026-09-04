@@ -3,6 +3,7 @@
 use omavless_domain::private_store::{StoreProjection, parse_private_store};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -45,6 +46,8 @@ struct Outcome {
     startup_configured: bool,
     #[serde(default)]
     onboarding_complete: bool,
+    #[serde(default)]
+    list_digest: String,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
@@ -92,6 +95,7 @@ fn accepted(projection: StoreProjection) -> Outcome {
         custom_rule_count: projection.custom_rule_count,
         startup_configured: projection.startup_configured,
         onboarding_complete: projection.onboarding_complete,
+        list_digest: String::new(),
     }
 }
 
@@ -108,7 +112,31 @@ fn rejected() -> Outcome {
         custom_rule_count: 0,
         startup_configured: false,
         onboarding_complete: false,
+        list_digest: String::new(),
     }
+}
+
+fn list_digest(store: &omavless_domain::private_store::StoreListProjection) -> String {
+    let value = serde_json::json!({
+        "profiles": store.profiles().iter().map(|profile| serde_json::json!({
+            "id": profile.id(),
+            "name": profile.name(),
+            "protocol": profile.protocol().as_str(),
+            "subscriptionId": profile.subscription_id(),
+            "missing": profile.missing(),
+            "favorite": profile.favorite()
+        })).collect::<Vec<_>>(),
+        "subscriptions": store.subscriptions().iter().map(|subscription| serde_json::json!({
+            "id": subscription.id(),
+            "name": subscription.name(),
+            "updatedAt": subscription.updated_at(),
+            "profileCount": subscription.profile_count(),
+            "staleCount": subscription.stale_count()
+        })).collect::<Vec<_>>(),
+        "lastProfileId": store.last_profile_id()
+    });
+    let digest = Sha256::digest(serde_json::to_vec(&value).unwrap());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[test]
@@ -141,7 +169,12 @@ fn python_and_rust_private_store_projection_match() {
         assert_eq!(case.id, expected.id);
         let encoded = serde_json::to_string(&case.store).unwrap();
         let rust = parse_private_store(&encoded)
-            .map(|store| accepted(store.projection()))
+            .map(|store| {
+                let digest = list_digest(&store.list_projection());
+                let mut outcome = accepted(store.projection());
+                outcome.list_digest = digest;
+                outcome
+            })
             .unwrap_or_else(|_| rejected());
         assert_eq!(rust, expected.outcome, "differential {}", case.id);
     }
