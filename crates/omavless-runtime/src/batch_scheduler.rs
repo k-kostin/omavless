@@ -8,7 +8,9 @@ use crate::native_coordinator::{NativeBatchTicket, NativeSubscriptionBatch};
 use crate::subscription_batch_work::BatchWorkStep;
 
 pub(super) const METHODS: &[&str] = &[
-    "subscriptions.refresh_all", "operations.get", "operations.cancel",
+    "subscriptions.refresh_all",
+    "operations.get",
+    "operations.cancel",
 ];
 
 pub(super) struct BatchWork {
@@ -33,7 +35,8 @@ impl Drop for Supervisor {
     fn drop(&mut self) {
         if let Some(ticket) = self.ticket.take()
             && let Ok(mut dispatcher) = self.dispatcher.lock()
-            && let RuntimeDispatcher::Native(owner) = &mut *dispatcher {
+            && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+        {
             owner.batch_abort(ticket);
         }
     }
@@ -60,32 +63,57 @@ impl BatchScheduler {
             return error_response(id, 0, StableErrorCode::UnknownMethod, false, None);
         };
         if self.stopping.load(Ordering::Acquire) {
-            return error_response(id, owner.revision(), StableErrorCode::DaemonRestarting, true, None);
+            return error_response(
+                id,
+                owner.revision(),
+                StableErrorCode::DaemonRestarting,
+                true,
+                None,
+            );
         }
         let (projection, work) = match owner.batch_control(request, instance) {
             Ok(result) => result,
-            Err(error) => return error_response(id, owner.revision(), error.stable_code(),
-                error.stable_code() == StableErrorCode::Busy, None),
+            Err(error) => {
+                return error_response(
+                    id,
+                    owner.revision(),
+                    error.stable_code(),
+                    error.stable_code() == StableErrorCode::Busy,
+                    None,
+                );
+            }
         };
         let revision = owner.revision();
         drop(owner_guard);
         if let Some(work) = work {
             // A new job can only be admitted after its predecessor terminalized
             // under the owner mutex. The predecessor has no remaining I/O.
-            if let Some(previous) = worker.take() { let _ = previous.join(); }
+            if let Some(previous) = worker.take() {
+                let _ = previous.join();
+            }
             let supervisor = Supervisor {
                 dispatcher: Arc::clone(dispatcher),
                 ticket: Some(work.job.supervisor_ticket()),
             };
             let stopping = Arc::clone(&self.stopping);
             let pool = pool.clone();
-            match thread::Builder::new().name("omavless-batch".to_owned()).spawn(move || {
-                run(work, supervisor, &stopping, &pool);
-            }) {
+            match thread::Builder::new()
+                .name("omavless-batch".to_owned())
+                .spawn(move || {
+                    run(work, supervisor, &stopping, &pool);
+                }) {
                 Ok(handle) => *worker = Some(handle),
                 // Failed spawn drops the captured supervisor, terminalizing the
                 // admitted operation without a detached/lost private payload.
-                Err(_) => return error_response(id, revision, StableErrorCode::InternalError, false, None),
+                Err(_) => {
+                    return error_response(
+                        id,
+                        revision,
+                        StableErrorCode::InternalError,
+                        false,
+                        None,
+                    );
+                }
             }
         }
         success_response(id, revision, projection)
@@ -96,10 +124,13 @@ impl BatchScheduler {
         // Same lock order as admission. The worker only takes dispatcher.
         if let Ok(mut worker) = self.worker.lock() {
             if let Ok(mut dispatcher) = dispatcher.lock()
-                && let RuntimeDispatcher::Native(owner) = &mut *dispatcher {
+                && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+            {
                 owner.batch_stop();
             }
-            if let Some(worker) = worker.take() { let _ = worker.join(); }
+            if let Some(worker) = worker.take() {
+                let _ = worker.join();
+            }
         }
     }
 }
@@ -111,20 +142,36 @@ fn run(
     pool: &remote_fetch::RemoteFetchPool,
 ) {
     loop {
-        if stopping.load(Ordering::Acquire) { return; }
-        {
-            let Ok(mut dispatcher) = supervisor.dispatcher.lock() else { return; };
-            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else { return; };
-            if !owner.batch_progress(&work.job) { return; }
+        if stopping.load(Ordering::Acquire) {
+            return;
         }
-        let step = work.job.step(&work.transport, pool, &mut || work.record_ids.next());
+        {
+            let Ok(mut dispatcher) = supervisor.dispatcher.lock() else {
+                return;
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return;
+            };
+            if !owner.batch_progress(&work.job) {
+                return;
+            }
+        }
+        let step = work
+            .job
+            .step(&work.transport, pool, &mut || work.record_ids.next());
         match step {
             Ok(BatchWorkStep::Busy) => thread::sleep(Duration::from_millis(20)),
             Ok(BatchWorkStep::Advanced) => {}
             Ok(BatchWorkStep::Ready) | Err(_) => {
-                let Ok(mut dispatcher) = supervisor.dispatcher.lock() else { return; };
-                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else { return; };
-                if stopping.load(Ordering::Acquire) { owner.batch_stop(); }
+                let Ok(mut dispatcher) = supervisor.dispatcher.lock() else {
+                    return;
+                };
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    return;
+                };
+                if stopping.load(Ordering::Acquire) {
+                    owner.batch_stop();
+                }
                 owner.batch_finish(work.job);
                 supervisor.ticket = None;
                 return;
