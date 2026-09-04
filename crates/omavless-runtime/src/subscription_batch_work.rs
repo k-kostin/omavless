@@ -547,9 +547,13 @@ mod tests {
         let (snapshot, updates) = job.into_prepared().unwrap().into_parts().unwrap();
         let mut changed: serde_json::Value = serde_json::from_str(&original).unwrap();
         changed["subscriptions"][1]["url"] = json!("https://replacement.invalid/private");
-        assert!(apply_subscription_refresh_batch(&changed.to_string(), snapshot, updates, 9).is_err());
+        assert!(
+            apply_subscription_refresh_batch(&changed.to_string(), snapshot, updates, 9).is_err()
+        );
 
-        let mut empty = work(0, &BatchCancellation::default()).into_prepared().unwrap();
+        let mut empty = work(0, &BatchCancellation::default())
+            .into_prepared()
+            .unwrap();
         empty.deadline = Instant::now();
         assert!(matches!(empty.into_parts(), Err(BatchWorkError::Deadline)));
     }
