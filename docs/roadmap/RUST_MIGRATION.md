@@ -725,6 +725,15 @@ revision and makes that fetched result conflict. Fixed CLI add/update commands
 take the private name and URL as two bounded stdin lines rather than argv. The
 installed Python/QML path and cutover reachability remain unchanged.
 
+The inactive Arch payload checkpoint provides a deterministic package-build
+boundary for an already-built `omavless` executable, the fixed hardened user
+unit, licenses and package documentation. It writes only below an explicit
+absolute non-symlink package root, fixes artifact modes and rejects unsafe
+destinations. It never builds from the marketplace plugin, invokes a package
+manager, enables/starts a unit, edits ownership/private state or touches a
+tunnel. Product/plugin version 0.7.0 and the pre-release native workspace
+version 0.1.0 therefore remain distinct; no 0.8.0 release is implied.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;

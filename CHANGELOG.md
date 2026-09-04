@@ -4,6 +4,12 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added an inert Arch package-payload staging boundary for the pre-release
+  native runtime: it installs only a prebuilt `omavless` executable, the fixed
+  hardened user unit, licenses and packaging documentation into an explicit
+  package root. It never builds during marketplace plugin installation,
+  enables or starts a service, changes ownership state or touches a tunnel;
+  QML and Python remain the production path until the R5 cutover gate.
 - Recognize signed Amnezia API/subscription `vpn://` keys at the Rust import
   boundary and reject them with a fixed credential-safe compatibility result;
   OmaVLESS does not contact the embedded provider service or expose its API key.

@@ -659,6 +659,15 @@ bounded decode and atomic commit; a concurrent disconnect therefore wins and
 the stale subscription result is rejected. QML and installed production
 ownership remain unchanged.
 
+The inactive Arch payload checkpoint stages an already-built, locked
+`omavless` executable, the fixed `omavless-runtime.service` user unit, licenses
+and package documentation into an explicit package root with exact paths and
+modes. The stager refuses live `/`, relative or symlinked roots and has no
+package-manager, service activation, ownership-marker, private-store or tunnel
+behavior. It does not change the 0.7.0 marketplace plugin, start the native
+daemon or make cutover reachable; native workspace version 0.1.0 remains a
+pre-release implementation identity.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
