@@ -2171,23 +2171,35 @@ mod tests {
         let (release, wait) = mpsc::channel();
         let worker = std::thread::spawn(move || {
             let result = job.step(
-                &PausedTransport { started, release: wait },
+                &PausedTransport {
+                    started,
+                    release: wait,
+                },
                 &crate::remote_fetch::RemoteFetchPool::default(),
                 &mut || panic!("failed fetch generated IDs"),
             );
             (job, result)
         });
         let began = ready.recv_timeout(Duration::from_secs(5));
-        let status = owner.subscription_batch_status(&batch_request("operations.get", "concurrent"));
-        let cancelled = owner.cancel_subscription_batch(&batch_request("operations.cancel", "concurrent"));
+        let status =
+            owner.subscription_batch_status(&batch_request("operations.get", "concurrent"));
+        let cancelled =
+            owner.cancel_subscription_batch(&batch_request("operations.cancel", "concurrent"));
         // Release/join before assertions so failures cannot leave a blocked worker.
         let _ = release.send(());
         let (job, result) = worker.join().unwrap();
         assert!(began.is_ok());
         assert!(status.is_ok());
         assert_eq!(cancelled, Ok(true));
-        assert_eq!(result, Err(crate::subscription_batch_work::BatchWorkError::Cancelled));
-        assert!(owner.complete_subscription_batch(job, || panic!("cancel read clock")).is_err());
+        assert_eq!(
+            result,
+            Err(crate::subscription_batch_work::BatchWorkError::Cancelled)
+        );
+        assert!(
+            owner
+                .complete_subscription_batch(job, || panic!("cancel read clock"))
+                .is_err()
+        );
         assert_eq!(batch_status(&owner, "concurrent")["state"], "cancelled");
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(owner.revision(), 1);
@@ -2219,5 +2231,4 @@ mod tests {
         assert_eq!(owner.revision(), 2);
         fs::remove_dir_all(root).unwrap();
     }
-
 }

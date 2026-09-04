@@ -300,7 +300,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if state.instance != ticket.instance
             || state.active.as_ref().map(|entry| entry.0) != Some(ticket.token)
         {
-            return Err(NativeOwnerError::LongOperation(LongOperationError::NotFound));
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::NotFound,
+            ));
         }
         let (token, flag) = state.active.take().ok_or(NativeOwnerError::Invariant)?;
         flag.request();
