@@ -684,6 +684,14 @@ profile URI, endpoint, subscription bearer URL, identity key or protocol
 credential. This enables later bridge composition without switching QML or
 making the cutover transaction reachable.
 
+The next fixed production-host fault-matrix checkpoint joins the pure
+transaction matrix with real test adapters for the two fixed user services,
+private runtime socket, exact candidate replies, desired state, ownership
+marker and frontend bridge. It proves rollback after runtime-start failure,
+wrong bootstrap generation and inconsistent status, while an uncertain native
+stop preserves the preparing blocker for manual recovery. No public cutover
+entry point or installed-owner switch is added.
+
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;
 - one mutation queue;
