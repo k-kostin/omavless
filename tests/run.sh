@@ -17,6 +17,7 @@ python3 -m unittest -v \
   "$here/test_vless_canonical_parity.py"
 if command -v node >/dev/null 2>&1; then
   node "$here/test-i18n.js"
+  node "$here/test-panel-search.js"
 else
   echo "node unavailable: i18n runtime tests not run" >&2
   exit 1

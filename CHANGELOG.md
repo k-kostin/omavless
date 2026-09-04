@@ -20,6 +20,10 @@ All notable changes to OmaVLESS are documented here.
   instance-bound projections, exact retry identity, monotonic progress and
   revisions, cooperative cancellation fencing and per-instance FIFO retention.
   No method is yet advertised or scheduled by the runtime.
+- Keep an active profile search editable after refresh/delete reduces the profile
+  count below eight. `/` opens search even for a small/empty list; Escape clears
+  the query and then returns to panel navigation without changing VPN state.
+
 - Added the inactive native refresh-all transaction foundation. It snapshots
   the complete ordered private subscription set, fetches outside store locks,
   bounds aggregate retained URI data, rejects any stale member, and commits all
