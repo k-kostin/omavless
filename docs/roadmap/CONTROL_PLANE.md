@@ -252,6 +252,19 @@ commit. The success result is only `{"accepted":true}`; clients obtain updated
 bounded metadata through `subscriptions.list`. `subscriptions.refresh_all`
 remains a separate later scheduling contract.
 
+The inactive native refresh-all store foundation snapshots the complete
+ordered `(id, url, updatedAt)` set, performs sequential bounded provider work
+outside both the owner and migration lock, then revalidates that complete set
+before one all-or-nothing atomic replacement. Concurrent label-only and
+unrelated store edits are preserved; membership, order, URL or refresh-token
+changes reject the entire stale batch. All members receive one monotonic
+refresh timestamp. Retained decoded URI data across the batch is capped at the
+private-store size bound, and an empty set performs no fetch, time read or
+write. This foundation is not a live method: a refresh of up to 64 providers
+cannot fit the current five-second unary deadline. Socket/CLI advertisement
+therefore remains disabled until v1 defines a bounded start/poll/cancel
+long-operation contract with safe retry identity and ownership fencing.
+
 ### Connection and routing
 
 - `connection.connect` with opaque profile ID and optional mode;
