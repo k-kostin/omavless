@@ -242,8 +242,14 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
-    fn batch_control(&mut self, request: &Value, instance: &str)
-        -> std::result::Result<(Value, Option<batch_scheduler::BatchWork>), native_coordinator::NativeOwnerError>;
+    fn batch_control(
+        &mut self,
+        request: &Value,
+        instance: &str,
+    ) -> std::result::Result<
+        (Value, Option<batch_scheduler::BatchWork>),
+        native_coordinator::NativeOwnerError,
+    >;
     fn batch_progress(&mut self, job: &native_coordinator::NativeSubscriptionBatch) -> bool;
     fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
@@ -278,15 +284,23 @@ trait NativeRuntimeOwner: Send {
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
 }
 
-trait NativeSubscriptionTransport: subscription_transport::SubscriptionTransport
-    + subscription_batch_work::BudgetedSubscriptionTransport + Send + Sync {}
-impl<T> NativeSubscriptionTransport for T where T: subscription_transport::SubscriptionTransport
-    + subscription_batch_work::BudgetedSubscriptionTransport + Send + Sync {}
+trait NativeSubscriptionTransport:
+    subscription_transport::SubscriptionTransport
+    + subscription_batch_work::BudgetedSubscriptionTransport
+    + Send
+    + Sync
+{
+}
+impl<T> NativeSubscriptionTransport for T where
+    T: subscription_transport::SubscriptionTransport
+        + subscription_batch_work::BudgetedSubscriptionTransport
+        + Send
+        + Sync
+{
+}
 
 #[derive(Clone)]
-struct SharedSubscriptionTransport(
-    Arc<dyn NativeSubscriptionTransport>,
-);
+struct SharedSubscriptionTransport(Arc<dyn NativeSubscriptionTransport>);
 
 impl subscription_transport::SubscriptionTransport for SharedSubscriptionTransport {
     fn fetch(
@@ -301,7 +315,11 @@ impl subscription_transport::SubscriptionTransport for SharedSubscriptionTranspo
 }
 
 impl subscription_batch_work::BudgetedSubscriptionTransport for SharedSubscriptionTransport {
-    fn fetch_with_budget(&self, url: &str, budget: Duration) -> std::result::Result<
+    fn fetch_with_budget(
+        &self,
+        url: &str,
+        budget: Duration,
+    ) -> std::result::Result<
         omavless_domain::subscription_feed::PrivateSubscriptionBody,
         subscription_transport::SubscriptionTransportError,
     > {
@@ -421,10 +439,18 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
-    fn batch_control(&mut self, request: &Value, instance: &str)
-        -> std::result::Result<(Value, Option<batch_scheduler::BatchWork>), native_coordinator::NativeOwnerError> {
+    fn batch_control(
+        &mut self,
+        request: &Value,
+        instance: &str,
+    ) -> std::result::Result<
+        (Value, Option<batch_scheduler::BatchWork>),
+        native_coordinator::NativeOwnerError,
+    > {
         use native_coordinator::NativeOwnerError;
-        if request["method"] == "subscriptions.refresh_all" && !self.owner.rust_ownership_available() {
+        if request["method"] == "subscriptions.refresh_all"
+            && !self.owner.rust_ownership_available()
+        {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         let coordinator = self.owner.batch_coordinator();
@@ -433,17 +459,30 @@ where
             self.batch_initialized = true;
         }
         let (job, accepted) = match request["method"].as_str() {
-            Some("subscriptions.refresh_all") => (coordinator.start_subscription_batch(request)?, None),
-            Some("operations.cancel") => (None, Some(coordinator.cancel_subscription_batch(request)?)),
-            Some("operations.get") => return Ok((coordinator.subscription_batch_status(request)?, None)),
+            Some("subscriptions.refresh_all") => {
+                (coordinator.start_subscription_batch(request)?, None)
+            }
+            Some("operations.cancel") => {
+                (None, Some(coordinator.cancel_subscription_batch(request)?))
+            }
+            Some("operations.get") => {
+                return Ok((coordinator.subscription_batch_status(request)?, None));
+            }
             _ => return Err(NativeOwnerError::Invariant),
         };
-        let lookup = make_request("batch-projection", "operations.get", json!({
-            "instanceId": request["params"]["instanceId"],
-            "operationId": request["params"]["operationId"]
-        })).map_err(|_| NativeOwnerError::Invariant)?;
+        let lookup = make_request(
+            "batch-projection",
+            "operations.get",
+            json!({
+                "instanceId": request["params"]["instanceId"],
+                "operationId": request["params"]["operationId"]
+            }),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
         let mut result = coordinator.subscription_batch_status(&lookup)?;
-        if let Some(accepted) = accepted { result["accepted"] = json!(accepted); }
+        if let Some(accepted) = accepted {
+            result["accepted"] = json!(accepted);
+        }
         let job = job.map(|job| batch_scheduler::BatchWork {
             job,
             transport: self.transport.clone(),
@@ -454,18 +493,31 @@ where
 
     fn batch_progress(&mut self, job: &native_coordinator::NativeSubscriptionBatch) -> bool {
         self.owner.rust_ownership_available()
-            && self.owner.batch_coordinator().publish_subscription_batch_progress(job).is_ok()
+            && self
+                .owner
+                .batch_coordinator()
+                .publish_subscription_batch_progress(job)
+                .is_ok()
     }
 
     fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch) {
-        let _ = self.owner.batch_coordinator().complete_subscription_batch(job, || {
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default()
-                .as_millis().min(u128::from(u64::MAX)) as u64
-        });
+        let _ = self
+            .owner
+            .batch_coordinator()
+            .complete_subscription_batch(job, || {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64
+            });
     }
 
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket) {
-        let _ = self.owner.batch_coordinator().abort_subscription_batch(ticket);
+        let _ = self
+            .owner
+            .batch_coordinator()
+            .abort_subscription_batch(ticket);
     }
 
     fn batch_stop(&mut self) {
@@ -805,7 +857,12 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         if batch_scheduler::METHODS.contains(&request["method"].as_str().unwrap_or_default()) {
-            return self.batch_scheduler.dispatch(request, &self.instance_id, &self.dispatcher, &self.remote_fetches);
+            return self.batch_scheduler.dispatch(
+                request,
+                &self.instance_id,
+                &self.dispatcher,
+                &self.remote_fetches,
+            );
         }
         if matches!(
             request["method"].as_str(),
@@ -931,7 +988,7 @@ impl RuntimeServer {
                     subscription_transport::HttpsSubscriptionTransport::new(),
                 )),
                 record_ids: RecordIdGenerator::new(&self.instance_id),
-            batch_initialized: false,
+                batch_initialized: false,
             };
             *dispatcher = RuntimeDispatcher::Native(Box::new(registered));
         }
@@ -1086,7 +1143,12 @@ fn dispatch_native(
                         .into_iter()
                         .flatten(),
                 )
-                .chain(runtime_ownership.then_some(batch_scheduler::METHODS).into_iter().flatten())
+                .chain(
+                    runtime_ownership
+                        .then_some(batch_scheduler::METHODS)
+                        .into_iter()
+                        .flatten(),
+                )
                 .copied()
                 .collect();
             json!({
@@ -1210,7 +1272,11 @@ mod tests {
     }
 
     impl subscription_batch_work::BudgetedSubscriptionTransport for BlockingTransport {
-        fn fetch_with_budget(&self, url: &str, _budget: Duration) -> std::result::Result<
+        fn fetch_with_budget(
+            &self,
+            url: &str,
+            _budget: Duration,
+        ) -> std::result::Result<
             omavless_domain::subscription_feed::PrivateSubscriptionBody,
             subscription_transport::SubscriptionTransportError,
         > {
@@ -1547,9 +1613,18 @@ mod tests {
     }
 
     fn batch_call(server: &RuntimeServer, method: &str, operation: &str) -> Value {
-        server.dispatch(&make_request("batch-test", method, json!({
-            "instanceId": server.instance_id, "operationId": operation
-        })).unwrap()).unwrap()
+        server
+            .dispatch(
+                &make_request(
+                    "batch-test",
+                    method,
+                    json!({
+                        "instanceId": server.instance_id, "operationId": operation
+                    }),
+                )
+                .unwrap(),
+            )
+            .unwrap()
     }
 
     fn wait_batch(server: &RuntimeServer, operation: &str) -> Value {
@@ -1557,8 +1632,13 @@ mod tests {
         loop {
             let response = batch_call(server, "operations.get", operation);
             let state = response["result"]["operation"]["state"].as_str().unwrap();
-            if matches!(state, "succeeded" | "failed" | "cancelled") { return response; }
-            assert!(std::time::Instant::now() < deadline, "batch did not terminalize");
+            if matches!(state, "succeeded" | "failed" | "cancelled") {
+                return response;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "batch did not terminalize"
+            );
             thread::sleep(Duration::from_millis(5));
         }
     }
@@ -1574,16 +1654,28 @@ mod tests {
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let mut server = RuntimeServer::bind(paths.clone()).unwrap();
         let instance = server.instance_id.clone();
-        server.register_native_owner(owner, BlockingTransport { started: started_tx, release: Mutex::new(release_rx) });
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
         let params = json!({"instanceId": instance, "operationId": "batch-1"});
         let started = std::time::Instant::now();
-        assert_eq!(call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"], true);
+        assert_eq!(
+            call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+            true
+        );
         assert!(started.elapsed() < Duration::from_secs(2));
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert_eq!(call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"], true);
+        assert_eq!(
+            call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+            true
+        );
         assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
         let cancel = call(&paths, "operations.cancel", params.clone()).unwrap();
         assert_eq!(cancel["result"]["accepted"], true);
@@ -1591,7 +1683,9 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         loop {
             let response = call(&paths, "operations.get", params.clone()).unwrap();
-            if response["result"]["operation"]["state"] == "cancelled" { break; }
+            if response["result"]["operation"]["state"] == "cancelled" {
+                break;
+            }
             assert!(std::time::Instant::now() < deadline);
         }
         assert!(started_rx.try_recv().is_err(), "retry downloaded twice");
@@ -1608,18 +1702,39 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(2);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
-        server.register_native_owner(owner, BlockingTransport { started: started_tx, release: Mutex::new(release_rx) });
-        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "one")["ok"], true);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "one")["ok"],
+            true
+        );
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         release_tx.send(()).unwrap();
         let completed = wait_batch(&server, "one");
         assert_eq!(completed["result"]["operation"]["state"], "succeeded");
         assert_eq!(completed["revision"], 1);
-        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "one")["result"], completed["result"]);
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "one")["result"],
+            completed["result"]
+        );
         assert!(started_rx.try_recv().is_err());
-        let bad = server.dispatch(&make_request("bad", "operations.get", json!({
-            "instanceId": server.instance_id, "operationId": "one", "unexpected": true
-        })).unwrap()).unwrap();
+        let bad = server
+            .dispatch(
+                &make_request(
+                    "bad",
+                    "operations.get",
+                    json!({
+                        "instanceId": server.instance_id, "operationId": "one", "unexpected": true
+                    }),
+                )
+                .unwrap(),
+            )
+            .unwrap();
         assert_eq!(bad["error"]["code"], "invalid_argument");
         drop(server);
         fs::remove_dir_all(base).unwrap();
@@ -1634,13 +1749,27 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let (_release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
-        server.register_native_owner(owner, BlockingTransport { started: started_tx, release: Mutex::new(release_rx) });
-        let permits: Vec<_> = (0..4).map(|_| server.remote_fetches.try_acquire().unwrap()).collect();
-        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "one")["ok"], true);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        let permits: Vec<_> = (0..4)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect();
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "one")["ok"],
+            true
+        );
         assert!(started_rx.recv_timeout(Duration::from_millis(80)).is_err());
         assert_eq!(batch_call(&server, "operations.get", "one")["ok"], true);
         server.batch_scheduler.stop(&server.dispatcher);
-        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "two")["error"]["code"], "daemon_restarting");
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "two")["error"]["code"],
+            "daemon_restarting"
+        );
         drop(permits);
         assert_eq!(fs::read(store).unwrap(), before);
         drop(server);
@@ -1655,16 +1784,30 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
-        server.register_native_owner(owner, BlockingTransport { started: started_tx, release: Mutex::new(release_rx) });
-        assert_eq!(batch_call(&server, "subscriptions.refresh_all", "one")["ok"], true);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "one")["ok"],
+            true
+        );
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let disconnect = server.dispatch(&make_request("disconnect", "connection.disconnect", json!({})).unwrap()).unwrap();
+        let disconnect = server
+            .dispatch(&make_request("disconnect", "connection.disconnect", json!({})).unwrap())
+            .unwrap();
         assert_eq!(disconnect["ok"], true);
         let after_disconnect = fs::read(&store).unwrap();
         release_tx.send(()).unwrap();
         let completed = wait_batch(&server, "one");
         assert_eq!(completed["result"]["operation"]["state"], "failed");
-        assert_eq!(completed["result"]["operation"]["error"]["code"], "conflict");
+        assert_eq!(
+            completed["result"]["operation"]["error"]["code"],
+            "conflict"
+        );
         assert_eq!(fs::read(store).unwrap(), after_disconnect);
         drop(server);
         fs::remove_dir_all(base).unwrap();
