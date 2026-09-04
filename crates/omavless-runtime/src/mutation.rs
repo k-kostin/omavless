@@ -274,6 +274,14 @@ impl MutationCoordinator {
             .map(|queued| (&queued.request.digest, None))
     }
 
+    /// Query the ordinary replay namespace while the future composite owner
+    /// lock is held. Long-operation admission uses this together with its own
+    /// registry so one client ID cannot name two operation families.
+    pub fn operation_id_in_use(&self, operation_id: &str) -> Result<bool, CoordinatorError> {
+        let operation_id = OperationId::parse(operation_id)?;
+        Ok(self.matching_operation(&operation_id).is_some())
+    }
+
     /// Check whether bounded work outside the serialized owner may begin.
     ///
     /// This deliberately does not enqueue or reserve a mutation slot. The
@@ -348,6 +356,21 @@ impl MutationCoordinator {
             self.queue.push_back(queued);
         }
         Ok(SubmitOutcome::Queued { token })
+    }
+
+    /// Reverse collision hook for the same future composite owner lock. The
+    /// long-operation registry must be queried immediately before this call.
+    /// Current production dispatch passes through [`Self::submit`] because no
+    /// long-operation method is registered yet.
+    pub fn submit_with_operation_namespace(
+        &mut self,
+        request: MutationRequest,
+        long_operation_id_in_use_under_owner_lock: bool,
+    ) -> Result<SubmitOutcome, CoordinatorError> {
+        if long_operation_id_in_use_under_owner_lock && request.operation_id.is_some() {
+            return Err(CoordinatorError::OperationConflict);
+        }
+        self.submit(request)
     }
 
     fn cache(
@@ -704,6 +727,33 @@ mod tests {
             coordinator.submit(request(MutationKind::Other, Some("retry-safe"), None, 8)),
             Err(CoordinatorError::OperationConflict)
         );
+    }
+
+    #[test]
+    fn future_long_operations_can_share_the_operation_id_namespace_atomically() {
+        let mut coordinator = MutationCoordinator::default();
+        let ordinary = request(MutationKind::Other, Some("ordinary-1"), None, 1);
+        coordinator.submit(ordinary).unwrap();
+        assert!(coordinator.operation_id_in_use("ordinary-1").unwrap());
+        assert!(!coordinator.operation_id_in_use("available-1").unwrap());
+        assert_eq!(
+            coordinator.operation_id_in_use("has space"),
+            Err(CoordinatorError::InvalidOperationId)
+        );
+        assert_eq!(
+            coordinator.submit_with_operation_namespace(
+                request(MutationKind::Other, Some("long-1"), None, 2),
+                true,
+            ),
+            Err(CoordinatorError::OperationConflict)
+        );
+        assert!(matches!(
+            coordinator.submit_with_operation_namespace(
+                request(MutationKind::Other, None, None, 3),
+                true,
+            ),
+            Ok(SubmitOutcome::Queued { .. })
+        ));
     }
 
     #[test]

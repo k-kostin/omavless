@@ -35,6 +35,8 @@ pub mod cutover_transaction;
 pub mod desired;
 pub mod frontend_bridge;
 pub mod lifecycle;
+pub mod long_operation;
+pub mod long_operation_protocol;
 pub mod mutation;
 pub mod mutation_binding;
 pub mod mutation_protocol;
