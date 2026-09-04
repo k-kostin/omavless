@@ -131,6 +131,27 @@ struct PrivateSubscription {
     updated_at: u64,
 }
 
+/// Explicit editor material for one subscription. Unlike list projections,
+/// this value contains the bearer URL and may cross only the private same-user
+/// control socket after an intentional edit-input request. It deliberately
+/// has no `Debug`, cloning, or serialization implementation.
+pub struct SubscriptionEditInput {
+    name: String,
+    url: String,
+}
+
+impl SubscriptionEditInput {
+    #[must_use]
+    pub fn private_name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn private_url(&self) -> &str {
+        &self.url
+    }
+}
+
 /// Credential-free facts which may safely cross the future control boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreProjection {
@@ -989,6 +1010,23 @@ impl PrivateStore {
             subscriptions,
             last_profile_id: self.last_id.clone(),
         }
+    }
+
+    /// Release one validated subscription's editor fields. Callers must keep
+    /// the result off argv, logs, diagnostics, and ordinary list/status data.
+    pub fn subscription_edit_input(
+        &self,
+        subscription_id: &str,
+    ) -> Result<SubscriptionEditInput, PrivateStoreError> {
+        let subscription = self
+            .subscriptions
+            .iter()
+            .find(|subscription| subscription.id == subscription_id)
+            .ok_or(PrivateStoreError::SubscriptionNotFound)?;
+        Ok(SubscriptionEditInput {
+            name: subscription.name.clone(),
+            url: subscription.url.clone(),
+        })
     }
 
     /// Return the opaque active record identifier for trusted runtime
@@ -2140,6 +2178,18 @@ mod tests {
         for private in ["vless://", "11111111", "203.0.113.1", "https://"] {
             assert!(!public.contains(private));
         }
+    }
+
+    #[test]
+    fn explicit_subscription_edit_input_releases_only_the_selected_private_fields() {
+        let parsed = parse_private_store(&store(PRIVATE_URI, "vless")).unwrap();
+        let input = parsed.subscription_edit_input(SUBSCRIPTION_ID).unwrap();
+        assert_eq!(input.private_name(), "Synthetic source");
+        assert_eq!(input.private_url(), "https://example.invalid/sub");
+        assert!(matches!(
+            parsed.subscription_edit_input(PROFILE_ID),
+            Err(PrivateStoreError::SubscriptionNotFound)
+        ));
     }
 
     #[test]

@@ -677,6 +677,13 @@ completion after any intervening mutation or subscription URL replacement.
 Responses remain accepted-only and credential-free. Refresh-all scheduling,
 QML bridge activation and production ownership cutover remain later work.
 
+The explicit subscription-editor checkpoint adds an ownership-gated
+`subscriptions.edit_input` read and fixed `subscription edit-input ID` command.
+Only this intentional same-user success response may contain the selected
+bounded name and bearer URL; ordinary status/lists, errors, logs, argv and
+diagnostics remain credential-free. Together with native update it completes
+the semantic editor core, but QML still uses the Python bridge until cutover.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

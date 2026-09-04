@@ -4,6 +4,10 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added an explicit native subscription-editor read behind exact Rust
+  ownership. Only that intentional same-user response can return one bounded
+  stored name and bearer URL; ordinary status/lists, errors, logs, argv and
+  diagnostics remain credential-free, and the installed owner is unchanged.
 - Added native single-subscription refresh dispatch behind exact Rust
   ownership. The fixed request carries only an opaque local ID, provider I/O
   shares the bounded remote-fetch pool without blocking status/disconnect, and

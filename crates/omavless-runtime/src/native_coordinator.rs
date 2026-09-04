@@ -31,16 +31,18 @@ use crate::profile_transaction::{
 };
 use crate::subscription_mutation::{
     SubscriptionMutationCommit, SubscriptionMutationCommitError, SubscriptionRefreshCommit,
-    commit_subscription_mutation, commit_subscription_refresh, snapshot_subscription_refresh,
+    commit_subscription_mutation, commit_subscription_refresh, read_subscription_edit_input,
+    snapshot_subscription_refresh,
 };
 use crate::subscription_mutation_protocol::{
     SubscriptionMutationIntent, parse_subscription_mutation_request,
 };
+use crate::subscription_read_protocol::parse_subscription_edit_input_request;
 use crate::subscription_refresh_protocol::parse_subscription_refresh_request;
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use omavless_control_protocol::StableErrorCode;
 use omavless_domain::private_store::{
-    PrivateStoreError, SubscriptionMutation, SubscriptionMutationContext,
+    PrivateStoreError, SubscriptionEditInput, SubscriptionMutation, SubscriptionMutationContext,
     SubscriptionRefreshSnapshot,
 };
 use omavless_domain::subscription_feed::{PrivateSubscriptionBody, decode_subscription_feed};
@@ -591,6 +593,36 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 ))
             }
         }
+    }
+
+    /// Read one explicit subscription editor payload while exact native
+    /// ownership and the shared private-store lock are continuously held.
+    pub(crate) fn subscription_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> Result<SubscriptionEditInput, NativeOwnerError> {
+        let parsed = parse_subscription_edit_input_request(request)?;
+        let _lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        if self.required_ownership.is_none_or(|fence| {
+            fence.phase != OwnershipPhase::Rust
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        read_subscription_edit_input(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            parsed.private_subscription_id(),
+        )
+        .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)))
     }
 
     pub fn reconcile_startup(

@@ -54,6 +54,7 @@ pub mod store_bootstrap;
 pub mod store_preflight;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
+pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
@@ -207,7 +208,11 @@ pub struct RuntimeServer {
 }
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
-const NATIVE_READ_METHODS: &[&str] = &["profiles.list", "subscriptions.list"];
+const NATIVE_READ_METHODS: &[&str] = &[
+    "profiles.list",
+    "subscriptions.list",
+    "subscriptions.edit_input",
+];
 // Remote subscription fetch uses the bounded concurrent client layer and a
 // reservation-free preflight. Its final decode/commit re-enters this one
 // serialized owner and rechecks revision plus exact durable ownership.
@@ -235,6 +240,10 @@ trait NativeRuntimeOwner: Send {
     fn status(&self, runtime_ownership: bool) -> Result<Value>;
     fn profiles(&self) -> Result<Value>;
     fn subscriptions(&self) -> Result<Value>;
+    fn subscription_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn bootstrap_generations(&self) -> Option<(u64, u64)>;
     fn mutate(
         &mut self,
@@ -430,6 +439,13 @@ where
             .list_projection()
             .map_err(|_| RuntimeError::NativeOwnerUnavailable)?;
         Ok(subscription_list_json(&projection))
+    }
+
+    fn subscription_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.subscription_edit_input(request)
     }
 
     fn bootstrap_generations(&self) -> Option<(u64, u64)> {
@@ -1010,6 +1026,9 @@ fn dispatch_native(
                     );
                 }
             }
+        }
+        "subscriptions.edit_input" if runtime_ownership => {
+            return owner.subscription_edit_input(request);
         }
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
             return error_response(
@@ -1717,7 +1736,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(constructor_calls.load(Ordering::Relaxed), 1);
-        let worker = thread::spawn(move || server.serve(Some(17)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(20)).unwrap());
 
         let hello = call(&paths, "system.hello", json!({"versions": [1]})).unwrap();
         assert_eq!(hello["result"]["runtimeOwnership"], true);
@@ -1737,7 +1756,11 @@ mod tests {
                 .iter()
                 .any(|method| method == "routing.set_mode")
         );
-        for method in ["profiles.list", "subscriptions.list"] {
+        for method in [
+            "profiles.list",
+            "subscriptions.list",
+            "subscriptions.edit_input",
+        ] {
             assert!(
                 capabilities["result"]["methods"]
                     .as_array()
@@ -1772,6 +1795,26 @@ mod tests {
             0
         );
         assert_eq!(subscriptions["result"]["subscriptions"][0]["staleCount"], 0);
+        let edit_input = call(
+            &paths,
+            "subscriptions.edit_input",
+            json!({"subscriptionId": SUBSCRIPTION_ID}),
+        )
+        .unwrap();
+        assert_eq!(edit_input["ok"], true);
+        assert_eq!(edit_input["result"]["name"], "Example source");
+        assert_eq!(
+            edit_input["result"]["url"],
+            "https://private.example/subscription-token"
+        );
+        let bad_edit = call(
+            &paths,
+            "subscriptions.edit_input",
+            json!({"subscriptionId": SUBSCRIPTION_ID, "extra": true}),
+        )
+        .unwrap();
+        assert_eq!(bad_edit["error"]["code"], "invalid_argument");
+        assert!(!bad_edit.to_string().contains("private.example"));
         let rendered = format!("{profiles}{subscriptions}");
         for private in [
             "vless://",
@@ -1851,6 +1894,14 @@ mod tests {
         );
         let rejected_list = call(&paths, "profiles.list", json!({})).unwrap();
         assert_eq!(rejected_list["error"]["code"], "capability_unavailable");
+        let rejected_edit = call(
+            &paths,
+            "subscriptions.edit_input",
+            json!({"subscriptionId": SUBSCRIPTION_ID}),
+        )
+        .unwrap();
+        assert_eq!(rejected_edit["error"]["code"], "capability_unavailable");
+        assert!(!rejected_edit.to_string().contains("private.example"));
         let rejected = call(
             &paths,
             "connection.disconnect",

@@ -8,10 +8,10 @@
 //! slot before calling it.
 
 use omavless_domain::private_store::{
-    IncomingSubscriptionProfile, PrivateStoreError, SubscriptionMutation,
+    IncomingSubscriptionProfile, PrivateStoreError, SubscriptionEditInput, SubscriptionMutation,
     SubscriptionMutationContext, SubscriptionMutationCounts, SubscriptionRefreshCounts,
     SubscriptionRefreshSnapshot, apply_subscription_mutation, apply_subscription_refresh,
-    prepare_subscription_refresh,
+    parse_private_store, prepare_subscription_refresh,
 };
 use omavless_store::{StoreIoError, atomic_replace_private, read_private_utf8};
 use std::fmt;
@@ -136,6 +136,21 @@ pub fn snapshot_subscription_refresh(
         .map_err(SubscriptionMutationCommitError::Mutation)
 }
 
+/// Read one intentional editor payload from a validated private store. The
+/// caller must hold the migration lock and keep the returned URL out of
+/// ordinary status, logs, diagnostics and argv.
+pub fn read_subscription_edit_input(
+    store_path: &Path,
+    uid: u32,
+    subscription_id: &str,
+) -> Result<SubscriptionEditInput, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    parse_private_store(&input)
+        .and_then(|store| store.subscription_edit_input(subscription_id))
+        .map_err(SubscriptionMutationCommitError::Mutation)
+}
+
 /// Re-read the latest complete store, compare the private refresh snapshot,
 /// fully validate the merged result and perform exactly one private atomic
 /// replacement. The future owner must invoke this in a newly acquired
@@ -243,6 +258,34 @@ mod tests {
                 .contains("11111111")
         );
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn editor_read_requires_a_private_store_and_returns_only_the_selected_input() {
+        let (root, uid) = root("editor-read");
+        let path = root.join("profiles.json");
+        write_store(&path);
+        commit_subscription_mutation(&path, uid, add(), SubscriptionMutationContext::default())
+            .unwrap();
+        let input = read_subscription_edit_input(&path, uid, SUBSCRIPTION).unwrap();
+        assert_eq!(input.private_name(), "Source");
+        assert_eq!(
+            input.private_url(),
+            "https://provider.invalid/private-token"
+        );
+        assert!(matches!(
+            read_subscription_edit_input(&path, uid, PROFILE),
+            Err(SubscriptionMutationCommitError::Mutation(
+                PrivateStoreError::SubscriptionNotFound
+            ))
+        ));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            read_subscription_edit_input(&path, uid, SUBSCRIPTION),
+            Err(SubscriptionMutationCommitError::UnsafeStore)
+        ));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
