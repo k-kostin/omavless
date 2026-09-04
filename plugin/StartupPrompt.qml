@@ -97,11 +97,11 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
 
         Column {
           id: body
-          width: parent.width
+          width: Math.max(0, parent.width - Style.space(16))
           spacing: Style.space(11)
 
           PlainText {
@@ -161,11 +161,11 @@ Item {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 interactive: contentHeight > height
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
 
                 Column {
                   id: profileColumn
-                  width: parent.width
+                  width: Math.max(0, parent.width - Style.space(16))
                   spacing: Style.space(3)
                   Repeater {
                     model: prompt.profiles
