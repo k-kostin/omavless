@@ -938,6 +938,7 @@ This is not a registered background service. The production owner constructor,
 RuntimeServer scheduler and semantic CLI do not invoke these APIs yet. The next
 slice must bind the actual runtime instance ID, supervise one worker, share the
 existing fetch pool, yield on Busy, terminalize spawn/panic/shutdown failures,
-and expose only the reviewed fixed start/get/cancel methods. A dropped worker
-handle requires explicit owner cleanup; it is not self-completing. No production
+and expose only the reviewed fixed start/get/cancel methods. A private supervisor ticket can reclaim a dropped/panicked worker and permits
+a new batch without restarting the owner; a stale ticket cannot revoke its
+successor. The scheduler must retain and use it. No production
 cutover or Python retirement is claimed by deterministic owner integration.

@@ -11,7 +11,7 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
-pub use batch::NativeSubscriptionBatch;
+pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -2142,4 +2142,82 @@ mod tests {
         assert_eq!(owner.revision(), 1);
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn batch_owner_remains_available_during_fetch_and_cancel_beats_fetch_failure() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        struct PausedTransport {
+            started: mpsc::Sender<()>,
+            release: mpsc::Receiver<()>,
+        }
+        impl crate::subscription_batch_work::BudgetedSubscriptionTransport for PausedTransport {
+            fn fetch_with_budget(
+                &self,
+                _url: &str,
+                _budget: Duration,
+            ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+                self.started.send(()).unwrap();
+                self.release.recv_timeout(Duration::from_secs(5)).unwrap();
+                Err(SubscriptionTransportError::Unavailable)
+            }
+        }
+        let (root, path, mut owner) = batch_fixture("batch-concurrent");
+        let before = fs::read(&path).unwrap();
+        let mut job = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "concurrent"))
+            .unwrap()
+            .unwrap();
+        let (started, ready) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = job.step(
+                &PausedTransport { started, release: wait },
+                &crate::remote_fetch::RemoteFetchPool::default(),
+                &mut || panic!("failed fetch generated IDs"),
+            );
+            (job, result)
+        });
+        let began = ready.recv_timeout(Duration::from_secs(5));
+        let status = owner.subscription_batch_status(&batch_request("operations.get", "concurrent"));
+        let cancelled = owner.cancel_subscription_batch(&batch_request("operations.cancel", "concurrent"));
+        // Release/join before assertions so failures cannot leave a blocked worker.
+        let _ = release.send(());
+        let (job, result) = worker.join().unwrap();
+        assert!(began.is_ok());
+        assert!(status.is_ok());
+        assert_eq!(cancelled, Ok(true));
+        assert_eq!(result, Err(crate::subscription_batch_work::BatchWorkError::Cancelled));
+        assert!(owner.complete_subscription_batch(job, || panic!("cancel read clock")).is_err());
+        assert_eq!(batch_status(&owner, "concurrent")["state"], "cancelled");
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_owner_supervisor_reclaims_lost_worker_without_revoking_successor() {
+        let (root, path, mut owner) = batch_fixture("batch-lost-worker");
+        let before = fs::read(&path).unwrap();
+        let job = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "lost"))
+            .unwrap()
+            .unwrap();
+        let ticket = job.supervisor_ticket();
+        let stale = ticket.clone();
+        drop(job); // models failed spawn/panicked worker before returning its payload
+        owner.abort_subscription_batch(ticket).unwrap();
+        assert_eq!(batch_status(&owner, "lost")["state"], "failed");
+        let mut next = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "successor"))
+            .unwrap()
+            .unwrap();
+        assert!(owner.abort_subscription_batch(stale).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        run_batch(&owner, &mut next);
+        owner.complete_subscription_batch(next, || 20).unwrap();
+        assert_eq!(batch_status(&owner, "successor")["state"], "succeeded");
+        assert_eq!(owner.revision(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
 }

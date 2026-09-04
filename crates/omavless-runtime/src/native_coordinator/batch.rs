@@ -29,9 +29,17 @@ pub(super) struct BatchOwnerState {
     stopped: bool,
 }
 
+/// Private supervisor capability: retain before spawning the worker so a
+/// spawn failure or panic can be terminalized without the worker payload.
+#[derive(Clone)]
+pub struct NativeBatchTicket {
+    instance: String,
+    token: LongOperationToken,
+}
+
 /// Private, non-cloneable worker capability minted by one owner instance.
-/// A caller must return it to complete/abort; dropping it is not completion.
-/// A future scheduler must invoke stop_batch_operations on worker loss/shutdown.
+/// A caller returns it to complete; dropping it is not completion. Retain its
+/// ticket to abort lost work. Runtime shutdown revokes all outstanding work.
 pub struct NativeSubscriptionBatch {
     instance: String,
     token: LongOperationToken,
@@ -41,6 +49,14 @@ pub struct NativeSubscriptionBatch {
 }
 
 impl NativeSubscriptionBatch {
+    #[must_use]
+    pub fn supervisor_ticket(&self) -> NativeBatchTicket {
+        NativeBatchTicket {
+            instance: self.instance.clone(),
+            token: self.token,
+        }
+    }
+
     pub fn step<T, G>(
         &mut self,
         transport: &T,
@@ -267,6 +283,31 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
+        Ok(())
+    }
+
+    /// Recover from spawn failure or worker panic without stopping the owner.
+    /// An old supervisor cannot revoke a successor operation using its ticket.
+    pub fn abort_subscription_batch(
+        &mut self,
+        ticket: NativeBatchTicket,
+    ) -> Result<(), NativeOwnerError> {
+        let revision = self.revision();
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if state.instance != ticket.instance
+            || state.active.as_ref().map(|entry| entry.0) != Some(ticket.token)
+        {
+            return Err(NativeOwnerError::LongOperation(LongOperationError::NotFound));
+        }
+        let (token, flag) = state.active.take().ok_or(NativeOwnerError::Invariant)?;
+        flag.request();
+        state
+            .registry
+            .finish_failure(token, revision, StableErrorCode::InternalError)
+            .map_err(NativeOwnerError::LongOperation)?;
         Ok(())
     }
 
