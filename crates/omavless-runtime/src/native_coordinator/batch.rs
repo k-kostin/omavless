@@ -6,8 +6,8 @@
 
 use super::*;
 use crate::long_operation::{
-    CommitFence, LongOperationError, LongOperationRegistry, LongOperationToken, StartOutcome,
-    DEFAULT_COMPLETED_OPERATION_LIMIT,
+    CommitFence, DEFAULT_COMPLETED_OPERATION_LIMIT, LongOperationError, LongOperationRegistry,
+    LongOperationToken, StartOutcome,
 };
 use crate::long_operation_protocol::{
     parse_operation_cancel, parse_operation_get, parse_refresh_all_start,
@@ -84,21 +84,30 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         operation_id: Option<&str>,
     ) -> Result<(), NativeOwnerError> {
         if operation_id.is_some_and(|id| {
-            self.batch.as_ref().is_some_and(|state| state.registry.has_operation_id(id))
+            self.batch
+                .as_ref()
+                .is_some_and(|state| state.registry.has_operation_id(id))
         }) {
-            return Err(NativeOwnerError::Coordinator(CoordinatorError::OperationConflict));
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::OperationConflict,
+            ));
         }
         Ok(())
     }
 
     fn batch_lock(&self) -> Result<MigrationLock, NativeOwnerError> {
-        let lock = self.transaction.acquire_lock().map_err(|error| match error {
-            ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
-            _ => NativeOwnerError::OwnershipUnavailable,
-        })?;
+        let lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
         if self.required_ownership.is_some_and(|fence| {
             fence.phase != OwnershipPhase::Rust
-                || !self.transaction.ownership_matches(fence.phase, fence.generation)
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
         }) {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
@@ -116,75 +125,146 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let request = parse_refresh_all_start(request)?;
         let _lock = self.batch_lock()?;
         let revision = self.revision();
-        let ordinary_id = self.coordinator.operation_id_in_use(request.operation_id())?;
-        let state = self.batch.as_mut().ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        let ordinary_id = self
+            .coordinator
+            .operation_id_in_use(request.operation_id())?;
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         if state.stopped {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         // Replay precedes store access and stale-revision rejection.
         if state.registry.has_operation_id(request.operation_id()) {
-            state.registry.start(request.instance_id(), request.operation_id(), request.digest(),
-                request.expected_revision(), revision, 0, ordinary_id)
+            state
+                .registry
+                .start(
+                    request.instance_id(),
+                    request.operation_id(),
+                    request.digest(),
+                    request.expected_revision(),
+                    revision,
+                    0,
+                    ordinary_id,
+                )
                 .map_err(NativeOwnerError::LongOperation)?;
             return Ok(None);
         }
         if request.instance_id() != state.instance {
-            return Err(NativeOwnerError::LongOperation(LongOperationError::InstanceMismatch));
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::InstanceMismatch,
+            ));
         }
         if ordinary_id {
-            return Err(NativeOwnerError::LongOperation(LongOperationError::OperationConflict));
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict,
+            ));
         }
-        if request.expected_revision().is_some_and(|expected| expected != revision) {
-            return Err(NativeOwnerError::LongOperation(LongOperationError::RevisionConflict));
+        if request
+            .expected_revision()
+            .is_some_and(|expected| expected != revision)
+        {
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::RevisionConflict,
+            ));
         }
         if state.active.is_some() {
             return Err(NativeOwnerError::LongOperation(LongOperationError::Busy));
         }
-        let snapshot = snapshot_subscription_refresh_batch(self.transaction.store_path(), self.transaction.uid())
-            .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)))?;
-        let started = state.registry.start(request.instance_id(), request.operation_id(), request.digest(),
-            request.expected_revision(), revision, snapshot.len(), false)
+        let snapshot = snapshot_subscription_refresh_batch(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)))?;
+        let started = state
+            .registry
+            .start(
+                request.instance_id(),
+                request.operation_id(),
+                request.digest(),
+                request.expected_revision(),
+                revision,
+                snapshot.len(),
+                false,
+            )
             .map_err(NativeOwnerError::LongOperation)?;
-        let StartOutcome::Started(token) = started else { return Err(NativeOwnerError::Invariant); };
-        state.registry.begin(token, revision).map_err(NativeOwnerError::LongOperation)?;
+        let StartOutcome::Started(token) = started else {
+            return Err(NativeOwnerError::Invariant);
+        };
+        state
+            .registry
+            .begin(token, revision)
+            .map_err(NativeOwnerError::LongOperation)?;
         let cancellation = BatchCancellation::default();
         state.active = Some((token, cancellation.clone()));
         Ok(Some(NativeSubscriptionBatch {
-            instance: state.instance.clone(), token, base_revision: revision,
-            work: SubscriptionBatchWork::new(snapshot, cancellation), failure: None,
+            instance: state.instance.clone(),
+            token,
+            base_revision: revision,
+            work: SubscriptionBatchWork::new(snapshot, cancellation),
+            failure: None,
         }))
     }
 
     pub fn subscription_batch_status(&self, request: &Value) -> Result<Value, NativeOwnerError> {
         let request = parse_operation_get(request)?;
-        let state = self.batch.as_ref().ok_or(NativeOwnerError::OwnershipUnavailable)?;
-        state.registry.projection(request.instance_id(), request.operation_id())
-            .map_err(NativeOwnerError::LongOperation)?.result_value().map_err(NativeOwnerError::Protocol)
+        let state = self
+            .batch
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        state
+            .registry
+            .projection(request.instance_id(), request.operation_id())
+            .map_err(NativeOwnerError::LongOperation)?
+            .result_value()
+            .map_err(NativeOwnerError::Protocol)
     }
 
     pub fn cancel_subscription_batch(&mut self, request: &Value) -> Result<bool, NativeOwnerError> {
         let request = parse_operation_cancel(request)?;
-        let state = self.batch.as_mut().ok_or(NativeOwnerError::OwnershipUnavailable)?;
-        let cancelled = state.registry.request_cancel(request.instance_id(), request.operation_id())
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        let cancelled = state
+            .registry
+            .request_cancel(request.instance_id(), request.operation_id())
             .map_err(NativeOwnerError::LongOperation)?;
         if cancelled.accepted {
             let (token, flag) = state.active.as_ref().ok_or(NativeOwnerError::Invariant)?;
-            if *token != cancelled.token { return Err(NativeOwnerError::Invariant); }
+            if *token != cancelled.token {
+                return Err(NativeOwnerError::Invariant);
+            }
             flag.request();
         }
         Ok(cancelled.accepted)
     }
 
     /// Publish only counters; no provider identity or prepared payload escapes.
-    pub fn publish_subscription_batch_progress(&mut self, job: &NativeSubscriptionBatch) -> Result<(), NativeOwnerError> {
-        let state = self.batch.as_mut().ok_or(NativeOwnerError::OwnershipUnavailable)?;
+    pub fn publish_subscription_batch_progress(
+        &mut self,
+        job: &NativeSubscriptionBatch,
+    ) -> Result<(), NativeOwnerError> {
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         Self::check_batch_handle(state, job)?;
-        state.registry.advance(job.token, job.work.progress().0).map_err(NativeOwnerError::LongOperation)
+        state
+            .registry
+            .advance(job.token, job.work.progress().0)
+            .map_err(NativeOwnerError::LongOperation)
     }
 
-    fn check_batch_handle(state: &BatchOwnerState, job: &NativeSubscriptionBatch) -> Result<(), NativeOwnerError> {
-        if state.stopped || state.instance != job.instance
-            || state.active.as_ref().map(|entry| entry.0) != Some(job.token) {
+    fn check_batch_handle(
+        state: &BatchOwnerState,
+        job: &NativeSubscriptionBatch,
+    ) -> Result<(), NativeOwnerError> {
+        if state.stopped
+            || state.instance != job.instance
+            || state.active.as_ref().map(|entry| entry.0) != Some(job.token)
+        {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         Ok(())
@@ -194,11 +274,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// completion cannot write, even if its fetch returns successfully.
     pub fn stop_batch_operations(&mut self) -> Result<(), NativeOwnerError> {
         let revision = self.revision();
-        let Some(state) = self.batch.as_mut() else { return Ok(()); };
+        let Some(state) = self.batch.as_mut() else {
+            return Ok(());
+        };
         state.stopped = true;
         if let Some((token, cancellation)) = state.active.take() {
             cancellation.request();
-            state.registry.finish_failure(token, revision, StableErrorCode::DaemonRestarting)
+            state
+                .registry
+                .finish_failure(token, revision, StableErrorCode::DaemonRestarting)
                 .map_err(NativeOwnerError::LongOperation)?;
         }
         Ok(())
@@ -212,20 +296,30 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
     ) -> Result<(), NativeOwnerError> {
-        let mut state = self.batch.take().ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        let mut state = self
+            .batch
+            .take()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         let result = (|| {
             Self::check_batch_handle(&state, &job)?;
             let token = job.token;
             let completed = job.work.progress().0;
-            state.registry.advance(token, completed).map_err(NativeOwnerError::LongOperation)?;
+            state
+                .registry
+                .advance(token, completed)
+                .map_err(NativeOwnerError::LongOperation)?;
             let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis);
             state.active = None;
             match outcome {
-                Ok(true) => state.registry.finish_success(token, self.revision())
+                Ok(true) => state
+                    .registry
+                    .finish_success(token, self.revision())
                     .map_err(NativeOwnerError::LongOperation),
                 Ok(false) => Ok(()), // the registry already recorded cancellation
                 Err(error) => {
-                    state.registry.finish_failure(token, self.revision(), error.stable_code())
+                    state
+                        .registry
+                        .finish_failure(token, self.revision(), error.stable_code())
                         .map_err(NativeOwnerError::LongOperation)?;
                     Err(error)
                 }
@@ -241,32 +335,65 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
     ) -> Result<bool, NativeOwnerError> {
-        if let Some(error) = job.failure { return Err(batch_work_error(error)); }
+        if let Some(error) = job.failure {
+            return Err(batch_work_error(error));
+        }
         let prepared = job.work.into_prepared().map_err(batch_work_error)?;
         let _lock = self.batch_lock()?;
         if self.revision() != job.base_revision {
-            return Err(NativeOwnerError::Coordinator(CoordinatorError::RevisionConflict));
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict,
+            ));
         }
         let (snapshot, updates) = prepared.into_parts().map_err(batch_work_error)?;
-        if state.registry.fence_commit(job.token, self.revision()).map_err(NativeOwnerError::LongOperation)? == CommitFence::Cancelled {
+        if state
+            .registry
+            .fence_commit(job.token, self.revision())
+            .map_err(NativeOwnerError::LongOperation)?
+            == CommitFence::Cancelled
+        {
             return Ok(false);
         }
-        if snapshot.is_empty() { return Ok(true); }
-        let request = MutationRequest::new(MutationKind::Other, None, Some(job.base_revision),
-            MutationDigest::from_semantic_bytes(b"native-refresh-all-commit-v1"))?;
-        let SubmitOutcome::Queued { token } = self.coordinator.submit(request)? else { return Err(NativeOwnerError::Invariant); };
+        if snapshot.is_empty() {
+            return Ok(true);
+        }
+        let request = MutationRequest::new(
+            MutationKind::Other,
+            None,
+            Some(job.base_revision),
+            MutationDigest::from_semantic_bytes(b"native-refresh-all-commit-v1"),
+        )?;
+        let SubmitOutcome::Queued { token } = self.coordinator.submit(request)? else {
+            return Err(NativeOwnerError::Invariant);
+        };
         match self.coordinator.begin_next()? {
             BeginOutcome::Started(active) if active.token == token => {}
-            BeginOutcome::Rejected { outcome, .. } => return Err(NativeOwnerError::Coordinator(
-                if outcome.error == Some(StableErrorCode::Conflict) { CoordinatorError::RevisionConflict } else { CoordinatorError::RevisionExhausted })),
+            BeginOutcome::Rejected { outcome, .. } => {
+                return Err(NativeOwnerError::Coordinator(
+                    if outcome.error == Some(StableErrorCode::Conflict) {
+                        CoordinatorError::RevisionConflict
+                    } else {
+                        CoordinatorError::RevisionExhausted
+                    },
+                ));
+            }
             _ => return Err(NativeOwnerError::Invariant),
         }
-        let result = commit_subscription_refresh_batch(self.transaction.store_path(), self.transaction.uid(), snapshot, updates, now_millis())
-            .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)));
-        self.coordinator.finish(token, match result {
-            Ok(_) => MutationResult::Success,
-            Err(error) => MutationResult::Failure(error.stable_code()),
-        })?;
+        let result = commit_subscription_refresh_batch(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            snapshot,
+            updates,
+            now_millis(),
+        )
+        .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)));
+        self.coordinator.finish(
+            token,
+            match result {
+                Ok(_) => MutationResult::Success,
+                Err(error) => MutationResult::Failure(error.stable_code()),
+            },
+        )?;
         result.map(|_| true)
     }
 }
@@ -274,7 +401,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
 fn batch_work_error(error: BatchWorkError) -> NativeOwnerError {
     NativeOwnerError::Subscription(match error {
         BatchWorkError::Cancelled => SubscriptionTransactionError::Conflict,
-        BatchWorkError::Deadline | BatchWorkError::Preparation(_) => SubscriptionTransactionError::Transport,
+        BatchWorkError::Deadline | BatchWorkError::Preparation(_) => {
+            SubscriptionTransactionError::Transport
+        }
         BatchWorkError::InvalidState => SubscriptionTransactionError::InvalidArgument,
     })
 }
