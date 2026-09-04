@@ -668,6 +668,15 @@ behavior. It does not change the 0.7.0 marketplace plugin, start the native
 daemon or make cutover reachable; native workspace version 0.1.0 remains a
 pre-release implementation identity.
 
+The single-subscription refresh dispatch checkpoint adds exact
+`subscriptions.refresh` socket and fixed semantic CLI requests. The request
+contains only an opaque local record ID; the native owner snapshots the private
+URL under the migration lock, shares the existing four-fetch cap, performs the
+provider GET without blocking status or urgent disconnect, and rejects stale
+completion after any intervening mutation or subscription URL replacement.
+Responses remain accepted-only and credential-free. Refresh-all scheduling,
+QML bridge activation and production ownership cutover remain later work.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.

@@ -203,6 +203,10 @@ pub fn parse_semantic_mutation(
             method: "subscriptions.delete",
             params: json!({"subscriptionId": record_id(id)?}),
         }),
+        ["subscription", "refresh", id] => Ok(SemanticRequest {
+            method: "subscriptions.refresh",
+            params: json!({"subscriptionId": record_id(id)?}),
+        }),
         [] | ["connect"] | ["mode"] | ["profile", ..] | ["subscription", ..] => {
             Err(SemanticCliError::InvalidArgument)
         }
@@ -281,6 +285,13 @@ mod tests {
             parsed(&["subscription", "delete", SUBSCRIPTION], None),
             (
                 "subscriptions.delete",
+                json!({"subscriptionId": SUBSCRIPTION})
+            )
+        );
+        assert_eq!(
+            parsed(&["subscription", "refresh", SUBSCRIPTION], None),
+            (
+                "subscriptions.refresh",
                 json!({"subscriptionId": SUBSCRIPTION})
             )
         );
@@ -368,6 +379,7 @@ mod tests {
             vec!["mode", "unsafe-mode"],
             vec!["profile", "favorite", PROFILE, "yes"],
             vec!["subscription", "delete", "private.example/password"],
+            vec!["subscription", "refresh", "private.example/password"],
         ] {
             let error = rejected(&values, None);
             let rendered = format!("{error:?} {error}");

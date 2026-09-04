@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added native single-subscription refresh dispatch behind exact Rust
+  ownership. The fixed request carries only an opaque local ID, provider I/O
+  shares the bounded remote-fetch pool without blocking status/disconnect, and
+  stale or ownership-revoked completions fail before atomic store commit. The
+  installed QML/Python owner remains unchanged.
 - Added an inert Arch package-payload staging boundary for the pre-release
   native runtime: it installs only a prebuilt `omavless` executable, the fixed
   hardened user unit, licenses and packaging documentation into an explicit

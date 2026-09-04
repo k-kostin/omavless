@@ -55,6 +55,7 @@ pub mod store_preflight;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
 pub mod subscription_refresh;
+pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
 
 pub const SOCKET_NAME: &str = "control.sock";
@@ -220,6 +221,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "subscriptions.add",
     "subscriptions.update",
     "subscriptions.delete",
+    "subscriptions.refresh",
 ];
 
 enum RuntimeDispatcher {
@@ -246,6 +248,7 @@ trait NativeRuntimeOwner: Send {
         &mut self,
         request: &Value,
         preflight_revision: u64,
+        completion: NativeRemoteCompletion,
         fetched: std::result::Result<
             omavless_domain::subscription_feed::PrivateSubscriptionBody,
             subscription_transport::SubscriptionTransportError,
@@ -275,8 +278,14 @@ enum NativeRemotePreflight {
         url: String,
         transport: SharedSubscriptionTransport,
         revision: u64,
+        completion: NativeRemoteCompletion,
     },
     Respond(Value),
+}
+
+enum NativeRemoteCompletion {
+    Mutation,
+    Refresh(native_coordinator::PreparedSubscriptionRefresh),
 }
 
 struct RecordIdGenerator {
@@ -453,16 +462,33 @@ where
         &mut self,
         request: &Value,
     ) -> std::result::Result<NativeRemotePreflight, omavless_control_protocol::ProtocolError> {
-        match self.owner.preflight_remote_subscription(request)? {
-            native_dispatch::RemoteSubscriptionPreflight::Fetch(prepared) => {
-                Ok(NativeRemotePreflight::Fetch {
-                    url: prepared.private_url().to_owned(),
-                    transport: self.transport.clone(),
-                    revision: self.owner.revision(),
-                })
+        if request["method"] == "subscriptions.refresh" {
+            match self.owner.preflight_remote_subscription_refresh(request)? {
+                native_dispatch::RemoteSubscriptionRefreshPreflight::Fetch(prepared) => {
+                    Ok(NativeRemotePreflight::Fetch {
+                        url: prepared.private_url().to_owned(),
+                        transport: self.transport.clone(),
+                        revision: self.owner.revision(),
+                        completion: NativeRemoteCompletion::Refresh(prepared),
+                    })
+                }
+                native_dispatch::RemoteSubscriptionRefreshPreflight::Respond(response) => {
+                    Ok(NativeRemotePreflight::Respond(response))
+                }
             }
-            native_dispatch::RemoteSubscriptionPreflight::Respond(response) => {
-                Ok(NativeRemotePreflight::Respond(response))
+        } else {
+            match self.owner.preflight_remote_subscription(request)? {
+                native_dispatch::RemoteSubscriptionPreflight::Fetch(prepared) => {
+                    Ok(NativeRemotePreflight::Fetch {
+                        url: prepared.private_url().to_owned(),
+                        transport: self.transport.clone(),
+                        revision: self.owner.revision(),
+                        completion: NativeRemoteCompletion::Mutation,
+                    })
+                }
+                native_dispatch::RemoteSubscriptionPreflight::Respond(response) => {
+                    Ok(NativeRemotePreflight::Respond(response))
+                }
             }
         }
     }
@@ -471,26 +497,40 @@ where
         &mut self,
         request: &Value,
         preflight_revision: u64,
+        completion: NativeRemoteCompletion,
         fetched: std::result::Result<
             omavless_domain::subscription_feed::PrivateSubscriptionBody,
             subscription_transport::SubscriptionTransportError,
         >,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let record_ids = &mut self.record_ids;
-        self.owner.respond_to_fetched_subscription(
-            request,
-            preflight_revision,
-            fetched,
-            || record_ids.next(),
-            || {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis()
-                    .try_into()
-                    .unwrap_or(u64::MAX)
-            },
-        )
+        let now = || {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
+        match completion {
+            NativeRemoteCompletion::Mutation => self.owner.respond_to_fetched_subscription(
+                request,
+                preflight_revision,
+                fetched,
+                || record_ids.next(),
+                now,
+            ),
+            NativeRemoteCompletion::Refresh(prepared) => {
+                self.owner.respond_to_fetched_subscription_refresh(
+                    request,
+                    preflight_revision,
+                    prepared,
+                    fetched,
+                    || record_ids.next(),
+                    now,
+                )
+            }
+        }
     }
 }
 
@@ -664,7 +704,7 @@ impl RuntimeServer {
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         if matches!(
             request["method"].as_str(),
-            Some("subscriptions.add" | "subscriptions.update")
+            Some("subscriptions.add" | "subscriptions.update" | "subscriptions.refresh")
         ) {
             return self.dispatch_remote_subscription(request);
         }
@@ -711,12 +751,13 @@ impl RuntimeServer {
             }
         };
 
-        let (url, transport, revision) = match preflight {
+        let (url, transport, revision, completion) = match preflight {
             NativeRemotePreflight::Fetch {
                 url,
                 transport,
                 revision,
-            } => (url, transport, revision),
+                completion,
+            } => (url, transport, revision, completion),
             NativeRemotePreflight::Respond(response) => return Ok(response),
         };
         let Some(_remote_slot) = claim_slot(&self.remote_fetches, MAX_CONCURRENT_REMOTE_FETCHES)
@@ -736,7 +777,7 @@ impl RuntimeServer {
                 error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None)
             }
             RuntimeDispatcher::Native(owner) => {
-                owner.complete_remote_subscription(request, revision, fetched)
+                owner.complete_remote_subscription(request, revision, completion, fetched)
             }
         }
     }
@@ -1403,7 +1444,7 @@ mod tests {
                 release: Mutex::new(release_rx),
             },
         );
-        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
 
         let connected = call(
             &paths,
@@ -1419,15 +1460,14 @@ mod tests {
         assert_eq!(connected["ok"], true);
         assert_eq!(connected["revision"], 1);
 
-        let add_paths = paths.clone();
-        let add = thread::spawn(move || {
+        let refresh_paths = paths.clone();
+        let refresh = thread::spawn(move || {
             call(
-                &add_paths,
-                "subscriptions.add",
+                &refresh_paths,
+                "subscriptions.refresh",
                 json!({
-                    "name": "Private source",
-                    "url": "https://private.example/subscription-token",
-                    "operationId": "subscription-fetch-1"
+                    "subscriptionId": SUBSCRIPTION_ID,
+                    "operationId": "subscription-refresh-conflict"
                 }),
             )
             .unwrap()
@@ -1454,10 +1494,10 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
 
         release_tx.send(()).unwrap();
-        let rejected_add = add.join().unwrap();
-        assert_eq!(rejected_add["ok"], false);
-        assert_eq!(rejected_add["error"]["code"], "conflict");
-        let rendered = rejected_add.to_string();
+        let rejected_refresh = refresh.join().unwrap();
+        assert_eq!(rejected_refresh["ok"], false);
+        assert_eq!(rejected_refresh["error"]["code"], "conflict");
+        let rendered = rejected_refresh.to_string();
         for private in [
             "private.example",
             "subscription-token",
@@ -1536,6 +1576,32 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|subscription| subscription["name"] == "Updated source")
+        );
+
+        let refresh_paths = paths.clone();
+        let refresh = thread::spawn(move || {
+            call(
+                &refresh_paths,
+                "subscriptions.refresh",
+                json!({
+                    "subscriptionId": SUBSCRIPTION_ID,
+                    "operationId": "subscription-refresh-success"
+                }),
+            )
+            .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        release_tx.send(()).unwrap();
+        let accepted_refresh = refresh.join().unwrap();
+        assert_eq!(accepted_refresh["ok"], true);
+        assert_eq!(accepted_refresh["revision"], 5);
+        let subscriptions = call(&paths, "subscriptions.list", json!({})).unwrap();
+        assert_eq!(
+            subscriptions["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
         );
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
@@ -1684,6 +1750,7 @@ mod tests {
             "subscriptions.add",
             "subscriptions.update",
             "subscriptions.delete",
+            "subscriptions.refresh",
         ] {
             assert!(
                 capabilities["result"]["methods"]

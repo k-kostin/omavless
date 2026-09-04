@@ -13,7 +13,8 @@ use crate::mutation::CachedOutcome;
 use crate::mutation_protocol::parse_owner_request;
 use crate::native_coordinator::{
     NativeOwnerError, NativeOwnerExecution, NativeTransactionError, OfflineNativeCoordinator,
-    PreparedSubscriptionFetch, SubscriptionFetchPreflight,
+    PreparedSubscriptionFetch, PreparedSubscriptionRefresh, SubscriptionFetchPreflight,
+    SubscriptionRefreshPreflight,
 };
 use crate::subscription_transport::{SubscriptionTransport, SubscriptionTransportError};
 use omavless_control_protocol::{
@@ -85,6 +86,11 @@ pub(crate) enum RemoteSubscriptionPreflight {
     Respond(Value),
 }
 
+pub(crate) enum RemoteSubscriptionRefreshPreflight {
+    Fetch(PreparedSubscriptionRefresh),
+    Respond(Value),
+}
+
 /// Bind reservation-free external-work preflight to the ordinary v1 response
 /// envelope. Only add/update can return a private fetch target; delete and all
 /// invalid inputs receive a bounded response without transport work.
@@ -102,6 +108,26 @@ pub(crate) fn preflight_native_subscription<H: LifecycleHost>(
         }
         Err(error) => owner_error_response(request_id, owner.revision(), error)
             .map(RemoteSubscriptionPreflight::Respond),
+    }
+}
+
+/// Snapshot one existing subscription under the migration lock before its
+/// private URL is used outside the serialized owner. The snapshot is retained
+/// through completion so a concurrent URL/store change fails closed.
+pub(crate) fn preflight_native_subscription_refresh<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<RemoteSubscriptionRefreshPreflight, ProtocolError> {
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.preflight_subscription_refresh(request) {
+        Ok(SubscriptionRefreshPreflight::Ready(prepared)) => {
+            Ok(RemoteSubscriptionRefreshPreflight::Fetch(prepared))
+        }
+        Ok(SubscriptionRefreshPreflight::Replay(cached)) => {
+            cached_response(request_id, cached).map(RemoteSubscriptionRefreshPreflight::Respond)
+        }
+        Err(error) => owner_error_response(request_id, owner.revision(), error)
+            .map(RemoteSubscriptionRefreshPreflight::Respond),
     }
 }
 
@@ -124,6 +150,36 @@ where
     match owner.execute_fetched_subscription(
         request,
         preflight_revision,
+        fetched,
+        next_record_id,
+        now_millis,
+    ) {
+        Ok(execution) => execution_response(request_id, execution),
+        Err(error) => owner_error_response(request_id, owner.revision(), error),
+    }
+}
+
+/// Complete a refresh using the exact private snapshot captured before the
+/// fetch. Neither its URL nor decoded credential material enters the response.
+pub(crate) fn respond_to_fetched_subscription_refresh<H, G, N>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+    preflight_revision: u64,
+    prepared: PreparedSubscriptionRefresh,
+    fetched: Result<PrivateSubscriptionBody, SubscriptionTransportError>,
+    next_record_id: G,
+    now_millis: N,
+) -> Result<Value, ProtocolError>
+where
+    H: LifecycleHost,
+    G: FnMut() -> String,
+    N: FnOnce() -> u64,
+{
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.execute_fetched_subscription_refresh(
+        request,
+        preflight_revision,
+        prepared,
         fetched,
         next_record_id,
         now_millis,
