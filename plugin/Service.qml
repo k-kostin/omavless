@@ -135,7 +135,11 @@ Item {
   readonly property int statusPollIntervalMs:
     statusBaseIntervalSec * 1000 * Math.pow(2, Math.min(statusFailureCount, 5))
 
-  readonly property bool busy: controlProcess.running
+  // A mode change remains busy through the first authoritative status read.
+  // The privileged process exiting only says that its transaction ended; it
+  // does not make an earlier staged-template observation safe to present.
+  readonly property bool busy: controlProcess.running || routingModePending
+  readonly property bool routingModePending: _pendingRoutingMode !== ""
   readonly property bool statusProcessRunning: statusProcess.running
   // Structured from the exact generated config while connected, or from the
   // template that the next connection will use while disconnected. "Rule" by
@@ -533,6 +537,8 @@ Item {
     // *requested* — anything that happens while the poll runs or waits to
     // be parsed is "after the observation" and must keep its marker.
     _statusStartedAt = Date.now()
+    _statusRequestGeneration++
+    _runningStatusGeneration = _statusRequestGeneration
     statusProcess.running = true
     return true
   }
@@ -1093,8 +1099,14 @@ Item {
       mode: startupSource.mode
     }
     onboardingComplete = payload.onboardingComplete
+    var routingModeStatusIsFinal = _pendingRoutingMode !== ""
+      && !controlProcess.running
+      && _routingModeRequiredStatusGeneration > 0
+      && _runningStatusGeneration >= _routingModeRequiredStatusGeneration
+    var displayedRoutingMode = _pendingRoutingMode !== "" && !routingModeStatusIsFinal
+      ? _routingModeBeforeChange : route.mode
     routing = {
-      mode: route.mode,
+      mode: displayedRoutingMode,
       source: route.source,
       preset: plainText(route.preset, 64),
       configured: route.configured,
@@ -1104,13 +1116,20 @@ Item {
       rulesUpdatedAt: Math.floor(route.rulesUpdatedAt),
       ruleUpdateAvailable: route.ruleUpdateAvailable
     }
-    if (_lastExitRoutingMode !== route.mode) {
-      _lastExitRoutingMode = route.mode
+    if (_lastExitRoutingMode !== displayedRoutingMode) {
+      _lastExitRoutingMode = displayedRoutingMode
       exitIp = ""
       exitIpFailed = false
       rxHistory = []
       txHistory = []
       exitIpDelay.restart()
+    }
+    if (routingModeStatusIsFinal) {
+      _pendingRoutingMode = ""
+      _routingModeBeforeChange = ""
+      _routingModeRequiredStatusGeneration = 0
+      actionStatus = ""
+      if (_pendingSaveUuid !== "") Qt.callLater(_flushPendingSave)
     }
     conflicts = conflictList
     uptimeSeconds = Math.floor(payload.uptimeSeconds)
@@ -1228,6 +1247,13 @@ Item {
     actionStatus = value === "rule"
       ? "Enabling routed VPN…"
       : (value === "global" ? "Sending all traffic through VPN…" : "Bypassing VPN…")
+    // The backend temporarily stages the requested template before the
+    // privileged reconnect completes. Keep showing the last authoritative
+    // mode until a poll requested after process completion confirms the
+    // actual success or rollback.
+    _pendingRoutingMode = value
+    _routingModeBeforeChange = routing.mode
+    _routingModeRequiredStatusGeneration = 0
     runControl(["set-mode", value])
     return true
   }
@@ -2099,6 +2125,12 @@ Item {
   // nothing outside their command.
   property string _controlOperation: ""
   property string _controlStdin: ""
+  // A staged routing template is not committed presentation state. Wait for
+  // one status request started after backend completion before settling the
+  // selector, including after a cancelled polkit dialog.
+  property string _pendingRoutingMode: ""
+  property string _routingModeBeforeChange: ""
+  property int _routingModeRequiredStatusGeneration: 0
   property string _previewKind: ""
   property string _previewPayload: ""
   property string _previewSuggested: ""
@@ -2133,6 +2165,8 @@ Item {
   property var _markInFlight: []
   // Epoch milliseconds of the moment the running status poll was requested.
   property double _statusStartedAt: 0
+  property int _statusRequestGeneration: 0
+  property int _runningStatusGeneration: 0
   // A generation identifies one diagnostics-page lifetime. Controller
   // replies from a page that has already closed are ignored.
   property int _advancedDiagnosticsGeneration: 0
@@ -2947,6 +2981,12 @@ Item {
     onExited: function(exitCode) {
       var op = root._controlOperation
       root._controlOperation = ""
+      var routingModeOperationPending = op === "set-mode" && root.routingModePending
+      if (routingModeOperationPending) {
+        // A poll already in flight may have observed only the temporary
+        // template. Require a new request after this success/failure result.
+        root._routingModeRequiredStatusGeneration = root._statusRequestGeneration + 1
+      }
       var subscriptionOperation = op.indexOf("subscription-") === 0
       var routingOperation = op.indexOf("custom-rule-") === 0
         || op === "rule-providers-refresh"
@@ -2959,7 +2999,9 @@ Item {
         if (root._pendingConnect !== "") root.rememberLast(root._pendingConnect)
         root.lastError = ""
         root._dropWarningText = ""
-        root.actionStatus = ""
+        // Keep the bounded Switching state until the authoritative post-exit
+        // status snapshot settles the requested or rolled-back mode.
+        if (!routingModeOperationPending) root.actionStatus = ""
         root._editRetryUuid = ""
         root._editRetryName = ""
         root._editRetryText = ""

@@ -3708,10 +3708,13 @@ rules:
             ), mock.patch.object(
                 backend, "systemctl", return_value=ok
             ) as systemctl, mock.patch.object(
+                backend, "wait_private_controller"
+            ) as wait_ready, mock.patch.object(
                 backend, "select_global_proxy"
             ) as select_global, mock.patch.object(backend, "mark_active"):
                 backend.connect_profile(paths, profile_id)
             systemctl.assert_called_once_with("start", backend.SERVICE)
+            wait_ready.assert_called_once_with(paths)
             select_global.assert_called_once_with(paths, "Example")
             self.assertEqual(backend.load_store(paths)["activeId"], profile_id)
 
@@ -4072,6 +4075,42 @@ esac
                     backend.connect_profile(paths, profile_id)
             self.assertEqual(raised.exception.exit_code, 21)
             self.assertIn("manual recovery", str(raised.exception))
+
+    def test_rule_connect_waits_for_controller_and_restores_previous_core(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir(mode=0o700)
+            paths = self.paths_for(home, runtime)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            profile_id = "22222222-2222-4222-8222-222222222222"
+            paths.store.write_text(json.dumps({
+                "version": 1, "activeId": profile_id, "lastId": profile_id,
+                "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
+            }), encoding="utf-8")
+            paths.config.write_text("mode: global\n", encoding="utf-8")
+            candidate = paths.config_dir / ".candidate.yaml"
+            candidate.write_text("mode: rule\n", encoding="utf-8")
+            ok = subprocess.CompletedProcess([], 0, "", "")
+            cancelled = backend.BackendError("Private Mihomo controller did not become ready")
+            with mock.patch.object(backend, "find_core", return_value=home / "mihomo"), \
+                 mock.patch.object(backend, "ensure_unit"), \
+                 mock.patch.object(backend, "render_config", return_value="mode: rule\n"), \
+                 mock.patch.object(backend, "test_config", return_value=candidate), \
+                 mock.patch.object(backend, "systemctl", return_value=ok) as systemctl, \
+                 mock.patch.object(
+                     backend, "service_active", side_effect=[False, True, True, True]
+                 ), \
+                 mock.patch.object(
+                     backend, "wait_private_controller", side_effect=[cancelled, runtime / "mihomo.sock"]
+                 ) as wait_ready:
+                with self.assertRaises(backend.BackendError) as raised:
+                    backend.connect_profile(paths, profile_id)
+            self.assertEqual(raised.exception.exit_code, 20)
+            self.assertIn("previous OmaVLESS state restored", str(raised.exception))
+            self.assertEqual(paths.config.read_text(encoding="utf-8"), "mode: global\n")
+            self.assertEqual(systemctl.call_count, 2)
+            self.assertEqual(wait_ready.call_count, 2)
 
     def test_adopt_template_failure_never_overwrites_current_template(self):
         with tempfile.TemporaryDirectory() as temp:
