@@ -942,3 +942,15 @@ and expose only the reviewed fixed start/get/cancel methods. A private superviso
 a new batch without restarting the owner; a stale ticket cannot revoke its
 successor. The scheduler must retain and use it. No production
 cutover or Python retirement is claimed by deterministic owner integration.
+
+### Cloud scheduler/IPC checkpoint (2026-09-04, Draft #161)
+
+The successor to the owner-only checkpoint above registers the reviewed fixed
+start/get/cancel methods in RuntimeServer and the semantic CLI. One supervised
+worker shares the unary fetch pool; shutdown revokes then joins, and network
+work runs outside the serialized owner. Native production ownership remains a
+prerequisite. Synthetic Unix-socket and worker tests cover the new composition.
+See `docs/testing/CLOUD_BATCH_SCHEDULER_HANDOFF_2026-09-04.md` for dependencies,
+intentional asynchronous differences and host gates. Frontend compatibility
+client integration and the actual R5/T1 transition remain implementation work;
+this is not production cutover or permission to remove Python.

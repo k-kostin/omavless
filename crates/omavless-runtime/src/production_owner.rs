@@ -309,6 +309,12 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         }
     }
 
+    // Only the runtime registration/scheduler may access the serialized batch
+    // owner. This is not an alternative production constructor or writer.
+    pub(crate) fn batch_coordinator(&mut self) -> &mut OfflineNativeCoordinator<H> {
+        &mut self.coordinator
+    }
+
     pub(crate) fn respond<T, G, N>(
         &mut self,
         request: &Value,
