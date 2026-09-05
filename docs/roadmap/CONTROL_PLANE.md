@@ -250,7 +250,7 @@ migration lock, then completion rechecks the captured global revision, exact
 ownership and the original subscription URL/update snapshot before one atomic
 commit. The success result is only `{"accepted":true}`; clients obtain updated
 bounded metadata through `subscriptions.list`. `subscriptions.refresh_all`
-remains a separate later scheduling contract.
+uses the separate long-operation scheduling contract below.
 
 The inactive native refresh-all store foundation snapshots the complete
 ordered `(id, url, updatedAt)` set, performs sequential bounded provider work
@@ -262,8 +262,57 @@ refresh timestamp. Retained decoded URI data across the batch is capped at the
 private-store size bound, and an empty set performs no fetch, time read or
 write. This foundation is not a live method: a refresh of up to 64 providers
 cannot fit the current five-second unary deadline. Socket/CLI advertisement
-therefore remains disabled until v1 defines a bounded start/poll/cancel
-long-operation contract with safe retry identity and ownership fencing.
+therefore remains disabled until the bounded start/poll/cancel contract below
+has a background executor with safe retry identity and ownership fencing.
+
+The accepted v1 long-operation contract begins with exactly these methods:
+
+- `subscriptions.refresh_all` starts one batch with required `instanceId` and
+  `operationId` plus optional `expectedRevision`; no subscription IDs, URLs,
+  paths, deadlines or concurrency controls are client input;
+- `operations.get` accepts exactly `instanceId` and `operationId` and returns
+  one projection;
+- `operations.cancel` accepts exactly `instanceId` and `operationId` and
+  returns `accepted` plus the current projection. V1 has no generic
+  operation-list or task-execution method.
+
+The client echoes the current opaque ASCII `system.hello.instanceId` (1..128
+bytes) on all three requests. This binds an operation handle to one daemon
+instance: after restart an old get/cancel returns `not_found` even if a new
+client reused the same operation ID.
+
+Start is acknowledged within the ordinary five-second unary deadline after
+ownership/revision checks, the bounded private snapshot and scheduler handoff,
+never after provider I/O. Start and get both return exactly
+`{"operation": PROJECTION}`. The operation projection always contains exactly
+`instanceId`, `operationId`, fixed method `subscriptions.refresh_all`, `state`,
+`baseRevision`, nullable `outcomeRevision`, bounded `progress` as completed and
+total provider counts, `cancelRequested`, `cancellable` and nullable stable
+`error`. States are `queued`, `running`, `succeeded`, `failed` and `cancelled`;
+only terminal states have a non-decreasing outcome revision, only `failed` has
+a stable safe error, and `total` is at most 64. Non-empty success commits at
+exactly `baseRevision + 1`; empty no-change success remains at the base.
+Provider identity and raw errors are absent.
+
+The registry belongs to one daemon `instanceId`, permits at most one active
+refresh-all and retains at most 128 terminal projections FIFO. A daemon restart
+does not claim to resume jobs: clients renegotiate and a retry is a new
+instance-bound operation. Exact operation ID plus semantic digest replays the
+current/retained-terminal projection without scheduling twice; reuse for
+different input is `conflict`, while an evicted terminal ID may run again. IDs
+share one collision namespace with ordinary mutations, checked atomically under
+the one owner lock. A different batch while one is active is retryable `busy`.
+
+Cancellation is cooperative between bounded provider fetches. Cancellation
+accepted while queued prevents the first fetch; cancellation accepted during a
+fetch wins over that fetch's later failure and prevents further work. Before final
+mutation admission the worker atomically closes cancellation: if cancellation
+won, no commit occurs and state becomes `cancelled`; if the commit fence won,
+cancel returns `accepted:false` and cannot undo a committed store. The executor
+must enforce the existing per-provider timeout plus a 30-minute whole-job
+ceiling. These protocol and pure registry primitives remain inactive until a
+background executor, global fetch permits, unified ID-ledger hook and ownership
+fencing are wired and tested.
 
 ### Connection and routing
 

@@ -760,8 +760,22 @@ private URI bytes at the private-store bound, and revalidates the entire set
 before at most one atomic replacement. One failed provider, stale member,
 invalid feed, count overflow or timestamp exhaustion produces no write; an
 empty set performs no network, clock read or write. Live `refresh_all` remains
-blocked on the accepted control plane's still-missing long-operation scheduling
+blocked on an implementation of the accepted long-operation scheduling
 contract rather than extending the five-second unary deadline.
+
+The following inactive long-operation checkpoint fixes that protocol boundary
+without starting a worker or advertising a socket method. Exact
+`subscriptions.refresh_all`, `operations.get` and `operations.cancel` parsers
+require the current daemon instance ID plus a client operation ID, reject extra
+provider/URL/scheduling input and produce only bounded safe projections. A
+pure per-instance registry models one
+active job, exact replay/conflict identity, monotonic progress, cooperative
+cancellation versus the final commit fence and bounded FIFO terminal retention.
+The primitive exposes both directions of the shared operation-ID collision
+check, but the future executor must invoke them atomically under the one owner
+lock, acquire the global remote-fetch permit per provider,
+enforce the whole-job deadline, bind exact Rust ownership, register methods and
+add fixed CLI commands. The QML/Python production path remains unchanged.
 
 - singleton/peer/private-socket boundary;
 - desired/actual state reconciliation;

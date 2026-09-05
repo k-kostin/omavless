@@ -4,6 +4,11 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+- Added an inactive v1 long-operation protocol/state foundation for future
+  subscription refresh-all: strict start/get/cancel shapes, bounded safe
+  instance-bound projections, exact retry identity, monotonic progress and
+  revisions, cooperative cancellation fencing and per-instance FIFO retention.
+  No method is yet advertised or scheduled by the runtime.
 - Added the inactive native refresh-all transaction foundation. It snapshots
   the complete ordered private subscription set, fetches outside store locks,
   bounds aggregate retained URI data, rejects any stale member, and commits all

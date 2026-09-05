@@ -693,6 +693,16 @@ an empty set performs no fetch or write. It deliberately does not advertise
 must first reconcile a potentially long batch with the five-second unary
 deadline and safe retry semantics.
 
+The inactive long-operation protocol checkpoint then defines exact
+`subscriptions.refresh_all`, `operations.get` and `operations.cancel` request
+shapes plus one bounded per-instance registry. It covers safe projections,
+instance-bound stale-client rejection, exact retry conflicts, monotonic
+progress/revisions, cancellation/commit fencing and FIFO terminal retention
+without adding a worker, socket capability or CLI command. Activation remains
+gated on the background executor, global provider-fetch permits, atomic use of
+the unified mutation/operation ID collision hooks, ownership fencing and the
+whole-job deadline.
+
 Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
