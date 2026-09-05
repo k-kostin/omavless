@@ -922,3 +922,23 @@ if there is a concrete reason, but installing and operating OmaVLESS must not
 require Python. The preferred final state is to remove obsolete Python runtime
 code entirely and keep language-neutral regression corpora as the preserved
 behavioral record.
+
+
+### Cloud owner/batch integration checkpoint (2026-09-04)
+
+The integration branch combines the long-operation registry from #154 with
+#156's budgeted preparation worker. The offline native coordinator now owns
+start/replay, shared operation-ID collision checks (including external-fetch
+preflight), progress/cancellation, shutdown revocation and final atomic commit.
+Worker steps run outside the owner/migration locks; completion reacquires the
+migration lock and rechecks ownership, global revision and every store member.
+Empty batches do not write, read the timestamp source or increment revision.
+
+This is not a registered background service. The production owner constructor,
+RuntimeServer scheduler and semantic CLI do not invoke these APIs yet. The next
+slice must bind the actual runtime instance ID, supervise one worker, share the
+existing fetch pool, yield on Busy, terminalize spawn/panic/shutdown failures,
+and expose only the reviewed fixed start/get/cancel methods. A private supervisor ticket can reclaim a dropped/panicked worker and permits
+a new batch without restarting the owner; a stale ticket cannot revoke its
+successor. The scheduler must retain and use it. No production
+cutover or Python retirement is claimed by deterministic owner integration.
