@@ -160,13 +160,29 @@ abandoning the plugin.
 State: **active independent plugin work**.
 
 Current foundation is merged. Routing tools and the first-use routing-preset
-confirmation and advanced diagnostics are now localized. Remaining batches
-include secondary dialogs and legacy/backend-facing prose where it is actually
-presented to users. Keep provider/profile/core-controlled data untranslated and
+confirmation and advanced diagnostics are now localized. Secondary dialogs and
+panel tooltips were accepted in PR #123, including Try Omarchy English/Russian
+smoke. Remaining batches include dynamic status and legacy/backend-facing prose
+where it is actually presented to users. Keep provider/profile/core-controlled data untranslated and
 preserve English fallback.
 
 These QML/i18n slices can merge independently of R0/R1 when their exact-head
 visual/contract gates pass.
+
+### P-U1 — plugin interaction and visual consistency
+
+State: **source-audited; rendered review and implementation pending**.
+
+The [2026-09-04 audit](docs/testing/CLOUD_UI_ROADMAP_AUDIT_2026-09-04.md)
+records a reproducible hidden-search-filter bug, inconsistent control/gutter
+policies, and modal/focus risks requiring Omarchy reproduction. Fix the search
+behavior narrowly; establish shared button role/state/size and scrollbar rules
+using existing shell tokens before migrating presentation. Keep #135's mode
+confirmation fix and its acceptance gates separate.
+
+This plugin lane is independent of R5. Exit requires exact-head English/Russian
+review of pointer/keyboard/disabled states, scrolling and constrained-height
+sheets. Source contracts alone do not prove visual acceptance.
 
 ### V0 — existing experimental protocol validation
 
