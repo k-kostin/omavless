@@ -13,7 +13,7 @@ use omavless_domain::subscription_feed::{
     MAX_SUBSCRIPTION_FEED_BYTES, PrivateSubscriptionBody, SubscriptionFeedError,
 };
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ureq::Agent;
 use ureq::tls::{RootCerts, TlsConfig};
 use url::Url;
@@ -75,6 +75,7 @@ pub trait SubscriptionTransport {
 
 pub struct HttpsSubscriptionTransport {
     agent: Agent,
+    timeout: Duration,
     max_body_bytes: usize,
     max_redirects: u32,
 }
@@ -107,6 +108,7 @@ impl HttpsSubscriptionTransport {
             .build();
         Self {
             agent: config.new_agent(),
+            timeout,
             max_body_bytes,
             max_redirects,
         }
@@ -148,13 +150,50 @@ impl HttpsSubscriptionTransport {
         &self,
         initial: &str,
     ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+        self.fetch_with_budget(initial, self.timeout)
+    }
+
+    /// Use the smaller of the provider limit and the enclosing job's remaining
+    /// time. The budget covers redirects and body consumption together. It is
+    /// trusted runtime input, never a caller-selectable IPC timeout.
+    pub fn fetch_with_budget(
+        &self,
+        initial: &str,
+        remaining_job_time: Duration,
+    ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError> {
+        let started = Instant::now();
+        self.fetch_with_elapsed(initial, remaining_job_time, || started.elapsed())
+    }
+
+    fn fetch_with_elapsed<F>(
+        &self,
+        initial: &str,
+        remaining_job_time: Duration,
+        mut elapsed: F,
+    ) -> Result<PrivateSubscriptionBody, SubscriptionTransportError>
+    where
+        F: FnMut() -> Duration,
+    {
+        let budget = self.timeout.min(remaining_job_time);
+        let remaining = |elapsed| {
+            budget
+                .checked_sub(elapsed)
+                .filter(|left| !left.is_zero())
+                .ok_or(SubscriptionTransportError::Timeout)
+        };
+        remaining(elapsed())?;
         let mut current = Self::parse_url(initial)?;
         for redirect_count in 0..=self.max_redirects {
+            let request_budget = remaining(elapsed())?;
             let mut response = self
                 .agent
                 .get(current.as_str())
+                .config()
+                .timeout_global(Some(request_budget))
+                .build()
                 .call()
                 .map_err(Self::map_transport_error)?;
+            remaining(elapsed())?;
             let status = response.status().as_u16();
             if matches!(status, 301 | 302 | 303 | 307 | 308) {
                 if redirect_count == self.max_redirects {
@@ -186,6 +225,7 @@ impl HttpsSubscriptionTransport {
                 .limit(u64::try_from(self.max_body_bytes.saturating_add(1)).unwrap_or(u64::MAX))
                 .read_to_vec()
                 .map_err(Self::map_transport_error)?;
+            remaining(elapsed())?;
             if bytes.len() > self.max_body_bytes {
                 return Err(SubscriptionTransportError::TooLarge);
             }
@@ -363,6 +403,82 @@ mod tests {
         let public = format!("{error:?} {error}");
         assert!(!public.contains("private-token"));
         assert!(!public.contains(&url));
+    }
+
+    #[test]
+    fn redirect_chain_cannot_reset_the_total_budget() {
+        let (url, worker) = server(vec![response("302 Found", "Location: /next\r\n", b"")]);
+        let transport = HttpsSubscriptionTransport::with_bounds(
+            Duration::from_secs(2),
+            MAX_SUBSCRIPTION_FEED_BYTES,
+            5,
+        );
+        let mut times = [Duration::ZERO, Duration::ZERO, Duration::from_secs(2)].into_iter();
+        let error = fetch_error(
+            transport.fetch_with_elapsed(&url, Duration::from_secs(9), || {
+                times.next().expect("no work after deadline")
+            }),
+        );
+        assert_eq!(error, SubscriptionTransportError::Timeout);
+        assert_eq!(worker.join().unwrap().len(), 1);
+        assert!(times.next().is_none());
+    }
+
+    #[test]
+    fn body_completion_after_budget_is_not_accepted() {
+        let (url, worker) = server(vec![response("200 OK", "", PROFILE.as_bytes())]);
+        let transport = HttpsSubscriptionTransport::new();
+        let mut times = [
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::from_secs(1),
+        ]
+        .into_iter();
+        assert_eq!(
+            fetch_error(
+                transport.fetch_with_elapsed(&url, Duration::from_secs(1), || times
+                    .next()
+                    .expect("no work after body deadline"),)
+            ),
+            SubscriptionTransportError::Timeout
+        );
+        assert_eq!(worker.join().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn zero_job_budget_performs_no_network_io() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/private", listener.local_addr().unwrap());
+        assert_eq!(
+            fetch_error(HttpsSubscriptionTransport::new().fetch_with_budget(&url, Duration::ZERO)),
+            SubscriptionTransportError::Timeout
+        );
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn remaining_job_time_caps_the_actual_request_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/private", listener.local_addr().unwrap());
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            thread::sleep(Duration::from_millis(150));
+            let _ = stream.write_all(&response("200 OK", "", PROFILE.as_bytes()));
+        });
+        assert_eq!(
+            fetch_error(
+                HttpsSubscriptionTransport::new()
+                    .fetch_with_budget(&url, Duration::from_millis(40),)
+            ),
+            SubscriptionTransportError::Timeout
+        );
+        worker.join().unwrap();
     }
 
     #[test]
