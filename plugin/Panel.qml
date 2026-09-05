@@ -1470,7 +1470,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -1552,14 +1552,13 @@ Panel {
                     }
                   }
 
-                  PanelActionButton {
+                  OmaNavigationButton {
                     iconText: "󰒓"
                     tooltipText: root.textFor("tooltip.settings")
                     anchors.verticalCenter: parent.verticalCenter
                     foreground: hero.foreground
                     bordered: true
                     fontFamily: hero.fontFamily
-                    fontSize: Style.font.subtitle * 1.35
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: root.openSettings()
@@ -1568,7 +1567,7 @@ Panel {
                   // The QR of the tunnel you are on, without going to its row
                   // first. Only while something is up: with nothing connected
                   // it would have no subject.
-                  PanelActionButton {
+                  OmaNavigationButton {
                     iconText: "󰐲"
                     tooltipText: root.safeTooltip(root.textFor("tooltip.show_qr",
                       { name: vless.primaryName }), 180)
@@ -1578,14 +1577,10 @@ Panel {
                     // dimming until hover is for the row actions, which are
                     // many and would otherwise shout over the list. This one
                     // is alone beside the switch and reads as disabled when
-                    // it is merely unhovered. Hover then adds only its fill.
+                    // it is merely unhovered. Hover/focus use the shared role.
                     foreground: hero.foreground
                     bordered: true
                     fontFamily: hero.fontFamily
-                    // A hero action, not a row action: the same size the
-                    // network panel gives the glyph it parks here, rather
-                    // than the row-sized default the CONFIGS buttons use.
-                    fontSize: Style.font.subtitle * 1.5
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: vless.showQr(vless.primaryProfile)
@@ -2169,7 +2164,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -2182,7 +2177,7 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: settingsBackButton
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
@@ -2514,7 +2509,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -2527,7 +2522,7 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: subscriptionBackButton
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
@@ -2559,12 +2554,11 @@ Panel {
               }
             }
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: subscriptionRefreshButton
               iconText: "󰑓"
               tooltipText: root.textFor("tooltip.update_all_subscriptions")
-              foreground: root.dim
-              hoverColor: root.foreground
+              foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: !vless.busy && !vless.probingProfiles && vless.subscriptions.length > 0
               focusable: true
