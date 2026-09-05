@@ -797,6 +797,22 @@ refresh-all execution without registering that operation or changing the
 installed Python owner. Loopback tests cover redirect/body deadline exhaustion,
 zero-budget no-I/O and a shortened actual request timeout.
 
+The incremental batch preparation checkpoint builds on that transport budget.
+It performs at most one provider fetch per step, using the same four-permit pool
+as native single-subscription requests. Busy admission performs no I/O and
+consumes the original 30-minute job budget. Cancellation is checked before and
+after transport and decode; any failure destroys the private prepared prefix.
+Only a complete batch can be handed to the existing all-or-nothing store
+transaction. Preparation is compared against the accepted offline refresh-all
+reference. No worker thread, IPC method or CLI is registered by this slice.
+
+The operation-registry/composite-owner integration is still required: start and
+retry admission, shared operation-ID collision checks, exact ownership/revision
+revalidation, the authoritative cancellation/commit fence, terminal progress
+publication and bounded worker lifetime must be joined under the single owner.
+The worker cancellation flag alone is deliberately not a commit authorization.
+Python remains the installed production owner.
+
 ### R6 — Python runtime retirement / native application gate
 
 Goal: prove that the product no longer requires Python before TUI implementation

@@ -51,9 +51,11 @@ pub mod production_owner;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
 pub mod profile_transaction;
+pub mod remote_fetch;
 pub mod semantic_cli;
 pub mod store_bootstrap;
 pub mod store_preflight;
+pub mod subscription_batch_work;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
 pub mod subscription_read_protocol;
@@ -65,7 +67,8 @@ pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
 pub const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CONCURRENT_CLIENTS: usize = 16;
-const MAX_CONCURRENT_REMOTE_FETCHES: usize = 4;
+#[cfg(test)]
+use remote_fetch::MAX_CONCURRENT_REMOTE_FETCHES;
 
 struct ActiveClient<'a>(&'a AtomicUsize);
 
@@ -205,7 +208,7 @@ pub struct RuntimeServer {
     uid: u32,
     instance_id: String,
     dispatcher: Mutex<RuntimeDispatcher>,
-    remote_fetches: AtomicUsize,
+    remote_fetches: remote_fetch::RemoteFetchPool,
     _owner: OwnerLock,
 }
 
@@ -577,7 +580,7 @@ impl RuntimeServer {
             uid,
             instance_id: format!("{:x}-{nonce:x}", std::process::id()),
             dispatcher: Mutex::new(RuntimeDispatcher::ReadOnly),
-            remote_fetches: AtomicUsize::new(0),
+            remote_fetches: remote_fetch::RemoteFetchPool::default(),
             _owner: owner,
         })
     }
@@ -778,8 +781,7 @@ impl RuntimeServer {
             } => (url, transport, revision, completion),
             NativeRemotePreflight::Respond(response) => return Ok(response),
         };
-        let Some(_remote_slot) = claim_slot(&self.remote_fetches, MAX_CONCURRENT_REMOTE_FETCHES)
-        else {
+        let Some(_remote_slot) = self.remote_fetches.try_acquire() else {
             return error_response(id, revision, StableErrorCode::Busy, true, None);
         };
         let fetched = subscription_transport::SubscriptionTransport::fetch(&transport, &url);
