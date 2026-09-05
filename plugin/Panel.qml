@@ -33,6 +33,7 @@ Panel {
   property bool pointerSelectingConfig: false
   property string hoveredSubscriptionServerUuid: ""
   property string profileFilter: ""
+  property bool profileSearchRequested: false
   // Attached scrollbars overlay Flickable content. Reserve a real gutter so
   // latency/status text never sits directly against the thumb.
   readonly property real scrollGutter: Style.space(16)
@@ -78,6 +79,31 @@ Panel {
     || routingPresetPrompt.visible || importDialog.visible
     || subscriptionPrompt.visible || pendingEdit !== null
     || pendingDelete !== null || pendingSubscriptionDelete !== null
+
+  // A refresh can shrink the store below the discovery threshold. Keep an
+  // active query editable, and let keyboard users request search at any size.
+  function profileSearchVisible() {
+    return vless.supports("subscriptionSearch")
+      && (vless.profiles.length >= 8 || profileSearchRequested
+        || profileFilter.trim() !== "")
+  }
+
+  function openProfileSearch() {
+    if (!vless.supports("subscriptionSearch")) return
+    profileSearchRequested = true
+    Qt.callLater(function() { profileSearch.forceActiveFocus() })
+  }
+
+  function dismissProfileSearch() {
+    if (profileFilter !== "") {
+      profileFilter = ""
+      profileSearch.text = ""
+      if (!profileSearchVisible()) keyCatcher.forceActiveFocus()
+    } else {
+      profileSearchRequested = false
+      keyCatcher.forceActiveFocus()
+    }
+  }
 
   function normalizeLocaleSetting(value) {
     var requested = String(value || "system").trim().toLowerCase()
@@ -1056,6 +1082,7 @@ Panel {
     pendingDelete = null
     pendingSubscriptionDelete = null
     pendingEdit = null
+    profileSearchRequested = false
     editingSubscription = null
     subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
@@ -1359,7 +1386,7 @@ Panel {
         }
         if (t === "t" || t === "T") vless.toggle()
         else if (t === "g" || t === "G") root.openSettings()
-        else if (t === "/" && vless.supports("subscriptionSearch")) profileSearch.forceActiveFocus()
+        else if (t === "/") root.openProfileSearch()
         else if (t === "r" || t === "R") vless.refresh()
         else if (t === "d" || t === "D") vless.disconnectAll()
         else if (t === "i" || t === "I") vless.pickConfigFile()
@@ -2021,7 +2048,7 @@ Panel {
 
             TextField {
               id: profileSearch
-              visible: vless.supports("subscriptionSearch") && vless.profiles.length >= 8
+              visible: root.profileSearchVisible()
               width: parent.width
               placeholderText: root.textFor("profiles.search")
               text: root.profileFilter
@@ -2041,8 +2068,7 @@ Panel {
                 }
               }
               Keys.onEscapePressed: function(event) {
-                if (text !== "") text = ""
-                else keyCatcher.forceActiveFocus()
+                root.dismissProfileSearch()
                 event.accepted = true
               }
               background: Rectangle {
