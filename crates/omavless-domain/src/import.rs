@@ -1,11 +1,69 @@
 // SPDX-License-Identifier: MIT
 
+use omavless_profile::canonical::{CanonicalError, CanonicalProfile, parse_canonical};
 use omavless_profile::{Protocol, classify_protocol};
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr};
 
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 pub const MAX_SUBSCRIPTION_URL_BYTES: usize = 8 * 1024;
+
+/// Parsed confirmation input, not permission to import or fetch anything.
+/// Debug deliberately uses the canonical profile's redacted representation.
+#[derive(Debug)]
+pub enum ImportPreview {
+    Profile(CanonicalProfile),
+    Subscription { duplicate: bool },
+}
+
+impl ImportPreview {
+    /// Existing version-1 UI shape. Profile metadata is PRIVATE (names,
+    /// endpoint, SNI and a masked hint); it is not a diagnostics projection.
+    #[must_use]
+    pub fn private_ui_value(&self) -> serde_json::Value {
+        match self {
+            Self::Profile(profile) => serde_json::json!({
+                "version": 1, "kind": "profile",
+                "profile": profile.private_preview(),
+            }),
+            Self::Subscription { duplicate } => serde_json::json!({
+                "version": 1, "kind": "subscription",
+                "suggestedName": "Subscription", "duplicate": duplicate,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportPreviewError {
+    Input(ImportError),
+    Profile(CanonicalError),
+}
+
+impl fmt::Display for ImportPreviewError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Input(error) => error.fmt(formatter),
+            Self::Profile(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for ImportPreviewError {}
+
+/// Same pure boundary for clipboard text and already bounded file contents.
+/// The caller supplies its authoritative store snapshot for duplicate checks.
+/// No filesystem, network, store mutation, or lifecycle effect.
+pub fn preview_import(
+    input: &str,
+    existing_urls: &[String],
+) -> Result<ImportPreview, ImportPreviewError> {
+    match classify_import(input, existing_urls).map_err(ImportPreviewError::Input)? {
+        ImportKind::Profile(_) => parse_canonical(input.trim())
+            .map(ImportPreview::Profile)
+            .map_err(ImportPreviewError::Profile),
+        ImportKind::Subscription { duplicate } => Ok(ImportPreview::Subscription { duplicate }),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImportKind {

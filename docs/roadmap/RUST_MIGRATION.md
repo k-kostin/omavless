@@ -931,6 +931,27 @@ code entirely and keep language-neutral regression corpora as the preserved
 behavioral record.
 
 
+### Native unified import-preview boundary (2026-09-06)
+
+The pure Rust domain now composes the existing strict import classifier and
+canonical profile adapters into `preview_import`. Clipboard text and bounded
+file contents use one semantic path. It validates profile contents (classification
+alone is insufficient), checks duplicate subscriptions against the caller's
+authoritative snapshot, and preserves Python `classify_import`'s version-1
+confirmation shape. It neither fetches nor mutates a store.
+
+The profile projection is explicitly **private UI data**, not sanitized
+diagnostics: it includes endpoint, SNI, label and the established masked hint.
+Debug output stays redacted; subscriptions return no URL. Differential tests
+reuse both canonical corpora and compare digests without printing projections,
+including whitespace/file-content variants and invalid/duplicate input.
+
+Python still owns production import, file/clipboard acquisition, confirmation
+and persistence. No new command or IPC method is registered by this checkpoint.
+The remaining bridge must use bounded private input, an authoritative duplicate
+snapshot and the existing explicit confirmation before any mutation; this
+checkpoint does not retire Python or claim fixture interoperability.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

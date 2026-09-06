@@ -518,7 +518,7 @@ impl VlessCanonicalProfile {
         Value::Object(values)
     }
 
-    fn preview_value(&self) -> Value {
+    pub(crate) fn preview_value(&self) -> Value {
         let preview = self.preview();
         let mut values = Map::new();
         values.insert(
