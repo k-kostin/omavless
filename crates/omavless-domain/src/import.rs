@@ -12,7 +12,7 @@ pub const MAX_SUBSCRIPTION_URL_BYTES: usize = 8 * 1024;
 /// Debug deliberately uses the canonical profile's redacted representation.
 #[derive(Debug)]
 pub enum ImportPreview {
-    Profile(CanonicalProfile),
+    Profile(Box<CanonicalProfile>),
     Subscription { duplicate: bool },
 }
 
@@ -59,6 +59,7 @@ pub fn preview_import(
 ) -> Result<ImportPreview, ImportPreviewError> {
     match classify_import(input, existing_urls).map_err(ImportPreviewError::Input)? {
         ImportKind::Profile(_) => parse_canonical(input.trim())
+            .map(Box::new)
             .map(ImportPreview::Profile)
             .map_err(ImportPreviewError::Profile),
         ImportKind::Subscription { duplicate } => Ok(ImportPreview::Subscription { duplicate }),
