@@ -1486,6 +1486,9 @@ Panel {
             // Exposed for the hero's trailingControl, whose `root` resolves to
             // PanelHero (not this Panel) — reach panel state via `header`.
             readonly property bool ringVisible: root.headerHasCursor
+            readonly property real controlHeight: Math.max(Style.space(32),
+              Style.font.icon + Style.spacing.sm * 2,
+              Style.font.body + Style.spacing.controlPaddingY * 2)
 
             // Only keyboard navigation owns the persistent header cursor.
             // A pointer already gives each control its own hover state; making
@@ -1535,7 +1538,7 @@ Panel {
                   BorderSurface {
                     visible: vless.active && vless.uptimeSeconds > 0
                     width: uptimeText.implicitWidth + Style.space(10)
-                    height: Style.space(28)
+                    height: header.controlHeight
                     anchors.verticalCenter: parent.verticalCenter
                     color: "transparent"
                     borderSpec: Border.controlSpec("normal", hero.foreground, Color.accent)
@@ -1553,6 +1556,7 @@ Panel {
                   }
 
                   OmaNavigationButton {
+                    size: header.controlHeight
                     iconText: "󰒓"
                     tooltipText: root.textFor("tooltip.settings")
                     anchors.verticalCenter: parent.verticalCenter
@@ -1568,6 +1572,7 @@ Panel {
                   // first. Only while something is up: with nothing connected
                   // it would have no subject.
                   OmaNavigationButton {
+                    size: header.controlHeight
                     iconText: "󰐲"
                     tooltipText: root.safeTooltip(root.textFor("tooltip.show_qr",
                       { name: vless.primaryName }), 180)
@@ -1590,6 +1595,7 @@ Panel {
                   // shown in the detail grid. It sits between the QR action
                   // and power switch, preserving the switch's edge alignment.
                   Button {
+                    height: header.controlHeight
                     text: root.textFor("action.test")
                     iconText: vless.testingConnection ? "󰑓" : ""
                     iconSpinning: vless.testingConnection
@@ -1616,7 +1622,13 @@ Panel {
                     checked: vless.active
                     busy: vless.busy
                     hasCursor: header.ringVisible
-                    foreground: hero.foreground
+                    // Keep the native track/knob, without an extra hover box.
+                    // Reserve a stable hit area and show keyboard selection
+                    // through the switch color instead of an outer rectangle.
+                    cursorRing: false
+                    width: trackWidth + Style.space(12)
+                    height: header.controlHeight
+                    foreground: header.ringVisible ? Color.accent : hero.foreground
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onToggled: vless.toggle()
 
@@ -1797,9 +1809,8 @@ Panel {
           // two, and the rows below keep their own traffic lines.
           Column {
             visible: vless.active && vless.supports("liveTraffic")
-            // Short of the full width by the hero switch's cursor-ring pad:
-            // ToggleSwitch reserves that ring outside its track, so the item
-            // is flush with the edge while the switch you can see is not.
+            // Short of the full width by the hero switch's padded hit area:
+            // its item is flush with the edge, while the visible track is not.
             // Optical alignment beats geometric here — the numbers and the
             // track are what the eye lines up.
             width: parent.width - Style.space(6)
