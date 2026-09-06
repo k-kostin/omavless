@@ -902,6 +902,13 @@ it.
 
 ## 14. Definition of migration complete
 
+Before frontend bridge activation, the native unary client must enforce the
+same private socket/peer boundary as the server and correlate every success or
+error reply to its request ID. The client checks occur before private input is
+sent. Synthetic socket regressions cover peer rejection without disclosure,
+endpoint permissions/symlinks and mismatched replies. This strengthens the
+existing Rust CLI/cutover-host client; QML remains on its Python owner.
+
 The migration is complete when all of the following are true:
 
 ```text
