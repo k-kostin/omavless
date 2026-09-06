@@ -126,6 +126,14 @@ Requirements:
 - Linux `SO_PEERCRED` same-UID verification;
 - group/cross-user access unsupported.
 
+Both endpoints verify peer credentials. Before writing any request (including
+explicit private subscription/editor input), the native client validates the
+private directory/socket shape and modes, then verifies the connected peer UID.
+It accepts a success or error response only when its ID matches the request on
+that unary connection. Failure exposes a fixed local error, never the rejected
+peer's payload. These checks do not imply that a same-user process is outside
+the existing same-user trust boundary.
+
 Private transport does not authorize disclosure of private store contents.
 Ordinary responses never contain profile URI, reusable protocol credential,
 subscription URL, controller secret or generated private config.

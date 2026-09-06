@@ -1053,8 +1053,31 @@ fn dispatch_native(
 }
 
 pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> {
-    let mut stream =
-        UnixStream::connect(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
+    let uid = Uid::current().as_raw();
+    validate_directory(&paths.directory, uid)?;
+    let directory =
+        fs::symlink_metadata(&paths.directory).map_err(|_| RuntimeError::UnsafeRuntimeDirectory)?;
+    if directory.mode() & 0o7777 != 0o700 {
+        return Err(RuntimeError::UnsafeRuntimeDirectory);
+    }
+    let socket =
+        fs::symlink_metadata(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
+    if !socket.file_type().is_socket() || socket.uid() != uid || socket.mode() & 0o7777 != 0o600 {
+        return Err(RuntimeError::PermissionDenied);
+    }
+    let stream = UnixStream::connect(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
+    call_stream(stream, uid, method, params)
+}
+
+fn call_stream(mut stream: UnixStream, uid: u32, method: &str, params: Value) -> Result<Value> {
+    // Authenticate the connected peer, not just the path checked before
+    // connect. In particular, no private editor/subscription input is written
+    // before this check. Metadata checks alone cannot close replacement races.
+    let credentials =
+        getsockopt(&stream, PeerCredentials).map_err(|_| RuntimeError::PermissionDenied)?;
+    if credentials.uid() != uid {
+        return Err(RuntimeError::PermissionDenied);
+    }
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|_| RuntimeError::Io)?;
@@ -1071,6 +1094,9 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
     let response = read_unary_frame(&mut stream, FrameKind::Response)
         .and_then(|frame| decode_response(&frame))
         .map_err(|_| RuntimeError::Protocol)?;
+    if response["id"].as_str() != Some(id.as_str()) {
+        return Err(RuntimeError::Protocol);
+    }
     Ok(response)
 }
 
@@ -1183,6 +1209,101 @@ mod tests {
         let mut builder = fs::DirBuilder::new();
         builder.mode(0o700).create(&base).unwrap();
         base
+    }
+
+    #[test]
+    fn native_client_correlates_success_and_error_replies() {
+        for success in [true, false] {
+            for matching in [true, false] {
+                let (client, mut peer) = UnixStream::pair().unwrap();
+                let worker = thread::spawn(move || {
+                    let request = read_unary_frame(&mut peer, FrameKind::Request)
+                        .and_then(|frame| decode_request(&frame))
+                        .unwrap();
+                    let id = if matching {
+                        request["id"].as_str().unwrap()
+                    } else {
+                        "unrelated-private-value"
+                    };
+                    let response = if success {
+                        success_response(id, 0, json!({"accepted": true})).unwrap()
+                    } else {
+                        error_response(id, 0, StableErrorCode::Busy, true, None).unwrap()
+                    };
+                    let frame = encode_response(&response).unwrap();
+                    write_unary_frame(&mut peer, &frame, FrameKind::Response).unwrap();
+                    peer.shutdown(std::net::Shutdown::Write).unwrap();
+                });
+                let result = call_stream(client, Uid::current().as_raw(), "status.get", json!({}));
+                worker.join().unwrap();
+                if matching {
+                    assert_eq!(result.unwrap()["ok"], success);
+                } else {
+                    assert_eq!(result, Err(RuntimeError::Protocol));
+                    assert!(!RuntimeError::Protocol.to_string().contains("private-value"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_client_rejects_wrong_peer_before_sending_private_input() {
+        use std::io::Read;
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        let other_uid = Uid::current().as_raw().wrapping_add(1);
+        assert_eq!(
+            call_stream(
+                client,
+                other_uid,
+                "subscriptions.add",
+                json!({"name": "private-name", "url": "https://private.invalid/secret"})
+            ),
+            Err(RuntimeError::PermissionDenied)
+        );
+        // The client closes on rejection; the peer sees EOF without any bytes.
+        let mut bytes = Vec::new();
+        peer.read_to_end(&mut bytes).unwrap();
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn native_client_rejects_unsafe_endpoint_without_connecting() {
+        use std::os::unix::fs::symlink;
+        let base = temporary_base("client-endpoint");
+        let paths = RuntimePaths::below(&base);
+        prepare_runtime_directory(&paths.directory, Uid::current().as_raw()).unwrap();
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o660)).unwrap();
+        assert_eq!(
+            call(&paths, "status.get", json!({})),
+            Err(RuntimeError::PermissionDenied)
+        );
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o750)).unwrap();
+        assert_eq!(
+            call(&paths, "status.get", json!({})),
+            Err(RuntimeError::UnsafeRuntimeDirectory)
+        );
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let actual = paths.directory.join("actual.sock");
+        fs::rename(&paths.socket, &actual).unwrap();
+        symlink(&actual, &paths.socket).unwrap();
+        assert_eq!(
+            call(&paths, "status.get", json!({})),
+            Err(RuntimeError::PermissionDenied)
+        );
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        fs::remove_file(&paths.socket).unwrap();
+        fs::write(&paths.socket, b"not a socket").unwrap();
+        assert_eq!(
+            call(&paths, "status.get", json!({})),
+            Err(RuntimeError::PermissionDenied)
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 
     fn write_marker(paths: &CutoverPaths, phase: OwnershipPhase, generation: u64) {
