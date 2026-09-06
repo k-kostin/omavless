@@ -80,6 +80,18 @@ pub fn parse_canonical(input: &str) -> Result<CanonicalProfile, CanonicalError> 
 }
 
 impl CanonicalProfile {
+    /// Private local UI projection. Contains endpoint and provider label data:
+    /// never log this value or include it in shareable diagnostics.
+    #[must_use]
+    pub fn private_preview(&self) -> serde_json::Value {
+        match self {
+            Self::Vless(profile) => profile.preview_value(),
+            Self::Trojan(profile) => profile.preview_value(),
+            Self::Hysteria2(profile) => profile.preview_value(),
+            Self::Tuic(profile) => profile.preview_value(),
+        }
+    }
+
     #[must_use]
     pub const fn protocol(&self) -> Protocol {
         match self {

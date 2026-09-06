@@ -361,7 +361,7 @@ impl TuicProfile {
         }
     }
 
-    fn preview_value(&self) -> Value {
+    pub(crate) fn preview_value(&self) -> Value {
         let mut value = Map::new();
         value.insert("version".to_owned(), Value::Number(Number::from(1)));
         value.insert("protocol".to_owned(), Value::String("tuic".to_owned()));
