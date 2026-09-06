@@ -125,7 +125,7 @@ Item {
     boundsBehavior: Flickable.StopAtBounds
     flickableDirection: Flickable.VerticalFlick
     interactive: contentHeight > height
-    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+    ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
 
     Column {
       id: content

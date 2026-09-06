@@ -1470,7 +1470,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -1486,6 +1486,9 @@ Panel {
             // Exposed for the hero's trailingControl, whose `root` resolves to
             // PanelHero (not this Panel) — reach panel state via `header`.
             readonly property bool ringVisible: root.headerHasCursor
+            readonly property real controlHeight: Math.max(Style.space(32),
+              Style.font.icon + Style.spacing.sm * 2,
+              Style.font.body + Style.spacing.controlPaddingY * 2)
 
             // Only keyboard navigation owns the persistent header cursor.
             // A pointer already gives each control its own hover state; making
@@ -1535,7 +1538,7 @@ Panel {
                   BorderSurface {
                     visible: vless.active && vless.uptimeSeconds > 0
                     width: uptimeText.implicitWidth + Style.space(10)
-                    height: Style.space(28)
+                    height: header.controlHeight
                     anchors.verticalCenter: parent.verticalCenter
                     color: "transparent"
                     borderSpec: Border.controlSpec("normal", hero.foreground, Color.accent)
@@ -1552,14 +1555,14 @@ Panel {
                     }
                   }
 
-                  PanelActionButton {
+                  OmaNavigationButton {
+                    size: header.controlHeight
                     iconText: "󰒓"
                     tooltipText: root.textFor("tooltip.settings")
                     anchors.verticalCenter: parent.verticalCenter
                     foreground: hero.foreground
                     bordered: true
                     fontFamily: hero.fontFamily
-                    fontSize: Style.font.subtitle * 1.35
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: root.openSettings()
@@ -1568,7 +1571,8 @@ Panel {
                   // The QR of the tunnel you are on, without going to its row
                   // first. Only while something is up: with nothing connected
                   // it would have no subject.
-                  PanelActionButton {
+                  OmaNavigationButton {
+                    size: header.controlHeight
                     iconText: "󰐲"
                     tooltipText: root.safeTooltip(root.textFor("tooltip.show_qr",
                       { name: vless.primaryName }), 180)
@@ -1578,14 +1582,10 @@ Panel {
                     // dimming until hover is for the row actions, which are
                     // many and would otherwise shout over the list. This one
                     // is alone beside the switch and reads as disabled when
-                    // it is merely unhovered. Hover then adds only its fill.
+                    // it is merely unhovered. Hover/focus use the shared role.
                     foreground: hero.foreground
                     bordered: true
                     fontFamily: hero.fontFamily
-                    // A hero action, not a row action: the same size the
-                    // network panel gives the glyph it parks here, rather
-                    // than the row-sized default the CONFIGS buttons use.
-                    fontSize: Style.font.subtitle * 1.5
                     enabled: !vless.busy && !vless.editing && !vless.importSourceBusy
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onClicked: vless.showQr(vless.primaryProfile)
@@ -1595,6 +1595,7 @@ Panel {
                   // shown in the detail grid. It sits between the QR action
                   // and power switch, preserving the switch's edge alignment.
                   Button {
+                    height: header.controlHeight
                     text: root.textFor("action.test")
                     iconText: vless.testingConnection ? "󰑓" : ""
                     iconSpinning: vless.testingConnection
@@ -1621,7 +1622,13 @@ Panel {
                     checked: vless.active
                     busy: vless.busy
                     hasCursor: header.ringVisible
-                    foreground: hero.foreground
+                    // Keep the native track/knob, without an extra hover box.
+                    // Reserve a stable hit area and show keyboard selection
+                    // through the switch color instead of an outer rectangle.
+                    cursorRing: false
+                    width: trackWidth + Style.space(12)
+                    height: header.controlHeight
+                    foreground: header.ringVisible ? Color.accent : hero.foreground
                     onHovered: function(on) { header.clearKeyboardCursorOnHover(on) }
                     onToggled: vless.toggle()
 
@@ -1802,9 +1809,8 @@ Panel {
           // two, and the rows below keep their own traffic lines.
           Column {
             visible: vless.active && vless.supports("liveTraffic")
-            // Short of the full width by the hero switch's cursor-ring pad:
-            // ToggleSwitch reserves that ring outside its track, so the item
-            // is flush with the edge while the switch you can see is not.
+            // Short of the full width by the hero switch's padded hit area:
+            // its item is flush with the edge, while the visible track is not.
             // Optical alignment beats geometric here — the numbers and the
             // track are what the eye lines up.
             width: parent.width - Style.space(6)
@@ -2169,7 +2175,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -2182,7 +2188,7 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: settingsBackButton
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
@@ -2514,7 +2520,7 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height && !root.modalInputActive
-        ScrollBar.vertical: ScrollBar {
+        ScrollBar.vertical: OmaScrollBar {
           policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
@@ -2527,7 +2533,7 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: subscriptionBackButton
               iconText: "󰁍"
               tooltipText: root.textFor("tooltip.back_profiles")
@@ -2559,12 +2565,11 @@ Panel {
               }
             }
 
-            PanelActionButton {
+            OmaNavigationButton {
               id: subscriptionRefreshButton
               iconText: "󰑓"
               tooltipText: root.textFor("tooltip.update_all_subscriptions")
-              foreground: root.dim
-              hoverColor: root.foreground
+              foreground: root.foreground
               fontFamily: root.fontFamily
               enabled: !vless.busy && !vless.probingProfiles && vless.subscriptions.length > 0
               focusable: true

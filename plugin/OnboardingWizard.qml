@@ -106,11 +106,11 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
 
         Column {
           id: content
-          width: parent.width
+          width: Math.max(0, parent.width - Style.space(16))
           spacing: Style.space(10)
 
           Row {
