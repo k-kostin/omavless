@@ -431,10 +431,11 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
         // discovering them in stage_desired would already gate legacy repair/
         // export and invoke compensation despite no useful transition.
         self.lock()?;
-        crate::private_store_transaction::validate_store_path(&self.paths.store, self.uid)
-            .map_err(|_| CutoverHostError)?;
-        let input = read_private_utf8(&self.paths.store, self.uid).map_err(|_| CutoverHostError)?;
-        parse_private_store(&input).map_err(|_| CutoverHostError)?;
+        if crate::store_preflight::inspect_store_compatibility(&self.paths.store, self.uid)
+            != crate::store_preflight::StoreCompatibility::Compatible
+        {
+            return Err(CutoverHostError);
+        }
         let desired = read_desired(&self.paths.desired, self.uid).map_err(|_| CutoverHostError)?;
         self.captured_desired = Some(desired.clone());
         Ok(desired)

@@ -14,6 +14,112 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn store_compatibility_cli_is_bounded_read_only_and_requires_no_external_tools() {
+    use omavless_runtime::cutover::{CutoverPaths, MigrationLock};
+    use std::os::unix::fs::{MetadataExt, symlink};
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let directory = base.join("home/.config/omavless");
+    fs::create_dir_all(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.join("profiles.json");
+    let uid = fs::metadata(&base).unwrap().uid();
+    let cutover = CutoverPaths::below(&base, &base.join("state"), uid);
+    let run = || {
+        let output = isolated_command(&base)
+            .arg("store-compatibility")
+            .env("PATH", base.join("no-external-tools"))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "compatibility CLI failed");
+        assert!(output.stderr.is_empty());
+        assert!(output.stdout.len() < 512);
+        for private in [
+            "private-token",
+            "private-label",
+            "vless://",
+            "11111111",
+            "example.invalid",
+        ] {
+            assert!(!String::from_utf8_lossy(&output.stdout).contains(private));
+        }
+        assert!(!cutover.ownership_marker.exists());
+        assert!(!omavless_runtime::RuntimePaths::below(&base).socket.exists());
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    assert_eq!(run()["code"], "store_unavailable");
+    assert!(!path.exists());
+    let valid = br#"{"version":3,"profiles":[],"subscriptions":[]}"#;
+    fs::write(&path, valid).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let report = run();
+    assert_eq!(report["schemaVersion"], 1);
+    assert_eq!(report["compatible"], true);
+    assert_eq!(report["code"], "compatible");
+    assert!(fs::read(&path).unwrap() == valid);
+    let corpus: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../tests/parity_cases/vless-canonical-v1.json"
+    ))
+    .unwrap();
+    for case_id in [
+        "xhttp-unknown",
+        "xhttp-stream-one-download",
+        "download-mode-mismatch",
+        "recursive-extra",
+    ] {
+        let case = corpus.iter().find(|case| case["id"] == case_id).unwrap();
+        let store = serde_json::json!({"version":3,"profiles":[{
+            "id":"00000000-0000-4000-8000-000000000001",
+            "name":"private-label","protocol":"vless","uri":case["uri"]
+        }],"subscriptions":[]})
+        .to_string();
+        fs::write(&path, store.as_bytes()).unwrap();
+        assert_eq!(run()["code"], "store_requires_repair");
+        assert!(fs::read(&path).unwrap() == store.as_bytes());
+    }
+    for invalid in [
+        b"private-token".to_vec(),
+        vec![0xff],
+        vec![b'x'; 5 * 1024 * 1024 + 1],
+    ] {
+        fs::write(&path, &invalid).unwrap();
+        let report = run();
+        assert_eq!(report["compatible"], false);
+        assert_eq!(report["code"], "store_requires_repair");
+        assert_eq!(report["recovery"], "legacy_repair_or_export");
+        assert!(fs::read(&path).unwrap() == invalid);
+    }
+    fs::write(&path, valid).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(run()["code"], "store_unavailable");
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let saved = directory.join("saved-store.json");
+    fs::rename(&path, &saved).unwrap();
+    symlink(&saved, &path).unwrap();
+    assert_eq!(run()["code"], "store_unavailable");
+    fs::remove_file(&path).unwrap();
+    fs::rename(&saved, &path).unwrap();
+    let lock = MigrationLock::acquire(&cutover, uid).unwrap();
+    let busy = command(&base, "store-compatibility");
+    assert!(!busy.status.success());
+    assert!(busy.stdout.is_empty());
+    drop(lock);
+    assert_eq!(run()["compatible"], true);
+    let invalid = isolated_command(&base)
+        .args(["store-compatibility", "private-token"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("private-token"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn explicit_profile_reads_cli_keep_sensitive_success_off_stderr() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,
@@ -251,6 +357,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile replace PROFILE_ID",
         "profile export PROFILE_ID qr|file",
         "profile edit-input PROFILE_ID",
+        "store-compatibility",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription add",
