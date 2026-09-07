@@ -76,7 +76,7 @@ pub(crate) fn parse(request: &Value) -> Result<PresetRequest, MutationProtocolEr
 pub(crate) struct PresetPlan {
     store: PreparedPrivateStoreWrite,
     template: PathBuf,
-    original: String,
+    original: Option<String>,
     candidate: String,
     desired_paths: DesiredPaths,
     desired: DesiredState,
@@ -137,7 +137,7 @@ impl PresetPlan {
         })
     }
     pub fn restart_required(&self) -> bool {
-        self.original != self.candidate || self.desired != self.target
+        self.original.as_deref() != Some(self.candidate.as_str()) || self.desired != self.target
     }
     fn authorized(
         &self,
@@ -156,7 +156,7 @@ impl PresetPlan {
     fn replace_template(&self, payload: &str) -> Result<(), PrivateStoreWriteError> {
         atomic_replace_private(&self.template, payload.as_bytes(), self.uid)
             .map_err(|_| PrivateStoreWriteError::StoreIo)?;
-        if private_template(&self.template, self.uid)? != payload {
+        if private_template(&self.template, self.uid)?.as_deref() != Some(payload) {
             return Err(PrivateStoreWriteError::StoreChanged);
         }
         Ok(())
@@ -174,10 +174,28 @@ impl PresetPlan {
         if current == self.original {
             return Ok(false);
         }
-        if current != self.candidate {
+        if current.as_deref() != Some(self.candidate.as_str()) {
             return Err(PrivateStoreWriteError::StoreChanged);
         }
-        self.replace_template(&self.original)?;
+        match &self.original {
+            Some(original) => self.replace_template(original)?,
+            None => {
+                // Remove only the exact candidate created by this attempt,
+                // under the matching migration lock and fixed template path.
+                std::fs::remove_file(&self.template)
+                    .map_err(|_| PrivateStoreWriteError::StoreIo)?;
+                std::fs::File::open(
+                    self.template
+                        .parent()
+                        .ok_or(PrivateStoreWriteError::UnsafeStore)?,
+                )
+                .and_then(|directory| directory.sync_all())
+                .map_err(|_| PrivateStoreWriteError::StoreIo)?;
+                if private_template(&self.template, self.uid)?.is_some() {
+                    return Err(PrivateStoreWriteError::StoreChanged);
+                }
+            }
+        }
         Ok(true)
     }
     fn restore_desired(&self) -> Result<bool, PrivateStoreWriteError> {
@@ -192,7 +210,7 @@ impl PresetPlan {
         Ok(true)
     }
 }
-fn private_template(path: &Path, uid: u32) -> Result<String, PrivateStoreWriteError> {
+fn private_template(path: &Path, uid: u32) -> Result<Option<String>, PrivateStoreWriteError> {
     let parent = path
         .parent()
         .and_then(|p| std::fs::symlink_metadata(p).ok())
@@ -204,7 +222,11 @@ fn private_template(path: &Path, uid: u32) -> Result<String, PrivateStoreWriteEr
     {
         return Err(PrivateStoreWriteError::UnsafeStore);
     }
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| PrivateStoreWriteError::StoreIo)?;
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(PrivateStoreWriteError::StoreIo),
+    };
     if !metadata.is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != uid
@@ -213,7 +235,9 @@ fn private_template(path: &Path, uid: u32) -> Result<String, PrivateStoreWriteEr
     {
         return Err(PrivateStoreWriteError::UnsafeStore);
     }
-    read_private_utf8(path, uid).map_err(|_| PrivateStoreWriteError::StoreIo)
+    read_private_utf8(path, uid)
+        .map(Some)
+        .map_err(|_| PrivateStoreWriteError::StoreIo)
 }
 impl StorePlan for PresetPlan {
     fn changed(&self) -> bool {
@@ -231,8 +255,28 @@ impl StorePlan for PresetPlan {
             return Err(PrivateStoreWriteError::StoreChanged);
         }
         self.store.commit_locked(lock, paths)?;
-        if self.original != self.candidate {
-            self.replace_template(&self.candidate)?;
+        if self.original.as_deref() != Some(self.candidate.as_str()) {
+            if self.original.is_none() {
+                match omavless_store::atomic_create_private(
+                    &self.template,
+                    self.candidate.as_bytes(),
+                    self.uid,
+                )
+                .map_err(|_| PrivateStoreWriteError::StoreIo)?
+                {
+                    omavless_store::PrivateCreateOutcome::Created => {}
+                    omavless_store::PrivateCreateOutcome::AlreadyExists => {
+                        return Err(PrivateStoreWriteError::StoreChanged);
+                    }
+                }
+                if private_template(&self.template, self.uid)?.as_deref()
+                    != Some(self.candidate.as_str())
+                {
+                    return Err(PrivateStoreWriteError::StoreChanged);
+                }
+            } else {
+                self.replace_template(&self.candidate)?;
+            }
         }
         if self.desired != self.target {
             self.replace_desired(&self.target)?;
@@ -379,6 +423,32 @@ mod tests {
                 }
             }
         }
+        for keep_mode in [false, true] {
+            for preset in ["roscomvpn-default", "china-cn-direct", "iran-ir-direct"] {
+                let template_path = root.join("config/route-template.yaml");
+                fs::remove_file(&template_path).unwrap();
+                write(&store, initial.to_string().as_bytes());
+                write_desired(&desired, uid, &DesiredState::default()).unwrap();
+                let plan = PresetPlan::prepare(
+                    &store,
+                    &desired,
+                    uid,
+                    &parse(&request(preset, keep_mode)).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    plan.commit(&lock, &cutover).unwrap(),
+                    PreparedWrite::Changed
+                );
+                let document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+                let output = json!({"store":document,"template":fs::read_to_string(&template_path).unwrap()});
+                actual.push(format!(
+                    "{:x}",
+                    Sha256::digest(serde_json::to_vec(&output).unwrap())
+                ));
+                cases.push(json!({"store":initial,"template":null,"preset":preset,"keepMode":keep_mode,"missingTemplate":true}));
+            }
+        }
         let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut child = Command::new("python3")
             .arg(repo.join("tools/routing_preset_parity.py"))
@@ -396,7 +466,7 @@ mod tests {
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success(), "routing preset oracle failed");
         let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(expected.len(), 18);
+        assert_eq!(expected.len(), 24);
         for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
             assert!(actual == &expected, "routing preset mismatch case {index}");
         }
@@ -671,6 +741,108 @@ mod tests {
         );
         assert!(fs::read(&store).unwrap() == initial.as_bytes());
         assert!(fs::read(&template).unwrap() == original);
+        drop(lock);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn routing_preset_missing_template_create_and_rollback_preserve_racing_files() {
+        for race in [false, true] {
+            let (root, store, desired, cutover, uid) = fixture();
+            let lock = MigrationLock::acquire(&cutover, uid).unwrap();
+            let initial =
+                json!({"version":3,"profiles":[],"subscriptions":[],"routingPreset":"custom"})
+                    .to_string();
+            write(&store, initial.as_bytes());
+            write_desired(&desired, uid, &DesiredState::default()).unwrap();
+            let template = root.join("config/route-template.yaml");
+            let plan = PresetPlan::prepare(
+                &store,
+                &desired,
+                uid,
+                &parse(&request("china-cn-direct", false)).unwrap(),
+            )
+            .unwrap();
+            assert!(!template.exists());
+            if race {
+                write(&template, b"private-token-racing-winner");
+                assert_eq!(
+                    plan.commit(&lock, &cutover),
+                    Err(PrivateStoreWriteError::StoreChanged)
+                );
+                assert!(fs::read(&store).unwrap() == initial.as_bytes());
+                assert!(fs::read(&template).unwrap() == b"private-token-racing-winner");
+            } else {
+                plan.commit(&lock, &cutover).unwrap();
+                assert!(template.is_file());
+                assert_eq!(
+                    fs::metadata(&template).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+                plan.restore(&lock, &cutover).unwrap();
+                assert!(!template.exists());
+                assert!(fs::read(&store).unwrap() == initial.as_bytes());
+                assert_eq!(
+                    plan.restore(&lock, &cutover).unwrap(),
+                    PreparedWrite::NoChange
+                );
+            }
+            drop(lock);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn routing_preset_installed_mihomo_validates_all_native_candidates_without_tun() {
+        use crate::lifecycle::LifecycleHost;
+        let Some(core) = std::env::var_os("OMAVLESS_TEST_MIHOMO") else {
+            return;
+        };
+        let (root, store, desired, cutover, uid) = fixture();
+        let lock = MigrationLock::acquire(&cutover, uid).unwrap();
+        for name in ["data", "proc", "sys-class-net"] {
+            let directory = root.join(name);
+            fs::create_dir(&directory).unwrap();
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let id = "00000000-0000-4000-8000-000000000001";
+        write(&store,json!({"version":3,"profiles":[{"id":id,"name":"Synthetic","protocol":"vless","uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic"}],"subscriptions":[],"routingPreset":"custom"}).to_string().as_bytes());
+        write_desired(&desired, uid, &DesiredState::default()).unwrap();
+        let paths = crate::native_host::NativeHostPaths::new(
+            PathBuf::from(core),
+            root.join("data"),
+            root.join("config"),
+            root.join("runtime"),
+            root.join("proc"),
+            root.join("sys-class-net"),
+        );
+        let mut host = crate::native_host::NativeLifecycleHost::new(paths, uid).unwrap();
+        for preset in ["roscomvpn-default", "china-cn-direct", "iran-ir-direct"] {
+            let plan = PresetPlan::prepare(
+                &store,
+                &desired,
+                uid,
+                &parse(&request(preset, false)).unwrap(),
+            )
+            .unwrap();
+            plan.commit(&lock, &cutover).unwrap();
+            let target = DesiredState {
+                connected: true,
+                profile_id: id.into(),
+                ..read_desired(&desired, uid).unwrap()
+            };
+            assert!(
+                host.prepare(&target).is_ok(),
+                "installed Mihomo rejected bundled native candidate"
+            );
+            let candidate = fs::read_to_string(root.join("config/.config.candidate.yaml")).unwrap();
+            assert!(candidate.contains("external-controller-unix:"));
+            assert!(!candidate.contains("external-controller:"));
+            assert!(!candidate.contains("{{OMAVLESS_PROXY}}"));
+            host.discard_prepared().unwrap();
+            assert!(host.core_pid().is_none());
+            assert!(!root.join("runtime/mihomo.sock").exists());
+        }
         drop(lock);
         fs::remove_dir_all(root).unwrap();
     }

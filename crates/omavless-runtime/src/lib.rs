@@ -2591,7 +2591,7 @@ mod tests {
         fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
         let params = json!({"preset":"china-cn-direct","keepMode":true,"operationId":"preset","expectedRevision":0});
         let first = call(&paths, "routing.set_preset", params.clone()).unwrap();
         assert_eq!(first["ok"], true);
@@ -2613,6 +2613,18 @@ mod tests {
         .unwrap();
         assert_eq!(noop["ok"], true);
         assert_eq!(noop["revision"], 1);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let mut metadata: Value = serde_json::from_slice(&bytes).unwrap();
+        metadata["routingPreset"] = json!("custom");
+        fs::write(&store, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        let metadata_only = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","keepMode":true}),
+        )
+        .unwrap();
+        assert_eq!(metadata_only["ok"], true);
+        assert_eq!(metadata_only["revision"], 2);
         assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         assert_eq!(
             call(

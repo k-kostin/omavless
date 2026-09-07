@@ -463,6 +463,13 @@ recovery on ordinary failure and a hard manual-recovery barrier on ambiguity.
 The files are individually atomic, not a fictitious cross-file filesystem
 transaction; incomplete/externally changed compensation fails closed.
 
+An absent first-run template is an explicit absence snapshot, not an error or
+permission to overwrite a racing file. Publication uses private atomic
+create-if-absent; rollback removes only this attempt's exact candidate and
+syncs the directory. Existing or changed files are never unlinked. Unlike the
+legacy helper's eager default-template write, failed native onboarding restores
+the original absence rather than leaving an unrequested default behind.
+
 Success is only `{"accepted":true}`. No template/private destination appears
 in the ordinary result. Python's template mode is a legacy input; after native
 ownership the canonical desired mode is authoritative for `keepMode`. The

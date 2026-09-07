@@ -1173,7 +1173,8 @@ canonical native desired state; first-run selection chooses Rule. No-op,
 metadata-only, replay and generation-fenced rollback have distinct paths.
 
 An actual Python `use_bundled_template` oracle compares all three bundles,
-three modes and both selection semantics via bounded synthetic stdin and full
+three modes and both selection semantics, plus first-run missing templates,
+via bounded synthetic stdin and full
 template/store digests. File/member, desired-generation, core-failure and
 socket tests supplement parity. Files are individually atomic; ambiguous
 multi-member compensation requires manual recovery. No installed frontend or
