@@ -131,6 +131,21 @@ pub fn parse_semantic_profile_import(
     })
 }
 
+pub fn parse_semantic_profile_replace(
+    arguments: &[OsString],
+    stdin: Option<&str>,
+) -> Result<SemanticRequest, SemanticCliError> {
+    let values = utf8(arguments)?;
+    let ["profile", "replace", id] = values.as_slice() else {
+        return Err(SemanticCliError::InvalidCommand);
+    };
+    let id = record_id(id)?;
+    let mut request = parse_semantic_profile_import(&["profile".into(), "import".into()], stdin)?;
+    request.method = "profiles.replace";
+    request.params["profileId"] = json!(id);
+    Ok(request)
+}
+
 fn utf8(arguments: &[OsString]) -> Result<Vec<&str>, SemanticCliError> {
     arguments
         .iter()
@@ -340,6 +355,40 @@ mod tests {
             parse_semantic_profile_import(
                 &args(&["profile", "import"]),
                 Some(&"x".repeat(MAX_PROFILE_IMPORT_STDIN_BYTES + 1))
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn replacement_uses_same_private_input_boundary_and_explicit_opaque_target() {
+        let input = "Confirmed\ntrojan://synthetic-password@203.0.113.1:443\n";
+        let (method, params) =
+            parse_semantic_profile_replace(&args(&["profile", "replace", PROFILE]), Some(input))
+                .ok()
+                .unwrap()
+                .into_parts();
+        assert_eq!(method, "profiles.replace");
+        assert_eq!(params["profileId"], PROFILE);
+        assert_eq!(params.as_object().unwrap().len(), 3);
+        assert!(
+            parse_semantic_profile_replace(
+                &args(&["profile", "replace", "private-token"]),
+                Some(input)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_semantic_profile_replace(
+                &args(&["profile", "replace", PROFILE, "extra"]),
+                Some(input)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_semantic_profile_replace(
+                &args(&["profile", "replace", PROFILE]),
+                Some("no newline")
             )
             .is_err()
         );

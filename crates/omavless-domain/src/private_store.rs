@@ -282,6 +282,11 @@ impl StoreListProjection {
 /// serialization implementation because rename input and record IDs are
 /// private user data.
 pub enum ProfileMutation {
+    Replace {
+        profile_id: String,
+        new_name: String,
+        new_input: String,
+    },
     Rename {
         profile_id: String,
         new_name: String,
@@ -1384,6 +1389,44 @@ pub fn apply_profile_mutation(
 ) -> Result<PrivateStoreMutation, PrivateStoreError> {
     let mut store = parse_private_store(input)?;
     let changed = match mutation {
+        ProfileMutation::Replace {
+            profile_id,
+            new_name,
+            new_input,
+        } => {
+            let name = clean_mutation_name(&new_name)?;
+            let index = store
+                .profiles
+                .iter()
+                .position(|profile| profile.id == profile_id)
+                .ok_or(PrivateStoreError::ProfileNotFound)?;
+            if !store.profiles[index].subscription_id.is_empty() {
+                return Err(PrivateStoreError::SubscribedProfile);
+            }
+            if store
+                .profiles
+                .iter()
+                .enumerate()
+                .any(|(other, profile)| other != index && profile.name == name)
+            {
+                return Err(PrivateStoreError::DuplicateProfileName);
+            }
+            if !matches!(
+                crate::import::classify_import(&new_input, &[]),
+                Ok(crate::import::ImportKind::Profile(_))
+            ) {
+                return Err(PrivateStoreError::InvalidShape);
+            }
+            let uri = new_input.trim();
+            let canonical = parse_canonical(uri).map_err(PrivateStoreError::Profile)?;
+            let profile = &mut store.profiles[index];
+            let changed = profile.name != name || profile.uri != uri;
+            profile.name = name;
+            profile.uri = uri.to_owned();
+            profile.canonical = canonical;
+            store.document["profiles"][index]["uri"] = Value::from(uri);
+            changed
+        }
         ProfileMutation::Rename {
             profile_id,
             new_name,

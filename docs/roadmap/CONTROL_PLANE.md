@@ -206,7 +206,7 @@ versioned and bounded.
 
 - `profiles.list`, `profiles.get` — safe metadata only;
 - `imports.classify`, `profiles.import` — explicit bounded sensitive input;
-- `profiles.rename`, `profiles.favorite`, `profiles.delete`;
+- `profiles.replace`, `profiles.rename`, `profiles.favorite`, `profiles.delete`;
 - `profiles.test` — bounded latency/availability;
 - `profiles.export` — explicit credential release for `qr`/`file` purpose only.
 
@@ -267,7 +267,21 @@ store bounds before one private atomic replacement. Success is only
 shared revision/replay namespace, does not select/connect the new record, and
 does not restart an existing tunnel. An uncertain write is compensated to exact
 original bytes; an unprovable restoration becomes `manual_recovery_required`.
-Existing-profile replacement and its active-tunnel recovery gate are separate.
+Existing-profile replacement uses the separate `profiles.replace` method with
+required `profileId`, `name`, `input` and optional mutation metadata. It
+cannot create a missing record or edit a subscription-managed record. The fixed
+`profile replace PROFILE_ID` CLI reads the same private name/link stdin shape.
+ID, favorite, selection and startup references are preserved; exact unchanged
+content is a no-op. Duplicate names and all canonical input/store bounds still
+apply.
+
+An active replacement uses the existing profile transaction: quiesce while
+preserving connected intent, commit the candidate, recover the same profile ID.
+Ordinary candidate failure restores exact prior store bytes and recovers the
+old profile; failed/uncertain cleanup or restoration requires manual recovery.
+Inactive replacement commits without a core restart, with verified compensation
+on an uncertain write. Replay never restarts the core twice. This method does
+not activate the installed frontend or perform ownership cutover.
 
 ### Subscriptions
 

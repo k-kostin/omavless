@@ -163,6 +163,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile favorite PROFILE_ID on|off",
         "profile delete PROFILE_ID",
         "profile import",
+        "profile replace PROFILE_ID",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription add",
