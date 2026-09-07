@@ -14,7 +14,7 @@ use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::env;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -50,6 +50,69 @@ fn run() -> Result<(), String> {
         println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
+        println!(
+            "  desktop capabilities|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|export-file|cleanup"
+        );
+        println!(
+            "                                  explicit private client-only helpers; input through stdin"
+        );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "desktop") {
+        use omavless_runtime::desktop_helpers::{
+            self, DesktopHelpers, MAX_PATH_BYTES, MAX_TEXT_BYTES,
+        };
+        if arguments.len() != 2 {
+            return Err("Invalid desktop helper command".into());
+        }
+        let helpers = DesktopHelpers::current();
+        let output = match arguments[1].to_str() {
+            Some("capabilities") => {
+                println!("{}", helpers.capabilities());
+                return Ok(());
+            }
+            Some("clipboard-read") => helpers.clipboard_read(),
+            Some("cleanup") => {
+                let paths = RuntimePaths::current().map_err(|e| e.to_string())?;
+                let removed =
+                    desktop_helpers::cleanup(&paths.directory).map_err(|e| e.to_string())?;
+                println!("{}", json!({"removed": removed}));
+                return Ok(());
+            }
+            Some("pick-import") => helpers.pick_import(),
+            Some("file-read") => {
+                let path = read_semantic_input(MAX_PATH_BYTES + 1)?;
+                desktop_helpers::read_import_file(path.trim_end_matches('\n').as_bytes())
+            }
+            Some("clipboard-copy" | "edit" | "qr") => {
+                let input = read_semantic_input(MAX_TEXT_BYTES)?;
+                match arguments[1].to_str() {
+                    Some("clipboard-copy") => helpers
+                        .clipboard_copy(input.as_bytes())
+                        .map(|()| Vec::new()),
+                    Some("qr") => helpers.qr_png(input.as_bytes()),
+                    _ => {
+                        let paths = RuntimePaths::current().map_err(|e| e.to_string())?;
+                        // Requires an existing private runtime directory, never starts the daemon.
+                        helpers.edit(input.as_bytes(), &paths.directory)
+                    }
+                }
+            }
+            Some("export-file") => {
+                let input = read_semantic_input(MAX_PATH_BYTES + 1 + MAX_TEXT_BYTES)?;
+                let (path, content) = input
+                    .split_once('\n')
+                    .ok_or("Invalid desktop helper input")?;
+                desktop_helpers::export_file(path.as_bytes(), content.as_bytes())
+                    .map(|()| Vec::new())
+            }
+            _ => return Err("Invalid desktop helper command".into()),
+        }
+        .map_err(|e| e.to_string())?;
+        io::stdout()
+            .lock()
+            .write_all(&output)
+            .map_err(|_| "Desktop helper output failed".to_string())?;
         return Ok(());
     }
     if arguments == ["preflight"] {
