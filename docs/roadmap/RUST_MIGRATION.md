@@ -946,11 +946,19 @@ Debug output stays redacted; subscriptions return no URL. Differential tests
 reuse both canonical corpora and compare digests without printing projections,
 including whitespace/file-content variants and invalid/duplicate input.
 
+The following dispatch checkpoint registers exact `imports.classify` only for
+the committed native owner and adds `omavless import preview` with bounded
+private stdin. The owner rechecks its exact generation and reads the current
+private store under the migration lock; duplicate status cannot be supplied by
+the client. V1's 32-KiB string and 64-KiB escaped-frame limits apply. Synthetic
+socket and executable tests cover success, malformed input/store, unsafe store
+modes, revoked/stale ownership, unchanged revision/store/host, and no credential
+echo. The existing 225-case domain differential remains the Python oracle.
+
 Python still owns production import, file/clipboard acquisition, confirmation
-and persistence. No new command or IPC method is registered by this checkpoint.
-The remaining bridge must use bounded private input, an authoritative duplicate
-snapshot and the existing explicit confirmation before any mutation; this
-checkpoint does not retire Python or claim fixture interoperability.
+and persistence. The installed QML launcher is not switched. The remaining
+bridge must use this private input and explicit confirmation before any mutation;
+neither checkpoint retires Python or claims fixture interoperability.
 
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 

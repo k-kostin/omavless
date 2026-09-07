@@ -166,7 +166,7 @@ fn private_store_file(path: &Path, uid: u32) -> bool {
     })
 }
 
-fn validate_store_path(path: &Path, uid: u32) -> Result<(), PrivateStoreWriteError> {
+pub(crate) fn validate_store_path(path: &Path, uid: u32) -> Result<(), PrivateStoreWriteError> {
     if path.is_absolute()
         && path.file_name().and_then(|name| name.to_str()) == Some("profiles.json")
         && private_parent(path, uid)

@@ -351,6 +351,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         respond_to_subscription_edit_input(&mut self.coordinator, request)
     }
 
+    pub(crate) fn import_preview(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_import_preview(&mut self.coordinator, request)
+    }
+
     pub(crate) fn respond_to_fetched_subscription<G, N>(
         &mut self,
         request: &Value,

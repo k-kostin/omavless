@@ -5,7 +5,8 @@ use omavless_runtime::desired::{DesiredPaths, read_desired};
 use omavless_runtime::production_observation::current_cutover_preflight;
 use omavless_runtime::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
 use omavless_runtime::semantic_cli::{
-    MAX_SUBSCRIPTION_STDIN_BYTES, parse_semantic_mutation, parse_semantic_read,
+    MAX_SUBSCRIPTION_STDIN_BYTES, parse_semantic_import_preview, parse_semantic_mutation,
+    parse_semantic_read,
 };
 use omavless_runtime::store_preflight::current_store_preflight;
 use omavless_runtime::{RuntimePaths, RuntimeServer, call};
@@ -36,7 +37,9 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
 fn run() -> Result<(), String> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     if arguments == ["-h"] || arguments == ["--help"] {
-        println!("{USAGE}");
+        println!(
+            "{USAGE}\n  import preview                  read private input from stdin; private UI output"
+        );
         return Ok(());
     }
     if arguments == ["preflight"] {
@@ -106,6 +109,12 @@ fn run() -> Result<(), String> {
         ("status.get", json!({}))
     } else if arguments == ["capabilities"] {
         ("capabilities.get", json!({}))
+    } else if arguments == ["import", "preview"] {
+        let input =
+            read_semantic_input(omavless_runtime::import_read_protocol::MAX_IMPORT_STDIN_BYTES)?;
+        parse_semantic_import_preview(&arguments, Some(&input))
+            .map_err(|error| error.to_string())?
+            .into_parts()
     } else {
         match parse_semantic_read(&arguments).map_err(|error| error.to_string())? {
             Some(request) => request.into_parts(),

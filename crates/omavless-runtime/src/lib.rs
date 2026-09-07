@@ -34,6 +34,7 @@ pub mod cutover;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod frontend_bridge;
+pub mod import_read_protocol;
 pub mod lifecycle;
 pub mod long_operation;
 pub mod long_operation_protocol;
@@ -214,6 +215,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "imports.classify",
     "profiles.list",
     "subscriptions.list",
     "subscriptions.edit_input",
@@ -240,6 +242,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn import_preview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
     fn status(&self, runtime_ownership: bool) -> Result<Value>;
@@ -398,6 +404,13 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn import_preview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.import_preview(request)
+    }
+
     fn revision(&self) -> u64 {
         self.owner.revision()
     }
@@ -1034,6 +1047,7 @@ fn dispatch_native(
         "subscriptions.edit_input" if runtime_ownership => {
             return owner.subscription_edit_input(request);
         }
+        "imports.classify" if runtime_ownership => return owner.import_preview(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
             return error_response(
                 id,
@@ -2049,6 +2063,113 @@ mod tests {
         assert_eq!(stale_owner["error"]["code"], "capability_unavailable");
         assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
 
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn import_preview_uses_current_private_store_without_effects_and_fails_closed() {
+        let base = temporary_base("import-preview");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let calls_before = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "imports.classify")
+        );
+        let duplicate = call(
+            &paths,
+            "imports.classify",
+            json!({"input": " \nhttps://private.example/subscription-token\n"}),
+        )
+        .unwrap();
+        assert_eq!(duplicate["revision"], 0);
+        assert_eq!(
+            duplicate["result"],
+            json!({
+                "version": 1, "kind": "subscription", "duplicate": true,
+                "suggestedName": "Subscription",
+            })
+        );
+        let profile = call(
+            &paths,
+            "imports.classify",
+            json!({
+                "input": "trojan://synthetic-password@203.0.113.1:443#SyntheticLabel",
+            }),
+        )
+        .unwrap();
+        assert_eq!(profile["revision"], 0);
+        assert_eq!(profile["result"]["kind"], "profile");
+        assert_eq!(profile["result"]["profile"]["protocol"], "trojan");
+        assert!(!profile.to_string().contains("synthetic-password"));
+        for params in [
+            json!({"input": "trojan://synthetic-password@bad"}),
+            json!({"input": "https://private.example/subscription-token", "duplicate": false}),
+        ] {
+            let response = call(&paths, "imports.classify", params).unwrap();
+            assert_eq!(response["error"]["code"], "invalid_argument");
+            for marker in [
+                "synthetic-password",
+                "private.example",
+                "subscription-token",
+            ] {
+                assert!(!response.to_string().contains(marker));
+            }
+        }
+        let new = call(
+            &paths,
+            "imports.classify",
+            json!({"input": "https://example.invalid/new-token"}),
+        )
+        .unwrap();
+        assert_eq!(new["result"]["duplicate"], false);
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+
+        fs::write(&store_path, b"invalid-private-store").unwrap();
+        let corrupt = call(
+            &paths,
+            "imports.classify",
+            json!({"input": "https://example.invalid/new-token"}),
+        )
+        .unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("invalid-private-store"));
+        fs::write(&store_path, &original).unwrap();
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        let unsafe_store = call(
+            &paths,
+            "imports.classify",
+            json!({"input": "https://example.invalid/new-token"}),
+        )
+        .unwrap();
+        assert_eq!(unsafe_store["error"]["code"], "internal_error");
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            let response = call(
+                &paths,
+                "imports.classify",
+                json!({"input": "https://private.example/subscription-token"}),
+            )
+            .unwrap();
+            assert_eq!(response["error"]["code"], "capability_unavailable");
+            assert!(!response.to_string().contains("subscription-token"));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

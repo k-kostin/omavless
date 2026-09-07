@@ -4,10 +4,9 @@
 //!
 //! This is deliberately not a raw method/JSON passthrough. Each accepted
 //! command maps to one exact v1 method and parameter shape which the runtime
-//! validates again. Credential-bearing profile material is never accepted by
-//! this boundary; rename text is supplied through bounded stdin rather than
-//! process argv. Read commands return only the runtime's bounded same-user
-//! metadata projections.
+//! validates again. Private import, rename and subscription input is supplied
+//! through bounded stdin rather than process argv. Explicit previews/editor
+//! reads return private local UI data, never shareable diagnostics.
 
 use crate::desired::RoutingMode;
 use crate::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES;
@@ -79,6 +78,27 @@ impl SemanticRequest {
     pub fn into_parts(self) -> (&'static str, Value) {
         (self.method, self.params)
     }
+}
+
+/// Explicit private input, never a raw method or caller-provided JSON envelope.
+pub fn parse_semantic_import_preview(
+    arguments: &[OsString],
+    stdin: Option<&str>,
+) -> Result<SemanticRequest, SemanticCliError> {
+    if utf8(arguments)?.as_slice() != ["import", "preview"] {
+        return Err(SemanticCliError::InvalidCommand);
+    }
+    let input = stdin.ok_or(SemanticCliError::MissingInput)?;
+    if input.trim().is_empty() {
+        return Err(SemanticCliError::MissingInput);
+    }
+    if input.len() > crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES {
+        return Err(SemanticCliError::InputTooLarge);
+    }
+    Ok(SemanticRequest {
+        method: "imports.classify",
+        params: json!({"input": input}),
+    })
 }
 
 fn utf8(arguments: &[OsString]) -> Result<Vec<&str>, SemanticCliError> {
@@ -227,6 +247,37 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn import_preview_mapping_is_fixed_bounded_and_preserves_private_input() {
+        use crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES;
+        for input in [
+            "https://example.invalid/token\n".to_owned(),
+            "x".repeat(MAX_IMPORT_STDIN_BYTES),
+        ] {
+            let request =
+                parse_semantic_import_preview(&args(&["import", "preview"]), Some(&input))
+                    .ok()
+                    .unwrap();
+            let (method, params) = request.into_parts();
+            assert_eq!(method, "imports.classify");
+            assert!(params == json!({"input": input}));
+        }
+        for input in [None, Some(""), Some(" \n")] {
+            assert!(parse_semantic_import_preview(&args(&["import", "preview"]), input).is_err());
+        }
+        assert!(
+            parse_semantic_import_preview(
+                &args(&["import", "preview"]),
+                Some(&"x".repeat(MAX_IMPORT_STDIN_BYTES + 1))
+            )
+            .is_err()
+        );
+        assert!(
+            parse_semantic_import_preview(&args(&["import", "preview", "secret"]), Some("secret"))
+                .is_err()
+        );
     }
 
     fn parsed(values: &[&str], stdin: Option<&str>) -> (&'static str, Value) {

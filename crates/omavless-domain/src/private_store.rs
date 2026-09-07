@@ -1022,6 +1022,20 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
 }
 
 impl PrivateStore {
+    /// Confirm against this validated private snapshot; never accept duplicate
+    /// status or subscription URLs supplied by the importing client.
+    pub fn preview_import(
+        &self,
+        input: &str,
+    ) -> Result<crate::import::ImportPreview, crate::import::ImportPreviewError> {
+        let urls = self
+            .subscriptions
+            .iter()
+            .map(|item| item.url.clone())
+            .collect::<Vec<_>>();
+        crate::import::preview_import(input, &urls)
+    }
+
     fn normalize_document(&mut self) -> Result<(), PrivateStoreError> {
         let root = self
             .document

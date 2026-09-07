@@ -149,6 +149,18 @@ pub(crate) fn respond_to_subscription_edit_input<H: LifecycleHost>(
     }
 }
 
+/// Return private confirmation metadata without a fetch, mutation or revision bump.
+pub(crate) fn respond_to_import_preview<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let request_id = request["id"].as_str().unwrap_or("invalid");
+    match owner.import_preview(request) {
+        Ok(preview) => success_response(request_id, owner.revision(), preview.private_ui_value()),
+        Err(error) => owner_error_response(request_id, owner.revision(), error),
+    }
+}
+
 /// Complete one externally fetched subscription request through the same
 /// serialized owner and stable response contract as every other mutation.
 pub(crate) fn respond_to_fetched_subscription<H, G, N>(
