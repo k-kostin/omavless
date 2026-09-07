@@ -653,6 +653,18 @@ mod tests {
         paths: ProductionCutoverPaths,
     }
 
+    fn publish_service_harness(path: &Path, script: &str) {
+        let staged = path.with_extension("staged");
+        fs::write(&staged, script).unwrap();
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(staged, path).unwrap();
+        // Match the observation/core fixtures: overlay-backed runners can
+        // briefly refuse a freshly written executable with ETXTBSY. This
+        // settling delay applies only to synthetic test scripts, never the
+        // stable production systemctl binary or transaction error handling.
+        thread::sleep(Duration::from_millis(20));
+    }
+
     impl Fixture {
         fn new(label: &str) -> Self {
             let nonce = SystemTime::now()
@@ -680,12 +692,10 @@ mod tests {
             }
             let uid = fs::metadata(&root).unwrap().uid();
             let systemctl = root.join("systemctl");
-            fs::write(
+            publish_service_harness(
                 &systemctl,
                 "#!/bin/sh\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; fi\nexit 0\n",
-            )
-            .unwrap();
-            fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+            );
             let paths = ProductionCutoverPaths::below(
                 systemctl,
                 &home,
@@ -735,8 +745,7 @@ mod tests {
             if fail_runtime_start { "exit 7;" } else { "" },
             if fail_runtime_stop { "exit 8;" } else { "" },
         );
-        fs::write(&fixture.paths.systemctl, script).unwrap();
-        fs::set_permissions(&fixture.paths.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        publish_service_harness(&fixture.paths.systemctl, &script);
         state
     }
 
@@ -948,8 +957,13 @@ mod tests {
             fixture.write_private(&fixture.paths.store, &store.to_string());
             let original = fs::read(&fixture.paths.store).unwrap();
             let mutation = fixture.root.join("unexpected-service-mutation");
-            fs::write(&fixture.paths.systemctl, format!(
-                "#!/bin/sh\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0; fi\n: > '{}'; exit 9\n", mutation.display())).unwrap();
+            publish_service_harness(
+                &fixture.paths.systemctl,
+                &format!(
+                    "#!/bin/sh\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0; fi\n: > '{}'; exit 9\n",
+                    mutation.display()
+                ),
+            );
             let bridge = FakeBridge::new();
             let observed = bridge.clone();
             let mut host =
@@ -1046,6 +1060,15 @@ mod tests {
         let mut host =
             ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
 
+        assert_eq!(
+            host.observe()
+                .map(|observation| crate::cutover::evaluate_cutover(
+                    &OwnershipMarker::default(),
+                    observation
+                )),
+            Ok(CutoverReadiness::ReadyDisconnected),
+            "synthetic service harness must be ready before injected transition failure"
+        );
         assert_eq!(
             execute_cutover(&mut host, &OwnershipMarker::default()),
             Err(CutoverTransactionError::ManualRecoveryRequired)
@@ -1168,8 +1191,7 @@ mod tests {
             "#!/bin/sh\nstate='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
             service_state.display()
         );
-        fs::write(&fixture.paths.systemctl, script).unwrap();
-        fs::set_permissions(&fixture.paths.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        publish_service_harness(&fixture.paths.systemctl, &script);
 
         let socket = fixture.paths.runtime.socket.clone();
         let runtime_directory = fixture.paths.runtime.directory.clone();
@@ -1274,8 +1296,7 @@ mod tests {
             service_state.display(),
             socket.display()
         );
-        fs::write(&fixture.paths.systemctl, script).unwrap();
-        fs::set_permissions(&fixture.paths.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        publish_service_harness(&fixture.paths.systemctl, &script);
 
         let runtime_directory = fixture.paths.runtime.directory.clone();
         let service_state_for_server = service_state.clone();
