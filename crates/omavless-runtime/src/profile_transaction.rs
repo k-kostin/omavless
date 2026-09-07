@@ -119,13 +119,15 @@ impl std::error::Error for ProfileTransactionError {}
 pub(crate) fn store_error(error: ProfileMutationCommitError) -> ProfileTransactionError {
     match error {
         ProfileMutationCommitError::StoreChanged => ProfileTransactionError::Conflict,
-        ProfileMutationCommitError::Mutation(PrivateStoreError::ProfileNotFound) => {
-            ProfileTransactionError::NotFound
-        }
-        ProfileMutationCommitError::Mutation(PrivateStoreError::DuplicateProfileName) => {
-            ProfileTransactionError::Conflict
-        }
+        ProfileMutationCommitError::Mutation(
+            PrivateStoreError::ProfileNotFound | PrivateStoreError::CustomRuleNotFound,
+        ) => ProfileTransactionError::NotFound,
+        ProfileMutationCommitError::Mutation(
+            PrivateStoreError::DuplicateProfileName
+            | PrivateStoreError::Routing(omavless_domain::routing::RoutingError::DuplicateRule),
+        ) => ProfileTransactionError::Conflict,
         ProfileMutationCommitError::Mutation(PrivateStoreError::InvalidName)
+        | ProfileMutationCommitError::Mutation(PrivateStoreError::Routing(_))
         | ProfileMutationCommitError::Mutation(PrivateStoreError::SubscribedProfile) => {
             ProfileTransactionError::InvalidArgument
         }

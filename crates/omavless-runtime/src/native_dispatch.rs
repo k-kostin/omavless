@@ -322,6 +322,11 @@ where
         owner.execute_profile_import(request, next_record_id)
     } else if method == "routing.set_preset" {
         owner.execute_routing_preset(request)
+    } else if matches!(
+        method,
+        "routing.custom_rules.add" | "routing.custom_rules.delete"
+    ) {
+        owner.execute_custom_rule(request, next_record_id)
     } else if PROFILE_METHODS.contains(&method) {
         owner.execute_profile(request)
     } else if SUBSCRIPTION_METHODS.contains(&method) {

@@ -63,6 +63,8 @@ fn run() -> Result<(), CliError> {
         println!("  routing rules                    private custom-rule editor list");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
+        println!("  routing rule-add KIND ACTION     read private rule value from stdin");
+        println!("  routing rule-delete RULE_ID       remove one custom rule");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );
@@ -245,6 +247,11 @@ fn run() -> Result<(), CliError> {
                         && arguments[1] == "update")
                 {
                     Some(MAX_SUBSCRIPTION_STDIN_BYTES)
+                } else if arguments.len() == 4
+                    && arguments[0] == "routing"
+                    && arguments[1] == "rule-add"
+                {
+                    Some(omavless_domain::routing::MAX_CUSTOM_RULE_VALUE_BYTES)
                 } else {
                     None
                 };

@@ -30,6 +30,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod connection_transaction;
 pub mod core;
+mod custom_rule_protocol;
 pub mod cutover;
 pub mod cutover_transaction;
 pub mod desired;
@@ -241,6 +242,8 @@ const NATIVE_READ_METHODS: &[&str] = &[
 const NATIVE_MUTATION_METHODS: &[&str] = &[
     "profiles.replace",
     "profiles.import",
+    "routing.custom_rules.add",
+    "routing.custom_rules.delete",
     "connection.connect",
     "connection.disconnect",
     "routing.set_mode",
@@ -2691,6 +2694,83 @@ mod tests {
         }
         assert!(fs::read(&store).unwrap() == bytes);
         assert!(fs::read(&template).unwrap() == selected);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn custom_rule_mutation_socket_fences_private_values_and_replays_once() {
+        let base = temporary_base("rule-mutations");
+        let (owner, cutover, _calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+        let params = json!({"kind":"domain","action":"direct","value":"example.invalid","operationId":"rule-add","expectedRevision":0});
+        let first = call(&paths, "routing.custom_rules.add", params.clone()).unwrap();
+        assert_eq!(first["ok"], true);
+        assert_eq!(first["revision"], 1);
+        assert_eq!(first["result"], json!({"accepted":true}));
+        assert!(!first.to_string().contains("example.invalid"));
+        let store_path = base.join("config/profiles.json");
+        let bytes = fs::read(&store_path).unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["customRules"].as_array().unwrap().len(), 1);
+        let replay = call(&paths, "routing.custom_rules.add", params.clone()).unwrap();
+        assert_eq!(replay["revision"], 1);
+        assert!(fs::read(&store_path).unwrap() == bytes);
+        let mut conflict = params.clone();
+        conflict["action"] = json!("reject");
+        assert_eq!(
+            call(&paths, "routing.custom_rules.add", conflict).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let mut invalid = params.clone();
+        invalid["path"] = json!("private-token");
+        let error = call(&paths, "routing.custom_rules.add", invalid).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_argument");
+        assert!(!error.to_string().contains("private-token"));
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(
+                &paths,
+                "routing.custom_rules.delete",
+                json!({"ruleId":payload["customRules"][0]["id"]})
+            )
+            .unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let delete = json!({"ruleId":payload["customRules"][0]["id"],"operationId":"rule-delete","expectedRevision":1});
+        assert_eq!(
+            call(&paths, "routing.custom_rules.delete", delete.clone()).unwrap()["revision"],
+            2
+        );
+        assert_eq!(
+            call(&paths, "routing.custom_rules.delete", delete.clone()).unwrap()["revision"],
+            2
+        );
+        assert_eq!(
+            call(
+                &paths,
+                "routing.custom_rules.delete",
+                json!({"ruleId":payload["customRules"][0]["id"]})
+            )
+            .unwrap()["error"]["code"],
+            "not_found"
+        );
+        let after = fs::read(&store_path).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "routing.custom_rules.add", params.clone()).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert!(fs::read(&store_path).unwrap() == after);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

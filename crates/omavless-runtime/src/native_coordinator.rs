@@ -1051,6 +1051,79 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
+    /// Custom rules affect the current config regardless of profile identity.
+    /// Reuse active replacement compensation, with the trusted desired target.
+    pub fn execute_custom_rule<G: FnMut() -> String>(
+        &mut self,
+        request: &Value,
+        mut next_record_id: G,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let parsed = crate::custom_rule_protocol::parse(request)?;
+        let token = match self.admit(
+            MutationKind::Other,
+            parsed.operation_id.as_deref(),
+            parsed.expected_revision,
+            parsed.digest,
+        )? {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, |error| {
+            NativeTransactionError::Profile(if error == ConnectionTransactionError::Busy {
+                ProfileTransactionError::Busy
+            } else {
+                ProfileTransactionError::Store
+            })
+        })? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let generated_id = if matches!(
+            &parsed.mutation,
+            omavless_domain::private_store::CustomRuleMutation::Add { .. }
+        ) {
+            next_record_id()
+        } else {
+            String::new()
+        };
+        let outcome = crate::profile_mutation::prepare_custom_rule_mutation(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            parsed.mutation,
+            &generated_id,
+        )
+        .map_err(store_error)
+        .and_then(|plan| {
+            let desired = self
+                .transaction
+                .desired()
+                .map_err(|_| ProfileTransactionError::Store)?;
+            let paths = self.transaction.cutover_paths().clone();
+            apply_transaction(
+                self.transaction.lifecycle_mut(),
+                &plan,
+                crate::profile_transaction::ActionKind::Replace,
+                &desired.profile_id,
+                &lock,
+                &paths,
+            )
+        });
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Profile)
+                .map_err(NativeTransactionError::Profile),
+            false,
+        )
+    }
+
     /// Add a new profile only; never replace or reconnect an existing one.
     pub fn execute_profile_import<G>(
         &mut self,
@@ -1635,6 +1708,74 @@ mod tests {
             uid,
         );
         (root, store_path, owner)
+    }
+
+    #[test]
+    fn custom_rule_mutations_share_revision_replay_and_active_restart() {
+        let (root, store, mut owner) = fixture("custom-rule");
+        let id = "00000000-0000-4000-8000-000000000099";
+        let add = profile_request(
+            "routing.custom_rules.add",
+            json!({"kind":"suffix","action":"direct","value":"*.example.invalid","operationId":"rule-1","expectedRevision":0}),
+        );
+        let (cached, _) = applied(owner.execute_custom_rule(&add, || id.into()).unwrap());
+        assert_eq!(cached.revision, 1);
+        let original = fs::read(&store).unwrap();
+        let calls = owner.host().calls;
+        assert!(matches!(
+            owner
+                .execute_custom_rule(&add, || panic!("replay generated ID"))
+                .unwrap(),
+            NativeOwnerExecution::Replay(_)
+        ));
+        assert_eq!(owner.host().calls, calls);
+        assert!(fs::read(&store).unwrap() == original);
+        let mut duplicate = add.clone();
+        duplicate["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("operationId");
+        duplicate["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("expectedRevision");
+        let NativeOwnerExecution::Applied { cached, .. } =
+            owner.execute_custom_rule(&duplicate, || id.into()).unwrap()
+        else {
+            panic!("duplicate not classified")
+        };
+        assert_eq!(cached.error, Some(StableErrorCode::Conflict));
+        applied(
+            owner
+                .execute_connection(connect("connect-before-delete", 1))
+                .unwrap(),
+        );
+        let calls = owner.host().calls;
+        let delete = profile_request(
+            "routing.custom_rules.delete",
+            json!({"ruleId":id,"operationId":"rule-2","expectedRevision":2}),
+        );
+        let (cached, _) = applied(
+            owner
+                .execute_custom_rule(&delete, || panic!("delete generated ID"))
+                .unwrap(),
+        );
+        assert_eq!(cached.revision, 3);
+        assert!(owner.host().calls > calls + 1);
+        let payload: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        assert!(payload["customRules"].as_array().unwrap().is_empty());
+        assert!(owner.transaction.desired().unwrap().connected);
+        let NativeOwnerExecution::Applied { cached, .. } = owner
+            .execute_custom_rule(
+                &profile_request("routing.custom_rules.delete", json!({"ruleId":id})),
+                String::new,
+            )
+            .unwrap()
+        else {
+            panic!("missing not classified")
+        };
+        assert_eq!(cached.error, Some(StableErrorCode::NotFound));
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn connect(operation_id: &str, revision: u64) -> OwnerRequest {

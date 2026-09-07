@@ -514,8 +514,33 @@ explicit response projection. The read holds the migration lock while checking
 exact committed native generation, private file policy and the complete store.
 It neither increments revision nor changes data, desired state or the core.
 Rollback/stale ownership rejects access. Read-only legacy-owned daemons do not
-advertise this capability. `add/delete` remain separate unimplemented native
-mutations; this list alone does not switch the installed routing-tools UI.
+advertise this capability. This list alone does not switch the installed
+routing-tools UI.
+
+The native mutations are exact `routing.custom_rules.add` with required
+`kind`, `action`, `value`, and `routing.custom_rules.delete` with required
+opaque `ruleId`. Both accept only optional `operationId` / `expectedRevision`.
+Kinds are `domain`, `suffix`, `ipcidr`; actions `proxy`, `direct`, `reject`.
+Values use the existing canonical domain/network parser and a 1024-byte input
+cap. The owner generates IDs; callers cannot supply IDs for add, paths, shell,
+template YAML or host observations. The 128-rule cap and duplicate canonical
+kind/value rejection apply independently of action. Order and unrelated store
+metadata survive; missing delete is `not_found`, duplicate add is `conflict`.
+
+Fixed CLI spellings are `routing rule-add KIND ACTION` (private value through
+bounded stdin) and `routing rule-delete RULE_ID`. Success is only
+`{"accepted":true}` at the committed revision; refresh the explicit private
+list afterward. Canonical intent plus revision form a domain-separated digest;
+equivalent input retries never regenerate IDs or restart twice.
+
+Both use the shared mutation/replay coordinator, exact native-generation fence,
+migration lock and compensated private atomic writer. Trusted desired state and
+fresh owned-runtime observation decide whether a config-affecting change needs
+the existing active replacement quiesce/commit/recover transaction. Disconnected
+changes write only the store. Candidate failure restores exact old bytes and
+recovers the old config; uncertain cleanup/restoration is a hard
+`manual_recovery_required`. Legacy `activeId` never proves liveness. Python
+remains the installed routing-tools owner until the separate frontend cutover.
 
 The v1 connection mutation parameters are exact objects:
 
