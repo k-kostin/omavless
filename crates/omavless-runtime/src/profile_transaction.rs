@@ -214,6 +214,7 @@ impl From<CoordinatorError> for ProfileOwnerError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActionKind {
+    Replace,
     Rename,
     Favorite,
     Delete,
@@ -221,6 +222,7 @@ pub(crate) enum ActionKind {
 
 pub(crate) fn mutation_identity(mutation: &ProfileMutation) -> (ActionKind, &str) {
     match mutation {
+        ProfileMutation::Replace { profile_id, .. } => (ActionKind::Replace, profile_id),
         ProfileMutation::Rename { profile_id, .. } => (ActionKind::Rename, profile_id),
         ProfileMutation::Favorite { profile_id, .. } => (ActionKind::Favorite, profile_id),
         ProfileMutation::Delete { profile_id } => (ActionKind::Delete, profile_id),
@@ -271,9 +273,9 @@ fn commit_changed<P: StorePlan>(
     }
 }
 
-/// New imports never touch lifecycle. Compensate an uncertain write before
+/// Store-only imports/replacements never touch lifecycle. Compensate an uncertain write before
 /// reporting failure; an unprovable restoration blocks further mutations.
-pub(crate) fn commit_new_profile<P: StorePlan>(
+pub(crate) fn commit_store_only_profile<P: StorePlan>(
     plan: &P,
     lock: &MigrationLock,
     paths: &CutoverPaths,
@@ -315,12 +317,15 @@ pub(crate) fn apply_transaction<H: LifecycleHost, P: StorePlan>(
         .observe_profile_target(profile_id)
         .map_err(lifecycle_error)?;
     if !target.active {
+        if kind == ActionKind::Replace {
+            return commit_store_only_profile(plan, lock, paths);
+        }
         commit_changed(plan, lock, paths)?;
         return Ok(ProfileMutationOutcome { changed: true });
     }
 
     match kind {
-        ActionKind::Rename => {
+        ActionKind::Rename | ActionKind::Replace => {
             lifecycle
                 .quiesce_profile_preserving_desired(profile_id)
                 .map_err(lifecycle_error)?;
@@ -412,6 +417,7 @@ impl<H: LifecycleHost> OfflineProfileOwner<H> {
         debug_assert_eq!(
             parsed_kind,
             match kind {
+                ActionKind::Replace => ProfileMutationKind::Replace,
                 ActionKind::Rename => ProfileMutationKind::Rename,
                 ActionKind::Favorite => ProfileMutationKind::Favorite,
                 ActionKind::Delete => ProfileMutationKind::Delete,
@@ -800,6 +806,105 @@ mod tests {
     }
 
     #[test]
+    fn replacement_preserves_identity_and_restores_exact_store_on_candidate_failure() {
+        for (starts, expected) in [
+            (vec![true], None),
+            (
+                vec![false, true],
+                Some(ProfileTransactionError::TransitionFailedRestored),
+            ),
+            (
+                vec![false, false],
+                Some(ProfileTransactionError::ManualRecoveryRequired),
+            ),
+        ] {
+            let (root, store, desired, uid) = temp("active-replace");
+            let mut initial: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+            initial["activeId"] = json!(PROFILE);
+            fs::write(&store, serde_json::to_vec(&initial).unwrap()).unwrap();
+            let before = fs::read(&store).unwrap();
+            set_desired(&desired, uid, true, PROFILE, 3);
+            let mut host = FakeHost::connected();
+            host.start_results = VecDeque::from(starts);
+            let mut owner =
+                OfflineProfileOwner::new(host, desired.clone(), &store, cutover(&root, uid), uid);
+            let candidate = request(
+                "profiles.replace",
+                json!({
+                    "profileId": PROFILE, "name": "Replaced",
+                    "input": "trojan://synthetic-password@203.0.113.1:443",
+                    "operationId": "replace-1", "expectedRevision": 0,
+                }),
+            );
+            let (cached, outcome) = applied(owner.execute(&candidate).unwrap());
+            assert_eq!(outcome.err(), expected);
+            let after = fs::read(&store).unwrap();
+            if expected.is_some() {
+                assert!(
+                    after == before,
+                    "replacement did not restore exact original store"
+                );
+            } else {
+                let document: Value = serde_json::from_slice(&after).unwrap();
+                assert_eq!(document["profiles"][0]["id"], PROFILE);
+                assert_eq!(document["profiles"][0]["protocol"], "trojan");
+                assert_eq!(document["activeId"], PROFILE);
+                let calls = owner.host().calls.len();
+                assert!(matches!(
+                    owner.execute(&candidate).unwrap(),
+                    ProfileOwnerExecution::Replay(_)
+                ));
+                assert_eq!(owner.host().calls.len(), calls);
+                assert_eq!(cached.revision, 1);
+                let noop = request(
+                    "profiles.replace",
+                    json!({
+                        "profileId": PROFILE, "name": "Replaced",
+                        "input": "trojan://synthetic-password@203.0.113.1:443",
+                    }),
+                );
+                let (_, result) = applied(owner.execute(&noop).unwrap());
+                assert!(!result.unwrap().changed);
+                assert_eq!(owner.host().calls.len(), calls);
+            }
+            assert!(read_desired(&desired, uid).unwrap().connected);
+            assert_eq!(read_desired(&desired, uid).unwrap().profile_id, PROFILE);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_replacement_preserves_other_active_profile_without_restart() {
+        let (root, store, desired, uid) = temp("inactive-replace");
+        set_desired(&desired, uid, true, OTHER, 7);
+        let mut owner = OfflineProfileOwner::new(
+            FakeHost::connected(),
+            desired.clone(),
+            &store,
+            cutover(&root, uid),
+            uid,
+        );
+        let (_, result) = applied(
+            owner
+                .execute(&request(
+                    "profiles.replace",
+                    json!({
+                        "profileId": PROFILE, "name": "Replaced",
+                        "input": "trojan://synthetic-password@203.0.113.1:443",
+                    }),
+                ))
+                .unwrap(),
+        );
+        assert!(result.unwrap().changed);
+        assert_eq!(owner.host().calls, ["observe"]);
+        assert_eq!(read_desired(&desired, uid).unwrap().profile_id, OTHER);
+        let document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        assert_eq!(document["activeId"], OTHER);
+        assert_eq!(document["profiles"][0]["protocol"], "trojan");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn no_change_and_revision_conflict_have_zero_lifecycle_or_write_effects() {
         let (root, store, desired, uid) = temp("revision");
         set_desired(&desired, uid, true, PROFILE, 1);
@@ -1024,7 +1129,7 @@ mod tests {
                 Some(ProfileTransactionError::ManualRecoveryRequired),
             ),
         ] {
-            let result = commit_new_profile(&plan(write, restore), &lock, &paths);
+            let result = commit_store_only_profile(&plan(write, restore), &lock, &paths);
             assert_eq!(result.err(), expected);
         }
         drop(lock);

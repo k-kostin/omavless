@@ -225,6 +225,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
 // reservation-free preflight. Its final decode/commit re-enters this one
 // serialized owner and rechecks revision plus exact durable ownership.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
+    "profiles.replace",
     "profiles.import",
     "connection.connect",
     "connection.disconnect",
@@ -2257,6 +2258,70 @@ mod tests {
             ] {
                 assert!(!response.to_string().contains(private));
             }
+        }
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn profile_replacement_dispatch_replays_without_second_transition_and_revokes() {
+        let base = temporary_base("profile-replace");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let connected = call(
+            &paths,
+            "connection.connect",
+            json!({"profileId": PROFILE_ID, "mode": "global"}),
+        )
+        .unwrap();
+        assert_eq!(connected["ok"], true);
+        let params = json!({"profileId": PROFILE_ID, "name": "Replaced",
+            "input": "trojan://synthetic-password@203.0.113.1:443",
+            "operationId": "replace-1", "expectedRevision": 1});
+        let changed = call(&paths, "profiles.replace", params.clone()).unwrap();
+        assert_eq!(changed["ok"], true);
+        assert_eq!(changed["revision"], 2);
+        let count = calls.load(Ordering::Relaxed);
+        let replay = call(&paths, "profiles.replace", params.clone()).unwrap();
+        assert_eq!(replay["revision"], 2);
+        let mut noop = params.clone();
+        noop["operationId"] = json!("replace-noop");
+        noop["expectedRevision"] = json!(2);
+        let noop = call(&paths, "profiles.replace", noop).unwrap();
+        assert_eq!(noop["ok"], true);
+        assert_eq!(noop["revision"], 2);
+        assert_eq!(calls.load(Ordering::Relaxed), count);
+        let store_path = base.join("config/profiles.json");
+        let before = fs::read(&store_path).unwrap();
+        let store: Value = serde_json::from_slice(&before).unwrap();
+        assert_eq!(store["activeId"], PROFILE_ID);
+        assert_eq!(store["profiles"][0]["protocol"], "trojan");
+        let invalid = call(
+            &paths,
+            "profiles.replace",
+            json!({
+                "profileId": PROFILE_ID, "name": "New", "input": "https://example.invalid/token",
+            }),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            let rejected = call(&paths, "profiles.replace", params.clone()).unwrap();
+            assert_eq!(rejected["error"]["code"], "capability_unavailable");
+            assert!(!rejected.to_string().contains("synthetic-password"));
+        }
+        assert!(fs::read(&store_path).unwrap() == before);
+        assert_eq!(calls.load(Ordering::Relaxed), count);
+        for response in [changed, replay, noop, invalid] {
+            assert!(!response.to_string().contains("synthetic-password"));
+            assert!(!response.to_string().contains("203.0.113.1"));
         }
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();

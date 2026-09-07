@@ -29,7 +29,7 @@ def main():
                  patch.object(backend, "save_store", side_effect=save), \
                  patch.object(backend, "service_active", return_value=False), \
                  patch.object(backend.uuidlib, "uuid4", return_value=case["id"]):
-                backend.import_profile(paths, case["name"], "", case["input"])
+                backend.import_profile(paths, case["name"], case.get("oldId", ""), case["input"])
             canonical = json.dumps(captured["store"], ensure_ascii=False, sort_keys=True,
                                    separators=(",", ":")).encode()
             results.append(hashlib.sha256(canonical).hexdigest())

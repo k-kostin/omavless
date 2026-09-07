@@ -949,7 +949,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
         .map_err(store_error)
         .and_then(|plan| {
-            crate::profile_transaction::commit_new_profile(
+            crate::profile_transaction::commit_store_only_profile(
                 &plan,
                 &lock,
                 self.transaction.cutover_paths(),

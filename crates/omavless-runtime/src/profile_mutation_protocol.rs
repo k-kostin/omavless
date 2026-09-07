@@ -14,6 +14,13 @@ use omavless_domain::store::valid_record_id;
 use serde_json::{Map, Value};
 
 const RENAME_FIELDS: &[&str] = &["profileId", "name", "operationId", "expectedRevision"];
+const REPLACE_FIELDS: &[&str] = &[
+    "profileId",
+    "name",
+    "input",
+    "operationId",
+    "expectedRevision",
+];
 const FAVORITE_FIELDS: &[&str] = &["profileId", "enabled", "operationId", "expectedRevision"];
 const DELETE_FIELDS: &[&str] = &["profileId", "operationId", "expectedRevision"];
 
@@ -24,6 +31,7 @@ pub const MAX_PROFILE_NAME_INPUT_BYTES: usize = 320;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileMutationKind {
+    Replace,
     Rename,
     Favorite,
     Delete,
@@ -42,6 +50,7 @@ impl ProfileMutationRequest {
     #[must_use]
     pub const fn kind(&self) -> ProfileMutationKind {
         match &self.mutation {
+            ProfileMutation::Replace { .. } => ProfileMutationKind::Replace,
             ProfileMutation::Rename { .. } => ProfileMutationKind::Rename,
             ProfileMutation::Favorite { .. } => ProfileMutationKind::Favorite,
             ProfileMutation::Delete { .. } => ProfileMutationKind::Delete,
@@ -114,6 +123,40 @@ pub fn parse_profile_mutation_request(
     let metadata = metadata(params)?;
 
     let (mutation, variant_payload) = match method {
+        "profiles.replace" => {
+            if !exact_fields(params, REPLACE_FIELDS, &["profileId", "name", "input"]) {
+                return Err(MutationProtocolError::InvalidArgument);
+            }
+            let profile_id = profile_id(params)?;
+            let name = params["name"]
+                .as_str()
+                .filter(|s| !s.trim().is_empty() && s.len() <= MAX_PROFILE_NAME_INPUT_BYTES)
+                .ok_or(MutationProtocolError::InvalidArgument)?;
+            let input = params["input"]
+                .as_str()
+                .filter(|s| {
+                    !s.trim().is_empty()
+                        && s.len() <= crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES
+                })
+                .ok_or(MutationProtocolError::InvalidArgument)?;
+            if !matches!(
+                omavless_domain::import::preview_import(input, &[]),
+                Ok(omavless_domain::import::ImportPreview::Profile(_))
+            ) {
+                return Err(MutationProtocolError::InvalidArgument);
+            }
+            let mut payload = vec![4];
+            append_field(&mut payload, name);
+            append_field(&mut payload, input);
+            (
+                ProfileMutation::Replace {
+                    profile_id: profile_id.to_owned(),
+                    new_name: name.to_owned(),
+                    new_input: input.to_owned(),
+                },
+                payload,
+            )
+        }
         "profiles.rename" => {
             if !exact_fields(params, RENAME_FIELDS, &["profileId", "name"]) {
                 return Err(MutationProtocolError::InvalidArgument);
@@ -230,6 +273,30 @@ mod tests {
             parsed("profiles.delete", json!({"profileId": PROFILE_ID})).kind(),
             ProfileMutationKind::Delete
         );
+    }
+
+    #[test]
+    fn replacement_is_exact_and_digest_covers_private_input() {
+        let params = json!({"profileId": PROFILE_ID, "name": "New",
+            "input": "trojan://synthetic-password@203.0.113.1:443"});
+        let original = parsed("profiles.replace", params.clone());
+        assert_eq!(original.kind(), ProfileMutationKind::Replace);
+        let original_digest = original.digest;
+        let mut changed = params.clone();
+        changed["input"] = json!("trojan://different-password@203.0.113.1:443");
+        assert!(parsed("profiles.replace", changed).digest != original_digest);
+        for (key, value) in [
+            ("input", json!("https://example.invalid/private-token")),
+            ("profileId", json!("invalid-private-id")),
+            ("path", json!("/tmp/private-token")),
+        ] {
+            let mut invalid = params.clone();
+            invalid[key] = value;
+            let error = parse_profile_mutation_request(&request("profiles.replace", invalid))
+                .err()
+                .unwrap();
+            assert!(!format!("{error:?} {error}").contains("private-token"));
+        }
     }
 
     #[test]

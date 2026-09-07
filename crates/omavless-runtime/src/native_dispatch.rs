@@ -28,7 +28,12 @@ const LIFECYCLE_METHODS: &[&str] = &[
     "connection.disconnect",
     "routing.set_mode",
 ];
-const PROFILE_METHODS: &[&str] = &["profiles.rename", "profiles.favorite", "profiles.delete"];
+const PROFILE_METHODS: &[&str] = &[
+    "profiles.replace",
+    "profiles.rename",
+    "profiles.favorite",
+    "profiles.delete",
+];
 const SUBSCRIPTION_METHODS: &[&str] = &[
     "subscriptions.add",
     "subscriptions.update",

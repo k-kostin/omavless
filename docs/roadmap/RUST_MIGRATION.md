@@ -980,6 +980,23 @@ This closes new-profile persistence, not active-profile replacement, QML routing
 package cutover or Python retirement. The current installed plugin still calls
 Python. Replacement and its lifecycle recovery remain the next import slice.
 
+### Existing standalone profile replacement (2026-09-07)
+
+`profiles.replace` and `profile replace ID` add the distinct confirmed editor
+operation, not an upsert. The existing profile mutation coordinator and private
+store transaction preserve identity/favorite/startup state and reject missing,
+managed or duplicate-name targets. Active replacement reuses the accepted
+quiesce/recover/restore sequence; inactive writes use the compensated store-only
+commit. Exact no-ops and replay do not cause another restart.
+
+112 effect-isolated Python import/edit comparisons cover canonical families
+and naming. Real temporary-file recovery tests cover successful replacement,
+candidate failure with byte-exact restoration and failed recovery. Isolated
+private socket tests cover registered dispatch, revision/replay/no-op and
+ownership revocation. These are deterministic lifecycle-adapter tests, not
+provider or installed native-owner acceptance. QML/editor wiring and controlled
+cutover remain pending; the installed Python owner is unchanged.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with
