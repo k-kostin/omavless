@@ -53,6 +53,7 @@ pub mod profile_export_protocol;
 pub mod profile_import_protocol;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
+pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod remote_fetch;
 pub mod semantic_cli;
@@ -217,6 +218,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "profiles.edit_input",
     "profiles.export",
     "imports.classify",
     "profiles.list",
@@ -247,6 +249,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn profile_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn profile_export(
         &mut self,
         request: &Value,
@@ -473,6 +479,13 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.subscription_edit_input(request)
+    }
+
+    fn profile_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.profile_edit_input(request)
     }
 
     fn profile_export(
@@ -1065,6 +1078,7 @@ fn dispatch_native(
         }
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
+        "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
             return error_response(
                 id,
@@ -2273,6 +2287,91 @@ mod tests {
             assert!(!revoked.to_string().contains(&expected));
         }
         assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn profile_editor_read_is_fenced_private_and_never_mutates() {
+        let base = temporary_base("profile-editor");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let document: Value = serde_json::from_slice(&original).unwrap();
+        let expected = document["profiles"][0]["uri"].as_str().unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let params = json!({"profileId":PROFILE_ID});
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == "profiles.edit_input")
+        );
+        let input = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+        assert_eq!(input["revision"], 0);
+        assert!(
+            input["result"] == json!({"name":document["profiles"][0]["name"],"input":expected}),
+            "editor response mismatch"
+        );
+        let list = call(&paths, "profiles.list", json!({})).unwrap();
+        assert!(!list.to_string().contains(expected));
+        let missing = call(
+            &paths,
+            "profiles.edit_input",
+            json!({"profileId":"00000000-0000-4000-8000-000000000099"}),
+        )
+        .unwrap();
+        assert_eq!(missing["error"]["code"], "not_found");
+        let bad = call(
+            &paths,
+            "profiles.edit_input",
+            json!({"profileId":PROFILE_ID,"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(bad["error"]["code"], "invalid_argument");
+        assert!(!bad.to_string().contains("private-token"));
+        assert!(fs::read(&store_path).unwrap() == original);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let mut managed = document.clone();
+        managed["profiles"][0]["subscriptionId"] = managed["subscriptions"][0]["id"].clone();
+        managed["profiles"][0]["subscriptionKey"] = json!("a".repeat(64));
+        fs::write(&store_path, serde_json::to_vec(&managed).unwrap()).unwrap();
+        let rejected = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+        assert_eq!(rejected["error"]["code"], "invalid_argument");
+        assert!(!rejected.to_string().contains(expected));
+        fs::write(&store_path, &original).unwrap();
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        let unsafe_store = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+        assert_eq!(unsafe_store["error"]["code"], "internal_error");
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&store_path, b"private-token-corrupt").unwrap();
+        let corrupt = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("private-token"));
+        fs::write(&store_path, &original).unwrap();
+        let target = base.join("config/temporary-store.json");
+        fs::rename(&store_path, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &store_path).unwrap();
+        let symlink = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+        assert_eq!(symlink["error"]["code"], "internal_error");
+        fs::remove_file(&store_path).unwrap();
+        fs::rename(&target, &store_path).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            let revoked = call(&paths, "profiles.edit_input", params.clone()).unwrap();
+            assert_eq!(revoked["error"]["code"], "capability_unavailable");
+            assert!(!revoked.to_string().contains(expected));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

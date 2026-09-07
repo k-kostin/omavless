@@ -137,6 +137,23 @@ pub struct PrivateProfileExport {
     uri: String,
 }
 
+/// Explicit credential-bearing standalone editor fields; never diagnostic data.
+pub struct ProfileEditInput {
+    name: String,
+    input: String,
+}
+
+impl ProfileEditInput {
+    #[must_use]
+    pub fn private_name(&self) -> &str {
+        &self.name
+    }
+    #[must_use]
+    pub fn private_input(&self) -> &str {
+        &self.input
+    }
+}
+
 impl PrivateProfileExport {
     #[must_use]
     pub fn private_uri(&self) -> &str {
@@ -1257,6 +1274,26 @@ impl PrivateStore {
             .ok_or(PrivateStoreError::ProfileNotFound)?;
         Ok(PrivateProfileExport {
             uri: profile.uri.clone(),
+        })
+    }
+
+    /// Match standalone replacement admission; subscription credentials are
+    /// managed through the subscription action instead.
+    pub fn profile_edit_input(
+        &self,
+        profile_id: &str,
+    ) -> Result<ProfileEditInput, PrivateStoreError> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        if !profile.subscription_id.is_empty() {
+            return Err(PrivateStoreError::SubscribedProfile);
+        }
+        Ok(ProfileEditInput {
+            name: profile.name.clone(),
+            input: profile.uri.clone(),
         })
     }
 

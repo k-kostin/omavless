@@ -615,6 +615,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         request: &Value,
     ) -> Result<omavless_domain::import::ImportPreview, NativeOwnerError> {
         let parsed = crate::import_read_protocol::parse_import_preview_request(request)?;
+        self.with_owned_private_store(|store| {
+            store
+                .preview_import(parsed.private_input())
+                .map_err(|_| MutationProtocolError::InvalidArgument.into())
+        })
+    }
+
+    /// Hold exact ownership and the store lease through projection creation.
+    fn with_owned_private_store<T>(
+        &mut self,
+        project: impl FnOnce(
+            &omavless_domain::private_store::PrivateStore,
+        ) -> Result<T, NativeOwnerError>,
+    ) -> Result<T, NativeOwnerError> {
         let _lock = self
             .transaction
             .acquire_lock()
@@ -642,9 +656,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         .map_err(|_| NativeOwnerError::Invariant)?;
         let store = omavless_domain::private_store::parse_private_store(&input)
             .map_err(|_| NativeOwnerError::Invariant)?;
-        store
-            .preview_import(parsed.private_input())
-            .map_err(|_| MutationProtocolError::InvalidArgument.into())
+        project(&store)
     }
 
     pub(crate) fn profile_export(
@@ -652,36 +664,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         request: &Value,
     ) -> Result<omavless_domain::private_store::PrivateProfileExport, NativeOwnerError> {
         let parsed = crate::profile_export_protocol::parse_profile_export_request(request)?;
-        let _lock = self
-            .transaction
-            .acquire_lock()
-            .map_err(|error| match error {
-                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
-                _ => NativeOwnerError::OwnershipUnavailable,
-            })?;
-        if self.required_ownership.is_none_or(|fence| {
-            fence.phase != OwnershipPhase::Rust
-                || !self
-                    .transaction
-                    .ownership_matches(fence.phase, fence.generation)
-        }) {
-            return Err(NativeOwnerError::OwnershipUnavailable);
-        }
-        crate::private_store_transaction::validate_store_path(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-        )
-        .map_err(|_| NativeOwnerError::Invariant)?;
-        let input = omavless_store::read_private_utf8(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-        )
-        .map_err(|_| NativeOwnerError::Invariant)?;
-        let store = omavless_domain::private_store::parse_private_store(&input)
-            .map_err(|_| NativeOwnerError::Invariant)?;
-        store
-            .profile_export(parsed.private_profile_id())
-            .map_err(|_| NativeOwnerError::RecordNotFound)
+        self.with_owned_private_store(|store| {
+            store
+                .profile_export(parsed.private_profile_id())
+                .map_err(|_| NativeOwnerError::RecordNotFound)
+        })
+    }
+
+    pub(crate) fn profile_edit_input(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::private_store::ProfileEditInput, NativeOwnerError> {
+        let parsed = crate::profile_read_protocol::parse_profile_edit_input_request(request)?;
+        self.with_owned_private_store(|store| {
+            store
+                .profile_edit_input(parsed.private_profile_id())
+                .map_err(|error| match error {
+                    PrivateStoreError::ProfileNotFound => NativeOwnerError::RecordNotFound,
+                    PrivateStoreError::SubscribedProfile => {
+                        MutationProtocolError::InvalidArgument.into()
+                    }
+                    _ => NativeOwnerError::Invariant,
+                })
+        })
     }
 
     /// Read one explicit subscription editor payload while exact native

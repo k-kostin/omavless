@@ -14,64 +14,88 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
-fn explicit_profile_export_cli_keeps_sensitive_success_off_stderr() {
+fn explicit_profile_reads_cli_keep_sensitive_success_off_stderr() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,
         write_unary_frame,
     };
     use std::os::unix::net::UnixListener;
-    let base = runtime_base();
-    prepare_isolated_daemon_environment(&base);
-    let paths = omavless_runtime::RuntimePaths::below(&base);
-    fs::create_dir(&paths.directory).unwrap();
-    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
-    let listener = UnixListener::bind(&paths.socket).unwrap();
-    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
-    let worker = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+    for editor in [false, true] {
+        let base = runtime_base();
+        prepare_isolated_daemon_environment(&base);
+        let paths = omavless_runtime::RuntimePaths::below(&base);
+        fs::create_dir(&paths.directory).unwrap();
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(
+                request["method"],
+                if editor {
+                    "profiles.edit_input"
+                } else {
+                    "profiles.export"
+                }
+            );
+            assert_eq!(
+                request["params"].as_object().unwrap().len(),
+                if editor { 1 } else { 2 }
+            );
+            if !editor {
+                assert_eq!(request["params"]["purpose"], "file");
+            }
+            let response = success_response(request["id"].as_str().unwrap(), 7,
+            if editor { serde_json::json!({"name":"Synthetic","input":"trojan://synthetic-token@203.0.113.1:443"}) }
+            else { serde_json::json!({"format":"uri","content":"trojan://synthetic-token@203.0.113.1:443"}) }).unwrap();
+            write_unary_frame(
+                &mut stream,
+                &encode_response(&response).unwrap(),
+                FrameKind::Response,
+            )
             .unwrap();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        let request =
-            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
-        assert_eq!(request["method"], "profiles.export");
-        assert_eq!(request["params"]["purpose"], "file");
-        assert_eq!(request["params"].as_object().unwrap().len(), 2);
-        let response = success_response(request["id"].as_str().unwrap(), 7,
-            serde_json::json!({"format":"uri","content":"trojan://synthetic-token@203.0.113.1:443"})).unwrap();
-        write_unary_frame(
-            &mut stream,
-            &encode_response(&response).unwrap(),
-            FrameKind::Response,
-        )
-        .unwrap();
-    });
-    let output = isolated_command(&base)
-        .args([
-            "profile",
-            "export",
-            "00000000-0000-4000-8000-000000000001",
-            "file",
-        ])
-        .output()
-        .unwrap();
-    worker.join().unwrap();
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["revision"], 7);
-    assert!(response["result"]["content"] == "trojan://synthetic-token@203.0.113.1:443");
-    let rejected = isolated_command(&base)
-        .args(["profile", "export", "private-token", "file"])
-        .output()
-        .unwrap();
-    assert!(!rejected.status.success());
-    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
-    assert!(rejected.stdout.is_empty());
-    fs::remove_dir_all(base).unwrap();
+        });
+        let argv = if editor {
+            vec![
+                "profile",
+                "edit-input",
+                "00000000-0000-4000-8000-000000000001",
+            ]
+        } else {
+            vec![
+                "profile",
+                "export",
+                "00000000-0000-4000-8000-000000000001",
+                "file",
+            ]
+        };
+        let output = isolated_command(&base).args(&argv).output().unwrap();
+        worker.join().unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["revision"], 7);
+        assert!(
+            response["result"][if editor { "input" } else { "content" }]
+                == "trojan://synthetic-token@203.0.113.1:443"
+        );
+        let mut invalid = argv;
+        invalid[2] = "private-token";
+        let rejected = isolated_command(&base).args(invalid).output().unwrap();
+        assert!(!rejected.status.success());
+        assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
+        assert!(rejected.stdout.is_empty());
+        fs::remove_dir_all(base).unwrap();
+    }
 }
 
 #[test]
@@ -226,6 +250,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile import",
         "profile replace PROFILE_ID",
         "profile export PROFILE_ID qr|file",
+        "profile edit-input PROFILE_ID",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription add",

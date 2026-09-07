@@ -205,6 +205,7 @@ versioned and bounded.
 ### Profiles and imports
 
 - `profiles.list`, `profiles.get` — safe metadata only;
+- `profiles.edit_input` — explicit sensitive standalone editor seed;
 - `imports.classify`, `profiles.import` — explicit bounded sensitive input;
 - `profiles.replace`, `profiles.rename`, `profiles.favorite`, `profiles.delete`;
 - `profiles.test` — bounded latency/availability;
@@ -212,6 +213,27 @@ versioned and bounded.
 
 Credential-bearing import/export data never appears in argv, ordinary status,
 logs or event broadcasts. V1 has no generic filesystem-write method.
+
+`profiles.edit_input` accepts exactly `{"profileId": ID}`, with no mutation
+metadata, path, seed text or purpose flag. Its fixed CLI is
+`omavless profile edit-input PROFILE_ID`. Only an exact committed native owner
+serves it; the migration lock spans ownership revalidation, strict private-store
+validation and projection creation. Success is explicitly sensitive
+`{"name": NAME, "input": STORED_LINK}`. The 80-scalar store name, 32-KiB
+transport string and 256-KiB response bounds apply, without truncation. An
+oversized stored link returns `capability_unavailable`. Missing IDs return
+`not_found`; provider-managed records return `invalid_argument` before release,
+matching standalone `profiles.replace` admission rather than opening an editor
+whose save must fail. QR/file export of managed records remains supported.
+
+The frontend supplies the displayed editor name from this response and may
+append the established newline to seed its private editor. Treat name/input as
+plain text, not markup or localized provider content. CLI stdout is sensitive;
+never journal it or include it in shareable diagnostics. This read does not
+write a temp file, start an editor, reserve a record, mutate revision or touch
+the tunnel. Later confirmation uses `profiles.replace`, which independently
+revalidates current ownership/store/revision. The existing strict XHTTP legacy
+store differences described below apply; no new permissive parser is added.
 
 `profiles.export` accepts exactly `{"profileId": ID, "purpose": "qr"|"file"}`.
 The fixed CLI is `omavless profile export PROFILE_ID qr|file`. Its success is
