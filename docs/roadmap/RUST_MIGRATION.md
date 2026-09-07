@@ -1207,6 +1207,18 @@ failed candidate, without exposing raw Python/backend errors. Protocol/socket
 and fault tests supplement parity; installed native owner/frontend acceptance
 remains distinct. Python still owns production and remains oracle/rollback.
 
+### Native route-check fast-path checkpoint (2026-09-07)
+
+The independent `routing.check` checkpoint ports exact mode/custom-rule/
+disconnected outcomes using the canonical private store and ordered rules.
+It adds fixed stdin-only CLI syntax, private Unix semantic dispatch, owner
+revocation checks and a digest-only actual-Python differential oracle. The
+production plugin/backend remains unchanged. Connected unmatched live probes,
+latency scheduling and TUN traffic collection remain separate migration gates;
+this checkpoint must not be called complete route-check parity or Python
+retirement. Scoped IPv6 is deliberately fail-closed rather than accepting a
+client-selected host interface.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

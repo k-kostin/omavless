@@ -1133,6 +1133,15 @@ impl PrivateStore {
         output
     }
 
+    pub fn check_route_fast_paths(
+        &self,
+        mode: &str,
+        connected: bool,
+        query: &str,
+    ) -> Result<Option<crate::route_check::PrivateRouteCheck>, crate::routing::RoutingError> {
+        crate::route_check::check_fast_paths(mode, connected, &self.custom_rules, query)
+    }
+
     /// Project only the accepted editor fields, never the raw store or unknown
     /// extension fields. Original order and stable IDs are preserved.
     #[must_use]

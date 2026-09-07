@@ -59,6 +59,7 @@ pub mod profile_mutation_protocol;
 pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod remote_fetch;
+mod route_check_protocol;
 mod routing_preset;
 pub mod routing_read_protocol;
 pub mod semantic_cli;
@@ -228,6 +229,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "diagnostics.summary",
     "diagnostics.rules",
     "diagnostics.providers",
+    "routing.check",
     "routing.custom_rules.list",
     "profiles.edit_input",
     "profiles.export",
@@ -264,6 +266,10 @@ enum RuntimeDispatcher {
 
 trait NativeRuntimeOwner: Send {
     fn diagnostic_snapshot(&mut self) -> std::result::Result<Vec<String>, StableErrorCode>;
+    fn check_route(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn custom_rules(
         &mut self,
         request: &Value,
@@ -442,6 +448,13 @@ where
         self.owner
             .diagnostic_snapshot()
             .map_err(|error| error.stable_code())
+    }
+
+    fn check_route(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.check_route(request)
     }
     fn import_preview(
         &mut self,
@@ -1181,6 +1194,7 @@ fn dispatch_native(
         }
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
+        "routing.check" if runtime_ownership => return owner.check_route(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
         "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
@@ -2794,6 +2808,75 @@ mod tests {
             );
         }
         assert!(fs::read(&store_path).unwrap() == after);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn route_check_fastpaths_are_private_fenced_and_do_not_invent_live_results() {
+        let base = temporary_base("route-fast");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "routing.check")
+        );
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let host_before = calls.load(Ordering::Relaxed);
+        let unknown = call(&paths, "routing.check", json!({"query":"PRIVATE.EXAMPLE."})).unwrap();
+        assert_eq!(unknown["ok"], true);
+        assert_eq!(unknown["result"]["query"], "private.example");
+        assert_eq!(unknown["result"]["source"], "disconnected");
+        assert_eq!(unknown["revision"], 0);
+        for params in [
+            json!({"query":"private.example","mode":"global"}),
+            json!({"query":"https://private.example/private-token"}),
+        ] {
+            let rejected = call(&paths, "routing.check", params).unwrap();
+            assert_eq!(rejected["error"]["code"], "invalid_argument");
+            assert!(!rejected.to_string().contains("private.example"));
+            assert!(!rejected.to_string().contains("private-token"));
+        }
+        assert!(fs::read(base.join("config/profiles.json")).unwrap() == before);
+        assert_eq!(calls.load(Ordering::Relaxed), host_before);
+        assert_eq!(
+            call(&paths, "routing.set_mode", json!({"mode":"global"})).unwrap()["ok"],
+            true
+        );
+        let mode = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        assert_eq!(mode["result"]["source"], "mode");
+        assert_eq!(mode["result"]["outcome"], "vpn");
+        assert_eq!(
+            call(&paths, "routing.set_mode", json!({"mode":"rule"})).unwrap()["ok"],
+            true
+        );
+        assert_eq!(
+            call(
+                &paths,
+                "connection.connect",
+                json!({"profileId":PROFILE_ID})
+            )
+            .unwrap()["ok"],
+            true
+        );
+        let unavailable =
+            call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        assert_eq!(unavailable["error"]["code"], "capability_unavailable");
+        assert!(unavailable.get("result").is_none());
+        assert_eq!(
+            call(&paths, "connection.disconnect", json!({})).unwrap()["ok"],
+            true
+        );
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let revoked = call(&paths, "routing.check", json!({"query":"private.example"})).unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

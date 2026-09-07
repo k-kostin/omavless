@@ -709,6 +709,29 @@ No unbounded log tail is part of v1. Any stream uses a separate connection,
 bounded queue and drop/count marker so stalled clients cannot backpressure
 lifecycle work.
 
+### Native route-check fast paths
+
+`routing.check` accepts exactly `{"query": "destination"}` (at most 1024 input
+bytes); CLI `routing check` reads it from bounded stdin, never an argument.
+The committed native owner validates the current private store and returns the
+existing version-1 route result for global/direct modes, ordered custom-rule
+matches, and disconnected unmatched queries. It performs no DNS or network I/O,
+does not mutate state, and is unavailable after owner-marker revocation.
+
+Queries are canonical domain names or IPv4/IPv6 addresses. Scoped IPv6 is
+intentionally rejected: a client query must not choose a host interface.
+Result query and matching custom-rule payload are explicitly private local UI
+data, not diagnostic/log/export fields. Errors never echo the query.
+
+Connected Routing-mode queries without a custom-rule match return
+`capability_unavailable`, not a guessed match or a fabricated unknown result.
+The legacy live probe is not registered by this checkpoint: its multiple
+controller snapshots plus probe/polling exceed the five-second unary contract,
+and unrelated rule hit timestamps are insufficient per-query attribution. A
+future bounded operation must define cancellation, exact-owner/revision fencing,
+private destination handling and reliable attribution before registering that
+remaining path. No generic URL fetch, socket path or shell command is accepted.
+
 ### Host readiness
 
 Rust migration adds a semantic host-readiness boundary without exposing package
