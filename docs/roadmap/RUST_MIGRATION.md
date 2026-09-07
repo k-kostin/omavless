@@ -1038,6 +1038,26 @@ oracle from #168 establishes which rejected XHTTP records remain readable by
 the legacy owner. Issue #169 retains the future user-facing repair guidance
 and installed cutover acceptance; this guard does not activate cutover.
 
+### Standalone profile editor-input checkpoint (2026-09-07)
+
+`profiles.edit_input` plus the fixed `profile edit-input ID` command now return
+the explicit private name/link needed by the accepted replacement operation.
+The read shares the locked exact-owner/private-store projection helper with
+import preview and QR/file export, without widening either method. Managed
+profiles fail before editor release, rather than only when replacement is
+confirmed. Ordinary reads remain credential-free.
+
+54 positive canonical/name cases compare digests against actual Python
+`edit_profile` seeding: only the GUI launch is replaced, generated private temp
+files are checked for mode/cleanup, and no fixture data enters argv or logs.
+Missing/managed cases and actual private socket/CLI tests prove bounded exact
+requests, rejection after ownership change, unsafe-store refusal and no writes
+or lifecycle effects. The shared import/export regression gates are rerun.
+
+Python still owns the installed editor, dialogs and clipboard/file helpers.
+The semantic editor pair is ready for later frontend composition, not proof of
+an installed QML bridge, cutover, provider maturity or Python retirement.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

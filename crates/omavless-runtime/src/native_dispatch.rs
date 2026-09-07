@@ -191,6 +191,31 @@ fn profile_export_response(id: &str, revision: u64, uri: &str) -> Result<Value, 
     success_response(id, revision, json!({"format":"uri", "content":uri}))
 }
 
+/// Explicit private standalone editor payload; never ordinary status data.
+pub(crate) fn respond_to_profile_edit_input<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.profile_edit_input(request) {
+        Ok(input) if input.private_input().len() > omavless_control_protocol::MAX_STRING_BYTES => {
+            error_response(
+                id,
+                owner.revision(),
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            )
+        }
+        Ok(input) => success_response(
+            id,
+            owner.revision(),
+            json!({"name":input.private_name(),"input":input.private_input()}),
+        ),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Complete one externally fetched subscription request through the same
 /// serialized owner and stable response contract as every other mutation.
 pub(crate) fn respond_to_fetched_subscription<H, G, N>(
