@@ -43,6 +43,7 @@ fn run() -> Result<(), String> {
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
+        println!("  routing rules                    private custom-rule editor list");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );

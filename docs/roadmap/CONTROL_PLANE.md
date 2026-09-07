@@ -442,6 +442,27 @@ fencing are wired and tested.
 There is no generic `run-core`, `systemctl`, controller-forward, process or shell
 method.
 
+`routing.custom_rules.list` accepts exactly empty `params` and returns the
+explicit private editor payload `{version:1,rules:[{id,kind,value,action}]}`.
+The fixed semantic CLI spelling is `routing rules`. Original store order and
+opaque rule IDs are preserved; only the four listed fields are projected.
+The existing strict store/rule parser bounds the list at 128 records and each
+rule value at 1024 bytes. There are no caller paths, filters, pagination,
+mutation/replay fields, raw Mihomo objects or arbitrary configuration inputs.
+The bounded list fits the ordinary response frame; clients still enforce the
+global v1 frame bounds.
+
+Rule destinations are private user configuration, not shareable diagnostics.
+This explicit same-user response may carry them; status/capabilities must not.
+Clients display values as plain text and must not log the response or translate
+user content. Non-formatable domain wrappers retain this classification until
+explicit response projection. The read holds the migration lock while checking
+exact committed native generation, private file policy and the complete store.
+It neither increments revision nor changes data, desired state or the core.
+Rollback/stale ownership rejects access. Read-only legacy-owned daemons do not
+advertise this capability. `add/delete` remain separate unimplemented native
+mutations; this list alone does not switch the installed routing-tools UI.
+
 The v1 connection mutation parameters are exact objects:
 
 - `connection.connect`: required `profileId`; optional `mode`, `operationId`

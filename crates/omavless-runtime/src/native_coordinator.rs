@@ -659,6 +659,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         project(&store)
     }
 
+    pub(crate) fn custom_rules(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::private_store::PrivateCustomRules, NativeOwnerError> {
+        crate::routing_read_protocol::validate_custom_rules_request(request)?;
+        self.with_owned_private_store(|store| Ok(store.custom_rules_for_editor()))
+    }
+
     pub(crate) fn profile_export(
         &mut self,
         request: &Value,

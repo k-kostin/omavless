@@ -723,6 +723,19 @@ pub fn apply_subscription_refresh_batch(
     ))
 }
 
+/// Explicit local routing editor data; destinations must not enter diagnostics.
+/// No Debug/Clone/serialization implementation for the private wrapper.
+pub struct PrivateCustomRules {
+    value: Value,
+}
+
+impl PrivateCustomRules {
+    #[must_use]
+    pub fn private_ui_value(self) -> Value {
+        self.value
+    }
+}
+
 /// Validated private store. Never derive `Debug`, `Clone`, or serialization.
 pub struct PrivateStore {
     document: Value,
@@ -1057,6 +1070,21 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
 }
 
 impl PrivateStore {
+    /// Project only the accepted editor fields, never the raw store or unknown
+    /// extension fields. Original order and stable IDs are preserved.
+    #[must_use]
+    pub fn custom_rules_for_editor(&self) -> PrivateCustomRules {
+        let rules = self.document["customRules"]
+            .as_array()
+            .expect("normalized custom rules");
+        PrivateCustomRules {
+            value: serde_json::json!({"version":1,"rules":rules.iter().map(|rule| {
+                serde_json::json!({"id":rule["id"],"kind":rule["kind"],
+                    "value":rule["value"],"action":rule["action"]})
+            }).collect::<Vec<_>>() }),
+        }
+    }
+
     /// Confirm against this validated private snapshot; never accept duplicate
     /// status or subscription URLs supplied by the importing client.
     pub fn preview_import(
