@@ -243,8 +243,8 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)
     }
 
-    pub(crate) const fn blocked(&self) -> bool {
-        self.blocked
+    pub(crate) fn blocked(&self) -> bool {
+        self.blocked || crate::routing_preset::pending(&self.desired_paths)
     }
 
     pub(crate) fn block(&mut self) {
@@ -256,7 +256,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
     pub(crate) fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
-        if self.blocked {
+        if self.blocked() {
             return Err(ConnectionTransactionError::ManualRecoveryRequired);
         }
         let lock = MigrationLock::acquire(&self.cutover_paths, self.uid).map_err(lock_error)?;
@@ -270,7 +270,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
-        if self.blocked {
+        if self.blocked() {
             return Err(ConnectionTransactionError::ManualRecoveryRequired);
         }
         let lifecycle = self.lifecycle.reconcile_startup();

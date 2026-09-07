@@ -15,6 +15,16 @@ use serde_json::Value;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+const PENDING_BYTES: &[u8] = b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n";
+fn pending_path(paths: &DesiredPaths) -> PathBuf {
+    paths.directory.join("routing-preset.pending.json")
+}
+/// Existence, malformed shape, unsafe file or inaccessible state all block.
+/// Never parse private payload or infer that a crashed transaction completed.
+pub(crate) fn pending(paths: &DesiredPaths) -> bool {
+    !matches!(std::fs::symlink_metadata(pending_path(paths)),Err(error) if error.kind()==std::io::ErrorKind::NotFound)
+}
+
 fn bundled(preset: &str) -> Option<&'static str> {
     match preset {
         "roscomvpn-default" => Some(include_str!("../../../templates/default.yaml")),
@@ -83,6 +93,8 @@ pub(crate) struct PresetPlan {
     target: DesiredState,
     rollback: DesiredState,
     uid: u32,
+    armed: std::cell::Cell<bool>,
+    restored: std::cell::Cell<bool>,
 }
 impl PresetPlan {
     pub fn prepare(
@@ -134,10 +146,112 @@ impl PresetPlan {
             target,
             rollback,
             uid,
+            armed: std::cell::Cell::new(false),
+            restored: std::cell::Cell::new(false),
         })
     }
     pub fn restart_required(&self) -> bool {
         self.original.as_deref() != Some(self.candidate.as_str()) || self.desired != self.target
+    }
+    fn arm(&self) -> Result<(), PrivateStoreWriteError> {
+        if !self.changed() {
+            return Ok(());
+        }
+        match omavless_store::atomic_create_private(
+            &pending_path(&self.desired_paths),
+            PENDING_BYTES,
+            self.uid,
+        )
+        .map_err(|_| PrivateStoreWriteError::StoreIo)?
+        {
+            omavless_store::PrivateCreateOutcome::Created => {
+                self.armed.set(true);
+                Ok(())
+            }
+            omavless_store::PrivateCreateOutcome::AlreadyExists => {
+                Err(PrivateStoreWriteError::StoreChanged)
+            }
+        }
+    }
+    fn clear_verified(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+        restored: bool,
+    ) -> Result<(), PrivateStoreWriteError> {
+        self.authorized(lock, paths)?;
+        self.store.verify_outcome_locked(lock, paths, restored)?;
+        let expected = if restored {
+            self.original.as_deref()
+        } else {
+            Some(self.candidate.as_str())
+        };
+        if private_template(&self.template, self.uid)?.as_deref() != expected {
+            return Err(PrivateStoreWriteError::StoreChanged);
+        }
+        let desired = self.desired_now()?;
+        if (restored && desired != self.desired && desired != self.rollback)
+            || (!restored && desired != self.target)
+        {
+            return Err(PrivateStoreWriteError::StoreChanged);
+        }
+        if !self.armed.get() {
+            return if pending(&self.desired_paths) {
+                Err(PrivateStoreWriteError::StoreChanged)
+            } else {
+                Ok(())
+            };
+        }
+        let marker = pending_path(&self.desired_paths);
+        let meta =
+            std::fs::symlink_metadata(&marker).map_err(|_| PrivateStoreWriteError::StoreIo)?;
+        if !meta.is_file()
+            || meta.file_type().is_symlink()
+            || meta.uid() != self.uid
+            || meta.permissions().mode() & 0o7777 != 0o600
+            || meta.len() != PENDING_BYTES.len() as u64
+            || read_private_utf8(&marker, self.uid)
+                .map_err(|_| PrivateStoreWriteError::StoreIo)?
+                .as_bytes()
+                != PENDING_BYTES
+        {
+            return Err(PrivateStoreWriteError::StoreChanged);
+        }
+        std::fs::remove_file(&marker).map_err(|_| PrivateStoreWriteError::StoreIo)?;
+        if std::fs::File::open(&self.desired_paths.directory)
+            .and_then(|directory| directory.sync_all())
+            .is_err()
+        {
+            // Preserve a blocker if durable removal cannot be proven.
+            let _ = omavless_store::atomic_create_private(&marker, PENDING_BYTES, self.uid);
+            return Err(PrivateStoreWriteError::StoreIo);
+        }
+        self.armed.set(false);
+        Ok(())
+    }
+    pub fn finish_outcome(
+        &self,
+        outcome: Result<
+            crate::profile_transaction::ProfileMutationOutcome,
+            crate::profile_transaction::ProfileTransactionError,
+        >,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+    ) -> Result<
+        crate::profile_transaction::ProfileMutationOutcome,
+        crate::profile_transaction::ProfileTransactionError,
+    > {
+        use crate::profile_transaction::ProfileTransactionError;
+        let safe = outcome.is_ok()
+            || (self.restored.get()
+                && outcome != Err(ProfileTransactionError::ManualRecoveryRequired));
+        if safe {
+            self.clear_verified(lock, paths, outcome.is_err())
+                .map_err(|_| ProfileTransactionError::ManualRecoveryRequired)?;
+        } else if self.armed.get() || pending(&self.desired_paths) {
+            return Err(ProfileTransactionError::ManualRecoveryRequired);
+        }
+        outcome
     }
     fn authorized(
         &self,
@@ -254,6 +368,7 @@ impl StorePlan for PresetPlan {
         {
             return Err(PrivateStoreWriteError::StoreChanged);
         }
+        self.arm()?;
         self.store.commit_locked(lock, paths)?;
         if self.original.as_deref() != Some(self.candidate.as_str()) {
             if self.original.is_none() {
@@ -298,6 +413,7 @@ impl StorePlan for PresetPlan {
         let template = self.restore_template();
         let store = self.store.restore_locked(lock, paths);
         let changed = desired? | template? | (store? == PreparedWrite::Changed);
+        self.restored.set(true);
         Ok(if changed {
             PreparedWrite::Changed
         } else {

@@ -782,6 +782,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
         }
+        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
@@ -1015,20 +1018,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         .and_then(|plan| {
             let paths = self.transaction.cutover_paths().clone();
             if !plan.restart_required() && crate::profile_transaction::StorePlan::changed(&plan) {
-                return crate::profile_transaction::commit_store_only_profile(&plan, &lock, &paths);
+                let outcome =
+                    crate::profile_transaction::commit_store_only_profile(&plan, &lock, &paths);
+                return plan.finish_outcome(outcome, &lock, &paths);
             }
             let desired = self
                 .transaction
                 .desired()
                 .map_err(|_| ProfileTransactionError::Store)?;
-            apply_transaction(
+            let outcome = apply_transaction(
                 self.transaction.lifecycle_mut(),
                 &plan,
                 crate::profile_transaction::ActionKind::Replace,
                 &desired.profile_id,
                 &lock,
                 &paths,
-            )
+            );
+            plan.finish_outcome(outcome, &lock, &paths)
         });
         self.finish(
             token,
