@@ -1090,10 +1090,9 @@ impl PrivateStore {
                                 | "encryption"
                                 | "mldsa65-verify"
                                 | "obfs-password"
-                        ) {
-                            if let Some(text) = value.as_str().filter(|text| !text.is_empty()) {
-                                output.push(text.to_owned());
-                            }
+                        ) && let Some(text) = value.as_str().filter(|text| !text.is_empty())
+                        {
+                            output.push(text.to_owned());
                         }
                         sensitive(value, output);
                     }

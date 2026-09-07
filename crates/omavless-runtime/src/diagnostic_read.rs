@@ -101,8 +101,11 @@ fn read(
     stream
         .set_write_timeout(Some(remaining(deadline)?))
         .map_err(|_| unavailable)?;
+    // HTTP/1.0 + close gives a bounded EOF-delimited body even when Mihomo's
+    // Go handler would stream a large HTTP/1.1 body with chunked encoding.
+    // The existing strict parser intentionally rejects ambiguous transfer coding.
     let request = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
         endpoint.path()
     );
     stream
@@ -139,6 +142,78 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
     use std::thread;
+
+    #[test]
+    fn installed_mihomo_serves_bounded_diagnostics_without_tcp_or_tun() {
+        let Some(core) = std::env::var_os("OMAVLESS_TEST_MIHOMO").map(std::path::PathBuf::from)
+        else {
+            return;
+        };
+        let directory = std::env::temp_dir().join(format!(
+            "ov-diag-core-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.join("mihomo.sock");
+        let config = directory.join("config.yaml");
+        let rules = (0..80)
+            .map(|i| format!("- DOMAIN,sample-{i}.example.invalid,DIRECT\n"))
+            .collect::<String>();
+        fs::write(&config,format!("mixed-port: 0\nport: 0\nsocks-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\nrules:\n{}- MATCH,DIRECT\n",socket.display(),rules)).unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        omavless_mihomo::validate_config(&core, &directory, &config, Duration::from_secs(15))
+            .unwrap();
+        let mut owned = crate::core::OwnedCore::spawn(&core, &directory, &config, &socket).unwrap();
+        owned.wait_ready(Duration::from_secs(10)).unwrap();
+        // Match the packaged service's UMask=0077 without mutating the
+        // multithreaded test process's global umask.
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let uid = nix::unistd::Uid::current().as_raw();
+        for method in METHODS {
+            let result = collect(&directory, uid, method, &[]).unwrap();
+            assert_eq!(result["version"], 1);
+            assert!(result.to_string().len() < 225 * 1024);
+            if *method != "diagnostics.providers" {
+                assert_eq!(result["rules"]["total"], 81);
+            }
+            if *method != "diagnostics.rules" {
+                assert_eq!(result["providers"]["total"], 0);
+            }
+        }
+        // Check only this owned child's socket inodes against listening TCP
+        // sockets; no process args or another user's network data is printed.
+        let descriptors = fs::read_dir(format!("/proc/{}/fd", owned.pid().unwrap())).unwrap();
+        let sockets: Vec<String> = descriptors
+            .filter_map(Result::ok)
+            .filter_map(|entry| fs::read_link(entry.path()).ok())
+            .filter_map(|path| path.to_str().map(str::to_owned))
+            .filter_map(|link| {
+                link.strip_prefix("socket:[")
+                    .and_then(|s| s.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .collect();
+        for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+            for line in fs::read_to_string(table).unwrap().lines().skip(1) {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                assert!(
+                    !(fields.get(3) == Some(&"0A")
+                        && fields
+                            .get(9)
+                            .is_some_and(|inode| sockets.iter().any(|own| own == inode))),
+                    "isolated core unexpectedly owns a TCP listener"
+                );
+            }
+        }
+        owned.stop(Duration::from_secs(5)).unwrap();
+        assert!(owned.pid().is_none());
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn private_controller_checks_modes_peer_fixed_path_and_global_deadline() {
@@ -182,7 +257,7 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 1024];
             let size = stream.read(&mut buffer).unwrap();
-            assert!(buffer[..size].starts_with(b"GET /rules HTTP/1.1\r\n"));
+            assert!(buffer[..size].starts_with(b"GET /rules HTTP/1.0\r\n"));
             for _ in 0..20 {
                 if stream.write_all(b"x").is_err() {
                     break;

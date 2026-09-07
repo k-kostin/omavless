@@ -2514,7 +2514,7 @@ mod tests {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut buffer = [0; 1024];
                 let size = stream.read(&mut buffer).unwrap();
-                assert!(buffer[..size].starts_with(b"GET /rules HTTP/1.1\r\n"));
+                assert!(buffer[..size].starts_with(b"GET /rules HTTP/1.0\r\n"));
                 if round == 1 {
                     started_tx.send(()).unwrap();
                     release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
