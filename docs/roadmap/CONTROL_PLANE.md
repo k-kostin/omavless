@@ -435,12 +435,38 @@ fencing are wired and tested.
 - `connection.connect` with opaque profile ID and optional mode;
 - `connection.disconnect`;
 - `routing.set_mode`;
+- `routing.set_preset`;
 - `routing.custom_rules.list/add/delete`;
 - `routing.check`, `routing.refresh_providers`;
 - `startup.get`, `startup.configure`.
 
 There is no generic `run-core`, `systemctl`, controller-forward, process or shell
 method.
+
+`routing.set_preset` accepts required `preset` from exactly
+`roscomvpn-default`, `china-cn-direct`, `iran-ir-direct`; optional boolean
+`keepMode` (default false), `operationId` and `expectedRevision` only.
+The fixed CLI is `routing preset PRESET [keep-mode]`. Templates are the exact
+checked-in packaged bundles embedded at build time, never caller YAML, paths,
+downloads or arbitrary config merges. First-run selection sets Rule mode;
+settings selection explicitly preserves the canonical desired mode.
+
+The native owner prepares one compensated template/store/desired transaction
+under the shared migration lock and exact ownership/revision fence. It checks
+all snapshots before effects and uses private exact-byte replacement for the
+fixed template plus the existing private store writer. Mode rollback restores
+the previous intent at a later desired generation, never rewinds generation.
+If only the preference changes, no core restart occurs; exact no-op and replay
+perform no duplicate write or host work. A template or desired-mode change
+uses the existing active replacement transaction, with exact old policy/mode
+recovery on ordinary failure and a hard manual-recovery barrier on ambiguity.
+The files are individually atomic, not a fictitious cross-file filesystem
+transaction; incomplete/externally changed compensation fails closed.
+
+Success is only `{"accepted":true}`. No template/private destination appears
+in the ordinary result. Python's template mode is a legacy input; after native
+ownership the canonical desired mode is authoritative for `keepMode`. The
+installed Python/QML owner is unchanged by this semantic prerequisite.
 
 `routing.custom_rules.list` accepts exactly empty `params` and returns the
 explicit private editor payload `{version:1,rules:[{id,kind,value,action}]}`.

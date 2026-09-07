@@ -229,6 +229,18 @@ pub fn parse_semantic_mutation(
 ) -> Result<SemanticRequest, SemanticCliError> {
     let arguments = utf8(arguments)?;
     match arguments.as_slice() {
+        ["routing", "preset", preset] | ["routing", "preset", preset, "keep-mode"] => {
+            if !matches!(
+                *preset,
+                "roscomvpn-default" | "china-cn-direct" | "iran-ir-direct"
+            ) {
+                return Err(SemanticCliError::InvalidArgument);
+            }
+            Ok(SemanticRequest {
+                method: "routing.set_preset",
+                params: json!({"preset":preset,"keepMode":arguments.len()==4}),
+            })
+        }
         ["connect", id] => Ok(SemanticRequest {
             method: "connection.connect",
             params: json!({"profileId": record_id(id)?}),

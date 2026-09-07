@@ -1163,6 +1163,22 @@ fix; an early diagnostic may safely return `core_rejected` until initialized.
 The follow-up lifecycle gate must distinguish controller liveness from complete
 config/selector readiness before claiming the overall runtime ready.
 
+### Native bundled routing preset checkpoint (2026-09-07)
+
+Fixed preset selection now prepares the three checked-in bundles without
+client paths/YAML or network fetching. The serialized native owner composes
+template, private-store preference and desired mode through one compensated
+plan and the existing active replacement lifecycle. `keepMode` preserves
+canonical native desired state; first-run selection chooses Rule. No-op,
+metadata-only, replay and generation-fenced rollback have distinct paths.
+
+An actual Python `use_bundled_template` oracle compares all three bundles,
+three modes and both selection semantics via bounded synthetic stdin and full
+template/store digests. File/member, desired-generation, core-failure and
+socket tests supplement parity. Files are individually atomic; ambiguous
+multi-member compensation requires manual recovery. No installed frontend or
+native owner cutover occurs, and Python remains production owner/oracle.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

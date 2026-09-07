@@ -62,6 +62,7 @@ fn run() -> Result<(), CliError> {
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );

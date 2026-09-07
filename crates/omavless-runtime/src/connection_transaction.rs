@@ -208,6 +208,10 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         read_desired(&self.desired_paths, self.uid).map_err(|_| ConnectionTransactionError::Store)
     }
 
+    pub(crate) fn desired_paths(&self) -> &DesiredPaths {
+        &self.desired_paths
+    }
+
     /// Recheck one exact durable ownership fence while holding the same
     /// migration lock used by mutation admission. Capability/status replies
     /// must never claim a native owner during a concurrent cutover or rollback

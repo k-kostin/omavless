@@ -320,6 +320,8 @@ where
         }
     } else if method == "profiles.import" {
         owner.execute_profile_import(request, next_record_id)
+    } else if method == "routing.set_preset" {
+        owner.execute_routing_preset(request)
     } else if PROFILE_METHODS.contains(&method) {
         owner.execute_profile(request)
     } else if SUBSCRIPTION_METHODS.contains(&method) {

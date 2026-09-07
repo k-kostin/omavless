@@ -58,6 +58,7 @@ pub mod profile_mutation_protocol;
 pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod remote_fetch;
+mod routing_preset;
 pub mod routing_read_protocol;
 pub mod semantic_cli;
 pub mod startup_protocol;
@@ -243,6 +244,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
     "routing.set_mode",
+    "routing.set_preset",
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
@@ -2572,6 +2574,87 @@ mod tests {
             .unwrap();
         assert_eq!(revoked["error"]["code"], "capability_unavailable");
         drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn routing_preset_socket_is_fenced_replay_safe_and_noop_aware() {
+        let base = temporary_base("routing-preset");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let template = base.join("config/route-template.yaml");
+        fs::write(
+            &template,
+            b"mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+        )
+        .unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let params = json!({"preset":"china-cn-direct","keepMode":true,"operationId":"preset","expectedRevision":0});
+        let first = call(&paths, "routing.set_preset", params.clone()).unwrap();
+        assert_eq!(first["ok"], true);
+        assert_eq!(first["revision"], 1);
+        let store = base.join("config/profiles.json");
+        let bytes = fs::read(&store).unwrap();
+        let selected = fs::read(&template).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        assert_eq!(
+            call(&paths, "routing.set_preset", params.clone()).unwrap()["revision"],
+            1
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let noop = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","keepMode":true}),
+        )
+        .unwrap();
+        assert_eq!(noop["ok"], true);
+        assert_eq!(noop["revision"], 1);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(
+            call(
+                &paths,
+                "routing.set_preset",
+                json!({"preset":"iran-ir-direct","expectedRevision":0})
+            )
+            .unwrap()["error"]["code"],
+            "conflict"
+        );
+        let invalid = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(
+                &paths,
+                "routing.set_preset",
+                json!({"preset":"iran-ir-direct"})
+            )
+            .unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "routing.set_preset", params.clone()).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert!(fs::read(&store).unwrap() == bytes);
+        assert!(fs::read(&template).unwrap() == selected);
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 
