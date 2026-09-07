@@ -44,6 +44,9 @@ fn run() -> Result<(), String> {
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!(
+            "  store-compatibility              read-only native store check and recovery guidance"
+        );
+        println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
         return Ok(());
@@ -90,6 +93,12 @@ fn run() -> Result<(), String> {
             }))
             .map_err(|_| "Output failed")?
         );
+        return Ok(());
+    }
+    if arguments == ["store-compatibility"] {
+        let result = omavless_runtime::store_preflight::current_store_compatibility()
+            .map_err(|error| error.to_string())?;
+        println!("{}", result.public_json());
         return Ok(());
     }
     if arguments == ["cutover-preflight"] {

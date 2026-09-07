@@ -1038,6 +1038,42 @@ oracle from #168 establishes which rejected XHTTP records remain readable by
 the legacy owner. Issue #169 retains the future user-facing repair guidance
 and installed cutover acceptance; this guard does not activate cutover.
 
+### Read-only store compatibility diagnostic (2026-09-07)
+
+The fixed `omavless store-compatibility` command shares the complete strict
+store validator and migration lock with the production pre-effect guard.
+It uses the established private home/store location, accepts no path or extra
+arguments, needs no Python, controller, GUI or host command, and does not start
+a daemon. Its bounded credential-free JSON contains `schemaVersion: 1`,
+`compatible`, `code`, safe English `message` and `recovery` identifiers:
+
+| Code | Meaning | Recovery |
+| --- | --- | --- |
+| `compatible` | Full native store validation passed | `none` |
+| `store_unavailable` | Missing, unsafe or unreadable private store | `restore_private_store` |
+| `store_requires_repair` | Invalid/oversized data or unsupported stored configuration | `legacy_repair_or_export` |
+
+Exit zero means a report was delivered, **not** that migration is permitted:
+consumers must inspect `compatible`. Lock contention and unsafe environment
+fail with a fixed error and no report. A successful check does not establish
+frontend, host, ownership or complete cutover readiness. No raw parser errors,
+record IDs, names, credentials or private paths are returned.
+
+The diagnostic may create/acquire the operational migration lock; it never
+writes the profile store, ownership marker, desired state or service state.
+Failure does not reset or repair data automatically. Keep legacy ownership;
+use its explicit repair/export where possible, or restore a valid private
+backup if malformed data prevents the plugin from opening it. Retry the check
+after repair. No permissive parser or bypass is introduced.
+
+The executable regression covers all four established legacy XHTTP mismatch
+cases, empty valid store, missing/corrupt/invalid-UTF8/oversized data, unsafe
+permissions, symlinks, contention, rejected arguments and empty external-tool
+PATH, checking exact bytes and absent owner/socket publication. Existing
+Python export parity remains the reference for intentional strict differences.
+Issue #169 still requires installed frontend guidance and actual cutover
+acceptance; Python remains the installed owner and rollback/oracle.
+
 ### Standalone profile editor-input checkpoint (2026-09-07)
 
 `profiles.edit_input` plus the fixed `profile edit-input ID` command now return
