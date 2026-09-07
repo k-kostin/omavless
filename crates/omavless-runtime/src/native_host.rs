@@ -135,7 +135,7 @@ fn valid_absolute(path: &Path) -> bool {
     path.is_absolute() && !bytes.is_empty() && bytes.len() <= MAX_PATH_BYTES && !bytes.contains(&0)
 }
 
-fn private_directory(path: &Path, uid: u32) -> bool {
+pub(crate) fn private_directory(path: &Path, uid: u32) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| {
         !metadata.file_type().is_symlink()
             && metadata.is_dir()
@@ -270,6 +270,9 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn validate_startup(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        crate::startup_validation::validate(&self.paths, self.uid, desired)
+    }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {
             Some(core) => {

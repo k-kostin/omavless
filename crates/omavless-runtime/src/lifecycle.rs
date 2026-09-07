@@ -53,6 +53,11 @@ impl std::error::Error for HostStepError {}
 /// adapter. Inputs are semantic desired state; there is no arbitrary argv,
 /// shell, service, or privileged-command surface.
 pub trait LifecycleHost {
+    /// Validate future login preparation without staging/replacing the active
+    /// connection. Hosts must opt in; unsupported readiness fails closed.
+    fn validate_startup(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError>;
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError>;
     fn start_prepared(&mut self) -> Result<(), HostStepError>;

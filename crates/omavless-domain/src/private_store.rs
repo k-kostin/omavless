@@ -25,6 +25,9 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+mod startup;
+pub use startup::{StartupPreferences, apply_startup_preferences};
+
 const MAX_NAME_CHARS: usize = 80;
 const MAX_SUBSCRIPTION_ENTRIES: usize = 1024;
 pub const MAX_PRIVATE_STORE_BYTES: usize = 5 * 1024 * 1024;
