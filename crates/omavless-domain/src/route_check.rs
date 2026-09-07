@@ -117,6 +117,31 @@ pub fn check_fast_paths(
 mod tests {
     use super::*;
     #[test]
+    fn ordered_custom_matches_and_ip_family_boundaries_do_not_probe() {
+        let rules = [
+            CustomRule::parse("suffix", "direct", "example.invalid").unwrap(),
+            CustomRule::parse("domain", "reject", "deep.example.invalid").unwrap(),
+            CustomRule::parse("ipcidr", "reject", "0.0.0.0/0").unwrap(),
+            CustomRule::parse("ipcidr", "proxy", "::/0").unwrap(),
+        ];
+        let result = |input| {
+            check_fast_paths("rule", true, &rules, input)
+                .unwrap()
+                .unwrap()
+                .private_ui_value()
+        };
+        assert_eq!(result("DEEP.EXAMPLE.INVALID.")["outcome"], "direct");
+        assert_eq!(result("192.0.2.255")["outcome"], "block");
+        assert_eq!(result("::ffff:192.0.2.1")["outcome"], "vpn");
+        assert!(
+            check_fast_paths("rule", true, &rules, "other.invalid")
+                .unwrap()
+                .is_none()
+        );
+        assert!(check_fast_paths("other", true, &rules, "example.invalid").is_err());
+    }
+
+    #[test]
     fn ipv6_mapped_and_network_boundaries_match_python_spelling() {
         assert_eq!(
             canonical_query("::ffff:192.0.2.1").unwrap(),
