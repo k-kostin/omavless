@@ -426,6 +426,15 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
     }
 
     fn capture_desired(&mut self) -> Result<Self::DesiredSnapshot, CutoverHostError> {
+        // execute_cutover invokes this under the migration lock and before
+        // publishing cutoverPreparing. Reject incompatible legacy records now:
+        // discovering them in stage_desired would already gate legacy repair/
+        // export and invoke compensation despite no useful transition.
+        self.lock()?;
+        crate::private_store_transaction::validate_store_path(&self.paths.store, self.uid)
+            .map_err(|_| CutoverHostError)?;
+        let input = read_private_utf8(&self.paths.store, self.uid).map_err(|_| CutoverHostError)?;
+        parse_private_store(&input).map_err(|_| CutoverHostError)?;
         let desired = read_desired(&self.paths.desired, self.uid).map_err(|_| CutoverHostError)?;
         self.captured_desired = Some(desired.clone());
         Ok(desired)
@@ -908,6 +917,122 @@ mod tests {
         assert_disconnected_restored(&fixture, &observed_bridge);
         assert_eq!(fs::read_to_string(service_state).unwrap(), "inactive\n");
         assert!(!fixture.paths.runtime.socket.exists());
+    }
+
+    #[test]
+    fn incompatible_legacy_store_fails_before_marker_bridge_or_service_mutations() {
+        let corpus: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../tests/parity_cases/vless-canonical-v1.json"
+        ))
+        .unwrap();
+        for case_id in [
+            "xhttp-unknown",
+            "xhttp-stream-one-download",
+            "download-mode-mismatch",
+            "recursive-extra",
+        ] {
+            let fixture = Fixture::new("legacy-store");
+            prepare_disconnected_fixture(&fixture);
+            let mut store: Value =
+                serde_json::from_slice(&fs::read(&fixture.paths.store).unwrap()).unwrap();
+            let valid = corpus
+                .iter()
+                .find(|case| case["id"] == "tcp-default")
+                .unwrap();
+            let incompatible = corpus.iter().find(|case| case["id"] == case_id).unwrap();
+            store["profiles"] = json!([
+                {"id":PROFILE_ID,"name":"Valid","protocol":"vless","uri":valid["uri"]},
+                {"id":"00000000-0000-4000-8000-000000000002","name":"Incompatible","protocol":"vless","uri":incompatible["uri"]}
+            ]);
+            fixture.write_private(&fixture.paths.store, &store.to_string());
+            let original = fs::read(&fixture.paths.store).unwrap();
+            let mutation = fixture.root.join("unexpected-service-mutation");
+            fs::write(&fixture.paths.systemctl, format!(
+                "#!/bin/sh\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0; fi\n: > '{}'; exit 9\n", mutation.display())).unwrap();
+            let bridge = FakeBridge::new();
+            let observed = bridge.clone();
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+            let desired = read_desired(&fixture.paths.desired, fixture.uid).unwrap();
+            assert_eq!(
+                execute_cutover(&mut host, &OwnershipMarker::default()),
+                Err(CutoverTransactionError::PreconditionsFailed)
+            );
+            assert_eq!(
+                read_marker(&fixture.paths.cutover, fixture.uid).unwrap(),
+                OwnershipMarker::default()
+            );
+            assert_eq!(
+                read_desired(&fixture.paths.desired, fixture.uid).unwrap(),
+                desired
+            );
+            assert!(
+                fs::read(&fixture.paths.store).unwrap() == original,
+                "refusal changed private store"
+            );
+            assert!(observed.calls.lock().unwrap().is_empty());
+            assert!(!mutation.exists());
+            assert!(!fixture.paths.runtime.socket.exists());
+            // Emulate a later explicit legacy repair; the guard is retryable
+            // and neither caches refusal nor requires a native marker reset.
+            drop(host);
+            store["profiles"][1]["uri"] = valid["uri"].clone();
+            fixture.write_private(&fixture.paths.store, &store.to_string());
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, observed.clone())
+                    .unwrap();
+            assert!(host.capture_desired().is_ok());
+            assert_eq!(
+                read_marker(&fixture.paths.cutover, fixture.uid).unwrap(),
+                OwnershipMarker::default()
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_or_corrupt_legacy_store_cannot_enter_preparing_ownership() {
+        for variant in ["corrupt", "mode", "symlink", "missing"] {
+            let fixture = Fixture::new("store-safety");
+            prepare_disconnected_fixture(&fixture);
+            let valid = fs::read(&fixture.paths.store).unwrap();
+            match variant {
+                "corrupt" => fs::write(&fixture.paths.store, b"private-token").unwrap(),
+                "mode" => {
+                    fs::set_permissions(&fixture.paths.store, fs::Permissions::from_mode(0o644))
+                        .unwrap()
+                }
+                "symlink" => {
+                    let target = fixture.root.join("private-store");
+                    fs::rename(&fixture.paths.store, &target).unwrap();
+                    std::os::unix::fs::symlink(target, &fixture.paths.store).unwrap();
+                }
+                "missing" => fs::remove_file(&fixture.paths.store).unwrap(),
+                _ => unreachable!(),
+            }
+            let before = fs::read(&fixture.paths.store).ok();
+            let bridge = FakeBridge::new();
+            let observed = bridge.clone();
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+            let error = execute_cutover(&mut host, &OwnershipMarker::default()).unwrap_err();
+            assert_eq!(error, CutoverTransactionError::PreconditionsFailed);
+            assert!(!format!("{error:?} {error}").contains("private-token"));
+            assert_eq!(
+                read_marker(&fixture.paths.cutover, fixture.uid).unwrap(),
+                OwnershipMarker::default()
+            );
+            assert!(fs::read(&fixture.paths.store).ok() == before);
+            assert!(observed.calls.lock().unwrap().is_empty());
+            drop(host);
+            if variant == "symlink" {
+                fs::remove_file(&fixture.paths.store).unwrap();
+            }
+            fixture.write_private(&fixture.paths.store, std::str::from_utf8(&valid).unwrap());
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, observed.clone())
+                    .unwrap();
+            assert!(host.capture_desired().is_ok());
+        }
     }
 
     #[test]
