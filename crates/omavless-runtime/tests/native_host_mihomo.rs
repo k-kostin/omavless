@@ -150,6 +150,71 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     assert!(!config.join("../runtime/mihomo.sock").exists());
     assert_eq!(fs::metadata(&config).unwrap().uid(), uid);
 
+    // Exercise the new domain mutation through the actual native host/core
+    // adapter, not only generated text. This isolated config has no TUN,
+    // listener or provider fetch; it is not live VPN/cutover evidence.
+    let rule_id = "00000000-0000-4000-8000-000000000099";
+    for add in [true, false] {
+        use omavless_domain::private_store::{CustomRuleMutation, apply_custom_rule_mutation};
+        let mutation = if add {
+            CustomRuleMutation::Add {
+                kind: "domain".into(),
+                action: "direct".into(),
+                value: "example.invalid".into(),
+            }
+        } else {
+            CustomRuleMutation::Delete {
+                rule_id: rule_id.into(),
+            }
+        };
+        let before = fs::read_to_string(config.join("profiles.json")).unwrap();
+        let candidate = apply_custom_rule_mutation(&before, mutation, rule_id).unwrap();
+        omavless_store::atomic_replace_private(
+            &config.join("profiles.json"),
+            candidate.payload(),
+            uid,
+        )
+        .unwrap();
+        host.prepare(&desired).unwrap();
+        host.start_prepared().unwrap();
+        let health = host.observe(&desired).unwrap();
+        assert!(health.service_active && health.controller_ready);
+        assert_eq!(health.core_count, 1);
+        assert_eq!(health.tun_count, 0);
+        let rules = omavless_mihomo::controller_get(
+            &root.join("runtime/mihomo.sock"),
+            omavless_mihomo::ReadOnlyEndpoint::Rules,
+            std::time::Duration::from_secs(2),
+            64 * 1024,
+        )
+        .unwrap();
+        assert_eq!(rules.status, 200);
+        let observed = rules.payload["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rule| {
+                rule["type"] == "Domain"
+                    && rule["payload"] == "example.invalid"
+                    && rule["proxy"] == "DIRECT"
+            });
+        assert_eq!(
+            observed, add,
+            "Mihomo rule state did not match committed mutation"
+        );
+        host.commit_prepared().unwrap();
+        let active = fs::read_to_string(config.join("config.yaml")).unwrap();
+        assert!(active.contains("external-controller-unix:"));
+        assert!(!active.contains("external-controller:"));
+        host.stop_owned().unwrap();
+        host.discard_prepared().unwrap();
+        let health = host.observe(&DesiredState::default()).unwrap();
+        assert!(!health.service_active && !health.controller_ready);
+        assert_eq!(health.core_count, 0);
+        assert_eq!(health.tun_count, 0);
+        assert!(!root.join("runtime/mihomo.sock").exists());
+    }
+
     let committed = fs::read(config.join("config.yaml")).unwrap();
     let missing = DesiredState {
         connected: true,
