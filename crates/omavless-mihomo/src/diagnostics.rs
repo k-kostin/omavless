@@ -16,6 +16,7 @@ pub struct RuleSummary {
 pub struct ProviderSummary {
     pub name: String,
     pub behavior: String,
+    pub updated_at: String,
     pub rule_count: i64,
     pub status: &'static str,
     pub refreshable: bool,
@@ -44,6 +45,7 @@ pub fn bounded_controller_text(value: &str, maximum: usize, private: &[String]) 
             text = text.replace(fragment, "[private]");
         }
     }
+    text = redact_uuids(&text);
     if text.len() <= maximum {
         return text;
     }
@@ -58,7 +60,7 @@ fn route_target(value: &str) -> &'static str {
     let upper = value.to_ascii_uppercase();
     if upper == "DIRECT" {
         "DIRECT"
-    } else if upper.contains("REJECT") {
+    } else if upper.starts_with("REJECT") {
         "REJECT"
     } else {
         "VPN"
@@ -126,6 +128,12 @@ pub fn loaded_providers(payload: &Value, private: &[String]) -> Result<Vec<Provi
                 .get("vehicleType")
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            let updated_at = match object.get("updatedAt") {
+                None => String::new(),
+                Some(Value::String(text)) => text.clone(),
+                Some(Value::Number(number)) => number.to_string(),
+                _ => return Err(invalid()),
+            };
             if object.get("behavior").is_some_and(|v| !v.is_string())
                 || object.get("vehicleType").is_some_and(|v| !v.is_string())
             {
@@ -141,6 +149,7 @@ pub fn loaded_providers(payload: &Value, private: &[String]) -> Result<Vec<Provi
             Ok(ProviderSummary {
                 name: bounded_controller_text(name, 160, private),
                 behavior: bounded_controller_text(behavior, 80, private),
+                updated_at: bounded_controller_text(&updated_at, 80, private),
                 rule_count: count,
                 status: if count < 0 {
                     "unknown"
@@ -153,6 +162,79 @@ pub fn loaded_providers(payload: &Value, private: &[String]) -> Result<Vec<Provi
             })
         })
         .collect()
+}
+
+fn redact_uuids(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = String::new();
+    let mut copied = 0;
+    let mut start = 0;
+    while start + 36 <= bytes.len() {
+        let candidate = &bytes[start..start + 36];
+        let boundary = |byte: u8| !byte.is_ascii_alphanumeric() && byte != b'_';
+        let valid = (start == 0 || boundary(bytes[start - 1]))
+            && (start + 36 == bytes.len() || boundary(bytes[start + 36]))
+            && candidate.iter().enumerate().all(|(i, byte)| {
+                if [8, 13, 18, 23].contains(&i) {
+                    *byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            })
+            && (b'1'..=b'5').contains(&candidate[14])
+            && b"89abAB".contains(&candidate[19]);
+        if valid {
+            output.push_str(&text[copied..start]);
+            output.push_str("[private]");
+            start += 36;
+            copied = start;
+        } else {
+            start += 1;
+        }
+    }
+    output.push_str(&text[copied..]);
+    output
+}
+
+/// Native v1 response budget is smaller than the legacy 384-KiB UI envelope.
+/// Truncate rows, never individual JSON or metadata, with an explicit marker.
+pub fn rules_projection(payload: &Value, private: &[String]) -> Result<Value> {
+    let total = payload
+        .get("rules")
+        .and_then(Value::as_array)
+        .ok_or_else(invalid)?
+        .len();
+    let rows = loaded_rules(payload, private)?
+        .into_iter()
+        .map(|row| serde_json::json!({"type":row.kind,"payload":row.payload,"target":row.target}));
+    Ok(budgeted_rows(rows, total, 160 * 1024))
+}
+
+pub fn providers_projection(payload: &Value, private: &[String]) -> Result<Value> {
+    let total = payload
+        .get("providers")
+        .and_then(Value::as_object)
+        .ok_or_else(invalid)?
+        .len();
+    let rows = loaded_providers(payload, private)?.into_iter().map(|row| {
+        serde_json::json!({"name":row.name,"behavior":row.behavior,"updatedAt":row.updated_at,
+            "ruleCount":row.rule_count,"status":row.status,"refreshable":row.refreshable})
+    });
+    Ok(budgeted_rows(rows, total, 64 * 1024))
+}
+
+fn budgeted_rows(rows: impl Iterator<Item = Value>, total: usize, limit: usize) -> Value {
+    let mut items = Vec::new();
+    let mut bytes = 64;
+    for row in rows {
+        let size = row.to_string().len() + 1;
+        if bytes + size > limit {
+            break;
+        }
+        bytes += size;
+        items.push(row);
+    }
+    serde_json::json!({"total":total,"shown":items.len(),"truncated":items.len()<total,"items":items})
 }
 
 pub fn traffic_sample(payload: &Value) -> Result<TrafficSample> {

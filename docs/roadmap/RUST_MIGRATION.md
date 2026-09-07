@@ -1131,6 +1131,28 @@ existing Python fallback or an explicit dependency policy is addressed.
 Installed QML composition and exact-head desktop smoke remain distinct gates.
 Python remains the installed owner and cannot be removed yet.
 
+### Native live-rule diagnostic dispatch checkpoint (2026-09-07)
+
+The fixed `diagnostics.summary/rules/providers` methods compose accepted Mihomo
+projection primitives with exact native-owner fencing and detached bounded
+private Unix-controller reads. Python remains the installed owner and oracle;
+no frontend activation, private store mutation, new controller, tunnel or
+ownership cutover is performed. Python cannot be removed yet.
+
+An effect-free oracle compares actual Python loaded-rule/provider projections
+using synthetic inputs and digest-only output. The native projection fills the
+previous missing provider `updatedAt`, fixes REJECT prefix classification and
+generic UUID redaction, and explicitly reduces per-collection byte budgets to
+fit v1 framing. Provider map order is canonical rather than controller insertion
+order. Additional canonical credential/endpoint redaction strengthens the old
+exact-name/link filter; it never changes stored credentials.
+
+Deterministic socket tests must prove bounded slow-controller behavior,
+private modes/peer checks, no lock held across I/O, status/disconnect admission,
+stale completion refusal and no diagnostic store/revision effects. Exact-head
+installed Mihomo synthetic-controller acceptance remains separate from an
+installed native-owner/UI cutover; the latter is not claimed by this checkpoint.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

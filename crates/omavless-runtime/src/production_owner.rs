@@ -363,6 +363,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         crate::native_dispatch::respond_to_custom_rules(&mut self.coordinator, request)
     }
 
+    pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
+        self.coordinator.diagnostic_snapshot()
+    }
+
     pub(crate) fn profile_edit_input(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_profile_edit_input(&mut self.coordinator, request)
     }

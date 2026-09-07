@@ -667,6 +667,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.with_owned_private_store(|store| Ok(store.custom_rules_for_editor()))
     }
 
+    pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
+        if self.actual() == ActualState::ManualRecoveryRequired {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        if self.actual() != ActualState::Connected {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        self.with_owned_private_store(|store| Ok(store.diagnostic_private_fragments()))
+    }
+
     pub(crate) fn profile_export(
         &mut self,
         request: &Value,
