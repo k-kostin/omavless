@@ -1596,6 +1596,7 @@ mod tests {
     struct FakeHost {
         observation: OwnedObservation,
         fail_stop: bool,
+        fail_starts: usize,
         calls: usize,
     }
 
@@ -1619,6 +1620,10 @@ mod tests {
 
         fn start_prepared(&mut self) -> Result<(), HostStepError> {
             self.calls += 1;
+            if self.fail_starts > 0 {
+                self.fail_starts -= 1;
+                return Err(HostStepError::Start);
+            }
             self.observation = healthy();
             Ok(())
         }
@@ -1700,6 +1705,7 @@ mod tests {
             FakeHost {
                 observation: empty(),
                 fail_stop: false,
+                fail_starts: 0,
                 calls: 0,
             },
             desired_paths,
@@ -1775,6 +1781,97 @@ mod tests {
             panic!("missing not classified")
         };
         assert_eq!(cached.error, Some(StableErrorCode::NotFound));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn custom_rule_candidate_failure_restores_exact_store_or_blocks() {
+        for (fail_starts, fail_stop, expected) in [
+            (1, false, StableErrorCode::TransitionFailedRestored),
+            (2, false, StableErrorCode::ManualRecoveryRequired),
+            (0, true, StableErrorCode::ManualRecoveryRequired),
+        ] {
+            let (root, store, mut owner) = fixture("custom-rule-fault");
+            applied(owner.execute_connection(connect("connect", 0)).unwrap());
+            let original = fs::read(&store).unwrap();
+            owner.host_mut().fail_starts = fail_starts;
+            owner.host_mut().fail_stop = fail_stop;
+            let request = profile_request(
+                "routing.custom_rules.add",
+                json!({"kind":"domain","action":"reject","value":"example.invalid","operationId":"fault","expectedRevision":1}),
+            );
+            let NativeOwnerExecution::Applied { cached, .. } = owner
+                .execute_custom_rule(&request, || "00000000-0000-4000-8000-000000000099".into())
+                .unwrap()
+            else {
+                panic!("fault not classified")
+            };
+            assert_eq!(cached.error, Some(expected));
+            assert!(
+                fs::read(&store).unwrap() == original,
+                "original store was not restored"
+            );
+            let calls = owner.host().calls;
+            assert!(matches!(
+                owner
+                    .execute_custom_rule(&request, || panic!("fault replay generated ID"))
+                    .unwrap(),
+                NativeOwnerExecution::Replay(_)
+            ));
+            assert_eq!(owner.host().calls, calls);
+            if expected == StableErrorCode::ManualRecoveryRequired {
+                assert!(owner.transaction.blocked());
+            } else {
+                assert!(owner.transaction.desired().unwrap().connected);
+                assert_eq!(owner.actual(), crate::lifecycle::ActualState::Connected);
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn custom_rule_preflight_lock_retry_and_unsafe_store_have_no_effects() {
+        let (root, store, mut owner) = fixture("custom-rule-preflight");
+        let request = profile_request(
+            "routing.custom_rules.add",
+            json!({"kind":"domain","action":"direct","value":"example.invalid","operationId":"retry","expectedRevision":0}),
+        );
+        let before = fs::read(&store).unwrap();
+        let lock =
+            MigrationLock::acquire(owner.transaction.cutover_paths(), owner.transaction.uid())
+                .unwrap();
+        assert!(matches!(
+            owner
+                .execute_custom_rule(&request, || panic!("busy generated ID"))
+                .unwrap(),
+            NativeOwnerExecution::UncachedPreflightFailure { .. }
+        ));
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(owner.host().calls, 0);
+        assert!(fs::read(&store).unwrap() == before);
+        drop(lock);
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
+        let mut uncached = request.clone();
+        uncached["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("operationId");
+        let NativeOwnerExecution::Applied { cached, .. } = owner
+            .execute_custom_rule(&uncached, || "00000000-0000-4000-8000-000000000099".into())
+            .unwrap()
+        else {
+            panic!("unsafe store not rejected")
+        };
+        assert_eq!(cached.error, Some(StableErrorCode::InternalError));
+        assert_eq!(owner.host().calls, 0);
+        assert!(fs::read(&store).unwrap() == before);
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        applied(
+            owner
+                .execute_custom_rule(&request, || "00000000-0000-4000-8000-000000000099".into())
+                .unwrap(),
+        );
+        assert_eq!(owner.revision(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 
