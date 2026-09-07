@@ -41,6 +41,7 @@ fn run() -> Result<(), String> {
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
         println!("  profile import                  read confirmed name + profile link from stdin");
+        println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );

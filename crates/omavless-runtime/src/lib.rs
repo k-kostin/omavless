@@ -49,6 +49,7 @@ pub mod private_store_transaction;
 pub mod production_cutover;
 pub mod production_observation;
 pub mod production_owner;
+pub mod profile_export_protocol;
 pub mod profile_import_protocol;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
@@ -216,6 +217,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "profiles.export",
     "imports.classify",
     "profiles.list",
     "subscriptions.list",
@@ -245,6 +247,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn profile_export(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn import_preview(
         &mut self,
         request: &Value,
@@ -467,6 +473,13 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.subscription_edit_input(request)
+    }
+
+    fn profile_export(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.profile_export(request)
     }
 
     fn bootstrap_generations(&self) -> Option<(u64, u64)> {
@@ -1051,6 +1064,7 @@ fn dispatch_native(
             return owner.subscription_edit_input(request);
         }
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
+        "profiles.export" if runtime_ownership => return owner.profile_export(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
             return error_response(
                 id,
@@ -2171,6 +2185,92 @@ mod tests {
             .unwrap();
             assert_eq!(response["error"]["code"], "capability_unavailable");
             assert!(!response.to_string().contains("subscription-token"));
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn explicit_profile_export_is_private_bounded_and_exact_owner_fenced() {
+        let base = temporary_base("profile-export");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let document: Value = serde_json::from_slice(&original).unwrap();
+        let expected = document["profiles"][0]["uri"].as_str().unwrap().to_owned();
+        let calls_before = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let params = json!({"profileId":PROFILE_ID,"purpose":"file"});
+        for purpose in ["file", "qr"] {
+            let response = call(
+                &paths,
+                "profiles.export",
+                json!({"profileId":PROFILE_ID,"purpose":purpose}),
+            )
+            .unwrap();
+            assert_eq!(response["ok"], true);
+            assert_eq!(response["revision"], 0);
+            assert_eq!(response["result"].as_object().unwrap().len(), 2);
+            assert_eq!(response["result"]["format"], "uri");
+            assert!(
+                response["result"]["content"] == expected,
+                "export content mismatch"
+            );
+        }
+        let list = call(&paths, "profiles.list", json!({})).unwrap();
+        assert!(!list.to_string().contains(&expected));
+        let missing = call(
+            &paths,
+            "profiles.export",
+            json!({"profileId":"00000000-0000-4000-8000-000000000099","purpose":"file"}),
+        )
+        .unwrap();
+        assert_eq!(missing["error"]["code"], "not_found");
+        let invalid = call(
+            &paths,
+            "profiles.export",
+            json!({"profileId":PROFILE_ID,"purpose":"file","path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        assert!(fs::read(&store_path).unwrap() == original);
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        let unsafe_store = call(&paths, "profiles.export", params.clone()).unwrap();
+        assert_eq!(unsafe_store["error"]["code"], "internal_error");
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&store_path, b"private-token-corrupt").unwrap();
+        let corrupt = call(&paths, "profiles.export", params.clone()).unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("private-token"));
+        fs::write(&store_path, &original).unwrap();
+        let target = base.join("config/saved-store.json");
+        fs::rename(&store_path, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &store_path).unwrap();
+        let symlink = call(&paths, "profiles.export", params.clone()).unwrap();
+        assert_eq!(symlink["error"]["code"], "internal_error");
+        fs::remove_file(&store_path).unwrap();
+        fs::rename(&target, &store_path).unwrap();
+        let mut large = document.clone();
+        large["profiles"][0]["uri"] = json!(format!("{expected}{}", "x".repeat(32 * 1024)));
+        fs::write(&store_path, serde_json::to_vec(&large).unwrap()).unwrap();
+        let oversized = call(&paths, "profiles.export", params.clone()).unwrap();
+        assert_eq!(oversized["error"]["code"], "internal_error");
+        assert!(!oversized.to_string().contains(&expected));
+        fs::write(&store_path, &original).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            let revoked = call(&paths, "profiles.export", params.clone()).unwrap();
+            assert_eq!(revoked["error"]["code"], "capability_unavailable");
+            assert!(!revoked.to_string().contains(&expected));
         }
         assert_eq!(calls.load(Ordering::Relaxed), calls_before);
         worker.join().unwrap();

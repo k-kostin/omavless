@@ -51,7 +51,7 @@ pub struct SemanticRequest {
     params: Value,
 }
 
-/// Map the fixed credential-free list commands to their exact v1 requests.
+/// Map fixed reads, including explicitly sensitive editor/export requests.
 /// `None` means the argv belongs to another semantic command family; malformed
 /// UTF-8 still fails before any socket connection.
 pub fn parse_semantic_read(
@@ -62,6 +62,10 @@ pub fn parse_semantic_read(
         ["profile", "list"] => Some(SemanticRequest {
             method: "profiles.list",
             params: json!({}),
+        }),
+        ["profile", "export", id, purpose @ ("qr" | "file")] => Some(SemanticRequest {
+            method: "profiles.export",
+            params: json!({"profileId":record_id(id)?, "purpose":purpose}),
         }),
         ["subscription", "list"] => Some(SemanticRequest {
             method: "subscriptions.list",
@@ -587,5 +591,40 @@ mod tests {
         let rendered = format!("{error:?} {error}");
         assert!(!rendered.contains("private.example"));
         assert!(!rendered.contains("password"));
+    }
+    #[test]
+    fn profile_export_requires_fixed_purpose_and_never_accepts_a_destination() {
+        for purpose in ["file", "qr"] {
+            let args = [
+                "profile",
+                "export",
+                "00000000-0000-4000-8000-000000000001",
+                purpose,
+            ]
+            .map(OsString::from);
+            let (method, params) = parse_semantic_read(&args).unwrap().unwrap().into_parts();
+            assert_eq!(method, "profiles.export");
+            assert_eq!(params["purpose"], purpose);
+            assert_eq!(params.as_object().unwrap().len(), 2);
+        }
+        for args in [
+            vec!["profile", "export"],
+            vec![
+                "profile",
+                "export",
+                "00000000-0000-4000-8000-000000000001",
+                "edit",
+            ],
+            vec![
+                "profile",
+                "export",
+                "00000000-0000-4000-8000-000000000001",
+                "file",
+                "/tmp/private-token",
+            ],
+        ] {
+            let args: Vec<_> = args.into_iter().map(OsString::from).collect();
+            assert!(parse_semantic_read(&args).unwrap().is_none());
+        }
     }
 }

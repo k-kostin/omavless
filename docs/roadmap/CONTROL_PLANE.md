@@ -213,6 +213,36 @@ versioned and bounded.
 Credential-bearing import/export data never appears in argv, ordinary status,
 logs or event broadcasts. V1 has no generic filesystem-write method.
 
+`profiles.export` accepts exactly `{"profileId": ID, "purpose": "qr"|"file"}`.
+The fixed CLI is `omavless profile export PROFILE_ID qr|file`. Its success is
+explicitly sensitive `{"format":"uri","content":TEXT}`: the validated stored
+link, not a rewritten URI, name, file path, subscription URL or generated QR.
+Both standalone and subscription-managed profiles may be exported, matching
+the existing Python export action. Only an exact committed Rust owner serves
+it, holding the migration lock across ownership validation and private-store
+lookup. It does not mutate revision/store, fetch, launch a program or touch
+the tunnel. Missing records return `not_found` with no ID echo.
+
+The v1 32-KiB string and 256-KiB response bounds apply without truncation;
+a valid stored link exceeding the transport string bound returns
+`capability_unavailable`. This does not promise that every link fits a QR
+symbol. The frontend must handle QR capacity failure separately, supply data
+to its encoder through stdin, and keep rendered QR/temp files private. File
+export chooses its destination locally and writes the link plus one newline
+using the established private atomic-write policy. No daemon path argument is
+accepted. Explicit CLI stdout contains credentials; consumers must not log it
+or copy it into diagnostics. Editor-purpose release is not authorized by these
+two purpose values and remains a separate frontend contract.
+
+Compatibility boundary: the existing native store parser validates XHTTP
+options strictly, whereas Python's export loader disables strict XHTTP-extra
+validation. Four canonical negative cases (unknown XHTTP fields, stream-one
+download, conflicting download mode, recursive extra) remain exportable by
+Python but fail native store validation. Export must not bypass the complete
+store validator to release them. Controlled cutover must identify such legacy
+stores before switching and retain the legacy repair/export path; this API
+does not authorize deleting or silently rewriting unsupported records.
+
 `imports.classify` accepts exactly `{"input": TEXT}`, without paths, caller
 store snapshots, duplicate flags or mutation metadata. The fixed CLI is
 `omavless import preview`; it reads UTF-8 from bounded stdin, never a URI in

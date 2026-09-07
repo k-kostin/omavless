@@ -131,6 +131,19 @@ struct PrivateSubscription {
     updated_at: u64,
 }
 
+/// Intentional credential release only. Never format this as diagnostics or
+/// include it in ordinary list/status responses.
+pub struct PrivateProfileExport {
+    uri: String,
+}
+
+impl PrivateProfileExport {
+    #[must_use]
+    pub fn private_uri(&self) -> &str {
+        &self.uri
+    }
+}
+
 /// Explicit editor material for one subscription. Unlike list projections,
 /// this value contains the bearer URL and may cross only the private same-user
 /// control socket after an intentional edit-input request. It deliberately
@@ -1227,6 +1240,23 @@ impl PrivateStore {
         Ok(SubscriptionEditInput {
             name: subscription.name.clone(),
             url: subscription.url.clone(),
+        })
+    }
+
+    /// Release the selected stored link verbatim, including managed profiles.
+    /// Destination selection, QR encoding and private file writes belong to
+    /// the explicit frontend action, never to a generic daemon file API.
+    pub fn profile_export(
+        &self,
+        profile_id: &str,
+    ) -> Result<PrivateProfileExport, PrivateStoreError> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        Ok(PrivateProfileExport {
+            uri: profile.uri.clone(),
         })
     }
 
