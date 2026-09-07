@@ -52,6 +52,11 @@ pub fn bounded_controller_text(value: &str, maximum: usize, private: &[String]) 
     for fragment in private {
         if !fragment.is_empty() && text.contains(fragment) {
             text = text.replace(fragment, "[private]");
+            // Replacement can expand short credentials; never repeatedly
+            // scan an exponentially growing intermediate redaction string.
+            if text.len() > 8192 {
+                return "[redacted]".into();
+            }
         }
     }
     text = redact_uuids(&text);
@@ -341,6 +346,10 @@ mod tests {
         }
         assert_eq!(
             bounded_controller_text(&"x".repeat(8193), 512, &[]),
+            "[redacted]"
+        );
+        assert_eq!(
+            bounded_controller_text(&"x".repeat(8192), 512, &["x".into(), "p".into()]),
             "[redacted]"
         );
         let expired = Some(Instant::now());
