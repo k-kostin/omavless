@@ -26,8 +26,9 @@ Unknown commands and extra arguments fail before any helper action. No private
 value enters argv or environment; the editor passes only a temporary filename
 and a generic title. Successful text/PNG is explicitly private client output,
 not a shareable diagnostic. Errors use a fixed bounded English vocabulary and
-never echo paths, input fragments or child stderr. The CLI uses its existing
-exit-2 failure convention, including a fixed cancellation message; future QML
+never echo paths, input fragments or child stderr. The CLI preserves the
+installed chooser/editor cancellation convention: exit3 with empty stdout and
+stderr. Other failures use the established native exit2 convention. Future QML
 composition must treat cancellation as dismissal, not an import failure.
 
 Reading or editing does not classify, fetch, add or replace anything. Feed
@@ -51,6 +52,36 @@ installed. Native capabilities explicitly report `gtk4FallbackAvailable=false`.
 Do not switch installed QML or claim fresh-Omarchy picker parity until a native
 GTK/portal implementation or an explicitly accepted dependency policy closes
 this gap. No Python subprocess is hidden inside the Rust helper.
+
+### Existing-host fallback assessment
+
+Read-only inspection of Try Omarchy ARM64 on 2026-09-07 found the installed
+`QtQuick.Dialogs` QML module, GTK file-chooser portal backend and FileChooser
+D-Bus interface specification. The installed Hyprland portal preference is
+`hyprland;gtk`, and `gtk.portal` advertises FileChooser. These are available
+integration building blocks, **not an exercised chooser acceptance result**.
+
+For the QML frontend, first evaluate its existing QtQuick `FileDialog`: keep
+selection/cancellation in the graphical client, pass the selected local path
+through private stdin to `desktop file-read`, then reuse semantic preview.
+This avoids introducing a GTK Rust dependency into the headless daemon. Verify
+native platform/portal selection, panel ownership/modality, close/reopen and
+both import paths in the actual shell before replacing Python fallback.
+
+For a later standalone CLI/TUI fallback, a narrow native FileChooser portal
+client is preferable to constructing a generic D-Bus/shell proxy. The installed
+interface requires an asynchronous request handle and Response signal, not
+just a blocking `OpenFile` return. Admission must request single-file selection,
+correlate the exact response, preserve explicit cancellation, require exactly
+one bounded local `file://` URI and convert it to a validated local path before
+reading. `gdbus`/`busctl` presence alone does not supply that complete client.
+No dependency or portal implementation is added here. GTK4 bindings are a
+third option only after separate dependency/build/host review.
+
+Local reference files: `/usr/lib/qt6/qml/QtQuick/Dialogs/qmldir`,
+`/usr/share/xdg-desktop-portal/hyprland-portals.conf`,
+`/usr/share/xdg-desktop-portal/portals/gtk.portal`, and
+`/usr/share/dbus-1/interfaces/org.freedesktop.portal.FileChooser.xml`.
 
 - Text input/output: 64 KiB, valid UTF-8, no NUL.
 - Selected path: absolute UTF-8, 4096 bytes, no control characters or `..`.

@@ -34,7 +34,24 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "OmaVLESS semantic command input is invalid".to_owned())
 }
 
-fn run() -> Result<(), String> {
+enum CliError {
+    Message(String),
+    DesktopCancelled,
+}
+
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+
+impl From<&str> for CliError {
+    fn from(message: &str) -> Self {
+        Self::Message(message.to_owned())
+    }
+}
+
+fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     if arguments == ["-h"] || arguments == ["--help"] {
         println!(
@@ -108,7 +125,10 @@ fn run() -> Result<(), String> {
             }
             _ => return Err("Invalid desktop helper command".into()),
         }
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            desktop_helpers::Error::Cancelled => CliError::DesktopCancelled,
+            _ => CliError::Message(e.to_string()),
+        })?;
         io::stdout()
             .lock()
             .write_all(&output)
@@ -180,7 +200,7 @@ fn run() -> Result<(), String> {
         flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
         return RuntimeServer::bind_current(paths)
             .and_then(|server| server.serve_until(&stop))
-            .map_err(|error| error.to_string());
+            .map_err(|error| CliError::Message(error.to_string()));
     }
     let (method, params) = if arguments == ["hello"] {
         ("system.hello", json!({"versions": [1]}))
@@ -241,14 +261,15 @@ fn run() -> Result<(), String> {
     if response["ok"] == true {
         Ok(())
     } else {
-        Err("OmaVLESS runtime rejected the request".to_owned())
+        Err("OmaVLESS runtime rejected the request".into())
     }
 }
 
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
+        Err(CliError::DesktopCancelled) => ExitCode::from(3),
+        Err(CliError::Message(message)) => {
             eprintln!("{message}");
             ExitCode::from(2)
         }

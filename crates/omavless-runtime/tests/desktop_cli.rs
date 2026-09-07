@@ -104,3 +104,17 @@ fn desktop_cli_paths_and_secrets_are_only_stdin_and_private_output() {
     );
     assert!(!f.0.join("omavless/control.sock").exists());
 }
+
+#[test]
+fn desktop_dialog_cancellation_retains_exit_three_without_error_output() {
+    let f = Fixture::new();
+    let tool = f.0.join("zenity");
+    fs::write(&tool, b"#!/bin/bash\nexit 1\n").unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    for operation in ["pick-import", "edit"] {
+        let response = f.call(&["desktop", operation], b"");
+        assert_eq!(response.status.code(), Some(3));
+        assert!(response.stdout.is_empty() && response.stderr.is_empty());
+    }
+    assert_eq!(fs::read_dir(f.0.join("omavless")).unwrap().count(), 0);
+}
