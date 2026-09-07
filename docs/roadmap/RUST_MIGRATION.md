@@ -997,6 +997,21 @@ ownership revocation. These are deterministic lifecycle-adapter tests, not
 provider or installed native-owner acceptance. QML/editor wiring and controlled
 cutover remain pending; the installed Python owner is unchanged.
 
+### Explicit profile-export checkpoint (2026-09-07)
+
+The committed native owner now serves exactly `profiles.export` for explicit
+QR/file purposes, with a fixed CLI and bounded credential-bearing success.
+No destination path, file write, QR subprocess, ordinary list credential or
+store/lifecycle mutation is added. Generation/permission/malformed-store
+checks remain under the migration lock. Actual Python `export_file` parity
+uses effect-isolated writes and synthetic canonical corpora; comparison output
+contains digests only. Socket/CLI checks cover private release, ordinary-list
+non-release, invalid purpose/path, revoked ownership and unsafe stores.
+
+QML acquisition, QR rendering, destination selection and editor wiring remain
+Python-owned. This is a native semantic prerequisite, not installed frontend
+acceptance, product protocol expansion, cutover or Python retirement.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

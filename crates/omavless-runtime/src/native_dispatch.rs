@@ -166,6 +166,31 @@ pub(crate) fn respond_to_import_preview<H: LifecycleHost>(
     }
 }
 
+/// Sensitive success payload, never an ordinary read projection.
+pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.profile_export(request) {
+        Ok(export) if export.private_uri().len() > omavless_control_protocol::MAX_STRING_BYTES => {
+            error_response(
+                id,
+                owner.revision(),
+                omavless_control_protocol::StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            )
+        }
+        Ok(export) => success_response(
+            id,
+            owner.revision(),
+            json!({"format":"uri", "content":export.private_uri()}),
+        ),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Complete one externally fetched subscription request through the same
 /// serialized owner and stable response contract as every other mutation.
 pub(crate) fn respond_to_fetched_subscription<H, G, N>(

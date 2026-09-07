@@ -216,6 +216,7 @@ pub enum NativeOwnerError {
     Coordinator(CoordinatorError),
     Subscription(SubscriptionTransactionError),
     OwnershipBusy,
+    RecordNotFound,
     OwnershipUnavailable,
     ManualRecoveryRequired,
     Invariant,
@@ -230,6 +231,7 @@ impl NativeOwnerError {
             Self::Coordinator(error) => error.stable_code(),
             Self::Subscription(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
+            Self::RecordNotFound => StableErrorCode::NotFound,
             Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
             Self::Invariant => StableErrorCode::InternalError,
@@ -245,6 +247,7 @@ impl fmt::Display for NativeOwnerError {
             Self::Coordinator(_) => "Native mutation scheduling failed",
             Self::Subscription(_) => "Native subscription refresh failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
+            Self::RecordNotFound => "Requested record was not found",
             Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
             Self::ManualRecoveryRequired => "Native mutation requires manual recovery",
             Self::Invariant => "Native mutation coordinator invariant failed",
@@ -642,6 +645,43 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         store
             .preview_import(parsed.private_input())
             .map_err(|_| MutationProtocolError::InvalidArgument.into())
+    }
+
+    pub(crate) fn profile_export(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::private_store::PrivateProfileExport, NativeOwnerError> {
+        let parsed = crate::profile_export_protocol::parse_profile_export_request(request)?;
+        let _lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        if self.required_ownership.is_none_or(|fence| {
+            fence.phase != OwnershipPhase::Rust
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        crate::private_store_transaction::validate_store_path(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let input = omavless_store::read_private_utf8(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let store = omavless_domain::private_store::parse_private_store(&input)
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        store
+            .profile_export(parsed.private_profile_id())
+            .map_err(|_| NativeOwnerError::RecordNotFound)
     }
 
     /// Read one explicit subscription editor payload while exact native
