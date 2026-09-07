@@ -27,6 +27,8 @@ pub enum SemanticCliError {
 
 pub const MAX_SUBSCRIPTION_STDIN_BYTES: usize =
     MAX_SUBSCRIPTION_NAME_INPUT_BYTES + 1 + MAX_SUBSCRIPTION_URL_BYTES + 1;
+pub const MAX_PROFILE_IMPORT_STDIN_BYTES: usize =
+    MAX_PROFILE_NAME_INPUT_BYTES + 1 + crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES;
 
 impl fmt::Display for SemanticCliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -98,6 +100,34 @@ pub fn parse_semantic_import_preview(
     Ok(SemanticRequest {
         method: "imports.classify",
         params: json!({"input": input}),
+    })
+}
+
+/// Confirmed name on the first stdin line, profile link in the remaining text.
+pub fn parse_semantic_profile_import(
+    arguments: &[OsString],
+    stdin: Option<&str>,
+) -> Result<SemanticRequest, SemanticCliError> {
+    if utf8(arguments)?.as_slice() != ["profile", "import"] {
+        return Err(SemanticCliError::InvalidCommand);
+    }
+    let input = stdin.ok_or(SemanticCliError::MissingInput)?;
+    if input.len() > MAX_PROFILE_IMPORT_STDIN_BYTES {
+        return Err(SemanticCliError::InputTooLarge);
+    }
+    let (name, profile_input) = input
+        .split_once('\n')
+        .ok_or(SemanticCliError::InvalidArgument)?;
+    if name.trim().is_empty()
+        || name.len() > MAX_PROFILE_NAME_INPUT_BYTES
+        || profile_input.trim().is_empty()
+        || profile_input.len() > crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES
+    {
+        return Err(SemanticCliError::InvalidArgument);
+    }
+    Ok(SemanticRequest {
+        method: "profiles.import",
+        params: json!({"name": name, "input": profile_input}),
     })
 }
 
@@ -277,6 +307,41 @@ mod tests {
         assert!(
             parse_semantic_import_preview(&args(&["import", "preview", "secret"]), Some("secret"))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn confirmed_profile_import_uses_only_bounded_stdin_name_and_link() {
+        let input = "Confirmed\ntrojan://synthetic-password@203.0.113.1:443\n";
+        let (method, params) =
+            parse_semantic_profile_import(&args(&["profile", "import"]), Some(input))
+                .ok()
+                .unwrap()
+                .into_parts();
+        assert_eq!(method, "profiles.import");
+        assert_eq!(params.as_object().unwrap().len(), 2);
+        assert!(params["input"] == "trojan://synthetic-password@203.0.113.1:443\n");
+        for input in [
+            None,
+            Some("name-only"),
+            Some(" \nprivate-token"),
+            Some("Name\n"),
+        ] {
+            assert!(parse_semantic_profile_import(&args(&["profile", "import"]), input).is_err());
+        }
+        assert!(
+            parse_semantic_profile_import(
+                &args(&["profile", "import", "private-token"]),
+                Some(input)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_semantic_profile_import(
+                &args(&["profile", "import"]),
+                Some(&"x".repeat(MAX_PROFILE_IMPORT_STDIN_BYTES + 1))
+            )
+            .is_err()
         );
     }
 

@@ -271,6 +271,27 @@ fn commit_changed<P: StorePlan>(
     }
 }
 
+/// New imports never touch lifecycle. Compensate an uncertain write before
+/// reporting failure; an unprovable restoration blocks further mutations.
+pub(crate) fn commit_new_profile<P: StorePlan>(
+    plan: &P,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
+) -> Result<ProfileMutationOutcome, ProfileTransactionError> {
+    match plan.commit(lock, paths) {
+        Ok(PreparedWrite::Changed) => Ok(ProfileMutationOutcome { changed: true }),
+        result => {
+            if plan.restore(lock, paths).is_err() {
+                return Err(ProfileTransactionError::ManualRecoveryRequired);
+            }
+            Err(match result {
+                Err(error) => store_error(error),
+                Ok(_) => ProfileTransactionError::Store,
+            })
+        }
+    }
+}
+
 pub(crate) fn apply_transaction<H: LifecycleHost, P: StorePlan>(
     lifecycle: &mut LifecycleExecutor<H>,
     plan: &P,
@@ -974,6 +995,40 @@ mod tests {
             commit_results: std::cell::RefCell::new(VecDeque::from([commit])),
             restore_result: restore,
         }
+    }
+
+    #[test]
+    fn new_profile_import_compensates_write_failure_or_blocks_recovery() {
+        let (root, _store, _desired, uid) = temp("new-import-compensation");
+        let paths = cutover(&root, uid);
+        let lock = MigrationLock::acquire(&paths, uid).unwrap();
+        for (write, restore, expected) in [
+            (
+                Ok(PreparedWrite::Changed),
+                Err(ProfileMutationCommitError::StoreIo),
+                None,
+            ),
+            (
+                Err(ProfileMutationCommitError::StoreIo),
+                Ok(PreparedWrite::Changed),
+                Some(ProfileTransactionError::Store),
+            ),
+            (
+                Err(ProfileMutationCommitError::StoreChanged),
+                Ok(PreparedWrite::NoChange),
+                Some(ProfileTransactionError::Conflict),
+            ),
+            (
+                Err(ProfileMutationCommitError::StoreIo),
+                Err(ProfileMutationCommitError::StoreIo),
+                Some(ProfileTransactionError::ManualRecoveryRequired),
+            ),
+        ] {
+            let result = commit_new_profile(&plan(write, restore), &lock, &paths);
+            assert_eq!(result.err(), expected);
+        }
+        drop(lock);
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn lifecycle_fixture(

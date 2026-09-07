@@ -1324,6 +1324,58 @@ impl PrivateStore {
     }
 }
 
+/// Add one explicitly named, confirmed standalone profile. The record ID must
+/// come from the owner, never from a client. No implicit subscription import,
+/// replacement, selection or connection is performed.
+pub fn apply_profile_import(
+    input: &str,
+    profile_id: &str,
+    name: &str,
+    profile_input: &str,
+) -> Result<PrivateStoreMutation, PrivateStoreError> {
+    let mut store = parse_private_store(input)?;
+    if !valid_record_id(profile_id)
+        || store
+            .profiles
+            .iter()
+            .any(|profile| profile.id == profile_id)
+        || store
+            .subscriptions
+            .iter()
+            .any(|subscription| subscription.id == profile_id)
+    {
+        return Err(PrivateStoreError::InvalidShape);
+    }
+    let name = clean_mutation_name(name)?;
+    if store.profiles.iter().any(|profile| profile.name == name) {
+        return Err(PrivateStoreError::DuplicateProfileName);
+    }
+    if !matches!(
+        crate::import::classify_import(profile_input, &[]),
+        Ok(crate::import::ImportKind::Profile(_))
+    ) {
+        return Err(PrivateStoreError::InvalidShape);
+    }
+    let uri = profile_input.trim();
+    let canonical = parse_canonical(uri).map_err(PrivateStoreError::Profile)?;
+    let profiles = store
+        .document
+        .get_mut("profiles")
+        .and_then(Value::as_array_mut)
+        .ok_or(PrivateStoreError::InvalidShape)?;
+    profiles.push(serde_json::json!({
+        "id": profile_id, "name": name, "uri": uri,
+        "protocol": canonical.protocol().as_str(),
+    }));
+    let candidate =
+        serde_json::to_string(&store.document).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let validated = parse_private_store(&candidate)?;
+    Ok(PrivateStoreMutation {
+        payload: validated.private_payload()?,
+        changed: true,
+    })
+}
+
 /// Validate, normalize and apply one profile mutation entirely in memory.
 /// No partial payload is returned when any validation or size gate fails.
 pub fn apply_profile_mutation(

@@ -222,7 +222,7 @@ where
 /// Route one decoded mutation request to the single native owner.
 ///
 /// Generated identifiers and timestamps are trusted owner inputs and are used
-/// only for subscription add/update. No private mutation value is returned in
+/// only for profile import and subscription add/update. No private mutation value is returned in
 /// the response. Read-only and unknown methods are deliberately outside this
 /// binder and receive `unknown_method`.
 pub fn respond_to_native_mutation<H, T, G, N>(
@@ -251,6 +251,8 @@ where
                 return error_response(request_id, owner.revision(), code, retryable(code), None);
             }
         }
+    } else if method == "profiles.import" {
+        owner.execute_profile_import(request, next_record_id)
     } else if PROFILE_METHODS.contains(&method) {
         owner.execute_profile(request)
     } else if SUBSCRIPTION_METHODS.contains(&method) {

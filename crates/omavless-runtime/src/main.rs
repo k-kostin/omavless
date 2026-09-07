@@ -40,6 +40,7 @@ fn run() -> Result<(), String> {
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
+        println!("  profile import                  read confirmed name + profile link from stdin");
         return Ok(());
     }
     if arguments == ["preflight"] {
@@ -113,6 +114,12 @@ fn run() -> Result<(), String> {
         let input =
             read_semantic_input(omavless_runtime::import_read_protocol::MAX_IMPORT_STDIN_BYTES)?;
         parse_semantic_import_preview(&arguments, Some(&input))
+            .map_err(|error| error.to_string())?
+            .into_parts()
+    } else if arguments == ["profile", "import"] {
+        let input =
+            read_semantic_input(omavless_runtime::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES)?;
+        omavless_runtime::semantic_cli::parse_semantic_profile_import(&arguments, Some(&input))
             .map_err(|error| error.to_string())?
             .into_parts()
     } else {

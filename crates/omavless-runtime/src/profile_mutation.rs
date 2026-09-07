@@ -61,6 +61,25 @@ pub fn prepare_profile_mutation(
     Ok(PreparedProfileMutation { prepared })
 }
 
+pub(crate) fn prepare_profile_import(
+    store_path: &Path,
+    uid: u32,
+    profile_id: &str,
+    name: &str,
+    profile_input: &str,
+) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        let result = omavless_domain::private_store::apply_profile_import(
+            input,
+            profile_id,
+            name,
+            profile_input,
+        )?;
+        Ok((result.payload().to_vec(), result.changed))
+    })?;
+    Ok(PreparedProfileMutation { prepared })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

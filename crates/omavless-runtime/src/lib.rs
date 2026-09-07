@@ -49,6 +49,7 @@ pub mod private_store_transaction;
 pub mod production_cutover;
 pub mod production_observation;
 pub mod production_owner;
+pub mod profile_import_protocol;
 pub mod profile_mutation;
 pub mod profile_mutation_protocol;
 pub mod profile_transaction;
@@ -224,6 +225,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
 // reservation-free preflight. Its final decode/commit re-enters this one
 // serialized owner and rechecks revision plus exact durable ownership.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
+    "profiles.import",
     "connection.connect",
     "connection.disconnect",
     "routing.set_mode",
@@ -2170,6 +2172,92 @@ mod tests {
             assert!(!response.to_string().contains("subscription-token"));
         }
         assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn profile_import_commits_once_without_host_work_and_rejects_replay_conflicts() {
+        let base = temporary_base("profile-import");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let before_calls = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let params = json!({
+            "name": "Imported",
+            "input": "trojan://synthetic-password@203.0.113.1:443#Synthetic",
+            "operationId": "import-1", "expectedRevision": 0,
+        });
+        let first = call(&paths, "profiles.import", params.clone()).unwrap();
+        assert_eq!(first["ok"], true);
+        assert_eq!(first["revision"], 1);
+        assert_eq!(first["result"], json!({"accepted": true}));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let store: Value = serde_json::from_slice(&original).unwrap();
+        assert_eq!(store["profiles"].as_array().unwrap().len(), 2);
+        assert_eq!(store["profiles"][1]["protocol"], "trojan");
+        assert_eq!(store["activeId"], "");
+        assert_eq!(store["lastId"], PROFILE_ID);
+        assert!(omavless_domain::store::valid_record_id(
+            store["profiles"][1]["id"].as_str().unwrap()
+        ));
+        assert_eq!(
+            fs::metadata(&store_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let replay = call(&paths, "profiles.import", params.clone()).unwrap();
+        assert_eq!(replay["revision"], 1);
+        assert_eq!(replay["result"], first["result"]);
+        let mut conflict = params.clone();
+        conflict["name"] = json!("Different");
+        let conflict = call(&paths, "profiles.import", conflict).unwrap();
+        assert_eq!(conflict["error"]["code"], "conflict");
+        let mut duplicate = params.clone();
+        duplicate["operationId"] = json!("import-2");
+        duplicate["expectedRevision"] = json!(1);
+        let duplicate = call(&paths, "profiles.import", duplicate).unwrap();
+        assert_eq!(duplicate["ok"], false);
+        let invalid = call(
+            &paths,
+            "profiles.import",
+            json!({
+                "name": "Invalid", "input": "https://example.invalid/private-token",
+            }),
+        )
+        .unwrap();
+        assert_eq!(invalid["ok"], false);
+        let extra = call(
+            &paths,
+            "profiles.import",
+            json!({
+                "name": "Invalid", "input": "private-token", "profileId": PROFILE_ID,
+            }),
+        )
+        .unwrap();
+        assert_eq!(extra["error"]["code"], "invalid_argument");
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let revoked = call(&paths, "profiles.import", params.clone()).unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        write_marker(&cutover, OwnershipPhase::Rust, 3);
+        let stale = call(&paths, "profiles.import", params).unwrap();
+        assert_eq!(stale["error"]["code"], "capability_unavailable");
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        for response in [
+            first, replay, conflict, duplicate, invalid, extra, revoked, stale,
+        ] {
+            for private in [
+                "synthetic-password",
+                "203.0.113.1",
+                "private-token",
+                "Imported",
+            ] {
+                assert!(!response.to_string().contains(private));
+            }
+        }
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
