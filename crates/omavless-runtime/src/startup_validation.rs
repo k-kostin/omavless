@@ -80,11 +80,55 @@ fn tun_capabilities(getcap: &Path, core: &Path) -> bool {
     result
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn startup_capability_probe_is_fixed_bounded_and_checks_effective_flags() {
+        let root =
+            std::env::temp_dir().join(format!("omavless-startup-cap-test-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let probe = root.join("getcap");
+        for (body, expected) in [
+            (
+                "printf '%s\\n' '/synthetic/core cap_net_bind_service,cap_net_admin,cap_net_raw=ep'",
+                true,
+            ),
+            (
+                "printf '%s\\n' '/synthetic/core cap_net_bind_service,cap_net_admin,cap_net_raw=p'",
+                false,
+            ),
+            ("printf '%s\\n' '/synthetic/core cap_net_admin=ep'", false),
+            ("exit 1", false),
+            ("while :; do printf '0123456789'; done", false),
+        ] {
+            fs::write(&probe, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&probe, fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(
+                tun_capabilities(&probe, Path::new("/synthetic/core")),
+                expected
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 pub(crate) fn validate(
     paths: &NativeHostPaths,
     uid: u32,
     desired: &DesiredState,
 ) -> Result<(), HostStepError> {
+    // Current host contract relies on file capabilities at exec. Do not report
+    // ready from getcap alone when the service prevents acquiring them.
+    let status = fs::read_to_string("/proc/self/status").map_err(|_| HostStepError::Prepare)?;
+    if !status.lines().any(|line| {
+        line.strip_prefix("NoNewPrivs:")
+            .is_some_and(|value| value.trim() == "0")
+    }) {
+        return Err(HostStepError::Prepare);
+    }
     if !crate::native_host::private_directory(&paths.runtime_directory, uid) {
         return Err(HostStepError::Prepare);
     }

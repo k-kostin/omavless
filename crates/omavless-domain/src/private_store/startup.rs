@@ -89,3 +89,45 @@ pub fn apply_startup_preferences(
     payload.push(b'\n');
     Ok((payload, changed))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn enabling_requires_real_selection_and_routing_configuration() {
+        let empty = json!({"version":3,"profiles":[],"subscriptions":[]}).to_string();
+        for target in ["last", "profile"] {
+            let preferences = StartupPreferences {
+                enabled: true,
+                target: target.into(),
+                profile_id: String::new(),
+                mode: "global".into(),
+            };
+            assert!(apply_startup_preferences(&empty, &preferences).is_err());
+        }
+        let preferences = StartupPreferences {
+            enabled: false,
+            target: "last".into(),
+            profile_id: String::new(),
+            mode: "rule".into(),
+        };
+        assert!(apply_startup_preferences(&empty, &preferences).is_ok());
+        assert!(!parse_private_store(&empty).unwrap().startup_is_configured());
+    }
+
+    #[test]
+    fn preference_update_preserves_unknown_extensions() {
+        let source = json!({"version":3,"profiles":[],"subscriptions":[],"futureExtension":{"nested":[1,true,"synthetic"]}});
+        let preferences = StartupPreferences {
+            enabled: false,
+            target: "last".into(),
+            profile_id: String::new(),
+            mode: "global".into(),
+        };
+        let (result, _) = apply_startup_preferences(&source.to_string(), &preferences).unwrap();
+        let result: Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(result["futureExtension"], source["futureExtension"]);
+    }
+}

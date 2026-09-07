@@ -43,7 +43,13 @@ ownership. It must never silently turn legacy autoconnect off.
 Host acceptance must cover login enabled/disabled, daemon restart after explicit
 disconnect, missing selected profile, invalid Routing configuration, failed
 validation, exact previous unit-state rollback, and no duplicate core/TUN.
-The packaged service's `NoNewPrivileges` interaction with file-capability-based
-TUN setup also requires verification; this checkpoint does not weaken it.
+The packaged service currently sets `NoNewPrivileges=yes`, while the native
+host expects Mihomo to acquire file capabilities on exec. This conflicts with
+the documented [systemd execution contract](https://github.com/systemd/systemd/blob/main/man/systemd.exec.xml):
+the setting prevents children gaining filesystem capabilities. Startup
+preflight therefore fails closed under `NoNewPrivs`, instead of reporting ready
+from `getcap` alone. The real service/TUN architecture needs its own accepted
+host solution; this checkpoint does not remove or weaken the setting.
+The owning follow-up is [issue #178](https://github.com/k-kostin/omavless/issues/178).
 
 R5 and R6 remain incomplete. Saving this policy does not make Python removable.
