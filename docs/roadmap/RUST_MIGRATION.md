@@ -1008,6 +1008,15 @@ uses effect-isolated writes and synthetic canonical corpora; comparison output
 contains digests only. Socket/CLI checks cover private release, ordinary-list
 non-release, invalid purpose/path, revoked ownership and unsafe stores.
 
+The 109-case export comparison records 105 identical outcomes and four explicit
+pre-existing store-validation differences: Python permits invalid XHTTP-extra
+options while Rust strictly rejects the complete store. A positivity assertion
+ensures the corpus actually exercises successful standalone/managed exports,
+not matching rejection of malformed fixtures. Legacy stores with these options
+must be detected before cutover and retain a repair/export route through the
+legacy owner; native export does not weaken store validation or claim full
+legacy-store compatibility.
+
 QML acquisition, QR rendering, destination selection and editor wiring remain
 Python-owned. This is a native semantic prerequisite, not installed frontend
 acceptance, product protocol expansion, cutover or Python retirement.

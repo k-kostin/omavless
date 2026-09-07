@@ -234,6 +234,15 @@ accepted. Explicit CLI stdout contains credentials; consumers must not log it
 or copy it into diagnostics. Editor-purpose release is not authorized by these
 two purpose values and remains a separate frontend contract.
 
+Compatibility boundary: the existing native store parser validates XHTTP
+options strictly, whereas Python's export loader disables strict XHTTP-extra
+validation. Four canonical negative cases (unknown XHTTP fields, stream-one
+download, conflicting download mode, recursive extra) remain exportable by
+Python but fail native store validation. Export must not bypass the complete
+store validator to release them. Controlled cutover must identify such legacy
+stores before switching and retain the legacy repair/export path; this API
+does not authorize deleting or silently rewriting unsupported records.
+
 `imports.classify` accepts exactly `{"input": TEXT}`, without paths, caller
 store snapshots, duplicate flags or mutation metadata. The fixed CLI is
 `omavless import preview`; it reads UTF-8 from bounded stdin, never a URI in

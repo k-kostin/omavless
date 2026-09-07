@@ -173,22 +173,22 @@ pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
 ) -> Result<Value, ProtocolError> {
     let id = request["id"].as_str().unwrap_or("invalid");
     match owner.profile_export(request) {
-        Ok(export) if export.private_uri().len() > omavless_control_protocol::MAX_STRING_BYTES => {
-            error_response(
-                id,
-                owner.revision(),
-                omavless_control_protocol::StableErrorCode::CapabilityUnavailable,
-                false,
-                None,
-            )
-        }
-        Ok(export) => success_response(
-            id,
-            owner.revision(),
-            json!({"format":"uri", "content":export.private_uri()}),
-        ),
+        Ok(export) => profile_export_response(id, owner.revision(), export.private_uri()),
         Err(error) => owner_error_response(id, owner.revision(), error),
     }
+}
+
+fn profile_export_response(id: &str, revision: u64, uri: &str) -> Result<Value, ProtocolError> {
+    if uri.len() > omavless_control_protocol::MAX_STRING_BYTES {
+        return error_response(
+            id,
+            revision,
+            omavless_control_protocol::StableErrorCode::CapabilityUnavailable,
+            false,
+            None,
+        );
+    }
+    success_response(id, revision, json!({"format":"uri", "content":uri}))
 }
 
 /// Complete one externally fetched subscription request through the same
@@ -305,6 +305,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_export_response_bounds_do_not_truncate_or_echo_oversized_material() {
+        let maximum = "\u{0001}".repeat(omavless_control_protocol::MAX_STRING_BYTES);
+        let accepted = profile_export_response("export", 0, &maximum).unwrap();
+        assert!(accepted["result"]["content"] == maximum);
+        assert!(omavless_control_protocol::encode_response(&accepted).is_ok());
+        let oversized = format!("{maximum}private-token");
+        let rejected = profile_export_response("export", 0, &oversized).unwrap();
+        assert_eq!(rejected["error"]["code"], "capability_unavailable");
+        assert!(!rejected.to_string().contains("private-token"));
+    }
     use crate::cutover::{CutoverPaths, OwnershipPhase};
     use crate::desired::{
         DesiredPaths, DesiredState, OwnedObservation, RoutingMode, write_desired,

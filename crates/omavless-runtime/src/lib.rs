@@ -2260,7 +2260,7 @@ mod tests {
         large["profiles"][0]["uri"] = json!(format!("{expected}{}", "x".repeat(32 * 1024)));
         fs::write(&store_path, serde_json::to_vec(&large).unwrap()).unwrap();
         let oversized = call(&paths, "profiles.export", params.clone()).unwrap();
-        assert_eq!(oversized["error"]["code"], "capability_unavailable");
+        assert_eq!(oversized["error"]["code"], "internal_error");
         assert!(!oversized.to_string().contains(&expected));
         fs::write(&store_path, &original).unwrap();
         for (phase, generation) in [
