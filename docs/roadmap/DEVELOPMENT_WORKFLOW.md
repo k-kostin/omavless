@@ -112,6 +112,22 @@ becomes actionable.
 
 ## 4. PR maturity states
 
+### CI event policy
+
+The full Test workflow runs for every pull request (including Drafts), pushes
+to `main`, and all tag pushes. Feature-branch pushes do not also run a duplicate
+workflow: open the Draft PR at the first meaningful checkpoint to obtain cloud
+evidence. Until then, run the same `./tests/run.sh` and `./tests/run-rust.sh`
+gates locally. Every later PR synchronization runs both gates again.
+
+No path filters or Draft skips are used, so documentation and workflow changes
+retain the same checks. Keep the existing `test` job name and read-only token
+permissions; do not replace `pull_request` with privileged
+`pull_request_target`. Merged `main` and release-tag checks remain independent
+of the PR check. This reduces duplicate runs, not acceptance coverage or
+exact-head host gates. Branch/tag filter semantics follow the
+[GitHub workflow contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushbranchestagsbranches-ignoretags-ignore).
+
 ### Draft / cloud work
 
 Implementation or cloud/parity validation incomplete.
