@@ -17,10 +17,6 @@ impl Fixture {
             COUNT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(path.join("omavless"))
-            .unwrap();
         Self(path)
     }
 
@@ -116,5 +112,60 @@ fn desktop_dialog_cancellation_retains_exit_three_without_error_output() {
         assert_eq!(response.status.code(), Some(3));
         assert!(response.stdout.is_empty() && response.stderr.is_empty());
     }
-    assert_eq!(fs::read_dir(f.0.join("omavless")).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_dir(f.0.join("omavless-desktop")).unwrap().count(),
+        0
+    );
+    assert!(!f.0.join("omavless").exists());
+}
+
+#[test]
+fn desktop_editor_cold_start_creates_only_safe_client_scratch() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    let tool = f.0.join("zenity");
+    fs::write(
+        &tool,
+        b"#!/bin/bash\nfile=${3#--filename=}\n/usr/bin/cat -- \"$file\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    let response = f.call(&["desktop", "edit"], b"synthetic editor seed");
+    assert!(response.status.success());
+    assert!(response.stdout == b"synthetic editor seed");
+    let scratch = f.0.join("omavless-desktop");
+    assert_eq!(
+        fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(fs::read_dir(&scratch).unwrap().count(), 0);
+    assert!(!f.0.join("omavless").exists());
+    fs::set_permissions(&scratch, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        !f.call(&["desktop", "edit"], b"synthetic seed")
+            .status
+            .success()
+    );
+    assert_eq!(
+        fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
+    fs::remove_dir(&scratch).unwrap();
+    let elsewhere = f.0.join("elsewhere");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&elsewhere)
+        .unwrap();
+    symlink(&elsewhere, &scratch).unwrap();
+    assert!(!f.call(&["desktop", "cleanup"], b"").status.success());
+    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    fs::remove_file(&scratch).unwrap();
+    fs::set_permissions(&f.0, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        !f.call(&["desktop", "edit"], b"synthetic seed")
+            .status
+            .success()
+    );
+    assert!(!scratch.exists());
+    fs::set_permissions(&f.0, fs::Permissions::from_mode(0o700)).unwrap();
 }

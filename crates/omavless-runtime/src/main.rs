@@ -90,9 +90,9 @@ fn run() -> Result<(), CliError> {
             }
             Some("clipboard-read") => helpers.clipboard_read(),
             Some("cleanup") => {
-                let paths = RuntimePaths::current().map_err(|e| e.to_string())?;
-                let removed =
-                    desktop_helpers::cleanup(&paths.directory).map_err(|e| e.to_string())?;
+                let directory =
+                    desktop_helpers::current_desktop_runtime().map_err(|e| e.to_string())?;
+                let removed = desktop_helpers::cleanup(&directory).map_err(|e| e.to_string())?;
                 println!("{}", json!({"removed": removed}));
                 return Ok(());
             }
@@ -109,9 +109,9 @@ fn run() -> Result<(), CliError> {
                         .map(|()| Vec::new()),
                     Some("qr") => helpers.qr_png(input.as_bytes()),
                     _ => {
-                        let paths = RuntimePaths::current().map_err(|e| e.to_string())?;
-                        // Requires an existing private runtime directory, never starts the daemon.
-                        helpers.edit(input.as_bytes(), &paths.directory)
+                        let directory = desktop_helpers::current_desktop_runtime()
+                            .map_err(|e| e.to_string())?;
+                        helpers.edit(input.as_bytes(), &directory)
                     }
                 }
             }

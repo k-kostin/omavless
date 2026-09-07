@@ -106,10 +106,16 @@ existing destination must be a same-user regular non-symlink file. The caller
 must obtain destination/overwrite confirmation first. No privileged path or
 daemon filesystem API is added.
 
-Editor seeds live in the existing same-user mode-0700 runtime directory, with
-mode0600 and unconditional normal/error/cancellation cleanup. No caller-chosen
+Editor seeds live in a separate client-only directory:
+`$XDG_RUNTIME_DIR/omavless-desktop` (default runtime base `/run/user/UID`).
+The fixed directory is created mode0700 beneath an already existing same-user
+mode0700 non-symlink runtime base. Existing unsafe directories, symlinks and
+non-directory targets are refused without chmod or replacement. Editing works
+before any daemon has run; neither the daemon's `omavless` directory nor a
+socket, service or ownership marker is created. Seeds use mode0600 with
+unconditional normal/error/cancellation cleanup. No caller-chosen
 editor title or command is accepted. `cleanup` only reaps matching private
-regular files for dead helper PIDs; it skips live processes, symlinks, unknown
+regular files for dead helper PIDs in that same client directory; it skips live processes, symlinks, unknown
 names and unsafe modes, and scans at most4096 entries. Run this fixed cleanup
 at frontend startup to recover seeds left after abrupt client termination.
 PNG is returned in memory, avoiding an additional persistent credential file;
@@ -129,6 +135,8 @@ pipe pressure, cancellation, invalid UTF-8, symlinks/FIFO, shell metacharacters
 in literal filenames, editor seed permissions and cleanup, generic title,
 QR stdin/PNG validation and atomic export modes. CLI tests exercise actual
 fixed commands with an isolated empty helper PATH and absent daemon/socket.
+Cold-start regression creates only the private client scratch directory;
+missing/unsafe/symlinked parents and existing unsafe children fail closed.
 The existing profile export/editor parity corpora remain the private semantic
 input reference; this checkpoint does not replace those daemon methods.
 

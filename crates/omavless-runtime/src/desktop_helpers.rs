@@ -11,7 +11,7 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -311,6 +311,27 @@ fn validate_private_runtime(path: &Path) -> Result<()> {
         return Err(Error::Unavailable);
     }
     Ok(())
+}
+
+/// Client scratch storage is independent of the daemon's runtime directory.
+/// Existing unsafe state is rejected, never chmodded, followed or replaced.
+pub fn current_desktop_runtime() -> Result<PathBuf> {
+    let base = env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", Uid::current().as_raw())));
+    prepare_desktop_runtime(&base)
+}
+
+fn prepare_desktop_runtime(base: &Path) -> Result<PathBuf> {
+    validate_private_runtime(base)?;
+    let path = base.join("omavless-desktop");
+    match fs::DirBuilder::new().mode(0o700).create(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(_) => return Err(Error::Unavailable),
+    }
+    validate_private_runtime(&path)?;
+    Ok(path)
 }
 
 /// Reap only this helper's dead-process private editor seeds in the fixed runtime
@@ -694,6 +715,24 @@ mod tests {
                 .file_type()
                 .is_symlink()
         );
+    }
+
+    #[test]
+    fn scratch_creation_refuses_missing_symlink_or_nonprivate_parents() {
+        let f = Fixture::new();
+        let missing = f.0.join("missing");
+        assert_eq!(prepare_desktop_runtime(&missing), Err(Error::Unavailable));
+        assert!(!missing.exists());
+        let alias = f.0.join("alias");
+        symlink(&f.0, &alias).unwrap();
+        assert_eq!(prepare_desktop_runtime(&alias), Err(Error::Unavailable));
+        assert!(!f.0.join("omavless-desktop").exists());
+        fs::set_permissions(&f.0, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(prepare_desktop_runtime(&f.0), Err(Error::Unavailable));
+        fs::set_permissions(&f.0, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(f.0.join("omavless-desktop"), b"sentinel").unwrap();
+        assert_eq!(prepare_desktop_runtime(&f.0), Err(Error::Unavailable));
+        assert!(fs::read(f.0.join("omavless-desktop")).unwrap() == b"sentinel");
     }
 
     #[test]
