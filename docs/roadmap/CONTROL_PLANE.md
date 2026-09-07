@@ -213,6 +213,29 @@ versioned and bounded.
 Credential-bearing import/export data never appears in argv, ordinary status,
 logs or event broadcasts. V1 has no generic filesystem-write method.
 
+`imports.classify` accepts exactly `{"input": TEXT}`, without paths, caller
+store snapshots, duplicate flags or mutation metadata. The fixed CLI is
+`omavless import preview`; it reads UTF-8 from bounded stdin, never a URI in
+argv. The v1 string cap limits this transport to 32 KiB (including whitespace),
+even though the pure domain classifier accepts 64 KiB. The complete escaped
+request must also fit the existing 64-KiB frame cap; oversized input fails
+without truncation. A file-import frontend reads its bounded file contents into
+this same input; the daemon does not open caller-selected files.
+
+Only an exact committed owner serves classification. It holds the shared
+migration lock across ownership revalidation, validated private-store lookup
+and preview creation. Success preserves the version-1 confirmation shape:
+`{"version":1,"kind":"profile","profile":PREVIEW}` or
+`{"version":1,"kind":"subscription","suggestedName":"Subscription","duplicate":BOOL}`.
+Profile PREVIEW is explicit **private UI data**, including endpoint, SNI,
+provider label and the existing masked hint; never copy it to logs, events or
+shareable diagnostics. Subscription results contain no URL. Invalid content
+returns fixed `invalid_argument`; unsafe/malformed stores fail closed rather
+than pretending a subscription is new. Classification performs no fetch or
+store/lifecycle mutation and does not increment revision. Confirmation and the
+later mutation must independently revalidate current state; a preview reserves
+nothing.
+
 The first exact v1 list projections use empty parameter objects. A successful
 `profiles.list` result is
 `{"profiles":[{"id", "name", "protocol", "subscriptionId", "missing", "favorite"}], "lastProfileId"}`;

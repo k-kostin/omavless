@@ -13,6 +13,71 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 struct ChildGuard(Child);
 
+#[test]
+fn import_preview_cli_sends_only_fixed_private_request_and_prints_response() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "imports.classify");
+        assert_eq!(request["params"].as_object().unwrap().len(), 1);
+        assert!(request["params"]["input"] == "https://example.invalid/synthetic-token\n");
+        let response = success_response(
+            request["id"].as_str().unwrap(),
+            7,
+            serde_json::json!({"version": 1, "kind": "subscription",
+                "suggestedName": "Subscription", "duplicate": true}),
+        )
+        .unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let mut child = isolated_command(&base)
+        .args(["import", "preview"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"https://example.invalid/synthetic-token\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["revision"], 7);
+    assert_eq!(response["result"]["duplicate"], true);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-token"));
+    fs::remove_dir_all(base).unwrap();
+}
+
 impl Drop for ChildGuard {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -103,6 +168,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "subscription update SUBSCRIPTION_ID",
         "subscription delete SUBSCRIPTION_ID",
         "subscription refresh SUBSCRIPTION_ID",
+        "import preview",
     ] {
         assert!(help.contains(command));
     }
@@ -119,6 +185,7 @@ fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
         vec!["request", private],
         vec!["connect", private, "rule", "extra"],
         vec!["mode", private],
+        vec!["import", "preview", private],
     ] {
         let output = isolated_command(&base).args(arguments).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
@@ -159,6 +226,35 @@ fn rename_stdin_is_bounded_and_never_echoed() {
     assert!(error.contains("input is too large"));
     assert!(!error.contains("private.example"));
     assert!(!error.contains("password"));
+    assert!(!base.join("omavless/control.sock").exists());
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn import_preview_stdin_rejects_oversize_invalid_utf8_and_empty_without_echo() {
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    for input in [
+        vec![b'x'; omavless_runtime::import_read_protocol::MAX_IMPORT_STDIN_BYTES + 1],
+        b"synthetic-password\xff".to_vec(),
+        b" \n".to_vec(),
+    ] {
+        let mut child = isolated_command(&base)
+            .args(["import", "preview"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let written = child.stdin.take().unwrap().write_all(&input);
+        assert!(
+            written.is_ok() || written.is_err_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe)
+        );
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-password"));
+    }
     assert!(!base.join("omavless/control.sock").exists());
     fs::remove_dir_all(base).unwrap();
 }

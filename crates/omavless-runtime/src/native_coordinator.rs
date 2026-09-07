@@ -605,6 +605,45 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }
     }
 
+    /// Classify private import input against the current store while exact native
+    /// ownership and the shared private-store lock are continuously held.
+    pub(crate) fn import_preview(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::import::ImportPreview, NativeOwnerError> {
+        let parsed = crate::import_read_protocol::parse_import_preview_request(request)?;
+        let _lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        if self.required_ownership.is_none_or(|fence| {
+            fence.phase != OwnershipPhase::Rust
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        crate::private_store_transaction::validate_store_path(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let input = omavless_store::read_private_utf8(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let store = omavless_domain::private_store::parse_private_store(&input)
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        store
+            .preview_import(parsed.private_input())
+            .map_err(|_| MutationProtocolError::InvalidArgument.into())
+    }
+
     /// Read one explicit subscription editor payload while exact native
     /// ownership and the shared private-store lock are continuously held.
     pub(crate) fn subscription_edit_input(
