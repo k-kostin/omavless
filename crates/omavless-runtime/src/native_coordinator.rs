@@ -903,6 +903,67 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
+    /// Add a new profile only; never replace or reconnect an existing one.
+    pub fn execute_profile_import<G>(
+        &mut self,
+        request: &Value,
+        mut next_record_id: G,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError>
+    where
+        G: FnMut() -> String,
+    {
+        let parsed = crate::profile_import_protocol::parse_profile_import_request(request)?;
+        let token = match self.admit(
+            MutationKind::Other,
+            parsed.operation_id.as_deref(),
+            parsed.expected_revision,
+            parsed.digest,
+        )? {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, |error| {
+            NativeTransactionError::Profile(if error == ConnectionTransactionError::Busy {
+                ProfileTransactionError::Busy
+            } else {
+                ProfileTransactionError::Store
+            })
+        })? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let profile_id = next_record_id();
+        let outcome = crate::profile_mutation::prepare_profile_import(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+            &profile_id,
+            &parsed.name,
+            &parsed.input,
+        )
+        .map_err(store_error)
+        .and_then(|plan| {
+            crate::profile_transaction::commit_new_profile(
+                &plan,
+                &lock,
+                self.transaction.cutover_paths(),
+            )
+        });
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Profile)
+                .map_err(NativeTransactionError::Profile),
+            false,
+        )
+    }
+
     /// Execute one subscription mutation with injected trusted ID and time
     /// sources. The concrete transport is bounded and credential-private; no
     /// network work occurs while the shared Python/Rust migration lock is held.

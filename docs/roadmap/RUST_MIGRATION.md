@@ -960,6 +960,26 @@ and persistence. The installed QML launcher is not switched. The remaining
 bridge must use this private input and explicit confirmation before any mutation;
 neither checkpoint retires Python or claims fixture interoperability.
 
+### Confirmed new-profile import dispatch (2026-09-07)
+
+The native `profiles.import` / `profile import` command now adds one explicitly
+named standalone profile behind the committed owner. It reuses canonical input,
+private-store normalization, the shared mutation/replay coordinator and locked
+compare-before-replace writer. IDs are owner-generated after admission.
+Duplicates and capacity errors produce no replacement; exact retries do not add
+twice. Uncertain write failures require verified restoration or manual recovery.
+Neither active/last pointers nor the host lifecycle are changed.
+
+A bounded Python oracle runs actual `backend.import_profile` with load/save,
+UUID and service effects replaced. Both canonical corpora plus name/duplicate
+cases compare normalized-store digests without publishing private payloads.
+The deliberate native boundary requires a confirmed name and a single profile
+link rather than implicit name fallback or prose extraction.
+
+This closes new-profile persistence, not active-profile replacement, QML routing,
+package cutover or Python retirement. The current installed plugin still calls
+Python. Replacement and its lifecycle recovery remain the next import slice.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

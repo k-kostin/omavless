@@ -250,6 +250,25 @@ endpoint, subscription bearer URL, subscription identity key and protocol
 credentials are absent. These methods are advertised only by an exact
 committed Rust owner; a transition candidate or stale owner fails closed.
 
+The first native `profiles.import` mutation adds a **new** standalone profile
+only. It requires explicit `name` and `input`, with optional `operationId`
+and `expectedRevision`. The input must be one valid supported profile link;
+subscription URLs, arbitrary config, caller-generated IDs, replacement IDs and
+paths are rejected. The name is bounded to 320 UTF-8 input bytes and canonical
+80-scalar name rules; the link uses the same v1 32-KiB string/frame bounds as
+preview. The fixed CLI `omavless profile import` reads confirmed name on its
+first stdin line and the link from the remaining text. Empty names are not
+implicit confirmation; UI clients supply their confirmed preview name.
+
+The owner generates an opaque record ID only after mutation/replay admission
+and acquiring the migration lock. It rechecks duplicate names and complete
+store bounds before one private atomic replacement. Success is only
+`{"accepted":true}`; clients refresh `profiles.list`. The operation uses the
+shared revision/replay namespace, does not select/connect the new record, and
+does not restart an existing tunnel. An uncertain write is compensated to exact
+original bytes; an unprovable restoration becomes `manual_recovery_required`.
+Existing-profile replacement and its active-tunnel recovery gate are separate.
+
 ### Subscriptions
 
 - `subscriptions.list` — safe metadata/counts, no bearer URL;

@@ -162,6 +162,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile rename PROFILE_ID",
         "profile favorite PROFILE_ID on|off",
         "profile delete PROFILE_ID",
+        "profile import",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription add",
@@ -186,6 +187,7 @@ fn raw_and_extra_commands_fail_before_socket_without_echoing_arguments() {
         vec!["connect", private, "rule", "extra"],
         vec!["mode", private],
         vec!["import", "preview", private],
+        vec!["profile", "import", private],
     ] {
         let output = isolated_command(&base).args(arguments).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
