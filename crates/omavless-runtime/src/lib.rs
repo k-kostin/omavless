@@ -56,6 +56,7 @@ pub mod profile_mutation_protocol;
 pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod remote_fetch;
+pub mod routing_read_protocol;
 pub mod semantic_cli;
 pub mod store_bootstrap;
 pub mod store_preflight;
@@ -218,6 +219,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "routing.custom_rules.list",
     "profiles.edit_input",
     "profiles.export",
     "imports.classify",
@@ -249,6 +251,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn custom_rules(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn profile_edit_input(
         &mut self,
         request: &Value,
@@ -486,6 +492,13 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.profile_edit_input(request)
+    }
+
+    fn custom_rules(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.custom_rules(request)
     }
 
     fn profile_export(
@@ -1077,6 +1090,7 @@ fn dispatch_native(
             return owner.subscription_edit_input(request);
         }
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
+        "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
         "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
@@ -2287,6 +2301,95 @@ mod tests {
             assert!(!revoked.to_string().contains(&expected));
         }
         assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn custom_rules_read_is_bounded_fenced_private_and_never_mutates() {
+        let base = temporary_base("custom-rules");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let mut document: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        let profile_uri = document["profiles"][0]["uri"].as_str().unwrap().to_owned();
+        document["customRules"] = json!((0..omavless_domain::routing::MAX_CUSTOM_RULES).map(|i| {
+            json!({"id":format!("00000000-0000-4000-8000-{i:012}"),"kind":"domain","action":"proxy","value":format!("r{i}.example.invalid"),"privateExtra":"private-token"})
+        }).collect::<Vec<_>>());
+        let original = serde_json::to_vec(&document).unwrap();
+        fs::write(&store_path, &original).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+        let method = "routing.custom_rules.list";
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == method)
+        );
+        let listed = call(&paths, method, json!({})).unwrap();
+        assert_eq!(listed["revision"], 0);
+        assert_eq!(listed["result"]["version"], 1);
+        let rules = listed["result"]["rules"].as_array().unwrap();
+        assert_eq!(rules.len(), omavless_domain::routing::MAX_CUSTOM_RULES);
+        for (actual, expected) in rules
+            .iter()
+            .zip(document["customRules"].as_array().unwrap())
+        {
+            assert_eq!(actual.as_object().unwrap().len(), 4);
+            for key in ["id", "kind", "action", "value"] {
+                assert!(actual[key] == expected[key]);
+            }
+        }
+        assert!(!listed.to_string().contains("private-token"));
+        assert!(!listed.to_string().contains(&profile_uri));
+        assert!(omavless_control_protocol::encode_response(&listed).is_ok());
+        let status = call(&paths, "status.get", json!({})).unwrap();
+        assert!(!status.to_string().contains("example.invalid"));
+        let bad = call(&paths, method, json!({"path":"private-token"})).unwrap();
+        assert_eq!(bad["error"]["code"], "invalid_argument");
+        assert!(!bad.to_string().contains("private-token"));
+        assert!(fs::read(&store_path).unwrap() == original);
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        let unsafe_store = call(&paths, method, json!({})).unwrap();
+        assert_eq!(unsafe_store["error"]["code"], "internal_error");
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&store_path, b"private-token-corrupt").unwrap();
+        let corrupt = call(&paths, method, json!({})).unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("private-token"));
+        fs::write(&store_path, &original).unwrap();
+        let target = base.join("config/temporary-store.json");
+        fs::rename(&store_path, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &store_path).unwrap();
+        assert_eq!(
+            call(&paths, method, json!({})).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::remove_file(&store_path).unwrap();
+        fs::rename(&target, &store_path).unwrap();
+        document["customRules"] = json!([]);
+        fs::write(&store_path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert_eq!(
+            call(&paths, method, json!({})).unwrap()["result"]["rules"],
+            json!([])
+        );
+        fs::write(&store_path, &original).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            let revoked = call(&paths, method, json!({})).unwrap();
+            assert_eq!(revoked["error"]["code"], "capability_unavailable");
+            assert!(!revoked.to_string().contains("example.invalid"));
+        }
+        assert!(fs::read(&store_path).unwrap() == original);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

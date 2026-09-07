@@ -59,6 +59,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["routing", "rules"] => Some(SemanticRequest {
+            method: "routing.custom_rules.list",
+            params: json!({}),
+        }),
         ["profile", "list"] => Some(SemanticRequest {
             method: "profiles.list",
             params: json!({}),

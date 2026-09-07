@@ -1094,6 +1094,31 @@ Python still owns the installed editor, dialogs and clipboard/file helpers.
 The semantic editor pair is ready for later frontend composition, not proof of
 an installed QML bridge, cutover, provider maturity or Python retirement.
 
+### Private custom-rule editor read checkpoint (2026-09-07)
+
+`routing.custom_rules.list` / `routing rules` now provides the fixed read-only
+prerequisite for the routing-tools frontend. The existing complete strict store
+validator, private-file policy, migration lock and exact native-generation fence
+are reused. Only original-order `id/kind/value/action` fields reach the explicit
+private editor response; extension metadata and profile/provider content do not.
+Destinations remain private and are absent from ordinary status. The existing
+128-rule/1024-byte value bounds fit v1 response framing; no query or path input
+is accepted and no mutation, revision bump or host work occurs.
+
+17 positive cases compare canonical response digests against actual Python
+`custom_rules_text`, covering all match/action combinations, IPv4/IPv6, empty
+and full lists, extension-field exclusion and v1/v2 stores. Synthetic inputs
+travel over bounded stdin; neither oracle failures nor mismatch output echo
+destinations. Private-socket and executable tests cover exact requests, maximum
+list encoding, safe rejection, corrupt/unsafe/symlink stores, revoked/stale
+ownership, sensitive success output only and unchanged bytes/host calls.
+
+Python still owns installed custom-rule reads/add/delete and routing-tools UI.
+Rust gains only the ownership-gated semantic read; no live tunnel test or
+installed frontend/cutover acceptance is inferred. Remaining routing mutations,
+provider refresh/check, frontend composition and R6 are still pending. Python
+remains the reference and rollback; it cannot be removed yet.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

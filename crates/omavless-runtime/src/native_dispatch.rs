@@ -166,6 +166,18 @@ pub(crate) fn respond_to_import_preview<H: LifecycleHost>(
     }
 }
 
+/// Explicit private routing editor data, not shareable status/diagnostics.
+pub(crate) fn respond_to_custom_rules<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.custom_rules(request) {
+        Ok(rules) => success_response(id, owner.revision(), rules.private_ui_value()),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Sensitive success payload, never an ordinary read projection.
 pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
     owner: &mut OfflineNativeCoordinator<H>,

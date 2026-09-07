@@ -359,6 +359,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         crate::native_dispatch::respond_to_profile_export(&mut self.coordinator, request)
     }
 
+    pub(crate) fn custom_rules(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_custom_rules(&mut self.coordinator, request)
+    }
+
     pub(crate) fn profile_edit_input(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_profile_edit_input(&mut self.coordinator, request)
     }
