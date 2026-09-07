@@ -1,0 +1,7 @@
+[
+  {"id":"plain", "script":"if test \"$1\" = --list-types; then printf 'text/plain\\n'; else test \"$*\" = '--no-newline --type text/plain' || exit 9; printf 'synthetic input'; fi"},
+  {"id":"other-mime", "script":"if test \"$1\" = --list-types; then printf 'text/plain;charset=utf-8\\n'; else test \"$*\" = '--no-newline' || exit 9; printf 'synthetic input'; fi"},
+  {"id":"list-failed", "script":"if test \"$1\" = --list-types; then exit 1; else test \"$*\" = '--no-newline' || exit 9; printf 'synthetic input'; fi"},
+  {"id":"paste-failed", "script":"if test \"$1\" = --list-types; then printf 'text/plain\\n'; else printf 'synthetic-error' >&2; exit 1; fi"},
+  {"id":"empty", "script":"exit 0"}
+]

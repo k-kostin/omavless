@@ -1119,6 +1119,18 @@ installed frontend/cutover acceptance is inferred. Remaining routing mutations,
 provider refresh/check, frontend composition and R6 are still pending. Python
 remains the reference and rollback; it cannot be removed yet.
 
+### Client-side desktop helper checkpoint (2026-09-07)
+
+The fixed native `desktop` CLI now supplies bounded clipboard/file acquisition,
+zenity editing, qrencode PNG output and atomic private exports without adding
+daemon methods or touching store/lifecycle ownership. The boundary, Python/QML
+oracle evidence, explicit private output, cleanup and acceptance matrix are in
+[`DESKTOP_HELPERS.md`](DESKTOP_HELPERS.md). Native GTK4 picker fallback is
+deliberately not claimed; do not switch the installed QML picker until that
+existing Python fallback or an explicit dependency policy is addressed.
+Installed QML composition and exact-head desktop smoke remain distinct gates.
+Python remains the installed owner and cannot be removed yet.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

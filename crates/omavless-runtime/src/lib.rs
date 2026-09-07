@@ -33,6 +33,7 @@ pub mod core;
 pub mod cutover;
 pub mod cutover_transaction;
 pub mod desired;
+pub mod desktop_helpers;
 pub mod frontend_bridge;
 pub mod import_read_protocol;
 pub mod lifecycle;

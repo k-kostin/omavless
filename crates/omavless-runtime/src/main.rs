@@ -14,7 +14,7 @@ use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::env;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -34,7 +34,24 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "OmaVLESS semantic command input is invalid".to_owned())
 }
 
-fn run() -> Result<(), String> {
+enum CliError {
+    Message(String),
+    DesktopCancelled,
+}
+
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+
+impl From<&str> for CliError {
+    fn from(message: &str) -> Self {
+        Self::Message(message.to_owned())
+    }
+}
+
+fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     if arguments == ["-h"] || arguments == ["--help"] {
         println!(
@@ -50,6 +67,72 @@ fn run() -> Result<(), String> {
         println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
+        println!(
+            "  desktop capabilities|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|export-file|cleanup"
+        );
+        println!(
+            "                                  explicit private client-only helpers; input through stdin"
+        );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "desktop") {
+        use omavless_runtime::desktop_helpers::{
+            self, DesktopHelpers, MAX_PATH_BYTES, MAX_TEXT_BYTES,
+        };
+        if arguments.len() != 2 {
+            return Err("Invalid desktop helper command".into());
+        }
+        let helpers = DesktopHelpers::current();
+        let output = match arguments[1].to_str() {
+            Some("capabilities") => {
+                println!("{}", helpers.capabilities());
+                return Ok(());
+            }
+            Some("clipboard-read") => helpers.clipboard_read(),
+            Some("cleanup") => {
+                let directory =
+                    desktop_helpers::current_desktop_runtime().map_err(|e| e.to_string())?;
+                let removed = desktop_helpers::cleanup(&directory).map_err(|e| e.to_string())?;
+                println!("{}", json!({"removed": removed}));
+                return Ok(());
+            }
+            Some("pick-import") => helpers.pick_import(),
+            Some("file-read") => {
+                let path = read_semantic_input(MAX_PATH_BYTES + 1)?;
+                desktop_helpers::read_import_file(path.trim_end_matches('\n').as_bytes())
+            }
+            Some("clipboard-copy" | "edit" | "qr") => {
+                let input = read_semantic_input(MAX_TEXT_BYTES)?;
+                match arguments[1].to_str() {
+                    Some("clipboard-copy") => helpers
+                        .clipboard_copy(input.as_bytes())
+                        .map(|()| Vec::new()),
+                    Some("qr") => helpers.qr_png(input.as_bytes()),
+                    _ => {
+                        let directory = desktop_helpers::current_desktop_runtime()
+                            .map_err(|e| e.to_string())?;
+                        helpers.edit(input.as_bytes(), &directory)
+                    }
+                }
+            }
+            Some("export-file") => {
+                let input = read_semantic_input(MAX_PATH_BYTES + 1 + MAX_TEXT_BYTES)?;
+                let (path, content) = input
+                    .split_once('\n')
+                    .ok_or("Invalid desktop helper input")?;
+                desktop_helpers::export_file(path.as_bytes(), content.as_bytes())
+                    .map(|()| Vec::new())
+            }
+            _ => return Err("Invalid desktop helper command".into()),
+        }
+        .map_err(|e| match e {
+            desktop_helpers::Error::Cancelled => CliError::DesktopCancelled,
+            _ => CliError::Message(e.to_string()),
+        })?;
+        io::stdout()
+            .lock()
+            .write_all(&output)
+            .map_err(|_| "Desktop helper output failed".to_string())?;
         return Ok(());
     }
     if arguments == ["preflight"] {
@@ -117,7 +200,7 @@ fn run() -> Result<(), String> {
         flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
         return RuntimeServer::bind_current(paths)
             .and_then(|server| server.serve_until(&stop))
-            .map_err(|error| error.to_string());
+            .map_err(|error| CliError::Message(error.to_string()));
     }
     let (method, params) = if arguments == ["hello"] {
         ("system.hello", json!({"versions": [1]}))
@@ -178,14 +261,15 @@ fn run() -> Result<(), String> {
     if response["ok"] == true {
         Ok(())
     } else {
-        Err("OmaVLESS runtime rejected the request".to_owned())
+        Err("OmaVLESS runtime rejected the request".into())
     }
 }
 
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
+        Err(CliError::DesktopCancelled) => ExitCode::from(3),
+        Err(CliError::Message(message)) => {
             eprintln!("{message}");
             ExitCode::from(2)
         }
