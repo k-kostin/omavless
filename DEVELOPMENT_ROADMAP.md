@@ -486,6 +486,16 @@ owns the target runtime.
 State: **in progress; foundations and production-host preflight accepted,
 production ownership transition not executed**.
 
+Latest frontend prerequisites (2026-09-07): #162 strengthens private-client
+authentication/correlation; #163/#164 provide native unified import preview;
+#165 adds confirmed new-profile import; #166 adds existing-profile replacement
+with recovery; #168 adds explicit QR/file credential export. They do not switch
+the installed QML/Python owner. The export comparison identifies four legacy
+XHTTP store-validation differences tracked by #169. The production cutover
+host now rejects incompatible/unsafe stores before preparing ownership, keeping
+legacy repair/export possible. User-facing repair guidance and installed
+cutover acceptance remain pending. R5/R6 are not complete.
+
 Accepted incremental checkpoints:
 
 - PR #96: primary `omavless` binary, private same-UID Unix control socket,

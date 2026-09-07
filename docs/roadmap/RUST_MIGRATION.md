@@ -1021,6 +1021,23 @@ QML acquisition, QR rendering, destination selection and editor wiring remain
 Python-owned. This is a native semantic prerequisite, not installed frontend
 acceptance, product protocol expansion, cutover or Python retirement.
 
+### Legacy-store cutover refusal checkpoint (2026-09-07)
+
+The fixed production cutover host now validates the complete same-user private
+store during its locked pre-effect snapshot, before writing `cutoverPreparing`.
+Previously this validation happened during staging after the preparing marker;
+even an incompatible inactive record could therefore gate legacy repair/export
+and enter unnecessary compensation. The guard uses the existing strict parser
+and file-permission policy, never a permissive recovery parser.
+
+Four synthetic mixed-store XHTTP incompatibilities plus corrupt, permissive,
+symlink and missing stores now prove refusal before marker/bridge/service
+mutations. Exact private bytes and legacy ownership survive; after releasing
+the failed attempt and explicit repair, a new snapshot succeeds. The export
+oracle from #168 establishes which rejected XHTTP records remain readable by
+the legacy owner. Issue #169 retains the future user-facing repair guidance
+and installed cutover acceptance; this guard does not activate cutover.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with
