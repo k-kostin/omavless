@@ -20,7 +20,7 @@ pub(crate) const METHODS: &[&str] = &[
     "diagnostics.rules",
     "diagnostics.providers",
 ];
-const DEADLINE: Duration = Duration::from_secs(3);
+pub(crate) const DEADLINE: Duration = Duration::from_secs(3);
 
 pub(crate) fn collect(
     directory: &Path,
@@ -40,12 +40,17 @@ pub(crate) fn collect(
         }
         let payload = read(&path, uid, endpoint, deadline)?;
         result[field] = if field == "rules" {
-            omavless_mihomo::diagnostics::rules_projection(&payload, private)
+            omavless_mihomo::diagnostics::rules_projection_before(&payload, private, Some(deadline))
         } else {
-            omavless_mihomo::diagnostics::providers_projection(&payload, private)
+            omavless_mihomo::diagnostics::providers_projection_before(
+                &payload,
+                private,
+                Some(deadline),
+            )
         }
         .map_err(|_| StableErrorCode::CoreRejected)?;
     }
+    remaining(deadline)?;
     Ok(result)
 }
 
@@ -149,6 +154,12 @@ mod tests {
         else {
             return;
         };
+        for inline_provider in [false, true] {
+            installed_case(&core, inline_provider);
+        }
+    }
+
+    fn installed_case(core: &Path, inline_provider: bool) {
         let directory = std::env::temp_dir().join(format!(
             "ov-diag-core-{}-{}",
             std::process::id(),
@@ -164,25 +175,57 @@ mod tests {
         let rules = (0..80)
             .map(|i| format!("- DOMAIN,sample-{i}.example.invalid,DIRECT\n"))
             .collect::<String>();
-        fs::write(&config,format!("mixed-port: 0\nport: 0\nsocks-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\nrules:\n{}- MATCH,DIRECT\n",socket.display(),rules)).unwrap();
+        let provider = if inline_provider {
+            "rule-providers:\n  synthetic:\n    type: inline\n    behavior: domain\n    payload:\n      - fixture.example.invalid\n"
+        } else {
+            ""
+        };
+        let provider_rule = if inline_provider {
+            "- RULE-SET,synthetic,DIRECT\n"
+        } else {
+            ""
+        };
+        fs::write(&config,format!("mixed-port: 0\nport: 0\nsocks-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\n{}rules:\n{}{}- MATCH,DIRECT\n",socket.display(),provider,rules,provider_rule)).unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         omavless_mihomo::validate_config(&core, &directory, &config, Duration::from_secs(15))
             .unwrap();
-        let mut owned = crate::core::OwnedCore::spawn(&core, &directory, &config, &socket).unwrap();
+        // Installed file capabilities make Linux hide /proc/<pid>/fd even
+        // from the parent. A byte-identical non-capability-bearing copy is
+        // sufficient for this explicitly no-TUN test and preserves OS policy.
+        let unprivileged_core = directory.join("mihomo");
+        fs::copy(&core, &unprivileged_core).unwrap();
+        fs::set_permissions(&unprivileged_core, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(fs::read(&core).unwrap() == fs::read(&unprivileged_core).unwrap());
+        let mut owned =
+            crate::core::OwnedCore::spawn(&unprivileged_core, &directory, &config, &socket)
+                .unwrap();
         owned.wait_ready(Duration::from_secs(10)).unwrap();
         // Match the packaged service's UMask=0077 without mutating the
         // multithreaded test process's global umask.
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
         let uid = nix::unistd::Uid::current().as_raw();
+        let provider_shape = read(
+            &socket,
+            uid,
+            ReadOnlyEndpoint::RuleProviders,
+            Instant::now() + DEADLINE,
+        )
+        .unwrap();
+        assert!(
+            provider_shape
+                .get("providers")
+                .is_some_and(Value::is_object),
+            "installed rule-provider response must contain an object"
+        );
         for method in METHODS {
             let result = collect(&directory, uid, method, &[]).unwrap();
             assert_eq!(result["version"], 1);
             assert!(result.to_string().len() < 225 * 1024);
             if *method != "diagnostics.providers" {
-                assert_eq!(result["rules"]["total"], 81);
+                assert_eq!(result["rules"]["total"], 81 + usize::from(inline_provider));
             }
             if *method != "diagnostics.rules" {
-                assert_eq!(result["providers"]["total"], 0);
+                assert_eq!(result["providers"]["total"], usize::from(inline_provider));
             }
         }
         // Check only this owned child's socket inodes against listening TCP

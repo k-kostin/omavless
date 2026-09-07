@@ -849,6 +849,7 @@ impl RuntimeServer {
         let Some(_permit) = self.remote_fetches.try_acquire() else {
             return error_response(id, revision, StableErrorCode::Busy, true, None);
         };
+        let started = std::time::Instant::now();
         let collected = diagnostic_read::collect(
             &self.paths.directory,
             self.uid,
@@ -879,6 +880,9 @@ impl RuntimeServer {
                 return error_response(id, current, StableErrorCode::Conflict, true, None);
             }
             Ok(_) => (),
+        }
+        if started.elapsed() >= diagnostic_read::DEADLINE {
+            return error_response(id, current, StableErrorCode::CoreRejected, false, None);
         }
         match collected {
             Ok(result) => success_response(id, current, result),

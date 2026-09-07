@@ -598,6 +598,12 @@ for status and urgent disconnect. No background sampler or cache is added.
 Only the fixed same-user `0700` native runtime directory and its `0600`
 `mihomo.sock` are used; Unix peer credentials are verified. There is no TCP,
 caller path, arbitrary endpoint, authorization/header or forwarding parameter.
+Private redaction inputs are capped at 512 fragments and 64 KiB total; an
+oversized private snapshot makes the entire diagnostic unavailable, never a
+partially redacted result. Individual controller text above 8 KiB is replaced
+wholly with `[redacted]`. Projection checks the shared deadline between rows,
+and completion checks it again after owner revalidation before publication.
+
 The whole controller phase has a three-second deadline (including both summary
 GETs), nonblocking connect admission and the existing 512-KiB raw response cap.
 Core errors never echo raw bodies. Rule rows are capped at 2,048 / 160 KiB;

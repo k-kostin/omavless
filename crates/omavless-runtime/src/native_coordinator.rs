@@ -674,7 +674,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if self.actual() != ActualState::Connected {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
-        self.with_owned_private_store(|store| Ok(store.diagnostic_private_fragments()))
+        self.with_owned_private_store(|store| {
+            let fragments = store.diagnostic_private_fragments();
+            // Reject the whole diagnostic, never drop private redaction inputs.
+            if !omavless_mihomo::diagnostics::private_fragment_budget(&fragments) {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(fragments)
+        })
     }
 
     pub(crate) fn profile_export(

@@ -2,9 +2,14 @@
 
 use crate::{ErrorKind, MihomoError, Result};
 use serde_json::Value;
+use std::time::Instant;
 
 pub const MAX_RULES: usize = 2048;
 pub const MAX_PROVIDERS: usize = 256;
+
+pub fn private_fragment_budget(private: &[String]) -> bool {
+    private.len() <= 512 && private.iter().map(String::len).sum::<usize>() <= 64 * 1024
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleSummary {
@@ -32,6 +37,10 @@ fn invalid() -> MihomoError {
 }
 
 pub fn bounded_controller_text(value: &str, maximum: usize, private: &[String]) -> String {
+    // Never omit secrets to save work: conservatively redact the entire field.
+    if value.len() > 8192 || !private_fragment_budget(private) {
+        return "[redacted]".into();
+    }
     let mut text = value
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -68,6 +77,14 @@ fn route_target(value: &str) -> &'static str {
 }
 
 pub fn loaded_rules(payload: &Value, private: &[String]) -> Result<Vec<RuleSummary>> {
+    loaded_rules_before(payload, private, None)
+}
+
+fn loaded_rules_before(
+    payload: &Value,
+    private: &[String],
+    deadline: Option<Instant>,
+) -> Result<Vec<RuleSummary>> {
     let rules = payload
         .get("rules")
         .and_then(Value::as_array)
@@ -79,6 +96,9 @@ pub fn loaded_rules(payload: &Value, private: &[String]) -> Result<Vec<RuleSumma
         .iter()
         .take(MAX_RULES)
         .map(|item| {
+            if deadline.is_some_and(|end| Instant::now() >= end) {
+                return Err(MihomoError::new(ErrorKind::TimedOut));
+            }
             let object = item.as_object().ok_or_else(invalid)?;
             let kind = object.get("type").and_then(Value::as_str).unwrap_or("");
             let payload = object.get("payload").and_then(Value::as_str).unwrap_or("");
@@ -109,6 +129,14 @@ fn provider_name(value: &str) -> bool {
 }
 
 pub fn loaded_providers(payload: &Value, private: &[String]) -> Result<Vec<ProviderSummary>> {
+    loaded_providers_before(payload, private, None)
+}
+
+fn loaded_providers_before(
+    payload: &Value,
+    private: &[String],
+    deadline: Option<Instant>,
+) -> Result<Vec<ProviderSummary>> {
     let providers = payload
         .get("providers")
         .and_then(Value::as_object)
@@ -119,6 +147,9 @@ pub fn loaded_providers(payload: &Value, private: &[String]) -> Result<Vec<Provi
     providers
         .iter()
         .map(|(name, value)| {
+            if deadline.is_some_and(|end| Instant::now() >= end) {
+                return Err(MihomoError::new(ErrorKind::TimedOut));
+            }
             if !provider_name(name) {
                 return Err(invalid());
             }
@@ -199,27 +230,45 @@ fn redact_uuids(text: &str) -> String {
 /// Native v1 response budget is smaller than the legacy 384-KiB UI envelope.
 /// Truncate rows, never individual JSON or metadata, with an explicit marker.
 pub fn rules_projection(payload: &Value, private: &[String]) -> Result<Value> {
+    rules_projection_before(payload, private, None)
+}
+
+pub fn rules_projection_before(
+    payload: &Value,
+    private: &[String],
+    deadline: Option<Instant>,
+) -> Result<Value> {
     let total = payload
         .get("rules")
         .and_then(Value::as_array)
         .ok_or_else(invalid)?
         .len();
-    let rows = loaded_rules(payload, private)?
+    let rows = loaded_rules_before(payload, private, deadline)?
         .into_iter()
         .map(|row| serde_json::json!({"type":row.kind,"payload":row.payload,"target":row.target}));
     Ok(budgeted_rows(rows, total, 160 * 1024))
 }
 
 pub fn providers_projection(payload: &Value, private: &[String]) -> Result<Value> {
+    providers_projection_before(payload, private, None)
+}
+
+pub fn providers_projection_before(
+    payload: &Value,
+    private: &[String],
+    deadline: Option<Instant>,
+) -> Result<Value> {
     let total = payload
         .get("providers")
         .and_then(Value::as_object)
         .ok_or_else(invalid)?
         .len();
-    let rows = loaded_providers(payload, private)?.into_iter().map(|row| {
-        serde_json::json!({"name":row.name,"behavior":row.behavior,"updatedAt":row.updated_at,
+    let rows = loaded_providers_before(payload, private, deadline)?
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({"name":row.name,"behavior":row.behavior,"updatedAt":row.updated_at,
             "ruleCount":row.rule_count,"status":row.status,"refreshable":row.refreshable})
-    });
+        });
     Ok(budgeted_rows(rows, total, 64 * 1024))
 }
 
@@ -278,5 +327,26 @@ mod tests {
             34
         );
         assert!(traffic_sample(&json!({"up":-1,"down":0})).is_err());
+    }
+
+    #[test]
+    fn redaction_work_is_bounded_without_dropping_private_fragments() {
+        assert!(private_fragment_budget(&vec!["x".repeat(128); 512]));
+        for private in [vec!["private".into(); 513], vec!["x".repeat(65537)]] {
+            assert!(!private_fragment_budget(&private));
+            assert_eq!(
+                bounded_controller_text("private data", 512, &private),
+                "[redacted]"
+            );
+        }
+        assert_eq!(
+            bounded_controller_text(&"x".repeat(8193), 512, &[]),
+            "[redacted]"
+        );
+        let expired = Some(Instant::now());
+        assert!(rules_projection_before(&json!({"rules":[{}]}), &[], expired).is_err());
+        assert!(
+            providers_projection_before(&json!({"providers":{"safe":{}}}), &[], expired).is_err()
+        );
     }
 }
