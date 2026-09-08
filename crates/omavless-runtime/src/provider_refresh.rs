@@ -85,22 +85,8 @@ impl UnixRuleProviderTransport {
         }
     }
 
-    fn exchange(
-        &self,
-        target: Option<&RuleProviderTarget>,
-        budget: Duration,
-    ) -> Result<serde_json::Value, ProviderRefreshError> {
+    fn connect_pinned(&self, require_existing: bool) -> Result<UnixStream, ProviderRefreshError> {
         let unavailable = ProviderRefreshError::Unavailable;
-        if budget.is_zero() || budget > PROVIDER_UPDATE_TIMEOUT {
-            return Err(ProviderRefreshError::Deadline);
-        }
-        let deadline = Instant::now() + budget;
-        let remaining = || {
-            deadline
-                .checked_duration_since(Instant::now())
-                .filter(|d| !d.is_zero())
-                .ok_or(ProviderRefreshError::Deadline)
-        };
         let path = self.directory.join("mihomo.sock");
         let directory = fs::symlink_metadata(&self.directory).map_err(|_| unavailable)?;
         let metadata = fs::symlink_metadata(&path).map_err(|_| unavailable)?;
@@ -126,7 +112,7 @@ impl UnixRuleProviderTransport {
             &UnixAddr::new(&path).map_err(|_| unavailable)?,
         )
         .map_err(|_| unavailable)?;
-        let mut stream = UnixStream::from(fd);
+        let stream = UnixStream::from(fd);
         let peer = getsockopt(&stream, PeerCredentials).map_err(|_| unavailable)?;
         let after = fs::symlink_metadata(&path).map_err(|_| unavailable)?;
         if peer.uid() != self.uid || after.dev() != metadata.dev() || after.ino() != metadata.ino()
@@ -138,11 +124,37 @@ impl UnixRuleProviderTransport {
         if pinned.is_some_and(|expected| expected != observed) {
             return Err(unavailable);
         }
-        if target.is_some() && pinned.is_none() {
+        if require_existing && pinned.is_none() {
             return Err(unavailable);
         }
         *pinned = Some(observed);
         drop(pinned);
+        Ok(stream)
+    }
+
+    /// Short nonblocking socket/peer proof only, no controller request or read.
+    /// Safe to call under the final serialized stamp lease.
+    pub(crate) fn verify_identity(&self) -> Result<(), ProviderRefreshError> {
+        self.connect_pinned(true).map(drop)
+    }
+
+    fn exchange(
+        &self,
+        target: Option<&RuleProviderTarget>,
+        budget: Duration,
+    ) -> Result<serde_json::Value, ProviderRefreshError> {
+        let unavailable = ProviderRefreshError::Unavailable;
+        if budget.is_zero() || budget > PROVIDER_UPDATE_TIMEOUT {
+            return Err(ProviderRefreshError::Deadline);
+        }
+        let deadline = Instant::now() + budget;
+        let remaining = || {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|d| !d.is_zero())
+                .ok_or(ProviderRefreshError::Deadline)
+        };
+        let mut stream = self.connect_pinned(target.is_some())?;
         stream.set_nonblocking(false).map_err(|_| unavailable)?;
         let (method, endpoint) = match target {
             Some(target) => ("PUT", target.update_path()),

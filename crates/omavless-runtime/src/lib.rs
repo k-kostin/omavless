@@ -310,6 +310,29 @@ trait NativeRuntimeOwner: Send {
     fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
+    fn provider_preflight(
+        &mut self,
+        request: &Value,
+        instance: &str,
+    ) -> std::result::Result<
+        native_coordinator::ProviderRefreshAdmission,
+        native_coordinator::NativeOwnerError,
+    >;
+    fn provider_start(
+        &mut self,
+        request: &Value,
+        snapshot: native_coordinator::ProviderRefreshSnapshot,
+        targets: Vec<omavless_mihomo::rule_provider::RuleProviderTarget>,
+    ) -> std::result::Result<
+        Option<native_coordinator::NativeProviderRefresh>,
+        native_coordinator::NativeOwnerError,
+    >;
+    fn provider_progress(&mut self, job: &native_coordinator::NativeProviderRefresh) -> bool;
+    fn provider_finish(
+        &mut self,
+        job: native_coordinator::NativeProviderRefresh,
+        transport: &provider_refresh::UnixRuleProviderTransport,
+    );
     fn revision(&self) -> u64;
     fn runtime_ownership(&mut self) -> bool;
     fn status(&self, runtime_ownership: bool) -> Result<Value>;
@@ -558,12 +581,72 @@ where
         if let Some(accepted) = accepted {
             result["accepted"] = json!(accepted);
         }
-        let job = job.map(|job| batch_scheduler::BatchWork {
+        let job = job.map(|job| batch_scheduler::BatchWork::Subscription {
             job,
             transport: self.transport.clone(),
             record_ids: RecordIdGenerator::new(&self.record_ids.next()),
         });
         Ok((result, job))
+    }
+
+    fn provider_preflight(
+        &mut self,
+        request: &Value,
+        instance: &str,
+    ) -> std::result::Result<
+        native_coordinator::ProviderRefreshAdmission,
+        native_coordinator::NativeOwnerError,
+    > {
+        if !self.owner.rust_ownership_available() {
+            return Err(native_coordinator::NativeOwnerError::OwnershipUnavailable);
+        }
+        let coordinator = self.owner.batch_coordinator();
+        if !self.batch_initialized {
+            coordinator.initialize_batch_operations(instance)?;
+            self.batch_initialized = true;
+        }
+        coordinator.preflight_provider_refresh(request)
+    }
+    fn provider_start(
+        &mut self,
+        request: &Value,
+        snapshot: native_coordinator::ProviderRefreshSnapshot,
+        targets: Vec<omavless_mihomo::rule_provider::RuleProviderTarget>,
+    ) -> std::result::Result<
+        Option<native_coordinator::NativeProviderRefresh>,
+        native_coordinator::NativeOwnerError,
+    > {
+        if !self.owner.rust_ownership_available() {
+            return Err(native_coordinator::NativeOwnerError::OwnershipUnavailable);
+        }
+        self.owner
+            .batch_coordinator()
+            .start_provider_refresh(request, snapshot, targets)
+    }
+    fn provider_progress(&mut self, job: &native_coordinator::NativeProviderRefresh) -> bool {
+        self.owner.rust_ownership_available()
+            && self
+                .owner
+                .batch_coordinator()
+                .publish_provider_refresh_progress(job)
+                .is_ok()
+    }
+    fn provider_finish(
+        &mut self,
+        job: native_coordinator::NativeProviderRefresh,
+        transport: &provider_refresh::UnixRuleProviderTransport,
+    ) {
+        let _ = self.owner.batch_coordinator().complete_provider_refresh(
+            job,
+            || {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64
+            },
+            || transport.verify_identity(),
+        );
     }
 
     fn batch_progress(&mut self, job: &native_coordinator::NativeSubscriptionBatch) -> bool {
@@ -968,6 +1051,7 @@ impl RuntimeServer {
                 &self.instance_id,
                 &self.dispatcher,
                 &self.remote_fetches,
+                &self.paths.directory,
             );
         }
         if matches!(

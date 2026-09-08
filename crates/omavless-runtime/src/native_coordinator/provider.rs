@@ -2,7 +2,7 @@
 //! Owner-fenced live rule updates sharing the existing long-operation registry.
 use super::batch::{ActiveCancellation, BatchOwnerState};
 use super::*;
-use crate::desired::{DesiredState, ReconcileAction, RoutingMode, reconcile};
+use crate::desired::{DesiredState, RoutingMode};
 use crate::long_operation::{CommitFence, LongOperationError, LongOperationToken};
 use crate::long_operation_protocol::{LongOperationMethod, parse_provider_refresh_start};
 use crate::private_store_transaction::prepare_private_store_write;
@@ -68,14 +68,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
-        let observed = self
-            .transaction
-            .host_mut()
-            .observe(&desired)
-            .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
-        if reconcile(&desired, observed) != ReconcileAction::AdoptConnected {
-            return Err(NativeOwnerError::OwnershipUnavailable);
-        }
+        // The committed owner's actual state is the lifecycle authority.
+        // Controller liveness/identity is proved by detached discovery/PUT,
+        // never by host.observe while this short owner lease is held.
         let path = self.transaction.store_path();
         crate::private_store_transaction::validate_store_path(path, self.transaction.uid())
             .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
@@ -256,10 +251,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .advance(job.token, job.work.progress().0)
             .map_err(NativeOwnerError::LongOperation)
     }
-    pub fn complete_provider_refresh<N: FnOnce() -> u64>(
+    pub fn complete_provider_refresh<
+        N: FnOnce() -> u64,
+        V: FnOnce() -> Result<(), ProviderRefreshError>,
+    >(
         &mut self,
         job: NativeProviderRefresh,
         now: N,
+        verify_identity: V,
     ) -> Result<(), NativeOwnerError> {
         let mut state = self
             .batch
@@ -272,7 +271,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .registry
                 .advance(token, job.work.progress().0)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let result = self.commit_provider_refresh(&mut state, job, now);
+            let result = self.commit_provider_refresh(&mut state, job, now, verify_identity);
             state.active = None;
             match result {
                 Ok(true) => state
@@ -292,14 +291,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.batch = Some(state);
         outcome
     }
-    fn commit_provider_refresh<N: FnOnce() -> u64>(
+    fn commit_provider_refresh<
+        N: FnOnce() -> u64,
+        V: FnOnce() -> Result<(), ProviderRefreshError>,
+    >(
         &mut self,
         state: &mut BatchOwnerState,
         job: NativeProviderRefresh,
         now: N,
+        verify_identity: V,
     ) -> Result<bool, NativeOwnerError> {
         let _lock = self.batch_lock()?;
         self.provider_snapshot_matches(&job.snapshot)?;
+        verify_identity().map_err(NativeOwnerError::Provider)?;
         // The registry cancellation fence precedes interpretation of any late
         // transport error: accepted cancellation wins, but cannot undo PUTs.
         if state

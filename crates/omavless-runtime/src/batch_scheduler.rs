@@ -5,18 +5,37 @@
 
 use super::*;
 use crate::native_coordinator::{NativeBatchTicket, NativeSubscriptionBatch};
+use crate::provider_refresh::{
+    PROVIDER_DISCOVERY_TIMEOUT, ProviderRefreshStep, RuleProviderTransport,
+    UnixRuleProviderTransport,
+};
 use crate::subscription_batch_work::BatchWorkStep;
 
 pub(super) const METHODS: &[&str] = &[
     "subscriptions.refresh_all",
+    "routing.refresh_providers",
     "operations.get",
     "operations.cancel",
 ];
 
-pub(super) struct BatchWork {
-    pub job: NativeSubscriptionBatch,
-    pub transport: SharedSubscriptionTransport,
-    pub record_ids: RecordIdGenerator,
+pub(super) enum BatchWork {
+    Subscription {
+        job: NativeSubscriptionBatch,
+        transport: SharedSubscriptionTransport,
+        record_ids: RecordIdGenerator,
+    },
+    Provider {
+        job: native_coordinator::NativeProviderRefresh,
+        transport: UnixRuleProviderTransport,
+    },
+}
+impl BatchWork {
+    fn ticket(&self) -> NativeBatchTicket {
+        match self {
+            Self::Subscription { job, .. } => job.supervisor_ticket(),
+            Self::Provider { job, .. } => job.supervisor_ticket(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -61,6 +80,7 @@ impl BatchScheduler {
         instance: &str,
         dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
         pool: &remote_fetch::RemoteFetchPool,
+        directory: &Path,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
         // The worker never acquires this mutex. It serializes admission against
@@ -83,17 +103,122 @@ impl BatchScheduler {
                 None,
             );
         }
-        let (projection, work) = match owner.batch_control(request, instance) {
-            Ok(result) => result,
-            Err(error) => {
-                return error_response(
-                    id,
-                    owner.revision(),
-                    error.stable_code(),
-                    error.stable_code() == StableErrorCode::Busy,
-                    None,
-                );
+        let (projection, work) = if request["method"] == "routing.refresh_providers" {
+            let admission = match owner.provider_preflight(request, instance) {
+                Ok(admission) => admission,
+                Err(error) => {
+                    return error_response(
+                        id,
+                        owner.revision(),
+                        error.stable_code(),
+                        error.stable_code() == StableErrorCode::Busy,
+                        None,
+                    );
+                }
+            };
+            match admission {
+                native_coordinator::ProviderRefreshAdmission::Replay(projection) => {
+                    (projection, None)
+                }
+                native_coordinator::ProviderRefreshAdmission::Discover(snapshot) => {
+                    let Some(permit) = pool.try_acquire() else {
+                        return error_response(
+                            id,
+                            owner.revision(),
+                            StableErrorCode::Busy,
+                            true,
+                            None,
+                        );
+                    };
+                    drop(owner_guard);
+                    let transport =
+                        UnixRuleProviderTransport::new(directory, Uid::current().as_raw());
+                    let targets = transport.discover(PROVIDER_DISCOVERY_TIMEOUT);
+                    drop(permit);
+                    owner_guard = match dispatcher.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            return error_response(
+                                id,
+                                0,
+                                StableErrorCode::InternalError,
+                                false,
+                                None,
+                            );
+                        }
+                    };
+                    let RuntimeDispatcher::Native(owner) = &mut *owner_guard else {
+                        return error_response(
+                            id,
+                            0,
+                            StableErrorCode::CapabilityUnavailable,
+                            false,
+                            None,
+                        );
+                    };
+                    let targets = match targets {
+                        Ok(targets) => targets,
+                        Err(error) => {
+                            return error_response(
+                                id,
+                                owner.revision(),
+                                native_coordinator::NativeOwnerError::Provider(error).stable_code(),
+                                false,
+                                None,
+                            );
+                        }
+                    };
+                    let job = match owner.provider_start(request, snapshot, targets) {
+                        Ok(job) => job,
+                        Err(error) => {
+                            return error_response(
+                                id,
+                                owner.revision(),
+                                error.stable_code(),
+                                false,
+                                None,
+                            );
+                        }
+                    };
+                    let lookup = make_request(
+                        "provider-projection",
+                        "operations.get",
+                        json!({"instanceId": request["params"]["instanceId"], "operationId": request["params"]["operationId"]}),
+                    )?;
+                    let (projection, _) = match owner.batch_control(&lookup, instance) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            return error_response(
+                                id,
+                                owner.revision(),
+                                error.stable_code(),
+                                false,
+                                None,
+                            );
+                        }
+                    };
+                    (
+                        projection,
+                        job.map(|job| BatchWork::Provider { job, transport }),
+                    )
+                }
             }
+        } else {
+            match owner.batch_control(request, instance) {
+                Ok(result) => result,
+                Err(error) => {
+                    return error_response(
+                        id,
+                        owner.revision(),
+                        error.stable_code(),
+                        error.stable_code() == StableErrorCode::Busy,
+                        None,
+                    );
+                }
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *owner_guard else {
+            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         };
         let revision = owner.revision();
         drop(owner_guard);
@@ -105,7 +230,7 @@ impl BatchScheduler {
             }
             let supervisor = Supervisor {
                 dispatcher: Arc::clone(dispatcher),
-                ticket: Some(work.job.supervisor_ticket()),
+                ticket: Some(work.ticket()),
             };
             let stopping = Arc::clone(&self.stopping);
             let pool = pool.clone();
@@ -168,13 +293,31 @@ fn run(
             let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
                 return;
             };
-            if !owner.batch_progress(&work.job) {
+            let valid = match &work {
+                BatchWork::Subscription { job, .. } => owner.batch_progress(job),
+                BatchWork::Provider { job, .. } => owner.provider_progress(job),
+            };
+            if !valid {
                 return;
             }
         }
-        let step = work
-            .job
-            .step(&work.transport, pool, &mut || work.record_ids.next());
+        let step = match &mut work {
+            BatchWork::Subscription {
+                job,
+                transport,
+                record_ids,
+            } => job
+                .step(transport, pool, &mut || record_ids.next())
+                .map_err(|_| ()),
+            BatchWork::Provider { job, transport } => job
+                .step(transport, pool)
+                .map(|step| match step {
+                    ProviderRefreshStep::Busy => BatchWorkStep::Busy,
+                    ProviderRefreshStep::Advanced => BatchWorkStep::Advanced,
+                    ProviderRefreshStep::Ready => BatchWorkStep::Ready,
+                })
+                .map_err(|_| ()),
+        };
         match step {
             Ok(BatchWorkStep::Busy) => thread::sleep(Duration::from_millis(20)),
             Ok(BatchWorkStep::Advanced) => {}
@@ -188,7 +331,12 @@ fn run(
                 if stopping.load(Ordering::Acquire) {
                     owner.batch_stop();
                 }
-                owner.batch_finish(work.job);
+                match work {
+                    BatchWork::Subscription { job, .. } => owner.batch_finish(job),
+                    BatchWork::Provider { job, transport } => {
+                        owner.provider_finish(job, &transport)
+                    }
+                }
                 supervisor.ticket = None;
                 return;
             }

@@ -369,6 +369,27 @@ mod tests {
     }
 
     #[test]
+    fn provider_start_is_fixed_and_domain_separated_from_subscriptions() {
+        let params = json!({"instanceId":INSTANCE,"operationId":"refresh","expectedRevision":7});
+        let provider =
+            parse_provider_refresh_start(&request("routing.refresh_providers", params.clone()))
+                .unwrap();
+        let subscription =
+            parse_refresh_all_start(&request("subscriptions.refresh_all", params.clone())).unwrap();
+        assert!(provider.digest() != subscription.digest());
+        for extra in ["names", "provider", "url", "path", "timeout", "method"] {
+            let mut params = params.clone();
+            params[extra] = json!("private");
+            assert!(
+                parse_provider_refresh_start(&request("routing.refresh_providers", params))
+                    .is_err()
+            );
+        }
+        assert_eq!(LongOperationMethod::RuleProviderRefresh.maximum(), 256);
+        assert_eq!(LongOperationMethod::SubscriptionRefreshAll.maximum(), 64);
+    }
+
+    #[test]
     fn ids_revision_types_and_exact_fields_fail_closed() {
         for params in [
             json!({}),

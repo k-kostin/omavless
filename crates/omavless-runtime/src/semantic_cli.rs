@@ -197,7 +197,8 @@ fn long_request(
     revision: Option<&str>,
 ) -> Result<SemanticRequest, SemanticCliError> {
     use crate::long_operation_protocol::{
-        parse_operation_cancel, parse_operation_get, parse_refresh_all_start,
+        parse_operation_cancel, parse_operation_get, parse_provider_refresh_start,
+        parse_refresh_all_start,
     };
     let mut params = json!({"instanceId": instance, "operationId": operation});
     if let Some(revision) = revision {
@@ -211,6 +212,7 @@ fn long_request(
         .map_err(|_| SemanticCliError::InvalidArgument)?;
     match method {
         "subscriptions.refresh_all" => parse_refresh_all_start(&request).map(|_| ()),
+        "routing.refresh_providers" => parse_provider_refresh_start(&request).map(|_| ()),
         "operations.get" => parse_operation_get(&request).map(|_| ()),
         "operations.cancel" => parse_operation_cancel(&request).map(|_| ()),
         _ => return Err(SemanticCliError::InvalidCommand),
@@ -317,6 +319,21 @@ pub fn parse_semantic_mutation(
         ["subscription", "refresh-all", instance, operation] => {
             long_request("subscriptions.refresh_all", instance, operation, None)
         }
+        ["routing", "refresh-providers", instance, operation] => {
+            long_request("routing.refresh_providers", instance, operation, None)
+        }
+        [
+            "routing",
+            "refresh-providers",
+            instance,
+            operation,
+            revision,
+        ] => long_request(
+            "routing.refresh_providers",
+            instance,
+            operation,
+            Some(revision),
+        ),
         ["subscription", "refresh-all", instance, operation, revision] => long_request(
             "subscriptions.refresh_all",
             instance,

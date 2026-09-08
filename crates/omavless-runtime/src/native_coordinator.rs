@@ -2639,7 +2639,9 @@ mod tests {
             job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default()),
             Ok(crate::provider_refresh::ProviderRefreshStep::Ready)
         );
-        owner.complete_provider_refresh(job, || 9).unwrap();
+        owner
+            .complete_provider_refresh(job, || 9, || Ok(()))
+            .unwrap();
         assert_eq!(owner.revision(), 2);
         assert_eq!(
             serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["rulesUpdatedAt"],
@@ -2665,7 +2667,9 @@ mod tests {
         let mut next = provider_start(&mut owner, &transport, "refresh-two");
         next.step(&transport, &crate::remote_fetch::RemoteFetchPool::default())
             .unwrap();
-        owner.complete_provider_refresh(next, || 1).unwrap();
+        owner
+            .complete_provider_refresh(next, || 1, || Ok(()))
+            .unwrap();
         assert_eq!(
             serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["rulesUpdatedAt"],
             10
@@ -2674,7 +2678,14 @@ mod tests {
     }
     #[test]
     fn provider_owner_failure_cancel_and_stale_snapshot_never_stamp() {
-        for scenario in ["failure", "cancel", "store", "config", "disconnect"] {
+        for scenario in [
+            "failure",
+            "cancel",
+            "store",
+            "config",
+            "disconnect",
+            "identity",
+        ] {
             let (root, path, mut owner, mut transport) = provider_fixture();
             let mut job = provider_start(&mut owner, &transport, "refresh");
             let before = fs::read(&path).unwrap();
@@ -2713,8 +2724,17 @@ mod tests {
                 _ => {}
             }
             let expected = fs::read(&path).unwrap();
-            let _ = owner
-                .complete_provider_refresh(job, || panic!("failed provider job read timestamp"));
+            let _ = owner.complete_provider_refresh(
+                job,
+                || panic!("failed provider job read timestamp"),
+                || {
+                    if scenario == "identity" {
+                        Err(crate::provider_refresh::ProviderRefreshError::Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
             assert!(fs::read(&path).unwrap() == expected);
             assert_eq!(
                 batch_status(&owner, "refresh")["state"],
