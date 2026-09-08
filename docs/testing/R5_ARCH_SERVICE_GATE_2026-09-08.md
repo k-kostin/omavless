@@ -113,3 +113,17 @@ core already exited; no false disconnected report while resources remain;
 ordinary core-only lifecycle still passes. Repeat this real ARM64 service test
 after the owning fix. No untested lifecycle fix was added under the shutdown
 deadline, and the policy PR remains Draft.
+
+### Rejected quick process-group experiment
+
+A subsequent uncommitted experiment used `process_group(0)` at core spawn,
+verified PGID against the unreaped child and signalled the group on stop. Five
+focused core tests passed outside the socket-restricted sandbox, including a
+helper-stop/unrelated-process-preservation regression. However the real native
+service probe first reproduced the residual resolvectl/TUN failure and then
+passed on a repeat. This is insufficient, timing-dependent evidence, not a fix.
+The experiment was removed from source before handoff. No lifecycle code from
+it is committed or proposed for merge. A process-group-only solution therefore
+remains unproven; investigate helper spawning/teardown races and resource
+ownership before choosing the implementation. All temporary services/TUNs were
+cleaned up after both runs.
