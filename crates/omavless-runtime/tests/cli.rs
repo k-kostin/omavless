@@ -14,6 +14,116 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn custom_rule_mutation_cli_keeps_value_in_stdin_and_maps_exact_methods() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        for method in ["routing.custom_rules.add", "routing.custom_rules.delete"] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], method);
+            if method.ends_with("add") {
+                assert_eq!(
+                    request["params"],
+                    serde_json::json!({"kind":"domain","action":"direct","value":"example.invalid\n"})
+                );
+            } else {
+                assert_eq!(
+                    request["params"],
+                    serde_json::json!({"ruleId":"00000000-0000-4000-8000-000000000001"})
+                );
+            }
+            let response = success_response(
+                request["id"].as_str().unwrap(),
+                1,
+                serde_json::json!({"accepted":true}),
+            )
+            .unwrap();
+            write_unary_frame(
+                &mut stream,
+                &encode_response(&response).unwrap(),
+                FrameKind::Response,
+            )
+            .unwrap();
+        }
+    });
+    let mut child = isolated_command(&base)
+        .args(["routing", "rule-add", "domain", "direct"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"example.invalid\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("example.invalid"));
+    assert!(
+        isolated_command(&base)
+            .args([
+                "routing",
+                "rule-delete",
+                "00000000-0000-4000-8000-000000000001"
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    worker.join().unwrap();
+    for arguments in [
+        vec!["routing", "rule-add", "domain", "direct", "private-token"],
+        vec!["routing", "rule-delete", "private-token"],
+    ] {
+        let output = isolated_command(&base).args(arguments).output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+    }
+    let mut child = isolated_command(&base)
+        .args(["routing", "rule-add", "domain", "direct"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&vec![b'x'; 1025])
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn custom_rules_cli_maps_only_fixed_read_and_keeps_private_output_off_stderr() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,

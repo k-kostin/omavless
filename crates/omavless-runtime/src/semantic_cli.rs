@@ -241,6 +241,22 @@ pub fn parse_semantic_mutation(
                 params: json!({"preset":preset,"keepMode":arguments.len()==4}),
             })
         }
+        ["routing", "rule-add", kind, action] => {
+            let value = private_stdin.ok_or(SemanticCliError::MissingInput)?;
+            if value.len() > omavless_domain::routing::MAX_CUSTOM_RULE_VALUE_BYTES {
+                return Err(SemanticCliError::InputTooLarge);
+            }
+            omavless_domain::routing::CustomRule::parse(kind, action, value)
+                .map_err(|_| SemanticCliError::InvalidArgument)?;
+            Ok(SemanticRequest {
+                method: "routing.custom_rules.add",
+                params: json!({"kind":kind,"action":action,"value":value}),
+            })
+        }
+        ["routing", "rule-delete", id] => Ok(SemanticRequest {
+            method: "routing.custom_rules.delete",
+            params: json!({"ruleId":record_id(id)?}),
+        }),
         ["connect", id] => Ok(SemanticRequest {
             method: "connection.connect",
             params: json!({"profileId": record_id(id)?}),

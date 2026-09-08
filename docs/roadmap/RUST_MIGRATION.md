@@ -1190,6 +1190,23 @@ host effects. Marker safety/uncertain restoration and cross-method socket
 rejection supplement the existing synchronous compensation tests. This does
 not promise cross-file atomicity, a recovery journal, or installed cutover.
 
+### Native custom-rule mutation checkpoint (2026-09-07)
+
+The native semantic boundary now includes custom-rule add/delete, preserving
+canonical matching, ordering, duplicate/capacity rejection and complete private
+store normalization. Exact IPC and fixed stdin-based CLI reuse the one owner's
+revision/replay/ownership fences, private atomic writer and active replacement
+compensation. No parallel lifecycle owner or direct QML store mutation is added.
+
+An effect-isolated oracle runs actual Python `save_custom_rule` and
+`delete_custom_rule`; 32 synthetic positive/negative/boundary cases compare full
+normalized-store digests through bounded stdin. Native transactional recovery
+is deliberately stricter than legacy save-first behavior: it verifies active
+ownership before effects and requires proven original-config recovery after a
+failed candidate, without exposing raw Python/backend errors. Protocol/socket
+and fault tests supplement parity; installed native owner/frontend acceptance
+remains distinct. Python still owns production and remains oracle/rollback.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

@@ -53,6 +53,7 @@ pub enum PrivateStoreError {
     SubscriptionChanged,
     ActiveSubscription,
     SubscriptionSync(SyncError),
+    CustomRuleNotFound,
 }
 
 impl PrivateStoreError {
@@ -78,6 +79,7 @@ impl PrivateStoreError {
             Self::SubscriptionChanged => "subscription_changed",
             Self::ActiveSubscription => "active_subscription",
             Self::SubscriptionSync(error) => error.code(),
+            Self::CustomRuleNotFound => "custom_rule_not_found",
         }
     }
 }
@@ -110,6 +112,7 @@ impl fmt::Display for PrivateStoreError {
                 "Disconnect the active subscribed profile before removing its subscription"
             }
             Self::SubscriptionSync(error) => return error.fmt(formatter),
+            Self::CustomRuleNotFound => "Requested custom routing rule was not found",
         })
     }
 }
@@ -1554,6 +1557,70 @@ pub fn apply_routing_preset(
     Ok(PrivateStoreMutation {
         payload: store.private_payload()?,
         changed,
+    })
+}
+
+/// Private custom-rule intent; generated IDs belong to the serialized owner.
+pub enum CustomRuleMutation {
+    Add {
+        kind: String,
+        action: String,
+        value: String,
+    },
+    Delete {
+        rule_id: String,
+    },
+}
+
+/// Preserve Python add/delete semantics without filesystem or lifecycle effects.
+pub fn apply_custom_rule_mutation(
+    input: &str,
+    mutation: CustomRuleMutation,
+    generated_id: &str,
+) -> Result<PrivateStoreMutation, PrivateStoreError> {
+    let mut store = parse_private_store(input)?;
+    let rules = store.document["customRules"]
+        .as_array_mut()
+        .ok_or(PrivateStoreError::InvalidShape)?;
+    match mutation {
+        CustomRuleMutation::Add {
+            kind,
+            action,
+            value,
+        } => {
+            let rule =
+                CustomRule::parse(&kind, &action, &value).map_err(PrivateStoreError::Routing)?;
+            if rules.len() >= crate::routing::MAX_CUSTOM_RULES {
+                return Err(PrivateStoreError::Routing(RoutingError::TooManyRules));
+            }
+            if rules
+                .iter()
+                .any(|existing| existing["kind"] == kind && existing["value"] == rule.value)
+            {
+                return Err(PrivateStoreError::Routing(RoutingError::DuplicateRule));
+            }
+            if !valid_record_id(generated_id) || rules.iter().any(|rule| rule["id"] == generated_id)
+            {
+                return Err(PrivateStoreError::InvalidShape);
+            }
+            rules.push(serde_json::json!({"id":generated_id,"kind":kind,"value":rule.value,"action":action}));
+        }
+        CustomRuleMutation::Delete { rule_id } => {
+            if !valid_record_id(&rule_id) {
+                return Err(PrivateStoreError::InvalidShape);
+            }
+            let before = rules.len();
+            rules.retain(|rule| rule["id"] != rule_id);
+            if before == rules.len() {
+                return Err(PrivateStoreError::CustomRuleNotFound);
+            }
+        }
+    }
+    let candidate =
+        serde_json::to_string(&store.document).map_err(|_| PrivateStoreError::InvalidJson)?;
+    Ok(PrivateStoreMutation {
+        payload: parse_private_store(&candidate)?.private_payload()?,
+        changed: true,
     })
 }
 

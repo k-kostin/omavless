@@ -91,6 +91,23 @@ pub(crate) fn prepare_startup_preferences(
     Ok(PreparedProfileMutation { prepared })
 }
 
+pub(crate) fn prepare_custom_rule_mutation(
+    store_path: &Path,
+    uid: u32,
+    mutation: omavless_domain::private_store::CustomRuleMutation,
+    generated_id: &str,
+) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        let result = omavless_domain::private_store::apply_custom_rule_mutation(
+            input,
+            mutation,
+            generated_id,
+        )?;
+        Ok((result.payload().to_vec(), result.changed))
+    })?;
+    Ok(PreparedProfileMutation { prepared })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
