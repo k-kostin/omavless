@@ -72,6 +72,68 @@ fn support_export_cli_sends_only_fixed_read_and_rejects_destination_arguments() 
 }
 
 #[test]
+fn onboarding_cli_sends_only_fixed_completion_and_rejects_extra_args() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "onboarding.complete");
+        assert_eq!(request["params"], serde_json::json!({}));
+        let response = success_response(
+            request["id"].as_str().unwrap(),
+            1,
+            serde_json::json!({"accepted":true}),
+        )
+        .unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let output = isolated_command(&base)
+        .args(["onboarding", "complete"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["result"],
+        serde_json::json!({"accepted":true})
+    );
+    worker.join().unwrap();
+    for args in [
+        vec!["onboarding", "reset"],
+        vec!["onboarding", "complete", "private-token"],
+    ] {
+        let output = isolated_command(&base).args(args).output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn custom_rule_mutation_cli_keeps_value_in_stdin_and_maps_exact_methods() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,

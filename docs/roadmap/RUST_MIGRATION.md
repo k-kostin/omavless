@@ -1119,6 +1119,16 @@ installed frontend/cutover acceptance is inferred. Remaining routing mutations,
 provider refresh/check, frontend composition and R6 are still pending. Python
 remains the reference and rollback; it cannot be removed yet.
 
+### Native onboarding completion checkpoint
+
+`onboarding.complete` / `onboarding complete` now supplies the store-only
+first-use completion action through the shared native owner. Actual Python
+command parity and exact private socket/CLI gates are described in
+[`R5_ONBOARDING_COMPLETION.md`](../testing/R5_ONBOARDING_COMPLETION.md).
+No-op/replay avoids duplicate writes, interrupted preset recovery blocks
+admission, and no host observation or connection/startup transition is made.
+Python still owns the installed onboarding frontend until cutover.
+
 ### Client-side desktop helper checkpoint (2026-09-07)
 
 The fixed native `desktop` CLI now supplies bounded clipboard/file acquisition,

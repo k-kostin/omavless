@@ -11,6 +11,7 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
+mod onboarding;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 
@@ -1973,6 +1974,48 @@ mod tests {
             } => (cached, outcome),
             _ => panic!("native mutation was not successfully applied"),
         }
+    }
+
+    #[test]
+    fn onboarding_completion_never_touches_connected_intent_or_host() {
+        let (root, store_path, mut owner) = fixture("onboarding-connected");
+        applied(
+            owner
+                .execute_connection(connect("initial-connect", 0))
+                .unwrap(),
+        );
+        let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        store["onboardingComplete"] = json!(false);
+        fs::write(&store_path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let desired = fs::read(root.join("state/omavless/desired.json")).unwrap();
+        let calls = owner.host().calls;
+        let request = profile_request(
+            "onboarding.complete",
+            json!({"operationId":"completion","expectedRevision":1}),
+        );
+        let (cached, _) = applied(owner.execute_onboarding(&request).unwrap());
+        assert_eq!(cached.revision, 2);
+        assert_eq!(owner.host().calls, calls);
+        assert_eq!(
+            fs::read(root.join("state/omavless/desired.json")).unwrap(),
+            desired
+        );
+        assert_eq!(owner.actual(), ActualState::Connected);
+        assert_eq!(
+            owner.execute_onboarding(&request).unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        let (no_change, _) = applied(
+            owner
+                .execute_onboarding(&profile_request("onboarding.complete", json!({})))
+                .unwrap(),
+        );
+        assert_eq!(no_change.revision, 2);
+        let written: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        store["onboardingComplete"] = json!(true);
+        assert!(written == store);
+        assert_eq!(owner.host().calls, calls);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

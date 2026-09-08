@@ -756,6 +756,24 @@ See [the support checkpoint](../testing/R5_SUPPORT_DIAGNOSTICS.md) for the Pytho
 subset differential and fields still awaiting migration. This is distinct from
 live-rule `diagnostics.summary` and cannot replace full host diagnostics yet.
 
+### Onboarding completion
+
+`onboarding.complete` accepts only optional `operationId` and
+`expectedRevision`. The fixed CLI is `omavless onboarding complete`; no caller
+boolean, reset, path, profile or startup policy is accepted. Only an exact
+committed native owner advertises it. Success is `{"accepted":true}` and sets
+only the normalized private store's `onboardingComplete` flag. Already complete
+is a semantic no-op with no write or revision bump. Exact replay returns the
+cached result; stale revisions, shared operation-ID collisions, revoked
+ownership and the durable preset recovery barrier retain ordinary semantics.
+
+The shared migration lock spans strict store validation, compare-before-write
+and compensation. An uncertain changed write restores exact original bytes;
+unprovable restoration blocks all mutations with `manual_recovery_required`.
+There is no host observation, core restart, desired-state mutation or login
+activation. Python's installed onboarding remains unchanged until the bridge
+cutover; this method adds no UI reset or generic settings-write API.
+
 ### Host readiness
 
 Rust migration adds a semantic host-readiness boundary without exposing package

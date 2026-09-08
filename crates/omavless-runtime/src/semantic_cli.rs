@@ -248,6 +248,10 @@ pub fn parse_semantic_mutation(
 ) -> Result<SemanticRequest, SemanticCliError> {
     let arguments = utf8(arguments)?;
     match arguments.as_slice() {
+        ["onboarding", "complete"] => Ok(SemanticRequest {
+            method: "onboarding.complete",
+            params: json!({}),
+        }),
         ["routing", "preset", preset] | ["routing", "preset", preset, "keep-mode"] => {
             if !matches!(
                 *preset,
@@ -746,6 +750,24 @@ mod tests {
         ] {
             let args: Vec<_> = args.into_iter().map(OsString::from).collect();
             assert!(parse_semantic_read(&args).unwrap().is_none());
+        }
+    }
+    #[test]
+    fn onboarding_command_has_no_reset_flags_or_private_input() {
+        let (method, params) = parse_semantic_mutation(&args(&["onboarding", "complete"]), None)
+            .unwrap()
+            .into_parts();
+        assert_eq!(method, "onboarding.complete");
+        assert_eq!(params, json!({}));
+        for arguments in [
+            &["onboarding"][..],
+            &["onboarding", "reset"],
+            &["onboarding", "complete", "private-token"],
+        ] {
+            let error = parse_semantic_mutation(&args(arguments), None)
+                .err()
+                .expect("bad argv accepted");
+            assert!(!error.to_string().contains("private-token"));
         }
     }
 }

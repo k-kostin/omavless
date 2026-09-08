@@ -69,6 +69,7 @@ fn run() -> Result<(), CliError> {
         println!("  routing rule-add KIND ACTION     read private rule value from stdin");
         println!("  routing rule-delete RULE_ID       remove one custom rule");
         println!("  routing check                    read private domain/IP query from stdin");
+        println!("  onboarding complete              mark first-use setup complete");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );

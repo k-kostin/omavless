@@ -209,15 +209,20 @@ pub fn atomic_create_private(
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn root() -> (PathBuf, u32) {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("omavless-store-{}-{unique}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "omavless-store-{}-{unique}-{sequence}",
+            std::process::id()
+        ));
         fs::create_dir(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
