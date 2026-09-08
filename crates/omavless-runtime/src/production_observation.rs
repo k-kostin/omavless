@@ -8,10 +8,12 @@
 //! or mutate either runtime owner.
 
 use crate::RuntimePaths;
+use crate::core_readiness::ConfigReadiness;
 use crate::cutover::{
     CutoverError, CutoverPaths, CutoverReadiness, MigrationLock, OwnershipMarker,
     OwnershipObservation, evaluate_cutover, read_marker,
 };
+use crate::desired::RoutingMode;
 use nix::unistd::Uid;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
@@ -271,6 +273,7 @@ fn active_config_matches(
     paths: &ProductionObservationPaths,
     uid: u32,
     controller_path: &Path,
+    core_pid: u32,
 ) -> Result<bool, ProductionObservationError> {
     let store_text = read_private_utf8(&paths.store, uid)
         .map_err(|_| ProductionObservationError::PrivateState)?;
@@ -286,9 +289,47 @@ fn active_config_matches(
     let controller = controller_path
         .to_str()
         .ok_or(ProductionObservationError::UnsafePath)?;
-    store
-        .active_config_matches(&template, controller, &active)
-        .map_err(|_| ProductionObservationError::PrivateState)
+    let Some(mode) = store
+        .matched_active_mode(&template, controller, &active)
+        .map_err(|_| ProductionObservationError::PrivateState)?
+    else {
+        return Ok(false);
+    };
+    let mode = match mode.as_str() {
+        "global" => RoutingMode::Global,
+        "rule" => RoutingMode::Rule,
+        "direct" => RoutingMode::Direct,
+        _ => return Ok(false),
+    };
+    let projection = store.list_projection();
+    let Some(profile) = projection
+        .profiles()
+        .iter()
+        .find(|profile| Some(profile.id()) == store.active_profile_id())
+    else {
+        return Ok(false);
+    };
+    if !ConfigReadiness::new(mode, profile.name().to_owned()).ready_for_pid(
+        controller_path,
+        core_pid,
+        Instant::now() + CONTROLLER_TIMEOUT,
+    ) {
+        return Ok(false);
+    }
+    // A result collected while an external writer replaced private state must
+    // never authorize adoption of that replacement. No write or repair here.
+    for (path, before) in [
+        (&paths.store, &store_text),
+        (&paths.template, &template),
+        (&paths.active_config, &active),
+    ] {
+        if read_private_utf8(path, uid).map_err(|_| ProductionObservationError::PrivateState)?
+            != *before
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 pub struct ProductionOwnershipObserver {
@@ -342,6 +383,7 @@ impl ProductionOwnershipObserver {
             service_state_with_timeout(&self.paths.systemctl, RUST_SERVICE, SERVICE_QUERY_TIMEOUT)?;
         let core_pids = processes_named(&self.paths.proc_root, "mihomo");
         let core_count = u8::try_from(core_pids.len()).unwrap_or(u8::MAX);
+        let core_pid = core_pids.first().copied().unwrap_or(0);
         let legacy_family = process_family(legacy.main_pid, &self.paths.proc_root);
         let rust_family = process_family(rust.main_pid, &self.paths.proc_root);
         let exactly_one_legacy_core = legacy.active
@@ -353,12 +395,26 @@ impl ProductionOwnershipObserver {
         let rust_control_present =
             socket_presence(&self.paths.rust_control_socket, self.uid, true)?;
         let active_profile_matches = if exactly_one_legacy_core {
-            active_config_matches(&self.paths, self.uid, &self.paths.legacy_controller)?
+            active_config_matches(
+                &self.paths,
+                self.uid,
+                &self.paths.legacy_controller,
+                core_pid,
+            )?
         } else if exactly_one_rust_core {
-            active_config_matches(&self.paths, self.uid, &self.paths.rust_controller)?
+            active_config_matches(&self.paths, self.uid, &self.paths.rust_controller, core_pid)?
         } else {
             false
         };
+        let active_profile_matches = active_profile_matches
+            && processes_named(&self.paths.proc_root, "mihomo") == core_pids
+            && if exactly_one_legacy_core {
+                process_family(legacy.main_pid, &self.paths.proc_root).contains(&core_pid)
+            } else if exactly_one_rust_core {
+                process_family(rust.main_pid, &self.paths.proc_root).contains(&core_pid)
+            } else {
+                false
+            };
         Ok(OwnershipObservation {
             legacy_owner_active: legacy.active,
             rust_owner_active: rust.active || rust_control_present,
@@ -418,6 +474,10 @@ mod tests {
     use std::io::Write;
     use std::os::unix::fs::symlink;
     use std::os::unix::net::UnixListener;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn root(label: &str) -> (PathBuf, u32) {
@@ -470,6 +530,74 @@ mod tests {
             root,
             "#!/bin/sh\nprintf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'\n",
         )
+    }
+
+    fn configured_controller(
+        listener: UnixListener,
+        mode: &'static str,
+        store: PathBuf,
+    ) -> (Arc<AtomicU8>, thread::JoinHandle<()>) {
+        let stage = Arc::new(AtomicU8::new(0));
+        let serving = Arc::clone(&stage);
+        listener.set_nonblocking(true).unwrap();
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while serving.load(Ordering::Acquire) != 255 && Instant::now() < deadline {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    thread::sleep(Duration::from_millis(1));
+                    continue;
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_millis(500)))
+                    .unwrap();
+                let mut bytes = [0; 1024];
+                let Ok(n) = stream.read(&mut bytes) else {
+                    continue;
+                };
+                if n == 0 {
+                    continue;
+                }
+                let request = std::str::from_utf8(&bytes[..n]).unwrap();
+                assert!(request.starts_with("GET "), "preflight must never mutate");
+                let fault = serving.load(Ordering::Acquire);
+                let payload = if request.starts_with("GET /version ") {
+                    json!({"version":"synthetic"})
+                } else if request.starts_with("GET /configs ") {
+                    json!({"mode": if fault == 1 {"unknown"} else {mode}})
+                } else if request.starts_with("GET /rules ") {
+                    if fault == 2 {
+                        json!({"rules":null})
+                    } else {
+                        json!({"rules":[]})
+                    }
+                } else if request.starts_with("GET /providers/rules ") {
+                    if fault == 3 {
+                        json!({"providers":null})
+                    } else {
+                        json!({"providers":{}})
+                    }
+                } else if request.starts_with("GET /proxies ") {
+                    if fault == 6 {
+                        let text = fs::read_to_string(&store).unwrap();
+                        fs::write(&store, format!("{text}\n")).unwrap();
+                    }
+                    json!({"proxies": {
+                        "Private": {"type":"Vless"},
+                        "PROXY": {"type":"Selector", "now":if fault == 4 {"DIRECT"} else {"Private"}, "all":["Private"]},
+                        "GLOBAL": {"type":"Selector", "now":if fault == 5 {"DIRECT"} else {"PROXY"}, "all":["PROXY"]}
+                    }})
+                } else {
+                    panic!("unexpected preflight endpoint");
+                };
+                let body = payload.to_string();
+                let response = format!(
+                    "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (stage, worker)
     }
 
     #[test]
@@ -651,9 +779,10 @@ mod tests {
         let paths = observer_paths(&root, uid, systemctl);
         let child_task = paths.proc_root.join("42/task/42");
         fs::create_dir_all(&child_task).unwrap();
-        fs::write(child_task.join("children"), "43\n").unwrap();
-        fs::create_dir(paths.proc_root.join("43")).unwrap();
-        fs::write(paths.proc_root.join("43/comm"), "mihomo\n").unwrap();
+        let core_pid = std::process::id().to_string();
+        fs::write(child_task.join("children"), &core_pid).unwrap();
+        fs::create_dir(paths.proc_root.join(&core_pid)).unwrap();
+        fs::write(paths.proc_root.join(&core_pid).join("comm"), "mihomo\n").unwrap();
         fs::create_dir(paths.sys_class_net.join("Meta")).unwrap();
         fs::write(paths.sys_class_net.join("Meta/tun_flags"), "1\n").unwrap();
 
@@ -683,20 +812,23 @@ mod tests {
 
         let listener = UnixListener::bind(&paths.legacy_controller).unwrap();
         fs::set_permissions(&paths.legacy_controller, fs::Permissions::from_mode(0o600)).unwrap();
-        let controller = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 512];
-            let _ = stream.read(&mut request).unwrap();
-            stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"version\":\"synthetic\"}",
-                )
-                .unwrap();
-        });
-        let observation = ProductionOwnershipObserver::new(paths, uid)
-            .unwrap()
-            .observe()
-            .unwrap();
+        let (stage, controller) = configured_controller(listener, "global", paths.store.clone());
+        let observer = ProductionOwnershipObserver::new(paths.clone(), uid).unwrap();
+        let observation = observer.observe().unwrap();
+        for fault in 1..=6 {
+            stage.store(fault, Ordering::Release);
+            let rejected = observer.observe().unwrap();
+            assert!(rejected.legacy_controller_ready);
+            assert!(!rejected.active_profile_matches);
+            assert_ne!(
+                evaluate_cutover(&OwnershipMarker::default(), rejected),
+                CutoverReadiness::ReadyToAdopt
+            );
+            fs::write(&paths.store, &store_text).unwrap();
+        }
+        stage.store(0, Ordering::Release);
+        assert!(observer.observe().unwrap().active_profile_matches);
+        stage.store(255, Ordering::Release);
         controller.join().unwrap();
         assert_eq!(observation.core_count, 1);
         assert_eq!(observation.tun_count, 1);
@@ -732,9 +864,10 @@ mod tests {
         let paths = observer_paths(&root, uid, systemctl);
         let child_task = paths.proc_root.join("52/task/52");
         fs::create_dir_all(&child_task).unwrap();
-        fs::write(child_task.join("children"), "53\n").unwrap();
-        fs::create_dir(paths.proc_root.join("53")).unwrap();
-        fs::write(paths.proc_root.join("53/comm"), "mihomo\n").unwrap();
+        let core_pid = std::process::id().to_string();
+        fs::write(child_task.join("children"), &core_pid).unwrap();
+        fs::create_dir(paths.proc_root.join(&core_pid)).unwrap();
+        fs::write(paths.proc_root.join(&core_pid).join("comm"), "mihomo\n").unwrap();
         fs::create_dir(paths.sys_class_net.join("Meta")).unwrap();
         fs::write(paths.sys_class_net.join("Meta/tun_flags"), "1\n").unwrap();
 
@@ -767,20 +900,12 @@ mod tests {
         fs::set_permissions(rust_runtime, fs::Permissions::from_mode(0o700)).unwrap();
         let listener = UnixListener::bind(&paths.rust_controller).unwrap();
         fs::set_permissions(&paths.rust_controller, fs::Permissions::from_mode(0o600)).unwrap();
-        let controller = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 512];
-            let _ = stream.read(&mut request).unwrap();
-            stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"version\":\"synthetic\"}",
-                )
-                .unwrap();
-        });
+        let (stage, controller) = configured_controller(listener, "rule", paths.store.clone());
         let observation = ProductionOwnershipObserver::new(paths, uid)
             .unwrap()
             .observe()
             .unwrap();
+        stage.store(255, Ordering::Release);
         controller.join().unwrap();
         assert!(observation.rust_owner_active);
         assert!(observation.rust_controller_ready);

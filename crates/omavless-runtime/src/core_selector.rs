@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-//! Startup-only selection of the generated Full VPN topology. No IPC forwarding.
+//! Fixed startup selection and authenticated read-only configured observation.
+//! No IPC forwarding or caller-selected HTTP operation.
 //! The expected profile is private; neither requests nor responses are formatted
-//! in public errors. Ordinary readiness/status reads never invoke this module.
+//! in public errors. Observation can use only the fixed GET helper, never repair.
 
 use nix::sys::socket::{
     AddressFamily, SockFlag, SockType, UnixAddr, connect, getsockopt, socket,
@@ -21,6 +22,8 @@ use std::time::Instant;
 enum Request<'a> {
     Configs,
     Proxies,
+    Rules,
+    Providers,
     Profile(&'a str),
     Global,
 }
@@ -70,6 +73,8 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
     let (method, endpoint, body) = match request {
         Request::Configs => ("GET", "/configs", String::new()),
         Request::Proxies => ("GET", "/proxies", String::new()),
+        Request::Rules => ("GET", "/rules", String::new()),
+        Request::Providers => ("GET", "/providers/rules", String::new()),
         Request::Profile(name) => {
             if name.is_empty() || name.len() > 1024 || name.chars().any(char::is_control) {
                 return None;
@@ -125,6 +130,25 @@ fn selector<'a>(proxies: &'a Value, group: &str, target: &str) -> Option<&'a str
         return None;
     }
     group["now"].as_str()
+}
+
+/// Fixed read-only configured-admission endpoints using the same exact-peer
+/// transport as startup selection. No mutation can be selected by this API.
+pub(crate) fn read_configuration(
+    path: &Path,
+    pid: u32,
+    endpoint: omavless_mihomo::ReadOnlyEndpoint,
+    deadline: Instant,
+) -> Option<Value> {
+    use omavless_mihomo::ReadOnlyEndpoint;
+    let request = match endpoint {
+        ReadOnlyEndpoint::Configs => Request::Configs,
+        ReadOnlyEndpoint::Proxies => Request::Proxies,
+        ReadOnlyEndpoint::Rules => Request::Rules,
+        ReadOnlyEndpoint::RuleProviders => Request::Providers,
+        _ => return None,
+    };
+    exchange(path, pid, request, deadline)
 }
 
 /// One bounded attempt; caller retains the single startup deadline and child

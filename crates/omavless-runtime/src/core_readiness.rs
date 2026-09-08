@@ -58,24 +58,43 @@ impl ConfigReadiness {
     }
 
     pub(crate) fn ready(&self, socket: &Path, deadline: Instant) -> bool {
+        self.ready_with(deadline, |endpoint| {
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let response = controller_get(
+                socket,
+                endpoint,
+                remaining,
+                omavless_mihomo::MAX_CONTROLLER_RESPONSE_BYTES,
+            )
+            .ok()?;
+            (response.status == 200).then_some(response.payload)
+        })
+    }
+
+    pub(crate) fn ready_for_pid(&self, socket: &Path, pid: u32, deadline: Instant) -> bool {
+        self.ready_with(deadline, |endpoint| {
+            crate::core_selector::read_configuration(socket, pid, endpoint, deadline)
+        })
+    }
+
+    fn ready_with(
+        &self,
+        deadline: Instant,
+        mut read: impl FnMut(ReadOnlyEndpoint) -> Option<Value>,
+    ) -> bool {
         for endpoint in [
             ReadOnlyEndpoint::Configs,
             ReadOnlyEndpoint::Rules,
             ReadOnlyEndpoint::RuleProviders,
             ReadOnlyEndpoint::Proxies,
         ] {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            let Some(payload) = read(endpoint) else {
                 return false;
             };
-            let Ok(response) = controller_get(
-                socket,
-                endpoint,
-                remaining,
-                omavless_mihomo::MAX_CONTROLLER_RESPONSE_BYTES,
-            ) else {
-                return false;
-            };
-            if response.status != 200 || !self.matches(endpoint, &response.payload) {
+            if !self.matches(endpoint, &payload) {
                 return false;
             }
         }

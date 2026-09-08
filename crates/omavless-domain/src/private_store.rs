@@ -1475,8 +1475,21 @@ impl PrivateStore {
         controller_socket: &str,
         active_config: &str,
     ) -> Result<bool, PrivateStoreError> {
+        Ok(self
+            .matched_active_mode(template, controller_socket, active_config)?
+            .is_some())
+    }
+
+    /// Return only the validated mode after exact active-config comparison.
+    /// Runtime readiness must not infer mode from an unverified YAML fragment.
+    pub fn matched_active_mode(
+        &self,
+        template: &str,
+        controller_socket: &str,
+        active_config: &str,
+    ) -> Result<Option<String>, PrivateStoreError> {
         if self.active_id.is_empty() || active_config.len() > MAX_TEMPLATE_BYTES {
-            return Ok(false);
+            return Ok(None);
         }
         let mut mode = None;
         for line in active_config.lines() {
@@ -1490,7 +1503,7 @@ impl PrivateStore {
                 continue;
             }
             if mode.is_some() {
-                return Ok(false);
+                return Ok(None);
             }
             let value = raw_value
                 .split_once('#')
@@ -1499,16 +1512,16 @@ impl PrivateStore {
                 .trim_matches(['\'', '"'])
                 .to_ascii_lowercase();
             if !matches!(value.as_str(), "rule" | "global" | "direct") {
-                return Ok(false);
+                return Ok(None);
             }
             mode = Some(value);
         }
         let Some(mode) = mode else {
-            return Ok(false);
+            return Ok(None);
         };
         let expected =
             self.prepare_config_mode(&self.active_id, template, controller_socket, &mode)?;
-        Ok(equivalent_legacy_config(&expected, active_config))
+        Ok(equivalent_legacy_config(&expected, active_config).then_some(mode))
     }
 }
 
@@ -2957,6 +2970,38 @@ mod tests {
         let active = store
             .prepare_config_mode(PROFILE_ID, template, controller, "global")
             .unwrap();
+        for mode in ["global", "rule", "direct"] {
+            let candidate = store
+                .prepare_config_mode(PROFILE_ID, template, controller, mode)
+                .unwrap();
+            assert_eq!(
+                store
+                    .matched_active_mode(template, controller, &candidate)
+                    .unwrap()
+                    .as_deref(),
+                Some(mode)
+            );
+            assert!(
+                store
+                    .matched_active_mode(
+                        template,
+                        controller,
+                        &format!("mode: {mode}\n{candidate}")
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                store
+                    .matched_active_mode(
+                        template,
+                        controller,
+                        &candidate.replace("203.0.113.1", "203.0.113.9")
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+        }
         assert!(
             store
                 .active_config_matches(template, controller, &active)
