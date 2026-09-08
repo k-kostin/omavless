@@ -11,6 +11,7 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
+mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 
 use crate::connection_transaction::{
@@ -1449,6 +1450,13 @@ mod tests {
     }
 
     impl LifecycleHost for FakeHost {
+        fn validate_startup(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
+            if self.fail_stop {
+                Err(HostStepError::Prepare)
+            } else {
+                Ok(())
+            }
+        }
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
             self.calls += 1;
             Ok(self.observation)
@@ -1619,6 +1627,73 @@ mod tests {
             } => (cached, outcome),
             _ => panic!("native mutation was not successfully applied"),
         }
+    }
+
+    #[test]
+    fn startup_policy_preserves_active_intent_and_shares_replay_revision() {
+        let (root, store_path, mut owner) = fixture("startup-policy");
+        applied(
+            owner
+                .execute_connection(connect("startup-connect", 0))
+                .unwrap(),
+        );
+        let before_desired = fs::read(root.join("state/omavless/desired.json")).unwrap();
+        let calls = owner.host().calls;
+        let request = profile_request(
+            "startup.configure",
+            json!({"enabled":true,"target":"last","profileId":"","mode":"rule","operationId":"startup-policy","expectedRevision":1}),
+        );
+        let (cached, _) = applied(owner.execute_startup(&request).unwrap());
+        assert_eq!(cached.revision, 2);
+        assert_eq!(owner.host().calls, calls);
+        assert_eq!(
+            fs::read(root.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        let store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        assert_eq!(store["startup"]["enabled"], true);
+        assert_eq!(
+            owner.execute_startup(&request).unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        let mut same = request.clone();
+        same["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("operationId");
+        same["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("expectedRevision");
+        let (unchanged, outcome) = applied(owner.execute_startup(&same).unwrap());
+        assert_eq!(unchanged.revision, 2);
+        assert_eq!(
+            outcome,
+            NativeMutationOutcome::Profile(ProfileMutationOutcome { changed: false })
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_invalid_preflight_preserves_store_and_desired() {
+        let (root, store_path, mut owner) = fixture("startup-rejected");
+        let before = fs::read(&store_path).unwrap();
+        owner.host_mut().fail_stop = true;
+        let request = profile_request(
+            "startup.configure",
+            json!({"enabled":true,"target":"last","profileId":"","mode":"rule"}),
+        );
+        assert!(matches!(
+            owner.execute_startup(&request).unwrap(),
+            NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(owner.host().calls, 0);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -80,6 +80,17 @@ pub(crate) fn prepare_profile_import(
     Ok(PreparedProfileMutation { prepared })
 }
 
+pub(crate) fn prepare_startup_preferences(
+    store_path: &Path,
+    uid: u32,
+    preferences: &omavless_domain::private_store::StartupPreferences,
+) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        omavless_domain::private_store::apply_startup_preferences(input, preferences)
+    })?;
+    Ok(PreparedProfileMutation { prepared })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

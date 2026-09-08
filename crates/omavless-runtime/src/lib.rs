@@ -60,6 +60,8 @@ pub mod profile_transaction;
 pub mod remote_fetch;
 pub mod routing_read_protocol;
 pub mod semantic_cli;
+pub mod startup_protocol;
+mod startup_validation;
 pub mod store_bootstrap;
 pub mod store_preflight;
 pub mod subscription_batch_work;
