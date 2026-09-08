@@ -377,6 +377,13 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.coordinator.diagnostic_snapshot()
     }
 
+    pub(crate) fn route_plan(
+        &mut self,
+        request: &Value,
+    ) -> Result<crate::route_probe::Plan, NativeOwnerError> {
+        self.coordinator.route_plan(request)
+    }
+
     pub(crate) fn check_route(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_route_check(&mut self.coordinator, request)
     }

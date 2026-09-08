@@ -53,6 +53,10 @@ impl std::error::Error for HostStepError {}
 /// adapter. Inputs are semantic desired state; there is no arbitrary argv,
 /// shell, service, or privileged-command surface.
 pub trait LifecycleHost {
+    /// Fixed-purpose attribution only; never supplied by an IPC caller.
+    fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
+        None
+    }
     /// Validate future login preparation without staging/replacing the active
     /// connection. Hosts must opt in; unsupported readiness fails closed.
     fn validate_startup(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {

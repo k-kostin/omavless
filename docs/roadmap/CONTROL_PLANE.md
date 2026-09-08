@@ -789,14 +789,40 @@ outcomes, rule payloads and all other fields remain exact comparisons.
 Result query and matching custom-rule payload are explicitly private local UI
 data, not diagnostic/log/export fields. Errors never echo the query.
 
-Connected Routing-mode queries without a custom-rule match return
-`capability_unavailable`, not a guessed match or a fabricated unknown result.
-The legacy live probe is not registered by this checkpoint: its multiple
-controller snapshots plus probe/polling exceed the five-second unary contract,
-and unrelated rule hit timestamps are insufficient per-query attribution. A
-future bounded operation must define cancellation, exact-owner/revision fencing,
-private destination handling and reliable attribution before registering that
-remaining path. No generic URL fetch, socket path or shell command is accepted.
+Connected Routing-mode queries without a custom-rule match use a bounded native
+observation only when the committed owner can prove its live core identity and
+the accepted local proxy connection. Otherwise they return
+`capability_unavailable`, never a guessed match. This does not change the pure
+fast paths above. See [route observation acceptance](../testing/R5_ROUTE_OBSERVATION.md).
+
+The detached operation shares the four-work admission cap with other bounded
+controller/provider work and has a three-second total deadline. No controller or
+TCP I/O holds the owner mutex or migration lease. Revision, exact desired state,
+private-store bytes, active-config bytes, owned PID and private redaction inputs
+are snapshotted and rechecked before publishing. Changed state discards the
+result. Urgent disconnect is not held behind probe I/O; dropping the probe closes
+it on every completion/error, with expiry providing bounded cancellation.
+
+Only the fixed private Unix controller is used, with same-user permissions and
+SO_PEERCRED UID/PID matching the parent-owned core. The mixed port is read from
+that controller, never supplied by a client. After connecting to IPv4 loopback,
+the runtime proves the server-side established TCP tuple belongs to that PID
+using bounded proc inode evidence **before sending the query**. Unreadable proc
+evidence fails closed. Installed file capabilities currently prevent that proof
+on this guest; #178's packaging/ownership gate remains independent. No production
+binary copying, capability removal or security relaxation is permitted.
+
+The only sent bytes are a fixed HTTP CONNECT and Host for the canonical query at
+port 443. There is no TLS/application body, arbitrary URL, caller port, socket
+path, header or command. Controller connections must match source/inbound
+loopback addresses, source/inbound ports, destination/443, TCP and HTTPS-CONNECT
+type. Destination-only matches and global rule hit counters are not evidence.
+Ambiguous/unknown chains, oversized observations and unobserved short-lived
+rejects fail closed. Public policy categories are DIRECT, REJECT or generated
+PROXY; raw chains, process data and connection IDs are never returned. Rule text
+is bounded/redacted; query remains explicit private UI data, never shareable
+diagnostics. The legacy Python reference's unsafe global-hit fallback is removed
+in the same checkpoint, rather than preserved as a migration oracle bug.
 
 ### Shareable native configuration report
 

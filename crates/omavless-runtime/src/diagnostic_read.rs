@@ -67,6 +67,16 @@ fn read(
     endpoint: ReadOnlyEndpoint,
     deadline: Instant,
 ) -> Result<Value, StableErrorCode> {
+    read_owned(path, uid, endpoint, deadline, None)
+}
+
+pub(crate) fn read_owned(
+    path: &Path,
+    uid: u32,
+    endpoint: ReadOnlyEndpoint,
+    deadline: Instant,
+    expected_pid: Option<u32>,
+) -> Result<Value, StableErrorCode> {
     let unavailable = StableErrorCode::CapabilityUnavailable;
     let parent = path.parent().ok_or(unavailable)?;
     let directory = fs::symlink_metadata(parent).map_err(|_| unavailable)?;
@@ -95,10 +105,9 @@ fn read(
     )
     .map_err(|_| unavailable)?;
     let mut stream = UnixStream::from(fd);
-    if getsockopt(&stream, PeerCredentials)
-        .map_err(|_| unavailable)?
-        .uid()
-        != uid
+    let peer = getsockopt(&stream, PeerCredentials).map_err(|_| unavailable)?;
+    if peer.uid() != uid
+        || expected_pid.is_some_and(|pid| u32::try_from(peer.pid()).ok() != Some(pid))
     {
         return Err(unavailable);
     }

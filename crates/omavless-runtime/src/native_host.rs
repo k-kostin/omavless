@@ -273,6 +273,16 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
+        use sha2::{Digest, Sha256};
+        let core = self.core.as_mut()?;
+        if !core.running().ok()? {
+            return None;
+        }
+        let pid = core.pid()?;
+        let config = self.read_previous_config().ok()??;
+        Some((pid, Sha256::digest(config).into()))
+    }
     fn validate_startup(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
         crate::startup_validation::validate(&self.paths, self.uid, desired)
     }

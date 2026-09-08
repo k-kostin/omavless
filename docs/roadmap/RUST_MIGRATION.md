@@ -1241,11 +1241,25 @@ The independent `routing.check` checkpoint ports exact mode/custom-rule/
 disconnected outcomes using the canonical private store and ordered rules.
 It adds fixed stdin-only CLI syntax, private Unix semantic dispatch, owner
 revocation checks and a digest-only actual-Python differential oracle. The
-production plugin/backend remains unchanged. Connected unmatched live probes,
+production plugin/backend remains unchanged at that checkpoint. Connected unmatched live probes,
 latency scheduling and TUN traffic collection remain separate migration gates;
 this checkpoint must not be called complete route-check parity or Python
 retirement. Scoped IPv6 is deliberately fail-closed rather than accepting a
 client-selected host interface.
+
+### Native exact-attribution Routing observation checkpoint
+
+The follow-up [bounded live observation](../testing/R5_ROUTE_OBSERVATION.md)
+implements the connected/unmatched Rule path with exact held-probe TCP tuple
+attribution, owned controller PID and accepted-socket inode proof, three-second
+detached work, and desired/store/config/revision revalidation. It also corrects
+the Python reference's unsafe global hit-counter and destination-only fallback.
+Pure fast paths remain unchanged. This is not production cutover or complete
+Routing acceptance: current installed file-capability/proc visibility makes the
+native live path unavailable unless ownership proof is possible; #178 remains a
+separate packaging gate. Synthetic no-TUN gates must not be reported as private
+VPN interoperability evidence. Latency scheduling and TUN telemetry remain
+separate migration work.
 
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 

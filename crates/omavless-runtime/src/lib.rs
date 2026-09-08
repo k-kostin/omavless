@@ -68,6 +68,7 @@ pub mod profile_transaction;
 pub mod provider_refresh;
 pub mod remote_fetch;
 mod route_check_protocol;
+mod route_probe;
 mod routing_preset;
 pub mod routing_read_protocol;
 pub mod semantic_cli;
@@ -277,6 +278,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn route_plan(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<route_probe::Plan, StableErrorCode>;
     fn support_report(
         &mut self,
         request: &Value,
@@ -522,6 +527,14 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn route_plan(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<route_probe::Plan, StableErrorCode> {
+        self.owner
+            .route_plan(request)
+            .map_err(|error| error.stable_code())
+    }
     fn diagnostic_snapshot(&mut self) -> std::result::Result<Vec<String>, StableErrorCode> {
         self.owner
             .diagnostic_snapshot()
@@ -1046,6 +1059,9 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        if request["method"] == "routing.check" {
+            return self.dispatch_route_check(request);
+        }
         if diagnostic_read::METHODS.contains(&request["method"].as_str().unwrap_or("")) {
             return self.dispatch_diagnostics(request);
         }
@@ -1084,6 +1100,76 @@ impl RuntimeServer {
             RuntimeDispatcher::Native(owner) => {
                 dispatch_native(request, &self.instance_id, owner.as_mut())
             }
+        }
+    }
+
+    fn dispatch_route_check(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let deadline = std::time::Instant::now() + route_probe::DEADLINE;
+        let (revision, context) = {
+            let mut dispatcher = match self.dispatcher.try_lock() {
+                Ok(owner) => owner,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    return error_response(id, 0, StableErrorCode::Busy, true, None);
+                }
+                Err(_) => {
+                    return error_response(id, 0, StableErrorCode::InternalError, false, None);
+                }
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return dispatch_read_only(request, &self.instance_id);
+            };
+            let revision = owner.revision();
+            match owner.route_plan(request) {
+                Ok(route_probe::Plan::Fast(value)) => return success_response(id, revision, value),
+                Ok(route_probe::Plan::Live(context)) => (revision, context),
+                Err(code) => {
+                    return error_response(id, revision, code, code == StableErrorCode::Busy, None);
+                }
+            }
+        };
+        let Some(_permit) = self.remote_fetches.try_acquire() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let collected = route_probe::collect(&self.paths.directory, self.uid, &context, deadline);
+        let mut dispatcher = match self.dispatcher.try_lock() {
+            Ok(owner) => owner,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return error_response(id, revision, StableErrorCode::Busy, true, None);
+            }
+            Err(_) => {
+                return error_response(id, revision, StableErrorCode::InternalError, false, None);
+            }
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        let current = owner.revision();
+        if current != revision {
+            return error_response(id, current, StableErrorCode::Conflict, true, None);
+        }
+        match owner.route_plan(request) {
+            Ok(route_probe::Plan::Live(now)) if now == context => (),
+            Err(code) => {
+                return error_response(id, current, code, code == StableErrorCode::Busy, None);
+            }
+            _ => return error_response(id, current, StableErrorCode::Conflict, true, None),
+        }
+        if std::time::Instant::now() >= deadline {
+            return error_response(id, current, StableErrorCode::CoreRejected, false, None);
+        }
+        match collected {
+            Ok(value) => success_response(id, current, value),
+            Err(code) => error_response(id, current, code, false, None),
         }
     }
 
@@ -1536,6 +1622,7 @@ mod tests {
     struct FakeHost {
         observation: OwnedObservation,
         calls: Arc<AtomicUsize>,
+        route_config: Option<std::path::PathBuf>,
     }
 
     struct BlockingTransport {
@@ -1580,6 +1667,13 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
+            use sha2::{Digest, Sha256};
+            Some((
+                std::process::id(),
+                Sha256::digest(fs::read(self.route_config.as_ref()?).ok()?).into(),
+            ))
+        }
         fn observe(
             &mut self,
             _desired: &DesiredState,
@@ -1759,6 +1853,18 @@ mod tests {
         CutoverPaths,
         Arc<AtomicUsize>,
     ) {
+        owner_fixture_with_route(base, phase, false)
+    }
+
+    fn owner_fixture_with_route(
+        base: &Path,
+        phase: OwnershipPhase,
+        route: bool,
+    ) -> (
+        production_owner::ProductionNativeOwner<FakeHost>,
+        CutoverPaths,
+        Arc<AtomicUsize>,
+    ) {
         let runtime = base.join("runtime");
         let state = base.join("state");
         let config = base.join("config");
@@ -1800,6 +1906,13 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            route_config: if route {
+                let path = config.join("route.yaml");
+                fs::write(&path, b"synthetic-config").unwrap();
+                Some(path)
+            } else {
+                None
+            },
             observation: OwnedObservation {
                 service_active: false,
                 controller_ready: false,
@@ -4076,6 +4189,106 @@ mod tests {
         assert_eq!(revoked["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn detached_route_observation_rechecks_store_desired_config_and_owner() {
+        use std::io::{Read, Write};
+        for change in ["store", "desired", "config", "owner", "disconnect"] {
+            let base = temporary_base("route-fence");
+            let (owner, cutover, _calls) =
+                owner_fixture_with_route(&base, OwnershipPhase::Rust, true);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(4)).unwrap());
+            assert_eq!(
+                call(
+                    &paths,
+                    "connection.connect",
+                    json!({"profileId":PROFILE_ID})
+                )
+                .unwrap()["ok"],
+                true
+            );
+            let socket = paths.directory.join("mihomo.sock");
+            let controller = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            let (started, waiting) = std::sync::mpsc::channel();
+            let (release, released) = std::sync::mpsc::channel();
+            let http = thread::spawn(move || {
+                let (mut stream, _) = controller.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut bytes = [0; 512];
+                assert!(stream.read(&mut bytes).unwrap() > 0);
+                started.send(()).unwrap();
+                released.recv_timeout(Duration::from_secs(3)).unwrap();
+                let body = b"{\"mixed-port\":0,\"mode\":\"rule\"}";
+                write!(
+                    stream,
+                    "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+            });
+            let query_paths = paths.clone();
+            let query = thread::spawn(move || {
+                call(
+                    &query_paths,
+                    "routing.check",
+                    json!({"query":"never-sent.example"}),
+                )
+                .unwrap()
+            });
+            waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+            // Status remains admitted while the controller is deliberately blocked.
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            match change {
+                "store" => {
+                    let path = base.join("config/profiles.json");
+                    let mut store: Value =
+                        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    store["onboardingComplete"] = json!(false);
+                    fs::write(path, serde_json::to_vec(&store).unwrap()).unwrap();
+                }
+                "desired" => {
+                    let desired_paths = DesiredPaths::below(&base.join("state"));
+                    let mut desired =
+                        crate::desired::read_desired(&desired_paths, Uid::current().as_raw())
+                            .unwrap();
+                    desired.connected = false;
+                    desired.profile_id.clear();
+                    write_desired(&desired_paths, Uid::current().as_raw(), &desired).unwrap();
+                }
+                "config" => fs::write(base.join("config/route.yaml"), b"changed").unwrap(),
+                "owner" => write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2),
+                "disconnect" => {
+                    assert_eq!(
+                        call(&paths, "connection.disconnect", json!({})).unwrap()["ok"],
+                        true
+                    );
+                }
+                _ => unreachable!(),
+            }
+            release.send(()).unwrap();
+            let response = query.join().unwrap();
+            let expected = if matches!(change, "owner" | "desired") {
+                "capability_unavailable"
+            } else {
+                "conflict"
+            };
+            assert_eq!(response["error"]["code"], expected, "{change}");
+            assert!(!response.to_string().contains("never-sent.example"));
+            if change != "disconnect" {
+                let _ = call(&paths, "connection.disconnect", json!({})).unwrap();
+            }
+            http.join().unwrap();
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]
