@@ -37,6 +37,49 @@ fn private_directory(root: &Path, name: &str) -> PathBuf {
     path
 }
 
+fn check_production_observation(root: &Path, host: &NativeLifecycleHost) {
+    use omavless_runtime::production_observation::{
+        ProductionObservationPaths, ProductionOwnershipObserver,
+    };
+    let core_pid = host.core_pid().unwrap().to_string();
+    let owner = std::process::id().to_string();
+    let proc_root = root.join("proc");
+    let owner_dir = proc_root.join(&owner);
+    let core_dir = proc_root.join(&core_pid);
+    let task = owner_dir.join("task").join(&owner);
+    fs::create_dir_all(&task).unwrap();
+    fs::write(task.join("children"), &core_pid).unwrap();
+    fs::create_dir(&core_dir).unwrap();
+    fs::write(core_dir.join("comm"), "mihomo\n").unwrap();
+    let systemctl = root.join("synthetic-systemctl");
+    fs::write(&systemctl, format!("#!/bin/sh\ncase \"$3\" in\nomavless-runtime.service) printf 'ActiveState=active\\nMainPID={owner}\\nExecMainStatus=0\\nResult=success\\n';;\nomavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n';;\n*) exit 1;;\nesac\n")).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+    let config = root.join("config");
+    let runtime = root.join("runtime");
+    let paths = ProductionObservationPaths {
+        systemctl,
+        config_directory: config.clone(),
+        runtime_base: runtime.clone(),
+        proc_root,
+        sys_class_net: root.join("sys-class-net"),
+        legacy_controller: runtime.join("absent-legacy.sock"),
+        rust_controller: runtime.join("mihomo.sock"),
+        rust_control_socket: runtime.join("control.sock"),
+        store: config.join("profiles.json"),
+        template: config.join("route-template.yaml"),
+        active_config: config.join("config.yaml"),
+    };
+    let result = ProductionOwnershipObserver::new(paths, Uid::current().as_raw())
+        .unwrap()
+        .observe()
+        .unwrap();
+    assert!(result.rust_controller_ready && result.active_profile_matches);
+    assert_eq!(result.core_count, 1);
+    assert_eq!(result.tun_count, 0);
+    fs::remove_dir_all(owner_dir).unwrap();
+    fs::remove_dir_all(core_dir).unwrap();
+}
+
 #[test]
 fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     let Some(core) = configured_core() else {
@@ -51,7 +94,7 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     let store = format!(
         r#"{{
           "version": 3,
-          "activeId": "",
+          "activeId": "{PROFILE_ID}",
           "lastId": "{PROFILE_ID}",
           "profiles": [{{
             "id": "{PROFILE_ID}",
@@ -172,6 +215,7 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     assert!(!mismatch.controller_ready && !mismatch.active_profile_matches);
 
     host.commit_prepared().unwrap();
+    check_production_observation(&root, &host);
     let active = fs::read_to_string(config.join("config.yaml")).unwrap();
     assert!(active.contains("\nmode: direct\n"));
     assert!(active.contains("external-controller-unix:"));
@@ -223,6 +267,7 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
         assert_eq!(health.core_count, 1);
         assert_eq!(health.tun_count, 0);
         host.commit_prepared().unwrap();
+        check_production_observation(&root, &host);
         host.stop_owned().unwrap();
         host.discard_prepared().unwrap();
         assert!(!root.join("runtime/mihomo.sock").exists());

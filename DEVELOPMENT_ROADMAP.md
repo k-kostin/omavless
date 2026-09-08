@@ -776,8 +776,10 @@ The [configured-readiness checkpoint](docs/testing/R5_CONFIGURED_READINESS.md)
 adds native-host mode/selector admission and whole-request controller deadlines.
 It does not equate `/version` with loaded configuration. Its startup-only
 continuation repairs Full VPN selector choices through the owned child's Unix
-controller, while observation remains read-only. Production preflight and the
-packaged host gate remain #183/#178 follow-ups; Python is still installed owner.
+controller, while observation remains read-only. Production preflight now checks
+the same configured predicate before adoption, with exact peer and stale-state
+refusal. Packaged host acceptance remains a #183/#178 follow-up; Python is still
+the installed owner.
 
 The current QML -> `backend.py` path remains the only production owner until an
 executed transactional cutover and plugin bridge pass the acceptance gates

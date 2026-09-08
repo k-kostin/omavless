@@ -22,10 +22,9 @@ not only possession of an owned child and matching stored ID.
 The native observation remains read-only. The startup-only continuation below
 repairs a wrong Full VPN selector choice before admission. Python's corrective
 selection remains intact; packaged Full VPN acceptance remains a follow-up
-gate before cutover. Likewise,
-production preflight/adoption observation still reports controller liveness,
-not this stronger native-host admission fact. Keep #183 open for consolidation
-with those gates; #178 remains a separate host-capability blocker.
+gate before cutover. The configured-preflight continuation below now applies
+the same read-only predicate to active-profile adoption admission. Keep #183
+open for packaged host acceptance; #178 remains a separate capability blocker.
 
 Rule/Direct custom templates may omit PROXY; if PROXY exists it must be the
 expected selector and point at the selected profile. Global requires both
@@ -121,3 +120,45 @@ serve a real version shape instead of relying on the bug. Accepted native
 supervisor semantics are the reference; Python's installed owner is unchanged.
 This is liveness only: it does not complete configured preflight/adoption proof
 or close #183/#178, activate cutover or allow Python removal.
+
+## Configured preflight/adoption continuation (2026-09-08)
+
+`activeProfileMatches` now requires the same loaded mode, selected-member and
+initialized rules/providers predicate as native startup, in addition to the
+existing canonical active-config comparison and exact process-family checks.
+`legacyControllerReady`/`rustControllerReady` remain version-liveness fields;
+do not interpret either field alone as permission to adopt. The public schema
+is unchanged and a mismatch simply blocks adoption. No repair/PUT occurs here.
+
+The domain comparison now returns the matched mode through a bounded accessor;
+the old boolean accessor delegates to it unchanged. The mode is released only
+after canonical config equivalence, including existing duplicate/invalid-mode
+and credential/config mismatch refusal. The selected display name comes from
+the same validated private-store snapshot and never enters public output.
+
+All four fixed configuration GETs share one 300-ms budget. The existing private
+transport verifies socket parent/type/UID and the exact observed core PID before
+request bytes; it cannot forward arbitrary methods. After successful reads,
+store/template/active config are reread privately and compared byte-exact, and
+core PID set/service ancestry are rechecked. Normal preflight still holds its
+migration lock; external host observations are bounded snapshots, not an atomic
+proof against every possible later host change. No file or ownership mutation.
+
+Reference: the accepted native configured predicate (#184), Python D1 selection
+topology and the existing canonical Python/Rust rendering/equivalence contract.
+This intentionally tightens old preflight rather than preserving liveness-only
+adoption. Python remains installed owner/oracle; no Python code is retired.
+
+The synthetic legacy-owner gate now covers wrong mode, wrong PROXY/GLOBAL,
+uninitialized rules/providers, state replacement during collection, and later
+recovery to a valid result. Native-owner positive coverage and private output
+assertions remain. The domain gate covers all modes and invalid/mismatched
+config. Existing transport timeout/peer/privacy tests are retained.
+
+Installed ARM64 Mihomo is exercised in all three modes through the actual
+production observer with synthetic service/proc inventory, private files and
+its real child PID/controller. No TUN, private fixture, real systemd ownership
+switch or external profile traffic: this is not packaged Full VPN/cutover
+acceptance. The real VM also requires the read-only disconnected preflight gate.
+Record exact-head full counts and CI in the PR; #178 and packaged acceptance
+remain open and R5/R6 are not complete.

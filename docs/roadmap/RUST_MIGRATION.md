@@ -1180,8 +1180,10 @@ the stronger exact fixture checks above: provider download success and complete
 rule contents are not inferred from collection shape. The subsequent startup-only
 Full VPN correction restores generated nested selectors through owned-child
 authenticated private requests without mutating ordinary observations.
-Production preflight consolidation and packaged Full VPN acceptance remain
-explicit #183/#178 follow-ups; there is no installed-owner cutover.
+Production preflight now shares the configured predicate for active-profile
+admission with authenticated fixed GETs and private-state/process revalidation.
+Packaged Full VPN acceptance remains an explicit #183/#178 follow-up; there is
+no installed-owner cutover.
 
 ### Native bundled routing preset checkpoint (2026-09-07)
 
