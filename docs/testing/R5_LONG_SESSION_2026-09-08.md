@@ -68,14 +68,28 @@ as acceptance. Root took exclusive build ownership, cleaned workspace packages
 Future agents sharing a target must coordinate **approved, actually running**
 commands; sandbox process listings do not show the host's full process set.
 
+## Final combined gate
+
+At `3a36ae978b84f9eb205a070270e06c43ac072c7e` (runtime tree identical to
+main `4f8e03756145b0722f65f103bbe99511740dd005`), the final full local rerun
+passed **624 Rust tests / 4 ignored**, fmt, strict clippy, parity and installed
+Mihomo opt-ins. The combined Python gate passed **272 tests / no skips**, plus
+QML, i18n and panel-search contracts. Subsequent ledger edits are docs-only.
+
+The first combined attempt failed once in the synthetic desktop-helper output
+bound test: `Unavailable` rather than `TooLarge`. Its focused rerun and the full
+rerun passed. The cause is **not established or claimed fixed**; issue #192
+records the safe failure evidence and required follow-up. No private helper
+input, installed plugin action or real fixture was involved.
+
 ## Remaining migration boundaries
 
 Provider-refresh orchestration and exact-attribution live Routing are now
 implemented behind native ownership, subject to the host limits above. Remaining
 work includes subscription latency jobs, host/private-connection diagnostics,
 telemetry and explicit probes, login activation/legacy startup conversion,
-notification semantics, native chooser compatibility and frontend composition
-remain separate owning work. Subsequent PRs must update this list rather than
+notification semantics, native chooser compatibility and frontend composition.
+Subsequent PRs must update this list rather than
 interpreting these checkpoints as complete installed behavior.
 
 Packaged capability isolation (#178), configured-readiness consolidation (#183),
