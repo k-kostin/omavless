@@ -102,6 +102,21 @@ impl SemanticRequest {
     }
 }
 
+pub fn parse_semantic_route_check(
+    arguments: &[OsString],
+    input: &str,
+) -> Result<SemanticRequest, SemanticCliError> {
+    if utf8(arguments)?.as_slice() != ["routing", "check"] {
+        return Err(SemanticCliError::InvalidCommand);
+    }
+    omavless_domain::route_check::canonical_query(input)
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    Ok(SemanticRequest {
+        method: "routing.check",
+        params: json!({"query":input}),
+    })
+}
+
 /// Explicit private input, never a raw method or caller-provided JSON envelope.
 pub fn parse_semantic_import_preview(
     arguments: &[OsString],
@@ -358,6 +373,33 @@ mod tests {
             &["diagnostics", "controller-forward"],
         ] {
             assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn route_check_cli_keeps_private_query_out_of_arguments() {
+        let (method, params) =
+            parse_semantic_route_check(&args(&["routing", "check"]), " Private.Example.\n")
+                .unwrap()
+                .into_parts();
+        assert_eq!(method, "routing.check");
+        assert_eq!(params, json!({"query":" Private.Example.\n"}));
+        for arguments in [
+            &["routing", "check", "private.example"][..],
+            &["route-check"],
+        ] {
+            let error = match parse_semantic_route_check(&args(arguments), "private.example") {
+                Ok(_) => panic!("bad argv accepted"),
+                Err(error) => error,
+            };
+            assert!(!error.to_string().contains("private.example"));
+        }
+        for query in [
+            "https://private.example/token".to_owned(),
+            "x".repeat(1025),
+            "".to_owned(),
+        ] {
+            assert!(parse_semantic_route_check(&args(&["routing", "check"]), &query).is_err());
         }
     }
 

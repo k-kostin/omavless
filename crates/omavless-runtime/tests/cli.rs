@@ -124,6 +124,93 @@ fn custom_rule_mutation_cli_keeps_value_in_stdin_and_maps_exact_methods() {
 }
 
 #[test]
+fn route_check_cli_uses_private_stdin_and_bounded_correlated_response() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "routing.check");
+        assert!(request["params"] == serde_json::json!({"query":"synthetic-private.invalid\n"}));
+        let response = success_response(request["id"].as_str().unwrap(), 0, serde_json::json!({"version":1,"query":"synthetic-private.invalid","outcome":"unknown","source":"disconnected"})).unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let mut child = isolated_command(&base)
+        .args(["routing", "check"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"synthetic-private.invalid\n")
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    worker.join().unwrap();
+    assert!(result.status.success());
+    assert!(result.stderr.is_empty());
+    let response: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert!(response["result"]["query"] == "synthetic-private.invalid");
+    for arguments in [
+        ["routing", "check", "private-token"],
+        ["routing", "check", "--url"],
+    ] {
+        let result = isolated_command(&base).args(arguments).output().unwrap();
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("private-token"));
+    }
+    for input in [
+        "https://private-token.invalid/key".to_owned(),
+        "x".repeat(1025),
+    ] {
+        let mut child = isolated_command(&base)
+            .args(["routing", "check"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("private-token"));
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn custom_rules_cli_maps_only_fixed_read_and_keeps_private_output_off_stderr() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,

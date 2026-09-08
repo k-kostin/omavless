@@ -65,6 +65,7 @@ fn run() -> Result<(), CliError> {
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
         println!("  routing rule-add KIND ACTION     read private rule value from stdin");
         println!("  routing rule-delete RULE_ID       remove one custom rule");
+        println!("  routing check                    read private domain/IP query from stdin");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
         );
@@ -212,6 +213,11 @@ fn run() -> Result<(), CliError> {
         ("status.get", json!({}))
     } else if arguments == ["capabilities"] {
         ("capabilities.get", json!({}))
+    } else if arguments == ["routing", "check"] {
+        let input = read_semantic_input(omavless_domain::routing::MAX_CUSTOM_RULE_VALUE_BYTES)?;
+        omavless_runtime::semantic_cli::parse_semantic_route_check(&arguments, &input)
+            .map_err(|error| error.to_string())?
+            .into_parts()
     } else if arguments == ["import", "preview"] {
         let input =
             read_semantic_input(omavless_runtime::import_read_protocol::MAX_IMPORT_STDIN_BYTES)?;

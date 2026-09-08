@@ -685,6 +685,24 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    pub(crate) fn check_route(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::route_check::PrivateRouteCheck, NativeOwnerError> {
+        let query = crate::route_check_protocol::query(request)?;
+        if self.actual() == ActualState::ManualRecoveryRequired {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        let desired = self.desired().map_err(|_| NativeOwnerError::Invariant)?;
+        let connected = self.actual() == ActualState::Connected;
+        self.with_owned_private_store(|store| {
+            store
+                .check_route_fast_paths(desired.mode.as_str(), connected, query)
+                .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?
+                .ok_or(NativeOwnerError::OwnershipUnavailable)
+        })
+    }
+
     pub(crate) fn profile_export(
         &mut self,
         request: &Value,
