@@ -733,6 +733,22 @@ Legacy, preparing and rollback phases cannot mutate through the registered
 dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
 
+The 2026-09-08 continuation merged client-side desktop helpers (#175), bounded
+detached live-rule diagnostics (#177), and offline startup preference
+transactions (#176). Startup preference persistence is not login autoconnect:
+once-per-login activation and legacy unit-state conversion remain, with the
+packaged capability/`NoNewPrivileges` conflict tracked separately in #178.
+Custom-rule mutations (#174), preset transactions (#179), and route fast paths
+(#180) have separate candidate/acceptance gates; do not infer their merge from
+the presence of an implementation branch.
+
+The code-backed [remaining native surface audit](docs/testing/R5_NATIVE_SURFACE_AUDIT_2026-09-08.md)
+distinguishes existing foundations from missing provider refresh, live routing
+observation, subscription probes, support/settings projections, telemetry,
+startup activation and small UI lifecycle operations. Use it to allocate work
+without duplicating existing operations or treating frontend wiring as the only
+remaining migration task.
+
 The current QML -> `backend.py` path remains the only production owner until an
 executed transactional cutover and plugin bridge pass the acceptance gates
 below. R5 is not complete merely because socket registration exists behind the
