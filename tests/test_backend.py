@@ -1334,6 +1334,10 @@ rules:
             })
 
     def test_live_route_check_rejects_destination_only_and_global_hit_evidence(self):
+        self.assertIsNone(backend.exact_route_connection({"connections": None}, "example.com", 40000, 7890))
+        for malformed in ({}, {"connections": False}):
+            with self.assertRaises(backend.BackendError):
+                backend.exact_route_connection(malformed, "example.com", 40000, 7890)
         row = {"metadata": {"host": "example.com", "sourceIP": "127.0.0.1",
             "sourcePort": "40001", "inboundIP": "127.0.0.1", "inboundPort": "7890",
             "destinationPort": "443", "network": "tcp", "type": "HTTPS"},

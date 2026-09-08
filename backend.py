@@ -4374,6 +4374,9 @@ def exact_route_connection(
     private_fragments: tuple[str, ...] = (),
 ) -> dict[str, str] | None:
     """Attribute only our held TCP tuple; global hit counters are not evidence."""
+    if isinstance(payload, dict) and "connections" in payload and payload["connections"] is None:
+        # Mihomo's empty Go slice is null before any connection is observable.
+        return None
     rows = payload.get("connections") if isinstance(payload, dict) else None
     if not isinstance(rows, list) or len(rows) > 2048:
         raise BackendError("Mihomo returned invalid connection status")

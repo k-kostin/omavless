@@ -40,6 +40,10 @@ shareable support report. There is no unbounded general socket/process scanner.
 Focused tests cover exact tuple versus concurrent same-destination noise,
 ambiguous connections/chains, safe policy categories, bounds, redaction, and an
 effect-isolated actual Python projection oracle returning digests only.
+An explicit `connections: null` is Mihomo's empty Go slice and therefore means
+no observation yet, like an empty list; it never produces success or a guessed
+policy. Missing/non-array collections remain invalid. All retries retain the
+same total deadline. Partially populated matching rows still fail closed.
 
 Real loopback TCP/private Unix-controller tests verify fixed request bytes,
 accepted-PID proof, wrong-PID no-request rejection, and probe EOF cleanup. A

@@ -3933,6 +3933,7 @@ mod tests {
                         crate::desired::read_desired(&desired_paths, Uid::current().as_raw())
                             .unwrap();
                     desired.connected = false;
+                    desired.profile_id.clear();
                     write_desired(&desired_paths, Uid::current().as_raw(), &desired).unwrap();
                 }
                 "config" => fs::write(base.join("config/route.yaml"), b"changed").unwrap(),

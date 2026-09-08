@@ -34,6 +34,11 @@ pub fn exact_match(
     if source_port == 0 || mixed_port == 0 || !private_fragment_budget(private) {
         return Err(invalid());
     }
+    // Mihomo serializes an empty Go connection slice as explicit null. This
+    // means no observation yet, never a policy result; callers keep the deadline.
+    if payload.get("connections") == Some(&Value::Null) {
+        return Ok(None);
+    }
     let rows = payload
         .get("connections")
         .and_then(Value::as_array)
@@ -170,9 +175,10 @@ mod tests {
             value["chains"] = chain;
             assert!(check(vec![value]).is_err());
         }
+        assert!(exact_match(&json!({}), "example.com", 40000, 7890, &[]).is_err());
         assert!(
             exact_match(
-                &json!({"connections":null}),
+                &json!({"connections":false}),
                 "example.com",
                 40000,
                 7890,
@@ -181,6 +187,21 @@ mod tests {
             .is_err()
         );
         assert!(check(vec![row(); MAX_CONNECTIONS + 1]).is_err());
+    }
+    #[test]
+    fn explicit_nil_connection_list_is_only_no_observation() {
+        assert!(
+            exact_match(
+                &json!({"connections":null}),
+                "example.com",
+                40000,
+                7890,
+                &[]
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(check(vec![]).unwrap().is_none());
     }
     #[test]
     fn categories_and_private_payload_redaction() {

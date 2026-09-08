@@ -13,6 +13,8 @@ fn corrected_python_reference_matches_exact_probe_attribution() {
         json!({"connections":[row.clone()]}),
         json!({"connections":[row.clone(),row.clone()]}),
         json!({"connections":null}),
+        json!({}),
+        json!({"connections":false}),
     ];
     for (field, value) in [
         ("sourceIP", "127.0.0.2"),
