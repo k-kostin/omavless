@@ -187,15 +187,15 @@ mod tests {
         };
         fs::write(&config,format!("mixed-port: 0\nport: 0\nsocks-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\n{}rules:\n{}{}- MATCH,DIRECT\n",socket.display(),provider,rules,provider_rule)).unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
-        omavless_mihomo::validate_config(&core, &directory, &config, Duration::from_secs(15))
+        omavless_mihomo::validate_config(core, &directory, &config, Duration::from_secs(15))
             .unwrap();
         // Installed file capabilities make Linux hide /proc/<pid>/fd even
         // from the parent. A byte-identical non-capability-bearing copy is
         // sufficient for this explicitly no-TUN test and preserves OS policy.
         let unprivileged_core = directory.join("mihomo");
-        fs::copy(&core, &unprivileged_core).unwrap();
+        fs::copy(core, &unprivileged_core).unwrap();
         fs::set_permissions(&unprivileged_core, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(fs::read(&core).unwrap() == fs::read(&unprivileged_core).unwrap());
+        assert!(fs::read(core).unwrap() == fs::read(&unprivileged_core).unwrap());
         let mut owned =
             crate::core::OwnedCore::spawn(&unprivileged_core, &directory, &config, &socket)
                 .unwrap();
@@ -249,10 +249,17 @@ mod tests {
         // Check only this owned child's socket inodes against listening TCP
         // sockets; no process args or another user's network data is printed.
         let descriptors = fs::read_dir(format!("/proc/{}/fd", owned.pid().unwrap())).unwrap();
-        let sockets: Vec<String> = descriptors
+        let targets: Vec<String> = descriptors
             .filter_map(Result::ok)
             .filter_map(|entry| fs::read_link(entry.path()).ok())
             .filter_map(|path| path.to_str().map(str::to_owned))
+            .collect();
+        assert!(
+            !targets.iter().any(|target| target == "/dev/net/tun"),
+            "isolated core unexpectedly owns a TUN descriptor"
+        );
+        let sockets: Vec<String> = targets
+            .into_iter()
             .filter_map(|link| {
                 link.strip_prefix("socket:[")
                     .and_then(|s| s.strip_suffix(']'))
