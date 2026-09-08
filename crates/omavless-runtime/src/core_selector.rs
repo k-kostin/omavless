@@ -228,10 +228,7 @@ mod tests {
                         .unwrap();
                     let mut bytes = Vec::new();
                     let mut chunk = [0; 4096];
-                    loop {
-                        let Ok(n) = stream.read(&mut chunk) else {
-                            break;
-                        };
+                    while let Ok(n) = stream.read(&mut chunk) {
                         if n == 0 {
                             break;
                         }
