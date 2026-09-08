@@ -463,6 +463,27 @@ recovery on ordinary failure and a hard manual-recovery barrier on ambiguity.
 The files are individually atomic, not a fictitious cross-file filesystem
 transaction; incomplete/externally changed compensation fails closed.
 
+Before the first member write, a fixed private `0600`
+`$XDG_STATE_HOME/omavless/routing-preset.pending.json` (under the same fallback
+directory as `desired.json`) is durably published with create-if-absent and
+directory fsync. It contains only schema version and a fixed transaction-kind
+tag, not private snapshots, IDs or paths. It remains present through core
+verification. Only the original live transaction may remove its unchanged
+marker, after verifying every committed member or every restored member and
+successful old-core recovery; removal is directory-synced. Failed old-core
+recovery retains the marker even if file restoration succeeded.
+
+Any remaining marker, including malformed/unsafe entries or an unreadable
+path, blocks common mutation admission (before replay) and native startup
+reconciliation with `manual_recovery_required`, before lifecycle effects.
+Restart never infers whether the interrupted change committed. This is a
+durable refusal barrier, not a cross-file journal or automatic repair. There
+is deliberately no IPC/CLI command to remove it. Recovery requires separate
+operator verification of the fixed store/template/desired state and owned
+runtime; merely deleting the marker is not an accepted recovery procedure.
+The shared migration lock excludes other cooperating writers throughout.
+Same-user external filesystem tampering remains outside that exclusion guarantee.
+
 An absent first-run template is an explicit absence snapshot, not an error or
 permission to overwrite a racing file. Publication uses private atomic
 create-if-absent; rollback removes only this attempt's exact candidate and

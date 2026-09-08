@@ -524,6 +524,7 @@ mod tests {
                         plan.commit(&lock, &cutover).unwrap(),
                         PreparedWrite::Changed
                     );
+                    plan.clear_verified(&lock, &cutover, false).unwrap();
                     let document: Value =
                         serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
                     let output = json!({"store":document,"template":fs::read_to_string(root.join("config/route-template.yaml")).unwrap()});
@@ -556,6 +557,7 @@ mod tests {
                     plan.commit(&lock, &cutover).unwrap(),
                     PreparedWrite::Changed
                 );
+                plan.clear_verified(&lock, &cutover, false).unwrap();
                 let document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
                 let output = json!({"store":document,"template":fs::read_to_string(&template_path).unwrap()});
                 actual.push(format!(
@@ -630,12 +632,16 @@ mod tests {
             assert_eq!(recovered.generation, 2);
             if external {
                 assert!(fs::read(&template_path).unwrap() == b"private-token-external-edit");
+                assert!(plan.clear_verified(&lock, &cutover, true).is_err());
+                assert!(pending(&desired));
             } else {
                 assert!(fs::read(&template_path).unwrap() == template);
                 assert_eq!(
                     plan.restore(&lock, &cutover).unwrap(),
                     PreparedWrite::NoChange
                 );
+                plan.clear_verified(&lock, &cutover, true).unwrap();
+                assert!(!pending(&desired));
             }
             drop(lock);
             fs::remove_dir_all(root).unwrap();
@@ -646,6 +652,7 @@ mod tests {
         observation: crate::desired::OwnedObservation,
         fail_starts: usize,
         fail_stop: bool,
+        calls: usize,
     }
     fn empty() -> crate::desired::OwnedObservation {
         crate::desired::OwnedObservation {
@@ -670,12 +677,15 @@ mod tests {
             &mut self,
             _: &DesiredState,
         ) -> Result<crate::desired::OwnedObservation, crate::lifecycle::HostStepError> {
+            self.calls += 1;
             Ok(self.observation)
         }
         fn prepare(&mut self, _: &DesiredState) -> Result<(), crate::lifecycle::HostStepError> {
+            self.calls += 1;
             Ok(())
         }
         fn start_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+            self.calls += 1;
             if self.fail_starts > 0 {
                 self.fail_starts -= 1;
                 return Err(crate::lifecycle::HostStepError::Start);
@@ -684,9 +694,11 @@ mod tests {
             Ok(())
         }
         fn commit_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+            self.calls += 1;
             Ok(())
         }
         fn stop_owned(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+            self.calls += 1;
             if self.fail_stop {
                 return Err(crate::lifecycle::HostStepError::Stop);
             }
@@ -694,6 +706,7 @@ mod tests {
             Ok(())
         }
         fn discard_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+            self.calls += 1;
             Ok(())
         }
     }
@@ -752,6 +765,7 @@ mod tests {
                     observation: healthy(),
                     fail_starts,
                     fail_stop,
+                    calls: 0,
                 },
                 desired.clone(),
                 uid,
@@ -764,7 +778,12 @@ mod tests {
                 &lock,
                 &cutover,
             );
+            let result = plan.finish_outcome(result, &lock, &cutover);
             assert_eq!(result.err(), expected);
+            // A failed old-core recovery keeps the durable blocker even when
+            // all file members were restored. An uncertain initial stop made
+            // no member writes and remains the existing in-memory hard gate.
+            assert_eq!(pending(&desired), fail_starts == 2);
             let final_desired = read_desired(&desired, uid).unwrap();
             assert!(final_desired.connected);
             if expected.is_some() {
@@ -837,6 +856,7 @@ mod tests {
             &parse(&request("iran-ir-direct", false)).unwrap(),
         )
         .unwrap();
+        plan.arm().unwrap();
         plan.store.commit_locked(&lock, &cutover).unwrap();
         assert_eq!(
             plan.restore(&lock, &cutover).unwrap(),
@@ -845,6 +865,8 @@ mod tests {
         assert!(fs::read(&store).unwrap() == initial.as_bytes());
         assert!(fs::read(&template).unwrap() == original);
         assert_eq!(read_desired(&desired, uid).unwrap().generation, 0);
+        plan.clear_verified(&lock, &cutover, true).unwrap();
+        assert!(!pending(&desired));
         let newer = DesiredState {
             generation: 1,
             mode: RoutingMode::Direct,
@@ -902,6 +924,8 @@ mod tests {
                     plan.restore(&lock, &cutover).unwrap(),
                     PreparedWrite::NoChange
                 );
+                plan.clear_verified(&lock, &cutover, true).unwrap();
+                assert!(!pending(&desired));
             }
             drop(lock);
             fs::remove_dir_all(root).unwrap();
@@ -958,8 +982,306 @@ mod tests {
             host.discard_prepared().unwrap();
             assert!(host.core_pid().is_none());
             assert!(!root.join("runtime/mihomo.sock").exists());
+            plan.clear_verified(&lock, &cutover, false).unwrap();
         }
         drop(lock);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn initial_policy(store: &Path, desired: &DesiredPaths, uid: u32) {
+        write(
+            store,
+            br#"{"version":3,"profiles":[],"subscriptions":[],"routingPreset":"custom"}"#,
+        );
+        write(
+            &store.parent().unwrap().join("route-template.yaml"),
+            b"mode: global\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+        );
+        write_desired(
+            desired,
+            uid,
+            &DesiredState {
+                mode: RoutingMode::Global,
+                ..DesiredState::default()
+            },
+        )
+        .unwrap();
+    }
+
+    fn inert_host() -> Host {
+        Host {
+            observation: empty(),
+            fail_starts: 0,
+            fail_stop: false,
+            calls: 0,
+        }
+    }
+
+    // This child intentionally exits without unwinding: the parent exercises
+    // real process restart, not a destructor-driven rollback simulation.
+    #[test]
+    fn routing_preset_crash_child() {
+        let Some(root) = std::env::var_os("OMAVLESS_PRESET_TEST_CRASH_ROOT") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let stage: usize = std::env::var("OMAVLESS_PRESET_TEST_CRASH_STAGE")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(stage <= 3);
+        let uid = fs::metadata(&root).unwrap().uid();
+        let store = root.join("config/profiles.json");
+        let desired = DesiredPaths::below(&root.join("state"));
+        let paths = CutoverPaths::below(&root.join("runtime"), &root.join("state"), uid);
+        let lock = MigrationLock::acquire(&paths, uid).unwrap();
+        let plan = PresetPlan::prepare(
+            &store,
+            &desired,
+            uid,
+            &parse(&request("china-cn-direct", false)).unwrap(),
+        )
+        .unwrap();
+        plan.arm().unwrap();
+        if stage >= 1 {
+            plan.store.commit_locked(&lock, &paths).unwrap();
+        }
+        if stage >= 2 {
+            plan.replace_template(&plan.candidate).unwrap();
+        }
+        if stage >= 3 {
+            plan.replace_desired(&plan.target).unwrap();
+        }
+        std::process::exit(73);
+    }
+
+    #[test]
+    fn routing_preset_crash_at_every_member_blocks_restart_and_other_mutations() {
+        use crate::connection_transaction::ConnectionTransactionError;
+        use crate::native_coordinator::{NativeOwnerError, OfflineNativeCoordinator};
+        for stage in 0..=3 {
+            let (root, store, desired, paths, uid) = fixture();
+            initial_policy(&store, &desired, uid);
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "routing_preset::tests::routing_preset_crash_child",
+                    "--nocapture",
+                ])
+                .env("OMAVLESS_PRESET_TEST_CRASH_ROOT", &root)
+                .env("OMAVLESS_PRESET_TEST_CRASH_STAGE", stage.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert_eq!(
+                output.code(),
+                Some(73),
+                "crash child did not reach checkpoint"
+            );
+            let marker = pending_path(&desired);
+            assert!(pending(&desired));
+            let metadata = fs::symlink_metadata(&marker).unwrap();
+            assert!(metadata.is_file() && !metadata.file_type().is_symlink());
+            assert_eq!(metadata.uid(), uid);
+            assert_eq!(metadata.permissions().mode() & 0o7777, 0o600);
+            assert_eq!(fs::read(&marker).unwrap(), PENDING_BYTES);
+            let original_store = fs::read(&store).unwrap();
+            let template = store.parent().unwrap().join("route-template.yaml");
+            let original_template = fs::read(&template).unwrap();
+            let original_desired = read_desired(&desired, uid).unwrap();
+            let mut owner = OfflineNativeCoordinator::new(
+                inert_host(),
+                desired.clone(),
+                &store,
+                paths.clone(),
+                uid,
+            );
+            assert_eq!(
+                owner.reconcile_startup(),
+                Err(ConnectionTransactionError::ManualRecoveryRequired)
+            );
+            // Also covers the constructor's continuously-held-lock path.
+            let lock = MigrationLock::acquire(&paths, uid).unwrap();
+            assert_eq!(
+                owner.reconcile_startup_locked(&lock),
+                Err(ConnectionTransactionError::ManualRecoveryRequired)
+            );
+            drop(lock);
+            assert_eq!(
+                owner.execute_routing_preset(&request("iran-ir-direct", true)),
+                Err(NativeOwnerError::ManualRecoveryRequired)
+            );
+            let rename = json!({"api":"omavless.control","version":1,"id":"other","method":"profiles.rename","params":{"profileId":"00000000-0000-4000-8000-000000000001","name":"Synthetic"}});
+            assert_eq!(
+                owner.execute_profile(&rename),
+                Err(NativeOwnerError::ManualRecoveryRequired)
+            );
+            assert_eq!(owner.host_mut().calls, 0, "blocked restart touched host");
+            assert_eq!(owner.revision(), 0);
+            assert!(fs::read(&store).unwrap() == original_store);
+            assert!(fs::read(&template).unwrap() == original_template);
+            assert_eq!(read_desired(&desired, uid).unwrap(), original_desired);
+            assert_eq!(fs::read(&marker).unwrap(), PENDING_BYTES);
+            write(
+                &paths.ownership_marker,
+                br#"{"schemaVersion":1,"generation":1,"phase":"rust"}"#,
+            );
+            assert_eq!(
+                crate::production_owner::ProductionNativeOwner::initialize(
+                    inert_host(),
+                    desired.clone(),
+                    &store,
+                    paths.clone(),
+                    uid
+                )
+                .err(),
+                Some(crate::production_owner::ProductionOwnerError::ManualRecoveryRequired)
+            );
+            drop(owner);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn routing_preset_pending_blocks_cached_replay_without_host_or_state_effects() {
+        use crate::native_coordinator::{NativeOwnerError, OfflineNativeCoordinator};
+        let (root, store, desired, paths, uid) = fixture();
+        initial_policy(&store, &desired, uid);
+        let mut owner =
+            OfflineNativeCoordinator::new(inert_host(), desired.clone(), &store, paths, uid);
+        let mut intent = request("china-cn-direct", false);
+        intent["params"]["operationId"] = json!("preset-replay");
+        owner.execute_routing_preset(&intent).unwrap();
+        assert_eq!(owner.revision(), 1);
+        assert!(!pending(&desired));
+        let calls = owner.host_mut().calls;
+        write(&pending_path(&desired), PENDING_BYTES);
+        assert_eq!(
+            owner.execute_routing_preset(&intent),
+            Err(NativeOwnerError::ManualRecoveryRequired)
+        );
+        assert_eq!(owner.revision(), 1);
+        assert_eq!(owner.host_mut().calls, calls);
+        assert!(pending(&desired));
+        drop(owner);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn routing_preset_pending_never_infers_success_or_removes_foreign_marker() {
+        use crate::profile_transaction::{ProfileMutationOutcome, ProfileTransactionError};
+        for shape in [
+            "malformed",
+            "permissive",
+            "symlink",
+            "directory",
+            "changed-store",
+            "changed-template",
+            "changed-desired",
+        ] {
+            let (root, store, desired, paths, uid) = fixture();
+            initial_policy(&store, &desired, uid);
+            let lock = MigrationLock::acquire(&paths, uid).unwrap();
+            let plan = PresetPlan::prepare(
+                &store,
+                &desired,
+                uid,
+                &parse(&request("china-cn-direct", false)).unwrap(),
+            )
+            .unwrap();
+            plan.commit(&lock, &paths).unwrap();
+            let marker = pending_path(&desired);
+            match shape {
+                "malformed" => write(&marker, b"private-token"),
+                "permissive" => {
+                    fs::set_permissions(&marker, fs::Permissions::from_mode(0o644)).unwrap()
+                }
+                "symlink" => {
+                    fs::remove_file(&marker).unwrap();
+                    std::os::unix::fs::symlink(&store, &marker).unwrap();
+                }
+                "directory" => {
+                    fs::remove_file(&marker).unwrap();
+                    fs::create_dir(&marker).unwrap();
+                }
+                "changed-store" => write(&store, b"private-token"),
+                "changed-template" => write(&plan.template, b"private-token"),
+                "changed-desired" => {
+                    let mut newer = plan.target.clone();
+                    newer.generation += 1;
+                    write_desired(&desired, uid, &newer).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let error = plan
+                .finish_outcome(Ok(ProfileMutationOutcome { changed: true }), &lock, &paths)
+                .unwrap_err();
+            assert_eq!(error, ProfileTransactionError::ManualRecoveryRequired);
+            assert!(!format!("{error}").contains("private-token"));
+            assert!(pending(&desired));
+            // Startup/admission only ask whether a blocker exists: they never
+            // parse malformed marker contents or guess an automatic recovery.
+            let mut owner = crate::native_coordinator::OfflineNativeCoordinator::new(
+                inert_host(),
+                desired.clone(),
+                &store,
+                paths.clone(),
+                uid,
+            );
+            assert_eq!(owner.reconcile_startup_locked(&lock),Err(crate::connection_transaction::ConnectionTransactionError::ManualRecoveryRequired));
+            assert_eq!(owner.host_mut().calls, 0);
+            drop(owner);
+            drop(lock);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn routing_preset_racing_pending_marker_prevents_first_member_write() {
+        use crate::profile_transaction::{ProfileTransactionError, commit_store_only_profile};
+        for symlink in [false, true] {
+            let (root, store, desired, paths, uid) = fixture();
+            initial_policy(&store, &desired, uid);
+            let lock = MigrationLock::acquire(&paths, uid).unwrap();
+            let plan = PresetPlan::prepare(
+                &store,
+                &desired,
+                uid,
+                &parse(&request("china-cn-direct", false)).unwrap(),
+            )
+            .unwrap();
+            let original_store = fs::read(&store).unwrap();
+            let original_template = fs::read(&plan.template).unwrap();
+            let original_desired = read_desired(&desired, uid).unwrap();
+            let marker = pending_path(&desired);
+            if symlink {
+                std::os::unix::fs::symlink(&store, &marker).unwrap();
+            } else {
+                write(&marker, PENDING_BYTES);
+            }
+            let outcome = commit_store_only_profile(&plan, &lock, &paths);
+            assert_eq!(
+                plan.finish_outcome(outcome, &lock, &paths),
+                Err(ProfileTransactionError::ManualRecoveryRequired)
+            );
+            assert!(
+                !plan.armed.get(),
+                "attempt must not claim someone else's marker"
+            );
+            assert!(pending(&desired));
+            assert_eq!(
+                fs::symlink_metadata(&marker)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                symlink
+            );
+            assert!(fs::read(&store).unwrap() == original_store);
+            assert!(fs::read(&plan.template).unwrap() == original_template);
+            assert_eq!(read_desired(&desired, uid).unwrap(), original_desired);
+            drop(lock);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

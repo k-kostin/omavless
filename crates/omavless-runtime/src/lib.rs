@@ -2591,7 +2591,7 @@ mod tests {
         fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(12)).unwrap());
         let params = json!({"preset":"china-cn-direct","keepMode":true,"operationId":"preset","expectedRevision":0});
         let first = call(&paths, "routing.set_preset", params.clone()).unwrap();
         assert_eq!(first["ok"], true);
@@ -2654,6 +2654,29 @@ mod tests {
             "internal_error"
         );
         fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let pending = base.join("state/routing-preset.pending.json");
+        fs::write(
+            &pending,
+            b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_pending_calls = calls.load(Ordering::Relaxed);
+        for (method, parameters) in [
+            ("routing.set_preset", params.clone()),
+            (
+                "profiles.rename",
+                json!({"profileId":PROFILE_ID,"name":"Synthetic"}),
+            ),
+            ("connection.disconnect", json!({})),
+        ] {
+            let response = call(&paths, method, parameters).unwrap();
+            assert_eq!(response["error"]["code"], "manual_recovery_required");
+            assert_eq!(response["revision"], 2);
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_pending_calls);
+        assert!(pending.exists());
+        fs::remove_file(&pending).unwrap(); // Test fixture only, never runtime recovery.
         for (phase, generation) in [
             (OwnershipPhase::RollbackPreparing, 2),
             (OwnershipPhase::Rust, 3),

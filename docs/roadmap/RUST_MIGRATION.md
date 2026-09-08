@@ -1180,6 +1180,16 @@ socket tests supplement parity. Files are individually atomic; ambiguous
 multi-member compensation requires manual recovery. No installed frontend or
 native owner cutover occurs, and Python remains production owner/oracle.
 
+A fixed durable pending marker covers the gap between individually atomic
+members. It is created and synced before writes and removed only after full
+verified commit or restored files plus recovered old runtime. Interrupted or
+ambiguous completion blocks the shared native mutation/replay admission and
+startup reconciliation; no automatic recovery or arbitrary cleanup API is
+introduced. Subprocess exits after each member exercise restart refusal before
+host effects. Marker safety/uncertain restoration and cross-method socket
+rejection supplement the existing synchronous compensation tests. This does
+not promise cross-file atomicity, a recovery journal, or installed cutover.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

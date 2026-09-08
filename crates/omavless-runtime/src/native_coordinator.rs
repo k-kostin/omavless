@@ -808,6 +808,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
+                // A durable interrupted preset must also fence the effect
+                // boundary, not only the earlier queue/replay admission.
+                if crate::routing_preset::pending(self.transaction.desired_paths()) {
+                    self.coordinator.abort_active_uncached(token)?;
+                    return Err(NativeOwnerError::ManualRecoveryRequired);
+                }
                 if self.required_ownership.is_some_and(|fence| {
                     fence.phase != OwnershipPhase::Rust
                         || !self
