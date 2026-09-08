@@ -340,6 +340,8 @@ where
                 return error_response(request_id, owner.revision(), code, retryable(code), None);
             }
         }
+    } else if method == "onboarding.complete" {
+        owner.execute_onboarding(request)
     } else if method == "profiles.import" {
         owner.execute_profile_import(request, next_record_id)
     } else if method == "routing.set_preset" {

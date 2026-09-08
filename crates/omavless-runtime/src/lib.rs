@@ -48,6 +48,7 @@ pub mod mutation_protocol;
 pub mod native_coordinator;
 pub mod native_dispatch;
 pub mod native_host;
+mod onboarding_protocol;
 pub mod owner;
 pub mod private_store_transaction;
 pub mod production_cutover;
@@ -245,6 +246,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
 // reservation-free preflight. Its final decode/commit re-enters this one
 // serialized owner and rechecks revision plus exact durable ownership.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
+    "onboarding.complete",
     "profiles.replace",
     "profiles.import",
     "routing.custom_rules.add",
@@ -2815,6 +2817,108 @@ mod tests {
         }
         assert!(fs::read(&store).unwrap() == bytes);
         assert!(fs::read(&template).unwrap() == selected);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn onboarding_socket_is_store_only_idempotent_and_fenced() {
+        let base = temporary_base("onboarding-completion");
+        let (owner, cutover, host_calls) = native_owner_fixture(&base);
+        let store = base.join("config/profiles.json");
+        let mut document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        document["onboardingComplete"] = json!(false);
+        fs::write(&store, serde_json::to_vec(&document).unwrap()).unwrap();
+        let initial_calls = host_calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(capabilities.to_string().contains("onboarding.complete"));
+        let params = json!({"operationId":"completion","expectedRevision":0});
+        let first = call(&paths, "onboarding.complete", params.clone()).unwrap();
+        assert_eq!(first["result"], json!({"accepted":true}));
+        assert_eq!(first["revision"], 1);
+        let bytes = fs::read(&store).unwrap();
+        let saved: Value = serde_json::from_slice(&bytes).unwrap();
+        document["onboardingComplete"] = json!(true);
+        // Fixture normalization may fill legacy optional fields; compare
+        // normalized documents, not newly invented settings or host intent.
+        for (key, value) in document.as_object().unwrap() {
+            if key != "profiles" {
+                assert!(saved.get(key) == Some(value));
+            }
+        }
+        assert_eq!(
+            fs::metadata(&store).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            call(&paths, "onboarding.complete", params.clone()).unwrap()["revision"],
+            1
+        );
+        let no_change = call(
+            &paths,
+            "onboarding.complete",
+            json!({"operationId":"new-completion","expectedRevision":1}),
+        )
+        .unwrap();
+        assert_eq!(no_change["ok"], true);
+        assert_eq!(no_change["revision"], 1);
+        assert_eq!(
+            call(
+                &paths,
+                "connection.disconnect",
+                json!({"operationId":"completion"})
+            )
+            .unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(
+            call(&paths, "onboarding.complete", json!({"expectedRevision":0})).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let invalid = call(
+            &paths,
+            "onboarding.complete",
+            json!({"path":"private-marker"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-marker"));
+        let pending = DesiredPaths::below(&base.join("state"))
+            .directory
+            .join("routing-preset.pending.json");
+        fs::write(
+            &pending,
+            b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            call(&paths, "onboarding.complete", params.clone()).unwrap()["error"]["code"],
+            "manual_recovery_required"
+        );
+        fs::remove_file(&pending).unwrap(); // Synthetic fixture, not a recovery API.
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(&paths, "onboarding.complete", json!({})).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "onboarding.complete", params.clone()).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert_eq!(fs::read(&store).unwrap(), bytes);
+        assert_eq!(host_calls.load(Ordering::Relaxed), initial_calls);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

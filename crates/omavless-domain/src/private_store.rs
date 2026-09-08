@@ -29,6 +29,21 @@ mod startup;
 mod support;
 pub use startup::{StartupPreferences, apply_startup_preferences};
 
+/// Complete onboarding without changing login policy, profile selection or
+/// connection intent. The entire private document still validates; extension
+/// fields survive the ordinary canonical store normalization.
+pub fn complete_onboarding(input: &str) -> Result<(Vec<u8>, bool), PrivateStoreError> {
+    let store = parse_private_store(input)?;
+    let changed = !store.onboarding_complete;
+    let mut document = store.document;
+    document["onboardingComplete"] = Value::Bool(true);
+    let validated = parse_private_store(&document.to_string())?;
+    let mut payload =
+        serde_json::to_vec(&validated.document).map_err(|_| PrivateStoreError::InvalidJson)?;
+    payload.push(b'\n');
+    Ok((payload, changed))
+}
+
 const MAX_NAME_CHARS: usize = 80;
 const MAX_SUBSCRIPTION_ENTRIES: usize = 1024;
 pub const MAX_PRIVATE_STORE_BYTES: usize = 5 * 1024 * 1024;

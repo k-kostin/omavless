@@ -765,6 +765,11 @@ executed transactional cutover and plugin bridge pass the acceptance gates
 below. R5 is not complete merely because socket registration exists behind the
 unreachable committed-Rust marker.
 
+The [native onboarding completion](docs/testing/R5_ONBOARDING_COMPLETION.md)
+checkpoint adds the fixed completion mutation and CLI with private-store
+parity, revision/replay and compensation. It does not connect a profile, enable
+login startup, reset onboarding, or activate the installed frontend bridge.
+
 This is one track, not a Rust daemon plus a separate T1 daemon.
 
 The primary `omavless` executable gains `daemon` and semantic CLI behavior and
