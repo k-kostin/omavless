@@ -2654,7 +2654,9 @@ mod tests {
             "internal_error"
         );
         fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
-        let pending = base.join("state/routing-preset.pending.json");
+        let pending = DesiredPaths::below(&base.join("state"))
+            .directory
+            .join("routing-preset.pending.json");
         fs::write(
             &pending,
             b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
