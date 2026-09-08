@@ -376,10 +376,10 @@ unrelated store edits are preserved; membership, order, URL or refresh-token
 changes reject the entire stale batch. All members receive one monotonic
 refresh timestamp. Retained decoded URI data across the batch is capped at the
 private-store size bound, and an empty set performs no fetch, time read or
-write. This foundation is not a live method: a refresh of up to 64 providers
-cannot fit the current five-second unary deadline. Socket/CLI advertisement
-therefore remains disabled until the bounded start/poll/cancel contract below
-has a background executor with safe retry identity and ownership fencing.
+write. That store foundation alone was not a live method: a refresh of up to
+64 providers cannot fit the five-second unary deadline. The native scheduler
+now exposes the bounded start/poll/cancel contract below only behind committed
+native ownership; the installed QML/Python path is unchanged.
 
 The accepted v1 long-operation contract begins with exactly these methods:
 
@@ -426,9 +426,19 @@ mutation admission the worker atomically closes cancellation: if cancellation
 won, no commit occurs and state becomes `cancelled`; if the commit fence won,
 cancel returns `accepted:false` and cannot undo a committed store. The executor
 must enforce the existing per-provider timeout plus a 30-minute whole-job
-ceiling. These protocol and pure registry primitives remain inactive until a
-background executor, global fetch permits, unified ID-ledger hook and ownership
-fencing are wired and tested.
+ceiling. RuntimeServer now binds these primitives to one supervised worker,
+the shared four-fetch pool and unified operation-ID ledger. The durable
+interrupted-preset barrier blocks batch start/replay and final commit just as
+it blocks ordinary mutations. Shutdown revokes completion before joining the
+bounded fetch, without holding admission during that join. A failed spawn or
+unwinding worker uses its exact private ticket to terminalize only its own job.
+Polling and cancellation of already-known safe projections remain possible
+after ownership withdrawal; starting or committing work does not. During
+scheduler shutdown unary calls receive `daemon_restarting` promptly.
+
+These are registered native prerequisites, not activation of the installed
+frontend or a production ownership transition. The exact boundary and local
+acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 
 ### Connection and routing
 

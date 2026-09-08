@@ -2040,6 +2040,125 @@ mod tests {
     }
 
     #[test]
+    fn batch_real_http_and_private_socket_preserve_success_cancel_and_error_boundaries() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        for outcome in ["success", "cancel", "error", "revoked"] {
+            let base = temporary_base("batch-http-socket");
+            let (owner, cutover, calls) = native_owner_fixture(&base);
+            let host_calls = calls.load(Ordering::Relaxed);
+            let store = base.join("config/profiles.json");
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let mut content: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+            content["subscriptions"][0]["url"] = json!(format!("http://{address}/synthetic-feed"));
+            fs::write(&store, content.to_string()).unwrap();
+            let before = fs::read(&store).unwrap();
+            let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+            let http = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    headers.push(byte[0]);
+                    assert!(headers.len() < 8192);
+                }
+                arrived_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                let body = if outcome == "error" {
+                    "synthetic-private-error"
+                } else {
+                    "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed"
+                };
+                let status = if outcome == "error" {
+                    "503 Unavailable"
+                } else {
+                    "200 OK"
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            });
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            let instance = server.instance_id.clone();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+            let params = json!({"instanceId":instance,"operationId":"http-batch"});
+            assert_eq!(
+                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                true
+            );
+            arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_eq!(
+                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                true
+            );
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            if outcome == "cancel" {
+                assert_eq!(
+                    call(&paths, "operations.cancel", params.clone()).unwrap()["result"]["accepted"],
+                    true
+                );
+            } else if outcome == "revoked" {
+                write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+            }
+            release_tx.send(()).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            let terminal = loop {
+                let response = call(&paths, "operations.get", params.clone()).unwrap();
+                if matches!(
+                    response["result"]["operation"]["state"].as_str(),
+                    Some("succeeded" | "failed" | "cancelled")
+                ) {
+                    break response;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(5));
+            };
+            let expected = match outcome {
+                "success" => "succeeded",
+                "cancel" => "cancelled",
+                _ => "failed",
+            };
+            assert_eq!(terminal["result"]["operation"]["state"], expected);
+            for private in [
+                "synthetic-feed",
+                "synthetic-private-error",
+                "vless://",
+                "192.0.2.",
+                "Managed",
+            ] {
+                assert!(!terminal.to_string().contains(private));
+            }
+            assert_eq!(fs::read(&store).unwrap() == before, outcome != "success");
+            assert_eq!(
+                terminal["revision"],
+                if outcome == "success" { 1 } else { 0 }
+            );
+            assert_eq!(calls.load(Ordering::Relaxed), host_calls);
+            stop.store(true, Ordering::Release);
+            worker.join().unwrap();
+            http.join().unwrap();
+            assert!(!paths.socket.exists());
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_waits_for_shared_fetch_permit_and_shutdown_revokes_it() {
         let base = temporary_base("batch-pool-stop");
         let (owner, _cutover, _calls) = native_owner_fixture(&base);
@@ -2182,6 +2301,15 @@ mod tests {
             !shutdown.is_finished(),
             "shutdown must join the in-flight fetch"
         );
+        let started = std::time::Instant::now();
+        assert_eq!(
+            batch_call(&server, "operations.get", "one")["error"]["code"],
+            "daemon_restarting"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "shutdown blocked a unary peer"
+        );
         release_tx.send(()).unwrap();
         shutdown.join().unwrap();
         assert_eq!(fs::read(store).unwrap(), before);
@@ -2232,6 +2360,49 @@ mod tests {
                 "internal_error"
             );
         }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn batch_failed_spawn_terminalizes_without_fetch_and_retry_never_reschedules() {
+        let base = temporary_base("batch-spawn-failure");
+        let (owner, _cutover, _calls) = native_owner_fixture(&base);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(2);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        server
+            .batch_scheduler
+            .fail_next_spawn
+            .store(true, Ordering::Release);
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "failed")["error"]["code"],
+            "internal_error"
+        );
+        let terminal = wait_batch(&server, "failed");
+        assert_eq!(terminal["result"]["operation"]["state"], "failed");
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "failed")["result"],
+            terminal["result"]
+        );
+        assert!(started_rx.try_recv().is_err());
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "next")["ok"],
+            true
+        );
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            wait_batch(&server, "next")["result"]["operation"]["state"],
+            "succeeded"
+        );
         drop(server);
         fs::remove_dir_all(base).unwrap();
     }

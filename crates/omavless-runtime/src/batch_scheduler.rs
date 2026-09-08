@@ -23,6 +23,8 @@ pub(super) struct BatchWork {
 pub(super) struct BatchScheduler {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
     stopping: Arc<AtomicBool>,
+    #[cfg(test)]
+    pub(super) fail_next_spawn: AtomicBool,
 }
 
 // Runs even when a worker unwinds. Does not format or retain a panic payload.
@@ -43,6 +45,16 @@ impl Drop for Supervisor {
 }
 
 impl BatchScheduler {
+    fn spawn(&self, work: impl FnOnce() + Send + 'static) -> io::Result<thread::JoinHandle<()>> {
+        #[cfg(test)]
+        if self.fail_next_spawn.swap(false, Ordering::AcqRel) {
+            return Err(io::Error::other("synthetic spawn refusal"));
+        }
+        thread::Builder::new()
+            .name("omavless-batch".to_owned())
+            .spawn(work)
+    }
+
     pub(super) fn dispatch(
         &self,
         request: &Value,
@@ -97,11 +109,9 @@ impl BatchScheduler {
             };
             let stopping = Arc::clone(&self.stopping);
             let pool = pool.clone();
-            match thread::Builder::new()
-                .name("omavless-batch".to_owned())
-                .spawn(move || {
-                    run(work, supervisor, &stopping, &pool);
-                }) {
+            match self.spawn(move || {
+                run(work, supervisor, &stopping, &pool);
+            }) {
                 Ok(handle) => *worker = Some(handle),
                 // Failed spawn drops the captured supervisor, terminalizing the
                 // admitted operation without a detached/lost private payload.
@@ -122,15 +132,21 @@ impl BatchScheduler {
     pub(super) fn stop(&self, dispatcher: &Arc<Mutex<RuntimeDispatcher>>) {
         self.stopping.store(true, Ordering::Release);
         // Same lock order as admission. The worker only takes dispatcher.
-        if let Ok(mut worker) = self.worker.lock() {
+        let handle = if let Ok(mut worker) = self.worker.lock() {
             if let Ok(mut dispatcher) = dispatcher.lock()
                 && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
             {
                 owner.batch_stop();
             }
-            if let Some(worker) = worker.take() {
-                let _ = worker.join();
-            }
+            worker.take()
+        } else {
+            None
+        };
+        // Do not hold admission while the bounded provider request drains.
+        // An already accepted peer must receive daemon_restarting promptly,
+        // rather than waiting as long as the 25-second provider deadline.
+        if let Some(worker) = handle {
+            let _ = worker.join();
         }
     }
 }

@@ -2713,6 +2713,55 @@ mod tests {
     }
 
     #[test]
+    fn batch_pending_preset_blocks_start_replay_and_prepared_commit() {
+        for phase in ["start", "replay", "commit"] {
+            let (root, path, mut owner) = batch_fixture("batch-preset-barrier");
+            let request = batch_request("subscriptions.refresh_all", "guarded");
+            let mut job = if phase == "start" {
+                None
+            } else {
+                let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+                run_batch(&owner, &mut job);
+                Some(job)
+            };
+            if phase == "replay" {
+                owner
+                    .complete_subscription_batch(job.take().unwrap(), || 20)
+                    .unwrap();
+            }
+            let before = fs::read(&path).unwrap();
+            let revision = owner.revision();
+            let marker = owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("routing-preset.pending.json");
+            fs::write(&marker, b"interrupted").unwrap();
+            if phase == "commit" {
+                assert!(matches!(
+                    owner.complete_subscription_batch(job.take().unwrap(), || panic!(
+                        "no clock read"
+                    )),
+                    Err(NativeOwnerError::ManualRecoveryRequired)
+                ));
+                assert_eq!(
+                    batch_status(&owner, "guarded")["error"]["code"],
+                    "manual_recovery_required"
+                );
+            } else {
+                assert!(matches!(
+                    owner.start_subscription_batch(&request),
+                    Err(NativeOwnerError::ManualRecoveryRequired)
+                ));
+            }
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert_eq!(owner.revision(), revision);
+            assert!(marker.exists());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_owner_ownership_withdrawal_prevents_commit() {
         let (root, path, mut owner) = batch_fixture("batch-ownership");
         let before = fs::read(&path).unwrap();
