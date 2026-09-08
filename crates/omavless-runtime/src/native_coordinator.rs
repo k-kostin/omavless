@@ -782,6 +782,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
         }
+        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
         self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
@@ -805,6 +808,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
+                // A durable interrupted preset must also fence the effect
+                // boundary, not only the earlier queue/replay admission.
+                if crate::routing_preset::pending(self.transaction.desired_paths()) {
+                    self.coordinator.abort_active_uncached(token)?;
+                    return Err(NativeOwnerError::ManualRecoveryRequired);
+                }
                 if self.required_ownership.is_some_and(|fence| {
                     fence.phase != OwnershipPhase::Rust
                         || !self
@@ -964,6 +973,74 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 &lock,
                 &paths,
             )
+        });
+        self.finish(
+            token,
+            outcome
+                .map(NativeMutationOutcome::Profile)
+                .map_err(NativeTransactionError::Profile),
+            false,
+        )
+    }
+
+    pub fn execute_routing_preset(
+        &mut self,
+        request: &Value,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let parsed = crate::routing_preset::parse(request)?;
+        let token = match self.admit(
+            MutationKind::Other,
+            parsed.operation_id.as_deref(),
+            parsed.expected_revision,
+            parsed.digest,
+        )? {
+            Admission::Execute(token) => token,
+            Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
+            Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
+        };
+        if let Some(outcome) = self.blocked(
+            token,
+            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
+        )? {
+            return Ok(outcome);
+        }
+        let lock = match self.preflight_lock(token, |error| {
+            NativeTransactionError::Profile(if error == ConnectionTransactionError::Busy {
+                ProfileTransactionError::Busy
+            } else {
+                ProfileTransactionError::Store
+            })
+        })? {
+            LockAdmission::Locked(lock) => lock,
+            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        };
+        let outcome = crate::routing_preset::PresetPlan::prepare(
+            self.transaction.store_path(),
+            self.transaction.desired_paths(),
+            self.transaction.uid(),
+            &parsed,
+        )
+        .map_err(store_error)
+        .and_then(|plan| {
+            let paths = self.transaction.cutover_paths().clone();
+            if !plan.restart_required() && crate::profile_transaction::StorePlan::changed(&plan) {
+                let outcome =
+                    crate::profile_transaction::commit_store_only_profile(&plan, &lock, &paths);
+                return plan.finish_outcome(outcome, &lock, &paths);
+            }
+            let desired = self
+                .transaction
+                .desired()
+                .map_err(|_| ProfileTransactionError::Store)?;
+            let outcome = apply_transaction(
+                self.transaction.lifecycle_mut(),
+                &plan,
+                crate::profile_transaction::ActionKind::Replace,
+                &desired.profile_id,
+                &lock,
+                &paths,
+            );
+            plan.finish_outcome(outcome, &lock, &paths)
         });
         self.finish(
             token,

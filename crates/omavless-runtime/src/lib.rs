@@ -58,6 +58,7 @@ pub mod profile_mutation_protocol;
 pub mod profile_read_protocol;
 pub mod profile_transaction;
 pub mod remote_fetch;
+mod routing_preset;
 pub mod routing_read_protocol;
 pub mod semantic_cli;
 pub mod startup_protocol;
@@ -243,6 +244,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "connection.connect",
     "connection.disconnect",
     "routing.set_mode",
+    "routing.set_preset",
     "profiles.rename",
     "profiles.favorite",
     "profiles.delete",
@@ -2572,6 +2574,124 @@ mod tests {
             .unwrap();
         assert_eq!(revoked["error"]["code"], "capability_unavailable");
         drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn routing_preset_socket_is_fenced_replay_safe_and_noop_aware() {
+        let base = temporary_base("routing-preset");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let template = base.join("config/route-template.yaml");
+        fs::write(
+            &template,
+            b"mode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,DIRECT\n",
+        )
+        .unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(12)).unwrap());
+        let params = json!({"preset":"china-cn-direct","keepMode":true,"operationId":"preset","expectedRevision":0});
+        let first = call(&paths, "routing.set_preset", params.clone()).unwrap();
+        assert_eq!(first["ok"], true);
+        assert_eq!(first["revision"], 1);
+        let store = base.join("config/profiles.json");
+        let bytes = fs::read(&store).unwrap();
+        let selected = fs::read(&template).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        assert_eq!(
+            call(&paths, "routing.set_preset", params.clone()).unwrap()["revision"],
+            1
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let noop = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","keepMode":true}),
+        )
+        .unwrap();
+        assert_eq!(noop["ok"], true);
+        assert_eq!(noop["revision"], 1);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let mut metadata: Value = serde_json::from_slice(&bytes).unwrap();
+        metadata["routingPreset"] = json!("custom");
+        fs::write(&store, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        let metadata_only = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","keepMode":true}),
+        )
+        .unwrap();
+        assert_eq!(metadata_only["ok"], true);
+        assert_eq!(metadata_only["revision"], 2);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(
+            call(
+                &paths,
+                "routing.set_preset",
+                json!({"preset":"iran-ir-direct","expectedRevision":0})
+            )
+            .unwrap()["error"]["code"],
+            "conflict"
+        );
+        let invalid = call(
+            &paths,
+            "routing.set_preset",
+            json!({"preset":"china-cn-direct","path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(
+                &paths,
+                "routing.set_preset",
+                json!({"preset":"iran-ir-direct"})
+            )
+            .unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let pending = DesiredPaths::below(&base.join("state"))
+            .directory
+            .join("routing-preset.pending.json");
+        fs::write(
+            &pending,
+            b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_pending_calls = calls.load(Ordering::Relaxed);
+        for (method, parameters) in [
+            ("routing.set_preset", params.clone()),
+            (
+                "profiles.rename",
+                json!({"profileId":PROFILE_ID,"name":"Synthetic"}),
+            ),
+            ("connection.disconnect", json!({})),
+        ] {
+            let response = call(&paths, method, parameters).unwrap();
+            assert_eq!(response["error"]["code"], "manual_recovery_required");
+            assert_eq!(response["revision"], 2);
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_pending_calls);
+        assert!(pending.exists());
+        fs::remove_file(&pending).unwrap(); // Test fixture only, never runtime recovery.
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "routing.set_preset", params.clone()).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert!(fs::read(&store).unwrap() == bytes);
+        assert!(fs::read(&template).unwrap() == selected);
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 

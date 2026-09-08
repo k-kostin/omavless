@@ -144,6 +144,26 @@ impl PreparedPrivateStoreWrite {
         self.replace_and_verify(&self.original)?;
         Ok(PreparedWrite::Changed)
     }
+
+    /// Verify a completed compensated multi-member transaction without writing.
+    pub(crate) fn verify_outcome_locked(
+        &self,
+        lock: &MigrationLock,
+        paths: &CutoverPaths,
+        restored: bool,
+    ) -> Result<(), PrivateStoreWriteError> {
+        self.authorize(lock, paths)?;
+        let expected = if restored || !self.changed {
+            &self.original
+        } else {
+            &self.candidate
+        };
+        if &self.current_bytes()? == expected {
+            Ok(())
+        } else {
+            Err(PrivateStoreWriteError::StoreChanged)
+        }
+    }
 }
 
 fn private_parent(path: &Path, uid: u32) -> bool {

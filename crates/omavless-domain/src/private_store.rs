@@ -1536,6 +1536,27 @@ pub fn apply_profile_import(
     })
 }
 
+/// Set only the allowlisted bundled preset preference; template/lifecycle work
+/// is a separate compensated owner transaction.
+pub fn apply_routing_preset(
+    input: &str,
+    preset: &str,
+) -> Result<PrivateStoreMutation, PrivateStoreError> {
+    if !matches!(
+        preset,
+        "roscomvpn-default" | "china-cn-direct" | "iran-ir-direct"
+    ) {
+        return Err(PrivateStoreError::InvalidShape);
+    }
+    let mut store = parse_private_store(input)?;
+    let changed = store.document["routingPreset"] != preset;
+    store.document["routingPreset"] = serde_json::json!(preset);
+    Ok(PrivateStoreMutation {
+        payload: store.private_payload()?,
+        changed,
+    })
+}
+
 /// Validate, normalize and apply one profile mutation entirely in memory.
 /// No partial payload is returned when any validation or size gate fails.
 pub fn apply_profile_mutation(
