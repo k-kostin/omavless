@@ -501,7 +501,6 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct FakeHost {
         observation: OwnedObservation,
@@ -556,14 +555,7 @@ mod tests {
 
     impl Fixture {
         fn new(phase: OwnershipPhase) -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!(
-                "omavless-production-owner-{}-{nonce}",
-                std::process::id()
-            ));
+            let root = crate::test_temp::directory("production-owner").unwrap();
             let runtime = root.join("runtime");
             let state = root.join("state");
             let config = root.join("config");

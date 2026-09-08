@@ -177,17 +177,8 @@ pub fn tun_interfaces(sys_class_net: &Path, own_device: &str, running: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    fn root(label: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!(
-            "omavless-observe-{label}-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&p).unwrap();
-        p
+    fn root(_label: &str) -> std::path::PathBuf {
+        crate::test_temp::directory("observe").unwrap()
     }
     #[test]
     fn family_walk_is_bounded_and_ignores_invalid_tokens() {

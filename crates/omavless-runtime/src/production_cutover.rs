@@ -603,7 +603,6 @@ mod tests {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use std::os::unix::net::UnixListener;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000001";
 
@@ -666,13 +665,8 @@ mod tests {
     }
 
     impl Fixture {
-        fn new(label: &str) -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            // Keep the root short enough for Linux's bounded Unix-socket path.
-            let root = env::temp_dir().join(format!("ovpc-{label}-{}-{nonce}", std::process::id()));
+        fn new(_label: &str) -> Self {
+            let root = crate::test_temp::directory("cutover").unwrap();
             let home = root.join("home");
             let runtime = root.join("runtime");
             let state = root.join("state");

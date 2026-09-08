@@ -5,6 +5,10 @@
 //! daemon read-only; only a successfully reconciled committed Rust owner can
 //! register mutation methods.
 
+#[cfg(test)]
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
+
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg, OFlag};
 use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
