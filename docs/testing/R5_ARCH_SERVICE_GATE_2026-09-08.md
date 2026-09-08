@@ -72,3 +72,44 @@ documented normal host behavior, not automatically the cause of this failure.
 
 PR #196 remains Draft. No merge, no installed plugin cutover, no R5/R6 completion.
 Final observed service/core/TUN cleanup succeeded; synthetic stores were removed.
+
+## Follow-up attribution within the same session
+
+A fourth run inspected the **actual temporary service cgroup**, not just the
+daemon's direct-child list. After rejected disconnect it contained:
+
+| Process category | Open `/dev/net/tun` descriptors |
+| --- | --- |
+| omavless | 0 |
+| resolvectl | 1 |
+
+Both descriptor directories were readable by the same user. After two seconds,
+the same categories/descriptors and the TUN were still present. Stopping the
+whole temporary service again removed the TUN. No private command lines,
+environment, endpoints or profiles were inspected or published.
+
+This identifies a surviving same-service `resolvectl` holding a TUN descriptor,
+not merely an assumed slow kernel cleanup. The existing documentation already
+attributes these helpers to Mihomo. The direct-child count alone missed this
+residual service member after the core exited.
+
+Python's service-level shutdown versus Rust's `OwnedCore::stop` (signals/waits
+only the direct child) is now the concrete parity boundary to repair. Normal
+polkit prompts are not themselves a failure, but explicit disconnect must clean
+up the owned helper tree, including a helper still awaiting authorization.
+
+Possible bounded direction: a dedicated process group for each spawned core,
+with termination/verification of that owned group. It requires a reviewed
+identity/race contract, including an already-reaped leader, PID/PGID reuse,
+helpers ignoring TERM or escaping groups, and urgent disconnect versus startup.
+Do not simply signal a remembered negative PID after reaping without proof of
+ownership. A dedicated core cgroup is an alternative with different provisioning
+cost. Do not kill all resolvectl processes or stop the canonical daemon merely
+to disconnect one core.
+
+Regression requirements: helper inherits and retains a resource after parent
+exit; helper pending/ignoring TERM; unrelated same-user helper survives; prior
+core already exited; no false disconnected report while resources remain;
+ordinary core-only lifecycle still passes. Repeat this real ARM64 service test
+after the owning fix. No untested lifecycle fix was added under the shutdown
+deadline, and the policy PR remains Draft.
