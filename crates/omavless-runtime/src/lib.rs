@@ -2239,6 +2239,88 @@ mod tests {
     }
 
     #[test]
+    fn provider_slow_discovery_does_not_hold_admission_and_shutdown_prevents_start() {
+        use std::io::{Read, Write};
+        let base = temporary_base("provider-discovery");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        assert_eq!(
+            server
+                .dispatch(
+                    &make_request(
+                        "connect",
+                        "connection.connect",
+                        json!({"profileId":PROFILE_ID,"mode":"rule"})
+                    )
+                    .unwrap()
+                )
+                .unwrap()["ok"],
+            true
+        );
+        let config = base.join("config/config.yaml");
+        fs::write(&config, b"mode: rule\n").unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let path = paths.directory.join("mihomo.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let core = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut input = Vec::new();
+            while !input.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                input.push(byte[0]);
+                assert!(input.len() < 4096);
+            }
+            assert!(input.starts_with(b"GET /providers/rules HTTP/1.0\r\n"));
+            started_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            stream.write_all(b"HTTP/1.0 200 OK\r\n\r\n{\"providers\":{\"synthetic\":{\"vehicleType\":\"http\"}}}").unwrap();
+        });
+        let server = Arc::new(server);
+        let first = server.clone();
+        let worker = thread::spawn(move || batch_call(&first, "routing.refresh_providers", "slow"));
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            batch_call(&server, "operations.get", "slow")["error"]["code"],
+            "not_found"
+        );
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "slow")["error"]["code"],
+            "not_found"
+        );
+        assert_eq!(
+            server
+                .dispatch(&make_request("status", "status.get", json!({})).unwrap())
+                .unwrap()["ok"],
+            true
+        );
+        server.batch_scheduler.stop(&server.dispatcher);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "discovery held scheduler admission"
+        );
+        release_tx.send(()).unwrap();
+        assert_eq!(worker.join().unwrap()["error"]["code"], "daemon_restarting");
+        core.join().unwrap();
+        assert!(fs::read(base.join("config/profiles.json")).unwrap() == before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn batch_scheduler_commits_once_and_rejects_unknown_poll_fields() {
         let base = temporary_base("batch-success");
         let (owner, _cutover, _calls) = native_owner_fixture(&base);

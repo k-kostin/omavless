@@ -97,6 +97,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         snapshot: &ProviderRefreshSnapshot,
     ) -> Result<(), NativeOwnerError> {
+        if self.revision() != snapshot.revision {
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionConflict,
+            ));
+        }
         let current = self.provider_snapshot_locked()?;
         if current.revision != snapshot.revision
             || current.desired != snapshot.desired
@@ -168,6 +173,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }
         if state.active.is_some() {
             return Err(NativeOwnerError::LongOperation(LongOperationError::Busy));
+        }
+        if revision == omavless_control_protocol::MAX_REVISION {
+            return Err(NativeOwnerError::Coordinator(
+                CoordinatorError::RevisionExhausted,
+            ));
         }
         self.provider_snapshot_locked()
             .map(ProviderRefreshAdmission::Discover)

@@ -131,10 +131,28 @@ impl BatchScheduler {
                         );
                     };
                     drop(owner_guard);
+                    // Discovery reserves no registry/job slot. Release scheduler
+                    // admission too, so slow starts cannot queue poll/cancel or
+                    // runtime shutdown behind controller I/O. The four-work
+                    // pool bounds concurrent discoveries; final admission races
+                    // are resolved atomically after reacquiring both locks.
+                    drop(worker);
                     let transport =
                         UnixRuleProviderTransport::new(directory, Uid::current().as_raw());
                     let targets = transport.discover(PROVIDER_DISCOVERY_TIMEOUT);
                     drop(permit);
+                    worker = match self.worker.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            return error_response(
+                                id,
+                                0,
+                                StableErrorCode::InternalError,
+                                false,
+                                None,
+                            );
+                        }
+                    };
                     owner_guard = match dispatcher.lock() {
                         Ok(guard) => guard,
                         Err(_) => {
@@ -156,6 +174,15 @@ impl BatchScheduler {
                             None,
                         );
                     };
+                    if self.stopping.load(Ordering::Acquire) {
+                        return error_response(
+                            id,
+                            owner.revision(),
+                            StableErrorCode::DaemonRestarting,
+                            true,
+                            None,
+                        );
+                    }
                     let targets = match targets {
                         Ok(targets) => targets,
                         Err(error) => {
