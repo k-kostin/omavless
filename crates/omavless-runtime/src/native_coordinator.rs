@@ -12,8 +12,10 @@
 
 mod batch;
 mod onboarding;
+mod provider;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
+pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 
 use crate::connection_transaction::{
     Completion, ConnectionTransactionError, ConnectionTransactionOutcome,
@@ -213,6 +215,7 @@ pub enum NativeOwnerExecution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeOwnerError {
+    Provider(crate::provider_refresh::ProviderRefreshError),
     Protocol(MutationProtocolError),
     LongOperation(crate::long_operation::LongOperationError),
     Coordinator(CoordinatorError),
@@ -228,6 +231,16 @@ impl NativeOwnerError {
     #[must_use]
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
+            Self::Provider(error) => match error {
+                crate::provider_refresh::ProviderRefreshError::Unavailable
+                | crate::provider_refresh::ProviderRefreshError::NoRemoteProviders => {
+                    StableErrorCode::CapabilityUnavailable
+                }
+                crate::provider_refresh::ProviderRefreshError::Cancelled => {
+                    StableErrorCode::Conflict
+                }
+                _ => StableErrorCode::CoreRejected,
+            },
             Self::Protocol(error) => error.stable_code(),
             Self::LongOperation(error) => error.stable_code(),
             Self::Coordinator(error) => error.stable_code(),
@@ -244,6 +257,7 @@ impl NativeOwnerError {
 impl fmt::Display for NativeOwnerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::Provider(_) => "Native rule provider refresh failed",
             Self::Protocol(_) => "Native mutation request is invalid",
             Self::LongOperation(_) => "Native batch operation failed",
             Self::Coordinator(_) => "Native mutation scheduling failed",
@@ -2534,6 +2548,184 @@ mod tests {
             .subscription_batch_status(&batch_request("operations.get", id))
             .unwrap()["operation"]
             .clone()
+    }
+
+    struct ProviderTransport {
+        paths: CutoverPaths,
+        uid: u32,
+        fail: bool,
+    }
+    impl crate::provider_refresh::RuleProviderTransport for ProviderTransport {
+        fn discover(
+            &self,
+            _: std::time::Duration,
+        ) -> Result<
+            Vec<omavless_mihomo::rule_provider::RuleProviderTarget>,
+            crate::provider_refresh::ProviderRefreshError,
+        > {
+            assert!(MigrationLock::acquire(&self.paths, self.uid).is_ok());
+            Ok(omavless_mihomo::rule_provider::refresh_targets(
+                &json!({"providers":{"synthetic":{"vehicleType":"http"}}}),
+            )
+            .unwrap())
+        }
+        fn update(
+            &self,
+            _: &omavless_mihomo::rule_provider::RuleProviderTarget,
+            _: std::time::Duration,
+        ) -> Result<(), crate::provider_refresh::ProviderRefreshError> {
+            assert!(MigrationLock::acquire(&self.paths, self.uid).is_ok());
+            if self.fail {
+                Err(crate::provider_refresh::ProviderRefreshError::Rejected)
+            } else {
+                Ok(())
+            }
+        }
+    }
+    fn provider_fixture() -> (
+        PathBuf,
+        PathBuf,
+        OfflineNativeCoordinator<FakeHost>,
+        ProviderTransport,
+    ) {
+        let (root, path, mut owner) = fixture("provider");
+        let request = OwnerRequest::new(
+            OwnerAction::Connect {
+                profile_id: PROFILE.to_owned(),
+                mode: Some(RoutingMode::Rule),
+            },
+            Some("connect"),
+            Some(0),
+            MutationDigest::from_semantic_bytes(b"provider-fixture-connect"),
+        );
+        applied(owner.execute_connection(request).unwrap());
+        let config = path.parent().unwrap().join("config.yaml");
+        fs::write(&config, b"mode: rule\n").unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        owner.initialize_batch_operations("owner-instance").unwrap();
+        let transport = ProviderTransport {
+            paths: owner.transaction.cutover_paths().clone(),
+            uid: owner.uid(),
+            fail: false,
+        };
+        (root, path, owner, transport)
+    }
+    fn provider_start(
+        owner: &mut OfflineNativeCoordinator<FakeHost>,
+        transport: &ProviderTransport,
+        operation: &str,
+    ) -> NativeProviderRefresh {
+        use crate::provider_refresh::RuleProviderTransport;
+        let request = batch_request("routing.refresh_providers", operation);
+        let ProviderRefreshAdmission::Discover(snapshot) =
+            owner.preflight_provider_refresh(&request).unwrap()
+        else {
+            panic!("unexpected replay");
+        };
+        let targets = transport
+            .discover(std::time::Duration::from_secs(1))
+            .unwrap();
+        owner
+            .start_provider_refresh(&request, snapshot, targets)
+            .unwrap()
+            .unwrap()
+    }
+    #[test]
+    fn provider_owner_commits_once_and_shares_registry_replay_and_collision_namespace() {
+        let (root, path, mut owner, transport) = provider_fixture();
+        let mut job = provider_start(&mut owner, &transport, "refresh");
+        owner.publish_provider_refresh_progress(&job).unwrap();
+        assert_eq!(
+            job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default()),
+            Ok(crate::provider_refresh::ProviderRefreshStep::Ready)
+        );
+        owner.complete_provider_refresh(job, || 9).unwrap();
+        assert_eq!(owner.revision(), 2);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["rulesUpdatedAt"],
+            9
+        );
+        assert_eq!(batch_status(&owner, "refresh")["state"], "succeeded");
+        assert_eq!(
+            batch_status(&owner, "refresh")["method"],
+            "routing.refresh_providers"
+        );
+        assert!(matches!(
+            owner
+                .preflight_provider_refresh(&batch_request("routing.refresh_providers", "refresh"))
+                .unwrap(),
+            ProviderRefreshAdmission::Replay(_)
+        ));
+        assert!(
+            owner
+                .start_subscription_batch(&batch_request("subscriptions.refresh_all", "refresh"))
+                .is_err()
+        );
+        assert!(owner.execute_connection(connect("refresh", 2)).is_err());
+        let mut next = provider_start(&mut owner, &transport, "refresh-two");
+        next.step(&transport, &crate::remote_fetch::RemoteFetchPool::default())
+            .unwrap();
+        owner.complete_provider_refresh(next, || 1).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap()["rulesUpdatedAt"],
+            10
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn provider_owner_failure_cancel_and_stale_snapshot_never_stamp() {
+        for scenario in ["failure", "cancel", "store", "config", "disconnect"] {
+            let (root, path, mut owner, mut transport) = provider_fixture();
+            let mut job = provider_start(&mut owner, &transport, "refresh");
+            let before = fs::read(&path).unwrap();
+            transport.fail = scenario == "failure";
+            let _ = job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default());
+            match scenario {
+                "cancel" => {
+                    owner
+                        .cancel_subscription_batch(&batch_request("operations.cancel", "refresh"))
+                        .unwrap();
+                }
+                "store" => {
+                    let mut document: Value = serde_json::from_slice(&before).unwrap();
+                    document["onboardingComplete"] = json!(false);
+                    fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+                }
+                "config" => {
+                    fs::write(
+                        path.parent().unwrap().join("config.yaml"),
+                        b"mode: direct\n",
+                    )
+                    .unwrap();
+                }
+                "disconnect" => {
+                    applied(
+                        owner
+                            .execute_connection(OwnerRequest::new(
+                                OwnerAction::Disconnect,
+                                Some("disconnect"),
+                                Some(1),
+                                MutationDigest::from_semantic_bytes(b"provider-disconnect"),
+                            ))
+                            .unwrap(),
+                    );
+                }
+                _ => {}
+            }
+            let expected = fs::read(&path).unwrap();
+            let _ = owner
+                .complete_provider_refresh(job, || panic!("failed provider job read timestamp"));
+            assert!(fs::read(&path).unwrap() == expected);
+            assert_eq!(
+                batch_status(&owner, "refresh")["state"],
+                if scenario == "cancel" {
+                    "cancelled"
+                } else {
+                    "failed"
+                }
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

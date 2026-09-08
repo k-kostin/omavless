@@ -7,9 +7,11 @@
 //! provider transport. The live executor must collision-check IDs against the
 //! ordinary mutation replay ledger before calling [`LongOperationRegistry::start`].
 
+#[cfg(test)]
+use crate::long_operation_protocol::MAX_REFRESH_ALL_SUBSCRIPTIONS;
 use crate::long_operation_protocol::{
-    LongOperationProgress, LongOperationProjection, LongOperationState, MAX_INSTANCE_ID_BYTES,
-    MAX_REFRESH_ALL_SUBSCRIPTIONS,
+    LongOperationMethod, LongOperationProgress, LongOperationProjection, LongOperationState,
+    MAX_INSTANCE_ID_BYTES,
 };
 use crate::mutation::MutationDigest;
 use omavless_control_protocol::{MAX_ID_LENGTH, MAX_REVISION, StableErrorCode};
@@ -108,6 +110,7 @@ pub struct CancelOutcome {
 }
 
 struct OperationRecord {
+    method: LongOperationMethod,
     token: LongOperationToken,
     operation_id: String,
     digest: MutationDigest,
@@ -124,6 +127,7 @@ struct OperationRecord {
 impl OperationRecord {
     fn projection<'a>(&'a self, instance_id: &'a str) -> LongOperationProjection<'a> {
         LongOperationProjection {
+            method: self.method,
             instance_id,
             operation_id: &self.operation_id,
             state: self.state,
@@ -274,18 +278,42 @@ impl LongOperationRegistry {
         total: usize,
         ordinary_id_in_use_under_owner_lock: bool,
     ) -> Result<StartOutcome, LongOperationError> {
+        self.start_method(
+            LongOperationMethod::SubscriptionRefreshAll,
+            instance_id,
+            operation_id,
+            digest,
+            expected_revision,
+            current_revision,
+            total,
+            ordinary_id_in_use_under_owner_lock,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_method(
+        &mut self,
+        method: LongOperationMethod,
+        instance_id: &str,
+        operation_id: &str,
+        digest: MutationDigest,
+        expected_revision: Option<u64>,
+        current_revision: u64,
+        total: usize,
+        ordinary_id_in_use_under_owner_lock: bool,
+    ) -> Result<StartOutcome, LongOperationError> {
         self.require_instance(instance_id)?;
         if !Self::valid_operation_id(operation_id) {
             return Err(LongOperationError::InvalidOperationId);
         }
-        if current_revision > MAX_REVISION || total > MAX_REFRESH_ALL_SUBSCRIPTIONS {
+        if current_revision > MAX_REVISION || total > method.maximum() {
             return Err(LongOperationError::InvalidBounds);
         }
         if ordinary_id_in_use_under_owner_lock {
             return Err(LongOperationError::OperationConflict);
         }
         if let Some(record) = self.record_by_id(operation_id) {
-            if record.digest != digest {
+            if record.digest != digest || record.method != method {
                 return Err(LongOperationError::OperationConflict);
             }
             return Ok(StartOutcome::Replay(record.token));
@@ -302,6 +330,7 @@ impl LongOperationRegistry {
             .checked_add(1)
             .ok_or(LongOperationError::TokenExhausted)?;
         self.active = Some(OperationRecord {
+            method,
             token,
             operation_id: operation_id.to_owned(),
             digest,

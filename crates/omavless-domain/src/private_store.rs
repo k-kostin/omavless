@@ -1585,6 +1585,27 @@ pub fn apply_routing_preset(
     })
 }
 
+/// Only the owner may call this after a completely successful live provider
+/// refresh. Monotonicity prevents equal/backward clocks losing refresh identity.
+pub fn apply_rule_provider_refresh_timestamp(
+    input: &str,
+    now: u64,
+) -> Result<PrivateStoreMutation, PrivateStoreError> {
+    let mut store = parse_private_store(input)?;
+    let old = store.document["rulesUpdatedAt"]
+        .as_u64()
+        .ok_or(PrivateStoreError::InvalidTimestamp)?;
+    let next = old
+        .checked_add(1)
+        .ok_or(PrivateStoreError::InvalidTimestamp)?
+        .max(now);
+    store.document["rulesUpdatedAt"] = serde_json::json!(next);
+    Ok(PrivateStoreMutation {
+        payload: store.private_payload()?,
+        changed: true,
+    })
+}
+
 /// Private custom-rule intent; generated IDs belong to the serialized owner.
 pub enum CustomRuleMutation {
     Add {

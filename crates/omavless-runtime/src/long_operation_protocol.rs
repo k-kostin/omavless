@@ -16,6 +16,28 @@ const LOOKUP_FIELDS: &[&str] = &["instanceId", "operationId"];
 pub const MAX_REFRESH_ALL_SUBSCRIPTIONS: usize = 64;
 pub const MAX_INSTANCE_ID_BYTES: usize = 128;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LongOperationMethod {
+    SubscriptionRefreshAll,
+    RuleProviderRefresh,
+}
+impl LongOperationMethod {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SubscriptionRefreshAll => "subscriptions.refresh_all",
+            Self::RuleProviderRefresh => "routing.refresh_providers",
+        }
+    }
+    #[must_use]
+    pub const fn maximum(self) -> usize {
+        match self {
+            Self::SubscriptionRefreshAll => MAX_REFRESH_ALL_SUBSCRIPTIONS,
+            Self::RuleProviderRefresh => omavless_mihomo::rule_provider::MAX_RULE_PROVIDERS,
+        }
+    }
+}
+
 fn instance_id(value: Option<&Value>) -> Result<&str, MutationProtocolError> {
     value
         .and_then(Value::as_str)
@@ -38,10 +60,14 @@ fn operation_id(value: Option<&Value>) -> Result<&str, MutationProtocolError> {
         .ok_or(MutationProtocolError::InvalidArgument)
 }
 
-fn refresh_all_digest(instance_id: &str, expected_revision: Option<u64>) -> MutationDigest {
+fn refresh_all_digest(
+    method: LongOperationMethod,
+    instance_id: &str,
+    expected_revision: Option<u64>,
+) -> MutationDigest {
     let mut bytes = Vec::with_capacity(96);
     bytes.extend_from_slice(b"omavless.control/long-operation/v1\0");
-    append_field(&mut bytes, "subscriptions.refresh_all");
+    append_field(&mut bytes, method.as_str());
     append_field(&mut bytes, instance_id);
     match expected_revision {
         Some(revision) => {
@@ -106,8 +132,21 @@ impl OperationLookupRequest {
 pub fn parse_refresh_all_start(
     request: &Value,
 ) -> Result<RefreshAllStartRequest, MutationProtocolError> {
+    parse_start(request, LongOperationMethod::SubscriptionRefreshAll)
+}
+
+pub fn parse_provider_refresh_start(
+    request: &Value,
+) -> Result<RefreshAllStartRequest, MutationProtocolError> {
+    parse_start(request, LongOperationMethod::RuleProviderRefresh)
+}
+
+fn parse_start(
+    request: &Value,
+    method: LongOperationMethod,
+) -> Result<RefreshAllStartRequest, MutationProtocolError> {
     validate_request(request).map_err(|_| MutationProtocolError::InvalidRequest)?;
-    if request["method"] != "subscriptions.refresh_all" {
+    if request["method"] != method.as_str() {
         return Err(MutationProtocolError::UnknownMethod);
     }
     let params = request["params"]
@@ -123,7 +162,7 @@ pub fn parse_refresh_all_start(
         instance_id: instance_id.to_owned(),
         operation_id: operation_id.to_owned(),
         expected_revision: metadata.expected_revision,
-        digest: refresh_all_digest(instance_id, metadata.expected_revision),
+        digest: refresh_all_digest(method, instance_id, metadata.expected_revision),
     })
 }
 
@@ -195,6 +234,7 @@ pub struct LongOperationProgress {
 /// It deliberately has no `Debug` implementation because operation IDs must
 /// not drift into ordinary logs.
 pub struct LongOperationProjection<'a> {
+    pub method: LongOperationMethod,
     pub instance_id: &'a str,
     pub operation_id: &'a str,
     pub state: LongOperationState,
@@ -214,7 +254,7 @@ impl LongOperationProjection<'_> {
             || self
                 .outcome_revision
                 .is_some_and(|revision| revision > MAX_REVISION)
-            || self.progress.total > MAX_REFRESH_ALL_SUBSCRIPTIONS
+            || self.progress.total > self.method.maximum()
             || self.progress.completed > self.progress.total
             || self.state.terminal() != self.outcome_revision.is_some()
             || (self.state.terminal() && self.cancellable)
@@ -259,7 +299,7 @@ impl LongOperationProjection<'_> {
             "operation": {
                 "instanceId": self.instance_id,
                 "operationId": self.operation_id,
-                "method": "subscriptions.refresh_all",
+                "method": self.method.as_str(),
                 "state": self.state.as_str(),
                 "baseRevision": self.base_revision,
                 "outcomeRevision": self.outcome_revision,
@@ -391,6 +431,7 @@ mod tests {
     #[test]
     fn projections_are_exact_bounded_and_credential_safe() {
         let projection = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "refresh-all-1",
             state: LongOperationState::Running,
@@ -480,6 +521,7 @@ mod tests {
     #[test]
     fn terminal_failure_and_cancel_responses_are_fixed_and_bounded() {
         let failed = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "failed-1",
             state: LongOperationState::Failed,
@@ -502,6 +544,7 @@ mod tests {
             })
         );
         let cancelled = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshAll,
             instance_id: INSTANCE,
             operation_id: "cancelled-1",
             state: LongOperationState::Cancelled,

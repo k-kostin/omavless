@@ -26,18 +26,31 @@ use omavless_domain::private_store::{
 };
 
 pub(super) struct BatchOwnerState {
-    instance: String,
-    registry: LongOperationRegistry,
-    active: Option<(LongOperationToken, BatchCancellation)>,
-    stopped: bool,
+    pub(super) instance: String,
+    pub(super) registry: LongOperationRegistry,
+    pub(super) active: Option<(LongOperationToken, ActiveCancellation)>,
+    pub(super) stopped: bool,
+}
+
+pub(super) enum ActiveCancellation {
+    Subscription(BatchCancellation),
+    Provider(crate::provider_refresh::ProviderRefreshCancellation),
+}
+impl ActiveCancellation {
+    pub(super) fn request(&self) {
+        match self {
+            Self::Subscription(flag) => flag.request(),
+            Self::Provider(flag) => flag.request(),
+        }
+    }
 }
 
 /// Private supervisor capability: retain before spawning the worker so a
 /// spawn failure or panic can be terminalized without the worker payload.
 #[derive(Clone)]
 pub struct NativeBatchTicket {
-    instance: String,
-    token: LongOperationToken,
+    pub(super) instance: String,
+    pub(super) token: LongOperationToken,
 }
 
 /// Private, non-cloneable worker capability minted by one owner instance.
@@ -114,7 +127,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         Ok(())
     }
 
-    fn batch_lock(&self) -> Result<MigrationLock, NativeOwnerError> {
+    pub(super) fn batch_lock(&self) -> Result<MigrationLock, NativeOwnerError> {
         let lock = self
             .transaction
             .acquire_lock()
@@ -218,7 +231,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .begin(token, revision)
             .map_err(NativeOwnerError::LongOperation)?;
         let cancellation = BatchCancellation::default();
-        state.active = Some((token, cancellation.clone()));
+        state.active = Some((
+            token,
+            ActiveCancellation::Subscription(cancellation.clone()),
+        ));
         Ok(Some(NativeSubscriptionBatch {
             instance: state.instance.clone(),
             token,
