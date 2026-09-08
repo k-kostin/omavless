@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn fixture(name: &str) -> PathBuf {
@@ -12,12 +13,14 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn temporary_report() -> PathBuf {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "omavless-parity-{}-{nonce}.json",
+        "omavless-parity-{}-{nonce}-{sequence}.json",
         std::process::id()
     ))
 }

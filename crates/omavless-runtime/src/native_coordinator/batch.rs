@@ -21,6 +21,9 @@ use crate::subscription_batch_work::{
 use crate::subscription_mutation::{
     commit_subscription_refresh_batch, snapshot_subscription_refresh_batch,
 };
+use omavless_domain::private_store::{
+    SubscriptionRefreshBatchEntries, SubscriptionRefreshBatchSnapshot,
+};
 
 pub(super) struct BatchOwnerState {
     instance: String,
@@ -127,7 +130,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }) {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
-        if self.transaction.blocked() {
+        if self.transaction.blocked()
+            || crate::routing_preset::pending(self.transaction.desired_paths())
+        {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }
         Ok(lock)
@@ -339,6 +344,31 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
     ) -> Result<(), NativeOwnerError> {
+        self.complete_subscription_batch_with_store(
+            job,
+            now_millis,
+            commit_subscription_refresh_batch,
+        )
+    }
+
+    // Fixed production store function above; the seam permits deterministic
+    // post-rename failures in tests without a client-selected writer or path.
+    pub(super) fn complete_subscription_batch_with_store<N, F>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now_millis: N,
+        commit: F,
+    ) -> Result<(), NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+    {
         let mut state = self
             .batch
             .take()
@@ -351,7 +381,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .registry
                 .advance(token, completed)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis);
+            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis, commit);
             state.active = None;
             match outcome {
                 Ok(true) => state
@@ -372,12 +402,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         result
     }
 
-    fn commit_subscription_batch_work<N: FnOnce() -> u64>(
+    fn commit_subscription_batch_work<N, F>(
         &mut self,
         state: &mut BatchOwnerState,
         job: NativeSubscriptionBatch,
         now_millis: N,
-    ) -> Result<bool, NativeOwnerError> {
+        commit: F,
+    ) -> Result<bool, NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+    {
         if let Some(error) = job.failure {
             return Err(batch_work_error(error));
         }
@@ -422,14 +463,24 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             _ => return Err(NativeOwnerError::Invariant),
         }
-        let result = commit_subscription_refresh_batch(
+        let result = commit(
             self.transaction.store_path(),
             self.transaction.uid(),
             snapshot,
             updates,
             now_millis(),
         )
-        .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)));
+        .map_err(|error| {
+            if error == SubscriptionMutationCommitError::StoreIo {
+                // Atomic replacement can fail after rename (permissions or
+                // directory fsync). Never assert no change, retry or overwrite
+                // unknown current bytes; block the shared native owner.
+                self.transaction.block();
+                NativeOwnerError::ManualRecoveryRequired
+            } else {
+                NativeOwnerError::Subscription(subscription_store_error(error))
+            }
+        });
         self.coordinator.finish(
             token,
             match result {
