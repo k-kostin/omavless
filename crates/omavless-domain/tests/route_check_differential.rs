@@ -78,7 +78,14 @@ fn actual_python_route_fastpaths_match_without_live_observation() {
             case["query"].as_str().unwrap(),
         ) {
             Ok(Some(result)) => {
-                json!({"kind":"result","digest":format!("{:x}",Sha256::digest(serde_json::to_vec(&result.private_ui_value()).unwrap()))})
+                let value = result.private_ui_value();
+                let mapped = value["query"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<std::net::Ipv6Addr>()
+                    .is_ok_and(|address| address.to_ipv4_mapped().is_some());
+                json!({"kind":"result","digest":format!("{:x}",Sha256::digest(serde_json::to_vec(&value).unwrap())),
+                    "normalization":if mapped {"mapped_ipv6_display"} else {"none"}})
             }
             Ok(None) => json!({"kind":"live_required"}),
             Err(_) => json!({"kind":"invalid"}),

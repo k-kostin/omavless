@@ -720,6 +720,11 @@ does not mutate state, and is unavailable after owner-marker revocation.
 
 Queries are canonical domain names or IPv4/IPv6 addresses. Scoped IPv6 is
 intentionally rejected: a client query must not choose a host interface.
+Mapped IPv6 query output uses the established hexadecimal suffix form
+(`::ffff:c000:201` for the synthetic `::ffff:192.0.2.1`). Python3.14 changed
+its display to dotted suffixes; the parity oracle explicitly normalizes only
+that equivalent query-address spelling and tags those comparisons. Routing
+outcomes, rule payloads and all other fields remain exact comparisons.
 Result query and matching custom-rule payload are explicitly private local UI
 data, not diagnostic/log/export fields. Errors never echo the query.
 
