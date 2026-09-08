@@ -242,17 +242,9 @@ pub(crate) fn prepare_pointer_mutation(
 mod tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn fixture(label: &str) -> (PathBuf, PathBuf, CutoverPaths, u32) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "omavless-private-write-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+    fn fixture(_label: &str) -> (PathBuf, PathBuf, CutoverPaths, u32) {
+        let root = crate::test_temp::directory("private-write").unwrap();
         let config = root.join("config");
         let runtime = root.join("runtime");
         let state = root.join("state");

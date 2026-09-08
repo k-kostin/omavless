@@ -431,19 +431,11 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::process::{Command, Stdio};
-    use std::time::{SystemTime, UNIX_EPOCH};
     fn request(preset: &str, keep_mode: bool) -> Value {
         json!({"api":"omavless.control","version":1,"id":"preset","method":"routing.set_preset","params":{"preset":preset,"keepMode":keep_mode}})
     }
     fn fixture() -> (PathBuf, PathBuf, DesiredPaths, CutoverPaths, u32) {
-        let root = std::env::temp_dir().join(format!(
-            "omavless-preset-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let root = crate::test_temp::directory("preset").unwrap();
         for path in [
             &root,
             &root.join("config"),

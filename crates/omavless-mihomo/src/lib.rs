@@ -7,6 +7,10 @@
 //! discovery, config validation, read-only Unix-controller requests, and safe
 //! host readiness facts for later runtime work.
 
+#[cfg(test)]
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
+
 use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
 use serde_json::Value;
 use std::collections::BTreeMap;
