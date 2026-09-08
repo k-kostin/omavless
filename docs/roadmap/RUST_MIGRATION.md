@@ -1153,6 +1153,16 @@ stale completion refusal and no diagnostic store/revision effects. Exact-head
 installed Mihomo synthetic-controller acceptance remains separate from an
 installed native-owner/UI cutover; the latter is not claimed by this checkpoint.
 
+Installed Mihomo 1.19.30 can answer `/version` before loading configured rules
+and providers: `/providers/rules` transiently returns `{"providers":null}` even
+when an inline provider is configured. Null remains a rejected projection, not
+fabricated empty-provider evidence. The isolated acceptance waits under a fixed
+deadline for the expected synthetic rules/provider counts before exercising
+diagnostics. This is fixture readiness, not a production lifecycle-readiness
+fix; an early diagnostic may safely return `core_rejected` until initialized.
+The follow-up lifecycle gate must distinguish controller liveness from complete
+config/selector readiness before claiming the overall runtime ready.
+
 ### Cloud owner/batch integration checkpoint (2026-09-04)
 
 The integration branch combines the long-operation registry from #154 with

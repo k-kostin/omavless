@@ -46,6 +46,7 @@ fn actual_python_diagnostic_projections_match_bounded_native_rows() {
     }
     for payload in [
         json!({"providers":[]}),
+        json!({"providers":null}),
         json!({"providers":{"../unsafe":{}}}),
         json!({"providers":{"safe":{"updatedAt":true}}}),
         json!({"providers":{"safe":{"behavior":3}}}),

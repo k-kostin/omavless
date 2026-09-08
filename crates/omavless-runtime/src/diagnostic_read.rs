@@ -204,19 +204,37 @@ mod tests {
         // multithreaded test process's global umask.
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
         let uid = nix::unistd::Uid::current().as_raw();
-        let provider_shape = read(
-            &socket,
-            uid,
-            ReadOnlyEndpoint::RuleProviders,
-            Instant::now() + DEADLINE,
-        )
-        .unwrap();
-        assert!(
-            provider_shape
+        // /version readiness precedes config initialization on Mihomo 1.19.30:
+        // /providers/rules can transiently contain null, even with an inline
+        // provider. Wait for this fixture's actual loaded data, not a sleep or
+        // a production schema relaxation which would invent an empty result.
+        let loaded_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let providers = read(
+                &socket,
+                uid,
+                ReadOnlyEndpoint::RuleProviders,
+                loaded_deadline,
+            )
+            .unwrap();
+            let rules = read(&socket, uid, ReadOnlyEndpoint::Rules, loaded_deadline).unwrap();
+            if providers
                 .get("providers")
-                .is_some_and(Value::is_object),
-            "installed rule-provider response must contain an object"
-        );
+                .and_then(Value::as_object)
+                .is_some_and(|rows| rows.len() == usize::from(inline_provider))
+                && rules
+                    .get("rules")
+                    .and_then(Value::as_array)
+                    .is_some_and(|rows| rows.len() == 81 + usize::from(inline_provider))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < loaded_deadline,
+                "synthetic core configuration did not become observable"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
         for method in METHODS {
             let result = collect(&directory, uid, method, &[]).unwrap();
             assert_eq!(result["version"], 1);
