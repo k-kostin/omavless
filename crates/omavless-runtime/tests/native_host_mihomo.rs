@@ -176,6 +176,8 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
         )
         .unwrap();
         host.prepare(&desired).unwrap();
+        let staged = fs::read_to_string(config.join(".config.candidate.yaml")).unwrap();
+        assert_eq!(staged.contains("DOMAIN,example.invalid,DIRECT"), add);
         host.start_prepared().unwrap();
         let health = host.observe(&desired).unwrap();
         assert!(health.service_active && health.controller_ready);
