@@ -183,27 +183,40 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
         assert!(health.service_active && health.controller_ready);
         assert_eq!(health.core_count, 1);
         assert_eq!(health.tun_count, 0);
-        let rules = omavless_mihomo::controller_get(
-            &root.join("runtime/mihomo.sock"),
-            omavless_mihomo::ReadOnlyEndpoint::Rules,
-            std::time::Duration::from_secs(2),
-            64 * 1024,
-        )
-        .unwrap();
-        assert_eq!(rules.status, 200);
-        let observed = rules.payload["rules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|rule| {
-                rule["type"] == "Domain"
-                    && rule["payload"] == "example.invalid"
-                    && rule["proxy"] == "DIRECT"
+        // /version can respond before core rule initialization finishes. Wait
+        // for this exact synthetic configuration, not a fixed delay or an empty
+        // array (which could falsely satisfy the deletion case).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .expect("Mihomo did not load the committed synthetic rules before the deadline");
+            let loaded = omavless_mihomo::controller_get(
+                &root.join("runtime/mihomo.sock"),
+                omavless_mihomo::ReadOnlyEndpoint::Rules,
+                remaining.min(std::time::Duration::from_millis(250)),
+                64 * 1024,
+            )
+            .ok()
+            .is_some_and(|response| {
+                response.status == 200
+                    && response.payload["rules"].as_array().is_some_and(|rules| {
+                        rules.len() == if add { 2 } else { 1 }
+                            && rules
+                                .iter()
+                                .any(|rule| rule["type"] == "Match" && rule["proxy"] == "DIRECT")
+                            && rules.iter().any(|rule| {
+                                rule["type"] == "Domain"
+                                    && rule["payload"] == "example.invalid"
+                                    && rule["proxy"] == "DIRECT"
+                            }) == add
+                    })
             });
-        assert_eq!(
-            observed, add,
-            "Mihomo rule state did not match committed mutation"
-        );
+            if loaded {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         host.commit_prepared().unwrap();
         let active = fs::read_to_string(config.join("config.yaml")).unwrap();
         assert!(active.contains("external-controller-unix:"));
