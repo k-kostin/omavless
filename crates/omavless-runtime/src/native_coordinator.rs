@@ -717,6 +717,87 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    pub(crate) fn route_plan(
+        &mut self,
+        request: &Value,
+    ) -> Result<crate::route_probe::Plan, NativeOwnerError> {
+        match self.check_route(request) {
+            Ok(result) => return Ok(crate::route_probe::Plan::Fast(result.private_ui_value())),
+            Err(NativeOwnerError::OwnershipUnavailable) => (),
+            Err(error) => return Err(error),
+        }
+        // Recheck all owner/store fences: unavailable is also used by the
+        // existing fast-path API for revoked ownership, not just unmatched Rule.
+        use sha2::{Digest, Sha256};
+        let _lock = self
+            .transaction
+            .acquire_lock()
+            .map_err(|error| match error {
+                ConnectionTransactionError::Busy => NativeOwnerError::OwnershipBusy,
+                _ => NativeOwnerError::OwnershipUnavailable,
+            })?;
+        if self.required_ownership.is_none_or(|fence| {
+            fence.phase != OwnershipPhase::Rust
+                || !self
+                    .transaction
+                    .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        if self.transaction.blocked() || self.actual() == ActualState::ManualRecoveryRequired {
+            return Err(NativeOwnerError::ManualRecoveryRequired);
+        }
+        let desired = self.desired().map_err(|_| NativeOwnerError::Invariant)?;
+        if !desired.connected
+            || desired.mode.as_str() != "rule"
+            || self.actual() != ActualState::Connected
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        crate::private_store_transaction::validate_store_path(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let input = omavless_store::read_private_utf8(
+            self.transaction.store_path(),
+            self.transaction.uid(),
+        )
+        .map_err(|_| NativeOwnerError::Invariant)?;
+        let store = omavless_domain::private_store::parse_private_store(&input)
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        let query = crate::route_check_protocol::query(request)?;
+        // A writer may have added a custom rule between the initial pure read
+        // and this snapshot lease. Preserve the no-probe custom fast path.
+        if let Some(result) = store
+            .check_route_fast_paths("rule", true, query)
+            .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?
+        {
+            return Ok(crate::route_probe::Plan::Fast(result.private_ui_value()));
+        }
+        let private = store.diagnostic_private_fragments();
+        if !omavless_mihomo::diagnostics::private_fragment_budget(&private) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let store_digest = Sha256::digest(input.as_bytes()).into();
+        let (pid, config_digest) = self
+            .host_mut()
+            .route_core_identity()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        let query = omavless_domain::route_check::canonical_query(query)
+            .map_err(|_| NativeOwnerError::Protocol(MutationProtocolError::InvalidArgument))?;
+        Ok(crate::route_probe::Plan::Live(
+            crate::route_probe::Context {
+                query,
+                pid,
+                private,
+                desired,
+                store_digest,
+                config_digest,
+            },
+        ))
+    }
+
     pub(crate) fn profile_export(
         &mut self,
         request: &Value,

@@ -4369,69 +4369,66 @@ def controller_rules(socket_path: Path, timeout: float) -> list[dict[str, Any]]:
     return rules
 
 
-def rule_hit_snapshot(rules: list[dict[str, Any]]) -> dict[int, int]:
-    snapshot: dict[int, int] = {}
-    for position, item in enumerate(rules):
-        extra = item.get("extra")
-        hit_count = extra.get("hitCount") if isinstance(extra, dict) else None
-        index = item.get("index", position)
-        if (
-            isinstance(index, int) and not isinstance(index, bool)
-            and isinstance(hit_count, int) and not isinstance(hit_count, bool)
-            and index >= 0 and hit_count >= 0
+def exact_route_connection(
+    payload: Any, query: str, source_port: int, mixed_port: int,
+    private_fragments: tuple[str, ...] = (),
+) -> dict[str, str] | None:
+    """Attribute only our held TCP tuple; global hit counters are not evidence."""
+    rows = payload.get("connections") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or len(rows) > 2048:
+        raise BackendError("Mihomo returned invalid connection status")
+    matched = None
+    for row in rows:
+        metadata = row.get("metadata") if isinstance(row, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        expected = {"sourceIP": "127.0.0.1", "inboundIP": "127.0.0.1",
+                    "sourcePort": str(source_port), "inboundPort": str(mixed_port),
+                    "destinationPort": "443", "network": "tcp", "type": "HTTPS"}
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            continue
+        try:
+            query_ip = ipaddress.ip_address(query)
+        except ValueError:
+            destination_matches = isinstance(metadata.get("host"), str) and metadata["host"].lower() == query
+        else:
+            try:
+                destination_matches = query_ip == ipaddress.ip_address(metadata.get("destinationIP", ""))
+            except (ValueError, TypeError):
+                destination_matches = False
+        if not destination_matches:
+            continue
+        if matched is not None:
+            raise BackendError("Mihomo returned ambiguous connection status")
+        chains = row.get("chains")
+        if not isinstance(chains, list) or not 1 <= len(chains) <= 16 or any(
+            not isinstance(item, str) or not 1 <= len(item.encode("utf-8")) <= 256 for item in chains
         ):
-            snapshot[index] = hit_count
-    return snapshot
+            raise BackendError("Mihomo returned invalid connection status")
+        if chains == ["DIRECT"]:
+            target = "DIRECT"
+        elif chains in (["REJECT"], ["REJECT-DROP"]):
+            target = "REJECT"
+        elif "PROXY" in chains and not any(item in chains for item in ("DIRECT", "REJECT", "REJECT-DROP")):
+            target = "PROXY"
+        else:
+            raise BackendError("Could not identify the observed route policy")
+        kind, rule_payload = row.get("rule"), row.get("rulePayload")
+        if not isinstance(kind, str) or not kind or not isinstance(rule_payload, str):
+            raise BackendError("Mihomo returned invalid connection status")
+        matched = {"outcome": route_outcome(target),
+                   "ruleType": _bounded_controller_text(kind, 80, private_fragments),
+                   "rulePayload": _bounded_controller_text(rule_payload, 256, private_fragments),
+                   "target": target, "source": "live"}
+    return matched
 
 
-def incremented_rule(
-    rules: list[dict[str, Any]], before_hits: dict[int, int]
-) -> dict[str, Any] | None:
-    candidates: list[tuple[int, int, dict[str, Any]]] = []
-    for position, item in enumerate(rules):
-        extra = item.get("extra")
-        hit_count = extra.get("hitCount") if isinstance(extra, dict) else None
-        hit_at = extra.get("hitAt", 0) if isinstance(extra, dict) else 0
-        index = item.get("index", position)
-        if (
-            isinstance(index, int) and not isinstance(index, bool)
-            and isinstance(hit_count, int) and not isinstance(hit_count, bool)
-            and hit_count > before_hits.get(index, hit_count)
-        ):
-            candidates.append((int(hit_at) if isinstance(hit_at, int) else 0, index, item))
-    if not candidates:
-        return None
-    # Other traffic may hit a rule during the short probe. Mihomo's hitAt value
-    # lets the most recent match win; the active-connection match below remains
-    # the preferred result when it is observable.
-    candidates.sort(key=lambda candidate: (candidate[0], candidate[1]), reverse=True)
-    return candidates[0][2]
-
-
-def rule_target(
-    rules: list[dict[str, Any]], rule_type: str, rule_payload: str
-) -> str:
-    normalized_type = re.sub(r"[^A-Z0-9]", "", rule_type.upper())
-    for item in rules:
-        item_type = re.sub(r"[^A-Z0-9]", "", str(item.get("type", "")).upper())
-        if item_type == normalized_type and str(item.get("payload", "")) == rule_payload:
-            return str(item.get("proxy", ""))[:256]
-    return ""
-
-
-def live_route_match(paths: Paths, query: str, is_ip: bool) -> dict[str, str]:
+def live_route_match(
+    paths: Paths, query: str, is_ip: bool, private_fragments: tuple[str, ...] = (),
+) -> dict[str, str]:
     socket_path = controller_socket(paths)
     if not socket_path.exists():
         raise BackendError("Reconnect once to enable private domain checks")
-    before_rules = controller_rules(socket_path, 3)
-    before_hits = rule_hit_snapshot(before_rules)
-    status_code, before_payload = controller_json(socket_path, "/connections", 3)
-    before_connections = before_payload.get("connections") if isinstance(before_payload, dict) else None
-    if status_code != 200 or not isinstance(before_connections, list):
-        raise BackendError("Mihomo returned invalid connection status")
-    before_ids = {
-        str(item.get("id", "")) for item in before_connections if isinstance(item, dict)
-    }
     config_text = read_text_file(paths.config, MAX_TEMPLATE_BYTES, "generated config", private=True)
     try:
         port = int(yaml_top_level_scalar(config_text, "mixed-port"))
@@ -4443,56 +4440,23 @@ def live_route_match(paths: Paths, query: str, is_ip: bool) -> dict[str, str]:
     probe = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
         request = f"CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n"
+        source_port = probe.getsockname()[1]
         probe.sendall(request.encode("ascii"))
         deadline = time.monotonic() + 5
-        matched_connection: dict[str, Any] | None = None
-        matched_rule: dict[str, Any] | None = None
-        current_rules = before_rules
+        matched_connection = None
         while time.monotonic() < deadline:
-            _code, current = controller_json(socket_path, "/connections", 1)
-            connections = current.get("connections") if isinstance(current, dict) else None
-            if isinstance(connections, list):
-                for item in connections:
-                    if not isinstance(item, dict) or str(item.get("id", "")) in before_ids:
-                        continue
-                    metadata = item.get("metadata")
-                    host = str(metadata.get("host", "")).lower() if isinstance(metadata, dict) else ""
-                    destination = str(metadata.get("destinationIP", "")) if isinstance(metadata, dict) else ""
-                    if host == query or (is_ip and destination == query):
-                        matched_connection = item
-                        break
-            current_rules = controller_rules(socket_path, 1)
-            matched_rule = incremented_rule(current_rules, before_hits)
-            if matched_connection is not None or matched_rule is not None:
+            code, current = controller_json(socket_path, "/connections", 1)
+            if code != 200:
+                raise BackendError("Mihomo returned invalid connection status")
+            matched_connection = exact_route_connection(current, query, source_port, port, private_fragments)
+            if matched_connection is not None:
                 break
             time.sleep(0.1)
     finally:
         probe.close()
-    if matched_connection is None and matched_rule is None:
+    if matched_connection is None:
         raise BackendError("Could not observe a route for that destination; it may be unavailable")
-    rule_type = ""
-    rule_payload = ""
-    target = ""
-    if matched_connection is not None:
-        rule_type = str(matched_connection.get("rule", ""))[:80]
-        rule_payload = str(matched_connection.get("rulePayload", ""))[:256]
-        target = rule_target(current_rules, rule_type, rule_payload)
-    elif matched_rule is not None:
-        rule_type = str(matched_rule.get("type", ""))[:80]
-        rule_payload = str(matched_rule.get("payload", ""))[:256]
-        target = str(matched_rule.get("proxy", ""))[:256]
-    if not target:
-        chains = matched_connection.get("chains") if matched_connection is not None else None
-        if isinstance(chains, list) and chains:
-            upper = [str(item).upper() for item in chains]
-            target = "DIRECT" if "DIRECT" in upper else "PROXY"
-    return {
-        "outcome": route_outcome(target or "PROXY"),
-        "ruleType": rule_type or "RULE",
-        "rulePayload": rule_payload,
-        "target": public_route_target(target or "PROXY"),
-        "source": "live",
-    }
+    return matched_connection
 
 
 def route_check(paths: Paths, raw_query: str) -> dict[str, Any]:
@@ -4521,7 +4485,7 @@ def route_check(paths: Paths, raw_query: str) -> dict[str, Any]:
                 "source": "custom",
             }
         elif running and mode == "rule":
-            result = live_route_match(paths, query, is_ip)
+            result = live_route_match(paths, query, is_ip, _diagnostic_private_fragments(store))
         else:
             result = {
                 "outcome": "unknown", "ruleType": "RULE-SET", "rulePayload": "",

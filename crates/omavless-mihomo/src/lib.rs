@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 pub mod diagnostics;
 pub mod observation;
+pub mod route_observation;
 pub mod rule_provider;
 
 pub const MAX_CONTROLLER_RESPONSE_BYTES: usize = 512 * 1024;

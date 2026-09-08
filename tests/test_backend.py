@@ -1286,19 +1286,13 @@ rules:
             paths.config.write_text("mixed-port: 7890\n", encoding="utf-8")
             backend.controller_socket(paths).touch()
             probe = mock.Mock()
+            probe.getsockname.return_value = ("127.0.0.1", 40000)
             controller_responses = [
-                (200, {"rules": [{
-                    "index": 0, "type": "RULE-SET", "payload": "github", "proxy": "PROXY",
-                    "extra": {"hitCount": 3, "hitAt": 100},
-                }]}),
-                (200, {"connections": []}),
                 (200, {"connections": [{
-                    "id": "new", "metadata": {"host": "example.com", "destinationIP": ""},
+                    "id": "new", "metadata": {"host": "example.com", "destinationIP": "",
+                        "sourceIP": "127.0.0.1", "sourcePort": "40000", "inboundIP": "127.0.0.1",
+                        "inboundPort": "7890", "destinationPort": "443", "network": "tcp", "type": "HTTPS"},
                     "rule": "RuleSet", "rulePayload": "github", "chains": ["Secret node", "PROXY"],
-                }]}),
-                (200, {"rules": [{
-                    "index": 0, "type": "RULE-SET", "payload": "github", "proxy": "PROXY",
-                    "extra": {"hitCount": 4, "hitAt": 101},
                 }]}),
             ]
             with mock.patch.object(backend, "controller_json", side_effect=controller_responses), \
@@ -1312,7 +1306,7 @@ rules:
             probe.close.assert_called_once_with()
             self.assertNotIn("Secret node", json.dumps(result))
 
-    def test_live_route_check_uses_rule_hit_for_an_immediate_reject(self):
+    def test_live_route_check_uses_only_exact_connection_for_reject(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             runtime = home / "runtime"
@@ -1322,16 +1316,13 @@ rules:
             paths.config.write_text("mixed-port: 7890\n", encoding="utf-8")
             backend.controller_socket(paths).touch()
             probe = mock.Mock()
+            probe.getsockname.return_value = ("127.0.0.1", 40000)
             controller_responses = [
-                (200, {"rules": [{
-                    "index": 4, "type": "DOMAIN-SUFFIX", "payload": "ads.example",
-                    "proxy": "REJECT-DROP", "extra": {"hitCount": 9, "hitAt": 100},
-                }]}),
-                (200, {"connections": []}),
-                (200, {"connections": []}),
-                (200, {"rules": [{
-                    "index": 4, "type": "DOMAIN-SUFFIX", "payload": "ads.example",
-                    "proxy": "REJECT-DROP", "extra": {"hitCount": 10, "hitAt": 101},
+                (200, {"connections": [{
+                    "metadata": {"host": "ads.example", "sourceIP": "127.0.0.1",
+                        "sourcePort": "40000", "inboundIP": "127.0.0.1", "inboundPort": "7890",
+                        "destinationPort": "443", "network": "tcp", "type": "HTTPS"},
+                    "rule": "DOMAIN-SUFFIX", "rulePayload": "ads.example", "chains": ["REJECT-DROP"],
                 }]}),
             ]
             with mock.patch.object(backend, "controller_json", side_effect=controller_responses), \
@@ -1341,6 +1332,42 @@ rules:
                 "outcome": "block", "ruleType": "DOMAIN-SUFFIX",
                 "rulePayload": "ads.example", "target": "REJECT", "source": "live",
             })
+
+    def test_live_route_check_rejects_destination_only_and_global_hit_evidence(self):
+        row = {"metadata": {"host": "example.com", "sourceIP": "127.0.0.1",
+            "sourcePort": "40001", "inboundIP": "127.0.0.1", "inboundPort": "7890",
+            "destinationPort": "443", "network": "tcp", "type": "HTTPS"},
+            "rule": "Match", "rulePayload": "", "chains": ["DIRECT"]}
+        payload = {"connections": [row], "rules": [{"extra": {"hitCount": 999}}]}
+        self.assertIsNone(backend.exact_route_connection(payload, "example.com", 40000, 7890))
+        row["metadata"]["sourcePort"] = "40000"
+        self.assertEqual(backend.exact_route_connection(payload, "example.com", 40000, 7890)["target"], "DIRECT")
+        payload["connections"].append(row)
+        with self.assertRaises(backend.BackendError):
+            backend.exact_route_connection(payload, "example.com", 40000, 7890)
+
+    def test_live_route_check_redacts_private_rule_fields_and_closes_unobserved(self):
+        row = {"metadata": {"host": "example.com", "sourceIP": "127.0.0.1",
+            "sourcePort": "40000", "inboundIP": "127.0.0.1", "inboundPort": "7890",
+            "destinationPort": "443", "network": "tcp", "type": "HTTPS"},
+            "rule": "RuleSet", "rulePayload": "synthetic-secret", "chains": ["DIRECT"]}
+        result = backend.exact_route_connection({"connections": [row]}, "example.com", 40000, 7890, ("synthetic-secret",))
+        self.assertNotIn("synthetic-secret", json.dumps(result))
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            paths = self.paths_for(home, home)
+            paths.config_dir.mkdir(parents=True, mode=0o700)
+            paths.config.write_text("mixed-port: 7890\n", encoding="utf-8")
+            backend.controller_socket(paths).touch()
+            probe = mock.Mock()
+            probe.getsockname.return_value = ("127.0.0.1", 40000)
+            with mock.patch.object(backend.socket, "create_connection", return_value=probe), \
+                 mock.patch.object(backend.time, "monotonic", side_effect=[0, 6]), \
+                 mock.patch.object(backend, "controller_json", side_effect=AssertionError("no guessed counter fetch")):
+                with self.assertRaises(backend.BackendError) as error:
+                    backend.live_route_match(paths, "example.com", False)
+            self.assertNotIn("example.com", str(error.exception))
+            probe.close.assert_called_once_with()
 
     def test_remote_rule_refresh_updates_timestamp_only_after_every_http_provider(self):
         with tempfile.TemporaryDirectory() as temp:
