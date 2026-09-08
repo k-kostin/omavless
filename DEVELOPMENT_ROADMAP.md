@@ -755,9 +755,10 @@ for exact heads, local parity/host evidence and remaining boundaries. These are
 native semantic checkpoints, not installed frontend activation or R5 completion.
 
 The code-backed [remaining native surface audit](docs/testing/R5_NATIVE_SURFACE_AUDIT_2026-09-08.md)
-distinguishes existing foundations from missing provider refresh, live routing
-observation, subscription probes, support/settings projections, telemetry,
-startup activation and small UI lifecycle operations. Use it to allocate work
+and its subsequent-checkpoint notice distinguish implemented provider refresh,
+live routing and bounded support projection from remaining subscription probes,
+full host diagnostics, telemetry, startup activation and UI lifecycle work.
+Use the updated ledger alongside the historical audit to allocate work
 without duplicating existing operations or treating frontend wiring as the only
 remaining migration task. Native controller liveness versus configured
 runtime readiness is tracked in #183; the installed Python D1 readiness fix
@@ -768,7 +769,8 @@ joins validated private Unix-provider refresh to the existing one-owner batch
 scheduler and operation registry. It adds detached discovery, same-controller
 identity pinning, cancellation/revision/store/config fences and an all-success
 compensated refresh stamp. The installed Python/QML owner and R5/R6 cutover
-gates remain unchanged; live unmatched route probes are a separate task.
+gates remain unchanged; #191 separately supplies exact-attribution live route
+observation, subject to its documented host visibility limits.
 
 The [configured-readiness checkpoint](docs/testing/R5_CONFIGURED_READINESS.md)
 adds native-host mode/selector admission and whole-request controller deadlines.
