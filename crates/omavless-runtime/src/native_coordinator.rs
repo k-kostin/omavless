@@ -2762,6 +2762,65 @@ mod tests {
     }
 
     #[test]
+    fn batch_uncertain_store_write_blocks_owner_without_rewriting_or_replay() {
+        for after_replace in [false, true] {
+            let (root, path, mut owner) = batch_fixture("batch-uncertain-write");
+            let request = batch_request("subscriptions.refresh_all", "uncertain");
+            let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+            run_batch(&owner, &mut job);
+            let before = fs::read(&path).unwrap();
+            let revision = owner.revision();
+            let result = owner.complete_subscription_batch_with_store(
+                job,
+                || 20,
+                |path, uid, snapshot, entries, timestamp| {
+                    if after_replace {
+                        crate::subscription_mutation::commit_subscription_refresh_batch(
+                            path, uid, snapshot, entries, timestamp,
+                        )
+                        .unwrap();
+                    }
+                    Err(SubscriptionMutationCommitError::StoreIo)
+                },
+            );
+            assert!(matches!(
+                result,
+                Err(NativeOwnerError::ManualRecoveryRequired)
+            ));
+            let after = fs::read(&path).unwrap();
+            assert_eq!(after != before, after_replace);
+            assert_eq!(owner.revision(), revision);
+            assert!(owner.transaction.blocked());
+            assert_eq!(
+                batch_status(&owner, "uncertain")["error"]["code"],
+                "manual_recovery_required"
+            );
+            let favorite = profile_request(
+                "profiles.favorite",
+                json!({"profileId":PROFILE,"enabled":true}),
+            );
+            let NativeOwnerExecution::Applied {
+                outcome: Err(error),
+                ..
+            } = owner.execute_profile(&favorite).unwrap()
+            else {
+                panic!("ordinary mutation bypassed uncertain batch write");
+            };
+            assert_eq!(error.stable_code(), StableErrorCode::ManualRecoveryRequired);
+            assert!(matches!(
+                owner.start_subscription_batch(&request),
+                Err(NativeOwnerError::ManualRecoveryRequired)
+            ));
+            assert!(matches!(
+                owner.start_subscription_batch(&batch_request("subscriptions.refresh_all", "next")),
+                Err(NativeOwnerError::ManualRecoveryRequired)
+            ));
+            assert_eq!(fs::read(&path).unwrap(), after);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_owner_ownership_withdrawal_prevents_commit() {
         let (root, path, mut owner) = batch_fixture("batch-ownership");
         let before = fs::read(&path).unwrap();

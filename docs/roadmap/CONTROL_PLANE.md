@@ -435,6 +435,9 @@ unwinding worker uses its exact private ticket to terminalize only its own job.
 Polling and cancellation of already-known safe projections remain possible
 after ownership withdrawal; starting or committing work does not. During
 scheduler shutdown unary calls receive `daemon_restarting` promptly.
+An ambiguous atomic store I/O failure becomes `manual_recovery_required` and
+blocks the shared owner; it is never advertised as a safely retryable ordinary
+failure. Unknown current store bytes are not blindly overwritten.
 
 These are registered native prerequisites, not activation of the installed
 frontend or a production ownership transition. The exact boundary and local

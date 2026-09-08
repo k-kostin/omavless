@@ -7,8 +7,9 @@ future installed frontend/ownership transition. It does not claim R5 complete.
 
 ## Reference and ownership
 
-Python `refresh_subscriptions` remains the installed production owner and
-oracle. Existing subscription domain/store differential corpora preserve feed
+Python's `subscription-refresh-all` command in `backend.main` remains the
+installed production owner and oracle. Existing subscription domain/store
+differential corpora preserve feed
 identity and all-or-nothing replacement. The accepted offline refresh-all
 reference is additionally compared by
 `incremental_preparation_matches_the_accepted_atomic_reference`. Scheduler
@@ -31,13 +32,20 @@ the first implementation/format commits and exact matches for both later test
 commits. Main's diagnostic, import/export, preset, custom-rule and route-check
 methods remain alongside batch methods.
 
-Two narrow corrections were required:
+Three narrow corrections were required:
 
 - The newly merged durable preset barrier now blocks batch admission, exact
   cached start replay and prepared completion before writes or clock reads.
 - Shutdown no longer holds the scheduler admission mutex while a provider
   request drains. Already admitted unary callers get `daemon_restarting`
   without waiting for the provider timeout; shutdown still joins its worker.
+- An ambiguous batch store I/O failure may occur after atomic rename. It now
+  becomes `manual_recovery_required` and blocks the shared owner, not an
+  ordinary failure with an unchanged revision and permission to retry. The
+  owner does not overwrite unknown current bytes. Deterministic pre-write and
+  post-replacement failures verify terminal state, unchanged revision, refused
+  batch retry and refused ordinary profile mutations. This is an in-process
+  refusal barrier, not a new persistent recovery journal.
 
 ## Local gate
 

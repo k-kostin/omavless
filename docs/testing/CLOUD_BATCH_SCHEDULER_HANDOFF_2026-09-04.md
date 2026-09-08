@@ -1,5 +1,10 @@
 # R5 batch scheduler and fixed commands
 
+Historical cloud handoff. The current-main continuation and separately scoped
+local scheduler gate are recorded in [R5_BATCH_SCHEDULER.md](R5_BATCH_SCHEDULER.md).
+The old stack/base and installed-cutover checklist below are historical, not
+evidence that current main lacks the scheduler's already merged prerequisites.
+
 Base: #159 `a75d7fbdb790e304c9df5cdf0139187e1d3a2d2f`.
 This branch stacks on #159, which converges #154 and #156 (and #155).
 Do not cherry-pick the scheduler onto main without those prerequisites.
