@@ -734,20 +734,25 @@ dispatcher, and PRs #138-#142 do not expose a user cutover command or switch an
 installed client to Rust.
 
 The 2026-09-08 continuation merged client-side desktop helpers (#175), bounded
-detached live-rule diagnostics (#177), and offline startup preference
-transactions (#176). Startup preference persistence is not login autoconnect:
+detached live-rule diagnostics (#177), offline startup preference transactions
+(#176), compensated preset selection (#179), custom-rule mutations (#174), and
+route fast paths (#180).
+Startup preference persistence is not login autoconnect:
 once-per-login activation and legacy unit-state conversion remain, with the
 packaged capability/`NoNewPrivileges` conflict tracked separately in #178.
-Custom-rule mutations (#174), preset transactions (#179), and route fast paths
-(#180) have separate candidate/acceptance gates; do not infer their merge from
-the presence of an implementation branch.
+Route fast paths do not implement live unmatched Routing observation.
+The final combined candidate passed555 Rust tests and270 Python tests with
+installed-Mihomo opt-ins; see the
+[exact-head acceptance report](docs/testing/TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md).
 
 The code-backed [remaining native surface audit](docs/testing/R5_NATIVE_SURFACE_AUDIT_2026-09-08.md)
 distinguishes existing foundations from missing provider refresh, live routing
 observation, subscription probes, support/settings projections, telemetry,
 startup activation and small UI lifecycle operations. Use it to allocate work
 without duplicating existing operations or treating frontend wiring as the only
-remaining migration task.
+remaining migration task. Native controller liveness versus configured
+runtime readiness is tracked in #183; the installed Python D1 readiness fix
+remains preserved.
 
 The current QML -> `backend.py` path remains the only production owner until an
 executed transactional cutover and plugin bridge pass the acceptance gates

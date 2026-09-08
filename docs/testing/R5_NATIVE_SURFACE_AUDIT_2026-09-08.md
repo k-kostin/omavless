@@ -5,6 +5,11 @@ This is a planning artifact, not exact-head acceptance or a merge verdict.
 References below are repository-relative; line numbers refer to the inspected
 candidate and may shift after consolidation.
 
+All five implementation PRs (#174/#176/#177/#179/#180) subsequently merged.
+Their final accepted heads and combined gates are in the
+[acceptance report](TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md); the snapshot list
+below records audit inputs, not the current branch/merge status.
+
 ## Inspected snapshots
 
 - Main includes diagnostic PR #177 at `ccaab476a422dd5144198888323f140aa5ec1a01`.
@@ -24,8 +29,8 @@ behind a committed native ownership marker is not installed plugin activation.
 | Existing UI action | Native foundation / registration | Actual remaining boundary |
 | --- | --- | --- |
 | Connect/disconnect/set mode | `lib.rs` native mutation list; `connection_transaction.rs`, `native_dispatch.rs` | Host cutover and frontend composition, not a new state machine |
-| Custom-rule list/add/delete | #174 `routing.custom_rules.list/add/delete`; private transaction and fixed CLI | Combined exact-head gate, bridge and installed acceptance |
-| Apply routing preset / keep mode | #179 `routing.set_preset`; `routing_preset.rs` transaction | Combined gate, bridge; do not conflate preset application with refreshing live providers |
+| Custom-rule list/add/delete | #174 `routing.custom_rules.list/add/delete`; private transaction and fixed CLI | Bridge and installed acceptance; combined native gate passed |
+| Apply routing preset / keep mode | #179 `routing.set_preset`; `routing_preset.rs` transaction | Bridge; combined gate passed; do not conflate preset application with refreshing live providers |
 | Advanced loaded rules/providers | #177 `diagnostic_read.rs:18-49`, `diagnostics.summary/rules/providers` | Bridge existing advanced-diagnostics UI; not support snapshot parity |
 | Global/direct/custom/disconnected route check | #180 `route_check.rs`, `route_check_protocol.rs` | Live unmatched Routing observation deliberately absent |
 | Save login preferences | #176 `startup_protocol.rs`, `native_coordinator/startup.rs`, `startup_validation.rs` | Offline only: production dispatch, login integration and host gate still required |
@@ -142,7 +147,7 @@ batch scheduler has actual `subscriptions.refresh_all/operations.get/cancel`
 dispatch. Audit/gate that branch before opening a duplicate implementation.
 
 Final activation gates remain: exact packaged host readiness (#178), controller
-liveness versus selector/config readiness, one canonical owner, reversible
+liveness versus selector/config readiness (#183), one canonical owner, reversible
 cutover/rollback and legacy startup state, desktop/helper composition, QML
 error/status localization, install identity and real connect/disconnect plus
 shell restart/remove/disable acceptance. Existing primitives or synthetic tests
