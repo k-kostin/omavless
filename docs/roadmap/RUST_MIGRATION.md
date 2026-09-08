@@ -1163,6 +1163,14 @@ fix; an early diagnostic may safely return `core_rejected` until initialized.
 The follow-up lifecycle gate must distinguish controller liveness from complete
 config/selector readiness before claiming the overall runtime ready.
 
+The subsequent [configured-readiness checkpoint](../testing/R5_CONFIGURED_READINESS.md)
+introduces native-host admission/observation of requested mode and selected
+members, initialized collection shapes, and bounded controller I/O. It retains
+the stronger exact fixture checks above: provider download success and complete
+rule contents are not inferred from collection shape. Cached-selection repair,
+production preflight consolidation and packaged Full VPN acceptance remain
+explicit #183/#178 follow-ups; there is no installed-owner cutover.
+
 ### Native bundled routing preset checkpoint (2026-09-07)
 
 Fixed preset selection now prepares the three checked-in bundles without

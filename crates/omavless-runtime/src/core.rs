@@ -2,6 +2,7 @@
 
 //! Fixed-argv, parent-owned Mihomo child supervision for R5.
 
+use crate::core_readiness::ConfigReadiness;
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use omavless_mihomo::{ErrorKind, ReadOnlyEndpoint, controller_get};
@@ -116,13 +117,38 @@ impl OwnedCore {
             timeout,
             16 * 1024,
         ) {
-            Ok(_) => Ok(true),
+            Ok(response) => Ok(response.status == 200
+                && response.payload["version"]
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty())),
             Err(error) if error.kind() == ErrorKind::ControllerUnavailable => Ok(false),
             Err(_) => Err(CoreError::ReadinessTimedOut),
         }
     }
 
     pub fn wait_ready(&mut self, timeout: Duration) -> Result<(), CoreError> {
+        self.wait_for(timeout, None)
+    }
+
+    pub(crate) fn wait_configured(
+        &mut self,
+        timeout: Duration,
+        expected: &ConfigReadiness,
+    ) -> Result<(), CoreError> {
+        self.wait_for(timeout, Some(expected))
+    }
+
+    pub(crate) fn configured_ready(&self, timeout: Duration, expected: &ConfigReadiness) -> bool {
+        !timeout.is_zero()
+            && timeout <= Duration::from_secs(5)
+            && expected.ready(&self.controller_socket, Instant::now() + timeout)
+    }
+
+    fn wait_for(
+        &mut self,
+        timeout: Duration,
+        expected: Option<&ConfigReadiness>,
+    ) -> Result<(), CoreError> {
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
             return Err(CoreError::InvalidArgument);
         }
@@ -131,24 +157,23 @@ impl OwnedCore {
             if !self.running()? {
                 return Err(CoreError::ExitedBeforeReady);
             }
-            match controller_get(
-                &self.controller_socket,
-                ReadOnlyEndpoint::Version,
-                Duration::from_millis(250),
-                16 * 1024,
-            ) {
-                Ok(_) => return Ok(()),
-                Err(error)
-                    if error.kind() == ErrorKind::ControllerUnavailable
-                        && Instant::now() < deadline =>
-                {
-                    thread::sleep(POLL_INTERVAL);
-                }
-                Err(error) if error.kind() == ErrorKind::ControllerUnavailable => {
-                    return Err(CoreError::ReadinessTimedOut);
-                }
-                Err(_) => return Err(CoreError::ReadinessTimedOut),
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|value| !value.is_zero())
+                .ok_or(CoreError::ReadinessTimedOut)?;
+            let budget = remaining.min(Duration::from_millis(250));
+            let ready = match expected {
+                Some(expected) => self.configured_ready(budget, expected),
+                None => self.controller_ready(budget).unwrap_or(false),
+            };
+            if ready && Instant::now() < deadline {
+                return if self.running()? {
+                    Ok(())
+                } else {
+                    Err(CoreError::ExitedBeforeReady)
+                };
             }
+            thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
         }
     }
 
@@ -269,6 +294,13 @@ mod tests {
             owned.wait_ready(Duration::from_secs(1)),
             Err(CoreError::ExitedBeforeReady)
         );
+        assert_eq!(
+            owned.wait_configured(
+                Duration::from_secs(1),
+                &ConfigReadiness::new(crate::desired::RoutingMode::Global, "Synthetic".into())
+            ),
+            Err(CoreError::ExitedBeforeReady)
+        );
         drop(owned);
         fs::remove_dir_all(early_root).unwrap();
 
@@ -295,6 +327,102 @@ mod tests {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => panic!("cleanup failed: {error}"),
         }
+    }
+
+    #[test]
+    fn live_controller_is_not_configured_until_mode_and_selectors_converge() {
+        use crate::desired::RoutingMode;
+        use serde_json::json;
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixListener;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU8, Ordering},
+        };
+
+        let root = root("configuration-barrier");
+        let socket = root.join("controller.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let state = Arc::new(AtomicU8::new(0));
+        let serving = Arc::clone(&state);
+        let worker = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline && serving.load(Ordering::SeqCst) != 255 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_millis(200)))
+                    .unwrap();
+                let mut request = [0_u8; 512];
+                let Ok(count) = stream.read(&mut request) else {
+                    continue;
+                };
+                let request = std::str::from_utf8(&request[..count]).unwrap();
+                let stage = serving.load(Ordering::SeqCst);
+                let payload = if request.starts_with("GET /version ") {
+                    json!({"version":"synthetic"})
+                } else if request.starts_with("GET /configs ") {
+                    json!({"mode": if stage == 0 {"direct"} else {"global"}})
+                } else if request.starts_with("GET /rules ") {
+                    json!({"rules":[]})
+                } else if request.starts_with("GET /providers/rules ") {
+                    json!({"providers":{}})
+                } else if request.starts_with("GET /proxies ") {
+                    json!({"proxies": {
+                        "Synthetic": {"type":"Vless"},
+                        "PROXY": {"type":"Selector", "now":"Synthetic", "all":["Synthetic"]},
+                        "GLOBAL": {"type":"Selector", "now":if stage == 2 {"DIRECT"} else {"PROXY"}, "all":["PROXY"]}
+                    }})
+                } else {
+                    panic!("unexpected fixed endpoint");
+                };
+                let body = payload.to_string();
+                let status = if stage == 3 {
+                    "503 Unavailable"
+                } else {
+                    "200 OK"
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        let core = script(
+            &root,
+            "trap 'exit 0' TERM INT\nwhile :; do sleep 0.05; done",
+        );
+        let mut owned = OwnedCore::spawn(&core, &root, &config(&root), &socket).unwrap();
+        let expected = ConfigReadiness::new(RoutingMode::Global, "Synthetic".into());
+        assert!(owned.controller_ready(Duration::from_millis(250)).unwrap());
+        let started = Instant::now();
+        assert_eq!(
+            owned.wait_configured(Duration::from_millis(80), &expected),
+            Err(CoreError::ReadinessTimedOut)
+        );
+        assert!(started.elapsed() < Duration::from_millis(700));
+        let changing = Arc::clone(&state);
+        let delayed = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(60));
+            changing.store(1, Ordering::SeqCst);
+        });
+        owned
+            .wait_configured(Duration::from_secs(1), &expected)
+            .unwrap();
+        delayed.join().unwrap();
+        state.store(2, Ordering::SeqCst);
+        assert!(!owned.configured_ready(Duration::from_millis(250), &expected));
+        state.store(3, Ordering::SeqCst);
+        assert!(!owned.configured_ready(Duration::from_millis(250), &expected));
+        assert!(owned.stop(Duration::from_secs(2)).unwrap().graceful);
+        assert!(owned.pid().is_none());
+        state.store(255, Ordering::SeqCst);
+        worker.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
