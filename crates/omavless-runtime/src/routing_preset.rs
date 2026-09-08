@@ -368,6 +368,7 @@ impl StorePlan for PresetPlan {
         {
             return Err(PrivateStoreWriteError::StoreChanged);
         }
+        self.store.verify_outcome_locked(lock, paths, true)?;
         self.arm()?;
         self.store.commit_locked(lock, paths)?;
         if self.original.as_deref() != Some(self.candidate.as_str()) {
@@ -1283,5 +1284,30 @@ mod tests {
             drop(lock);
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn routing_preset_stale_store_refuses_before_publishing_pending_marker() {
+        let (root, store, desired, paths, uid) = fixture();
+        initial_policy(&store, &desired, uid);
+        let lock = MigrationLock::acquire(&paths, uid).unwrap();
+        let plan = PresetPlan::prepare(
+            &store,
+            &desired,
+            uid,
+            &parse(&request("china-cn-direct", false)).unwrap(),
+        )
+        .unwrap();
+        write(&store, b"private-token-unexpected-store");
+        assert_eq!(
+            plan.commit(&lock, &paths),
+            Err(PrivateStoreWriteError::StoreChanged)
+        );
+        assert!(!pending(&desired));
+        assert!(fs::read(&store).unwrap() == b"private-token-unexpected-store");
+        assert_eq!(read_desired(&desired, uid).unwrap(), plan.desired);
+        assert!(fs::read_to_string(&plan.template).unwrap() == plan.original.unwrap());
+        drop(lock);
+        fs::remove_dir_all(root).unwrap();
     }
 }
