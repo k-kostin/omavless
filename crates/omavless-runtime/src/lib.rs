@@ -60,6 +60,7 @@ pub mod profile_mutation;
 pub mod profile_mutation_protocol;
 pub mod profile_read_protocol;
 pub mod profile_transaction;
+pub mod provider_refresh;
 pub mod remote_fetch;
 mod route_check_protocol;
 mod routing_preset;
