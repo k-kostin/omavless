@@ -456,6 +456,54 @@ acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 There is no generic `run-core`, `systemctl`, controller-forward, process or shell
 method.
 
+`routing.refresh_providers` uses the existing instance-bound long-operation
+registry and scheduler, not an extended unary timeout or another job owner.
+Its exact start fields are `instanceId`, `operationId`, optional
+`expectedRevision`. Fixed CLI: `routing refresh-providers INSTANCE OPERATION
+[REVISION]`. `operations.get/cancel` are unchanged. One active operation across
+subscription batches and rule updates is allowed; both share the ordinary
+mutation-ID collision namespace and 128-terminal FIFO. The projection's fixed
+method discriminant is now either `subscriptions.refresh_all` (total <=64) or
+`routing.refresh_providers` (total <=256). Existing subscription projections
+are unchanged; clients must negotiate capabilities before starting new methods.
+
+Start requires exact committed native ownership and canonical connected Rule
+state. It snapshots revision, desired generation/state and exact private
+store/active-config digests under the migration lease; controller I/O never
+runs under that lease or the owner mutex. A detached discovery uses the shared
+four-work pool and a three-second budget before final fenced admission. Busy
+pool, malformed/empty remote-provider set or stale completion reserves no
+operation ID. Exact retries replay before discovery. The complete provider map
+is validated and only HTTP vehicles produce internal percent-encoded PUT
+targets; client names, URLs, paths, headers and deadlines are forbidden.
+
+Sequential provider PUTs share that pool, each bounded to 60 seconds and the
+worker bounded to 30 minutes including permit wait. Cancellation is cooperative
+between requests, so an in-flight call may take its remaining budget. Before
+each step the owner rechecks exact revision, desired/store/config snapshots
+and ownership without controller reads; detached transport validates the
+original Unix socket device/inode and peer PID after connecting, before any
+request bytes. A replacement controller never receives a stale job's PUT.
+
+Completion rechecks those snapshots under the short final lease and closes
+cancellation through the existing registry fence. Accepted cancellation returns
+without another controller check; otherwise a nonblocking socket/peer identity
+proof precedes writing `rulesUpdatedAt` through the compensated
+private-store writer. Successful non-empty completion advances revision once.
+The stamp advances monotonically (`max(now, previous + 1)`); exhaustion fails
+closed. This corrects the legacy equal/backward-clock ambiguity. No profile,
+desired connection or active configuration changes accompany the stamp.
+
+PUT effects are not transactional: successful remote refreshes survive later
+provider failure, cancellation, timeout or ownership change. Such outcomes
+never stamp the current store or claim that the core cache was rolled back.
+Ordinary provider failures still allow bounded remaining targets to be tried.
+Cancellation wins over an in-flight error when ownership/snapshots are still
+valid; stale/unsafe ownership fails closed instead of publishing a cancelled
+result under an unproven owner. Uncertain local timestamp-write compensation
+requires manual recovery. Public operation results contain only bounded counts
+and fixed errors, not provider names, URLs, raw core errors or controller paths.
+
 `routing.set_preset` accepts required `preset` from exactly
 `roscomvpn-default`, `china-cn-direct`, `iran-ir-direct`; optional boolean
 `keepMode` (default false), `operationId` and `expectedRevision` only.

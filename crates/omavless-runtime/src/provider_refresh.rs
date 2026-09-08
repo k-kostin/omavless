@@ -18,7 +18,7 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -73,6 +73,7 @@ pub trait RuleProviderTransport {
 pub struct UnixRuleProviderTransport {
     directory: PathBuf,
     uid: u32,
+    identity: Mutex<Option<(u64, u64, i32)>>,
 }
 impl UnixRuleProviderTransport {
     #[must_use]
@@ -80,25 +81,12 @@ impl UnixRuleProviderTransport {
         Self {
             directory: directory.into(),
             uid,
+            identity: Mutex::new(None),
         }
     }
 
-    fn exchange(
-        &self,
-        target: Option<&RuleProviderTarget>,
-        budget: Duration,
-    ) -> Result<serde_json::Value, ProviderRefreshError> {
+    fn connect_pinned(&self, require_existing: bool) -> Result<UnixStream, ProviderRefreshError> {
         let unavailable = ProviderRefreshError::Unavailable;
-        if budget.is_zero() || budget > PROVIDER_UPDATE_TIMEOUT {
-            return Err(ProviderRefreshError::Deadline);
-        }
-        let deadline = Instant::now() + budget;
-        let remaining = || {
-            deadline
-                .checked_duration_since(Instant::now())
-                .filter(|d| !d.is_zero())
-                .ok_or(ProviderRefreshError::Deadline)
-        };
         let path = self.directory.join("mihomo.sock");
         let directory = fs::symlink_metadata(&self.directory).map_err(|_| unavailable)?;
         let metadata = fs::symlink_metadata(&path).map_err(|_| unavailable)?;
@@ -124,14 +112,49 @@ impl UnixRuleProviderTransport {
             &UnixAddr::new(&path).map_err(|_| unavailable)?,
         )
         .map_err(|_| unavailable)?;
-        let mut stream = UnixStream::from(fd);
-        if getsockopt(&stream, PeerCredentials)
-            .map_err(|_| unavailable)?
-            .uid()
-            != self.uid
+        let stream = UnixStream::from(fd);
+        let peer = getsockopt(&stream, PeerCredentials).map_err(|_| unavailable)?;
+        let after = fs::symlink_metadata(&path).map_err(|_| unavailable)?;
+        if peer.uid() != self.uid || after.dev() != metadata.dev() || after.ino() != metadata.ino()
         {
             return Err(unavailable);
         }
+        let observed = (metadata.dev(), metadata.ino(), peer.pid());
+        let mut pinned = self.identity.lock().map_err(|_| unavailable)?;
+        if pinned.is_some_and(|expected| expected != observed) {
+            return Err(unavailable);
+        }
+        if require_existing && pinned.is_none() {
+            return Err(unavailable);
+        }
+        *pinned = Some(observed);
+        drop(pinned);
+        Ok(stream)
+    }
+
+    /// Short nonblocking socket/peer proof only, no controller request or read.
+    /// Safe to call under the final serialized stamp lease.
+    pub(crate) fn verify_identity(&self) -> Result<(), ProviderRefreshError> {
+        self.connect_pinned(true).map(drop)
+    }
+
+    fn exchange(
+        &self,
+        target: Option<&RuleProviderTarget>,
+        budget: Duration,
+    ) -> Result<serde_json::Value, ProviderRefreshError> {
+        let unavailable = ProviderRefreshError::Unavailable;
+        if budget.is_zero() || budget > PROVIDER_UPDATE_TIMEOUT {
+            return Err(ProviderRefreshError::Deadline);
+        }
+        let deadline = Instant::now() + budget;
+        let remaining = || {
+            deadline
+                .checked_duration_since(Instant::now())
+                .filter(|d| !d.is_zero())
+                .ok_or(ProviderRefreshError::Deadline)
+        };
+        let mut stream = self.connect_pinned(target.is_some())?;
         stream.set_nonblocking(false).map_err(|_| unavailable)?;
         let (method, endpoint) = match target {
             Some(target) => ("PUT", target.update_path()),
@@ -214,6 +237,15 @@ pub struct ProviderRefreshWork {
     cancellation: ProviderRefreshCancellation,
 }
 impl ProviderRefreshWork {
+    pub(crate) fn discovered(
+        targets: Vec<RuleProviderTarget>,
+        cancellation: ProviderRefreshCancellation,
+    ) -> Self {
+        Self {
+            targets: Some(targets),
+            ..Self::new(cancellation)
+        }
+    }
     #[must_use]
     pub fn new(cancellation: ProviderRefreshCancellation) -> Self {
         Self {
@@ -543,6 +575,45 @@ mod tests {
             assert!(request.len() < 4096);
         }
         request
+    }
+    #[test]
+    fn replaced_controller_receives_no_put_from_old_discovered_job() {
+        let directory = directory();
+        let path = directory.join("mihomo.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let transport =
+            UnixRuleProviderTransport::new(&directory, nix::unistd::Uid::current().as_raw());
+        let first = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_request(&mut stream);
+            stream.write_all(b"HTTP/1.0 200 OK\r\n\r\n{\"providers\":{\"synthetic\":{\"vehicleType\":\"HTTP\"}}}").unwrap();
+        });
+        let targets = transport.discover(Duration::from_secs(1)).unwrap();
+        first.join().unwrap();
+        // Retain the first inode at another pathname so reuse cannot obscure
+        // this adversarial replacement test. The new listener is the successor.
+        fs::rename(&path, directory.join("old.sock")).unwrap();
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let second = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut byte = [0];
+            assert_eq!(
+                stream.read(&mut byte).unwrap(),
+                0,
+                "old job wrote to successor controller"
+            );
+        });
+        assert_eq!(
+            transport.update(&targets[0], Duration::from_secs(1)),
+            Err(ProviderRefreshError::Unavailable)
+        );
+        second.join().unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn private_unix_discovery_and_fixed_put_reject_modes_status_and_slow_body() {

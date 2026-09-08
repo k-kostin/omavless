@@ -68,6 +68,7 @@ fn run() -> Result<(), CliError> {
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
         println!("  routing rule-add KIND ACTION     read private rule value from stdin");
         println!("  routing rule-delete RULE_ID       remove one custom rule");
+        println!("  routing refresh-providers INSTANCE_ID OPERATION_ID [REVISION]");
         println!("  routing check                    read private domain/IP query from stdin");
         println!("  onboarding complete              mark first-use setup complete");
         println!(

@@ -197,7 +197,8 @@ fn long_request(
     revision: Option<&str>,
 ) -> Result<SemanticRequest, SemanticCliError> {
     use crate::long_operation_protocol::{
-        parse_operation_cancel, parse_operation_get, parse_refresh_all_start,
+        parse_operation_cancel, parse_operation_get, parse_provider_refresh_start,
+        parse_refresh_all_start,
     };
     let mut params = json!({"instanceId": instance, "operationId": operation});
     if let Some(revision) = revision {
@@ -211,6 +212,7 @@ fn long_request(
         .map_err(|_| SemanticCliError::InvalidArgument)?;
     match method {
         "subscriptions.refresh_all" => parse_refresh_all_start(&request).map(|_| ()),
+        "routing.refresh_providers" => parse_provider_refresh_start(&request).map(|_| ()),
         "operations.get" => parse_operation_get(&request).map(|_| ()),
         "operations.cancel" => parse_operation_cancel(&request).map(|_| ()),
         _ => return Err(SemanticCliError::InvalidCommand),
@@ -317,6 +319,21 @@ pub fn parse_semantic_mutation(
         ["subscription", "refresh-all", instance, operation] => {
             long_request("subscriptions.refresh_all", instance, operation, None)
         }
+        ["routing", "refresh-providers", instance, operation] => {
+            long_request("routing.refresh_providers", instance, operation, None)
+        }
+        [
+            "routing",
+            "refresh-providers",
+            instance,
+            operation,
+            revision,
+        ] => long_request(
+            "routing.refresh_providers",
+            instance,
+            operation,
+            Some(revision),
+        ),
         ["subscription", "refresh-all", instance, operation, revision] => long_request(
             "subscriptions.refresh_all",
             instance,
@@ -860,5 +877,48 @@ mod long_operation_tests {
             .is_err()
         );
         assert!(parse_semantic_mutation(&args(&["operations.cancel", "{}"]), None).is_err());
+    }
+
+    #[test]
+    fn provider_refresh_cli_accepts_only_fixed_metadata() {
+        for (argv, expected) in [
+            (
+                vec!["routing", "refresh-providers", "instance-1", "op-1"],
+                json!({"instanceId":"instance-1","operationId":"op-1"}),
+            ),
+            (
+                vec!["routing", "refresh-providers", "instance-1", "op-1", "7"],
+                json!({"instanceId":"instance-1","operationId":"op-1","expectedRevision":7}),
+            ),
+        ] {
+            let (method, params) = parse_semantic_mutation(&args(&argv), None)
+                .unwrap()
+                .into_parts();
+            assert_eq!(method, "routing.refresh_providers");
+            assert_eq!(params, expected);
+        }
+        for argv in [
+            vec!["routing", "refresh-providers"],
+            vec![
+                "routing",
+                "refresh-providers",
+                "instance-1",
+                "private token",
+            ],
+            vec!["routing", "refresh-providers", "instance-1", "op-1", "-1"],
+            vec![
+                "routing",
+                "refresh-providers",
+                "instance-1",
+                "op-1",
+                "7",
+                "private-token",
+            ],
+        ] {
+            let error = parse_semantic_mutation(&args(&argv), None)
+                .err()
+                .expect("invalid argv accepted");
+            assert!(!error.to_string().contains("private"));
+        }
     }
 }

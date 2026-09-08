@@ -1,9 +1,43 @@
 # Native rule-provider refresh boundary
 
-This checkpoint implements inactive, bounded provider discovery/update work.
+The original #187 checkpoint implements inactive, bounded provider discovery/update work.
 Python `refresh_rule_providers` still owns the installed product. The Rust
-adapter is not advertised through IPC/CLI, creates no worker thread, writes no
+adapter by itself is not advertised through IPC/CLI, creates no worker thread, writes no
 store and cannot by itself retire Python or claim completed refresh migration.
+The registered successor described below now composes it with the single native
+owner and the accepted #161 scheduler. Installed Python/QML remains unchanged.
+
+## Registered operation checkpoint
+
+`routing.refresh_providers` and fixed CLI `routing refresh-providers INSTANCE
+OPERATION [REVISION]` now use the existing single active-operation registry,
+ordinary mutation-ID namespace and `operations.get/cancel`. Only exact committed
+native ownership in connected Rule mode can start work. Discovery reserves no
+operation ID and runs outside owner, migration and scheduler-admission locks;
+the existing four-permit pool bounds concurrent discoveries. Final admission
+rechecks shutdown, generation, revision and exact desired/store/config snapshots.
+
+Each PUT is guarded by those snapshots and a pinned Unix socket device/inode
+and peer PID; a replacement controller does not receive a stale job's request.
+Final commit retains hard ownership/snapshot fences, honors accepted cancellation
+before late controller/transport errors, then verifies controller identity without
+HTTP I/O under the lease. Only all-success completion changes `rulesUpdatedAt`
+through the compensated private writer and advances revision once. Monotonic
+`max(now, previous + 1)` stamping intentionally corrects equal/backward legacy
+clocks; overflow refuses the stamp. Failed restoration requires manual recovery.
+
+Tests cover actual private Unix operation start/retry/get/cancel, responsive
+status/disconnect during slow PUT and discovery, controller replacement,
+cross-method operation-ID collisions, stale store/config/desired snapshots,
+transport failures, accepted cancellation plus late failure, exact CLI metadata,
+and forward/backward/exhausted timestamp behavior. The original actual Python
+discovery/path and orchestration oracles remain; unsafe rollback claims and
+equal/backward timestamps are not compatibility requirements.
+
+The full native-owner socket tests use controlled synthetic controller peers;
+the adapter test separately uses installed Mihomo and a loopback provider. These
+are complementary tests, not a claim of installed frontend or real private
+provider/TUN acceptance. No normal plugin owner or private fixture is changed.
 
 ## Reference and intentional differences
 
@@ -47,7 +81,7 @@ failure. Cancellation is cooperative between bounded PUTs, not a promise to
 cancel Mihomo's underlying fetch. An accepted cancellation wins over a later
 in-flight failure; it prevents subsequent PUTs and final stamp eligibility.
 
-## Required registration checkpoint
+## Registration contract (implemented by the successor)
 
 Do not create another scheduler or registry. Extend the accepted #161
 long-operation registry with a fixed `routing.refresh_providers` discriminant,
@@ -65,7 +99,7 @@ stamp current state. Remote effects remain irreversible; no rollback success
 may be inferred from retaining the old timestamp. Public projections contain
 counts and fixed error codes, never target names or URLs.
 
-The present work primitive does not provide those ownership fences or stamp
+The #187 work primitive alone does not provide those ownership fences or stamp
 transactions and must not be registered directly as a unary method.
 
 ## Local gates
