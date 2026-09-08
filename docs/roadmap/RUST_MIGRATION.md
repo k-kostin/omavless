@@ -1177,8 +1177,10 @@ The subsequent [configured-readiness checkpoint](../testing/R5_CONFIGURED_READIN
 introduces native-host admission/observation of requested mode and selected
 members, initialized collection shapes, and bounded controller I/O. It retains
 the stronger exact fixture checks above: provider download success and complete
-rule contents are not inferred from collection shape. Cached-selection repair,
-production preflight consolidation and packaged Full VPN acceptance remain
+rule contents are not inferred from collection shape. The subsequent startup-only
+Full VPN correction restores generated nested selectors through owned-child
+authenticated private requests without mutating ordinary observations.
+Production preflight consolidation and packaged Full VPN acceptance remain
 explicit #183/#178 follow-ups; there is no installed-owner cutover.
 
 ### Native bundled routing preset checkpoint (2026-09-07)
