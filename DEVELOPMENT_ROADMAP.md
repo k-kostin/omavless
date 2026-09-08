@@ -745,6 +745,13 @@ The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
 [exact-head acceptance report](docs/testing/TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md).
 
+The next local continuation merged support configuration reporting (#185),
+onboarding completion (#186), the bounded rule-provider work adapter (#187),
+and the registered subscription refresh-all scheduler (#161). See the
+[long-session acceptance ledger](docs/testing/R5_LONG_SESSION_2026-09-08.md)
+for exact heads, local parity/host evidence and remaining boundaries. These are
+native semantic checkpoints, not installed frontend activation or R5 completion.
+
 The code-backed [remaining native surface audit](docs/testing/R5_NATIVE_SURFACE_AUDIT_2026-09-08.md)
 distinguishes existing foundations from missing provider refresh, live routing
 observation, subscription probes, support/settings projections, telemetry,

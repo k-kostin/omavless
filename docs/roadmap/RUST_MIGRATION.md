@@ -1271,7 +1271,9 @@ Worker steps run outside the owner/migration locks; completion reacquires the
 migration lock and rechecks ownership, global revision and every store member.
 Empty batches do not write, read the timestamp source or increment revision.
 
-This is not a registered background service. The production owner constructor,
+At that historical checkpoint this was not a registered background service.
+The subsequent merged #161 checkpoint below supersedes this registration gap.
+At the owner-only checkpoint the production owner constructor,
 RuntimeServer scheduler and semantic CLI do not invoke these APIs yet. The next
 slice must bind the actual runtime instance ID, supervise one worker, share the
 existing fetch pool, yield on Busy, terminalize spawn/panic/shutdown failures,
@@ -1280,14 +1282,22 @@ a new batch without restarting the owner; a stale ticket cannot revoke its
 successor. The scheduler must retain and use it. No production
 cutover or Python retirement is claimed by deterministic owner integration.
 
-### Cloud scheduler/IPC checkpoint (2026-09-04, Draft #161)
+### Registered scheduler/IPC checkpoint (#161 merged 2026-09-08)
 
 The successor to the owner-only checkpoint above registers the reviewed fixed
 start/get/cancel methods in RuntimeServer and the semantic CLI. One supervised
 worker shares the unary fetch pool; shutdown revokes then joins, and network
 work runs outside the serialized owner. Native production ownership remains a
 prerequisite. Synthetic Unix-socket and worker tests cover the new composition.
-See `docs/testing/CLOUD_BATCH_SCHEDULER_HANDOFF_2026-09-04.md` for dependencies,
-intentional asynchronous differences and host gates. Frontend compatibility
+The accepted head is `aacff3a323d49bac671d78b2a7d04f535a43c79a`; merge is
+`5fc602f95903fb061dcb13e0d2663f77e663ba0f`. Local Try Omarchy ARM64 gates passed
+580 Rust tests (4 existing ignored), installed-Mihomo opt-ins, strict clippy and
+parity; the unchanged Python/QML reference gate passed 270 tests. Actual private
+Unix sockets and production HTTP transport against controlled loopback fixtures
+cover success, failure, cancellation, ownership revocation and shutdown. This
+does not claim private-provider or installed QML acceptance. Interrupted preset
+state and uncertain batch persistence block the shared owner safely.
+See `docs/testing/R5_BATCH_SCHEDULER.md` for current evidence boundaries;
+`CLOUD_BATCH_SCHEDULER_HANDOFF_2026-09-04.md` is historical. Frontend compatibility
 client integration and the actual R5/T1 transition remain implementation work;
 this is not production cutover or permission to remove Python.

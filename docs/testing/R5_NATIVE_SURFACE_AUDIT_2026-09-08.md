@@ -24,6 +24,17 @@ below records audit inputs, not the current branch/merge status.
 Installed `plugin/Service.qml` still invokes Python via `backend.sh`; registration
 behind a committed native ownership marker is not installed plugin activation.
 
+## Subsequent checkpoints (same-day continuation)
+
+This audit's numbered sections below retain their original inspection context.
+Do not recreate work subsequently merged: #185 adds the bounded shareable native
+configuration report (not full host/private-connection diagnostics); #186 adds
+registered store-only onboarding completion; #187 adds inactive private
+rule-provider discovery/update work; #161 registers and gates subscription
+refresh-all scheduling. Current exact evidence and remaining scope are in the
+[continuation ledger](R5_LONG_SESSION_2026-09-08.md). Installed ownership and final
+R5/R6 activation gates remain unchanged.
+
 ## Already implemented: do not duplicate
 
 | Existing UI action | Native foundation / registration | Actual remaining boundary |
