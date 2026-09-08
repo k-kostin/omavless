@@ -2082,6 +2082,163 @@ mod tests {
     }
 
     #[test]
+    fn provider_refresh_socket_keeps_status_disconnect_and_cancel_responsive() {
+        use std::io::{Read, Write};
+        for scenario in ["success", "cancel", "disconnect"] {
+            let base = temporary_base("provider-socket");
+            let (owner, _, _) = native_owner_fixture(&base);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let connected = server
+                .dispatch(
+                    &make_request(
+                        "connect",
+                        "connection.connect",
+                        json!({"profileId":PROFILE_ID,"mode":"rule"}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(connected["ok"], true);
+            let config = base.join("config/config.yaml");
+            fs::write(&config, b"mode: rule\n").unwrap();
+            fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+            let controller = paths.directory.join("mihomo.sock");
+            let listener = UnixListener::bind(&controller).unwrap();
+            fs::set_permissions(&controller, fs::Permissions::from_mode(0o600)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+            let quit = Arc::new(AtomicBool::new(false));
+            let controller_quit = quit.clone();
+            let puts = Arc::new(AtomicUsize::new(0));
+            let controller_puts = puts.clone();
+            let core = thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(15);
+                while !controller_quit.load(Ordering::Acquire)
+                    && std::time::Instant::now() < deadline
+                {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(pair) => pair,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(_) => break,
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut input = Vec::new();
+                    while !input.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        match stream.read(&mut byte) {
+                            Ok(1) => input.push(byte[0]),
+                            _ => break,
+                        }
+                        assert!(input.len() < 4096);
+                    }
+                    if input.is_empty() {
+                        continue;
+                    } // final identity proof sends no request
+                    if input.starts_with(b"GET /providers/rules HTTP/1.0\r\n") {
+                        stream.write_all(b"HTTP/1.0 200 OK\r\n\r\n{\"providers\":{\"synthetic\":{\"vehicleType\":\"http\"}}}").unwrap();
+                    } else {
+                        assert!(input.starts_with(b"PUT /providers/rules/synthetic HTTP/1.0\r\n"));
+                        controller_puts.fetch_add(1, Ordering::AcqRel);
+                        started_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        stream
+                            .write_all(b"HTTP/1.0 204 No Content\r\n\r\n")
+                            .unwrap();
+                    }
+                }
+            });
+            let params = json!({"instanceId":server.instance_id,"operationId":"refresh"});
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = stop.clone();
+            let runtime = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
+            let bad = call(&paths, "routing.refresh_providers", json!({"instanceId":params["instanceId"],"operationId":"bad","url":"https://invalid.example"})).unwrap();
+            assert_eq!(bad["error"]["code"], "invalid_argument");
+            let started = std::time::Instant::now();
+            assert_eq!(
+                call(&paths, "routing.refresh_providers", params.clone()).unwrap()["ok"],
+                true
+            );
+            assert!(started.elapsed() < Duration::from_secs(2));
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let started = std::time::Instant::now();
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            assert_eq!(
+                call(&paths, "routing.refresh_providers", params.clone()).unwrap()["ok"],
+                true
+            );
+            if scenario == "cancel" {
+                assert_eq!(
+                    call(&paths, "operations.cancel", params.clone()).unwrap()["result"]["accepted"],
+                    true
+                );
+            }
+            if scenario == "disconnect" {
+                assert_eq!(
+                    call(&paths, "connection.disconnect", json!({})).unwrap()["ok"],
+                    true
+                );
+            }
+            assert!(started.elapsed() < Duration::from_secs(2));
+            let before = fs::read(base.join("config/profiles.json")).unwrap();
+            release_tx.send(()).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            loop {
+                let response = call(&paths, "operations.get", params.clone()).unwrap();
+                let state = response["result"]["operation"]["state"].as_str().unwrap();
+                if matches!(state, "succeeded" | "failed" | "cancelled") {
+                    assert_eq!(
+                        state,
+                        match scenario {
+                            "success" => "succeeded",
+                            "cancel" => "cancelled",
+                            _ => "failed",
+                        }
+                    );
+                    assert_eq!(
+                        response["result"]["operation"]["method"],
+                        "routing.refresh_providers"
+                    );
+                    let public = response.to_string();
+                    for private in ["synthetic", "vless://", "private.example", "mihomo.sock"] {
+                        assert!(!public.contains(private));
+                    }
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(puts.load(Ordering::Acquire), 1);
+            let after = fs::read(base.join("config/profiles.json")).unwrap();
+            if scenario == "success" {
+                assert!(
+                    serde_json::from_slice::<Value>(&after).unwrap()["rulesUpdatedAt"]
+                        .as_u64()
+                        .unwrap()
+                        > 0
+                );
+            } else {
+                assert!(before == after);
+            }
+            stop.store(true, Ordering::Release);
+            runtime.join().unwrap();
+            quit.store(true, Ordering::Release);
+            core.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_scheduler_commits_once_and_rejects_unknown_poll_fields() {
         let base = temporary_base("batch-success");
         let (owner, _cutover, _calls) = native_owner_fixture(&base);

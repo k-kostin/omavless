@@ -754,6 +754,13 @@ remaining migration task. Native controller liveness versus configured
 runtime readiness is tracked in #183; the installed Python D1 readiness fix
 remains preserved.
 
+The [native rule-provider registration checkpoint](docs/testing/R5_RULE_PROVIDER_DISPATCH.md)
+joins validated private Unix-provider refresh to the existing one-owner batch
+scheduler and operation registry. It adds detached discovery, same-controller
+identity pinning, cancellation/revision/store/config fences and an all-success
+compensated refresh stamp. The installed Python/QML owner and R5/R6 cutover
+gates remain unchanged; live unmatched route probes are a separate task.
+
 The [configured-readiness checkpoint](docs/testing/R5_CONFIGURED_READINESS.md)
 adds native-host mode/selector admission and whole-request controller deadlines.
 It does not equate `/version` with loaded configuration, repair cached selector
