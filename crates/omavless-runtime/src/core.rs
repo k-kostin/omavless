@@ -117,10 +117,7 @@ impl OwnedCore {
             timeout,
             16 * 1024,
         ) {
-            Ok(response) => Ok(response.status == 200
-                && response.payload["version"]
-                    .as_str()
-                    .is_some_and(|value| !value.is_empty())),
+            Ok(response) => Ok(response.has_live_version()),
             Err(error) if error.kind() == ErrorKind::ControllerUnavailable => Ok(false),
             Err(_) => Err(CoreError::ReadinessTimedOut),
         }

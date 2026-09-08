@@ -219,6 +219,17 @@ pub struct ControllerResponse {
     pub payload: Value,
 }
 
+impl ControllerResponse {
+    /// `/version` liveness only, never configured-selector or tunnel readiness.
+    #[must_use]
+    pub fn has_live_version(&self) -> bool {
+        self.status == 200
+            && self.payload["version"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+    }
+}
+
 fn find_header_end(response: &[u8]) -> Option<usize> {
     response.windows(4).position(|window| window == b"\r\n\r\n")
 }

@@ -264,7 +264,7 @@ fn controller_ready(path: &Path, uid: u32) -> Result<bool, ProductionObservation
         CONTROLLER_TIMEOUT,
         MAX_CONTROLLER_HEADER_BYTES,
     )
-    .is_ok())
+    .is_ok_and(|response| response.has_live_version()))
 }
 
 fn active_config_matches(
@@ -521,6 +521,63 @@ mod tests {
     }
 
     #[test]
+    fn controller_liveness_requires_success_and_a_nonempty_version() {
+        // Actual private Unix responses exercise the observation adapter, not
+        // just a newly invented projection. This matches OwnedCore's accepted
+        // version predicate; config/selector readiness is explicitly separate.
+        for (status, body, live) in [
+            ("200 OK", r#"{"version":"synthetic"}"#, true),
+            ("404 Not Found", r#"{"version":"synthetic"}"#, false),
+            ("503 Unavailable", r#"{"version":"synthetic"}"#, false),
+            ("204 No Content", "", false),
+            ("200 OK", "{}", false),
+            ("200 OK", "null", false),
+            ("200 OK", "[]", false),
+            ("200 OK", r#"{"version":""}"#, false),
+            ("200 OK", r#"{"version":null}"#, false),
+            ("200 OK", r#"{"version":1}"#, false),
+            ("200 OK", r#"{"version":false}"#, false),
+            ("200 OK", "malformed-private-error", false),
+        ] {
+            let root = crate::test_temp::directory("version-liveness").unwrap();
+            let uid = fs::metadata(&root).unwrap().uid();
+            let socket = root.join("mihomo.sock");
+            let listener = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            let worker = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut request = [0; 512];
+                let count = stream.read(&mut request).unwrap();
+                assert!(request[..count].starts_with(b"GET /version HTTP/1.0\r\n"));
+                let response = format!(
+                    "HTTP/1.0 {status}\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            });
+            let observed = controller_ready(&socket, uid).unwrap();
+            assert_eq!(observed, live);
+            let readiness = evaluate_cutover(
+                &OwnershipMarker::default(),
+                OwnershipObservation {
+                    legacy_owner_active: true,
+                    legacy_controller_ready: observed,
+                    core_count: 1,
+                    tun_count: 1,
+                    active_profile_matches: true,
+                    ..OwnershipObservation::disconnected()
+                },
+            );
+            assert_eq!(readiness == CutoverReadiness::ReadyToAdopt, live);
+            worker.join().unwrap();
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn disconnected_host_is_ready_without_reading_private_profile_state() {
         let (root, uid) = root("disconnected");
         let systemctl = inactive_systemctl(&root);
@@ -631,7 +688,9 @@ mod tests {
             let mut request = [0_u8; 512];
             let _ = stream.read(&mut request).unwrap();
             stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"version\":\"synthetic\"}",
+                )
                 .unwrap();
         });
         let observation = ProductionOwnershipObserver::new(paths, uid)
@@ -713,7 +772,9 @@ mod tests {
             let mut request = [0_u8; 512];
             let _ = stream.read(&mut request).unwrap();
             stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n{\"version\":\"synthetic\"}",
+                )
                 .unwrap();
         });
         let observation = ProductionOwnershipObserver::new(paths, uid)

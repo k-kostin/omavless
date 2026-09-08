@@ -103,3 +103,21 @@ DIRECT and requires corrected selection plus owned-child cleanup. This is
 synthetic no-TUN integration, not live Full VPN or installed frontend acceptance.
 #183 remains open for production preflight/adoption consolidation and packaged
 host gates; #178 is separate. Python remains installed owner and cannot retire.
+
+## Preflight version-liveness correction (2026-09-08)
+
+Production ownership observation previously accepted any successfully parsed
+HTTP/JSON response from `/version`, including errors or `{}`. It now shares
+`ControllerResponse::has_live_version` with `OwnedCore`: HTTP 200 plus a nonempty
+string version are mandatory. The supervisor predicate is unchanged; only the
+incorrectly permissive preflight tightens. Its fixed 300-ms read deadline and
+private path policy remain. No writes, new queries or public fields are added.
+
+Twelve synthetic actual Unix-response cases cover valid version, HTTP errors,
+204, missing/empty/null/non-string version, non-object payload and malformed
+JSON. Rejected responses cannot yield `ready_to_adopt` even with otherwise
+matching synthetic process/TUN/config facts. Existing positive fixtures now
+serve a real version shape instead of relying on the bug. Accepted native
+supervisor semantics are the reference; Python's installed owner is unchanged.
+This is liveness only: it does not complete configured preflight/adoption proof
+or close #183/#178, activate cutover or allow Python removal.
