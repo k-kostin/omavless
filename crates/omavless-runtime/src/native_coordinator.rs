@@ -2681,6 +2681,8 @@ mod tests {
         for scenario in [
             "failure",
             "cancel",
+            "cancel_identity",
+            "cancel_failure",
             "store",
             "config",
             "disconnect",
@@ -2689,10 +2691,10 @@ mod tests {
             let (root, path, mut owner, mut transport) = provider_fixture();
             let mut job = provider_start(&mut owner, &transport, "refresh");
             let before = fs::read(&path).unwrap();
-            transport.fail = scenario == "failure";
+            transport.fail = matches!(scenario, "failure" | "cancel_failure");
             let _ = job.step(&transport, &crate::remote_fetch::RemoteFetchPool::default());
             match scenario {
-                "cancel" => {
+                "cancel" | "cancel_identity" | "cancel_failure" => {
                     owner
                         .cancel_subscription_batch(&batch_request("operations.cancel", "refresh"))
                         .unwrap();
@@ -2728,6 +2730,10 @@ mod tests {
                 job,
                 || panic!("failed provider job read timestamp"),
                 || {
+                    assert!(
+                        scenario != "cancel_identity",
+                        "cancelled job verified controller identity"
+                    );
                     if scenario == "identity" {
                         Err(crate::provider_refresh::ProviderRefreshError::Unavailable)
                     } else {
@@ -2738,12 +2744,15 @@ mod tests {
             assert!(fs::read(&path).unwrap() == expected);
             assert_eq!(
                 batch_status(&owner, "refresh")["state"],
-                if scenario == "cancel" {
+                if matches!(scenario, "cancel" | "cancel_identity" | "cancel_failure") {
                     "cancelled"
                 } else {
                     "failed"
                 }
             );
+            if scenario.starts_with("cancel") {
+                assert_eq!(owner.revision(), 1);
+            }
             fs::remove_dir_all(root).unwrap();
         }
     }

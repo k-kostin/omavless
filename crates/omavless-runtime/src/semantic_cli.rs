@@ -878,4 +878,47 @@ mod long_operation_tests {
         );
         assert!(parse_semantic_mutation(&args(&["operations.cancel", "{}"]), None).is_err());
     }
+
+    #[test]
+    fn provider_refresh_cli_accepts_only_fixed_metadata() {
+        for (argv, expected) in [
+            (
+                vec!["routing", "refresh-providers", "instance-1", "op-1"],
+                json!({"instanceId":"instance-1","operationId":"op-1"}),
+            ),
+            (
+                vec!["routing", "refresh-providers", "instance-1", "op-1", "7"],
+                json!({"instanceId":"instance-1","operationId":"op-1","expectedRevision":7}),
+            ),
+        ] {
+            let (method, params) = parse_semantic_mutation(&args(&argv), None)
+                .unwrap()
+                .into_parts();
+            assert_eq!(method, "routing.refresh_providers");
+            assert_eq!(params, expected);
+        }
+        for argv in [
+            vec!["routing", "refresh-providers"],
+            vec![
+                "routing",
+                "refresh-providers",
+                "instance-1",
+                "private token",
+            ],
+            vec!["routing", "refresh-providers", "instance-1", "op-1", "-1"],
+            vec![
+                "routing",
+                "refresh-providers",
+                "instance-1",
+                "op-1",
+                "7",
+                "private-token",
+            ],
+        ] {
+            let error = parse_semantic_mutation(&args(&argv), None)
+                .err()
+                .expect("invalid argv accepted");
+            assert!(!error.to_string().contains("private"));
+        }
+    }
 }

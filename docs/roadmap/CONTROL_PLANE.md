@@ -485,9 +485,10 @@ and ownership without controller reads; detached transport validates the
 original Unix socket device/inode and peer PID after connecting, before any
 request bytes. A replacement controller never receives a stale job's PUT.
 
-Completion rechecks those snapshots plus a nonblocking socket/peer identity
-proof under the short final lease, closes cancellation through the existing
-registry fence, and only then writes `rulesUpdatedAt` through the compensated
+Completion rechecks those snapshots under the short final lease and closes
+cancellation through the existing registry fence. Accepted cancellation returns
+without another controller check; otherwise a nonblocking socket/peer identity
+proof precedes writing `rulesUpdatedAt` through the compensated
 private-store writer. Successful non-empty completion advances revision once.
 The stamp advances monotonically (`max(now, previous + 1)`); exhaustion fails
 closed. This corrects the legacy equal/backward-clock ambiguity. No profile,

@@ -313,7 +313,6 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<bool, NativeOwnerError> {
         let _lock = self.batch_lock()?;
         self.provider_snapshot_matches(&job.snapshot)?;
-        verify_identity().map_err(NativeOwnerError::Provider)?;
         // The registry cancellation fence precedes interpretation of any late
         // transport error: accepted cancellation wins, but cannot undo PUTs.
         if state
@@ -324,6 +323,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Ok(false);
         }
+        verify_identity().map_err(NativeOwnerError::Provider)?;
         if let Some(error) = job.failure {
             return Err(NativeOwnerError::Provider(error));
         }

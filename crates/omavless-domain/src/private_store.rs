@@ -2253,6 +2253,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn provider_stamp_is_monotonic_preserves_store_and_rejects_exhaustion() {
+        for (old, now, expected) in [(0, 5, 5), (5, 5, 6), (5, 1, 6), (u64::MAX - 1, 0, u64::MAX)] {
+            let input =
+                json!({"version":3,"profiles":[],"rulesUpdatedAt":old,"extension":{"kept":true}})
+                    .to_string();
+            let mut before = parse_private_store(&input).unwrap().document;
+            let result = apply_rule_provider_refresh_timestamp(&input, now).unwrap();
+            assert!(result.changed);
+            let after: Value = serde_json::from_slice(result.payload()).unwrap();
+            before["rulesUpdatedAt"] = json!(expected);
+            assert_eq!(after, before);
+        }
+        let exhausted = json!({"version":3,"profiles":[],"rulesUpdatedAt":u64::MAX}).to_string();
+        assert!(matches!(
+            apply_rule_provider_refresh_timestamp(&exhausted, 0),
+            Err(PrivateStoreError::InvalidTimestamp)
+        ));
+    }
+
     const PROFILE_ID: &str = "00000000-0000-0000-0000-000000000001";
     const SUBSCRIPTION_ID: &str = "10000000-0000-0000-0000-000000000001";
     const SECOND_SUBSCRIPTION_ID: &str = "10000000-0000-0000-0000-000000000002";
