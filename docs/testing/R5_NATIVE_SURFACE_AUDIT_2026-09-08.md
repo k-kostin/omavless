@@ -31,7 +31,10 @@ Do not recreate work subsequently merged: #185 adds the bounded shareable native
 configuration report (not full host/private-connection diagnostics); #186 adds
 registered store-only onboarding completion; #187 adds inactive private
 rule-provider discovery/update work; #161 registers and gates subscription
-refresh-all scheduling. Current exact evidence and remaining scope are in the
+refresh-all scheduling. #190 then registers provider refresh through that shared
+scheduler; #191 supplies exact-attribution live Routing with explicit host
+visibility limits and corrects the unsafe Python global-hit fallback. Current
+exact evidence and remaining scope are in the
 [continuation ledger](R5_LONG_SESSION_2026-09-08.md). Installed ownership and final
 R5/R6 activation gates remain unchanged.
 

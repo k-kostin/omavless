@@ -747,7 +747,9 @@ installed-Mihomo opt-ins; see the
 
 The next local continuation merged support configuration reporting (#185),
 onboarding completion (#186), the bounded rule-provider work adapter (#187),
-and the registered subscription refresh-all scheduler (#161). See the
+the registered subscription refresh-all scheduler (#161), registered provider
+refresh (#190), exact-attribution live Routing (#191), and exclusive test-fixture
+allocation (#188). See the
 [long-session acceptance ledger](docs/testing/R5_LONG_SESSION_2026-09-08.md)
 for exact heads, local parity/host evidence and remaining boundaries. These are
 native semantic checkpoints, not installed frontend activation or R5 completion.
