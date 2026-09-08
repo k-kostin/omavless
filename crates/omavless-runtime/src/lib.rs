@@ -2705,7 +2705,7 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(10)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(12)).unwrap());
         let params = json!({"kind":"domain","action":"direct","value":"example.invalid","operationId":"rule-add","expectedRevision":0});
         let first = call(&paths, "routing.custom_rules.add", params.clone()).unwrap();
         assert_eq!(first["ok"], true);
@@ -2760,6 +2760,29 @@ mod tests {
             "not_found"
         );
         let after = fs::read(&store_path).unwrap();
+        // A interrupted preset must also fence cached custom-rule replies.
+        let pending = DesiredPaths::below(&base.join("state"))
+            .directory
+            .join("routing-preset.pending.json");
+        fs::write(
+            &pending,
+            b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_pending_calls = _calls.load(Ordering::Relaxed);
+        for (method, cached) in [
+            ("routing.custom_rules.add", params.clone()),
+            ("routing.custom_rules.delete", delete),
+        ] {
+            let blocked = call(&paths, method, cached).unwrap();
+            assert_eq!(blocked["error"]["code"], "manual_recovery_required");
+            assert_eq!(blocked["revision"], 2);
+        }
+        assert_eq!(_calls.load(Ordering::Relaxed), before_pending_calls);
+        assert!(fs::read(&store_path).unwrap() == after);
+        assert!(pending.exists());
+        fs::remove_file(&pending).unwrap(); // Synthetic fixture, not runtime recovery.
         for (phase, generation) in [
             (OwnershipPhase::RollbackPreparing, 2),
             (OwnershipPhase::Rust, 3),
