@@ -1,5 +1,12 @@
 # Try Omarchy handoff — 2026-09-07
 
+Historical shutdown snapshot, not the current delivery ledger. The next day's
+investigation and remaining-surface audit are recorded in
+[R5_NATIVE_SURFACE_AUDIT_2026-09-08.md](R5_NATIVE_SURFACE_AUDIT_2026-09-08.md)
+and the canonical roadmap. In particular, later investigation established the
+Mihomo controller/config initialization race; the tentative findings below are
+preserved as history, not current conclusions.
+
 Owner requested a safe stop before powering off. All writers are stopping;
 resume by fetching GitHub, reading AGENTS.md and the canonical roadmap/workflow/
 acceptance/Rust migration documents. Do not assume this checkpoint is current
