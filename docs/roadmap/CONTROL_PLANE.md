@@ -578,6 +578,47 @@ accepted.
 
 ### Diagnostics and traffic
 
+The native live-rule checkpoint registers `diagnostics.summary`,
+`diagnostics.rules` and `diagnostics.providers` with exact empty parameters.
+Fixed CLI commands are `diagnostics summary|rules|providers`. Summary returns
+`{version:1,rules:ROWS,providers:ROWS}`; individual reads include only their
+respective collection. Each ROWS contains `total`, `shown`, `truncated`, `items`.
+Rule rows contain `type/payload/target`; provider rows contain
+`name/behavior/ruleCount/updatedAt/status/refreshable`, preserving the current
+frontend presentation contract. Targets are only DIRECT/REJECT/VPN.
+
+Only an exact committed, connected native owner serves these reads. It captures
+strict-store private redaction inputs and revision under the shared lease,
+releases both owner and migration locks for controller I/O, then revalidates
+ownership/revision/redaction state before releasing results. An intervening
+disconnect wins and the stale result is discarded with `conflict`. The existing
+four-work permit pool is shared with subscription fetches, leaving client slots
+for status and urgent disconnect. No background sampler or cache is added.
+
+Only the fixed same-user `0700` native runtime directory and its `0600`
+`mihomo.sock` are used; Unix peer credentials are verified. There is no TCP,
+caller path, arbitrary endpoint, authorization/header or forwarding parameter.
+Private redaction inputs are capped at 512 fragments and 64 KiB total; an
+oversized private snapshot makes the entire diagnostic unavailable, never a
+partially redacted result. Individual controller text above 8 KiB is replaced
+wholly with `[redacted]`. Projection checks the shared deadline between rows,
+and completion checks it again after owner revalidation before publication.
+
+The whole controller phase has a three-second deadline (including both summary
+GETs), nonblocking connect admission and the existing 512-KiB raw response cap.
+Core errors never echo raw bodies. Rule rows are capped at 2,048 / 160 KiB;
+providers at 256 / 64 KiB, with explicit truncation so combined results fit
+v1's 256-KiB envelope. This is a documented narrowing of Python's larger output
+budget, not silent JSON truncation.
+
+Projection strips unknown fields, reduces policy groups to categories, removes
+URI-looking strings and UUIDs, and redacts known private names, IDs, links,
+endpoints and credentials from the strict canonical store. Public rule-set
+names and rule destinations remain useful diagnostic metadata; do not assume
+arbitrary user rule destinations are anonymized browsing history. The current
+installed QML/Python launcher is unchanged. Provider refresh, route checking,
+traffic and profile testing remain separate operations.
+
 - `diagnostics.summary`;
 - `diagnostics.rules`, `diagnostics.providers`;
 - `diagnostics.export` — returns redacted content, not arbitrary daemon file

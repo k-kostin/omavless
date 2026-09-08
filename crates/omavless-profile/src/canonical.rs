@@ -80,6 +80,16 @@ pub fn parse_canonical(input: &str) -> Result<CanonicalProfile, CanonicalError> 
 }
 
 impl CanonicalProfile {
+    /// Credential-bearing internal redaction source. Not a public diagnostic.
+    pub fn private_diagnostic_model(&self) -> serde_json::Value {
+        match self {
+            Self::Vless(profile) => profile.private_diagnostic_model(),
+            Self::Trojan(profile) => profile.mihomo_value("", None),
+            Self::Hysteria2(profile) => profile.mihomo_value("", None),
+            Self::Tuic(profile) => profile.mihomo_value("", None),
+        }
+    }
+
     /// Private local UI projection. Contains endpoint and provider label data:
     /// never log this value or include it in shareable diagnostics.
     #[must_use]

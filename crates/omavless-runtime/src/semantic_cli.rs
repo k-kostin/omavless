@@ -59,6 +59,14 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["diagnostics", kind @ ("summary" | "rules" | "providers")] => Some(SemanticRequest {
+            method: match *kind {
+                "summary" => "diagnostics.summary",
+                "rules" => "diagnostics.rules",
+                _ => "diagnostics.providers",
+            },
+            params: json!({}),
+        }),
         ["routing", "rules"] => Some(SemanticRequest {
             method: "routing.custom_rules.list",
             params: json!({}),
@@ -304,6 +312,25 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn diagnostics_cli_has_only_fixed_empty_parameter_reads() {
+        for kind in ["summary", "rules", "providers"] {
+            let request = parse_semantic_read(&args(&["diagnostics", kind]))
+                .unwrap()
+                .unwrap();
+            let (method, params) = request.into_parts();
+            assert_eq!(method, format!("diagnostics.{kind}"));
+            assert_eq!(params, json!({}));
+        }
+        for arguments in [
+            &["diagnostics"][..],
+            &["diagnostics", "rules", "private-token"],
+            &["diagnostics", "controller-forward"],
+        ] {
+            assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
+        }
     }
 
     #[test]

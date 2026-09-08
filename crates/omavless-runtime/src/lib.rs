@@ -34,6 +34,7 @@ pub mod cutover;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
+mod diagnostic_read;
 pub mod frontend_bridge;
 pub mod import_read_protocol;
 pub mod lifecycle;
@@ -220,6 +221,9 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "diagnostics.summary",
+    "diagnostics.rules",
+    "diagnostics.providers",
     "routing.custom_rules.list",
     "profiles.edit_input",
     "profiles.export",
@@ -252,6 +256,7 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn diagnostic_snapshot(&mut self) -> std::result::Result<Vec<String>, StableErrorCode>;
     fn custom_rules(
         &mut self,
         request: &Value,
@@ -426,6 +431,11 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn diagnostic_snapshot(&mut self) -> std::result::Result<Vec<String>, StableErrorCode> {
+        self.owner
+            .diagnostic_snapshot()
+            .map_err(|error| error.stable_code())
+    }
     fn import_preview(
         &mut self,
         request: &Value,
@@ -779,6 +789,9 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        if diagnostic_read::METHODS.contains(&request["method"].as_str().unwrap_or("")) {
+            return self.dispatch_diagnostics(request);
+        }
         if matches!(
             request["method"].as_str(),
             Some("subscriptions.add" | "subscriptions.update" | "subscriptions.refresh")
@@ -805,6 +818,75 @@ impl RuntimeServer {
             RuntimeDispatcher::Native(owner) => {
                 dispatch_native(request, &self.instance_id, owner.as_mut())
             }
+        }
+    }
+
+    fn dispatch_diagnostics(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if !empty_params(request) {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        }
+        let (revision, private) = {
+            let mut dispatcher = self.dispatcher.lock().map_err(|_| {
+                omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
+            })?;
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return dispatch_read_only(request, &self.instance_id);
+            };
+            let revision = owner.revision();
+            match owner.diagnostic_snapshot() {
+                Ok(private) => (revision, private),
+                Err(code) => {
+                    return error_response(id, revision, code, code == StableErrorCode::Busy, None);
+                }
+            }
+        };
+        // Share the existing four-work cap so reads + provider GETs cannot
+        // consume all 16 client slots and starve status/urgent disconnect.
+        let Some(_permit) = self.remote_fetches.try_acquire() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let started = std::time::Instant::now();
+        let collected = diagnostic_read::collect(
+            &self.paths.directory,
+            self.uid,
+            request["method"].as_str().unwrap_or(""),
+            &private,
+        );
+        let mut dispatcher = self.dispatcher.lock().map_err(|_| {
+            omavless_control_protocol::ProtocolError::new(StableErrorCode::InternalError)
+        })?;
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        let current = owner.revision();
+        if current != revision {
+            return error_response(id, current, StableErrorCode::Conflict, true, None);
+        }
+        match owner.diagnostic_snapshot() {
+            Err(code) => {
+                return error_response(id, current, code, code == StableErrorCode::Busy, None);
+            }
+            Ok(current_private) if current_private != private => {
+                return error_response(id, current, StableErrorCode::Conflict, true, None);
+            }
+            Ok(_) => (),
+        }
+        if started.elapsed() >= diagnostic_read::DEADLINE {
+            return error_response(id, current, StableErrorCode::CoreRejected, false, None);
+        }
+        match collected {
+            Ok(result) => success_response(id, current, result),
+            Err(code) => error_response(id, current, code, false, None),
         }
     }
 
@@ -2392,6 +2474,102 @@ mod tests {
         assert!(fs::read(&store_path).unwrap() == original);
         assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn diagnostics_do_not_block_disconnect_and_reject_stale_results() {
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        use std::time::Instant;
+        let base = temporary_base("diagnostic-detached");
+        let (owner, cutover, _) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server = Arc::new(
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap(),
+        );
+        let request = |method, params| make_request("diagnostic-test", method, params).unwrap();
+        let invalid = server
+            .dispatch(&request(
+                "diagnostics.rules",
+                json!({"path":"private-token"}),
+            ))
+            .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        let disconnected = server
+            .dispatch(&request("diagnostics.summary", json!({})))
+            .unwrap();
+        assert_eq!(disconnected["error"]["code"], "capability_unavailable");
+        let connected = server
+            .dispatch(&request(
+                "connection.connect",
+                json!({"profileId":PROFILE_ID}),
+            ))
+            .unwrap();
+        assert_eq!(connected["ok"], true);
+        let controller = paths.directory.join("mihomo.sock");
+        let listener = UnixListener::bind(&controller).unwrap();
+        fs::set_permissions(&controller, fs::Permissions::from_mode(0o600)).unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let core = thread::spawn(move || {
+            for round in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 1024];
+                let size = stream.read(&mut buffer).unwrap();
+                assert!(buffer[..size].starts_with(b"GET /rules HTTP/1.0\r\n"));
+                if round == 1 {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                }
+                let payload = json!({"rules":[{"type":"DOMAIN","payload":"11111111-1111-4111-8111-111111111111","proxy":"private-group"}]}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                    payload.len(),
+                    payload
+                )
+                .unwrap();
+            }
+        });
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let success = server
+            .dispatch(&request("diagnostics.rules", json!({})))
+            .unwrap();
+        assert_eq!(success["ok"], true);
+        assert_eq!(
+            success["result"]["rules"]["items"][0]["payload"],
+            "[private]"
+        );
+        assert!(!success.to_string().contains("private-group"));
+        assert!(fs::read(base.join("config/profiles.json")).unwrap() == before);
+        let reader_server = Arc::clone(&server);
+        let reader = thread::spawn(move || {
+            reader_server
+                .dispatch(&make_request("slow", "diagnostics.rules", json!({})).unwrap())
+                .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let started = Instant::now();
+        let status = server.dispatch(&request("status.get", json!({}))).unwrap();
+        assert_eq!(status["ok"], true);
+        let disconnected = server
+            .dispatch(&request("connection.disconnect", json!({})))
+            .unwrap();
+        assert_eq!(disconnected["ok"], true);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release_tx.send(()).unwrap();
+        let stale = reader.join().unwrap();
+        assert_eq!(stale["error"]["code"], "conflict");
+        assert!(stale.get("result").is_none());
+        core.join().unwrap();
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let revoked = server
+            .dispatch(&request("diagnostics.providers", json!({})))
+            .unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        drop(server);
         fs::remove_dir_all(base).unwrap();
     }
 

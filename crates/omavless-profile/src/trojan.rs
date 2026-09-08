@@ -569,7 +569,7 @@ impl TrojanProfile {
         Value::Object(value)
     }
 
-    fn mihomo_value(&self, name: &str, server_override: Option<&str>) -> Value {
+    pub(crate) fn mihomo_value(&self, name: &str, server_override: Option<&str>) -> Value {
         let mut value = Map::new();
         value.insert("name".to_owned(), Value::String(name.to_owned()));
         value.insert("type".to_owned(), Value::String("trojan".to_owned()));

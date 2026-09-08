@@ -1070,6 +1070,63 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
 }
 
 impl PrivateStore {
+    /// Private redaction inputs only: never serialize, log or expose this list.
+    pub fn diagnostic_private_fragments(&self) -> Vec<String> {
+        fn sensitive(value: &Value, output: &mut Vec<String>) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if matches!(
+                            key.as_str(),
+                            "server"
+                                | "servername"
+                                | "sni"
+                                | "uuid"
+                                | "password"
+                                | "public-key"
+                                | "private-key"
+                                | "short-id"
+                                | "token"
+                                | "encryption"
+                                | "mldsa65-verify"
+                                | "obfs-password"
+                        ) && let Some(text) = value.as_str().filter(|text| !text.is_empty())
+                        {
+                            output.push(text.to_owned());
+                        }
+                        sensitive(value, output);
+                    }
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        sensitive(item, output);
+                    }
+                }
+                _ => (),
+            }
+        }
+        let mut output = Vec::new();
+        for profile in &self.profiles {
+            output.extend([
+                profile.id.clone(),
+                profile.name.clone(),
+                profile.uri.clone(),
+            ]);
+            sensitive(&profile.canonical.private_diagnostic_model(), &mut output);
+        }
+        for subscription in &self.subscriptions {
+            output.extend([
+                subscription.id.clone(),
+                subscription.name.clone(),
+                subscription.url.clone(),
+            ]);
+        }
+        output.retain(|text| !text.is_empty());
+        output.sort_by_key(|text| std::cmp::Reverse(text.len()));
+        output.dedup();
+        output
+    }
+
     /// Project only the accepted editor fields, never the raw store or unknown
     /// extension fields. Original order and stable IDs are preserved.
     #[must_use]

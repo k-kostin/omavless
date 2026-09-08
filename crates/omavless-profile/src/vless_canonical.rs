@@ -431,6 +431,10 @@ impl VlessCanonicalProfile {
         lines.join("\n")
     }
 
+    pub(crate) fn private_diagnostic_model(&self) -> Value {
+        entries_to_json(&self.mihomo_entries("", None))
+    }
+
     fn advanced_xhttp(&self) -> bool {
         self.xhttp
             .as_ref()
