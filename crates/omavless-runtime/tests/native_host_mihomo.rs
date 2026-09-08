@@ -75,7 +75,7 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     fs::write(config.join("profiles.json"), store).unwrap();
     fs::write(
         config.join("route-template.yaml"),
-        "mixed-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nproxies:\n{{OMAVLESS_PROXY}}\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - Synthetic\nrules:\n  - MATCH,DIRECT\n",
+        "mixed-port: 0\nallow-lan: false\nmode: rule\nlog-level: silent\nproxies:\n{{OMAVLESS_PROXY}}\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - Synthetic\n  - name: GLOBAL\n    type: select\n    proxies: [PROXY]\n    default-selected: PROXY\nrules:\n  - MATCH,DIRECT\n",
     )
     .unwrap();
     fs::write(config.join("config.yaml"), "previous-generated-config\n").unwrap();
@@ -123,7 +123,39 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
         "previous-generated-config\n"
     );
 
-    host.start_prepared().unwrap();
+    let started = host.start_prepared();
+    if started.is_err() {
+        use omavless_mihomo::{ReadOnlyEndpoint, controller_get};
+        for endpoint in [
+            ReadOnlyEndpoint::Configs,
+            ReadOnlyEndpoint::Rules,
+            ReadOnlyEndpoint::RuleProviders,
+            ReadOnlyEndpoint::Proxies,
+        ] {
+            let response = controller_get(
+                &root.join("runtime/mihomo.sock"),
+                endpoint,
+                std::time::Duration::from_millis(250),
+                512 * 1024,
+            );
+            match response {
+                Ok(response) => eprintln!(
+                    "{endpoint:?}: direct={} rules_array={} providers_object={} profile_object={} selector_type={} selection={} membership={}",
+                    response.payload["mode"] == "direct",
+                    response.payload["rules"].is_array(),
+                    response.payload["providers"].is_object(),
+                    response.payload["proxies"]["Synthetic"].is_object(),
+                    response.payload["proxies"]["PROXY"]["type"] == "Selector",
+                    response.payload["proxies"]["PROXY"]["now"] == "Synthetic",
+                    response.payload["proxies"]["PROXY"]["all"]
+                        .as_array()
+                        .is_some_and(|values| values.iter().any(|value| value == "Synthetic"))
+                ),
+                Err(error) => eprintln!("{endpoint:?}: {:?}", error.kind()),
+            }
+        }
+    }
+    started.unwrap();
     let running = host.observe(&desired).unwrap();
     assert!(running.service_active);
     assert!(running.controller_ready);
@@ -131,6 +163,13 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     assert_eq!(running.tun_count, 0);
     assert!(running.active_profile_matches);
     assert!(host.core_pid().is_some());
+    let wrong_mode = DesiredState {
+        mode: RoutingMode::Global,
+        ..desired.clone()
+    };
+    let mismatch = host.observe(&wrong_mode).unwrap();
+    assert!(mismatch.service_active);
+    assert!(!mismatch.controller_ready && !mismatch.active_profile_matches);
 
     host.commit_prepared().unwrap();
     let active = fs::read_to_string(config.join("config.yaml")).unwrap();
@@ -149,6 +188,25 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     assert!(host.core_pid().is_none());
     assert!(!config.join("../runtime/mihomo.sock").exists());
     assert_eq!(fs::metadata(&config).unwrap().uid(), uid);
+
+    // Mode/selector checks use the actual controller, with synthetic outbound,
+    // no TUN and no outbound traffic. Global here is not a Full VPN host gate.
+    for mode in [RoutingMode::Rule, RoutingMode::Global] {
+        let mode_desired = DesiredState {
+            mode,
+            ..desired.clone()
+        };
+        host.prepare(&mode_desired).unwrap();
+        host.start_prepared().unwrap();
+        let health = host.observe(&mode_desired).unwrap();
+        assert!(health.controller_ready && health.active_profile_matches);
+        assert_eq!(health.core_count, 1);
+        assert_eq!(health.tun_count, 0);
+        host.commit_prepared().unwrap();
+        host.stop_owned().unwrap();
+        host.discard_prepared().unwrap();
+        assert!(!root.join("runtime/mihomo.sock").exists());
+    }
 
     // Exercise the new domain mutation through the actual native host/core
     // adapter, not only generated text. This isolated config has no TUN,

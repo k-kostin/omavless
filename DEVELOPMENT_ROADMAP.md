@@ -754,6 +754,12 @@ remaining migration task. Native controller liveness versus configured
 runtime readiness is tracked in #183; the installed Python D1 readiness fix
 remains preserved.
 
+The [configured-readiness checkpoint](docs/testing/R5_CONFIGURED_READINESS.md)
+adds native-host mode/selector admission and whole-request controller deadlines.
+It does not equate `/version` with loaded configuration, repair cached selector
+choices, replace production preflight liveness, or complete the packaged host
+gate. #183 remains open for that consolidation; Python is still the owner.
+
 The current QML -> `backend.py` path remains the only production owner until an
 executed transactional cutover and plugin bridge pass the acceptance gates
 below. R5 is not complete merely because socket registration exists behind the

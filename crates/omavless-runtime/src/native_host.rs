@@ -8,6 +8,7 @@
 //! [`LifecycleHost`](crate::lifecycle::LifecycleHost).
 
 use crate::core::OwnedCore;
+use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost};
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
@@ -181,6 +182,7 @@ pub struct NativeLifecycleHost {
     uid: u32,
     core: Option<OwnedCore>,
     profile_id: Option<String>,
+    readiness: Option<ConfigReadiness>,
     previous_config: Option<Option<Vec<u8>>>,
     active_install_attempted: bool,
 }
@@ -217,6 +219,7 @@ impl NativeLifecycleHost {
             uid,
             core: None,
             profile_id: None,
+            readiness: None,
             previous_config: None,
             active_install_attempted: false,
         })
@@ -278,8 +281,10 @@ impl LifecycleHost for NativeLifecycleHost {
             Some(core) => {
                 let running = core.running().map_err(|_| HostStepError::Observation)?;
                 let ready = if running {
-                    core.controller_ready(OBSERVATION_TIMEOUT)
-                        .map_err(|_| HostStepError::Observation)?
+                    self.readiness.as_ref().is_some_and(|expected| {
+                        expected.mode == desired.mode
+                            && core.configured_ready(OBSERVATION_TIMEOUT, expected)
+                    })
                 } else {
                     false
                 };
@@ -293,6 +298,7 @@ impl LifecycleHost for NativeLifecycleHost {
             core_count: self.visible_core_count(own_pid, own_running),
             tun_count: tun_interface_count(&self.paths.sys_class_net),
             active_profile_matches: own_running
+                && controller_ready
                 && self.profile_id.as_deref() == Some(desired.profile_id.as_str()),
         })
     }
@@ -312,6 +318,14 @@ impl LifecycleHost for NativeLifecycleHost {
             return Err(HostStepError::Prepare);
         }
         let store = parse_private_store(&store_text).map_err(|_| HostStepError::Prepare)?;
+        let profile_name = store
+            .list_projection()
+            .profiles()
+            .iter()
+            .find(|profile| profile.id() == desired.profile_id)
+            .ok_or(HostStepError::Prepare)?
+            .name()
+            .to_owned();
         let controller = self
             .paths
             .controller_socket
@@ -339,6 +353,7 @@ impl LifecycleHost for NativeLifecycleHost {
             return Err(HostStepError::Prepare);
         }
         self.profile_id = Some(desired.profile_id.clone());
+        self.readiness = Some(ConfigReadiness::new(desired.mode, profile_name));
         Ok(())
     }
 
@@ -354,7 +369,8 @@ impl LifecycleHost for NativeLifecycleHost {
             &self.paths.controller_socket,
         )
         .map_err(|_| HostStepError::Start)?;
-        let ready = core.wait_ready(START_TIMEOUT);
+        let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
+        let ready = core.wait_configured(START_TIMEOUT, expected);
         self.core = Some(core);
         ready.map_err(|_| HostStepError::Start)
     }
@@ -386,6 +402,7 @@ impl LifecycleHost for NativeLifecycleHost {
         }
         self.remove_controller().map_err(|_| HostStepError::Stop)?;
         self.profile_id = None;
+        self.readiness = None;
         Ok(())
     }
 
@@ -398,6 +415,7 @@ impl LifecycleHost for NativeLifecycleHost {
         }
         if self.core.is_none() {
             self.profile_id = None;
+            self.readiness = None;
         }
         Ok(())
     }

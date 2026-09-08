@@ -456,6 +456,7 @@ dependencies = [
 name = "omavless-mihomo"
 version = "0.1.0"
 dependencies = [
+ "nix",
  "omavless-domain",
  "omavless-profile",
  "serde",

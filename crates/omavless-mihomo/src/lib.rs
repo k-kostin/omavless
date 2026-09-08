@@ -7,12 +7,14 @@
 //! discovery, config validation, read-only Unix-controller requests, and safe
 //! host readiness facts for later runtime work.
 
+use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -324,22 +326,56 @@ pub fn controller_get(
     if fs::symlink_metadata(socket_path).is_ok_and(|metadata| !metadata.file_type().is_socket()) {
         return Err(MihomoError::new(ErrorKind::ControllerUnavailable));
     }
-    let mut stream = UnixStream::connect(socket_path)
+    let deadline = Instant::now() + timeout;
+    // A saturated Unix listener queue must not block connect indefinitely.
+    // EAGAIN/EINPROGRESS are a retryable unavailable observation, not readiness.
+    let descriptor = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        None,
+    )
+    .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+    let address =
+        UnixAddr::new(socket_path).map_err(|_| MihomoError::new(ErrorKind::InvalidArgument))?;
+    connect(descriptor.as_raw_fd(), &address)
         .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+    let mut stream = UnixStream::from(descriptor);
     stream
-        .set_read_timeout(Some(timeout))
-        .and_then(|()| stream.set_write_timeout(Some(timeout)))
+        .set_nonblocking(false)
         .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+    // HTTP/1.0 requests make Go's controller close-delimit larger JSON bodies
+    // instead of chunking them. Keep the bounded parser fail-closed on chunked
+    // responses; no general-purpose HTTP decoder is needed for this fixed API.
     let request = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
         endpoint.path()
     );
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+    let remaining = || {
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|duration| !duration.is_zero())
+            .ok_or(MihomoError::new(ErrorKind::ControllerUnavailable))
+    };
+    let mut pending = request.as_bytes();
+    while !pending.is_empty() {
+        stream
+            .set_write_timeout(Some(remaining()?))
+            .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+        let count = stream
+            .write(pending)
+            .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
+        if count == 0 {
+            return Err(MihomoError::new(ErrorKind::ControllerUnavailable));
+        }
+        pending = &pending[count..];
+    }
     let mut response = Vec::new();
     let mut chunk = [0_u8; 8192];
     loop {
+        stream
+            .set_read_timeout(Some(remaining()?))
+            .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
         let count = stream
             .read(&mut chunk)
             .map_err(|_| MihomoError::new(ErrorKind::ControllerUnavailable))?;
@@ -351,6 +387,7 @@ pub fn controller_get(
         }
         response.extend_from_slice(&chunk[..count]);
     }
+    remaining()?;
     let parsed = parse_controller_response(&response)?;
     if !(200..300).contains(&parsed.status) {
         return Err(MihomoError::new(ErrorKind::ControllerRejected));
@@ -626,9 +663,86 @@ mod tests {
         .expect("controller response");
         assert_eq!(parsed.payload["version"], "test");
         let request = receiver.recv().expect("request capture");
-        assert!(request.starts_with(b"GET /version HTTP/1.1\r\n"));
+        assert!(request.starts_with(b"GET /version HTTP/1.0\r\n"));
         worker.join().expect("worker");
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn controller_trickle_cannot_extend_the_whole_request_deadline() {
+        let root = temporary_root("trickle");
+        let socket = root.join("controller.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let _ = stream.read(&mut [0_u8; 512]);
+            for byte in response("200 OK", br#"{"version":"synthetic"}"#) {
+                if stream.write_all(&[byte]).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let start = Instant::now();
+        assert_eq!(
+            controller_get(
+                &socket,
+                ReadOnlyEndpoint::Version,
+                Duration::from_millis(100),
+                4096
+            )
+            .unwrap_err()
+            .kind(),
+            ErrorKind::ControllerUnavailable
+        );
+        assert!(start.elapsed() < Duration::from_millis(700));
+        worker.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn full_unix_accept_queue_cannot_block_controller_connect() {
+        let root = temporary_root("full-queue");
+        let socket_path = root.join("controller.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+        nix::sys::socket::listen(&listener, nix::sys::socket::Backlog::new(1).unwrap()).unwrap();
+        let address = UnixAddr::new(&socket_path).unwrap();
+        let mut queued = Vec::new();
+        let mut saturated = false;
+        for _ in 0..512 {
+            let descriptor = socket(
+                AddressFamily::Unix,
+                SockType::Stream,
+                SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+                None,
+            )
+            .unwrap();
+            if connect(descriptor.as_raw_fd(), &address).is_err() {
+                saturated = true;
+                break;
+            }
+            queued.push(descriptor);
+        }
+        assert!(saturated);
+        let start = Instant::now();
+        assert_eq!(
+            controller_get(
+                &socket_path,
+                ReadOnlyEndpoint::Version,
+                Duration::from_millis(100),
+                4096
+            )
+            .unwrap_err()
+            .kind(),
+            ErrorKind::ControllerUnavailable
+        );
+        assert!(start.elapsed() < Duration::from_millis(700));
+        drop(queued);
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
