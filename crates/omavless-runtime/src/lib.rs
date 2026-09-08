@@ -75,6 +75,7 @@ pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
+mod support_diagnostics;
 
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
@@ -227,6 +228,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "diagnostics.export",
     "diagnostics.summary",
     "diagnostics.rules",
     "diagnostics.providers",
@@ -266,6 +268,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn support_report(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn diagnostic_snapshot(&mut self) -> std::result::Result<Vec<String>, StableErrorCode>;
     fn check_route(
         &mut self,
@@ -531,6 +537,13 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.custom_rules(request)
+    }
+
+    fn support_report(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.support_report(request)
     }
 
     fn profile_export(
@@ -1195,6 +1208,7 @@ fn dispatch_native(
         }
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
+        "diagnostics.export" if runtime_ownership => return owner.support_report(request),
         "routing.check" if runtime_ownership => return owner.check_route(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
         "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
@@ -2496,6 +2510,98 @@ mod tests {
         assert!(fs::read(&store_path).unwrap() == original);
         assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn support_report_socket_is_shareable_read_only_and_generation_fenced() {
+        let base = temporary_base("support-report");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let method = "diagnostics.export";
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == method)
+        );
+        let report = call(&paths, method, json!({})).unwrap();
+        assert_eq!(report["ok"], true);
+        assert_eq!(report["revision"], 0);
+        assert_eq!(report["result"]["scope"], "native_configuration");
+        assert_eq!(
+            report["result"]["runtime"]["lastKnownState"],
+            "disconnected"
+        );
+        assert_eq!(report["result"]["coverage"]["liveHostObservation"], false);
+        assert_eq!(
+            report["result"]["configuration"]["inventory"]["profiles"],
+            1
+        );
+        assert!(
+            omavless_control_protocol::encode_response(&report)
+                .unwrap()
+                .len()
+                < 4096
+        );
+        for forbidden in [
+            PROFILE_ID,
+            "://",
+            "192.0.2",
+            "Example",
+            "profileId",
+            "private-token",
+        ] {
+            assert!(!report.to_string().contains(forbidden));
+        }
+        let bad = call(&paths, method, json!({"path":"private-token"})).unwrap();
+        assert_eq!(bad["error"]["code"], "invalid_argument");
+        assert!(!bad.to_string().contains("private-token"));
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(&paths, method, json!({})).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&store_path, b"private-token-corrupt").unwrap();
+        let corrupt = call(&paths, method, json!({})).unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("private-token"));
+        fs::write(&store_path, &original).unwrap();
+        let target = base.join("config/temporary-store.json");
+        fs::rename(&store_path, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &store_path).unwrap();
+        assert_eq!(
+            call(&paths, method, json!({})).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::remove_file(&store_path).unwrap();
+        fs::rename(&target, &store_path).unwrap();
+        assert_eq!(
+            call(&paths, method, json!({})).unwrap()["result"],
+            report["result"]
+        );
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, method, json!({})).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        worker.join().unwrap();
+        assert!(fs::read(&store_path).unwrap() == original);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
         fs::remove_dir_all(base).unwrap();
     }
 

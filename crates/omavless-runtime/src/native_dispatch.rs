@@ -189,6 +189,17 @@ pub(crate) fn respond_to_route_check<H: LifecycleHost>(
     }
 }
 
+pub(crate) fn respond_to_support_report<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.support_report(request) {
+        Ok(report) => success_response(id, owner.revision(), report),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Sensitive success payload, never an ordinary read projection.
 pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
     owner: &mut OfflineNativeCoordinator<H>,

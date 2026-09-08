@@ -1215,6 +1215,16 @@ failed candidate, without exposing raw Python/backend errors. Protocol/socket
 and fault tests supplement parity; installed native owner/frontend acceptance
 remains distinct. Python still owns production and remains oracle/rollback.
 
+### Native support configuration checkpoint
+
+The independent [support configuration report](../testing/R5_SUPPORT_DIAGNOSTICS.md)
+adds exact `diagnostics.export` plus fixed CLI with a bounded shareable
+counts/preferences projection. Actual Python support-output subset parity and
+private-socket/CLI privacy gates cover this read. It explicitly omits fresh
+host/service/TUN/controller observations and does not infer effective login
+autoconnect from stored preferences. Installed QML/Python ownership and the
+remaining support/settings/host integration gates are unchanged.
+
 ### Native route-check fast-path checkpoint (2026-09-07)
 
 The independent `routing.check` checkpoint ports exact mode/custom-rule/

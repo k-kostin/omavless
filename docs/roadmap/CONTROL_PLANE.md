@@ -737,6 +737,25 @@ future bounded operation must define cancellation, exact-owner/revision fencing,
 private destination handling and reliable attribution before registering that
 remaining path. No generic URL fetch, socket path or shell command is accepted.
 
+### Shareable native configuration report
+
+`diagnostics.export` accepts exactly empty params; fixed CLI spelling is
+`diagnostics export`. It returns redacted JSON content, never a daemon write or
+caller path. Schema version 1 has fixed scope `native_configuration`, bounded
+`configuration` counts/preferences/update facts, runtime implementation/version,
+explicit `lastKnownState` and `routingTransactionPending`, and `coverage`
+booleans. No profile/record/provider identity, destination, credential or private
+path is present. The complete result is below 4 KiB independent of store size.
+
+Only the exact committed native owner serves it, holding the migration lease
+through complete strict-store validation and projection. It performs no host or
+controller I/O and changes no revision/state. Lifecycle is explicitly last-known;
+coverage marks live host observation, controller queries and login activation as
+unverified. Stored startup settings are not effective legacy-unit enablement.
+See [the support checkpoint](../testing/R5_SUPPORT_DIAGNOSTICS.md) for the Python
+subset differential and fields still awaiting migration. This is distinct from
+live-rule `diagnostics.summary` and cannot replace full host diagnostics yet.
+
 ### Host readiness
 
 Rust migration adds a semantic host-readiness boundary without exposing package

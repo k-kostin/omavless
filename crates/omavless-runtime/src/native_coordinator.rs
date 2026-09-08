@@ -668,6 +668,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.with_owned_private_store(|store| Ok(store.custom_rules_for_editor()))
     }
 
+    pub(crate) fn support_report(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::support_diagnostics::validate(request)?;
+        let actual = self.actual();
+        let desired_paths = self.transaction.desired_paths().clone();
+        self.with_owned_private_store(|store| {
+            Ok(crate::support_diagnostics::report(
+                store.support_projection(),
+                actual,
+                crate::routing_preset::pending(&desired_paths),
+            ))
+        })
+    }
+
     pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
         if self.actual() == ActualState::ManualRecoveryRequired {
             return Err(NativeOwnerError::ManualRecoveryRequired);
