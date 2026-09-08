@@ -12,10 +12,12 @@ RestartSec=2s
 RuntimeDirectory=omavless
 RuntimeDirectoryMode=0700
 UMask=0077
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=read-only
+# Arch file-capability host policy; see docs/roadmap/ARCH_SERVICE_SECURITY.md.
+# The unprivileged runtime must let the separately provisioned core acquire
+# its network capabilities in the host user namespace. Namespace/seccomp
+# hardening that implies PrivateUsers or NoNewPrivileges is incompatible.
+NoNewPrivileges=no
+LimitCORE=0
 ConfigurationDirectory=omavless
 ConfigurationDirectoryMode=0700
 StateDirectory=omavless

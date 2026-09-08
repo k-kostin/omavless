@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
-fn packaged_user_unit_has_fixed_hardened_native_entrypoint() {
+fn packaged_user_unit_preserves_arch_file_capability_contract() {
     let unit = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../packaging/systemd/omavless-runtime.service");
     let text = fs::read_to_string(unit).unwrap();
@@ -13,8 +13,24 @@ fn packaged_user_unit_has_fixed_hardened_native_entrypoint() {
     assert!(text.contains("\nRuntimeDirectory=omavless\n"));
     assert!(text.contains("\nRuntimeDirectoryMode=0700\n"));
     assert!(text.contains("\nUMask=0077\n"));
-    assert!(text.contains("\nNoNewPrivileges=yes\n"));
-    assert!(text.contains("\nProtectSystem=strict\n"));
+    assert!(text.contains("\nNoNewPrivileges=no\n"));
+    assert!(text.contains("\nLimitCORE=0\n"));
+    // These user-service directives conflict with host file capabilities:
+    // mount isolation creates a user namespace; seccomp restrictions can
+    // implicitly set NoNewPrivs even with an explicit `no` above.
+    for forbidden in [
+        "PrivateTmp=",
+        "ProtectSystem=",
+        "ProtectHome=",
+        "PrivateUsers=",
+        "RestrictRealtime=",
+        "LockPersonality=",
+        "SystemCallFilter=",
+        "AmbientCapabilities=",
+        "ExecStartPre=",
+    ] {
+        assert!(!text.lines().any(|line| line.starts_with(forbidden)));
+    }
     for directive in [
         "ConfigurationDirectory=omavless",
         "ConfigurationDirectoryMode=0700",
