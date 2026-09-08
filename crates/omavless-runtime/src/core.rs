@@ -163,7 +163,23 @@ impl OwnedCore {
                 .ok_or(CoreError::ReadinessTimedOut)?;
             let budget = remaining.min(Duration::from_millis(250));
             let ready = match expected {
-                Some(expected) => self.configured_ready(budget, expected),
+                Some(expected) => {
+                    let attempt_deadline = Instant::now() + budget;
+                    if expected.ready(&self.controller_socket, attempt_deadline) {
+                        true
+                    } else {
+                        // Startup-only correction; configured_ready remains a
+                        // read-only observation and cannot change selectors.
+                        self.running()?
+                            && self.pid().is_some_and(|pid| {
+                                expected.restore_selection(
+                                    &self.controller_socket,
+                                    pid,
+                                    attempt_deadline,
+                                ) && expected.ready(&self.controller_socket, attempt_deadline)
+                            })
+                    }
+                }
                 None => self.controller_ready(budget).unwrap_or(false),
             };
             if ready && Instant::now() < deadline {

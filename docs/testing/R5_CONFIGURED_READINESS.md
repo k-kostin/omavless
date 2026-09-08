@@ -19,10 +19,10 @@ isolated core/probe callers. Version liveness now requires HTTP 200 and a
 nonempty version string. Native profile matching requires configured readiness,
 not only possession of an owned child and matching stored ID.
 
-The native check does **not** repair a cached wrong selector choice. It fails
-closed instead of reporting a wrong outbound as ready. Python's corrective
-selection remains intact; the equivalent native fixed-purpose selection and
-packaged Full VPN acceptance remain follow-up gates before cutover. Likewise,
+The native observation remains read-only. The startup-only continuation below
+repairs a wrong Full VPN selector choice before admission. Python's corrective
+selection remains intact; packaged Full VPN acceptance remains a follow-up
+gate before cutover. Likewise,
 production preflight/adoption observation still reports controller liveness,
 not this stronger native-host admission fact. Keep #183 open for consolidation
 with those gates; #178 remains a separate host-capability blocker.
@@ -70,3 +70,36 @@ claim. Existing exact-rule assertions are retained.
 
 Record the final exact candidate, complete local test counts and CI result in
 the PR before merge. No real credentials or private store are used by this gate.
+
+## Startup-only Full VPN selection continuation (2026-09-08)
+
+`OwnedCore::wait_configured` can restore the generated nested selection during
+startup. Both selector types/membership and actual Global mode validate before
+effects. Only fixed PUT `/proxies/PROXY` and `/proxies/GLOBAL` are available;
+the profile from native preparation is JSON-encoded in the body, never a path,
+argv, diagnostic or log. Retained selection is read back; a 204 alone is not
+readiness. Complete mode/rule/provider/selector admission still follows.
+
+The single startup deadline, 250-ms attempt bound, child-exit checks and existing
+compensation remain. Observation/status/adoption never repairs. Rule/Direct
+behavior is unchanged. No generic HTTP API, mode PATCH, service or cutover added.
+
+Every repair connection checks the same-user non-symlink `0700` parent, socket
+type/owner, device/inode stability, and peer UID plus exact owned child PID before
+sending bytes. Mihomo creates `0666` sockets: both `0600` and `0666` are accepted
+only inside that mandatory private parent. No filesystem permissions change.
+This does not change the semantic OmaVLESS `control.sock` requirement of `0600`.
+
+The effect-isolated oracle runs actual Python `select_global_proxy`; three
+synthetic ASCII/Unicode/quoted labels compare only action digests. Intentional
+differences: native checks topology before effects, skips already-correct
+selections, and shares one startup deadline rather than per-selector deadlines.
+Repeated PUTs are idempotent and cannot bypass verified configured admission.
+
+Five focused tests cover nested order/no-op repeat, unretained/rejected updates,
+wrong mode/member/type/target/peer, unsafe parent, bounded timeout and read-only
+observation. The installed-Mihomo test deliberately starts both selectors at
+DIRECT and requires corrected selection plus owned-child cleanup. This is
+synthetic no-TUN integration, not live Full VPN or installed frontend acceptance.
+#183 remains open for production preflight/adoption consolidation and packaged
+host gates; #178 is separate. Python remains installed owner and cannot retire.

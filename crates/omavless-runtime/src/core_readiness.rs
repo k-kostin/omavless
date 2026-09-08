@@ -16,6 +16,11 @@ pub(crate) struct ConfigReadiness {
 }
 
 impl ConfigReadiness {
+    pub(crate) fn restore_selection(&self, socket: &Path, pid: u32, deadline: Instant) -> bool {
+        self.mode == RoutingMode::Global
+            && crate::core_selector::restore_global(socket, pid, &self.profile_name, deadline)
+    }
+
     pub(crate) fn new(mode: RoutingMode, profile_name: String) -> Self {
         Self { mode, profile_name }
     }

@@ -192,12 +192,32 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     // Mode/selector checks use the actual controller, with synthetic outbound,
     // no TUN and no outbound traffic. Global here is not a Full VPN host gate.
     for mode in [RoutingMode::Rule, RoutingMode::Global] {
+        let original_template = fs::read_to_string(config.join("route-template.yaml")).unwrap();
+        if mode == RoutingMode::Global {
+            // Force both selectors away from the desired profile. Admission
+            // must repair them through the owned child's actual Unix API.
+            let stale = original_template.replace(
+                "type: select\n    proxies:\n      - Synthetic",
+                "type: select\n    default-selected: DIRECT\n    proxies:\n      - DIRECT\n      - Synthetic",
+            ).replace("proxies: [PROXY]", "proxies: [DIRECT, PROXY]")
+                .replace("default-selected: PROXY", "default-selected: DIRECT");
+            fs::write(config.join("route-template.yaml"), stale).unwrap();
+        }
         let mode_desired = DesiredState {
             mode,
             ..desired.clone()
         };
         host.prepare(&mode_desired).unwrap();
-        host.start_prepared().unwrap();
+        let started = host.start_prepared();
+        if started.is_err() {
+            eprintln!(
+                "synthetic mode={mode:?} socket_mode={:?}",
+                fs::symlink_metadata(root.join("runtime/mihomo.sock"))
+                    .ok()
+                    .map(|m| m.mode() & 0o7777)
+            );
+        }
+        started.unwrap();
         let health = host.observe(&mode_desired).unwrap();
         assert!(health.controller_ready && health.active_profile_matches);
         assert_eq!(health.core_count, 1);
@@ -206,6 +226,7 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
         host.stop_owned().unwrap();
         host.discard_prepared().unwrap();
         assert!(!root.join("runtime/mihomo.sock").exists());
+        fs::write(config.join("route-template.yaml"), original_template).unwrap();
     }
 
     // Exercise the new domain mutation through the actual native host/core
