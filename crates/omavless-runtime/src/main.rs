@@ -62,6 +62,9 @@ fn run() -> Result<(), CliError> {
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!(
+            "  diagnostics export               shareable native configuration report (no live host checks)"
+        );
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");
         println!("  routing rule-add KIND ACTION     read private rule value from stdin");
         println!("  routing rule-delete RULE_ID       remove one custom rule");

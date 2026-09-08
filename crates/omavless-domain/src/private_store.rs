@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 mod startup;
+mod support;
 pub use startup::{StartupPreferences, apply_startup_preferences};
 
 const MAX_NAME_CHARS: usize = 80;

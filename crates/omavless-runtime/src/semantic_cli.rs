@@ -59,6 +59,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["diagnostics", "export"] => Some(SemanticRequest {
+            method: "diagnostics.export",
+            params: json!({}),
+        }),
         ["diagnostics", kind @ ("summary" | "rules" | "providers")] => Some(SemanticRequest {
             method: match *kind {
                 "summary" => "diagnostics.summary",
@@ -359,7 +363,7 @@ mod tests {
 
     #[test]
     fn diagnostics_cli_has_only_fixed_empty_parameter_reads() {
-        for kind in ["summary", "rules", "providers"] {
+        for kind in ["summary", "rules", "providers", "export"] {
             let request = parse_semantic_read(&args(&["diagnostics", kind]))
                 .unwrap()
                 .unwrap();
