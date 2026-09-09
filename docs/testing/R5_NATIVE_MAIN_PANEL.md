@@ -62,3 +62,32 @@ Human installed header/power/search/group/action/focus and connect/disconnect
 checks remain pending. Subscription management and other unavailable native
 surfaces are explicitly disclosed in Settings; this is the main-panel
 restoration checkpoint, not full historical feature parity.
+
+## Settings and browsing continuation — 2026-09-09
+
+The next UI-only checkpoint restores sectioned Settings (appearance, connection
+mode, subscriptions and local diagnostics), moves mode selection out of the main
+profile list, and adds subscription browsing with a scroll-to-group action.
+The existing fenced Rust mode command is unchanged. Subscription add/update/edit
+is explicitly unavailable: the browsing page never calls a legacy mutation.
+Arrow selection is local; Enter expands a group or uses the existing fenced
+connection action. Search owns its text keys, and Tab includes the new pages.
+Private labels remain plain text, with wrapped settings titles and elided rows.
+
+Actual Quickshell refresh exposed a transient null-facts dereference in the old
+native status formatter. A direct null guard and deterministic regression now
+return the unverified label instead. No Service, launcher, crate, package,
+private-store schema or runtime ownership code changed in this continuation.
+
+Local validation: 342 Python tests, 337 passed and five environment/opt-in skips;
+12 native main-panel tests, 15 native action tests, six presentation tests and
+the existing import/QR/editor, localization and QML contracts pass. Shell syntax,
+manifest parsing, diff check and plugin validation pass. Isolated production
+QML on Try Omarchy ARM64 renders EN/RU main, Settings, subscription browsing and
+scroll-to-group states. The synthetic subscription is empty; populated grouping
+is covered deterministically, not claimed as this visual fixture's evidence.
+Screenshots include the desktop background and remain private, outside Git.
+
+This is still Draft UI work. Human installed keyboard/navigation acceptance,
+full subscription mutation UI, routing tools, startup and telemetry remain
+separate gates. Nothing in this continuation establishes R5/R6 completion.
