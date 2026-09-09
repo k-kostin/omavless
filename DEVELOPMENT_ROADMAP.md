@@ -493,7 +493,7 @@ VLESS Full VPN/TUN-bound HTTPS/cleanup probe, native UI readiness and disconnect
 daemon restart passed. Both startup units remain disabled. This is combined
 candidate evidence, not standalone activation PR #207 acceptance or complete
 frontend/login/Python-retirement proof. Human native-button connect/disconnect
-remains pending in that report.
+also passed on that installed combined candidate.
 
 Historical frontend prerequisites (2026-09-07): #162 strengthens private-client
 authentication/correlation; #163/#164 provide native unified import preview;

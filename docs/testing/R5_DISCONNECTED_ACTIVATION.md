@@ -123,8 +123,8 @@ The installed `/usr/bin/omavless cutover activate` completed with
 `rust_committed`, ownership generation 2. Legacy service remained inactive,
 native service became active, and both startup units remained disabled. The
 installed plugin reported `nativeControls=true`, `metadataUnavailable=false`
-and `localFactsCurrent=true`; native buttons were visible. Human connect and
-disconnect interaction through those buttons remained pending at this report.
+and `localFactsCurrent=true`; native buttons were visible. The owner subsequently
+confirmed successful connection and disconnection through those buttons.
 
 The integrating agent's bounded private VLESS Full VPN probe passed on the
 installed normal runtime path: connect took 146 ms and disconnect 4,182 ms in
@@ -164,7 +164,7 @@ localization, formatting, strict clippy and differential/parity gates passed.
 Two installed-core opt-in tests also passed. Private profile IDs, labels, URIs,
 server endpoints and process environments are omitted from this report.
 
-Outstanding acceptance includes human native-button connect/disconnect,
+Outstanding acceptance includes
 remaining frontend operations and lifecycle coverage, login activation,
 connected restart/recovery cases beyond those exercised here, and R6's deliberate
 Python-absence matrix. Python remains retained rollback/oracle; R5 and R6 are not
