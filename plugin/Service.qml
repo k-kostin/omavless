@@ -7,6 +7,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "NativeSnapshot.js" as NativeSnapshot
 
 // Headless state for the OmaVLESS widget. backend.sh keeps private links in a
 // 0600 store and runs a dedicated Mihomo user service.
@@ -14,6 +15,27 @@ Item {
   id: root
 
   property var settings: ({})
+  // Native metadata is deliberately NOT legacy live status.
+  property bool nativeOwner: false
+  property var nativeSnapshot: null
+  property bool nativeSnapshotFailed: false
+
+  function enterNativeReadOnly() {
+    nativeOwner = true
+    profiles = []
+    subscriptions = []
+    _prevActive = ({})
+    _dropQueue = []
+    _markQueue = []
+    _pendingSaveUuid = ""
+    _editRetryUuid = ""
+    exitIpDelay.stop()
+    editRetryTimer.stop()
+  }
+
+  function rejectNativeAction() {
+    return rejectAction("Native frontend is read-only; live health is unavailable", "capability_unavailable")
+  }
 
   readonly property string backendPath: String(Qt.resolvedUrl("../backend.sh")).replace(/^file:\/\//, "")
 
@@ -269,7 +291,9 @@ Item {
   readonly property bool hasRoutingConflict: conflicts.length > 0
   readonly property string conflictSummary: conflicts.join(" · ")
   property int uptimeSeconds: 0
-  readonly property string statusText: active
+  readonly property string statusText: nativeOwner
+    ? "Native frontend: live health unavailable (read-only)"
+    : active
     ? "VPN: " + activeNames.join(", ") + " · " + routingTitle
     : "VPN disconnected · on connect: " + routingTitle
   // What toggle() would bring up: the last used profile if it still exists,
@@ -311,6 +335,7 @@ Item {
   })
 
   function supports(name) {
+    if (nativeOwner) return false
     var key = String(name)
     if (key === "connectionTest") return capabilities[key] === true && pingHost !== ""
     if (key === "exitIp") return capabilities[key] === true && showExitIp
@@ -549,6 +574,7 @@ Item {
   }
 
   function refreshAdvancedDiagnostics() {
+    if (nativeOwner) return rejectNativeAction()
     if (!diagnosticsPageVisible) return false
     if (advancedDiagnosticsProcess.running) {
       // A re-open must get a fresh answer after the request from the previous
@@ -640,12 +666,14 @@ Item {
   }
 
   function sampleTraffic() {
+    if (nativeOwner) return rejectNativeAction()
     if (trafficProcess.running || activeDevices.length === 0) return
     trafficProcess.command = ["bash", "-c", trafficScript, "profile"].concat(activeDevices)
     trafficProcess.running = true
   }
 
   function fetchDetails() {
+    if (nativeOwner) return rejectNativeAction()
     if (detailsProcess.running || primaryUuid === "") return
     _detailsFor = primaryUuid
     detailsProcess.command = ["bash", backendPath, "details", primaryUuid, primaryDevice]
@@ -675,6 +703,7 @@ Item {
   }
 
   function samplePing() {
+    if (nativeOwner) return rejectNativeAction()
     if (pingProcess.running || pingHost === "" || primaryDevice === "") return
     // Tagged with the tunnel it was sent for: a probe takes up to two
     // seconds, and a switch or a closing panel inside that window clears the
@@ -689,6 +718,7 @@ Item {
   }
 
   function testActiveConnection() {
+    if (nativeOwner) return rejectNativeAction()
     if (!active || primaryUuid === "" || primaryDevice === "" || pingHost === "")
       return false
     // A manual check starts a fresh window. If the regular three-second
@@ -715,6 +745,7 @@ Item {
   }
 
   function refreshExitIp() {
+    if (nativeOwner) return rejectNativeAction()
     if (!supports("exitIp") || !active || exitIpProcess.running) return false
     _exitIpFor = primaryUuid + "|" + routing.mode
     exitIpFetching = true
@@ -934,6 +965,16 @@ Item {
     } catch (error) {
       return rejectStatus()
     }
+    if (payload && payload.api === "omavless.control") {
+      enterNativeReadOnly()
+      var snapshot = NativeSnapshot.parse(String(raw), nativeSnapshot)
+      if (!snapshot) { nativeSnapshotFailed = true; return false }
+      nativeSnapshot = snapshot
+      nativeSnapshotFailed = false
+      lastError = ""
+      _pollError = false
+      return true
+    }
     if (!payload || payload.version !== 1 || !Array.isArray(payload.profiles)
         || payload.profiles.length > 256) return rejectStatus()
     var featureSource = payload.capabilities
@@ -1071,6 +1112,10 @@ Item {
       && byUuid[payload.activeId].active ? payload.activeId : ""
     if ((activeCount === 1) !== (firstUp !== "")) return rejectStatus()
     if (payload.lastId !== "" && byUuid[payload.lastId] === undefined) return rejectStatus()
+    // Only a fully validated legacy response may return the UI to legacy mode.
+    nativeOwner = false
+    nativeSnapshot = null
+    nativeSnapshotFailed = false
     lastUuid = payload.lastId
     coreSetup = {
       installed: setup.installed,
@@ -1186,6 +1231,7 @@ Item {
   }
 
   function connectTo(profile) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -1196,6 +1242,7 @@ Item {
   }
 
   function disconnectOne(profile) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -1205,6 +1252,7 @@ Item {
   }
 
   function disconnectAll() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     actionRejection = ""
     actionStatus = "Disconnecting…"
@@ -1213,6 +1261,7 @@ Item {
   }
 
   function setRoutingMode(mode) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var value = String(mode || "")
     if (value !== "rule" && value !== "global" && value !== "direct")
@@ -1233,6 +1282,7 @@ Item {
   }
 
   function useRoutingPreset(profile, keepMode) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var value = String(profile || "")
     if (!routingPresetById(value)) return rejectAction("unsupported routing preset")
@@ -1254,6 +1304,7 @@ Item {
   }
 
   function configureStartup(enabled, target, profileUuid, mode) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var wantedTarget = String(target || "")
     var wantedProfile = String(profileUuid || "")
@@ -1274,6 +1325,7 @@ Item {
   }
 
   function completeOnboarding() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     actionRejection = ""
     actionStatus = "Finishing setup…"
@@ -1282,6 +1334,7 @@ Item {
   }
 
   function loadCustomRules() {
+    if (nativeOwner) return rejectNativeAction()
     if (customRulesProcess.running) return false
     routingToolError = ""
     customRulesProcess.command = ["bash", backendPath, "custom-rules"]
@@ -1290,6 +1343,7 @@ Item {
   }
 
   function addCustomRule(kind, action, value) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var matchKind = String(kind || "")
     var routeAction = String(action || "")
@@ -1307,6 +1361,7 @@ Item {
   }
 
   function deleteCustomRule(rule) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!rule || !rule.id) return rejectAction("no such custom routing rule")
     routingToolError = ""
@@ -1316,6 +1371,7 @@ Item {
   }
 
   function refreshRuleProviders() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     routingToolError = ""
     routingToolStatus = "Refreshing remote rule data…"
@@ -1324,6 +1380,7 @@ Item {
   }
 
   function checkRoute(value) {
+    if (nativeOwner) return rejectNativeAction()
     if (routeCheckProcess.running) return false
     var query = String(value || "").trim()
     if (query === "" || query.length > 1024) {
@@ -1341,6 +1398,7 @@ Item {
   }
 
   function deleteConfig(profile) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -1402,6 +1460,7 @@ Item {
   }
 
   function probeSubscription(subscription) {
+    if (nativeOwner) return rejectNativeAction()
     if (!subscription || !subscription.uuid) {
       subscriptionError = "No such subscription"
       return false
@@ -1559,6 +1618,7 @@ Item {
   }
 
   function saveSubscription(name, uuid, url) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     var clean = String(name || "").trim()
@@ -1576,6 +1636,7 @@ Item {
   }
 
   function saveSubscriptionFile(name, uuid, path) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     var clean = String(name || "").trim()
@@ -1592,6 +1653,7 @@ Item {
   }
 
   function refreshSubscription(subscription) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (!subscription || !subscription.uuid) return rejectAction("no such subscription")
@@ -1604,6 +1666,7 @@ Item {
   }
 
   function refreshAllSubscriptions() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (subscriptions.length === 0) return rejectAction("no subscriptions to update")
@@ -1616,6 +1679,7 @@ Item {
   }
 
   function deleteSubscription(subscription) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (!subscription || !subscription.uuid) return rejectAction("no such subscription")
@@ -1628,6 +1692,7 @@ Item {
   }
 
   function loadSubscriptionUrl(subscription) {
+    if (nativeOwner) return rejectNativeAction()
     if (subscriptionUrlProcess.running) return rejectAction("subscription editor is already loading")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (!subscription || !subscription.uuid) return rejectAction("no such subscription")
@@ -1641,6 +1706,7 @@ Item {
 
   // Changes only the local display label; the profile link stays intact.
   function renameConfig(profile, newName) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     var value = String(newName || "").trim()
@@ -1660,6 +1726,7 @@ Item {
   }
 
   function toggleFavorite(profile) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -1671,6 +1738,7 @@ Item {
   }
 
   function toggle() {
+    if (nativeOwner) return rejectNativeAction()
     if (active) return disconnectAll()
     if (toggleProfile !== null) return connectTo(toggleProfile)
     return rejectAction("no profile is available")
@@ -1683,6 +1751,7 @@ Item {
   signal subscriptionImportReady(string kind, string payload, string suggestedName)
 
   function previewImport(kind, payload, suggestedName) {
+    if (nativeOwner) return rejectNativeAction()
     if (previewProcess.running) return rejectAction("another profile preview is already running")
     var sourceKind = String(kind || "")
     var sourcePayload = String(payload || "")
@@ -1704,6 +1773,7 @@ Item {
   }
 
   function pickConfigFile() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (editProcess.running) return rejectAction("close the profile editor before importing")
     if (clipboardProcess.running) return rejectAction("clipboard import is already running")
@@ -1719,6 +1789,7 @@ Item {
   }
 
   function pasteConfig() {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (editProcess.running) return rejectAction("close the profile editor before importing")
     if (pickerProcess.running) return rejectAction("close the file picker before importing")
@@ -1732,6 +1803,7 @@ Item {
   }
 
   function exportDiagnostics() {
+    if (nativeOwner) return rejectNativeAction()
     if (diagnosticsProcess.running)
       return rejectAction("diagnostics export is already running")
     actionRejection = ""
@@ -1773,6 +1845,7 @@ Item {
   signal editFinished()
 
   function editConfig(profile, seedText) {
+    if (nativeOwner) return rejectNativeAction()
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     if (pickerProcess.running) return rejectAction("close the file picker before editing")
     if (clipboardProcess.running) return rejectAction("clipboard import is still running")
@@ -1814,6 +1887,7 @@ Item {
   readonly property bool qrVisible: qrLoading || qrPath !== "" || qrErrorCode !== ""
 
   function exportToPath(profile, path) {
+    if (nativeOwner) return rejectNativeAction()
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     if (exportProcess.running) return rejectAction("an export is already running")
     var dest = String(path || "")
@@ -1829,6 +1903,7 @@ Item {
 
   // Returns "" when a code is on its way, or why nothing will appear.
   function showQr(profile) {
+    if (nativeOwner) { rejectNativeAction(); return actionRejection }
     if (!profile || !profile.uuid) return "no such profile"
     if (editProcess.running || pickerProcess.running)
       return "close the open editor or file picker first"
@@ -1897,6 +1972,7 @@ Item {
   Component.onCompleted: Quickshell.execDetached(["bash", backendPath, "cleanup-runtime"])
 
   function _flushDrops() {
+    if (nativeOwner) return
     if (notifyProcess.running || _dropQueue.length === 0) return
     var drop = _dropQueue.shift()
     _notifyDropName = drop.name
@@ -1907,6 +1983,7 @@ Item {
   }
 
   function _flushMarkActive() {
+    if (nativeOwner) return
     if (markActiveProcess.running || _markQueue.length === 0) return
     _markInFlight = _markQueue
     _markQueue = []
@@ -1930,6 +2007,7 @@ Item {
   // profile the user never pointed at. The panel blocks this earlier with a
   // clearer message; this is the backstop for the headless entry points.
   function importFile(path, name) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!path || !name) return rejectAction("a config path and name are required")
     if (countByName(name) > 1) {
@@ -1947,6 +2025,7 @@ Item {
   // the user has already committed the edit, so it either writes now or
   // stays queued — it never just disappears.
   function _flushPendingSave() {
+    if (nativeOwner) return
     if (_pendingSaveUuid === "" || busy) return
     var uuid = _pendingSaveUuid
     var name = _pendingSaveName
@@ -1964,6 +2043,7 @@ Item {
   }
 
   function importText(text, name) {
+    if (nativeOwner) return rejectNativeAction()
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!text || !name) return rejectAction("config text and a name are required")
     if (countByName(name) > 1) {
@@ -2006,6 +2086,7 @@ Item {
   // is world-readable through /proc/<pid>/cmdline for as long as the process
     // lives, and the URI contains the access credential.
   function runControl(args, stdinData) {
+    if (nativeOwner) return rejectNativeAction()
     _controlError = ""
     _controlOperation = String(args[0])
     _controlStdin = stdinData === undefined ? "" : String(stdinData)
@@ -2259,10 +2340,13 @@ Item {
     onExited: function(exitCode) {
       // A failed poll must not read as "disconnected" — keep the last known
       // state and say why it could not be refreshed.
+      if (exitCode === 70 || exitCode === 71) root.enterNativeReadOnly()
       if (exitCode === 0 && root.applyStatus(statusStdout.text)) {
         root.statusFailureCount = 0
       } else {
-        root.lastError = root.elide(statusStderr.text || "Failed to read OmaVLESS status")
+        if (root.nativeOwner) root.nativeSnapshotFailed = true
+        root.lastError = root.nativeOwner ? "Native metadata is unavailable"
+          : root.elide(statusStderr.text || "Failed to read OmaVLESS status")
         root._pollError = true
         root.statusFailureCount = Math.min(root.statusFailureCount + 1, 5)
       }

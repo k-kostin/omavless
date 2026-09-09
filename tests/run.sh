@@ -4,6 +4,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
   "$here/test_backend.py" \
+  "$here/test_backend_launcher.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_control_protocol.py" \
   "$here/test_control_protocol_probe.py" \
@@ -19,6 +20,7 @@ python3 -m unittest -v \
 if command -v node >/dev/null 2>&1; then
   node "$here/test-i18n.js"
   node "$here/test-panel-search.js"
+  node "$here/test-native-snapshot.js"
 else
   echo "node unavailable: i18n runtime tests not run" >&2
   exit 1

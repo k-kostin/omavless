@@ -16,7 +16,7 @@ use omavless_store::{atomic_replace_private, read_private_utf8};
 use std::fmt;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 pub const FRONTEND_BRIDGE_TARGET_NAME: &str = "frontend-bridge.target";
 pub const MAX_FRONTEND_BRIDGE_TARGET_BYTES: u64 = 64;
@@ -59,10 +59,89 @@ impl FrontendBridgePaths {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Selector {
     target: BridgeTarget,
     preparing_generation: u64,
+}
+
+/// Fixed launcher read. No daemon calls, locks/files created, or directory
+/// permissions repaired. Only committed ownership can authorize dispatch.
+pub fn current_plugin_target() -> Result<BridgeTarget, FrontendBridgeError> {
+    let uid = Uid::current().as_raw();
+    let cutover = CutoverPaths::current(uid).map_err(|_| FrontendBridgeError::UnsafeState)?;
+    read_committed_plugin_target(&cutover, uid)
+}
+
+fn state_path_is_present(path: &Path, uid: u32) -> Result<bool, FrontendBridgeError> {
+    if !path.is_absolute() || path.as_os_str().len() > 4096 {
+        return Err(FrontendBridgeError::UnsafeState);
+    }
+    let mut current = PathBuf::new();
+    let mut missing = false;
+    let mut last_owner = None;
+    for component in path.components() {
+        match component {
+            Component::RootDir => current.push("/"),
+            Component::Normal(part) => current.push(part),
+            _ => return Err(FrontendBridgeError::UnsafeState),
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.is_dir() && !missing => {
+                last_owner = Some(metadata.uid());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing = true;
+            }
+            _ => return Err(FrontendBridgeError::UnsafeState),
+        }
+    }
+    if last_owner != Some(uid) {
+        return Err(FrontendBridgeError::UnsafeState);
+    }
+    Ok(!missing)
+}
+
+fn read_committed_plugin_target(
+    cutover: &CutoverPaths,
+    uid: u32,
+) -> Result<BridgeTarget, FrontendBridgeError> {
+    let base = cutover
+        .state_directory
+        .parent()
+        .ok_or(FrontendBridgeError::UnsafeState)?;
+    state_path_is_present(base, uid)?;
+    let paths = FrontendBridgePaths::for_cutover(cutover);
+    let read = || -> Result<(OwnershipMarker, Option<Selector>), FrontendBridgeError> {
+        if !state_path_is_present(&cutover.state_directory, uid)? {
+            return Ok((OwnershipMarker::default(), None));
+        }
+        let metadata = fs::symlink_metadata(&cutover.state_directory)
+            .map_err(|_| FrontendBridgeError::UnsafeState)?;
+        if metadata.mode() & 0o077 != 0 {
+            return Err(FrontendBridgeError::UnsafeState);
+        }
+        let marker = crate::cutover::read_marker_existing(cutover, uid)
+            .map_err(|_| FrontendBridgeError::InvalidState)?;
+        Ok((marker, read_selector(&paths, uid)?))
+    };
+    let (marker, selector) = read()?;
+    if !matches!(
+        marker.phase(),
+        OwnershipPhase::Legacy | OwnershipPhase::Rust
+    ) {
+        return Err(FrontendBridgeError::StaleState);
+    }
+    let target = match selector {
+        Some(value) => selector_matches(value, &marker)?,
+        None if marker.phase() == OwnershipPhase::Legacy => BridgeTarget::Legacy,
+        None => return Err(FrontendBridgeError::StaleState),
+    };
+    let (after, after_selector) = read()?;
+    if after != marker || after_selector != selector {
+        return Err(FrontendBridgeError::StaleState);
+    }
+    Ok(target)
 }
 
 fn parse_selector(raw: &str) -> Result<Selector, FrontendBridgeError> {

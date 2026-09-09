@@ -7,6 +7,14 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.title": {"en":"Rust runtime","ru":"Среда выполнения Rust"},
+  "native.readOnly": {"en":"Preview bridge · read-only. VPN controls are not enabled in this checkpoint.","ru":"Предварительный мост · только чтение. Управление VPN на этом этапе недоступно."},
+  "native.healthUnavailable": {"en":"Live VPN health is unavailable","ru":"Текущее состояние VPN не проверено"},
+  "native.refreshFailed": {"en":"Native state could not be refreshed. No Python fallback.","ru":"Не удалось обновить состояние Rust. Возврат к Python не выполняется."},
+  "native.desired": {"en":"Requested state: {state} · {mode}","ru":"Запрошенное состояние: {state} · {mode}"},
+  "native.cachedActual": {"en":"Last known state: {state} (not a live check)","ru":"Последнее известное состояние: {state} (не текущая проверка)"},
+  "native.profiles": {"en":"Profiles","ru":"Профили"},
+  "native.subscriptions": {"en":"Subscriptions","ru":"Подписки"},
   "status.connected": {"en":"Connected","ru":"Подключено"},
   "status.disconnected": {"en":"Disconnected","ru":"Отключено"},
   "status.connected_named": {"en":"Connected: {names}","ru":"Подключено: {names}"},
