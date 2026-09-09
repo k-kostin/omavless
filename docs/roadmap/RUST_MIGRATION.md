@@ -1377,8 +1377,8 @@ Full VPN/TUN HTTPS/cleanup probe and disconnected daemon restart passed.
 Installed QML exposed native controls and fresh local facts. Both startup units
 remain disabled. Exact binary/package identities, combined test counts, listener
 attribution and harness corrections are recorded in the linked report. Human
-native-button connect/disconnect, complete frontend coverage, login activation
-and Python-absence acceptance remain pending; R5/R6 are not complete.
+native-button connect/disconnect also passed. Complete frontend coverage, login
+activation and Python-absence acceptance remain pending; R5/R6 are not complete.
 
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch

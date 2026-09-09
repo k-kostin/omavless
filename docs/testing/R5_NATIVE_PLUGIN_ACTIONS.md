@@ -66,6 +66,41 @@ optimistically update the selected routing mode or connection state.
   installed runtime/unit identity, real private-fixture connection/mode/cleanup
   evidence and the transactional activation gate.
 
-The installed production owner remains Python until explicit activation. No
-private fixture data or screenshot is committed. Exact candidate, counts and
-performed versus pending host gates are recorded in the PR.
+Normal marketplace installs remain legacy until explicit activation. No private
+fixture data or screenshot is committed.
+
+## Installed acceptance — 2026-09-09
+
+Try Omarchy ARM64 used combined source
+`ffcf4d2654b74c0fb746664eb73545eb9028fbc6`, installed binary SHA256
+`3ef3ac70b063c910b90fa032d52b4edbe253291e63eee1cfe94cf94abbc0a223` and exact
+matching QML/launcher files. Explicit activation committed Rust ownership;
+the Python service remained inactive. Full VPN with one existing private VLESS
+fixture passed the TUN-bound HTTPS probe, owned core/TUN/Unix-controller checks
+and disconnect cleanup. The owner confirmed successful connection and
+disconnection through the installed native buttons. Disconnected mode changes,
+restoration and daemon restart also passed. See
+[the activation report](R5_DISCONNECTED_ACTIVATION.md) for full evidence and
+the distinction between legitimate proxy/TUN forwarding sockets and a TCP
+controller. Both units remain startup-disabled; login is not accepted here.
+
+The final QML source from `f5cc9bbbeeae7af3b69856f4b282f88809ab3479` was
+recaptured after the focus/coherence/color review fixes in an isolated synthetic
+panel. English and Russian normal, unknown-outcome and restored-error states
+were inspected, plus overlapping long-list captures through all 16 profiles and
+the subscription row. No overlap or interpreted markup was observed. Actual
+production focus/scroll functions brought the last profile control into view;
+the poison Python sentinel remained unused. Synthetic failure displays do not
+claim an actual failed runtime transition. Test windows/runtime were stopped;
+the real user's locale and private data were untouched.
+
+Rebased candidate `a361e86898e079988ca8c8dcf915ad1819ef6fc6` is based on
+main `2d8cd107e94e8ed8747418d99a08edf0a0fb53dc`. Range-diff shows only help
+insertion and roadmap context changes. The complete runtime, plugin, launcher,
+template and packaging trees match the installed combined source byte-for-byte;
+no runtime semantics were changed by this rebase. Combined local validation:
+744 Rust PASS / 4 existing ignored; 326 Python PASS / 1 root-only skip;
+QML/i18n, formatting, Clippy and parity PASS, plus two installed-Mihomo tests.
+This is qualified combined-source evidence, not a claim that an independently
+rebuilt binary was installed for every documentation commit. Full frontend
+operation parity, lifecycle/login and R6 Python absence remain open.
