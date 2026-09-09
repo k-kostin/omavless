@@ -201,7 +201,8 @@ pub fn cli_params(
         }
         [
             "plugin",
-            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import" | "profile-replace"),
+            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import"
+            | "profile-replace"),
             instance,
             revision,
             operation,
@@ -234,7 +235,7 @@ pub fn cli_params(
             .as_object_mut()
             .ok_or(InvalidArgument)?
             .extend(replaced.as_object().ok_or(InvalidArgument)?.clone());
-    } else     if action == "profile-import" {
+    } else if action == "profile-import" {
         let (_, imported) = crate::semantic_cli::parse_semantic_profile_import(
             &["profile".into(), "import".into()],
             private_stdin,
