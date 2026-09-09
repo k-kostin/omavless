@@ -784,6 +784,9 @@ adds strict visible inventories and authenticated owned-controller facts through
 a fixed read API/CLI. It keeps unavailable facts distinct from zero and does not
 claim TUN ownership, route/DNS protection or internet reachability; frontend
 integration and native ownership activation remain separate gates.
+The [native connection action bridge](docs/testing/R5_NATIVE_PLUGIN_ACTIONS.md)
+adds profile selection and fenced Connect/Disconnect/Mode controls with explicit
+unknown-outcome recovery. This is not complete frontend parity or activation.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
 [exact-head acceptance report](docs/testing/TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md).

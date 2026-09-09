@@ -1358,6 +1358,10 @@ adds owner-fenced `runtime.observation` / `runtime observation`: strict visible
 inventories and PID-authenticated owned-controller configuration facts, separate
 from cached lifecycle state. It does not establish TUN ownership, routes, DNS or
 internet connectivity and does not change the QML snapshot contract or owner.
+The [native action bridge](../testing/R5_NATIVE_PLUGIN_ACTIONS.md) then adds
+profile selection and explicit connection/mode controls, instance/revision/replay
+fencing and outcome-unknown handling. Full native tool parity, installed
+activation/login and R6 Python retirement remain separate required gates.
 
 The [explicit disconnected activation candidate](../testing/R5_DISCONNECTED_ACTIVATION.md)
 exposes only the fixed local `cutover activate` command, with installed package

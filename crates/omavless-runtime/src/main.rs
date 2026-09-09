@@ -37,6 +37,7 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
 enum CliError {
     Message(String),
     DesktopCancelled,
+    ActionOutcomeUnknown,
 }
 
 impl From<String> for CliError {
@@ -67,6 +68,9 @@ fn run() -> Result<(), CliError> {
         println!(
             "  cutover activate                 explicit disconnected native ownership transition"
         );
+        println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
+        println!("  plugin disconnect INSTANCE REVISION OPERATION");
+        println!("  plugin mode INSTANCE REVISION OPERATION rule|global|direct");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"
@@ -283,6 +287,10 @@ fn run() -> Result<(), CliError> {
         omavless_runtime::semantic_cli::parse_semantic_profile_replace(&arguments, Some(&input))
             .map_err(|error| error.to_string())?
             .into_parts()
+    } else if let Some(params) = omavless_runtime::plugin_action::cli_params(&arguments)
+        .map_err(|error| error.to_string())?
+    {
+        ("plugin.action", params)
     } else {
         match parse_semantic_read(&arguments).map_err(|error| error.to_string())? {
             Some(request) => request.into_parts(),
@@ -315,7 +323,12 @@ fn run() -> Result<(), CliError> {
             }
         }
     };
-    let response = call(&paths, method, params).map_err(|error| error.to_string())?;
+    let response = if method == "plugin.action" {
+        omavless_runtime::call_plugin_action(&paths, params)
+            .map_err(|_| CliError::ActionOutcomeUnknown)?
+    } else {
+        call(&paths, method, params).map_err(|error| error.to_string())?
+    };
     println!(
         "{}",
         serde_json::to_string(&response).map_err(|_| "Output failed")?
@@ -331,6 +344,12 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(CliError::DesktopCancelled) => ExitCode::from(3),
+        Err(CliError::ActionOutcomeUnknown) => {
+            eprintln!(
+                "OmaVLESS action outcome is unknown; retain the original operation for reconciliation"
+            );
+            ExitCode::from(73)
+        }
         Err(CliError::Message(message)) => {
             eprintln!("{message}");
             ExitCode::from(2)

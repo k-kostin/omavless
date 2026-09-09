@@ -60,6 +60,7 @@ pub mod native_dispatch;
 pub mod native_host;
 mod onboarding_protocol;
 pub mod owner;
+pub mod plugin_action;
 pub mod private_store_transaction;
 pub mod production_cutover;
 pub mod production_observation;
@@ -263,6 +264,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
 // reservation-free preflight. Its final decode/commit re-enters this one
 // serialized owner and rechecks revision plus exact durable ownership.
 const NATIVE_MUTATION_METHODS: &[&str] = &[
+    "plugin.action",
     "onboarding.complete",
     "profiles.replace",
     "profiles.import",
@@ -1591,6 +1593,39 @@ fn dispatch_native(
         _ if NATIVE_READ_METHODS.contains(&method) => {
             return error_response(id, revision, StableErrorCode::InvalidArgument, false, None);
         }
+        "plugin.action" => {
+            let action = match plugin_action::parse(request) {
+                Ok(action) => action,
+                Err(error) => {
+                    return error_response(id, revision, error.stable_code(), false, None);
+                }
+            };
+            if action.instance != instance_id {
+                return error_response(
+                    id,
+                    revision,
+                    StableErrorCode::DaemonRestarting,
+                    false,
+                    None,
+                );
+            }
+            if !runtime_ownership {
+                return error_response(
+                    id,
+                    revision,
+                    StableErrorCode::CapabilityUnavailable,
+                    false,
+                    None,
+                );
+            }
+            let mut response = owner.mutate(&action.canonical)?;
+            if response["ok"] == true {
+                response["result"] = json!({"schemaVersion":1, "instanceId":instance_id,
+                    "operationId":action.operation, "action":action.action, "applied":true});
+            }
+            omavless_control_protocol::validate_response(&response)?;
+            return Ok(response);
+        }
         _ if NATIVE_MUTATION_METHODS.contains(&method) => return owner.mutate(request),
         _ => return error_response(id, revision, StableErrorCode::UnknownMethod, false, None),
     };
@@ -1598,6 +1633,25 @@ fn dispatch_native(
 }
 
 pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> {
+    call_with_timeout(paths, method, params, IO_TIMEOUT)
+}
+
+/// Fixed lifecycle-only client wait. Transport failure may occur after apply:
+/// callers must retain the same instance, revision and operation, never retry
+/// with a newly generated operation ID.
+pub fn call_plugin_action(paths: &RuntimePaths, params: Value) -> Result<Value> {
+    let request = make_request("plugin-client", "plugin.action", params.clone())
+        .map_err(|_| RuntimeError::Protocol)?;
+    plugin_action::parse(&request).map_err(|_| RuntimeError::Protocol)?;
+    call_with_timeout(paths, "plugin.action", params, Duration::from_secs(120))
+}
+
+fn call_with_timeout(
+    paths: &RuntimePaths,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value> {
     let uid = Uid::current().as_raw();
     validate_directory(&paths.directory, uid)?;
     let directory =
@@ -1611,10 +1665,21 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
         return Err(RuntimeError::PermissionDenied);
     }
     let stream = UnixStream::connect(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
-    call_stream(stream, uid, method, params)
+    call_stream_with_timeout(stream, uid, method, params, timeout)
 }
 
-fn call_stream(mut stream: UnixStream, uid: u32, method: &str, params: Value) -> Result<Value> {
+#[cfg(test)]
+fn call_stream(stream: UnixStream, uid: u32, method: &str, params: Value) -> Result<Value> {
+    call_stream_with_timeout(stream, uid, method, params, IO_TIMEOUT)
+}
+
+fn call_stream_with_timeout(
+    mut stream: UnixStream,
+    uid: u32,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value> {
     // Authenticate the connected peer, not just the path checked before
     // connect. In particular, no private editor/subscription input is written
     // before this check. Metadata checks alone cannot close replacement races.
@@ -1624,7 +1689,7 @@ fn call_stream(mut stream: UnixStream, uid: u32, method: &str, params: Value) ->
         return Err(RuntimeError::PermissionDenied);
     }
     stream
-        .set_read_timeout(Some(IO_TIMEOUT))
+        .set_read_timeout(Some(timeout))
         .map_err(|_| RuntimeError::Io)?;
     stream
         .set_write_timeout(Some(IO_TIMEOUT))
@@ -1636,7 +1701,27 @@ fn call_stream(mut stream: UnixStream, uid: u32, method: &str, params: Value) ->
     stream
         .shutdown(std::net::Shutdown::Write)
         .map_err(|_| RuntimeError::Io)?;
-    let response = read_unary_frame(&mut stream, FrameKind::Response)
+    // A total response deadline, not a fresh timeout for each incoming byte.
+    struct DeadlineReader<'a> {
+        stream: &'a mut UnixStream,
+        end: std::time::Instant,
+    }
+    impl io::Read for DeadlineReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let remaining = self
+                .end
+                .checked_duration_since(std::time::Instant::now())
+                .filter(|duration| !duration.is_zero())
+                .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))?;
+            self.stream.set_read_timeout(Some(remaining))?;
+            io::Read::read(self.stream, buffer)
+        }
+    }
+    let mut reader = DeadlineReader {
+        stream: &mut stream,
+        end: std::time::Instant::now() + timeout,
+    };
+    let response = read_unary_frame(&mut reader, FrameKind::Response)
         .and_then(|frame| decode_response(&frame))
         .map_err(|_| RuntimeError::Protocol)?;
     if response["id"].as_str() != Some(id.as_str()) {
@@ -2040,6 +2125,140 @@ mod tests {
             owned_controller_config_verified: false,
             desired_profile_matches_owned: false,
         }
+    }
+
+    #[test]
+    fn plugin_action_socket_fences_instance_revision_and_replays_exactly() {
+        let base = temporary_base("plugin-actions");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let baseline = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let mut params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":hello["revision"],"operationId":"plugin-operation","action":"connect","profileId":PROFILE_ID,"mode":"rule"});
+        let mut stale = params.clone();
+        stale["instanceId"] = json!("previous-daemon");
+        let response = call_plugin_action(&paths, stale).unwrap();
+        assert_eq!(response["error"]["code"], "daemon_restarting");
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        let mut conflict = params.clone();
+        conflict["expectedRevision"] = json!(999);
+        assert_eq!(
+            call_plugin_action(&paths, conflict).unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        let applied = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(applied["ok"], true);
+        assert_eq!(
+            applied["result"],
+            json!({"schemaVersion":1,"instanceId":hello["result"]["instanceId"],"operationId":"plugin-operation","action":"connect","applied":true})
+        );
+        let after = calls.load(Ordering::Relaxed);
+        let replay = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(replay["result"], applied["result"]);
+        assert_eq!(replay["revision"], applied["revision"]);
+        assert_eq!(calls.load(Ordering::Relaxed), after);
+        params["mode"] = json!("global");
+        assert_eq!(
+            call_plugin_action(&paths, params).unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), after);
+        assert_eq!(call_plugin_action(&paths, json!({"instanceId":hello["result"]["instanceId"],"operationId":"plugin-disconnect","expectedRevision":applied["revision"],"action":"disconnect"})).unwrap()["ok"], true);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn plugin_action_response_deadline_is_bounded_without_retransmission() {
+        use std::io::Read;
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let worker = thread::spawn(move || {
+            let mut request = Vec::new();
+            server.read_to_end(&mut request).unwrap();
+            let decoded = decode_request(&request).unwrap();
+            assert_eq!(decoded["params"]["operationId"], "one-operation");
+            thread::sleep(Duration::from_millis(100));
+        });
+        let start = std::time::Instant::now();
+        let result = call_stream_with_timeout(
+            client,
+            Uid::current().as_raw(),
+            "plugin.action",
+            json!({"action":"disconnect","instanceId":"instance","expectedRevision":0,"operationId":"one-operation"}),
+            Duration::from_millis(20),
+        );
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_secs(1));
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn plugin_action_lost_applied_reply_reconciles_without_second_effect() {
+        let base = temporary_base("plugin-lost-ack");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let params = json!({"instanceId":server.instance_id,"expectedRevision":0,"operationId":"lost-ack-operation","action":"connect","profileId":PROFILE_ID,"mode":"rule"});
+        let request = make_request("lost-client", "plugin.action", params.clone()).unwrap();
+        let (mut client, mut accepted) = UnixStream::pair().unwrap();
+        write_unary_frame(
+            &mut client,
+            &encode_request(&request).unwrap(),
+            FrameKind::Request,
+        )
+        .unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        // Close the response direction before dispatch: application succeeds,
+        // but handle cannot deliver an acknowledgement to this client.
+        client.shutdown(std::net::Shutdown::Read).unwrap();
+        assert!(server.handle(&mut accepted).is_err());
+        let after_apply = calls.load(Ordering::Relaxed);
+        let desired = desired::read_desired_snapshot(
+            &DesiredPaths::below(&base.join("state")),
+            Uid::current().as_raw(),
+        )
+        .unwrap();
+        assert!(desired.connected);
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let replay = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"]["operationId"], "lost-ack-operation");
+        assert_eq!(calls.load(Ordering::Relaxed), after_apply);
+        assert_eq!(call_plugin_action(&paths, json!({"instanceId":params["instanceId"],"expectedRevision":replay["revision"],"operationId":"cleanup-operation","action":"disconnect"})).unwrap()["ok"], true);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn plugin_action_previous_daemon_instance_cannot_authorize_new_server() {
+        let base = temporary_base("plugin-restart");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let first = RuntimeServer::bind(paths.clone()).unwrap();
+        let worker = thread::spawn(move || first.serve(Some(1)).unwrap());
+        let old = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        worker.join().unwrap();
+        let second =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let baseline = calls.load(Ordering::Relaxed);
+        let before = fs::read(base.join("state/omavless/desired.json")).unwrap();
+        let worker = thread::spawn(move || second.serve(Some(2)).unwrap());
+        let new = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        assert_ne!(old["result"]["instanceId"], new["result"]["instanceId"]);
+        let reply = call_plugin_action(&paths, json!({"instanceId":old["result"]["instanceId"],"expectedRevision":0,"operationId":"old-operation","action":"connect","profileId":PROFILE_ID,"mode":"rule"})).unwrap();
+        assert_eq!(reply["error"]["code"], "daemon_restarting");
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        assert_eq!(
+            fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            before
+        );
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

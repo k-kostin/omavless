@@ -55,6 +55,74 @@ exit 99
     def calls(self):
         return self.trace.read_text().splitlines() if self.trace.exists() else []
 
+    def action_native(self, code=0):
+        self.script("omavless", f'''
+if [ "$1" = plugin ] && [ "$2" = target ]; then
+  printf 'native:plugin:target\\n' >> "$BRIDGE_TEST_TRACE"
+  printf 'rust\\n'
+  exit 0
+fi
+for argument in "$@"; do printf 'arg:%s\\n' "$argument" >> "$BRIDGE_TEST_TRACE"; done
+printf '%s\\n' '{{"synthetic_action":true}}'
+printf '%s\\n' 'Synthetic fixed error' >&2
+exit {code}
+''')
+
+    def test_native_observation_uses_only_fixed_read_and_refuses_extra_arguments(self):
+        self.action_native()
+        result = self.run_launcher("native-observation")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), ["native:plugin:target", "arg:runtime", "arg:observation"])
+        self.trace.unlink()
+        result = self.run_launcher("native-observation", "private-token")
+        self.assertEqual(result.returncode, 71)
+        self.assertEqual(self.calls(), ["native:plugin:target"])
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("private-token", result.stderr)
+
+    def test_native_actions_preserve_exact_fixed_mapping_and_arguments(self):
+        self.action_native()
+        for action, tail in [
+            ("connect", ["profile-one", "global"]),
+            ("disconnect", []),
+            ("mode", ["direct"]),
+        ]:
+            with self.subTest(action=action):
+                args = ["instance-one", "4", "operation-one", *tail]
+                result = self.run_launcher("native-" + action, *args)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(self.calls(), ["native:plugin:target", "arg:plugin", "arg:" + action, *["arg:" + value for value in args]])
+                self.trace.unlink()
+
+    def test_native_action_transport_unknown_exit_and_envelope_are_preserved(self):
+        self.action_native(code=73)
+        result = self.run_launcher("native-connect", "instance", "4", "operation", "profile", "rule")
+        self.assertEqual(result.returncode, 73)
+        self.assertEqual(result.stdout, '{"synthetic_action":true}\n')
+        self.assertEqual(result.stderr, "Synthetic fixed error\n")
+        self.assertNotIn("python", self.calls())
+
+    def test_native_action_arguments_are_never_shell_evaluated(self):
+        self.action_native()
+        marker = self.base / "must-not-exist"
+        payload = '$(touch "' + str(marker) + '"); `id` "space quote"'
+        result = self.run_launcher("native-connect", "instance", "4", "operation", payload, "rule")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("arg:" + payload, self.calls())
+        self.assertFalse(marker.exists())
+        self.assertNotIn("python", self.calls())
+
+    def test_legacy_owner_refuses_all_native_prefixed_commands(self):
+        for with_binary in [False, True]:
+            if with_binary:
+                self.native("legacy")
+            for command in ["native-connect", "native-disconnect", "native-mode", "native-observation", "native-raw"]:
+                result = self.run_launcher(command, "private-token")
+                self.assertEqual(result.returncode, 71)
+                self.assertEqual(result.stdout, "")
+                self.assertNotIn("private-token", result.stderr)
+            self.assertNotIn("python", self.calls())
+
     def test_marketplace_without_native_and_without_artifacts_keeps_legacy(self):
         result = self.run_launcher("status")
         self.assertEqual(result.returncode, 0)

@@ -443,7 +443,18 @@ These are registered native prerequisites, not activation of the installed
 frontend or a production ownership transition. The exact boundary and local
 acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 
-### Fresh local runtime observation
+### Native frontend action bridge
+
+`plugin.action` is a fixed lifecycle facade carrying required `instanceId`,
+`expectedRevision`, `operationId`, and `action` (connect/disconnect/mode), with
+only the corresponding canonical profile/mode parameters. Stale instance is
+rejected before mutation; existing canonical revision/replay logic owns effects.
+The frontend-specific CLI waits up to 120 seconds for a bounded response and
+reports transport loss as outcome unknown, never as rollback. Exact mappings,
+success schema and retry semantics are in
+[`R5_NATIVE_PLUGIN_ACTIONS.md`](../testing/R5_NATIVE_PLUGIN_ACTIONS.md).
+
+### Fresh local runtime observation (v1)
 
 `runtime.observation` takes empty params; fixed CLI
 `omavless runtime observation`. The committed native owner holds the migration

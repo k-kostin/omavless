@@ -68,7 +68,7 @@ test('actual Service applyStatus does not replace snapshot on failed parse', () 
   const start=source.indexOf('  function applyStatus(raw) {');
   const end=source.indexOf('  function rejectStatus()',start);
   const context=vm.createContext({NativeSnapshot:parser,nativeOwner:false,nativeSnapshot:null,nativeSnapshotFailed:false,
-    lastError:'',_pollError:false, rejectStatus(){return false;}});
+    lastError:'',_pollError:false, rejectStatus(){return false;}, Qt:{callLater(){}}, refreshNativeObservation(){}});
   vm.runInContext('function enterNativeReadOnly() { nativeOwner=true; }',context);
   vm.runInContext(source.slice(start,end),context);
   assert.equal(context.applyStatus(JSON.stringify(fixture())),true);
@@ -94,6 +94,6 @@ test('native view keeps data plain and hides old interactive pages', () => {
   assert(!/(?:^|\s)Text \{/.test(view));
   assert(!view.includes('Text.AutoText'));
   assert(view.includes('focusable: true; bordered: true'));
-  assert(source.includes('liveHealth: "unavailable", metadataUnavailable: vless.nativeSnapshotFailed'));
+  assert(source.includes('nativeControls: true, liveHealth: "unavailable", metadataUnavailable: vless.nativeSnapshotFailed'));
 });
 console.log(`${count} native snapshot tests passed`);

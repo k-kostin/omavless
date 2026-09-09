@@ -42,6 +42,17 @@ if command -v omavless >/dev/null 2>&1; then
   case "$target" in
     legacy) ;;
     rust)
+      case "${1-}" in
+        native-observation)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless runtime observation
+          ;;
+        native-connect|native-disconnect|native-mode)
+          action=${1#native-}
+          shift
+          exec omavless plugin "$action" "$@"
+          ;;
+      esac
       if [ "$#" -eq 1 ] && [ "$1" = status ]; then
         omavless plugin snapshot 2>/dev/null && exit 0
         printf '%s\n' 'OmaVLESS native status is unavailable' >&2
@@ -55,4 +66,5 @@ if command -v omavless >/dev/null 2>&1; then
 else
   legacy_without_native || blocked
 fi
+case "${1-}" in native-*) blocked ;; esac
 exec python3 "$(dirname "$0")/backend.py" "$@"

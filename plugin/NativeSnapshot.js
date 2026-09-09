@@ -79,3 +79,66 @@ function parse(raw, previous) {
       startup: s, routing: r.routing, onboardingComplete: r.onboardingComplete, lastProfileId: r.lastProfileId}
   } catch (_) { return null }
 }
+
+function envelope(raw) {
+  if (typeof raw !== "string" || raw.length > 8192 || unescape(encodeURIComponent(raw)).length > 8192) return null
+  var p = JSON.parse(raw)
+  if (!p || p.api !== "omavless.control" || p.version !== 1 || !id(p.id, false)
+      || !number(p.revision, 9007199254740991)) return null
+  return p
+}
+
+function parseObservation(raw) {
+  try {
+    var p = envelope(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true) return null
+    var r = p.result, d = r.desired, f = r.facts
+    if (!object(r, ["schemaVersion", "scope", "availability", "desired", "lastKnownActual", "manualRecoveryRequired", "facts", "verification", "instanceId", "transition"])
+        || r.schemaVersion !== 1 || r.scope !== "local_runtime_observation" || !id(r.instanceId, false) || r.transition !== null
+        || ["observed", "unavailable"].indexOf(r.availability) < 0
+        || ["disconnected", "starting", "connected", "reconnecting", "stopping", "failed", "manualRecoveryRequired"].indexOf(r.lastKnownActual) < 0
+        || r.manualRecoveryRequired !== (r.lastKnownActual === "manualRecoveryRequired")) return null
+    if (!object(d, ["connected", "mode", "generation"]) || typeof d.connected !== "boolean"
+        || ["rule", "global", "direct"].indexOf(d.mode) < 0 || !number(d.generation, 9007199254740991)) return null
+    if (!object(r.verification, ["serviceOwnership", "tunOwnership", "routes", "dns", "internet"])
+        || !Object.keys(r.verification).every(function(k) { return r.verification[k] === false })) return null
+    if (r.availability === "unavailable") { if (f !== null) return null }
+    else if (!object(f, ["ownedCoreRunning", "visibleMihomoCount", "visibleTunCount", "ownedControllerConfigVerified", "desiredProfileMatchesOwned"])
+        || typeof f.ownedCoreRunning !== "boolean" || typeof f.ownedControllerConfigVerified !== "boolean"
+        || typeof f.desiredProfileMatchesOwned !== "boolean" || !number(f.visibleMihomoCount, 64) || !number(f.visibleTunCount, 8)
+        || (f.desiredProfileMatchesOwned && (!f.ownedCoreRunning || !d.connected))
+        || (f.ownedControllerConfigVerified && (!f.ownedCoreRunning || !f.desiredProfileMatchesOwned))) return null
+    return {instanceId:r.instanceId, revision:p.revision, desired:d, lastKnownActual:r.lastKnownActual,
+      manualRecoveryRequired:r.manualRecoveryRequired, facts:f, availability:r.availability}
+  } catch (_) { return null }
+}
+
+function coherent(snapshot, observation) {
+  return !!(snapshot && observation && snapshot.instanceId === observation.instanceId
+    && snapshot.lastKnownActual === observation.lastKnownActual
+    && snapshot.revision === observation.revision && snapshot.desired.generation === observation.desired.generation
+    && snapshot.desired.connected === observation.desired.connected && snapshot.desired.mode === observation.desired.mode)
+}
+
+function parseAction(raw, pending) {
+  try {
+    var p = envelope(raw)
+    if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode"].indexOf(pending.action) < 0) return null
+    if (p.ok === true) {
+      var r = p.result
+      if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+          || !object(r, ["schemaVersion", "instanceId", "operationId", "action", "applied"])
+          || r.schemaVersion !== 1 || r.instanceId !== pending.instanceId || r.operationId !== pending.operationId
+          || r.action !== pending.action || r.applied !== true || p.revision < pending.revision) return null
+      return {ok:true, revision:p.revision, code:""}
+    }
+    var e = p.error
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    if (p.ok !== false || !object(p, ["api", "version", "id", "ok", "revision", "error"])
+        || !object(e, ["code", "message", "retryable"]) || codes.indexOf(e.code) < 0
+        || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null
+    // Never render the backend message, even from an otherwise valid envelope.
+    return {ok:false, revision:p.revision, code:e.code}
+  } catch (_) { return null }
+}
