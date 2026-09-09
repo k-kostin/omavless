@@ -1344,9 +1344,14 @@ Panel {
       return vless.renameConfig(profile, value) ? "ok" : "error: " + vless.actionRejection
     }
     function importPick(): string {
+      if (vless.nativeOwner) {
+        root.close()
+        return vless.startNativeImport("file") ? "ok" : "error: native import unavailable"
+      }
       return vless.pickConfigFile() ? "ok" : "error: " + vless.actionRejection
     }
     function importPaste(): string {
+      if (vless.nativeOwner) return vless.startNativeImport("clipboard") ? "ok" : "error: native import unavailable"
       return vless.pasteConfig() ? "ok" : "error: " + vless.actionRejection
     }
     // Headless export — no warning dialog: an explicit path in argv is

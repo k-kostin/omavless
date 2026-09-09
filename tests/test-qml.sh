@@ -440,5 +440,7 @@ if command -v qmllint >/dev/null 2>&1; then
 fi
 
 grep -q 'var flick = vless.nativeOwner ? nativeFlick' "$panel"
+grep -Fq 'return vless.startNativeImport("file") ? "ok" : "error: native import unavailable"' "$panel"
+grep -Fq 'if (vless.nativeOwner) return vless.startNativeImport("clipboard") ? "ok" : "error: native import unavailable"' "$panel"
 
 echo "QML contracts: ok"
