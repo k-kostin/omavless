@@ -7,6 +7,18 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.state.unavailable": {"en":"STATE UNVERIFIED","ru":"СОСТОЯНИЕ НЕ ПРОВЕРЕНО"},
+  "native.state.disconnected": {"en":"DISCONNECTED","ru":"ОТКЛЮЧЕНО"},
+  "native.state.connected": {"en":"CONNECTED · LOCAL CHECK","ru":"ПОДКЛЮЧЕНО · ЛОКАЛЬНО"},
+  "native.state.starting": {"en":"CONNECTING","ru":"ПОДКЛЮЧЕНИЕ"},
+  "native.state.reconnecting": {"en":"RECONNECTING","ru":"ПЕРЕПОДКЛЮЧЕНИЕ"},
+  "native.state.stopping": {"en":"DISCONNECTING","ru":"ОТКЛЮЧЕНИЕ"},
+  "native.state.failed": {"en":"CONNECTION FAILED","ru":"ОШИБКА ПОДКЛЮЧЕНИЯ"},
+  "native.state.manualRecoveryRequired": {"en":"RECOVERY REQUIRED","ru":"ТРЕБУЕТСЯ ВОССТАНОВЛЕНИЕ"},
+  "native.main.mode": {"en":"Connection mode: {mode}","ru":"Режим подключения: {mode}"},
+  "native.main.qr": {"en":"Show selected profile QR","ru":"QR-код выбранного профиля"},
+  "native.main.empty": {"en":"No matching profiles. Import a profile or clear the search.","ru":"Подходящих профилей нет. Импортируйте профиль или очистите поиск."},
+  "native.main.unavailable": {"en":"Subscription management, startup preferences, routing tools, traffic, diagnostics and Quit are not yet available through this native panel. Existing profiles remain usable. Local connection checks do not prove Internet reachability.","ru":"Управление подписками, автозапуск, инструменты маршрутизации, трафик, диагностика и полный выход пока недоступны в этой панели Rust. Существующие профили работают. Локальная проверка подключения не подтверждает доступность Интернета."},
   "native.title": {"en":"Rust runtime","ru":"Среда выполнения Rust"},
   "native.readOnly": {"en":"Preview bridge · read-only. VPN controls are not enabled in this checkpoint.","ru":"Предварительный мост · только чтение. Управление VPN на этом этапе недоступно."},
   "native.healthUnavailable": {"en":"Live VPN health is unavailable","ru":"Текущее состояние VPN не проверено"},

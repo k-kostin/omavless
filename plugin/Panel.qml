@@ -12,6 +12,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "NativePresentation.js" as NativePresentation
 
 Panel {
   id: root
@@ -148,6 +149,45 @@ Panel {
   }
 
   property string nativeSelectedProfile: ""
+  property var nativeExpanded: ({})
+  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed)
+  readonly property var nativeRows: buildNativeRows()
+  property var nativeSettingsControl: null
+  property var nativeQrControl: null
+  property var nativePowerControl: null
+
+  function nativeRecord(profile) {
+    return {uuid:profile.id, name:profile.name, favorite:profile.favorite, managed:profile.subscriptionId !== ""}
+  }
+
+  function buildNativeRows() {
+    var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
+    var rows = []
+    profiles.filter(function(p) { return p.subscriptionId === "" }).forEach(function(p) { rows.push({kind:"profile", profile:p}) })
+    nativeView.subscriptions.forEach(function(subscription) {
+      var children = profiles.filter(function(p) { return p.subscriptionId === subscription.id })
+      if (profileFilter !== "" && children.length === 0) return
+      var expanded = profileFilter !== "" || nativeExpanded[subscription.id] === true
+      rows.push({kind:"subscription", subscription:subscription, expanded:expanded, count:children.length})
+      if (expanded) children.forEach(function(p) { rows.push({kind:"profile", profile:p}) })
+    })
+    return rows
+  }
+
+  function toggleNativeSubscription(id) {
+    var next = Object.assign({}, nativeExpanded)
+    next[id] = !next[id]
+    nativeExpanded = next
+  }
+
+  function nativeToggleConnection() {
+    if (!vless.nativeCanAct) return
+    if (nativeView.connected) vless.requestNativeAction("disconnect", "", "")
+    else if (nativeView.state === "disconnected") {
+      var selected = nativeSelectedProfile || nativeView.lastProfileId
+      if (selected) vless.requestNativeAction("connect", selected, nativeView.mode)
+    }
+  }
 
   function nativeLocalStatus() {
     if (!vless.nativeFactsCurrent) return textFor("native.localUnverified")
@@ -237,7 +277,7 @@ Panel {
   readonly property color trafficRxColor: "#55d6be"
   readonly property color trafficTxColor: "#c792ea"
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
-  readonly property color iconColor: vless.active ? foreground : dim
+  readonly property color iconColor: (vless.nativeOwner ? nativeView.connected : vless.active) ? foreground : dim
   // Keep the tiny bar mark to a clean silhouette; the link detail is readable
   // only at the hero's display size. Both use Material Design glyphs from the
   // same Nerd Font vocabulary as Omarchy's stock widgets. State changes the
@@ -249,15 +289,15 @@ Panel {
   // Octicons shield-x has a deliberately heavier X than the Material alert
   // mark, so the failure state survives the bar's small pixel size.
   readonly property string problemIcon: ""
-  readonly property string barStatusIcon: vless.lastError !== ""
+  readonly property string barStatusIcon: vless.nativeOwner ? (nativeView.connected ? barConnectedIcon : nativeView.state === "disconnected" ? barDisconnectedIcon : problemIcon) : vless.lastError !== ""
     ? problemIcon
-    : (vless.nativeOwner ? "?" : (vless.active ? barConnectedIcon : barDisconnectedIcon))
-  readonly property string heroStatusIcon: vless.lastError !== ""
+    : (vless.active ? barConnectedIcon : barDisconnectedIcon)
+  readonly property string heroStatusIcon: vless.nativeOwner ? (nativeView.connected ? heroConnectedIcon : nativeView.state === "disconnected" ? heroDisconnectedIcon : problemIcon) : vless.lastError !== ""
     ? problemIcon
     : (vless.active ? heroConnectedIcon : heroDisconnectedIcon)
   // Urgent trumps everything: a failed operation or an externally dropped
   // tunnel must be visible without opening the panel.
-  readonly property color barIconColor: vless.lastError !== ""
+  readonly property color barIconColor: vless.nativeOwner ? (nativeView.connected ? barForeground : nativeView.state === "disconnected" ? Qt.darker(barForeground, 1.55) : (bar ? bar.urgent : Color.urgent)) : vless.lastError !== ""
     ? (bar ? bar.urgent : Color.urgent)
     : (vless.active ? barForeground : Qt.darker(barForeground, 1.55))
   readonly property string toggleHint: vless.active
@@ -273,7 +313,7 @@ Panel {
     return false
   }
   readonly property string barTooltip: {
-    if (vless.nativeOwner) return textFor("native.healthUnavailable")
+    if (vless.nativeOwner) return "OmaVLESS · " + textFor("native.state." + nativeView.state)
     if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + visibleErrorText(), 180)
     if (!vless.active) {
       var down = "OmaVLESS · " + textFor("status.disconnected")
@@ -399,7 +439,7 @@ Panel {
   }
 
   function openSettings() {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) { page = "settings"; nativeFlick.contentY = 0; return true }
     page = "settings"
     cursorActive = false
     if (settingsFlick) settingsFlick.contentY = 0
@@ -462,10 +502,12 @@ Panel {
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
     if (vless.nativeOwner) {
-      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeQr, nativeEdit, nativeEditorReopen, nativeEditorDiscard, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRefresh]
+        : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeRule, nativeGlobal, nativeDirect, nativeImportClipboard, nativeImportFile, nativeSearch]
+      targets = targets.concat([nativeRecoveryDisconnect, nativeEditorReopen, nativeEditorDiscard, nativeReconcile, nativeAcceptState])
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
-        if (row) targets.push(row.focusTarget)
+        if (row) targets = targets.concat(row.focusTargets)
       }
       return targets
     }
@@ -1198,6 +1240,11 @@ Panel {
 
   Connections {
     target: vless
+    function onNativeSnapshotChanged() {
+      if (!vless.nativeOwner || !vless.nativeSnapshot) return
+      if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile }))
+        root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
+    }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) return
       root.page = "main"
@@ -1394,11 +1441,12 @@ Panel {
     foreground: root.barIconColor
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) {
-        if (vless.active) vless.disconnectAll()
+        if (vless.nativeOwner && root.nativeView.connected) root.nativeToggleConnection()
+        else if (vless.active) vless.disconnectAll()
         else root.open()
       } else if (buttonCode === Qt.MiddleButton) {
         vless.refresh()
-        vless.refreshExitIp()
+        if (!vless.nativeOwner) vless.refreshExitIp()
       } else {
         // Left click opens/closes the panel — the VPN toggle lives on the
         // hero switch, the `t` key, and the IPC `toggle` command.
@@ -1459,7 +1507,15 @@ Panel {
         }
       }
       onTextKey: function(t) {
-        if (vless.nativeOwner) { if (t === "r" || t === "R") vless.refresh(); return }
+        if (vless.nativeOwner) {
+          if (t === "r" || t === "R") vless.refresh()
+          else if (root.page === "main") {
+            if (t === "t" || t === "T") root.nativeToggleConnection()
+            else if (t === "/") nativeSearch.forceActiveFocus()
+            else if ((t === "q" || t === "Q") && root.nativeSelectedRecord() !== null) vless.showQr(root.nativeSelectedRecord())
+          }
+          return
+        }
         if (root.page === "diagnostics") {
           if (t === "r" || t === "R") vless.refreshAdvancedDiagnostics()
           else if (t === "/") advancedDiagnosticsPage.resetSearchFocus()
@@ -1556,41 +1612,99 @@ Panel {
           id: nativeColumn
           width: Math.max(0, nativeFlick.width - root.scrollGutter)
           spacing: Style.space(12)
-          PlainText { Layout.fillWidth: true; text: root.textFor("native.title"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; text: root.textFor("native.controls"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; text: root.nativeLocalStatus(); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          Item {
+            id: nativeHeader
+            Layout.fillWidth: true
+            implicitHeight: nativeHero.implicitHeight
+            visible: root.page === "main"
+            readonly property real controlHeight: Math.max(Style.space(32), Style.font.icon + Style.spacing.sm * 2, Style.font.body + Style.spacing.controlPaddingY * 2)
+            PanelHero {
+              id: nativeHero
+              width: parent.width
+              title: "OmaVLESS"
+              meta: root.textFor("native.state." + root.nativeView.state)
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              iconOpacity: root.nativeView.connected ? 1 : 0.5
+              iconComponent: Component { PlainText { text: root.heroStatusIcon; color: root.iconColor; font.family: root.fontFamily; font.pixelSize: Style.font.display } }
+              trailingControl: Component {
+                Row {
+                  spacing: Style.space(4)
+                  OmaNavigationButton {
+                    size: nativeHeader.controlHeight
+                    iconText: "󰒓"
+                    focusable: true
+                    tooltipText: root.textFor("tooltip.settings")
+                    anchors.verticalCenter: parent.verticalCenter
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    Component.onCompleted: root.nativeSettingsControl = this
+                    Component.onDestruction: root.nativeSettingsControl = null
+                    onClicked: root.openSettings()
+                  }
+                  OmaNavigationButton {
+                    size: nativeHeader.controlHeight
+                    iconText: "󰐲"
+                    focusable: true
+                    tooltipText: root.textFor("native.main.qr")
+                    anchors.verticalCenter: parent.verticalCenter
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null
+                    Component.onCompleted: root.nativeQrControl = this
+                    Component.onDestruction: root.nativeQrControl = null
+                    onClicked: vless.showQr(root.nativeSelectedRecord())
+                  }
+                  ToggleSwitch {
+                    activeFocusOnTab: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: root.nativeView.connected
+                    enabled: vless.nativeCanAct && (root.nativeView.connected || (root.nativeView.state === "disconnected" && (root.nativeSelectedRecord() !== null || root.nativeView.lastProfileId !== "")))
+                    busy: vless.nativeActionRunning
+                    cursorRing: false
+                    hasCursor: activeFocus
+                    width: trackWidth + Style.space(12)
+                    height: nativeHeader.controlHeight
+                    foreground: root.foreground
+                    Component.onCompleted: root.nativePowerControl = this
+                    Component.onDestruction: root.nativePowerControl = null
+                    onToggled: root.nativeToggleConnection()
+                    Keys.onReturnPressed: if (enabled && !busy) root.nativeToggleConnection()
+                    Keys.onEnterPressed: if (enabled && !busy) root.nativeToggleConnection()
+                    Keys.onSpacePressed: if (enabled && !busy) root.nativeToggleConnection()
+                  }
+                }
+              }
+            }
+          }
+          Button { id: nativeSettingsBack; visible: root.page === "settings"; text: root.textFor("common.back"); focusable: true; bordered: true; onClicked: { root.page = "main"; nativeFlick.contentY = 0 } }
+          SettingsActionRow { id: nativeLanguageRow; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.language"); description: root.textFor("settings.language_description"); actionText: root.languageSettingLabel(); onAction: root.cycleLanguageSetting() }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.controls"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.nativeLocalStatus(); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSnapshotFailed; text: root.textFor("native.refreshFailed"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionRunning; text: root.textFor("native.pending"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.unknownOutcome"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.textFor("native.importError." + vless.nativeImportCode) : ""; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
-          Button { id: nativeRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
+          Button { id: nativeRecoveryDisconnect; visible: root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("disconnect", "", "") }
+          Button { id: nativeRefresh; visible: root.page === "settings"; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
+          PlainText { Layout.fillWidth: true; visible: root.page === "main"; text: root.textFor("native.main.mode", {mode:root.routingModeText(root.nativeView.mode)}); color: root.dim; font.family: root.fontFamily }
           RowLayout {
-            Layout.fillWidth: true
-            Button { id: nativeConnect; text: root.textFor("action.connect"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.requestNativeAction("connect", root.nativeSelectedProfile, vless.nativeSnapshot.desired.mode) }
-            Button { id: nativeDisconnect; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("disconnect", "", "") }
-          }
-          RowLayout {
+            visible: root.page === "main"
             Layout.fillWidth: true
             Button { id: nativeRule; text: root.routingModeText("rule"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "rule") }
             Button { id: nativeGlobal; text: root.routingModeText("global"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "global") }
             Button { id: nativeDirect; text: root.routingModeText("direct"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
           Flow {
+            visible: root.page === "main"
             Layout.fillWidth: true
             spacing: Style.space(6)
-            Button { id: nativeRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestRename(root.nativeSelectedRecord()) }
-            Button { id: nativeFavorite; text: root.textFor(root.nativeSelectedRecord() && root.nativeSelectedRecord().favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.toggleFavorite(root.nativeSelectedRecord()) }
-            Button { id: nativeDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestDelete(root.nativeSelectedRecord()) }
-            Button { id: nativeQr; text: "QR"; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.showQr(root.nativeSelectedRecord()) }
-          }
-          Flow {
-            Layout.fillWidth: true
-            spacing: Style.space(6)
+            PlainText { text: root.textFor("profiles.title"); color: root.foreground; font.family: root.fontFamily }
             Button { id: nativeImportClipboard; text: root.textFor("native.importClipboard"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
             Button { id: nativeImportFile; text: root.textFor("native.importFile"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
-            Button { id: nativeEdit; text: root.textFor("native.editor.open"); focusable: true; bordered: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: { if (root.handOffToEditor(root.nativeSelectedRecord())) root.close() } }
           }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorCode !== ""; text: vless.nativeEditorCode ? root.textFor("native.editor." + vless.nativeEditorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.privateDraft"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
@@ -1604,36 +1718,74 @@ Panel {
           Button { id: nativeAcceptState; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.acceptState"); focusable: true; bordered: true; enabled: vless.nativeFactsCurrent && !vless.nativeActionRunning; onClicked: vless.acceptRefreshedNativeState() }
           PlainText {
             Layout.fillWidth: true
-            visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed
+            visible: root.page === "settings" && vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed
             text: vless.nativeSnapshot ? root.textFor("native.desired", {state: vless.nativeSnapshot.desired.connected ? "connected" : "disconnected", mode: vless.nativeSnapshot.desired.mode}) : ""
             textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap
           }
           PlainText {
             Layout.fillWidth: true
-            visible: vless.nativeSnapshot !== null
+            visible: root.page === "settings" && vless.nativeSnapshot !== null
             text: vless.nativeSnapshot ? root.textFor("native.cachedActual", {state: vless.nativeSnapshot.lastKnownActual}) : ""
             textFormat: Text.PlainText; color: vless.nativeSnapshot && ["failed", "manualRecoveryRequired"].indexOf(vless.nativeSnapshot.lastKnownActual) >= 0 ? root.urgent : root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap
           }
-          PlainText { Layout.fillWidth: true; text: root.textFor("native.profiles"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily }
+          TextField {
+            id: nativeSearch
+            Layout.fillWidth: true
+            visible: root.page === "main"
+            maximumLength: 128
+            placeholderText: root.textFor("profiles.search")
+            text: root.profileFilter
+            color: root.foreground
+            placeholderTextColor: root.dim
+            font.family: root.fontFamily
+            selectByMouse: true
+            onTextChanged: root.profileFilter = text
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                root.focusPanelControl((event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab ? -1 : 1)
+                event.accepted = true
+              }
+            }
+            Keys.onEscapePressed: function(event) { root.profileFilter = ""; keyCatcher.forceActiveFocus(); event.accepted = true }
+          }
+          PlainText { Layout.fillWidth: true; visible: root.page === "main" && root.nativeRows.length === 0; text: root.textFor("native.main.empty"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           Repeater {
             id: nativeProfiles
-            model: vless.nativeSnapshot ? vless.nativeSnapshot.profiles : []
-            delegate: RowLayout {
+            model: root.page === "main" ? root.nativeRows : []
+            delegate: ColumnLayout {
+              id: nativeRow
               required property var modelData
-              property var focusTarget: nativeChoose
+              readonly property bool isProfile: modelData.kind === "profile"
+              readonly property var profile: isProfile ? modelData.profile : null
+              readonly property bool selected: isProfile && root.nativeSelectedProfile === profile.id
+              readonly property var record: isProfile ? root.nativeRecord(profile) : null
+              property var focusTargets: isProfile ? [nativeChoose, rowRename, rowPin, rowDelete, rowQr, rowEdit] : [nativeGroup]
               Layout.fillWidth: true
-              Button { id: nativeChoose; text: root.nativeSelectedProfile === modelData.id ? root.textFor("common.selected") : root.textFor("native.select"); focusable: true; bordered: true; enabled: !vless.nativePending && !modelData.missing; onClicked: root.nativeSelectedProfile = modelData.id }
-              PlainText { Layout.fillWidth: true; text: modelData.name + " · " + modelData.protocol; textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
-            }
-          }
-          PlainText { Layout.fillWidth: true; text: root.textFor("native.subscriptions"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily }
-          Repeater {
-            model: vless.nativeSnapshot ? vless.nativeSnapshot.subscriptions : []
-            delegate: PlainText {
-              required property var modelData
-              Layout.fillWidth: true
-              text: modelData.name
-              textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap
+              spacing: Style.space(4)
+              RowLayout {
+                visible: !nativeRow.isProfile
+                Layout.fillWidth: true
+                Button { id: nativeGroup; text: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "−" : "+"; focusable: true; bordered: true; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
+                PlainText { Layout.fillWidth: true; text: nativeRow.isProfile ? "" : nativeRow.modelData.subscription.name; textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
+                PlainText { text: nativeRow.isProfile ? "" : String(nativeRow.modelData.count); color: root.dim; font.family: root.fontFamily }
+              }
+              RowLayout {
+                visible: nativeRow.isProfile
+                Layout.fillWidth: true
+                Button { id: nativeChoose; text: nativeRow.selected ? "●" : "○"; focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing; onClicked: root.nativeSelectedProfile = nativeRow.profile.id }
+                PlainText { Layout.fillWidth: true; text: nativeRow.isProfile ? nativeRow.profile.name : ""; textFormat: Text.PlainText; color: nativeRow.isProfile && nativeRow.profile.id === root.nativeView.activeId ? Color.accent : root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
+                PlainText { text: nativeRow.isProfile ? nativeRow.profile.protocol : ""; color: root.dim; font.family: root.fontFamily }
+              }
+              Flow {
+                visible: nativeRow.selected
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+                Button { id: rowRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestRename(nativeRow.record) }
+                Button { id: rowPin; text: root.textFor(nativeRow.isProfile && nativeRow.profile.favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.toggleFavorite(nativeRow.record) }
+                Button { id: rowDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestDelete(nativeRow.record) }
+                Button { id: rowQr; text: "QR"; focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.showQr(nativeRow.record) }
+                Button { id: rowEdit; text: root.textFor("native.editor.open"); focusable: true; bordered: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && nativeRow.record !== null && !nativeRow.record.managed; onClicked: { if (root.handOffToEditor(nativeRow.record)) root.close() } }
+              }
             }
           }
         }
