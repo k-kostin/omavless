@@ -645,6 +645,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             &omavless_domain::private_store::PrivateStore,
         ) -> Result<T, NativeOwnerError>,
     ) -> Result<T, NativeOwnerError> {
+        self.with_owned_read(|owner| {
+            crate::private_store_transaction::validate_store_path(
+                owner.transaction.store_path(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let input = omavless_store::read_private_utf8(
+                owner.transaction.store_path(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let store = omavless_domain::private_store::parse_private_store(&input)
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            project(&store)
+        })
+    }
+
+    /// Hold the migration lease and exact ownership through a bounded read.
+    /// Runtime observation deliberately does not depend on parsing the store.
+    fn with_owned_read<T>(
+        &mut self,
+        project: impl FnOnce(&mut Self) -> Result<T, NativeOwnerError>,
+    ) -> Result<T, NativeOwnerError> {
         let _lock = self
             .transaction
             .acquire_lock()
@@ -660,19 +683,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }) {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
-        crate::private_store_transaction::validate_store_path(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-        )
-        .map_err(|_| NativeOwnerError::Invariant)?;
-        let input = omavless_store::read_private_utf8(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-        )
-        .map_err(|_| NativeOwnerError::Invariant)?;
-        let store = omavless_domain::private_store::parse_private_store(&input)
-            .map_err(|_| NativeOwnerError::Invariant)?;
-        let result = project(&store)?;
+        let result = project(self)?;
         if self.required_ownership.is_none_or(|fence| {
             !self
                 .transaction
@@ -681,6 +692,37 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         Ok(result)
+    }
+
+    pub(crate) fn runtime_observation(
+        &mut self,
+        request: &Value,
+    ) -> Result<Value, NativeOwnerError> {
+        crate::runtime_observation::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let actual = owner.actual();
+            let observation = owner.host_mut().fresh_observation(&desired).ok();
+            // Do not hide an independently changed desired file behind a valid
+            // ownership marker, even though cooperating writers share this lock.
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if after != desired {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::runtime_observation::project(
+                &desired,
+                actual,
+                observation,
+            ))
+        })
     }
 
     pub(crate) fn custom_rules(

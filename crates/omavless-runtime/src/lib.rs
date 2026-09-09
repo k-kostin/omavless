@@ -74,6 +74,7 @@ mod route_check_protocol;
 mod route_probe;
 mod routing_preset;
 pub mod routing_read_protocol;
+mod runtime_observation;
 pub mod semantic_cli;
 pub mod startup_protocol;
 mod startup_validation;
@@ -241,6 +242,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
     "diagnostics.summary",
@@ -283,6 +285,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn runtime_observation(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn ui_snapshot(
         &mut self,
         request: &Value,
@@ -536,6 +542,12 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn runtime_observation(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.runtime_observation(request)
+    }
     fn ui_snapshot(
         &mut self,
         request: &Value,
@@ -1550,8 +1562,12 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
-        "ui.snapshot" if runtime_ownership => {
-            let mut response = owner.ui_snapshot(request)?;
+        "ui.snapshot" | "runtime.observation" if runtime_ownership => {
+            let mut response = if method == "ui.snapshot" {
+                owner.ui_snapshot(request)?
+            } else {
+                owner.runtime_observation(request)?
+            };
             if response["ok"] == true {
                 response["result"]["instanceId"] = json!(instance_id);
             }
@@ -1646,6 +1662,9 @@ mod tests {
         observation: OwnedObservation,
         calls: Arc<AtomicUsize>,
         route_config: Option<std::path::PathBuf>,
+        fresh_calls: Arc<AtomicUsize>,
+        fresh_result: std::result::Result<lifecycle::NativeLocalObservation, HostStepError>,
+        on_fresh: Option<Box<dyn FnMut() + Send>>,
     }
 
     struct BlockingTransport {
@@ -1690,6 +1709,16 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn fresh_observation(
+            &mut self,
+            _desired: &DesiredState,
+        ) -> std::result::Result<lifecycle::NativeLocalObservation, HostStepError> {
+            self.fresh_calls.fetch_add(1, Ordering::Relaxed);
+            if let Some(hook) = self.on_fresh.as_mut() {
+                hook();
+            }
+            self.fresh_result
+        }
         fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
             use sha2::{Digest, Sha256};
             Some((
@@ -1929,6 +1958,9 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            fresh_calls: Arc::new(AtomicUsize::new(0)),
+            fresh_result: Err(HostStepError::Observation),
+            on_fresh: None,
             route_config: if route {
                 let path = config.join("route.yaml");
                 fs::write(&path, b"synthetic-config").unwrap();
@@ -1995,6 +2027,224 @@ mod tests {
             Err(RuntimeError::AlreadyRunning)
         ));
         drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    fn fresh_empty_facts() -> lifecycle::NativeLocalObservation {
+        lifecycle::NativeLocalObservation {
+            owned_core_running: false,
+            visible_mihomo_count: 0,
+            visible_tun_count: 0,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        }
+    }
+
+    #[test]
+    fn runtime_observation_socket_is_bounded_private_read_independent_of_store() {
+        let base = temporary_base("runtime-observation");
+        let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+        let fresh = Arc::clone(&owner.batch_coordinator().host_mut().fresh_calls);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store = base.join("config/profiles.json");
+        let desired = base.join("state/omavless/desired.json");
+        let store_before = fs::read(&store).unwrap();
+        let desired_before = fs::read(&desired).unwrap();
+        let baseline = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "runtime.observation")
+        );
+        let observed = call(&paths, "runtime.observation", json!({})).unwrap();
+        assert_eq!(observed["ok"], true);
+        assert_eq!(observed["revision"], 0);
+        assert_eq!(
+            observed["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(observed["result"]["scope"], "local_runtime_observation");
+        assert_eq!(observed["result"]["availability"], "observed");
+        assert_eq!(
+            observed["result"]["facts"],
+            json!({
+                "ownedCoreRunning":false,"visibleMihomoCount":0,"visibleTunCount":0,
+                "ownedControllerConfigVerified":false,"desiredProfileMatchesOwned":false
+            })
+        );
+        assert!(
+            observed["result"]["verification"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|v| v == false)
+        );
+        assert!(encode_response(&observed).unwrap().len() < 4096);
+        for secret in [
+            PROFILE_ID,
+            SUBSCRIPTION_ID,
+            "Example",
+            "192.0.2.1",
+            "subscription-token",
+            "vless://",
+            "password",
+            "controllerSocket",
+        ] {
+            assert!(!observed.to_string().contains(secret));
+        }
+        assert_eq!(fs::read(&store).unwrap(), store_before);
+        // Broken profile content must not suppress a safe host observation.
+        fs::write(&store, b"private-corrupt-store").unwrap();
+        let independent = call(&paths, "runtime.observation", json!({})).unwrap();
+        assert_eq!(independent["result"], observed["result"]);
+        assert_eq!(independent["revision"], 0);
+        let invalid = call(
+            &paths,
+            "runtime.observation",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        assert_eq!(fresh.load(Ordering::Relaxed), 2);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        assert_eq!(fs::read(&desired).unwrap(), desired_before);
+        assert_eq!(fs::read(&store).unwrap(), b"private-corrupt-store");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn runtime_observation_host_unavailable_is_null_not_empty_inventory() {
+        let base = temporary_base("runtime-unavailable");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let fresh = Arc::clone(&owner.batch_coordinator().host_mut().fresh_calls);
+        let baseline = calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        let response = call(&paths, "runtime.observation", json!({})).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["availability"], "unavailable");
+        assert!(response["result"]["facts"].is_null());
+        assert_eq!(response["revision"], 0);
+        assert_eq!(fresh.load(Ordering::Relaxed), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn runtime_observation_refuses_revoked_or_candidate_ownership_before_host_read() {
+        for candidate in [false, true] {
+            let base = temporary_base("runtime-observation-owner");
+            let (mut owner, cutover, calls) = owner_fixture(
+                &base,
+                if candidate {
+                    OwnershipPhase::CutoverPreparing
+                } else {
+                    OwnershipPhase::Rust
+                },
+            );
+            let fresh = Arc::clone(&owner.batch_coordinator().host_mut().fresh_calls);
+            owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+            let baseline = calls.load(Ordering::Relaxed);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            if !candidate {
+                write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+            }
+            let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+            let response = call(&paths, "runtime.observation", json!({})).unwrap();
+            assert_eq!(response["error"]["code"], "capability_unavailable");
+            assert_eq!(fresh.load(Ordering::Relaxed), 0);
+            assert_eq!(calls.load(Ordering::Relaxed), baseline);
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_observation_discards_host_facts_when_ownership_or_desired_changes() {
+        for change_desired in [false, true] {
+            let base = temporary_base("runtime-observation-race");
+            let (mut owner, cutover, calls) = native_owner_fixture(&base);
+            let desired = base.join("state/omavless/desired.json");
+            let before = fs::read(&desired).unwrap();
+            let changed = DesiredState {
+                generation: 1,
+                mode: RoutingMode::Global,
+                ..DesiredState::default()
+            };
+            let changed_bytes = serde_json::to_vec(&changed).unwrap();
+            let hook_desired = desired.clone();
+            let hook_bytes = changed_bytes.clone();
+            let host = owner.batch_coordinator().host_mut();
+            let fresh = Arc::clone(&host.fresh_calls);
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.on_fresh = Some(Box::new(move || {
+                if change_desired {
+                    fs::write(&hook_desired, &hook_bytes).unwrap();
+                } else {
+                    write_marker(&cutover, OwnershipPhase::Rust, 2);
+                }
+            }));
+            let baseline = calls.load(Ordering::Relaxed);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+            let response = call(&paths, "runtime.observation", json!({})).unwrap();
+            assert_eq!(response["error"]["code"], "capability_unavailable");
+            assert!(response.get("result").is_none());
+            assert_eq!(response["revision"], 0);
+            assert_eq!(fresh.load(Ordering::Relaxed), 1);
+            assert_eq!(calls.load(Ordering::Relaxed), baseline);
+            assert_eq!(
+                fs::read(&desired).unwrap(),
+                if change_desired {
+                    changed_bytes
+                } else {
+                    before
+                }
+            );
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_observation_invalid_desired_refuses_without_host_calls_or_repair() {
+        let base = temporary_base("obs-invalid-desired");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let fresh = Arc::clone(&owner.batch_coordinator().host_mut().fresh_calls);
+        let desired = base.join("state/omavless/desired.json");
+        fs::write(&desired, b"private-invalid-desired").unwrap();
+        let baseline = calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        let response = call(&paths, "runtime.observation", json!({})).unwrap();
+        assert_eq!(response["error"]["code"], "internal_error");
+        assert!(!response.to_string().contains("private-invalid"));
+        assert_eq!(fresh.load(Ordering::Relaxed), 0);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
+        assert_eq!(fs::read(&desired).unwrap(), b"private-invalid-desired");
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 

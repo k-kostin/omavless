@@ -49,10 +49,32 @@ impl fmt::Display for HostStepError {
 
 impl std::error::Error for HostStepError {}
 
-/// Fixed-purpose boundary implemented later by the package-specific host
-/// adapter. Inputs are semantic desired state; there is no arbitrary argv,
-/// shell, service, or privileged-command surface.
+/// Fresh facts from the trusted local process/sysfs/controller view. These
+/// fields do not establish routing, DNS, internet reachability or TUN ownership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeLocalObservation {
+    pub owned_core_running: bool,
+    /// Exact-name inventory in the trusted procfs view, not service ownership.
+    pub visible_mihomo_count: u8,
+    /// Visible TUN interfaces only; no interface is attributed to this core.
+    pub visible_tun_count: u8,
+    /// True only after PID-authenticated read-only configuration verification.
+    /// False includes unavailable/unverified, not necessarily bad configuration.
+    pub owned_controller_config_verified: bool,
+    pub desired_profile_matches_owned: bool,
+}
+
+/// Fixed-purpose package host boundary. Inputs are semantic desired state;
+/// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.
+    /// Existing hosts remain unsupported until they explicitly implement it.
+    fn fresh_observation(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<NativeLocalObservation, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Fixed-purpose attribution only; never supplied by an IPC caller.
     fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
         None

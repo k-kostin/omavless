@@ -62,6 +62,7 @@ fn run() -> Result<(), CliError> {
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
+        println!("  runtime observation              fresh local facts; not VPN connectivity");
         println!("  plugin target                    read committed launcher target only");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(

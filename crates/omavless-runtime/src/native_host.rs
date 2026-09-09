@@ -10,17 +10,19 @@
 use crate::core::OwnedCore;
 use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
-use crate::lifecycle::{HostStepError, LifecycleHost};
+use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
-use omavless_mihomo::observation::{processes_named, tun_interface_count};
+use omavless_mihomo::observation::{
+    processes_named, processes_named_strict, tun_interface_count, tun_interface_count_strict,
+};
 use omavless_mihomo::validate_config;
 use omavless_store::{atomic_replace_private, read_private_utf8};
 use std::env;
 use std::fs;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(20);
 const START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -273,6 +275,62 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn fresh_observation(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<NativeLocalObservation, HostStepError> {
+        desired.validate().map_err(|_| HostStepError::Observation)?;
+        let named = processes_named_strict(&self.paths.proc_root, "mihomo")
+            .map_err(|_| HostStepError::Observation)?;
+        let tun = tun_interface_count_strict(&self.paths.sys_class_net)
+            .map_err(|_| HostStepError::Observation)?;
+        let (pid, running) = match self.core.as_mut() {
+            Some(core) => (
+                core.pid(),
+                core.running().map_err(|_| HostStepError::Observation)?,
+            ),
+            None => (None, false),
+        };
+        let profile_matches = running
+            && desired.connected
+            && self.profile_id.as_deref() == Some(desired.profile_id.as_str());
+        let verified = profile_matches
+            && self.readiness.as_ref().is_some_and(|expected| {
+                expected.mode == desired.mode
+                    && pid.is_some_and(|pid| {
+                        expected.ready_for_pid(
+                            &self.paths.controller_socket,
+                            pid,
+                            Instant::now() + OBSERVATION_TIMEOUT,
+                        )
+                    })
+            });
+        let (after_pid, after_running) = match self.core.as_mut() {
+            Some(core) => (
+                core.pid(),
+                core.running().map_err(|_| HostStepError::Observation)?,
+            ),
+            None => (None, false),
+        };
+        if (pid, running) != (after_pid, after_running)
+            || processes_named_strict(&self.paths.proc_root, "mihomo")
+                .map_err(|_| HostStepError::Observation)?
+                != named
+            || tun_interface_count_strict(&self.paths.sys_class_net)
+                .map_err(|_| HostStepError::Observation)?
+                != tun
+        {
+            return Err(HostStepError::Observation);
+        }
+        Ok(NativeLocalObservation {
+            owned_core_running: running,
+            visible_mihomo_count: u8::try_from(named.len())
+                .map_err(|_| HostStepError::Observation)?,
+            visible_tun_count: tun,
+            owned_controller_config_verified: verified,
+            desired_profile_matches_owned: profile_matches,
+        })
+    }
     fn route_core_identity(&mut self) -> Option<(u32, [u8; 32])> {
         use sha2::{Digest, Sha256};
         let core = self.core.as_mut()?;
@@ -471,6 +529,242 @@ mod tests {
         }
         fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    fn observation_fixture() -> (PathBuf, NativeLifecycleHost) {
+        let root = crate::test_temp::directory("fresh-native").unwrap();
+        let uid = nix::unistd::Uid::current().as_raw();
+        for name in ["data", "config", "runtime", "proc", "sys"] {
+            fs::create_dir(root.join(name)).unwrap();
+            fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        executable_at(&root.join("core"));
+        let paths = NativeHostPaths::new(
+            root.join("core"),
+            root.join("data"),
+            root.join("config"),
+            root.join("runtime"),
+            root.join("proc"),
+            root.join("sys"),
+        );
+        let host = NativeLifecycleHost::new(paths, uid).unwrap();
+        (root, host)
+    }
+
+    #[test]
+    fn fresh_observation_empty_has_no_controller_or_vpn_health_claim() {
+        let (root, mut host) = observation_fixture();
+        let observed = host.fresh_observation(&DesiredState::default()).unwrap();
+        assert_eq!(
+            observed,
+            NativeLocalObservation {
+                owned_core_running: false,
+                visible_mihomo_count: 0,
+                visible_tun_count: 0,
+                owned_controller_config_verified: false,
+                desired_profile_matches_owned: false
+            }
+        );
+        assert!(!host.paths.active_config.exists());
+        assert!(!host.paths.store.exists());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fresh_observation_counts_unowned_duplicates_without_adopting_them() {
+        let (root, mut host) = observation_fixture();
+        for index in [1, 2] {
+            let process = host.paths.proc_root.join(index.to_string());
+            fs::create_dir(&process).unwrap();
+            fs::write(process.join("comm"), b"mihomo\n").unwrap();
+            let interface = host.paths.sys_class_net.join(format!("tun{index}"));
+            fs::create_dir(&interface).unwrap();
+            fs::write(interface.join("tun_flags"), b"0x1001\n").unwrap();
+        }
+        let observed = host.fresh_observation(&DesiredState::default()).unwrap();
+        assert_eq!(
+            (observed.visible_mihomo_count, observed.visible_tun_count),
+            (2, 2)
+        );
+        assert!(!observed.owned_core_running);
+        assert!(!observed.owned_controller_config_verified);
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fresh_observation_refuses_incomplete_inventory_and_invalid_desired() {
+        for kind in [
+            "missing-comm",
+            "missing-net",
+            "malformed-flags",
+            "invalid-desired",
+        ] {
+            let (root, mut host) = observation_fixture();
+            let mut desired = DesiredState::default();
+            match kind {
+                "missing-comm" => fs::create_dir(host.paths.proc_root.join("1")).unwrap(),
+                "missing-net" => fs::remove_dir(&host.paths.sys_class_net).unwrap(),
+                "malformed-flags" => {
+                    let path = host.paths.sys_class_net.join("tun");
+                    fs::create_dir(&path).unwrap();
+                    fs::write(path.join("tun_flags"), b"private-invalid").unwrap();
+                }
+                _ => desired.generation = u64::MAX,
+            }
+            assert_eq!(
+                host.fresh_observation(&desired),
+                Err(HostStepError::Observation)
+            );
+            drop(host);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn fresh_controller_verification_rejects_socket_of_wrong_pid_without_repair() {
+        use std::os::unix::net::UnixListener;
+        let (root, mut host) = observation_fixture();
+        fs::write(&host.paths.core, b"#!/bin/sh\nexec /usr/bin/sleep 5\n").unwrap();
+        fs::write(&host.paths.active_config, b"synthetic config").unwrap();
+        let listener = UnixListener::bind(&host.paths.controller_socket).unwrap();
+        fs::set_permissions(
+            &host.paths.controller_socket,
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        host.core = Some(
+            OwnedCore::spawn(
+                &host.paths.core,
+                &host.paths.data_directory,
+                &host.paths.active_config,
+                &host.paths.controller_socket,
+            )
+            .unwrap(),
+        );
+        host.profile_id = Some("synthetic-id".into());
+        host.readiness = Some(ConfigReadiness::new(
+            crate::desired::RoutingMode::Rule,
+            "Synthetic".into(),
+        ));
+        let desired = DesiredState {
+            connected: true,
+            profile_id: "synthetic-id".into(),
+            ..DesiredState::default()
+        };
+        let observed = host.fresh_observation(&desired).unwrap();
+        assert!(observed.owned_core_running);
+        assert!(observed.desired_profile_matches_owned);
+        assert!(!observed.owned_controller_config_verified);
+        let disconnected = host.fresh_observation(&DesiredState::default()).unwrap();
+        assert!(!disconnected.owned_controller_config_verified);
+        assert!(!disconnected.desired_profile_matches_owned);
+        assert!(host.paths.controller_socket.exists());
+        assert_eq!(
+            fs::read(&host.paths.active_config).unwrap(),
+            b"synthetic config"
+        );
+        drop(listener);
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installed_mihomo_fresh_observation_authenticates_owned_child_without_tun() {
+        let Some(binary) = std::env::var_os("OMAVLESS_TEST_MIHOMO") else {
+            return;
+        };
+        let (root, mut host) = observation_fixture();
+        host.paths.core = fs::canonicalize(binary).unwrap();
+        host.paths.proc_root = PathBuf::from("/proc");
+        host.paths.sys_class_net = PathBuf::from("/sys/class/net");
+        let baseline_tun = tun_interface_count_strict(&host.paths.sys_class_net).unwrap();
+        // Built-in DIRECT is the expected profile category. No remote endpoint,
+        // provider, resolver, external TCP listener, TUN or auto-route is enabled.
+        let config = format!(
+            "mode: direct\nport: 0\nsocks-port: 0\nmixed-port: 0\nredir-port: 0\ntproxy-port: 0\nallow-lan: false\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\n  auto-route: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\nrules: []\n",
+            serde_json::to_string(host.paths.controller_socket.to_str().unwrap()).unwrap()
+        );
+        fs::write(&host.paths.active_config, &config).unwrap();
+        fs::set_permissions(&host.paths.active_config, fs::Permissions::from_mode(0o600)).unwrap();
+        host.core = Some(
+            OwnedCore::spawn(
+                &host.paths.core,
+                &host.paths.data_directory,
+                &host.paths.active_config,
+                &host.paths.controller_socket,
+            )
+            .unwrap(),
+        );
+        host.profile_id = Some("synthetic-direct".into());
+        host.readiness = Some(ConfigReadiness::new(
+            crate::desired::RoutingMode::Direct,
+            "DIRECT".into(),
+        ));
+        let desired = DesiredState {
+            connected: true,
+            profile_id: "synthetic-direct".into(),
+            mode: crate::desired::RoutingMode::Direct,
+            ..DesiredState::default()
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let observed = loop {
+            if let Ok(observed) = host.fresh_observation(&desired)
+                && observed.owned_controller_config_verified
+            {
+                break observed;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "owned direct controller did not verify"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(observed.owned_core_running);
+        assert!(observed.desired_profile_matches_owned);
+        assert!(observed.visible_mihomo_count >= 1);
+        assert_eq!(observed.visible_tun_count, baseline_tun);
+        let mut wrong = desired.clone();
+        wrong.mode = crate::desired::RoutingMode::Rule;
+        // Ordinary unrelated process churn may invalidate a strict inventory;
+        // it must never turn a mismatched desired config into verified health.
+        if let Ok(observed) = host.fresh_observation(&wrong) {
+            assert!(!observed.owned_controller_config_verified);
+        }
+        wrong = desired.clone();
+        wrong.profile_id = "other-synthetic".into();
+        if let Ok(observed) = host.fresh_observation(&wrong) {
+            assert!(!observed.owned_controller_config_verified);
+            assert!(!observed.desired_profile_matches_owned);
+        }
+        let pid = host.core.as_ref().unwrap().pid().unwrap();
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(i32::try_from(pid).unwrap()),
+            nix::sys::signal::Signal::SIGKILL,
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Ok(observed) = host.fresh_observation(&desired)
+                && !observed.owned_core_running
+            {
+                assert!(!observed.owned_controller_config_verified);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "owned core death did not become observable"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            fs::read_to_string(&host.paths.active_config).unwrap(),
+            config
+        );
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

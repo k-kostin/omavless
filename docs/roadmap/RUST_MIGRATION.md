@@ -1353,6 +1353,12 @@ wires the launcher selector and an explicitly read-only QML view. It does not
 activate ownership or enable native VPN controls; live health and the complete
 frontend operation bridge remain necessary before R6.
 
+The [fresh local observation](../testing/R5_NATIVE_RUNTIME_OBSERVATION.md)
+adds owner-fenced `runtime.observation` / `runtime observation`: strict visible
+inventories and PID-authenticated owned-controller configuration facts, separate
+from cached lifecycle state. It does not establish TUN ownership, routes, DNS or
+internet connectivity and does not change the QML snapshot contract or owner.
+
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch
 cleanup identity. Current native validation retains its existing data-directory
