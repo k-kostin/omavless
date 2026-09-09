@@ -439,8 +439,21 @@ impl LifecycleHost for NativeLifecycleHost {
         .map_err(|_| HostStepError::Start)?;
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
         let ready = core.wait_configured(START_TIMEOUT, expected);
+        let private_controller = ready.is_ok()
+            && core.pid().is_some_and(|pid| {
+                crate::controller_permissions::secure_owned(
+                    &self.paths.controller_socket,
+                    pid,
+                    self.uid,
+                )
+            })
+            && core.running().unwrap_or(false);
         self.core = Some(core);
-        ready.map_err(|_| HostStepError::Start)
+        if private_controller {
+            Ok(())
+        } else {
+            Err(HostStepError::Start)
+        }
     }
 
     fn commit_prepared(&mut self) -> Result<(), HostStepError> {
@@ -687,22 +700,29 @@ mod tests {
             "mode: direct\nport: 0\nsocks-port: 0\nmixed-port: 0\nredir-port: 0\ntproxy-port: 0\nallow-lan: false\nlog-level: silent\nexternal-controller-unix: {}\ntun:\n  enable: false\n  auto-route: false\ndns:\n  enable: false\nproxies: []\nproxy-groups: []\nrules: []\n",
             serde_json::to_string(host.paths.controller_socket.to_str().unwrap()).unwrap()
         );
-        fs::write(&host.paths.active_config, &config).unwrap();
-        fs::set_permissions(&host.paths.active_config, fs::Permissions::from_mode(0o600)).unwrap();
-        host.core = Some(
-            OwnedCore::spawn(
-                &host.paths.core,
-                &host.paths.data_directory,
-                &host.paths.active_config,
-                &host.paths.controller_socket,
-            )
-            .unwrap(),
-        );
+        fs::write(&host.paths.staged_config, &config).unwrap();
+        fs::set_permissions(&host.paths.staged_config, fs::Permissions::from_mode(0o600)).unwrap();
         host.profile_id = Some("synthetic-direct".into());
         host.readiness = Some(ConfigReadiness::new(
             crate::desired::RoutingMode::Direct,
             "DIRECT".into(),
         ));
+        host.start_prepared().unwrap();
+        host.commit_prepared().unwrap();
+        assert_eq!(
+            fs::metadata(&host.paths.controller_socket).unwrap().mode() & 0o7777,
+            0o600
+        );
+        let summary = crate::diagnostic_read::collect(
+            &host.paths.runtime_directory,
+            host.uid,
+            "diagnostics.summary",
+            &[],
+        )
+        .expect("strict diagnostics accepts the admitted private socket");
+        assert_eq!(summary["version"], 1);
+        assert!(summary["rules"]["items"].is_array());
+        assert!(summary["providers"]["items"].is_array());
         let desired = DesiredState {
             connected: true,
             profile_id: "synthetic-direct".into(),
