@@ -80,6 +80,22 @@ exit {code}
         self.assertEqual(result.stdout, "")
         self.assertNotIn("private-token", result.stderr)
 
+    def test_native_diagnostics_is_fixed_read_without_extra_arguments_or_legacy_fallback(self):
+        self.action_native()
+        result = self.run_launcher("native-diagnostics-summary")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), ["native:plugin:target", "arg:diagnostics", "arg:summary"])
+        self.trace.unlink()
+        result = self.run_launcher("native-diagnostics-summary", "private-token")
+        self.assertEqual(result.returncode, 71)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("private-token", result.stderr)
+        self.assertEqual(self.calls(), ["native:plugin:target"])
+        self.trace.unlink()
+        self.native(target="legacy")
+        self.assertEqual(self.run_launcher("native-diagnostics-summary").returncode, 71)
+        self.assertNotIn("python", self.calls())
+
     def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
         self.action_native()
         for args, expected in [

@@ -23,6 +23,11 @@ Item {
   property string locale: "en"
   readonly property real controlHeight: Style.space(32)
   readonly property int visibleRuleLimit: 300
+  readonly property bool readOnlyNative: service && service.nativeOwner === true
+  readonly property var focusTargets: readOnlyNative
+    ? [backButton, refreshButton, searchField]
+    : [backButton, refreshButton, searchField, providersRefreshButton]
+  property alias flickable: diagnosticsFlick
   readonly property bool searchActive: searchField.activeFocus
   readonly property bool keyboardControlActive: backButton.activeFocus
     || refreshButton.activeFocus || searchField.activeFocus
@@ -93,7 +98,7 @@ Item {
     parts.push(provider.ruleCount >= 0
       ? localizedCount("rule", provider.ruleCount)
       : textFor("diagnostics.count_unavailable"))
-    parts.push(provider.status)
+    parts.push(readOnlyNative ? textFor("native.diagnostics.provider." + provider.status) : provider.status)
     return parts.join(" · ")
   }
 
@@ -145,7 +150,7 @@ Item {
           Layout.preferredHeight: page.controlHeight
           focusable: true
           KeyNavigation.tab: refreshButton
-          KeyNavigation.backtab: providersRefreshButton
+          KeyNavigation.backtab: page.readOnlyNative ? searchField : providersRefreshButton
           Keys.onEscapePressed: page.backRequested()
           onClicked: page.backRequested()
         }
@@ -189,6 +194,16 @@ Item {
       }
 
       PlainText {
+        visible: page.readOnlyNative
+        width: parent.width
+        text: page.textFor("native.diagnostics.scope")
+        color: page.dim
+        font.family: page.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.Wrap
+      }
+
+      PlainText {
         visible: service && service.advancedDiagnosticsError !== ""
         width: parent.width
         text: page.diagnosticsErrorText()
@@ -226,7 +241,7 @@ Item {
         placeholderText: page.textFor("diagnostics.search_placeholder")
         foreground: page.foreground
         font.family: page.fontFamily
-        KeyNavigation.tab: providersRefreshButton
+        KeyNavigation.tab: page.readOnlyNative ? backButton : providersRefreshButton
         KeyNavigation.backtab: refreshButton
         Keys.onEscapePressed: page.backRequested()
       }
@@ -340,10 +355,11 @@ Item {
         }
         Button {
           id: providersRefreshButton
+          visible: !page.readOnlyNative
           text: service && service.busy
             ? page.textFor("common.updating") : page.textFor("diagnostics.update_all")
           bordered: true
-          enabled: service && service.loadedRefreshableProviderCount > 0 && !service.busy
+          enabled: !page.readOnlyNative && service && service.loadedRefreshableProviderCount > 0 && !service.busy
           foreground: enabled ? page.foreground : page.dim
           fontFamily: page.fontFamily
           Layout.preferredHeight: page.controlHeight

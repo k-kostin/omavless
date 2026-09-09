@@ -1,4 +1,46 @@
 // SPDX-License-Identifier: MIT
+// Independent diagnostic sample: this response has no daemon instance proof
+// and must never update connection health or ownership observations.
+function parseDiagnosticsSummary(raw) {
+  try {
+    if (!editorText(raw, 262144) || raw.length === 0) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || p.ok !== true
+        || !id(p.id, false) || !number(p.revision, 9007199254740991)
+        || !object(p.result, ["version", "rules", "providers"]) || p.result.version !== 1) return null
+    var r = p.result.rules, s = p.result.providers
+    function rows(value, shownMax, totalMax) {
+      return object(value, ["total", "shown", "truncated", "items"])
+        && Array.isArray(value.items) && value.items.length <= shownMax
+        && number(value.total, totalMax) && value.total >= value.items.length
+        && value.shown === value.items.length
+        && typeof value.truncated === "boolean" && value.truncated === (value.shown < value.total)
+    }
+    function field(value, max) { return text(value, max, true) && editorText(value, max) }
+    if (!rows(r, 2048, 65536) || !rows(s, 256, 256)) return null
+    var rules = [], providers = []
+    for (var i = 0; i < r.items.length; i++) {
+      var rule = r.items[i]
+      if (!object(rule, ["type", "payload", "target"]) || !field(rule.type, 80)
+          || !field(rule.payload, 512) || ["VPN", "DIRECT", "REJECT"].indexOf(rule.target) < 0) return null
+      rules.push({type:rule.type, payload:rule.payload, target:rule.target})
+    }
+    for (var j = 0; j < s.items.length; j++) {
+      var provider = s.items[j]
+      if (!object(provider, ["name", "behavior", "ruleCount", "updatedAt", "status", "refreshable"])
+          || !field(provider.name, 160) || !field(provider.behavior, 80) || !field(provider.updatedAt, 80)
+          || !(provider.ruleCount === -1 || number(provider.ruleCount, 1000000000))
+          || typeof provider.refreshable !== "boolean"
+          || provider.status !== (provider.ruleCount < 0 ? "unknown" : provider.ruleCount === 0 ? "empty" : "loaded")) return null
+      providers.push({name:provider.name, behavior:provider.behavior, ruleCount:provider.ruleCount,
+        updatedAt:provider.updatedAt, status:provider.status, refreshable:false})
+    }
+    return {version:1, rules:{total:r.total, shown:r.shown, truncated:r.truncated, items:rules},
+      providers:{total:s.total, shown:s.shown, truncated:s.truncated, items:providers}}
+  } catch (_) { return null }
+}
+
 // Pure parser: returns a fresh projection or null; never changes UI state.
 function parseQrExport(raw, revision) {
   try {
