@@ -63,6 +63,10 @@ Synthetic tests cover exact command/unit facts, activation success using fixed
 service/private-socket doubles, startup/receipt/preset/TUN refusal, the existing
 transaction fault matrix, exact desired formatting/absence restoration,
 unrecognized replacement refusal and an externally held native owner lock.
+An early legacy-stop failure with a pre-existing idle owner lock verifies that
+compensation reuses its retained admission lease rather than conflicting with
+itself. Reuse requires the fixed path to retain the locked device/inode and
+private file policy; disappearance, replacement, symlink or unsafe mode refuses.
 The pre-existing language-neutral ownership/transaction contract is the
 reference for this composition; no new Python behavior is substituted.
 

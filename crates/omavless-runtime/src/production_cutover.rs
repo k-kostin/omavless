@@ -500,12 +500,27 @@ impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
         // be safe and unlocked; retain the lease until compensation completes.
         let path = &self.paths.runtime.owner_lock;
         let metadata = match fs::symlink_metadata(path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return if self.stopped_owner.is_none() {
+                    Ok(())
+                } else {
+                    Err(CutoverHostError)
+                };
+            }
             Err(_) => return Err(CutoverHostError),
             Ok(metadata) => metadata,
         };
         if !metadata.is_file() || metadata.uid() != self.uid || metadata.mode() & 0o7777 != 0o600 {
             return Err(CutoverHostError);
+        }
+        if let Some(lease) = &self.stopped_owner {
+            // A failure before release_for_candidate keeps the admission lease.
+            // Reopening and flocking would conflict with our own open-file
+            // description. Reuse it only while the fixed path still names it.
+            let held = lease.metadata().map_err(|_| CutoverHostError)?;
+            return (held.dev() == metadata.dev() && held.ino() == metadata.ino())
+                .then_some(())
+                .ok_or(CutoverHostError);
         }
         let file = OpenOptions::new()
             .read(true)
@@ -1048,6 +1063,76 @@ mod tests {
         assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_err());
         drop(host);
         assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_ok());
+    }
+
+    #[test]
+    fn early_activation_failure_reuses_idle_owner_lease_for_compensation() {
+        let fixture = Fixture::new("early-activation-failure");
+        prepare_disconnected_fixture(&fixture);
+        fs::create_dir(&fixture.paths.runtime.directory).unwrap();
+        fs::set_permissions(
+            &fixture.paths.runtime.directory,
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        drop(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).unwrap());
+        // Fail the first legacy stop, before the candidate handoff releases the
+        // existing idle owner lease. Compensation's second stop succeeds.
+        let failed = fixture.root.join("legacy-stop-failed");
+        publish_service_harness(
+            &fixture.paths.systemctl,
+            &format!(
+                "#!/bin/sh\nif [ \"$2:$3\" = stop:omavless.service ] && [ ! -e '{}' ]; then : > '{}'; exit 7; fi\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; fi\nexit 0\n",
+                failed.display(),
+                failed.display(),
+            ),
+        );
+        let bridge = FakeBridge::new();
+        let observed = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+        assert_eq!(
+            host.activate_disconnected(),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        assert!(failed.exists());
+        assert_disconnected_restored(&fixture, &observed);
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_err());
+        drop(host);
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_ok());
+    }
+
+    #[test]
+    fn retained_owner_lease_refuses_missing_replaced_or_unsafe_path() {
+        for variant in ["missing", "replacement", "symlink", "mode"] {
+            let fixture = Fixture::new("retained-owner-identity");
+            fs::create_dir(&fixture.paths.runtime.directory).unwrap();
+            fs::set_permissions(
+                &fixture.paths.runtime.directory,
+                fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+            let path = &fixture.paths.runtime.owner_lock;
+            drop(crate::OwnerLock::acquire(path, fixture.uid).unwrap());
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, FakeBridge::new())
+                    .unwrap();
+            host.fence_stopped_owner().unwrap();
+            host.fence_stopped_owner().unwrap();
+            if variant == "mode" {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+            } else {
+                let original = fixture.root.join("original-lock");
+                fs::rename(path, &original).unwrap();
+                match variant {
+                    "missing" => {}
+                    "replacement" => fixture.write_private(path, ""),
+                    "symlink" => std::os::unix::fs::symlink(&original, path).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            assert!(host.fence_stopped_owner().is_err());
+        }
     }
 
     #[test]
