@@ -173,23 +173,58 @@ pub(crate) fn service_state_with_timeout(
     service: &str,
     timeout: Duration,
 ) -> Result<UserServiceState, ProductionObservationError> {
+    let text = fixed_service_query(systemctl, service, timeout, false)?;
+    for field in ["ActiveState", "MainPID", "ExecMainStatus", "Result"] {
+        if text
+            .lines()
+            .filter(|line| line.split_once('=').is_some_and(|(key, _)| key == field))
+            .count()
+            != 1
+        {
+            return Err(ProductionObservationError::ServiceResponse);
+        }
+    }
+    parse_systemd_show(&text).ok_or(ProductionObservationError::ServiceResponse)
+}
+
+/// Fixed read-only installation/startup facts for explicit disconnected cutover.
+pub(crate) fn cutover_service_installation(
+    systemctl: &Path,
+    service: &str,
+) -> Result<String, ProductionObservationError> {
+    fixed_service_query(systemctl, service, SERVICE_QUERY_TIMEOUT, true)
+}
+
+fn fixed_service_query(
+    systemctl: &Path,
+    service: &str,
+    timeout: Duration,
+    installation: bool,
+) -> Result<String, ProductionObservationError> {
     if !matches!(service, LEGACY_SERVICE | RUST_SERVICE)
         || timeout.is_zero()
         || timeout > SERVICE_QUERY_TIMEOUT
     {
         return Err(ProductionObservationError::ServiceQuery);
     }
-    let mut child = Command::new(systemctl)
-        .args([
-            "--user",
-            "show",
-            service,
+    let properties = if installation {
+        [
+            "--property=UnitFileState",
+            "--property=FragmentPath",
+            "--property=DropInPaths",
+            "--property=NeedDaemonReload",
+        ]
+    } else {
+        [
             "--property=ActiveState",
             "--property=MainPID",
             "--property=ExecMainStatus",
             "--property=Result",
-            "--no-pager",
-        ])
+        ]
+    };
+    let mut child = Command::new(systemctl)
+        .args(["--user", "show", service, "--no-pager"])
+        .args(properties)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -247,19 +282,7 @@ pub(crate) fn service_state_with_timeout(
         let _ = child.wait();
     }
     let output = result?;
-    let text =
-        std::str::from_utf8(&output).map_err(|_| ProductionObservationError::ServiceResponse)?;
-    for field in ["ActiveState", "MainPID", "ExecMainStatus", "Result"] {
-        if text
-            .lines()
-            .filter(|line| line.split_once('=').is_some_and(|(key, _)| key == field))
-            .count()
-            != 1
-        {
-            return Err(ProductionObservationError::ServiceResponse);
-        }
-    }
-    parse_systemd_show(text).ok_or(ProductionObservationError::ServiceResponse)
+    String::from_utf8(output).map_err(|_| ProductionObservationError::ServiceResponse)
 }
 
 fn socket_presence(
