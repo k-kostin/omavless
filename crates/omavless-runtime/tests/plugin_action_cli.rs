@@ -44,6 +44,7 @@ fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
     fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
     let id = "00000000-0000-4000-8000-000000000001";
     let link = "trojan://synthetic-password@203.0.113.1:443\n";
+    let admission_probe = listener.try_clone().unwrap();
     let worker = thread::spawn(move || {
         for lost in [false, true] {
             let (mut stream, _) = listener.accept().unwrap();
@@ -81,10 +82,19 @@ fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
         }
     }
     worker.join().unwrap();
+    admission_probe.set_nonblocking(true).unwrap();
     for (input, extra) in [
         (Vec::new(), vec![]),
         (vec![0xff], vec![]),
         (format!("{id}\nName").into_bytes(), vec![]),
+        (
+            format!("{id}\nName\nprivate-invalid-source").into_bytes(),
+            vec![],
+        ),
+        (
+            format!("{id}\nName\nhttps://private.example/subscription-token").into_bytes(),
+            vec![],
+        ),
         (
             format!("{id}\nName\n{}", "x".repeat(32769)).into_bytes(),
             vec![],
@@ -92,9 +102,17 @@ fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
         (input.into_bytes(), vec!["private-token"]),
     ] {
         let output = private_invoke(&base, "profile-replace", &input, &extra);
-        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(output.status.code(), Some(74));
         assert!(output.stdout.is_empty());
         assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "OmaVLESS replacement was not submitted; review the editor input before retrying\n"
+        );
+        assert_eq!(
+            admission_probe.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
     fs::remove_dir_all(base).unwrap();
 }

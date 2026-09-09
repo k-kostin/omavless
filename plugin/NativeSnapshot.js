@@ -217,3 +217,10 @@ function parseImportPreview(raw, revision) {
     return {kind:"profile", profile:v}
   } catch (_) { return null }
 }
+
+function parseActionExit(raw, pending, exitCode) {
+  // Reserved replacement-only CLI exit proves no socket dispatch occurred.
+  if (exitCode === 74 && pending && pending.action === "profile-replace")
+    return {ok:false, code:"invalid_argument"}
+  return parseAction(raw, pending)
+}

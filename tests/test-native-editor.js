@@ -25,6 +25,16 @@ function context(){
 function opened(){const c=context();assert(c.startNativeEditor({uuid:'record'}));c.nativeEditorReadProcess=null;c.finishNativeEditorRead(c.nativeEditorDraft,0,frame());return c;}
 function saved(){const c=opened();c.nativeEditorProcess=null;c.finishNativeEditor(c.nativeEditorDraft,0,edited,'');return c;}
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('pre-dispatch rejection is known; lost reply stays unknown',()=>{
+  const c=saved();
+  const result=parser.parseActionExit('',c.nativePending,74);
+  assert.equal(result.code,'invalid_argument');
+  c.finishNativeEditorAction(result,false);
+  assert.equal(c.nativeEditorDraft.input,edited);assert.equal(c.nativeEditorCode,'rejected');
+  assert.equal(parser.parseActionExit('',c.nativePending,73),null);
+  assert.equal(parser.parseActionExit('',{...c.nativePending,action:'connect'},74),null);
+  assert.match(source,/NativeSnapshot.parseActionExit\(nativeActionStdout.text, root.nativePending, exitCode\)/);
+});
 test('QML copied process context matches token, not object identity',()=>{
   const c=context();c.startNativeEditor({uuid:'record'});
   const copy=JSON.parse(JSON.stringify(c.nativeEditorDraft));

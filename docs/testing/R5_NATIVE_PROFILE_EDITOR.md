@@ -65,3 +65,11 @@ removed; it is not acceptance evidence. Further keyboard automation must verify
 the target window or use human confirmation. Save/rejection/recovery visual
 gates and final installed integration remain pending; Cancel alone does not
 establish complete editor acceptance.
+
+The rejected-save integration test also exposed a local admission distinction:
+invalid profile text can fail canonical CLI validation before any socket call.
+Replacement-only exit 74 now marks this known not-submitted outcome with a
+fixed public message. QML retains the draft for correction without claiming an
+unknown mutation. Exit 73 remains reserved for transport failures after entering
+the socket client. Deterministic tests assert that rejected input never connects;
+other plugin command exit contracts are unchanged.

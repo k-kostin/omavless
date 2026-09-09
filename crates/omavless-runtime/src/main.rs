@@ -38,6 +38,7 @@ enum CliError {
     Message(String),
     DesktopCancelled,
     ActionOutcomeUnknown,
+    ActionNotAdmitted,
 }
 
 impl From<String> for CliError {
@@ -259,7 +260,18 @@ fn run() -> Result<(), CliError> {
         );
         return Ok(());
     }
-    let paths = RuntimePaths::current().map_err(|error| error.to_string())?;
+    let replacement = arguments.first().is_some_and(|arg| arg == "plugin")
+        && arguments.get(1).is_some_and(|arg| arg == "profile-replace");
+    // This classification is valid only before dispatch. After entering the
+    // socket client, transport errors remain outcome-unknown even for replace.
+    let admission_error = |message: String| {
+        if replacement {
+            CliError::ActionNotAdmitted
+        } else {
+            CliError::Message(message)
+        }
+    };
+    let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
     if arguments == ["daemon"] {
         let stop = Arc::new(AtomicBool::new(false));
         flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
@@ -301,10 +313,11 @@ fn run() -> Result<(), CliError> {
         &arguments,
         omavless_runtime::plugin_action::cli_input_limit(&arguments)
             .map(read_semantic_input)
-            .transpose()?
+            .transpose()
+            .map_err(admission_error)?
             .as_deref(),
     )
-    .map_err(|error| error.to_string())?
+    .map_err(|error| admission_error(error.to_string()))?
     {
         ("plugin.action", params)
     } else {
@@ -365,6 +378,12 @@ fn main() -> ExitCode {
                 "OmaVLESS action outcome is unknown; retain the original operation for reconciliation"
             );
             ExitCode::from(73)
+        }
+        Err(CliError::ActionNotAdmitted) => {
+            eprintln!(
+                "OmaVLESS replacement was not submitted; review the editor input before retrying"
+            );
+            ExitCode::from(74)
         }
         Err(CliError::Message(message)) => {
             eprintln!("{message}");

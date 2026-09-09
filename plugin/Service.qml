@@ -2714,7 +2714,7 @@ Item {
     stdout: StdioCollector { id: nativeActionStdout; waitForEnd: true }
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
-      var result = NativeSnapshot.parseAction(nativeActionStdout.text, root.nativePending)
+      var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       if (!result || exitCode === 73) {
         root.nativeOutcomeUnknown = true
