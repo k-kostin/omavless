@@ -6,6 +6,7 @@ python3 -m unittest -v \
   "$here/test_backend.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_mihomo_validation_effects.py" \
+  "$here/test_local_arch_package.py" \
   "$here/test_control_protocol.py" \
   "$here/test_control_protocol_probe.py" \
   "$here/test_control_protocol_parity.py" \
