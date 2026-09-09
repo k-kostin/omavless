@@ -47,7 +47,7 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 1 ] || blocked
           exec omavless runtime observation
           ;;
-        native-connect|native-disconnect|native-mode)
+        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete)
           action=${1#native-}
           shift
           exec omavless plugin "$action" "$@"

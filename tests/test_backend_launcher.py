@@ -86,6 +86,9 @@ exit {code}
             ("connect", ["profile-one", "global"]),
             ("disconnect", []),
             ("mode", ["direct"]),
+            ("profile-rename", []),
+            ("profile-favorite", []),
+            ("profile-delete", []),
         ]:
             with self.subTest(action=action):
                 args = ["instance-one", "4", "operation-one", *tail]
@@ -116,12 +119,29 @@ exit {code}
         for with_binary in [False, True]:
             if with_binary:
                 self.native("legacy")
-            for command in ["native-connect", "native-disconnect", "native-mode", "native-observation", "native-raw"]:
+            for command in ["native-connect", "native-disconnect", "native-mode", "native-profile-rename", "native-profile-favorite", "native-profile-delete", "native-observation", "native-raw"]:
                 result = self.run_launcher(command, "private-token")
                 self.assertEqual(result.returncode, 71)
                 self.assertEqual(result.stdout, "")
                 self.assertNotIn("private-token", result.stderr)
             self.assertNotIn("python", self.calls())
+
+    def test_profile_private_stdin_is_forwarded_without_argv_or_shell_evaluation(self):
+        self.script("omavless", '''
+if [ "$1" = plugin ] && [ "$2" = target ]; then printf 'rust\\n'; exit 0; fi
+for argument in "$@"; do printf 'arg:%s\\n' "$argument" >> "$BRIDGE_TEST_TRACE"; done
+exec /usr/bin/cat
+''')
+        marker = self.base / "must-not-exist"
+        payload = 'profile-one\\n$(touch "' + str(marker) + '"); `id`'
+        result = subprocess.run(
+            ["/bin/sh", str(LAUNCHER), "native-profile-rename", "instance", "4", "operation"],
+            input=payload, env=self.env, capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, payload)
+        self.assertEqual(self.calls(), ["arg:plugin", "arg:profile-rename", "arg:instance", "arg:4", "arg:operation"])
+        self.assertFalse(marker.exists())
 
     def test_marketplace_without_native_and_without_artifacts_keeps_legacy(self):
         result = self.run_launcher("status")

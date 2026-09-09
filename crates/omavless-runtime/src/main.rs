@@ -71,6 +71,9 @@ fn run() -> Result<(), CliError> {
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
         println!("  plugin mode INSTANCE REVISION OPERATION rule|global|direct");
+        println!("  plugin profile-rename INSTANCE REVISION OPERATION   stdin: ID newline NAME");
+        println!("  plugin profile-favorite INSTANCE REVISION OPERATION stdin: ID newline on|off");
+        println!("  plugin profile-delete INSTANCE REVISION OPERATION   stdin: ID");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"
@@ -287,8 +290,14 @@ fn run() -> Result<(), CliError> {
         omavless_runtime::semantic_cli::parse_semantic_profile_replace(&arguments, Some(&input))
             .map_err(|error| error.to_string())?
             .into_parts()
-    } else if let Some(params) = omavless_runtime::plugin_action::cli_params(&arguments)
-        .map_err(|error| error.to_string())?
+    } else if let Some(params) = omavless_runtime::plugin_action::cli_params(
+        &arguments,
+        omavless_runtime::plugin_action::cli_input_limit(&arguments)
+            .map(read_semantic_input)
+            .transpose()?
+            .as_deref(),
+    )
+    .map_err(|error| error.to_string())?
     {
         ("plugin.action", params)
     } else {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Fixed frontend lifecycle bridge. Instance fencing is performed by dispatch
+//! Fixed frontend mutation bridge. Instance fencing is performed by dispatch
 //! before passing the canonical request to the existing mutation coordinator.
 
 use crate::mutation_protocol::{MutationProtocolError, exact_fields, parse_owner_request};
@@ -43,6 +43,29 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "action",
             "mode",
         ],
+        "profile-rename" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "profileId",
+            "name",
+        ],
+        "profile-favorite" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "profileId",
+            "enabled",
+        ],
+        "profile-delete" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "profileId",
+        ],
         _ => return Err(InvalidArgument),
     };
     if !exact_fields(params, fields, fields) {
@@ -60,12 +83,20 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
     canonical["method"] = json!(match action {
         "connect" => "connection.connect",
         "disconnect" => "connection.disconnect",
-        _ => "routing.set_mode",
+        "mode" => "routing.set_mode",
+        "profile-rename" => "profiles.rename",
+        "profile-favorite" => "profiles.favorite",
+        "profile-delete" => "profiles.delete",
+        _ => return Err(InvalidArgument),
     });
     let mapped = canonical["params"].as_object_mut().ok_or(InvalidArgument)?;
     mapped.remove("instanceId");
     mapped.remove("action");
-    parse_owner_request(&canonical)?;
+    if action.starts_with("profile-") {
+        crate::profile_mutation_protocol::parse_profile_mutation_request(&canonical)?;
+    } else {
+        parse_owner_request(&canonical)?;
+    }
     Ok(Action {
         instance: instance.to_owned(),
         operation: params["operationId"]
@@ -77,16 +108,42 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
     })
 }
 
-/// Parse only the three fixed action commands. No stdin, generic JSON or method
-/// names are accepted. The returned parameters still require server fencing.
+/// Private profile input is bounded before socket connection. The extra byte
+/// permits one terminal LF; record IDs have the canonical UUID length.
+pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
+    if arguments.len() != 5 || arguments[0] != "plugin" {
+        return None;
+    }
+    match arguments[1].to_str()? {
+        "profile-rename" => {
+            Some(36 + 1 + crate::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES + 1)
+        }
+        "profile-favorite" => Some(36 + 1 + 3 + 1),
+        "profile-delete" => Some(36 + 1),
+        _ => None,
+    }
+}
+
+/// Parse only fixed actions, never generic JSON/method names. Profile inputs
+/// travel through bounded stdin, not argv. Server fencing remains mandatory.
 pub fn cli_params(
     arguments: &[OsString],
+    private_stdin: Option<&str>,
 ) -> Result<Option<Value>, crate::semantic_cli::SemanticCliError> {
     use crate::semantic_cli::SemanticCliError::InvalidArgument;
     if arguments.first().is_none_or(|arg| arg != "plugin")
-        || arguments
-            .get(1)
-            .is_none_or(|arg| !["connect", "disconnect", "mode"].iter().any(|v| arg == v))
+        || arguments.get(1).is_none_or(|arg| {
+            ![
+                "connect",
+                "disconnect",
+                "mode",
+                "profile-rename",
+                "profile-favorite",
+                "profile-delete",
+            ]
+            .iter()
+            .any(|v| arg == v)
+        })
     {
         return Ok(None);
     }
@@ -117,6 +174,13 @@ pub fn cli_params(
         ["plugin", "mode", instance, revision, operation, mode] => {
             ("mode", *instance, *revision, *operation, None, Some(*mode))
         }
+        [
+            "plugin",
+            action @ ("profile-rename" | "profile-favorite" | "profile-delete"),
+            instance,
+            revision,
+            operation,
+        ] => (*action, *instance, *revision, *operation, None, None),
         _ => return Err(InvalidArgument),
     };
     if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit()) {
@@ -129,6 +193,37 @@ pub fn cli_params(
     }
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
+    }
+    if action.starts_with("profile-") {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        let input = input.strip_suffix('\n').unwrap_or(input);
+        if input.contains('\r') || input.contains('\0') {
+            return Err(InvalidArgument);
+        }
+        let (id, value) = if action == "profile-delete" {
+            (input, None)
+        } else {
+            let (id, value) = input.split_once('\n').ok_or(InvalidArgument)?;
+            (id, Some(value))
+        };
+        if id.contains('\n') || value.is_some_and(|value| value.contains('\n')) {
+            return Err(InvalidArgument);
+        }
+        params["profileId"] = json!(id);
+        if action == "profile-rename" {
+            params["name"] = json!(value.ok_or(InvalidArgument)?);
+        } else if action == "profile-favorite" {
+            params["enabled"] = json!(match value {
+                Some("on") => true,
+                Some("off") => false,
+                _ => return Err(InvalidArgument),
+            });
+        }
+    } else if private_stdin.is_some() {
+        return Err(InvalidArgument);
     }
     let request =
         omavless_control_protocol::make_request("plugin-cli", "plugin.action", params.clone())
@@ -154,6 +249,21 @@ mod tests {
             ),
             ("disconnect", "connection.disconnect", json!({})),
             ("mode", "routing.set_mode", json!({"mode":"global"})),
+            (
+                "profile-rename",
+                "profiles.rename",
+                json!({"profileId":"00000000-0000-4000-8000-000000000001","name":"Private label"}),
+            ),
+            (
+                "profile-favorite",
+                "profiles.favorite",
+                json!({"profileId":"00000000-0000-4000-8000-000000000001","enabled":true}),
+            ),
+            (
+                "profile-delete",
+                "profiles.delete",
+                json!({"profileId":"00000000-0000-4000-8000-000000000001"}),
+            ),
         ] {
             let mut params = json!({"instanceId":"instance-1","expectedRevision":0,"operationId":"operation-1","action":action});
             params
@@ -191,7 +301,11 @@ mod tests {
         }
         let args = |items: &[&str]| items.iter().map(OsString::from).collect::<Vec<_>>();
         assert_eq!(
-            cli_params(&args(&["plugin", "disconnect", "instance-1", "0", "op-1"])).unwrap(),
+            cli_params(
+                &args(&["plugin", "disconnect", "instance-1", "0", "op-1"]),
+                None
+            )
+            .unwrap(),
             Some(valid)
         );
         for command in [
@@ -200,7 +314,85 @@ mod tests {
             vec!["plugin", "disconnect", "i", "0", "o", "extra"],
             vec!["plugin", "mode", "i", "0", "o", "bad"],
         ] {
-            assert!(cli_params(&args(&command)).is_err());
+            assert!(cli_params(&args(&command), None).is_err());
+        }
+    }
+
+    #[test]
+    fn private_profile_cli_has_exact_line_and_argument_grammar() {
+        let id = "00000000-0000-4000-8000-000000000001";
+        for (action, input, extra) in [
+            (
+                "profile-rename",
+                format!("{id}\nPrivate name"),
+                json!({"name":"Private name"}),
+            ),
+            (
+                "profile-favorite",
+                format!("{id}\non"),
+                json!({"enabled":true}),
+            ),
+            (
+                "profile-favorite",
+                format!("{id}\noff"),
+                json!({"enabled":false}),
+            ),
+            ("profile-delete", id.to_owned(), json!({})),
+        ] {
+            let args: Vec<_> = ["plugin", action, "instance", "7", "operation"]
+                .map(OsString::from)
+                .into();
+            for input in [input.clone(), format!("{input}\n")] {
+                let parsed = cli_params(&args, Some(&input)).unwrap().unwrap();
+                assert_eq!(parsed["profileId"], id);
+                for (key, value) in extra.as_object().unwrap() {
+                    assert_eq!(parsed[key], *value);
+                }
+            }
+            assert!(cli_params(&args, None).is_err());
+            for invalid in [
+                String::new(),
+                "private-token".into(),
+                format!("{input}\nextra"),
+                format!("{input}\n\n"),
+                format!("{input}\r"),
+                format!("{input}\0"),
+            ] {
+                assert!(cli_params(&args, Some(&invalid)).is_err());
+            }
+            let mut extra_arg = args.clone();
+            extra_arg.push(OsString::from("private-token"));
+            assert_eq!(cli_input_limit(&extra_arg), None);
+            assert!(cli_params(&extra_arg, Some(&input)).is_err());
+        }
+        let args: Vec<_> = ["plugin", "profile-rename", "instance", "7", "operation"]
+            .map(OsString::from)
+            .into();
+        assert!(cli_params(&args, Some(&format!("{id}\n{}", "x".repeat(320)))).is_ok());
+        assert!(cli_params(&args, Some(&format!("{id}\n{}", "x".repeat(321)))).is_err());
+        assert!(cli_params(&args, Some(&format!("{id}\n{}", "🛡".repeat(81)))).is_err());
+        let args: Vec<_> = ["plugin", "profile-favorite", "instance", "7", "operation"]
+            .map(OsString::from)
+            .into();
+        for value in ["true", "false", "1", "ON", "off "] {
+            assert!(cli_params(&args, Some(&format!("{id}\n{value}"))).is_err());
+        }
+    }
+
+    #[test]
+    fn profile_actions_reject_wrong_types_and_arbitrary_mutations() {
+        let valid = json!({"action":"profile-favorite","instanceId":"instance","operationId":"op","expectedRevision":0,"profileId":"00000000-0000-4000-8000-000000000001","enabled":true});
+        for (key, value) in [
+            ("enabled", json!("on")),
+            ("profileId", json!("private-token")),
+            ("action", json!("profiles.favorite")),
+            ("action", json!("profile-replace")),
+            ("operationId", json!(null)),
+            ("expectedRevision", json!("0")),
+        ] {
+            let mut params = valid.clone();
+            params[key] = value;
+            assert!(parse(&request(params)).is_err());
         }
     }
 }

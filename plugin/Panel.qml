@@ -350,7 +350,9 @@ Panel {
   readonly property bool renameNameValid: vless.isValidName(renameClean)
   readonly property bool renameDuplicate: renameClean !== ""
     && (pendingRename === null || renameClean !== pendingRename.name)
-    && vless.countByName(renameClean) > 0
+    && (vless.nativeOwner
+      ? !!(vless.nativeSnapshot && vless.nativeSnapshot.profiles.some(function(p) { return p.name === root.renameClean && (!root.pendingRename || p.id !== root.pendingRename.uuid) }))
+      : vless.countByName(renameClean) > 0)
   readonly property bool renameAccepted: pendingRename !== null && renameNameValid && !renameDuplicate
   readonly property string renameHint: !renameNameValid
     ? textFor("rename.invalid_name")
@@ -456,7 +458,7 @@ Panel {
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
     if (vless.nativeOwner) {
-      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeReconcile, nativeAcceptState]
+      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeReconcile, nativeAcceptState]
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
         if (row) targets.push(row.focusTarget)
@@ -952,7 +954,11 @@ Panel {
   }
 
   function requestDelete(profile) {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) {
+      if (!vless.nativeCanAct || !profile || profile.managed) return false
+      pendingDelete = profile
+      return true
+    }
     if (vless.busy || vless.editing || vless.importSourceBusy || !profile) return
     if (profile.managed) {
       openSubscriptions()
@@ -1036,7 +1042,13 @@ Panel {
   // Returns whether the prompt opened, so callers know whether the panel has
   // anything to hand over to.
   function requestRename(profile) {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) {
+      if (!vless.nativeCanAct || !profile || profile.managed) return false
+      pendingRename = profile
+      renameWindow.openWith(profile.name)
+      close()
+      return true
+    }
     if (vless.busy || vless.editing || vless.importSourceBusy || !profile) return false
     if (profile.managed) {
       openSubscriptions()
@@ -1056,12 +1068,20 @@ Panel {
     renameWindow.dismiss()
   }
 
+  function nativeSelectedRecord() {
+    if (!vless.nativeSnapshot) return null
+    var p = vless.nativeSnapshot.profiles.find(function(item) { return item.id === root.nativeSelectedProfile })
+    return p ? {uuid:p.id, name:p.name, favorite:p.favorite, managed:p.subscriptionId !== ""} : null
+  }
+
   function confirmRename() {
     if (!renameAccepted) return
     var profile = pendingRename
     var name = renameClean
     cancelRename()
     vless.renameConfig(profile, name)
+    // Native operation results live in the panel, not the closed editor.
+    if (vless.nativeOwner) open()
   }
 
   function confirmImport() {
@@ -1521,7 +1541,7 @@ Panel {
           Button { id: nativeRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
           RowLayout {
             Layout.fillWidth: true
-            Button { id: nativeConnect; text: root.textFor("action.connect"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedProfile !== ""; onClicked: vless.requestNativeAction("connect", root.nativeSelectedProfile, vless.nativeSnapshot.desired.mode) }
+            Button { id: nativeConnect; text: root.textFor("action.connect"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.requestNativeAction("connect", root.nativeSelectedProfile, vless.nativeSnapshot.desired.mode) }
             Button { id: nativeDisconnect; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("disconnect", "", "") }
           }
           RowLayout {
@@ -1529,6 +1549,13 @@ Panel {
             Button { id: nativeRule; text: root.routingModeText("rule"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "rule") }
             Button { id: nativeGlobal; text: root.routingModeText("global"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "global") }
             Button { id: nativeDirect; text: root.routingModeText("direct"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "direct") }
+          }
+          Flow {
+            Layout.fillWidth: true
+            spacing: Style.space(6)
+            Button { id: nativeRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestRename(root.nativeSelectedRecord()) }
+            Button { id: nativeFavorite; text: root.textFor(root.nativeSelectedRecord() && root.nativeSelectedRecord().favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.toggleFavorite(root.nativeSelectedRecord()) }
+            Button { id: nativeDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestDelete(root.nativeSelectedRecord()) }
           }
           Button { id: nativeReconcile; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.reconcile"); focusable: true; bordered: true; enabled: !vless.nativeActionRunning; onClicked: vless.reconcileNativeAction() }
           Button { id: nativeAcceptState; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.acceptState"); focusable: true; bordered: true; enabled: vless.nativeFactsCurrent && !vless.nativeActionRunning; onClicked: vless.acceptRefreshedNativeState() }
@@ -3116,7 +3143,7 @@ Panel {
   RenameWindow {
     id: renameWindow
     anchorItem: button
-    open: !vless.nativeOwner && root.pendingRename !== null
+    open: root.pendingRename !== null
     title: root.textFor("rename.title",
       { name: root.pendingRename ? root.pendingRename.name : "" })
     placeholder: root.textFor("import.profile_name")
