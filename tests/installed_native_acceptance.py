@@ -27,6 +27,13 @@ LEGACY = "omavless.service"
 LIMIT = 1048576
 
 
+def valid_environment(environment, home, runtime):
+    return ("OMAVLESS_HOME" not in environment
+            and environment.get("XDG_RUNTIME_DIR", str(runtime)) == str(runtime)
+            and environment.get("XDG_STATE_HOME", str(home / ".local/state")) == str(home / ".local/state")
+            and environment.get("XDG_CONFIG_HOME", str(home / ".config")) == str(home / ".config"))
+
+
 def template_policy(config):
     """Accepted fixture POLICY only; never parse credentials or rewrite YAML."""
     gate.require(isinstance(config, bytes) and len(config) <= 5242880, "fixture_unavailable")
@@ -157,8 +164,7 @@ def run_gate():
     gate.require(stat.S_ISREG(binary.st_mode) and binary.st_uid == 0 and not binary.st_mode & 0o022, "installed_binary_unsafe")
     home = Path.home()
     runtime = Path("/run/user") / str(os.getuid())
-    gate.require(not os.environ.get("OMAVLESS_HOME") and os.environ.get("XDG_RUNTIME_DIR", str(runtime)) == str(runtime)
-                 and os.environ.get("XDG_STATE_HOME", str(home / ".local/state")) == str(home / ".local/state"), "environment_mismatch")
+    gate.require(valid_environment(os.environ, home, runtime), "environment_mismatch")
     gate.require(command([BINARY, "plugin", "target"]) == b"rust\n", "not_native_owner")
     state = cli("plugin", "snapshot")["result"]
     gate.require(state["startup"]["configured"] and not state["startup"]["enabled"], "startup_not_disabled")

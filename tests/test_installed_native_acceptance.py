@@ -18,6 +18,16 @@ PROOF = b'LISTEN users:(("mihomo",pid=42,fd=1)) ino:11\nLISTEN users:(("mihomo",
 
 
 class InstalledNativeAcceptanceTests(unittest.TestCase):
+    def test_exact_effective_environment_and_absent_home_override(self):
+        home, runtime = Path("/home/synthetic"), Path("/run/user/1234")
+        self.assertTrue(subject.valid_environment({}, home, runtime))
+        explicit = {"XDG_RUNTIME_DIR": str(runtime), "XDG_STATE_HOME": str(home / ".local/state"),
+                    "XDG_CONFIG_HOME": str(home / ".config")}
+        self.assertTrue(subject.valid_environment(explicit, home, runtime))
+        for key in ("OMAVLESS_HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+            for value in ("", "/other"):
+                self.assertFalse(subject.valid_environment({**explicit, key: value}, home, runtime))
+
     def test_default_and_partial_optins_never_access_host(self):
         with patch.object(subject, "run_gate", side_effect=AssertionError("host access")):
             for args in ([], ["--run"], ["--authorize-socket-inspection"]):
