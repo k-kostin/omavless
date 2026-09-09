@@ -301,3 +301,29 @@ fn retained_descendant_stdout_cannot_extend_query_deadline() {
     // The deliberately unowned helper self-terminates; never send broad kills.
     thread::sleep(Duration::from_millis(1100));
 }
+
+#[test]
+fn cutover_environment_query_is_fixed_bounded_and_has_no_host_effects() {
+    for oversized in [false, true] {
+        let f = Fixture::empty();
+        let body = if oversized {
+            "printf '%65537s' ''"
+        } else {
+            "printf 'HOME=/home/test\\nXDG_RUNTIME_DIR=/run/user/1000\\n'"
+        };
+        fs::write(&f.paths.systemctl, format!(
+            "#!/bin/sh\n[ \"$#\" = 2 ] && [ \"$1\" = --user ] && [ \"$2\" = show-environment ] || exit 9\n{body}\n"
+        )).unwrap();
+        thread::sleep(Duration::from_millis(20));
+        let result = manager_environment_query(&f.paths.systemctl);
+        if oversized {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap() == "HOME=/home/test\nXDG_RUNTIME_DIR=/run/user/1000\n");
+        }
+        assert!(!f.paths.store.exists());
+        assert!(!f.paths.active_config.exists());
+        assert!(!f.paths.rust_control_socket.exists());
+        assert_eq!(fs::read_dir(&f.paths.runtime_base).unwrap().count(), 0);
+    }
+}

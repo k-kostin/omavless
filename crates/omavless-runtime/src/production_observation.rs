@@ -228,9 +228,32 @@ fn fixed_service_query(
             "--property=Result",
         ]
     };
-    let mut child = Command::new(systemctl)
+    let mut command = Command::new(systemctl);
+    command
         .args(["--user", "show", service, "--no-pager"])
-        .args(properties)
+        .args(properties);
+    bounded_fixed_query(command, timeout)
+}
+
+/// Private environment result; callers must project only fixed path keys and
+/// must never format or log the full user-manager environment.
+pub(crate) fn cutover_manager_environment() -> Result<String, ProductionObservationError> {
+    manager_environment_query(Path::new("/usr/bin/systemctl"))
+}
+
+fn manager_environment_query(systemctl: &Path) -> Result<String, ProductionObservationError> {
+    let mut command = Command::new(systemctl);
+    command.args(["--user", "show-environment"]);
+    bounded_fixed_query(command, SERVICE_QUERY_TIMEOUT)
+}
+
+// Shared private execution mechanics for the fixed observation commands above.
+// No CLI or IPC accepts a Command, executable, argv or deadline.
+fn bounded_fixed_query(
+    mut command: Command,
+    timeout: Duration,
+) -> Result<String, ProductionObservationError> {
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

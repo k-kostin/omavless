@@ -10,6 +10,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 
+mod environment;
+
 const BINARY: &str = "/usr/bin/omavless";
 const UNIT: &str = "/usr/lib/systemd/user/omavless-runtime.service";
 const UNIT_BYTES: &[u8] = include_bytes!("../../../packaging/systemd/omavless-runtime.service");
@@ -42,9 +44,7 @@ pub(crate) fn check_service_installation(text: &str, native: bool) -> Result<(),
 }
 
 fn packaged_identity() -> Result<(), ()> {
-    // Overrides cannot make the coordinator and systemd daemon read different
-    // homes or state/runtime roots. The installed user-manager environment must
-    // be accepted separately; this command takes no environment mutation action.
+    // Test-only home overrides are never an installed activation input.
     if std::env::var_os("OMAVLESS_HOME").is_some() {
         return Err(());
     }
@@ -76,9 +76,12 @@ fn packaged_identity() -> Result<(), ()> {
 pub fn activate() -> Result<CutoverTransactionOutcome, CutoverTransactionError> {
     let rejected = CutoverTransactionError::PreconditionsFailed;
     packaged_identity().map_err(|_| rejected)?;
-    let bridge = FixedFrontendBridge::current().map_err(|_| rejected)?;
-    let mut host = ProductionCutoverHost::current(bridge).map_err(|_| rejected)?;
-    host.activate_disconnected()
+    environment::with_current(|| {
+        let bridge = FixedFrontendBridge::current().map_err(|_| rejected)?;
+        let mut host = ProductionCutoverHost::current(bridge).map_err(|_| rejected)?;
+        host.activate_disconnected()
+    })
+    .map_err(|_| rejected)?
 }
 
 #[cfg(test)]

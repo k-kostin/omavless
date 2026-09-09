@@ -15,8 +15,17 @@ The running executable must be the root-owned, non-writable-by-group/other
 `/usr/lib/systemd/user/omavless-runtime.service` must be a root-owned ordinary
 file matching the exact checked-in unit embedded when building that binary.
 Integration with a changed package unit requires rebuilding the binary.
-`OMAVLESS_HOME` overrides refuse. The installed host gate must verify that the
-coordinator and user manager share the same HOME/XDG runtime and state roots.
+`OMAVLESS_HOME` overrides refuse. Before constructing the migration host or
+creating its operational lock, the CLI makes exactly one bounded read-only
+`/usr/bin/systemctl --user show-environment` query. It projects only HOME,
+XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_CACHE_HOME and XDG_RUNTIME_DIR, rejects a
+manager OMAVLESS_HOME override, and requires agreement with the CLI's effective
+roots. Missing manager HOME uses the current account home; absent XDG values use
+their actual HOME-based defaults and `/run/user/UID`. Explicit empty/relative
+paths, parent traversal, duplicate keys, malformed relevant assignments and
+unsupported shell quoting/escaping fail closed. Unrelated environment values
+are never interpreted or logged. The query shares the fixed service reader's
+deadline and 64-KiB output limit; a descendant retaining stdout cannot extend it.
 
 Under the shared migration lease, activation requires legacy ownership,
 repeated strict process/TUN inventories, both fixed services inactive with zero
@@ -39,6 +48,7 @@ to resolve ordinary prerequisites before retrying.
 | Boundary | Result and recovery |
 | --- | --- |
 | Invalid command, package mismatch, unsafe/incompatible store, connected host, startup enabled/unconfigured, unit mismatch, receipt/barrier, incomplete observation | Refusal before ownership/service/bridge effects. Existing helpers may prepare the fixed operational lock/state directory. |
+| CLI/user-manager HOME or XDG roots differ, environment query fails, or relevant encoding is ambiguous | Refusal before migration-host construction, operational lock/state preparation or service/ownership effects. |
 | Desired staging or candidate start/bootstrap/hello/status/bridge failure with unchanged preparing marker | Existing reverse compensation returns the bridge to legacy, stops native service, verifies strict emptiness and acquires any existing native owner lock, restores exact original desired bytes or original absence, then commits verified legacy ownership. |
 | Desired publication reports an error after replacing the file | The host retains the exact candidate before publication; compensation can identify and restore that candidate. Unknown current bytes are never overwritten. |
 | Native stop, socket/controller/process/TUN absence or owner-lock proof fails | Manual recovery; no legacy restart or ownership restoration. |
@@ -75,6 +85,10 @@ process/TUN inventories. It never turns an unavailable final inventory into
 zero. A regression makes proc inventory incomplete after candidate startup and
 before commit; Rust ownership is refused and the preparing barrier remains when
 cleanup cannot prove emptiness either.
+Environment tests cover account/default versus explicit matching roots, every
+root mismatch, malformed/duplicate/quoted values and rejected overrides. A
+transaction-entry counter proves a failed agreement cannot enter host effects;
+the synthetic query checks exact argv, output bounds and unchanged fixture state.
 The pre-existing language-neutral ownership/transaction contract is the
 reference for this composition; no new Python behavior is substituted.
 
