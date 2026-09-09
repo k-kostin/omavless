@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -38,6 +39,145 @@ class NativeServiceAcceptanceTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return path
+
+    def private_store(self, profiles=None, payload=None):
+        path = self.root / "private-store.json"
+        if profiles is None:
+            profiles = [{"id":"private-original-record", "name":"Private original name",
+                         "protocol":"vless", "uri":"vless://synthetic-secret@192.0.2.1:443?type=xhttp#private-name",
+                         "subscriptionId":"private-subscription", "subscriptionKey":"private-key",
+                         "missing":False, "favorite":True, "extra":{"retained":"protocol-marker"}}]
+        path.write_bytes(payload if payload is not None else json.dumps({"version":3,"profiles":profiles}).encode())
+        path.chmod(0o600)
+        return path
+
+    def test_private_fixture_is_detached_without_rewriting_protocol_or_source(self):
+        path = self.private_store()
+        before = path.read_bytes()
+        source = json.loads(before)["profiles"][0]
+        copied = PROBE.load_private_vless(path)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(copied["id"], PROBE.PUBLIC_PROFILE_ID)
+        self.assertEqual(copied["name"], "Synthetic")
+        self.assertEqual(copied["subscriptionId"], "")
+        self.assertEqual(copied["subscriptionKey"], "")
+        for field in ("uri", "protocol", "missing", "favorite", "extra"):
+            self.assertEqual(copied[field], source[field])
+
+    def test_private_fixture_selects_only_existing_nonmissing_vless(self):
+        path = self.private_store()
+        usable = json.loads(path.read_bytes())["profiles"][0]
+        rejected = [dict(usable, protocol="trojan"), dict(usable, missing=True),
+                    dict(usable, missing="false"), dict(usable, uri="trojan://synthetic"), {"protocol":"vless"}]
+        path = self.private_store(profiles=rejected + [usable])
+        self.assertEqual(PROBE.load_private_vless(path)["uri"], usable["uri"])
+        path = self.private_store(profiles=rejected)
+        with self.assertRaisesRegex(PROBE.Failure, "^vless_fixture_unavailable$"):
+            PROBE.load_private_vless(path)
+
+    def test_private_fixture_permissions_owner_type_and_symlink_bounds(self):
+        path = self.private_store()
+        for mode in (0o644, 0o400, 0o660):
+            path.chmod(mode)
+            with self.assertRaisesRegex(PROBE.Failure, "^private_store_unsafe$"):
+                PROBE.load_private_vless(path)
+        path.chmod(0o600)
+        with patch.object(PROBE.os, "getuid", return_value=os.getuid() + 1), self.assertRaisesRegex(PROBE.Failure, "^private_store_unsafe$"):
+            PROBE.load_private_vless(path)
+        alias = self.root / "alias"
+        alias.symlink_to(path)
+        parent_alias = self.root / "parent-alias"
+        parent_alias.symlink_to(self.root, target_is_directory=True)
+        fifo = self.root / "fifo"
+        os.mkfifo(fifo, 0o600)
+        for bad in (alias, parent_alias / path.name, self.root, fifo, Path("relative-private-path")):
+            with self.assertRaises(PROBE.Failure):
+                PROBE.load_private_vless(bad)
+
+    def test_private_fixture_prefers_usable_last_selection_then_first_usable(self):
+        path = self.private_store()
+        first = json.loads(path.read_bytes())["profiles"][0]
+        second = dict(first, id="second-private-record", uri="vless://second-synthetic@192.0.2.2:443")
+        for last, second_missing, expected in [
+            (second["id"], False, second["uri"]),
+            (second["id"], True, first["uri"]),
+            ("unknown-private-record", False, first["uri"]),
+            (None, False, first["uri"]),
+        ]:
+            document = {"version":3,"lastId":last,"profiles":[first,dict(second,missing=second_missing)]}
+            path = self.private_store(payload=json.dumps(document).encode())
+            before = path.read_bytes()
+            self.assertEqual(PROBE.load_private_vless(path)["uri"], expected)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_private_fixture_malformed_duplicate_nonutf8_and_count_bounds_are_safe(self):
+        payloads = [b"private-secret", b"\xff", b"[]", b'{"version":3,"profiles":[],"profiles":[]}',
+                    b'{"version":3,"profiles":[],"nested":{"key":1,"key":2}}',
+                    b'{"version":3,"profiles":[],"value":NaN}',
+                    json.dumps({"version":3,"profiles":[{}] * 257}).encode()]
+        for payload in payloads:
+            path = self.private_store(payload=payload)
+            with self.assertRaises(PROBE.Failure) as caught:
+                PROBE.load_private_vless(path)
+            self.assertNotIn("private-secret", str(caught.exception))
+            self.assertNotIn(str(path), str(caught.exception))
+        with path.open("wb") as stream:
+            stream.truncate(PROBE.PRIVATE_STORE_LIMIT + 1)
+        with self.assertRaisesRegex(PROBE.Failure, "^private_store_oversized$"):
+            PROBE.load_private_vless(path)
+
+    def test_private_fixture_changed_during_read_is_refused(self):
+        path = self.private_store()
+        original = PROBE.os.fstat
+        calls = []
+        def changed(fd):
+            info = original(fd)
+            calls.append(fd)
+            if len(calls) == 2:
+                replacement = MagicMock(wraps=info)
+                replacement.st_mtime_ns = info.st_mtime_ns + 1
+                return replacement
+            return info
+        with patch.object(PROBE.os, "fstat", side_effect=changed), self.assertRaisesRegex(PROBE.Failure, "^private_store_changed$"):
+            PROBE.load_private_vless(path)
+
+    def test_real_template_and_probe_have_only_fixed_public_network_targets(self):
+        tun = "ovna0123456789"
+        synthetic = PROBE.route_template(tun)
+        real = PROBE.route_template(tun, True)
+        self.assertIn("auto-route: false", synthetic)
+        self.assertIn("dns: {enable: false}", synthetic)
+        self.assertIn("MATCH,DIRECT", synthetic)
+        self.assertIn("auto-route: true", real)
+        self.assertIn("auto-detect-interface: true", real)
+        self.assertIn("dns-hijack: [any:53]", real)
+        self.assertNotIn("external-controller:", real)
+        args = PROBE.https_probe_args(tun)
+        self.assertEqual(args[args.index("--interface") + 1], "if!" + tun)
+        self.assertEqual(args[-1], "https://example.com/")
+        self.assertEqual(args[args.index("--max-time") + 1], "15")
+        self.assertNotIn("--location", args)
+        for helper in (PROBE.route_template, PROBE.https_probe_args):
+            with self.assertRaisesRegex(PROBE.Failure, "^fixture_tun_invalid$"):
+                helper("$(private-shell-input)")
+
+    def test_https_tun_evidence_requires_success_and_both_counter_increments(self):
+        result = subprocess.CompletedProcess([], 0, b"200", b"private-stderr")
+        self.assertEqual(PROBE.https_probe_evidence(result, (10, 20), (11, 21)), (True, True, "pass"))
+        for after in ((10, 21), (11, 20), (0, 0)):
+            self.assertEqual(PROBE.https_probe_evidence(result, (10, 20), after), (True, False, "tun_probe_evidence_unavailable"))
+        for code, public in ((6, "probe_dns_failed"), (28, "probe_timeout"), (45, "probe_interface_unavailable")):
+            result.returncode = code
+            self.assertEqual(PROBE.https_probe_evidence(result, (10, 20), (11, 21)), (False, False, public))
+        result.returncode = 0
+        result.stdout = b"403 private-hostname"
+        self.assertEqual(PROBE.https_probe_evidence(result, (10, 20), (11, 21)), (False, False, "https_probe_failed"))
+
+    def test_real_fixture_refuses_non_global_before_reading_private_source(self):
+        options = MagicMock(private_vless_store="/private/source", mode="rule")
+        with patch.object(PROBE, "load_private_vless") as load, self.assertRaisesRegex(PROBE.Failure, "^private_fixture_requires_full_vpn$"):
+            PROBE.acceptance(options)
+        load.assert_not_called()
 
     def test_bounded_reader_accepts_exact_limit_and_rejects_one_more(self):
         path = self.root / "bounded"

@@ -3,13 +3,16 @@
 """Explicit, destructive-to-its-own-fixture-only native user-service smoke.
 
 Opt in with --run --binary /absolute/exact/build/omavless. No installed unit,
-private user store, route or firewall is changed. A synthetic no-auto-route TUN
+private source store or persistent network configuration is changed. The default synthetic no-auto-route TUN
 still exercises Mihomo/resolved and may show the NORMAL Omarchy polkit dialogs.
 Allow human authorization; command waits are 120 seconds, cleanup 600 seconds.
 The runtime's own unary deadline is unchanged. This is not VPN interoperability
 or packaged installation evidence. Do not run concurrently with any VPN test.
 All captured command output stays in private synthetic fixture files, never
 stdout. On failure those files are retained under the private runtime directory.
+Optional --private-vless-store reads one existing fixture into the isolated
+store; it temporarily enables auto-route in Full VPN and probes generic HTTPS
+bound to the generated TUN. Real-fixture command captures remain private.
 """
 import argparse
 import hashlib
@@ -30,6 +33,123 @@ import uuid
 
 class Failure(Exception):
     pass
+
+
+PRIVATE_STORE_LIMIT = 5 * 1024 * 1024
+PUBLIC_PROFILE_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def load_private_vless(path):
+    """Read one private candidate; Rust still owns protocol/config validation.
+
+    Preserve every protocol field. Detach only test identity/subscription links;
+    the source path/record/name/URI is never returned in a public classification.
+    """
+    try:
+        path = Path(path)
+        require(path.is_absolute() and path.resolve(strict=True) == path, "private_store_unsafe")
+        for parent in (path, *path.parents):
+            require(not stat.S_ISLNK(parent.lstat().st_mode), "private_store_unsafe")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid()
+                    and stat.S_IMODE(before.st_mode) == 0o600, "private_store_unsafe")
+            require(before.st_size <= PRIVATE_STORE_LIMIT, "private_store_oversized")
+            payload = stream.read(PRIVATE_STORE_LIMIT + 1)
+            after = os.fstat(stream.fileno())
+            current = path.lstat()
+            identity = lambda m: (m.st_dev, m.st_ino, m.st_size, m.st_mtime_ns, m.st_ctime_ns, m.st_uid, m.st_mode)
+            require(identity(before) == identity(after) == identity(current), "private_store_changed")
+        require(len(payload) <= PRIVATE_STORE_LIMIT, "private_store_oversized")
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                require(key not in result, "private_store_invalid")
+                result[key] = value
+            return result
+
+        document = json.loads(payload.decode("utf-8"), object_pairs_hook=pairs,
+                              parse_constant=lambda _: (_ for _ in ()).throw(Failure("private_store_invalid")))
+        require(isinstance(document, dict) and document.get("version") == 3
+                and isinstance(document.get("profiles"), list)
+                and len(document["profiles"]) <= 256, "private_store_invalid")
+        profiles = document["profiles"]
+        last = document.get("lastId")
+        # Prefer the user's existing selection without exposing its identity.
+        # An unusable/missing/non-VLESS last selection still falls back safely.
+        ordered = sorted(profiles, key=lambda p: not (isinstance(last, str) and last
+                         and isinstance(p, dict) and p.get("id") == last))
+        for profile in ordered:
+            if (isinstance(profile, dict) and profile.get("protocol") == "vless"
+                    and profile.get("missing", False) is False
+                    and isinstance(profile.get("uri"), str) and profile["uri"].startswith("vless://")):
+                # No new protocol inference and no URI parsing/rewriting here.
+                detached = dict(profile)
+                detached.update(id=PUBLIC_PROFILE_ID, name="Synthetic", subscriptionId="", subscriptionKey="")
+                return detached
+        raise Failure("vless_fixture_unavailable")
+    except Failure:
+        raise
+    except Exception:
+        raise Failure("private_store_unreadable") from None
+
+
+def route_template(tun, real=False):
+    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+    dns = ("dns:\n  enable: true\n  ipv6: false\n  enhanced-mode: fake-ip\n"
+           "  fake-ip-range: 198.18.0.1/16\n  default-nameserver: [1.1.1.1, 8.8.8.8]\n"
+           "  nameserver: [https://1.1.1.1/dns-query]\n") if real else "dns: {enable: false}\n"
+    return f"""mixed-port: 0
+allow-lan: false
+mode: rule
+log-level: silent
+{dns}tun:
+  enable: true
+  device: {tun}
+  stack: gvisor
+  auto-route: {str(real).lower()}
+  auto-redirect: false
+  auto-detect-interface: {str(real).lower()}
+  dns-hijack: {"[any:53]" if real else "[]"}
+proxies:
+{{{{OMAVLESS_PROXY}}}}
+proxy-groups:
+  - {{name: PROXY, type: select, proxies: [Synthetic]}}
+  - {{name: GLOBAL, type: select, proxies: [PROXY]}}
+rules:
+  - MATCH,{"PROXY" if real else "DIRECT"}
+"""
+
+
+def https_probe_args(tun):
+    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+    return ["/usr/bin/curl", "--silent", "--show-error", "--noproxy", "*", "--proxy", "",
+            "--interface", "if!" + tun, "--proto", "=https", "--proto-redir", "=https",
+            "--connect-timeout", "5", "--max-time", "15", "--max-redirs", "0",
+            "--output", "/dev/null", "--write-out", "%{http_code}", "https://example.com/"]
+
+
+def tun_counters(tun):
+    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+    values = []
+    for field in ("rx_bytes", "tx_bytes"):
+        value = bounded(Path("/sys/class/net") / tun / "statistics" / field, 32).strip()
+        require(value.isdigit(), "tun_counter_invalid")
+        values.append(int(value))
+    return tuple(values)
+
+
+def https_probe_evidence(result, before, after):
+    good = result.returncode == 0 and re.fullmatch(rb"2[0-9]{2}", result.stdout) is not None
+    used = good and len(before) == len(after) == 2 and all(b > a for a, b in zip(before, after))
+    if not good:
+        code = {6: "probe_dns_failed", 7: "probe_connect_failed", 28: "probe_timeout",
+                45: "probe_interface_unavailable", 60: "probe_tls_failed"}.get(result.returncode, "https_probe_failed")
+    else:
+        code = "pass" if used else "tun_probe_evidence_unavailable"
+    return good, used, code
 
 
 def require(condition, code):
@@ -142,6 +262,10 @@ def security_facts(pid):
 
 
 def acceptance(options):
+    private_source = getattr(options, "private_vless_store", None)
+    real = private_source is not None
+    require(not real or options.mode == "global", "private_fixture_requires_full_vpn")
+    private_profile = load_private_vless(private_source) if real else None
     binary = Path(options.binary)
     require(binary.is_absolute() and binary.resolve() == binary, "binary_not_canonical")
     require(stat.S_ISREG(binary.lstat().st_mode) and os.access(binary, os.X_OK), "binary_not_executable")
@@ -180,34 +304,16 @@ def acceptance(options):
     try:
         for directory in (config, state, runtime):
             directory.mkdir(parents=True, mode=0o700)
-        profile = "00000000-0000-4000-8000-000000000001"
+        profile = PUBLIC_PROFILE_ID
         store = {"version": 3, "activeId": "", "lastId": profile, "profiles": [{"id": profile,
             "name": "Synthetic", "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic",
             "protocol": "vless", "subscriptionId": "", "subscriptionKey": "", "missing": False, "favorite": False}],
             "subscriptions": [], "routingPreset": "custom", "customRules": [], "rulesUpdatedAt": 0,
             "startupConfigured": True, "startup": {"enabled": False, "target": "last", "profileId": "", "mode": "rule"}, "onboardingComplete": True}
+        if real:
+            store["profiles"] = [private_profile]
         private_write(config / "profiles.json", json.dumps(store))
-        private_write(config / "route-template.yaml", f"""mixed-port: 0
-allow-lan: false
-mode: rule
-log-level: silent
-dns: {{enable: false}}
-tun:
-  enable: true
-  device: {tun}
-  stack: gvisor
-  auto-route: false
-  auto-redirect: false
-  auto-detect-interface: false
-  dns-hijack: []
-proxies:
-{{{{OMAVLESS_PROXY}}}}
-proxy-groups:
-  - {{name: PROXY, type: select, proxies: [Synthetic]}}
-  - {{name: GLOBAL, type: select, proxies: [PROXY]}}
-rules:
-  - MATCH,DIRECT
-""")
+        private_write(config / "route-template.yaml", route_template(tun, real))
         private_write(state / "ownership.json", json.dumps({"schemaVersion": 1, "generation": 2, "phase": "rust"}))
         overrides = {"OMAVLESS_HOME": str(root / "home"), "XDG_STATE_HOME": str(root / "state"),
                      "XDG_RUNTIME_DIR": str(runtime), "OMAVLESS_MIHOMO": "/usr/bin/mihomo"}
@@ -215,7 +321,8 @@ rules:
         args = ["systemd-run", "--user", "--collect", "--unit=" + unit, "-p", "NoNewPrivileges=no",
                 "-p", "LimitCORE=0", "-p", "UMask=0077"]
         args += ["--setenv=" + key + "=" + value for key, value in overrides.items()]
-        emit(binary_sha256=binary_hash, mode=options.mode, authorization="normal_polkit_dialogs_may_appear")
+        emit(binary_sha256=binary_hash, mode=options.mode, private_fixture=real,
+             family="vless", authorization="normal_polkit_dialogs_may_appear")
         started = True  # Even a failed/timed-out start can leave a unit to clean.
         command(args + [str(binary), "daemon"])
         control = runtime / "omavless/control.sock"
@@ -252,6 +359,15 @@ rules:
             no_new_listener = not bool(listeners - baseline_listeners)
             no_tcp_config = not re.search(rb'''(?m)^[ \t]*["']?external-controller["']?[ \t]*:''',
                                           bounded(config / "config.yaml"))
+            probe_passed = False
+            if real:
+                before_probe = tun_counters(tun)
+                probe = command(https_probe_args(tun), timeout=25, checked=False)
+                after_probe = tun_counters(tun)
+                probe_passed, tun_used, probe_class = https_probe_evidence(probe, before_probe, after_probe)
+                emit(case=index + 1, family="vless", https_probe=probe_passed,
+                     tun_probe_evidence=tun_used, classification=probe_class)
+                require(probe_passed and tun_used, probe_class)
             disconnect_started = time.monotonic()
             command([str(binary), "disconnect"], env)
             disconnect_ms = round((time.monotonic() - disconnect_started) * 1000)
@@ -261,6 +377,7 @@ rules:
             emit(case=index + 1, connect=True, disconnect=True, tun_cleanup=True,
                  daemon_unprivileged=True, core_capabilities=True, owned_process_group=True,
                  connect_ms=connect_ms, disconnect_ms=disconnect_ms,
+                 real_fixture=real, https_probe=probe_passed if real else "NOT RUN",
                  unix_controller=True, tcp_pid_attribution="NOT PROVEN" if tcp is None else tcp,
                  no_new_host_tcp_listener=no_new_listener, no_tcp_controller_config=bool(no_tcp_config))
             require(tcp is not False and no_new_listener and no_tcp_config, "tcp_listener_evidence_failed")
@@ -269,6 +386,12 @@ rules:
     finally:
         clean = not started
         if started:
+            # A failed connect/probe can leave an owned core. Always request its
+            # semantic shutdown, then independently stop and verify the unit.
+            try:
+                command([str(binary), "disconnect"], env, checked=False)
+            except Exception:
+                pass  # Unit cleanup below is mandatory even on IPC failure.
             try:
                 command(["systemctl", "--user", "stop", unit], timeout=600, checked=False)
                 active = command(["systemctl", "--user", "is-active", "--quiet", unit], checked=False)
@@ -290,6 +413,8 @@ def main():
     parser.add_argument("--binary", required=True, help="absolute canonical exact candidate executable")
     parser.add_argument("--mode", choices=("global", "rule", "direct"), default="global")
     parser.add_argument("--repetitions", type=int, choices=range(1, 11), default=1)
+    parser.add_argument("--private-vless-store", metavar="ABS_PATH",
+                        help="read one existing private VLESS fixture; global only, temporary auto-route + bounded TUN HTTPS")
     options = parser.parse_args()
     require(options.run, "explicit_run_required")
     acceptance(options)
