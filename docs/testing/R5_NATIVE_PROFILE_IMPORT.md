@@ -46,3 +46,34 @@ open. No VPN lifecycle algorithm or privileged action is introduced.
 
 Host acceptance is pending until recorded here. Synthetic data and screenshots
 remain outside Git; no unavailable protocol interoperability is inferred.
+
+## Local checkpoint — 2026-09-09
+
+Exact code candidate: `e60337fb933fcf789808868d81d88332a03719dc`, based directly
+on main `d90bd1605030710251f49fbd7e11194ddda6ad60`.
+
+- Full Rust: 751 passed, four existing ignored; format, clippy and parity pass.
+- Python: 338 run, 337 passed, one root-only skip with
+  `OMAVLESS_TEST_MIHOMO=/usr/bin/mihomo`; QML/catalog/launcher pass.
+- Eight executed native-import JavaScript tests, 15 native action tests,
+  six snapshot tests, 16 launcher tests pass.
+- Both installed-Mihomo Rust opt-ins pass with synthetic no-TUN configuration.
+- Exact-head CI run `34376796510` passes.
+- Same compiled executable and production QML exercised on Try Omarchy ARM64
+  against a separate synthetic native owner/store. Helper acquisition used
+  fixed synthetic `wl-paste`/`zenity` executables: this proves composition,
+  **not** real clipboard/chooser interaction. File content was read by the
+  actual native file helper. No real store or system clipboard was changed.
+- EN/RU clipboard/file previews and cancel pass. Actual QML confirmation added
+  one record (15 to 16); subsequent duplicate previews disabled confirmation in
+  both locales. Final synthetic state had no pending/unknown action and no
+  connection. Captures inspected locally showed localized titles/hints/buttons,
+  no overlap and no background scrollbar under the modal. A focus-interrupted
+  run was discarded and repeated uninterrupted.
+- The synthetic UI/daemon were stopped after acceptance. Installed candidate,
+  genuine chooser/clipboard interaction and connection regression remain pending.
+
+Two invocation mistakes were corrected before counting evidence: the Python
+opt-in requires an absolute core path, not `1`; the Rust opt-ins are selected
+by that environment variable, not `--ignored`. Only corrected executed results
+above are counted. No code workaround was made for either invocation error.
