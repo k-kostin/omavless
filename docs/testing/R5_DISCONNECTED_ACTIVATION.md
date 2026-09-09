@@ -92,11 +92,80 @@ the synthetic query checks exact argv, output bounds and unchanged fixture state
 The pre-existing language-neutral ownership/transaction contract is the
 reference for this composition; no new Python behavior is substituted.
 
-No real cutover, service action, installed frontend acceptance or Cargo gate was
-run by the activation helper agent. The integrating agent owns compilation,
-full tests and exact-head installed acceptance. Required host checks include
-package/unit identity and environment agreement, actual disconnected activation,
-same-instance mutation promotion, QML and CLI ownership, service restart,
-disconnect/cleanup and the accepted failure/recovery matrix. Keep private
-profile/subscription/config data and process environments out of public logs.
-Python cannot be removed based on these synthetic tests.
+The activation helper initially ran only static checks; the integrating agent
+subsequently executed the installed combined-candidate acceptance below. Keep
+private profile/subscription/config data and process environments out of public
+logs. Neither synthetic tests nor this bounded installed pass authorize Python
+removal or replace the remaining complete frontend, login and recovery gates.
+
+## Try Omarchy ARM64 installed acceptance — 2026-09-09
+
+This evidence belongs to the **combined installed candidate**, including package
+host, native frontend actions and explicit activation. It is not a claim that
+standalone activation PR #207, or a later source head, independently passed the
+same host gate. The environment is Try Omarchy on ARM64 under virtualization;
+no bare-metal or NixOS acceptance is inferred.
+
+| Artifact | Exact identity |
+| --- | --- |
+| Combined tested source | `ffcf4d2654b74c0fb746664eb73545eb9028fbc6` |
+| Installed binary SHA-256 | `3ef3ac70b063c910b90fa032d52b4edbe253291e63eee1cfe94cf94abbc0a223` |
+| Pacman package version | `0.0.0.r350.gffcf4d2654b7-1`, ARM64 |
+| Installed runtime unit and QML | Exact comparison against the combined candidate passed |
+
+The existing private store and template passed native validation. Startup was
+already explicitly configured and disabled. Read-only inspection found a stale
+active pointer despite stopped legacy service and no core/TUN; ordinary legacy
+`down` cleared it before activation. No private JSON or ownership marker was
+manually edited to satisfy admission.
+
+The installed `/usr/bin/omavless cutover activate` completed with
+`rust_committed`, ownership generation 2. Legacy service remained inactive,
+native service became active, and both startup units remained disabled. The
+installed plugin reported `nativeControls=true`, `metadataUnavailable=false`
+and `localFactsCurrent=true`; native buttons were visible. Human connect and
+disconnect interaction through those buttons remained pending at this report.
+
+The integrating agent's bounded private VLESS Full VPN probe passed on the
+installed normal runtime path: connect took 146 ms and disconnect 4,182 ms in
+the recorded successful run. It verified one cgroup-owned Mihomo core, one TUN,
+and the private Unix controller's peer PID. HTTPS to the public test destination
+`example.com` explicitly bound to the actual TUN succeeded while that TUN's
+receive and transmit counters increased. Final cleanup passed. These observations
+support this one private fixture and mode; they do not establish every provider,
+protocol, Routing/Direct connectivity or physical network behavior.
+
+The listener check used read-only privileged socket PID/inode evidence to
+attribute the configured loopback mixed proxy and the system TUN forwarder to
+the owned core. No TCP controller was present. The retained template and
+generated config agreed on the loopback mixed listener and `allow-lan: false`;
+neither configured a DNS listener or extra explicit TCP listener. Mihomo
+[v1.19.30 pins sing-tun v0.4.22](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/go.mod),
+whose [system stack creates an ephemeral TCP forwarder on the TUN address](https://github.com/MetaCubeX/sing-tun/blob/v0.4.22/stack_system.go#L112-L165).
+Source explains the expected listener category; actual PID/inode attribution
+supplied the installed ownership proof.
+
+Earlier probe attempts incorrectly rejected these expected TCP listeners. A
+separate synthetic-interface-name assumption also rejected the real TUN name.
+Only acceptance harness checks were corrected; no runtime networking policy or
+security boundary was relaxed to pass. The successful gate retained exact
+owned-listener attribution and rejected unexpected listeners rather than
+allowing arbitrary TCP sockets.
+
+The disconnected restart gate also passed: a semantic mode change and restoration
+succeeded, restarting produced a new daemon instance with the same committed
+Rust ownership, legacy stayed inactive, and core/TUN counts remained zero. This
+is disconnected restart evidence, not connected adoption or once-per-login
+autoconnect proof.
+
+Combined validation recorded 744 Rust tests passed with four ignored; the Python
+suite completed successfully with 326 tests and one root-only skip. QML,
+localization, formatting, strict clippy and differential/parity gates passed.
+Two installed-core opt-in tests also passed. Private profile IDs, labels, URIs,
+server endpoints and process environments are omitted from this report.
+
+Outstanding acceptance includes human native-button connect/disconnect,
+remaining frontend operations and lifecycle coverage, login activation,
+connected restart/recovery cases beyond those exercised here, and R6's deliberate
+Python-absence matrix. Python remains retained rollback/oracle; R5 and R6 are not
+complete, and production TUI implementation remains gated behind R6.

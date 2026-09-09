@@ -1366,7 +1366,15 @@ empty-host admission. It composes the existing transaction and verifies the
 final candidate before committing ownership; interrupted preparation still
 requires manual recovery. This is not connected adoption, automatic login,
 complete frontend parity or permission to remove Python. Installed acceptance
-remains required before this candidate can be considered a completed cutover.
+was subsequently executed on Try Omarchy ARM64 for combined source
+`ffcf4d2654b74c0fb746664eb73545eb9028fbc6`, not standalone activation PR #207.
+The installed command committed Rust generation 2; the bounded private VLESS
+Full VPN/TUN HTTPS/cleanup probe and disconnected daemon restart passed.
+Installed QML exposed native controls and fresh local facts. Both startup units
+remain disabled. Exact binary/package identities, combined test counts, listener
+attribution and harness corrections are recorded in the linked report. Human
+native-button connect/disconnect, complete frontend coverage, login activation
+and Python-absence acceptance remain pending; R5/R6 are not complete.
 
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch

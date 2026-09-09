@@ -483,18 +483,28 @@ owns the target runtime.
 
 ### R5 / T1 — Rust shared runtime / daemon foundation
 
-State: **in progress; foundations and production-host preflight accepted,
-production ownership transition not executed**.
+State: **in progress; bounded disconnected ownership transition executed on
+Try Omarchy ARM64 for the combined installed candidate; R5/R6 remain open**.
 
-Latest frontend prerequisites (2026-09-07): #162 strengthens private-client
+The [2026-09-09 installed activation report](docs/testing/R5_DISCONNECTED_ACTIVATION.md#try-omarchy-arm64-installed-acceptance--2026-09-09)
+records combined exact source `ffcf4d2654b74c0fb746664eb73545eb9028fbc6`,
+installed package/binary identity and Rust ownership generation 2. The private
+VLESS Full VPN/TUN-bound HTTPS/cleanup probe, native UI readiness and disconnected
+daemon restart passed. Both startup units remain disabled. This is combined
+candidate evidence, not standalone activation PR #207 acceptance or complete
+frontend/login/Python-retirement proof. Human native-button connect/disconnect
+remains pending in that report.
+
+Historical frontend prerequisites (2026-09-07): #162 strengthens private-client
 authentication/correlation; #163/#164 provide native unified import preview;
 #165 adds confirmed new-profile import; #166 adds existing-profile replacement
 with recovery; #168 adds explicit QR/file credential export. They do not switch
 the installed QML/Python owner. The export comparison identifies four legacy
 XHTTP store-validation differences tracked by #169. The production cutover
 host now rejects incompatible/unsafe stores before preparing ownership, keeping
-legacy repair/export possible. User-facing repair guidance and installed
-cutover acceptance remain pending. R5/R6 are not complete.
+legacy repair/export possible. User-facing repair guidance and the remaining
+installed frontend/cutover acceptance remain pending beyond the bounded
+combined-candidate pass above. R5/R6 are not complete.
 
 Accepted incremental checkpoints:
 
@@ -814,10 +824,11 @@ the same configured predicate before adoption, with exact peer and stale-state
 refusal. Packaged host acceptance remains a #183/#178 follow-up; Python is still
 the installed owner.
 
-The current QML -> `backend.py` path remains the only production owner until an
-executed transactional cutover and plugin bridge pass the acceptance gates
-below. R5 is not complete merely because socket registration exists behind the
-unreachable committed-Rust marker.
+The combined installed candidate above has executed the transactional cutover
+and uses the committed Rust owner on that Try Omarchy guest. Earlier checkpoints
+below retain their historical Python-owner boundaries. R5 remains incomplete:
+bounded native controls and one installed Full VPN probe do not establish the
+full frontend, lifecycle, login and Python-retirement acceptance matrix.
 
 The [native onboarding completion](docs/testing/R5_ONBOARDING_COMPLETION.md)
 checkpoint adds the fixed completion mutation and CLI with private-store
@@ -1071,9 +1082,8 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Finish the fixed semantic frontend bridge and prove the accepted production
-transaction host's crash/fault matrix without exposing arbitrary
-service/process control. Execute the controlled cutover only after those
-gates. Keep V0 / PR #30 Draft and
+**Complete the remaining frontend, lifecycle/recovery and login gates after the
+bounded combined-candidate Try Omarchy cutover, preserving exact-head evidence
+and the production transaction's fail-closed boundary. Keep V0 / PR #30 Draft and
 fixture-constrained, retire the Python runtime only at R6, and begin the
 Ratatui TUI only after that gate.**
