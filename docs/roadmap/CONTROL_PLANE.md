@@ -443,7 +443,21 @@ These are registered native prerequisites, not activation of the installed
 frontend or a production ownership transition. The exact boundary and local
 acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 
-### Private UI metadata read
+### Fresh local runtime observation
+
+`runtime.observation` takes empty params; fixed CLI
+`omavless runtime observation`. The committed native owner holds the migration
+lease across the desired read and bounded host observation, then rechecks both
+desired intent and exact ownership. Schema v1 `local_runtime_observation` keeps
+cached lifecycle state separate from fresh facts. `availability: unavailable`
+has null facts, never fabricated zero counts. Facts contain no profile identity
+or controller path. Strict visible process/TUN counts and PID-authenticated
+configuration verification do not prove service/TUN ownership, routes, DNS or
+internet access; those verification flags remain false. See
+[`R5_NATIVE_RUNTIME_OBSERVATION.md`](../testing/R5_NATIVE_RUNTIME_OBSERVATION.md).
+This additive method leaves `ui.snapshot` v1 unchanged.
+
+### Private UI metadata read (v1)
 
 `ui.snapshot` takes empty params; fixed CLI `omavless plugin snapshot`. It
 requires committed native ownership and reads one canonical private store and

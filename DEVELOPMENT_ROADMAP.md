@@ -769,6 +769,11 @@ The [native plugin read bridge](docs/testing/R5_NATIVE_PLUGIN_READ_BRIDGE.md)
 connects the launcher to committed ownership and adds a separate read-only QML
 view. Native commands never fall back to Python. Full native controls, live
 health presentation, activation and Python removal remain open gates.
+The [fresh native local observation](docs/testing/R5_NATIVE_RUNTIME_OBSERVATION.md)
+adds strict visible inventories and authenticated owned-controller facts through
+a fixed read API/CLI. It keeps unavailable facts distinct from zero and does not
+claim TUN ownership, route/DNS protection or internet reachability; frontend
+integration and native ownership activation remain separate gates.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
 [exact-head acceptance report](docs/testing/TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md).

@@ -59,6 +59,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["runtime", "observation"] => Some(SemanticRequest {
+            method: "runtime.observation",
+            params: json!({}),
+        }),
         ["plugin", "snapshot"] => Some(SemanticRequest {
             method: "ui.snapshot",
             params: json!({}),
@@ -490,6 +494,23 @@ mod tests {
             &["plugin"][..],
             &["plugin", "snapshot", "private-token"],
             &["plugin", "raw"],
+        ] {
+            assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn runtime_observation_is_fixed_and_takes_no_private_arguments() {
+        let (method, params) = parse_semantic_read(&args(&["runtime", "observation"]))
+            .unwrap()
+            .unwrap()
+            .into_parts();
+        assert_eq!(method, "runtime.observation");
+        assert_eq!(params, json!({}));
+        for arguments in [
+            &["runtime"][..],
+            &["runtime", "raw"],
+            &["runtime", "observation", "private-token"],
         ] {
             assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
         }

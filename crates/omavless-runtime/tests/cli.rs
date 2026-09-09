@@ -15,6 +15,19 @@ struct ChildGuard(Child);
 
 #[test]
 fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
+    assert_fixed_observation_read("plugin", "snapshot", "ui.snapshot");
+}
+
+#[test]
+fn runtime_observation_cli_uses_fixed_read_and_rejects_extra_arguments() {
+    assert_fixed_observation_read("runtime", "observation", "runtime.observation");
+}
+
+fn assert_fixed_observation_read(
+    command: &'static str,
+    action: &'static str,
+    method: &'static str,
+) {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,
         write_unary_frame,
@@ -37,7 +50,7 @@ fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
             .unwrap();
         let request =
             decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
-        assert_eq!(request["method"], "ui.snapshot");
+        assert_eq!(request["method"], method);
         assert_eq!(request["params"], serde_json::json!({}));
         let response=success_response(request["id"].as_str().unwrap(),9,serde_json::json!({"schemaVersion":1,"healthFresh":false,"instanceId":"synthetic-instance"})).unwrap();
         write_unary_frame(
@@ -48,7 +61,7 @@ fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
         .unwrap();
     });
     let output = isolated_command(&base)
-        .args(["plugin", "snapshot"])
+        .args([command, action])
         .output()
         .unwrap();
     worker.join().unwrap();
@@ -58,7 +71,7 @@ fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
     assert_eq!(response["revision"], 9);
     assert_eq!(response["result"]["healthFresh"], false);
     let invalid = isolated_command(&base)
-        .args(["plugin", "snapshot", "private-token"])
+        .args([command, action, "private-token"])
         .output()
         .unwrap();
     assert!(!invalid.status.success());
