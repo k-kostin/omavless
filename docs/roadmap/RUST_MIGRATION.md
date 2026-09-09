@@ -1359,6 +1359,15 @@ inventories and PID-authenticated owned-controller configuration facts, separate
 from cached lifecycle state. It does not establish TUN ownership, routes, DNS or
 internet connectivity and does not change the QML snapshot contract or owner.
 
+The [explicit disconnected activation candidate](../testing/R5_DISCONNECTED_ACTIVATION.md)
+exposes only the fixed local `cutover activate` command, with installed package
+identity, matching CLI/user-manager private roots, disabled startup and strict
+empty-host admission. It composes the existing transaction and verifies the
+final candidate before committing ownership; interrupted preparation still
+requires manual recovery. This is not connected adoption, automatic login,
+complete frontend parity or permission to remove Python. Installed acceptance
+remains required before this candidate can be considered a completed cutover.
+
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch
 cleanup identity. Current native validation retains its existing data-directory
