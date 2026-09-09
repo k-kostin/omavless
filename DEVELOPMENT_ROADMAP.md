@@ -753,6 +753,10 @@ legacy unit conversion are still required.
 The [strict inventory foundation](docs/testing/R5_STRICT_STARTUP_OBSERVATION.md)
 prepares fail-closed process/TUN observation without activating a login adapter
 or replacing current diagnostic projections.
+The [strict empty-host adapter](docs/testing/R5_STRICT_EMPTY_HOST.md) composes
+those inventories with fixed service-state and controller-absence checks.
+It remains unregistered from login activation; snapshot validation and trusted
+trigger/legacy conversion are still required.
 Route fast paths do not implement live unmatched Routing observation.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
