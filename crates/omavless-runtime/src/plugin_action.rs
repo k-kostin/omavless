@@ -66,6 +66,14 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "action",
             "profileId",
         ],
+        "profile-import" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "name",
+            "input",
+        ],
         _ => return Err(InvalidArgument),
     };
     if !exact_fields(params, fields, fields) {
@@ -87,12 +95,15 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "profile-rename" => "profiles.rename",
         "profile-favorite" => "profiles.favorite",
         "profile-delete" => "profiles.delete",
+        "profile-import" => "profiles.import",
         _ => return Err(InvalidArgument),
     });
     let mapped = canonical["params"].as_object_mut().ok_or(InvalidArgument)?;
     mapped.remove("instanceId");
     mapped.remove("action");
-    if action.starts_with("profile-") {
+    if action == "profile-import" {
+        crate::profile_import_protocol::parse_profile_import_request(&canonical)?;
+    } else if action.starts_with("profile-") {
         crate::profile_mutation_protocol::parse_profile_mutation_request(&canonical)?;
     } else {
         parse_owner_request(&canonical)?;
@@ -120,6 +131,7 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
         }
         "profile-favorite" => Some(36 + 1 + 3 + 1),
         "profile-delete" => Some(36 + 1),
+        "profile-import" => Some(crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
         _ => None,
     }
 }
@@ -140,6 +152,7 @@ pub fn cli_params(
                 "profile-rename",
                 "profile-favorite",
                 "profile-delete",
+                "profile-import",
             ]
             .iter()
             .any(|v| arg == v)
@@ -176,7 +189,7 @@ pub fn cli_params(
         }
         [
             "plugin",
-            action @ ("profile-rename" | "profile-favorite" | "profile-delete"),
+            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import"),
             instance,
             revision,
             operation,
@@ -194,7 +207,17 @@ pub fn cli_params(
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
     }
-    if action.starts_with("profile-") {
+    if action == "profile-import" {
+        let (_, imported) = crate::semantic_cli::parse_semantic_profile_import(
+            &["profile".into(), "import".into()],
+            private_stdin,
+        )?
+        .into_parts();
+        params
+            .as_object_mut()
+            .ok_or(InvalidArgument)?
+            .extend(imported.as_object().ok_or(InvalidArgument)?.clone());
+    } else if action.starts_with("profile-") {
         let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
         if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
             return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
@@ -249,6 +272,11 @@ mod tests {
             ),
             ("disconnect", "connection.disconnect", json!({})),
             ("mode", "routing.set_mode", json!({"mode":"global"})),
+            (
+                "profile-import",
+                "profiles.import",
+                json!({"name":"Imported", "input":"trojan://synthetic-password@203.0.113.1:443"}),
+            ),
             (
                 "profile-rename",
                 "profiles.rename",
@@ -376,6 +404,48 @@ mod tests {
             .into();
         for value in ["true", "false", "1", "ON", "off "] {
             assert!(cli_params(&args, Some(&format!("{id}\n{value}"))).is_err());
+        }
+    }
+
+    #[test]
+    fn import_action_reuses_private_parser_without_replacement_or_subscription() {
+        let args: Vec<_> = ["plugin", "profile-import", "instance", "7", "operation"]
+            .map(OsString::from)
+            .into();
+        let link = "trojan://synthetic-password@203.0.113.1:443";
+        let input = format!("Private name\n{link}\n");
+        let params = cli_params(&args, Some(&input)).unwrap().unwrap();
+        assert_eq!(params["name"], "Private name");
+        assert_eq!(params["input"], format!("{link}\n"));
+        assert_eq!(
+            cli_input_limit(&args),
+            Some(crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES)
+        );
+        for invalid in [
+            String::new(),
+            "Name".into(),
+            format!("\n{link}"),
+            format!("{}\n{link}", "x".repeat(321)),
+            "Name\nhttps://private.example/subscription-token".into(),
+            "Name\nprivate-token".into(),
+            format!("Name\n{link}\n{link}"),
+            format!(
+                "Name\n{}",
+                "x".repeat(crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES + 1)
+            ),
+        ] {
+            let error = cli_params(&args, Some(&invalid)).unwrap_err();
+            assert!(!error.to_string().contains("private-token"));
+        }
+        assert!(cli_params(&args, None).is_err());
+        let mut extra = args.clone();
+        extra.push("private-token".into());
+        assert!(cli_params(&extra, Some(&input)).is_err());
+        assert_eq!(cli_input_limit(&extra), None);
+        for key in ["profileId", "oldId", "path", "enabled"] {
+            let mut changed = params.clone();
+            changed[key] = json!("private-token");
+            assert!(parse(&request(changed)).is_err());
         }
     }
 

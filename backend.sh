@@ -47,7 +47,18 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 1 ] || blocked
           exec omavless runtime observation
           ;;
-        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete)
+        native-import-preview)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless import preview
+          ;;
+        native-import-clipboard|native-import-file)
+          [ "$#" -eq 1 ] || blocked
+          case "$1" in
+            native-import-clipboard) exec omavless desktop clipboard-read ;;
+            native-import-file) exec omavless desktop pick-import ;;
+          esac
+          ;;
+        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import)
           action=${1#native-}
           shift
           exec omavless plugin "$action" "$@"

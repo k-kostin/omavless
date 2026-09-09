@@ -34,6 +34,78 @@ fn private_invoke(
 }
 
 #[test]
+fn private_import_cli_preserves_input_and_rejects_invalid_requests_locally() {
+    let base = test_temp::directory("private-import-cli").unwrap();
+    let directory = base.join("omavless");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let link = "trojan://synthetic-password@203.0.113.1:443\n";
+    let input = format!("Private imported label\n{link}");
+    let worker = thread::spawn(move || {
+        for lost in [false, true] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], "plugin.action");
+            assert_eq!(
+                request["params"],
+                json!({"action":"profile-import","instanceId":"instance-1","expectedRevision":3,"operationId":"operation-1","name":"Private imported label","input":link})
+            );
+            if lost {
+                continue;
+            }
+            let response = success_response(request["id"].as_str().unwrap(), 4, json!({"schemaVersion":1,"instanceId":"instance-1","operationId":"operation-1","action":"profile-import","applied":true})).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+    });
+    for code in [0, 73] {
+        let output = private_invoke(&base, "profile-import", input.as_bytes(), &[]);
+        assert_eq!(output.status.code(), Some(code));
+        for bytes in [&output.stdout, &output.stderr] {
+            let text = String::from_utf8_lossy(bytes);
+            for private in [
+                "Private imported label",
+                "synthetic-password",
+                "203.0.113.1",
+            ] {
+                assert!(!text.contains(private));
+            }
+        }
+    }
+    worker.join().unwrap();
+    for (input, extra) in [
+        (Vec::new(), vec![]),
+        (b"Private imported label".to_vec(), vec![]),
+        (
+            b"Name\nhttps://private.example/subscription-token".to_vec(),
+            vec![],
+        ),
+        (vec![0xff], vec![]),
+        (format!("Name\n{}", "x".repeat(32769)).into_bytes(), vec![]),
+        (input.into_bytes(), vec!["private-token"]),
+    ] {
+        let output = private_invoke(&base, "profile-import", &input, &extra);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8_lossy(&output.stderr);
+        for private in [
+            "Private imported label",
+            "subscription-token",
+            "private-token",
+        ] {
+            assert!(!text.contains(private));
+        }
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn private_profile_cli_only_sends_validated_stdin_and_never_echoes_it() {
     let base = test_temp::directory("private-action-cli").unwrap();
     let directory = base.join("omavless");

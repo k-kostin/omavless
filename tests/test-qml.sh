@@ -417,8 +417,8 @@ grep -q 'tooltipText: root.safeTooltip(root.textFor("tooltip.delete_profile"' "$
 grep -q 'locale: root.uiLocale' "$panel"
 (( $(grep -c 'locale: root.uiLocale' "$panel") >= 9 ))
 grep -q 'readonly property bool modalInputActive:' "$panel"
-(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 3 ))
-(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 3 ))
+(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 4 ))
+(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 4 ))
 bash -n "$installer"
 bash -n "$uninstaller"
 

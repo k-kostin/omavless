@@ -325,17 +325,21 @@ Panel {
   readonly property string importNameClean: importDialog.value.trim()
   readonly property bool importNameValid: vless.isValidName(importNameClean)
   // Importing under the same display name edits that profile in place.
-  readonly property int importNameCount: importNameValid ? vless.countByName(importNameClean) : 0
-  readonly property bool importReplaces: importNameCount === 1
+  readonly property int importNameCount: !importNameValid ? 0 : vless.nativeOwner
+    ? (vless.nativeSnapshot ? vless.nativeSnapshot.profiles.filter(function(p) { return p.name === root.importNameClean }).length : 0)
+    : vless.countByName(importNameClean)
+  readonly property bool importReplaces: !vless.nativeOwner && importNameCount === 1
   // Several existing profiles use the typed name — "replace" cannot
   // know which one is meant, so the import is refused under this name.
-  readonly property bool importAmbiguous: importNameCount > 1
+  readonly property bool importAmbiguous: vless.nativeOwner ? importNameCount > 0 : importNameCount > 1
   readonly property bool importAccepted: importNameValid && !importAmbiguous
   readonly property var importReplaceTarget: importReplaces ? vless.findByName(importNameClean) : null
-  readonly property string importSourceLabel: importKind === "text"
+  readonly property string importSourceLabel: importKind === "native-file" ? textFor("native.importFile") : importKind === "native-clipboard" || importKind === "text"
     ? textFor("import.from_clipboard")
     : textFor("import.from_file", { name: String(importPayload).split("/").pop() })
-  readonly property string importHintText: !importNameValid
+  readonly property string importHintText: vless.nativeOwner
+    ? (vless.nativeImportCode !== "" ? textFor("native.importError." + vless.nativeImportCode) : !importNameValid ? textFor("rename.invalid_name") : importNameCount > 0
+       ? textFor("rename.duplicate", {name:importNameClean}) : textFor("native.importName", {name:importNameClean})) : !importNameValid
     ? "Use a non-empty name up to 80 characters"
     : (importAmbiguous
       ? importNameCount + " profiles use the name " + importNameClean + " — pick another name"
@@ -458,7 +462,7 @@ Panel {
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
     if (vless.nativeOwner) {
-      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeReconcile, nativeAcceptState]
+      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
         if (row) targets.push(row.focusTarget)
@@ -992,7 +996,8 @@ Panel {
     }
   }
 
-  function cancelImport() {
+  function cancelImport(preserveNative) {
+    if (vless.nativeOwner && !preserveNative) vless.cancelNativeImport()
     importKind = ""
     importPayload = ""
     importDialog.dismiss()
@@ -1086,6 +1091,10 @@ Panel {
 
   function confirmImport() {
     if (!importAccepted) return
+    if (vless.nativeOwner) {
+      if (vless.confirmNativeImport(importNameClean)) cancelImport()
+      return
+    }
     var kind = importKind
     var payload = importPayload
     var name = importNameClean
@@ -1140,7 +1149,7 @@ Panel {
     startupPrompt.dismiss()
     onboardingWizard.dismiss()
     routingToolsPrompt.dismiss()
-    cancelImport()
+    cancelImport(opened)
     if (opened) {
       page = "main"
       onboardingDismissed = false
@@ -1219,9 +1228,12 @@ Panel {
     // The picker runs whether or not the popup is open (bar right-click,
     // IPC); open the popup so the name prompt has somewhere to appear.
     function onImportReady(kind, payload, suggestedName) {
-      if (vless.nativeOwner) return
+      if (vless.nativeOwner && kind !== "native-file" && kind !== "native-clipboard") return
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
+    }
+    function onNativeImportCodeChanged() {
+      if (vless.nativeOwner && vless.nativeImportCode !== "" && !root.opened) root.open()
     }
     function onSubscriptionImportReady(kind, payload, suggestedName) {
       if (vless.nativeOwner) return
@@ -1526,7 +1538,8 @@ Panel {
         contentWidth: width
         contentHeight: nativeColumn.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+        interactive: contentHeight > height && !root.modalInputActive
+        ScrollBar.vertical: OmaScrollBar { policy: root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded }
         ColumnLayout {
           id: nativeColumn
           width: Math.max(0, nativeFlick.width - root.scrollGutter)
@@ -1538,6 +1551,8 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionRunning; text: root.textFor("native.pending"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.unknownOutcome"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.textFor("native.importError." + vless.nativeImportCode) : ""; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           Button { id: nativeRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
           RowLayout {
             Layout.fillWidth: true
@@ -1556,6 +1571,12 @@ Panel {
             Button { id: nativeRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestRename(root.nativeSelectedRecord()) }
             Button { id: nativeFavorite; text: root.textFor(root.nativeSelectedRecord() && root.nativeSelectedRecord().favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.toggleFavorite(root.nativeSelectedRecord()) }
             Button { id: nativeDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestDelete(root.nativeSelectedRecord()) }
+          }
+          Flow {
+            Layout.fillWidth: true
+            spacing: Style.space(6)
+            Button { id: nativeImportClipboard; text: root.textFor("native.importClipboard"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
+            Button { id: nativeImportFile; text: root.textFor("native.importFile"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
           }
           Button { id: nativeReconcile; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.reconcile"); focusable: true; bordered: true; enabled: !vless.nativeActionRunning; onClicked: vless.reconcileNativeAction() }
           Button { id: nativeAcceptState; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.acceptState"); focusable: true; bordered: true; enabled: vless.nativeFactsCurrent && !vless.nativeActionRunning; onClicked: vless.acceptRefreshedNativeState() }

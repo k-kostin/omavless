@@ -124,7 +124,7 @@ function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
@@ -140,5 +140,41 @@ function parseAction(raw, pending) {
         || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null
     // Never render the backend message, even from an otherwise valid envelope.
     return {ok:false, revision:p.revision, code:e.code}
+  } catch (_) { return null }
+}
+
+// Native import is private UI data, never a diagnostic/log projection.
+function importInput(value) {
+  try {
+    return typeof value === "string" && value.length > 0 && value.length <= 32768
+      && value.indexOf("\u0000") < 0 && unescape(encodeURIComponent(value)).length <= 32768
+  } catch (_) { return false }
+}
+
+function parseImportPreview(raw, revision) {
+  try {
+    if (typeof raw !== "string" || raw.length > 262144 || unescape(encodeURIComponent(raw)).length > 262144) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || !id(p.id, false)
+        || p.ok !== true || !number(p.revision, 9007199254740991) || p.revision !== revision) return null
+    var r = p.result
+    if (object(r, ["version", "kind", "suggestedName", "duplicate"]) && r.version === 1
+        && r.kind === "subscription" && text(r.suggestedName, 80, false)
+        && typeof r.duplicate === "boolean") return {kind:"subscription", duplicate:r.duplicate}
+    if (!object(r, ["version", "kind", "profile"]) || r.version !== 1 || r.kind !== "profile") return null
+    var v = r.profile
+    if (!object(v, ["version", "protocol", "server", "port", "transport", "security", "sni", "flow", "insecure", "advancedXhttp", "experimental", "experimentalFeatures", "compatibilityNote", "credentialHint", "suggestedName"])
+        || v.version !== 1 || ["vless", "trojan", "hysteria2", "tuic"].indexOf(v.protocol) < 0
+        || !text(v.server, 253, false) || !number(v.port, 65535) || v.port < 1
+        || ["tcp", "ws", "http", "h2", "grpc", "xhttp", "quic"].indexOf(v.transport) < 0
+        || ["none", "tls", "reality"].indexOf(v.security) < 0 || !text(v.sni, 253, true)
+        || !text(v.flow, 64, true) || typeof v.insecure !== "boolean"
+        || typeof v.advancedXhttp !== "boolean" || typeof v.experimental !== "boolean"
+        || !Array.isArray(v.experimentalFeatures) || v.experimentalFeatures.length > 8
+        || !v.experimentalFeatures.every(function(f) { return text(f, 64, false) })
+        || !text(v.compatibilityNote, 1000, true) || !text(v.suggestedName, 80, true)
+        || typeof v.credentialHint !== "string" || !/^••••(?:[0-9a-f]{4})?$/i.test(v.credentialHint)) return null
+    return {kind:"profile", profile:v}
   } catch (_) { return null }
 }

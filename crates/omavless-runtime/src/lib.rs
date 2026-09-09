@@ -2135,6 +2135,93 @@ mod tests {
     }
 
     #[test]
+    fn plugin_profile_import_is_fenced_replayed_once_and_never_replaces() {
+        let base = temporary_base("plugin-profile-import");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"instanceId":hello["result"]["instanceId"], "expectedRevision":hello["revision"], "operationId":"new-profile", "action":"profile-import", "name":"Private imported label", "input":"trojan://synthetic-password@203.0.113.1:443"});
+        let mut stale = params.clone();
+        stale["instanceId"] = json!("old-instance");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        let mut stale = params.clone();
+        stale["expectedRevision"] = json!(999);
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        let applied = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(applied["ok"], true);
+        assert_eq!(
+            applied["result"],
+            json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":"new-profile","action":"profile-import","applied":true})
+        );
+        let committed = fs::read(&store_path).unwrap();
+        let store: Value = serde_json::from_slice(&committed).unwrap();
+        assert_eq!(store["profiles"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            store["profiles"][0],
+            serde_json::from_slice::<Value>(&original).unwrap()["profiles"][0]
+        );
+        let replay = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(replay["result"], applied["result"]);
+        assert_eq!(replay["revision"], applied["revision"]);
+        let canonical = plugin_action::parse(
+            &make_request("canonical", "plugin.action", params.clone()).unwrap(),
+        )
+        .unwrap()
+        .canonical;
+        let canonical_replay =
+            call(&paths, "profiles.import", canonical["params"].clone()).unwrap();
+        assert_eq!(canonical_replay["ok"], true);
+        assert_eq!(canonical_replay["revision"], applied["revision"]);
+        let mut collision = params.clone();
+        collision["name"] = json!("Different label");
+        assert_eq!(
+            call_plugin_action(&paths, collision).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let mut duplicate = params.clone();
+        duplicate["operationId"] = json!("duplicate-profile");
+        duplicate["expectedRevision"] = applied["revision"].clone();
+        let duplicate = call_plugin_action(&paths, duplicate).unwrap();
+        assert_eq!(duplicate["ok"], false);
+        assert_eq!(duplicate["revision"], applied["revision"]);
+        let mut invalid = params;
+        invalid["input"] = json!("https://private.example/subscription-token");
+        let invalid = call(&paths, "plugin.action", invalid).unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        for response in [&applied, &replay, &duplicate, &invalid] {
+            let text = response.to_string();
+            for private in [
+                "Private imported label",
+                "synthetic-password",
+                "203.0.113.1",
+                "subscription-token",
+            ] {
+                assert!(!text.contains(private));
+            }
+        }
+        worker.join().unwrap();
+        assert_eq!(fs::read(&store_path).unwrap(), committed);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn plugin_profile_actions_use_shared_fencing_replay_and_safe_results() {
         let base = temporary_base("plugin-profile-actions");
         let (mut owner, _, _) = native_owner_fixture(&base);
