@@ -1330,3 +1330,9 @@ Unsafe/pending/stale receipts refuse without host effects; matching consumed
 receipts preserve normal current-intent recovery. Candidate cutover refuses any
 receipt. This does not activate the applying transaction or establish a trusted
 login epoch. Installed Python ownership, #178 and the R5/R6 gates remain.
+
+The [strict startup inventory foundation](../testing/R5_STRICT_STARTUP_OBSERVATION.md)
+adds separate bounded process/TUN reads that refuse incomplete observations
+instead of returning zero. Existing tolerant projections and production callers
+remain unchanged. Fixed service/controller absence checks, snapshot-input
+validation, trusted login ordering and installed activation are still required.

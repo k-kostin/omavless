@@ -17,6 +17,9 @@ production empty-host adapter is activated here.
   process entries and their `comm` files must have valid types; unsafe links,
   malformed/oversized input and unreadable observations refuse. Non-process
   entries still count toward the scan budget.
+  `comm` is compared as bytes, allowing unrelated empty or non-UTF-8 names:
+  the [Linux name API](https://www.man7.org/linux/man-pages/man2/PR_SET_NAME.2const.html)
+  specifies a bounded null-terminated byte string, not a Unicode identifier.
 - TUN lookup supports the symlinked interface directories used by real sysfs.
   A missing `tun_flags` attribute on an existing interface is an ordinary
   non-TUN device, but an inaccessible or vanished interface is not proof of

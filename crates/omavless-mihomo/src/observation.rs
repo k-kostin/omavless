@@ -91,11 +91,9 @@ fn processes_named_strict_bounded(
         if raw.len() > 64 || raw.contains(&0) {
             return Err(StrictObservationError);
         }
-        let raw = std::str::from_utf8(&raw).map_err(|_| StrictObservationError)?;
-        let comm = raw.strip_suffix('\n').ok_or(StrictObservationError)?;
-        if comm.is_empty() {
-            return Err(StrictObservationError);
-        }
+        // Linux comm is a byte string, not necessarily UTF-8 or nonempty.
+        // Unrelated valid names must not make safe inventory unavailable.
+        let comm = raw.strip_suffix(b"\n").ok_or(StrictObservationError)?;
         let after_dir = fs::symlink_metadata(&directory).map_err(|_| StrictObservationError)?;
         let after = fs::symlink_metadata(&path).map_err(|_| StrictObservationError)?;
         if !after_dir.is_dir()
@@ -107,7 +105,7 @@ fn processes_named_strict_bounded(
         {
             return Err(StrictObservationError);
         }
-        if comm == name {
+        if comm == name.as_bytes() {
             found.insert(pid);
             if found.len() > matches_limit {
                 return Err(StrictObservationError);

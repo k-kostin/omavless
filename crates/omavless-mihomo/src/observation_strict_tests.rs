@@ -30,6 +30,8 @@ fn strict_processes_match_exactly_without_rejecting_unicode_or_spaces() {
     f.process("1", b"mihomo\n");
     f.process("2", "worker поток\n".as_bytes());
     f.process("3", b"mihomo-helper\n");
+    f.process("4", &[255, b'\n']);
+    f.process("5", b"\n");
     fs::write(f.0.join("meminfo"), b"ignored").unwrap();
     assert_eq!(
         processes_named_strict(&f.0, "mihomo").unwrap(),
@@ -61,7 +63,6 @@ fn strict_process_boundaries_and_incomplete_scans_refuse() {
 fn strict_comm_invalid_bytes_size_and_numeric_identity_refuse() {
     for raw in [
         vec![],
-        vec![255, b'\n'],
         vec![0, b'\n'],
         b"missing newline".to_vec(),
         vec![b'x'; 65],
