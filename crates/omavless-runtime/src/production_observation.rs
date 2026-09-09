@@ -14,11 +14,13 @@ use crate::cutover::{
     OwnershipObservation, evaluate_cutover, read_marker,
 };
 use crate::desired::RoutingMode;
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::unistd::Uid;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
 use omavless_mihomo::observation::{
-    UserServiceState, parse_systemd_show, process_family, processes_named, tun_interface_count,
+    UserServiceState, parse_systemd_show, process_family, processes_named, processes_named_strict,
+    tun_interface_count, tun_interface_count_strict,
 };
 use omavless_mihomo::{MAX_CONTROLLER_HEADER_BYTES, ReadOnlyEndpoint, controller_get};
 use omavless_store::read_private_utf8;
@@ -46,6 +48,8 @@ pub enum ProductionObservationError {
     ServiceQuery,
     ServiceResponse,
     PrivateState,
+    HostNotEmpty,
+    IncompleteInventory,
     Cutover(CutoverError),
 }
 
@@ -56,6 +60,8 @@ impl fmt::Display for ProductionObservationError {
             Self::ServiceQuery => "OmaVLESS service state could not be observed",
             Self::ServiceResponse => "OmaVLESS service state is invalid",
             Self::PrivateState => "OmaVLESS active private state could not be verified",
+            Self::HostNotEmpty => "OmaVLESS host is not empty",
+            Self::IncompleteInventory => "OmaVLESS host inventory could not be verified",
             Self::Cutover(error) => return error.fmt(formatter),
         })
     }
@@ -162,15 +168,6 @@ fn private_runtime_directory(path: &Path, uid: u32) -> bool {
     })
 }
 
-fn read_bounded(mut reader: impl Read, maximum: usize) -> std::io::Result<Vec<u8>> {
-    let mut output = Vec::new();
-    reader
-        .by_ref()
-        .take((maximum + 1) as u64)
-        .read_to_end(&mut output)?;
-    Ok(output)
-}
-
 pub(crate) fn service_state_with_timeout(
     systemctl: &Path,
     service: &str,
@@ -198,39 +195,70 @@ pub(crate) fn service_state_with_timeout(
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| ProductionObservationError::ServiceQuery)?;
-    let stdout = child
+    let mut stdout = child
         .stdout
         .take()
         .ok_or(ProductionObservationError::ServiceQuery)?;
-    let reader = thread::spawn(move || read_bounded(stdout, MAX_SERVICE_OUTPUT_BYTES));
     let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
+    let result = (|| {
+        fcntl(&stdout, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))
+            .map_err(|_| ProductionObservationError::ServiceQuery)?;
+        let mut output = Vec::new();
+        let mut eof = false;
+        let mut status = None;
+        loop {
+            if Instant::now() >= deadline {
                 return Err(ProductionObservationError::ServiceQuery);
             }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(ProductionObservationError::ServiceQuery);
+            if !eof {
+                let mut buffer = [0u8; 4096];
+                match stdout.read(&mut buffer) {
+                    Ok(0) => eof = true,
+                    Ok(count) => {
+                        output.extend_from_slice(&buffer[..count]);
+                        if output.len() > MAX_SERVICE_OUTPUT_BYTES {
+                            return Err(ProductionObservationError::ServiceQuery);
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => return Err(ProductionObservationError::ServiceQuery),
+                }
             }
+            if status.is_none() {
+                status = child
+                    .try_wait()
+                    .map_err(|_| ProductionObservationError::ServiceQuery)?;
+            }
+            if let Some(status) = status {
+                if !status.success() {
+                    return Err(ProductionObservationError::ServiceQuery);
+                }
+                if eof {
+                    return Ok(output);
+                }
+            }
+            thread::sleep(Duration::from_millis(1));
         }
-    };
-    let output = reader
-        .join()
-        .map_err(|_| ProductionObservationError::ServiceQuery)?
-        .map_err(|_| ProductionObservationError::ServiceQuery)?;
-    if !status.success() || output.len() > MAX_SERVICE_OUTPUT_BYTES {
-        return Err(ProductionObservationError::ServiceQuery);
+    })();
+    if result.is_err() {
+        // Only our direct query child is owned. Descendants cannot hold an
+        // unbounded reader join open; their pipe is dropped on return.
+        let _ = child.kill();
+        let _ = child.wait();
     }
+    let output = result?;
     let text =
         std::str::from_utf8(&output).map_err(|_| ProductionObservationError::ServiceResponse)?;
+    for field in ["ActiveState", "MainPID", "ExecMainStatus", "Result"] {
+        if text
+            .lines()
+            .filter(|line| line.split_once('=').is_some_and(|(key, _)| key == field))
+            .count()
+            != 1
+        {
+            return Err(ProductionObservationError::ServiceResponse);
+        }
+    }
     parse_systemd_show(text).ok_or(ProductionObservationError::ServiceResponse)
 }
 
@@ -337,7 +365,76 @@ pub struct ProductionOwnershipObserver {
     uid: u32,
 }
 
+#[cfg(test)]
+#[path = "production_empty_tests.rs"]
+mod empty_tests;
+
 impl ProductionOwnershipObserver {
+    /// Verify two empty observations in this trusted procfs/sysfs/user-manager
+    /// view. This is not an atomic reservation, namespace-completeness proof,
+    /// login trigger or permission to start a core. No private config is read.
+    pub fn verify_empty(&self) -> Result<(), ProductionObservationError> {
+        for _ in 0..2 {
+            if !private_runtime_directory(&self.paths.runtime_base, self.uid)
+                || fs::canonicalize(&self.paths.runtime_base).ok().as_deref()
+                    != Some(self.paths.runtime_base.as_path())
+            {
+                return Err(ProductionObservationError::UnsafePath);
+            }
+            for service in [LEGACY_SERVICE, RUST_SERVICE] {
+                let state = service_state_with_timeout(
+                    &self.paths.systemctl,
+                    service,
+                    SERVICE_QUERY_TIMEOUT,
+                )?;
+                if state.active || state.main_pid != 0 {
+                    return Err(ProductionObservationError::HostNotEmpty);
+                }
+            }
+            for socket in [
+                &self.paths.legacy_controller,
+                &self.paths.rust_controller,
+                &self.paths.rust_control_socket,
+            ] {
+                self.require_absent_socket(socket)?;
+            }
+            let cores = processes_named_strict(&self.paths.proc_root, "mihomo")
+                .map_err(|_| ProductionObservationError::IncompleteInventory)?;
+            let tun = tun_interface_count_strict(&self.paths.sys_class_net)
+                .map_err(|_| ProductionObservationError::IncompleteInventory)?;
+            if !cores.is_empty() || tun != 0 {
+                return Err(ProductionObservationError::HostNotEmpty);
+            }
+        }
+        Ok(())
+    }
+
+    fn require_absent_socket(&self, path: &Path) -> Result<(), ProductionObservationError> {
+        let relative = path
+            .strip_prefix(&self.paths.runtime_base)
+            .map_err(|_| ProductionObservationError::UnsafePath)?;
+        let parent = relative
+            .parent()
+            .ok_or(ProductionObservationError::UnsafePath)?;
+        let mut current = self.paths.runtime_base.clone();
+        for component in parent.components() {
+            let std::path::Component::Normal(component) = component else {
+                return Err(ProductionObservationError::UnsafePath);
+            };
+            current.push(component);
+            match fs::symlink_metadata(&current) {
+                Ok(_) if private_runtime_directory(&current, self.uid) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                _ => return Err(ProductionObservationError::UnsafePath),
+            }
+        }
+        match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(ProductionObservationError::UnsafePath),
+            Ok(_) => Err(ProductionObservationError::HostNotEmpty),
+        }
+    }
+
     pub fn new(
         paths: ProductionObservationPaths,
         uid: u32,

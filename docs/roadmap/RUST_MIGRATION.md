@@ -1336,3 +1336,9 @@ adds separate bounded process/TUN reads that refuse incomplete observations
 instead of returning zero. Existing tolerant projections and production callers
 remain unchanged. Fixed service/controller absence checks, snapshot-input
 validation, trusted login ordering and installed activation are still required.
+
+The [strict empty-host adapter](../testing/R5_STRICT_EMPTY_HOST.md) now offers a
+separate repeated read-only check of both fixed services, strict process/TUN
+inventories and controller/control socket absence. Service-query pipe completion
+is bounded even if a descendant retains stdout. No login caller is registered;
+snapshot-input isolated validation and trusted activation remain open.
