@@ -59,6 +59,32 @@ Item {
     if (!nativeOwner || !nativePending || nativeActionRunning) return false
     // Explicit retry carries identical instance/revision/operation and payload.
     nativeActionProcess.command = nativePending.command
+    nativeActionProcess.stdinEnabled = typeof nativePending.input === "string"
+    nativeActionProcess.running = true
+    return true
+  }
+
+  function requestNativeProfileAction(action, profileId, value) {
+    if (!nativeCanAct || ["profile-rename", "profile-favorite", "profile-delete"].indexOf(action) < 0) return false
+    var profile = nativeSnapshot.profiles.find(function(p) { return p.id === profileId })
+    if (!profile || (action !== "profile-favorite" && profile.subscriptionId !== "")) return false
+    var input = profileId
+    if (action === "profile-rename") {
+      if (typeof value !== "string" || !isValidName(value) || /[\r\n]/.test(value)) return false
+      input += "\n" + value
+    } else if (action === "profile-favorite") {
+      if (typeof value !== "boolean") return false
+      input += "\n" + (value ? "on" : "off")
+    }
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    // Private input survives only while an exact retry is possible; never argv.
+    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      operationId:operation, action:action, command:args, input:input}
+    nativeActionCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
     nativeActionProcess.running = true
     return true
   }
@@ -1456,7 +1482,7 @@ Item {
   }
 
   function deleteConfig(profile) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return profile ? requestNativeProfileAction("profile-delete", profile.uuid, null) : false
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -1764,7 +1790,7 @@ Item {
 
   // Changes only the local display label; the profile link stays intact.
   function renameConfig(profile, newName) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return profile ? requestNativeProfileAction("profile-rename", profile.uuid, String(newName || "").trim()) : false
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     var value = String(newName || "").trim()
@@ -1784,7 +1810,7 @@ Item {
   }
 
   function toggleFavorite(profile) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return profile ? requestNativeProfileAction("profile-favorite", profile.uuid, !profile.favorite) : false
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     actionRejection = ""
@@ -2396,6 +2422,11 @@ Item {
   Process {
     id: nativeActionProcess
     running: false
+    stdinEnabled: false
+    onStarted: {
+      if (root.nativePending && typeof root.nativePending.input === "string") write(root.nativePending.input)
+      stdinEnabled = false
+    }
     stdout: StdioCollector { id: nativeActionStdout; waitForEnd: true }
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {

@@ -109,7 +109,8 @@ function serviceHarness() {
   const source=fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
   const context=vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,
     nativeSnapshot:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',desired:{connected:false,mode:'rule',generation:3},
-      profiles:[{id:'profile-one',missing:false},{id:'profile-missing',missing:true}]},
+      profiles:[{id:'profile-one',missing:false,subscriptionId:'',favorite:false},{id:'profile-missing',missing:true,subscriptionId:''},
+        {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}]},
     nativeObservation:{instanceId:'instance-one',revision:4,desired:{connected:false,mode:'rule',generation:3},
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
     nativeActionCode:'',_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
@@ -119,7 +120,7 @@ function serviceHarness() {
     assert(match,name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',context);
   }
-  for(const name of ['requestNativeAction','reconcileNativeAction','acceptRefreshedNativeState']) {
+  for(const name of ['requestNativeAction','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'(');
     const end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);
@@ -196,5 +197,36 @@ test('actual Service acknowledgement requires reviewed coherent facts and no run
   assert.equal(c.acceptRefreshedNativeState(),true);
   assert.equal(c.nativePending,null);assert.equal(c.nativeOutcomeUnknown,false);assert.equal(c.nativeActionCode,'');
   assert.equal(JSON.stringify([c.nativeSnapshot,c.nativeObservation]),before);
+});
+test('profile mutations keep private input out of argv and preserve exact retry', () => {
+  for(const [action,value,input] of [['profile-rename','Private <b>name</b>','profile-one\nPrivate <b>name</b>'],
+    ['profile-favorite',true,'profile-one\non'],['profile-delete',null,'profile-one']]) {
+    const c=serviceHarness(), before=JSON.stringify(c.nativeSnapshot);
+    assert.equal(c.requestNativeProfileAction(action,'profile-one',value),true);
+    assert.equal(c.nativePending.input,input);
+    assert.equal(c.nativeActionProcess.command.length,6);
+    assert(!JSON.stringify(c.nativeActionProcess.command).includes('profile-one'));
+    assert(!JSON.stringify(c.nativeActionProcess.command).includes('Private'));
+    assert.equal(c.nativeActionProcess.stdinEnabled,true);
+    assert.equal(c.requestNativeProfileAction(action,'profile-one',value),false);
+    const saved=JSON.stringify(c.nativePending);
+    c.nativeActionProcess.running=false;c.nativeActionProcess.stdinEnabled=false;c.nativeOutcomeUnknown=true;
+    assert.equal(c.reconcileNativeAction(),true);
+    assert.equal(c.nativeActionProcess.stdinEnabled,true);
+    assert.equal(JSON.stringify(c.nativePending),saved);
+    assert.equal(JSON.stringify(c.nativeSnapshot),before);
+    const reply=action === 'profile-delete' ? frame({schemaVersion:1,instanceId:'instance-one',operationId:c.nativePending.operationId,action,applied:true}) : null;
+    if(reply) assert.equal(parseAction(reply,c.nativePending).ok,true);
+  }
+});
+test('profile validation refuses managed rename/delete and malformed or stale intent', () => {
+  for(const [action,id,value] of [['profile-rename','profile-managed','name'],['profile-delete','profile-managed',null],
+    ['profile-delete','unknown',null],['profile-rename','profile-one',''],['profile-rename','profile-one','x'.repeat(81)],
+    ['profile-rename','profile-one','two\nlines'],['profile-favorite','profile-one','true'],['raw','profile-one',null]]) {
+    const c=serviceHarness();assert.equal(c.requestNativeProfileAction(action,id,value),false);assert.equal(c.nativePending,null);
+  }
+  const managed=serviceHarness();assert.equal(managed.requestNativeProfileAction('profile-favorite','profile-managed',true),true);
+  const stale=serviceHarness();stale.nativeObservation.revision++;
+  assert.equal(stale.requestNativeProfileAction('profile-delete','profile-one',null),false);
 });
 console.log(`${count} native action/observation tests passed`);

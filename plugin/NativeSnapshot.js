@@ -124,7 +124,7 @@ function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])

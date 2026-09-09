@@ -1636,7 +1636,7 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
     call_with_timeout(paths, method, params, IO_TIMEOUT)
 }
 
-/// Fixed lifecycle-only client wait. Transport failure may occur after apply:
+/// Fixed frontend mutation client wait. Transport failure may occur after apply:
 /// callers must retain the same instance, revision and operation, never retry
 /// with a newly generated operation ID.
 pub fn call_plugin_action(paths: &RuntimePaths, params: Value) -> Result<Value> {
@@ -1748,6 +1748,7 @@ mod tests {
     struct FakeHost {
         observation: OwnedObservation,
         calls: Arc<AtomicUsize>,
+        lifecycle_effects: Arc<AtomicUsize>,
         route_config: Option<std::path::PathBuf>,
         fresh_calls: Arc<AtomicUsize>,
         fresh_result: std::result::Result<lifecycle::NativeLocalObservation, HostStepError>,
@@ -1823,11 +1824,13 @@ mod tests {
 
         fn prepare(&mut self, _desired: &DesiredState) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
 
         fn start_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             self.observation = OwnedObservation {
                 service_active: true,
                 controller_ready: true,
@@ -1840,11 +1843,13 @@ mod tests {
 
         fn commit_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
 
         fn stop_owned(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             self.observation = OwnedObservation {
                 service_active: false,
                 controller_ready: false,
@@ -1857,6 +1862,7 @@ mod tests {
 
         fn discard_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
     }
@@ -2045,6 +2051,7 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            lifecycle_effects: Arc::new(AtomicUsize::new(0)),
             fresh_calls: Arc::new(AtomicUsize::new(0)),
             fresh_result: Err(HostStepError::Observation),
             on_fresh: None,
@@ -2125,6 +2132,91 @@ mod tests {
             owned_controller_config_verified: false,
             desired_profile_matches_owned: false,
         }
+    }
+
+    #[test]
+    fn plugin_profile_actions_use_shared_fencing_replay_and_safe_results() {
+        let base = temporary_base("plugin-profile-actions");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        // Periodic reconciliation may observe even when all actions are
+        // store-only. Count prepare/start/commit/stop/discard, not observations.
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(19)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let store_path = base.join("config/profiles.json");
+        let mut revision = hello["revision"].clone();
+        for (index, action, extra) in [
+            (0, "profile-rename", json!({"name":"Private renamed label"})),
+            (1, "profile-favorite", json!({"enabled":true})),
+            (2, "profile-delete", json!({})),
+        ] {
+            let mut params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":revision,"operationId":format!("profile-action-{index}"),"action":action,"profileId":PROFILE_ID});
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let before = fs::read(&store_path).unwrap();
+            let mut stale = params.clone();
+            stale["instanceId"] = json!("previous-instance");
+            assert_eq!(
+                call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            let mut stale = params.clone();
+            stale["expectedRevision"] = json!(999);
+            assert_eq!(
+                call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+                "conflict"
+            );
+            assert_eq!(fs::read(&store_path).unwrap(), before);
+            let applied = call_plugin_action(&paths, params.clone()).unwrap();
+            assert_eq!(applied["ok"], true);
+            assert_eq!(
+                applied["result"],
+                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true})
+            );
+            let after = fs::read(&store_path).unwrap();
+            assert_ne!(after, before);
+            let replay = call_plugin_action(&paths, params.clone()).unwrap();
+            assert_eq!(replay["result"], applied["result"]);
+            assert_eq!(replay["revision"], applied["revision"]);
+            // Same ID through canonical API shares the same coordinator cache.
+            let canonical = plugin_action::parse(
+                &make_request("canonical", "plugin.action", params.clone()).unwrap(),
+            )
+            .unwrap()
+            .canonical;
+            assert_eq!(
+                call(
+                    &paths,
+                    canonical["method"].as_str().unwrap(),
+                    canonical["params"].clone()
+                )
+                .unwrap()["revision"],
+                applied["revision"]
+            );
+            params["profileId"] = json!("00000000-0000-4000-8000-000000000002");
+            assert_eq!(
+                call_plugin_action(&paths, params).unwrap()["error"]["code"],
+                "conflict"
+            );
+            assert_eq!(fs::read(&store_path).unwrap(), after);
+            assert_eq!(effects.load(Ordering::Relaxed), 0);
+            assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+            revision = applied["revision"].clone();
+        }
+        worker.join().unwrap();
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        let store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        assert!(store["profiles"].as_array().unwrap().is_empty());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
