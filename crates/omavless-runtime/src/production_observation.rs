@@ -174,6 +174,12 @@ pub(crate) fn service_state_with_timeout(
     timeout: Duration,
 ) -> Result<UserServiceState, ProductionObservationError> {
     let text = fixed_service_query(systemctl, service, timeout, false)?;
+    parse_service_state_response(&text)
+}
+
+fn parse_service_state_response(
+    text: &str,
+) -> Result<UserServiceState, ProductionObservationError> {
     for field in ["ActiveState", "MainPID", "ExecMainStatus", "Result"] {
         if text
             .lines()
@@ -184,7 +190,7 @@ pub(crate) fn service_state_with_timeout(
             return Err(ProductionObservationError::ServiceResponse);
         }
     }
-    parse_systemd_show(&text).ok_or(ProductionObservationError::ServiceResponse)
+    parse_systemd_show(text).ok_or(ProductionObservationError::ServiceResponse)
 }
 
 /// Fixed read-only installation/startup facts for explicit disconnected cutover.
@@ -393,6 +399,74 @@ pub struct ProductionOwnershipObserver {
 mod empty_tests;
 
 impl ProductionOwnershipObserver {
+    /// Final disconnected-candidate proof. The native daemon must be active,
+    /// while strict core/TUN inventories and both core controllers remain empty.
+    /// This differs from verify_empty, which requires the daemon itself absent.
+    pub(crate) fn verify_disconnected_native(
+        &self,
+    ) -> Result<OwnershipObservation, ProductionObservationError> {
+        let mut native_pid = None;
+        for _ in 0..2 {
+            if !private_runtime_directory(&self.paths.runtime_base, self.uid)
+                || fs::canonicalize(&self.paths.runtime_base).ok().as_deref()
+                    != Some(self.paths.runtime_base.as_path())
+            {
+                return Err(ProductionObservationError::UnsafePath);
+            }
+            for service in [LEGACY_SERVICE, RUST_SERVICE] {
+                let raw = fixed_service_query(
+                    &self.paths.systemctl,
+                    service,
+                    SERVICE_QUERY_TIMEOUT,
+                    false,
+                )?;
+                let state = parse_service_state_response(&raw)?;
+                let required = if service == RUST_SERVICE {
+                    "ActiveState=active"
+                } else {
+                    "ActiveState=inactive"
+                };
+                if !raw.lines().any(|line| line == required) {
+                    return Err(ProductionObservationError::HostNotEmpty);
+                }
+                if service == RUST_SERVICE {
+                    if state.main_pid == 0
+                        || native_pid.is_some_and(|pid| pid != state.main_pid)
+                        || state.exit_status != 0
+                        || state.result != "success"
+                    {
+                        return Err(ProductionObservationError::HostNotEmpty);
+                    }
+                    native_pid = Some(state.main_pid);
+                } else if state.main_pid != 0 {
+                    return Err(ProductionObservationError::HostNotEmpty);
+                }
+            }
+            for socket in [&self.paths.legacy_controller, &self.paths.rust_controller] {
+                self.require_absent_socket(socket)?;
+            }
+            if !socket_presence(&self.paths.rust_control_socket, self.uid, true)? {
+                return Err(ProductionObservationError::HostNotEmpty);
+            }
+            let cores = processes_named_strict(&self.paths.proc_root, "mihomo")
+                .map_err(|_| ProductionObservationError::IncompleteInventory)?;
+            let tun = tun_interface_count_strict(&self.paths.sys_class_net)
+                .map_err(|_| ProductionObservationError::IncompleteInventory)?;
+            if !cores.is_empty() || tun != 0 {
+                return Err(ProductionObservationError::HostNotEmpty);
+            }
+        }
+        Ok(OwnershipObservation {
+            legacy_owner_active: false,
+            rust_owner_active: true,
+            legacy_controller_ready: false,
+            rust_controller_ready: false,
+            core_count: 0,
+            tun_count: 0,
+            active_profile_matches: false,
+        })
+    }
+
     /// Verify two empty observations in this trusted procfs/sysfs/user-manager
     /// view. This is not an atomic reservation, namespace-completeness proof,
     /// login trigger or permission to start a core. No private config is read.

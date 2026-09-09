@@ -67,6 +67,14 @@ An early legacy-stop failure with a pre-existing idle owner lock verifies that
 compensation reuses its retained admission lease rather than conflicting with
 itself. Reuse requires the fixed path to retain the locked device/inode and
 private file policy; disappearance, replacement, symlink or unsafe mode refuses.
+Final disconnected-candidate admission uses a separate repeated strict proof:
+native service exactly active with a stable nonzero MainPID and successful
+service result, legacy service exactly inactive with zero MainPID, native
+control socket present, both core controllers absent, and complete empty
+process/TUN inventories. It never turns an unavailable final inventory into
+zero. A regression makes proc inventory incomplete after candidate startup and
+before commit; Rust ownership is refused and the preparing barrier remains when
+cleanup cannot prove emptiness either.
 The pre-existing language-neutral ownership/transaction contract is the
 reference for this composition; no new Python behavior is substituted.
 

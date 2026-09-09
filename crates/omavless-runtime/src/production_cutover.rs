@@ -725,6 +725,16 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
         if self.identity_from_hello(candidate.bootstrap())? != candidate {
             return Err(CutoverHostError);
         }
+        if self
+            .staged_desired
+            .as_ref()
+            .is_some_and(|desired| !desired.connected)
+        {
+            return self
+                .observer()?
+                .verify_disconnected_native()
+                .map_err(|_| CutoverHostError);
+        }
         self.observe()
     }
 
@@ -917,7 +927,7 @@ mod tests {
         let state = fixture.root.join("rust-service-state");
         fs::write(&state, "inactive\n").unwrap();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) {} printf 'active\\n' > \"$state\"; exit 0 ;;\n  stop:omavless-runtime.service) {} printf 'inactive\\n' > \"$state\"; rm -f -- \"$socket\"; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  start:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' \"$value\"; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) {} printf 'active\\n' > \"$state\"; exit 0 ;;\n  stop:omavless-runtime.service) {} printf 'inactive\\n' > \"$state\"; rm -f -- \"$socket\"; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  start:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\"; exit 0 ;;\nesac\nexit 9\n",
             state.display(),
             fixture.paths.runtime.socket.display(),
             if fail_runtime_start { "exit 7;" } else { "" },
@@ -1569,7 +1579,7 @@ mod tests {
         let service_state = fixture.root.join("rust-service-state");
         fs::write(&service_state, "inactive\n").unwrap();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\" ; exit 0 ;;\nesac\nexit 9\n",
             service_state.display()
         );
         publish_service_harness(&fixture.paths.systemctl, &script);
@@ -1651,6 +1661,65 @@ mod tests {
     }
 
     #[test]
+    fn final_incomplete_inventory_cannot_commit_disconnected_candidate() {
+        struct IncompleteInventoryBridge {
+            proc_root: PathBuf,
+        }
+        impl ProductionPluginBridge for IncompleteInventoryBridge {
+            fn switch(
+                &mut self,
+                target: BridgeTarget,
+                _marker: &OwnershipMarker,
+                _lock: &MigrationLock,
+            ) -> Result<(), CutoverHostError> {
+                if target == BridgeTarget::Rust {
+                    // A process directory becomes unreadable/incomplete only
+                    // after candidate startup, immediately before final proof.
+                    fs::create_dir(self.proc_root.join("42")).unwrap();
+                }
+                Ok(())
+            }
+        }
+        let fixture = Fixture::new("final-inventory-refusal");
+        prepare_disconnected_fixture(&fixture);
+        install_service_harness(&fixture, false, false);
+        let hello =
+            json!({"instanceId":"final-scan-candidate","version":1,"runtimeOwnership":false});
+        let server = spawn_candidate_server(
+            &fixture,
+            vec![
+                (
+                    "runtime.transitionBootstrap",
+                    json!({"instanceId":"final-scan-candidate","preparingGeneration":1,"rustGeneration":2,"runtimeOwnership":false}),
+                ),
+                ("system.hello", hello.clone()),
+                (
+                    "status.get",
+                    json!({"desired":"disconnected","actual":"disconnected","activeProfileId":"","mode":"rule","transition":"cutoverPreparing","runtimeOwnership":false}),
+                ),
+                ("system.hello", hello.clone()),
+                ("system.hello", hello),
+            ],
+        );
+        let bridge = IncompleteInventoryBridge {
+            proc_root: fixture.paths.observation.proc_root.clone(),
+        };
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+        assert_eq!(
+            host.activate_disconnected(),
+            Err(CutoverTransactionError::ManualRecoveryRequired)
+        );
+        server.join().unwrap();
+        assert_eq!(
+            read_marker(&fixture.paths.cutover, fixture.uid)
+                .unwrap()
+                .phase(),
+            OwnershipPhase::CutoverPreparing
+        );
+    }
+
+    #[test]
     fn failed_bridge_switch_stops_candidate_and_restores_exact_desired_state() {
         let fixture = Fixture::new("bridge-rollback");
         fixture.write_private(
@@ -1672,7 +1741,7 @@ mod tests {
         fs::write(&service_state, "inactive\n").unwrap();
         let socket = fixture.paths.runtime.socket.clone();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; rm -f -- \"$socket\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; rm -f -- \"$socket\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\" ; exit 0 ;;\nesac\nexit 9\n",
             service_state.display(),
             socket.display()
         );
