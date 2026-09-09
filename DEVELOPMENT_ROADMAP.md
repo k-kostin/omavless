@@ -757,6 +757,9 @@ The [strict empty-host adapter](docs/testing/R5_STRICT_EMPTY_HOST.md) composes
 those inventories with fixed service-state and controller-absence checks.
 It remains unregistered from login activation; snapshot validation and trusted
 trigger/legacy conversion are still required.
+The [snapshot validation boundary](docs/testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
+captures inputs once and preserves scratch ownership. Core validation isolation
+is not assumed: a controlled Mihomo `-t` probe observes a geodata download attempt.
 Route fast paths do not implement live unmatched Routing observation.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the

@@ -1342,3 +1342,10 @@ separate repeated read-only check of both fixed services, strict process/TUN
 inventories and controller/control socket absence. Service-query pipe completion
 is bounded even if a descendant retains stdout. No login caller is registered;
 snapshot-input isolated validation and trusted activation remain open.
+
+The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
+now separates exact-input rendering from filesystem loading and guards scratch
+cleanup identity. Current native validation retains its existing data-directory
+policy; it is not an isolated login adapter. A controlled installed-core GEOSITE
+probe confirms that `-t` may attempt downloads, even with a temporary `-d`.
+Resource isolation/refusal and actual login/frontend activation remain required.
