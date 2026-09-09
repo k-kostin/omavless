@@ -79,7 +79,9 @@ candidate lifecycle acceptance. Installed units and capabilities were unchanged.
 4. Allow normal authentication; distinguish successful completion, cancellation,
    failed cleanup and uncertain ownership. Do not impose a short human deadline.
 5. Prove shutdown/cleanup; preserve rollback and no duplicate owner on failure.
-6. Run packaged native Full VPN/configured-readiness acceptance for #183.
+6. Repeat packaged native Full VPN/configured-readiness acceptance on this
+   exact candidate. Issue #183's configured-readiness implementation is already
+   closed; the remaining package/host evidence is not an unimplemented #183 fix.
 
 This policy alone does not close #178's startup integration work, add login
 activation, expose cutover, switch QML, or permit removing Python at R6.
