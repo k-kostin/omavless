@@ -97,4 +97,18 @@ test('refresh-order null facts remain unavailable rather than throwing',()=>{
   c.vless.nativeObservation={facts:null};assert.equal(c.nativeLocalStatus(),'native.localUnverified');
   c.vless.nativeObservation.facts={ownedCoreRunning:false,visibleTunCount:0};assert.equal(c.nativeLocalStatus(),'native.localStopped');
 });
+test('focused native controls route arrows back to the list without stealing search input',()=>{
+  const start=source.indexOf('  function handleNativeNavigationKey('),end=source.indexOf('\n  }',start)+4;
+  const calls=[];
+  const c=vm.createContext({vless:{nativeOwner:true},nativeSearch:{activeFocus:false},modalInputActive:false,page:'main',
+    Qt:{Key_Up:1,Key_Down:2,Key_Tab:3,Key_Backtab:4,Key_Escape:5},
+    moveNativeCursor:d=>calls.push(['move',d]),focusPanelControl:d=>calls.push(['tab',d]),
+    keyCatcher:{forceActiveFocus:()=>calls.push(['focus'])},handlePanelControlKey:()=>calls.push(['control'])});
+  c.root=c;vm.runInContext(source.slice(start,end),c);
+  for(const [key,d] of [[1,-1],[2,1]]){const event={key,accepted:false};c.handleNativeNavigationKey(event);assert(event.accepted);assert.deepEqual(calls.splice(0),[['move',d],['focus']]);}
+  c.page='settings';c.handleNativeNavigationKey({key:2});assert.deepEqual(calls.splice(0),[['tab',1]]);
+  c.nativeSearch.activeFocus=true;const input={key:1,accepted:false};c.handleNativeNavigationKey(input);assert(!input.accepted);assert.equal(calls.length,0);
+  c.nativeSearch.activeFocus=false;c.modalInputActive=true;c.handleNativeNavigationKey({key:2});assert.equal(calls.length,0);
+  assert.match(source,/id: nativeFlick\s+Keys.onPressed: function\(event\) \{ root.handleNativeNavigationKey\(event\) \}/);
+});
 console.log('native main panel: '+count+' passed');

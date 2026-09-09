@@ -197,13 +197,29 @@ Panel {
   }
 
   function moveNativeCursor(direction) {
-    if (page !== "main" || nativeRows.length === 0) return
+    if (page !== "main" || nativeRows.length === 0 || direction === 0) return
     nativeCursor = nativeCursor < 0 ? (direction < 0 ? nativeRows.length - 1 : 0)
       : Math.max(0, Math.min(nativeRows.length - 1, nativeCursor + direction))
     var row = nativeRows[nativeCursor]
     if (row.kind === "profile") nativeSelectedProfile = row.profile.id
     var item = nativeProfiles.itemAt(nativeCursor)
     if (item) scrollPanelControlIntoView(item)
+  }
+
+  function handleNativeNavigationKey(event) {
+    // Keys bubble here from focused native buttons, while PanelKeyCatcher is
+    // deliberately blocked by panelTabFocusActive. Editors keep their keys.
+    if (!vless.nativeOwner || nativeSearch.activeFocus || root.modalInputActive) return
+    if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+      var direction = event.key === Qt.Key_Up ? -1 : 1
+      if (page === "main") {
+        root.moveNativeCursor(direction)
+        keyCatcher.forceActiveFocus()
+      } else root.focusPanelControl(direction)
+      event.accepted = true
+    } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab || event.key === Qt.Key_Escape) {
+      root.handlePanelControlKey(event)
+    }
   }
 
   function activateNativeCursor() {
@@ -1653,6 +1669,7 @@ Panel {
 
       Flickable {
         id: nativeFlick
+        Keys.onPressed: function(event) { root.handleNativeNavigationKey(event) }
         anchors.fill: parent
         visible: vless.nativeOwner
         clip: true
@@ -1850,9 +1867,9 @@ Panel {
               RowLayout {
                 visible: nativeRow.isProfile
                 Layout.fillWidth: true
-                PanelActionButton { id: nativeChoose; size: Style.space(24); iconText: nativeRow.selected ? "●" : "○"; tooltipText: root.textFor("common.select"); focusable: true; enabled: nativeRow.isProfile; onClicked: root.nativeSelectedProfile = nativeRow.profile.id }
+                PanelActionButton { id: nativeChoose; size: Style.space(24); iconText: nativeRow.selected ? "●" : "○"; tooltipText: root.textFor("common.select"); focusable: true; enabled: nativeRow.isProfile; onClicked: { root.nativeSelectedProfile = nativeRow.profile.id; root.nativeCursor = nativeRow.index } }
                 PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? nativeRow.profile.name : ""; textFormat: Text.PlainText; color: nativeRow.isProfile && nativeRow.profile.id === root.nativeView.activeId ? Color.accent : root.foreground; font.family: root.fontFamily; elide: Text.ElideRight
-                  MouseArea { anchors.fill: parent; onClicked: root.nativeSelectedProfile = nativeRow.profile.id }
+                  MouseArea { anchors.fill: parent; onClicked: { root.nativeSelectedProfile = nativeRow.profile.id; root.nativeCursor = nativeRow.index } }
                 }
                 PlainText { visible: !nativeRow.selected; text: nativeRow.isProfile ? nativeRow.profile.protocol : ""; color: root.dim; font.family: root.fontFamily }
               Row {

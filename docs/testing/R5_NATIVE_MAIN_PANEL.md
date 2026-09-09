@@ -91,3 +91,25 @@ Screenshots include the desktop background and remain private, outside Git.
 This is still Draft UI work. Human installed keyboard/navigation acceptance,
 full subscription mutation UI, routing tools, startup and telemetry remain
 separate gates. Nothing in this continuation establishes R5/R6 completion.
+
+### Focused-button arrow regression
+
+Human acceptance found arrows stopped after clicking/tabbing to a native control.
+`panelTabFocusActive` deliberately blocks the shell key catcher, but the native
+controls had no ancestor handler to recover unconsumed navigation keys. The
+native Flickable now handles Up/Down and Tab/Escape bubbling from controls,
+returns focus to the list catcher, and leaves search/modal keys untouched.
+Clicked profile selection also synchronizes the row cursor. No runtime change.
+
+Thirteen source-function main-panel tests and QML contracts pass. The opt-in
+installed-shell test below exercises real Qt key delivery through Omarchy's
+PanelKeyCatcher (two behavior cases plus Qt init/cleanup: four passed):
+
+```sh
+env QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software \
+  /usr/lib/qt6/bin/qmltestrunner -platform offscreen \
+  -input tests/tst_native_key_bubbling.qml
+```
+
+This test isolates the shell/focus composition, while the Node regression
+executes the production handler. Human full-panel acceptance is still distinct.
