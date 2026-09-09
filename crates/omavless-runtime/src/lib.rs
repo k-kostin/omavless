@@ -47,6 +47,7 @@ pub mod frontend_bridge;
 pub mod import_read_protocol;
 pub mod lifecycle;
 pub mod login_intent;
+pub mod login_transaction;
 pub mod long_operation;
 pub mod long_operation_protocol;
 pub mod mutation;

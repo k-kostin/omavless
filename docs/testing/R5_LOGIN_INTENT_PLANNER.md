@@ -49,8 +49,10 @@ availability or absence of another owner. Before applying a first-login plan,
 the fixed host must hold the migration/owner locks, verify the current marker
 and generation, validate the one-shot trigger, prove no conflicting core/TUN/
 controller, and validate the generated candidate where connection is requested.
-Only then may it atomically persist intent and consume the trigger under the
-accepted recovery contract. A failed validation must not leave an unverified
+Only then may it publish intent and consume the trigger under the
+[ordered publication/recovery contract](R5_LOGIN_INTENT_TRANSACTION.md).
+Each file replacement is atomic, not the combined two-file update; a pending
+receipt blocks unsafe retries. A failed validation must not leave an unverified
 connected intent or falsely consumed success.
 
 Ordinary daemon restart must reconcile durable current intent, including an
