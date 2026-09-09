@@ -28,7 +28,7 @@ snapshot updates displayed state. Public errors discard raw backend messages.
   admission, managed-profile restrictions and no optimistic state change.
 - Launcher tests cover fixed dispatch, no shell interpretation, unchanged
   legacy ownership behavior and no native-to-Python fallback.
-- Exact-head installed package/daemon and English/Russian UI smoke: pending.
+- Exact-head installed package/daemon and English/Russian UI smoke: passed below.
   Exercise pin/unpin, standalone rename/cancel/duplicate rejection,
   delete cancel/confirm on a disposable profile, Tab/Shift+Tab, narrow layout,
   panel reopen, failed/unknown result presentation and connection regression.
@@ -67,8 +67,19 @@ long-list bottom rows remained scrollable. Private screenshots were inspected
 locally, not committed or published. One closed-panel capture was discarded
 and repeated with the dialog actually visible.
 
-Human installed mouse/keyboard checks, disposable-profile delete confirmation,
-duplicate-rename/unknown-outcome visual states and the candidate's connection
-regression remain pending. The former installed #206 connection evidence is
-not relabeled as proof of all new profile controls. Keep this PR Draft until
-its declared UI/host checks are satisfied; this is not complete UI parity.
+The owner confirmed installed pin/unpin, standalone rename followed by Escape,
+and connect/disconnect on this candidate. Post-check native facts were current,
+disconnected, with no pending/unknown action and zero visible Mihomo/TUN.
+The former #206 connection evidence is not relabeled as a new instrumented
+network probe: this candidate's connection regression is human-confirmed.
+
+Isolated QML delete confirmation reduced the synthetic profile count from 16
+to 15; refresh finished without pending/unknown state. No real profile was
+deleted. Duplicate rename was rejected with confirmation disabled in both
+English and Russian. Repeated captures showed the actual duplicate hint and
+unknown-outcome recovery controls without overlap. Unknown-outcome screenshots
+use injected test-only presentation state, not a claimed live transport fault;
+lost-reply/replay semantics are covered by deterministic tests. Captures taken
+after a dismissed dialog were rejected and repeated in one uninterrupted run.
+These checks complete this bounded profile-controls acceptance, not full UI
+parity or R5/R6.
