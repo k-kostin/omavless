@@ -1773,7 +1773,7 @@ Panel {
                 visible: nativeRow.isProfile
                 Layout.fillWidth: true
                 Button { id: nativeChoose; text: nativeRow.selected ? "●" : "○"; focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing; onClicked: root.nativeSelectedProfile = nativeRow.profile.id }
-                PlainText { Layout.fillWidth: true; text: nativeRow.isProfile ? nativeRow.profile.name : ""; textFormat: Text.PlainText; color: nativeRow.isProfile && nativeRow.profile.id === root.nativeView.activeId ? Color.accent : root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
+                PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? nativeRow.profile.name : ""; textFormat: Text.PlainText; color: nativeRow.isProfile && nativeRow.profile.id === root.nativeView.activeId ? Color.accent : root.foreground; font.family: root.fontFamily; elide: Text.ElideRight }
                 PlainText { text: nativeRow.isProfile ? nativeRow.profile.protocol : ""; color: root.dim; font.family: root.fontFamily }
               }
               Flow {
