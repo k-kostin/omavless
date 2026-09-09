@@ -10,6 +10,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "NativeSnapshot.js" as NativeSnapshot
 
 // The QR code as a screen-centred window of its own, not an overlay inside
 // the bar popup: a profile URI can be several hundred bytes, so its code runs to
@@ -30,6 +31,7 @@ PanelWindow {
   property bool open: false
   property string name: ""
   property string path: ""
+  property string dataUri: ""
   property bool loading: false
   property string errorCode: ""
   property string locale: "en"
@@ -45,7 +47,8 @@ PanelWindow {
     return I18n.translate(key, locale, values || {})
   }
 
-  readonly property bool showingCode: path !== "" && !loading && errorCode === ""
+  readonly property string safeDataUri: NativeSnapshot.qrDataUri(dataUri)
+  readonly property bool showingCode: (path !== "" || safeDataUri !== "") && !loading && errorCode === ""
   // The PNG's white quiet-zone margin, kept out of the image itself so the
   // backing rectangle can supply the contrast a phone camera wants.
   readonly property real codeInset: Style.space(6)
@@ -177,7 +180,7 @@ PanelWindow {
             id: qrImage
             anchors.fill: parent
             anchors.margins: root.codeInset
-            source: root.path !== "" ? "file://" + root.path : ""
+            source: !root.open ? "" : root.safeDataUri !== "" ? root.safeDataUri : root.path !== "" ? "file://" + root.path : ""
             fillMode: Image.PreserveAspectFit
             // Crisp modules beat antialiased mush for a camera — but only
             // while we are magnifying. A code too big for the screen gets

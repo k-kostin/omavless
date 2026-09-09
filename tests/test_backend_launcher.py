@@ -80,6 +80,36 @@ exit {code}
         self.assertEqual(result.stdout, "")
         self.assertNotIn("private-token", result.stderr)
 
+    def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
+        self.action_native()
+        for args, expected in [
+            (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),
+            (("native-qr-render",), ["desktop", "qr-data-uri"]),
+        ]:
+            result = self.run_launcher(*args)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + item for item in expected]])
+            self.trace.unlink()
+        for args in [("native-profile-qr",), ("native-profile-qr", "id", "private-token"), ("native-qr-render", "private-token")]:
+            result = self.run_launcher(*args)
+            self.assertEqual(result.returncode, 71)
+            self.assertEqual(self.calls(), ["native:plugin:target"])
+            self.assertNotIn("private-token", result.stderr)
+            self.trace.unlink()
+
+    def test_native_qr_private_input_is_unchanged_stdin_only(self):
+        self.script("omavless", '''
+if [ "$1" = plugin ] && [ "$2" = target ]; then printf 'rust\\n'; exit 0; fi
+for argument in "$@"; do printf 'arg:%s\\n' "$argument" >> "$BRIDGE_TEST_TRACE"; done
+exec /usr/bin/cat
+''')
+        synthetic = 'vless://synthetic-token;$(false)'
+        result = subprocess.run(["/bin/sh", str(LAUNCHER), "native-qr-render"],
+                                input=synthetic, env=self.env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, synthetic)
+        self.assertEqual(self.calls(), ["arg:desktop", "arg:qr-data-uri"])
+
     def test_native_actions_preserve_exact_fixed_mapping_and_arguments(self):
         self.action_native()
         for action, tail in [

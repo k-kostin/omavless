@@ -19,6 +19,7 @@ generation-fenced semantic API, then invokes a fixed helper operation.
 | `file-read` | absolute local path, optional final newline | private file contents |
 | `edit` | explicit UTF-8 editor seed | private edited text |
 | `qr` | explicit private profile link | binary PNG |
+| `qr-data-uri` | explicit private profile link | private `data:image/png;base64,...` text |
 | `export-file` | absolute destination + newline + explicit private contents | empty |
 | `cleanup` | none | public removed-file count |
 
@@ -89,6 +90,15 @@ Local reference files: `/usr/lib/qt6/qml/QtQuick/Dialogs/qmldir`,
   exact `text/plain`, otherwise preserve wl-paste's default MIME selection.
 - MIME listing: 8192 bytes; oversized/unbounded listings fail safely.
 - QR: ten seconds, 4 MiB PNG response cap, PNG signature required.
+- `qr-data-uri` wraps the same bounded encoder output in canonical padded
+  base64, at most 5,592,430 bytes including the fixed prefix, with no newline.
+  It uses the already locked base64 crate, not a shell command or custom codec.
+  The existing binary `qr` output remains unchanged. The URI is a complete
+  credential-bearing image: never log it, put it in argv or store it as a
+  preference. A future QML image sink must accept only the fixed PNG-data prefix,
+  keep caching off and clear its private source after dismissal/stale completion.
+  This client output is not a daemon NDJSON response and does not relax v1 frame
+  bounds. The adapter alone does not restore QR UI or remove Python.
 - Interactive chooser/editor: no artificial human-response deadline. Output
   remains bounded and nonzero results never release partial private data.
 - Nonblocking simultaneous stdin/stdout prevents pipe deadlocks. Child stderr

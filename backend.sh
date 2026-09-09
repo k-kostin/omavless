@@ -43,6 +43,14 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-profile-qr)
+          [ "$#" -eq 2 ] || blocked
+          exec omavless profile export "$2" qr
+          ;;
+        native-qr-render)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless desktop qr-data-uri
+          ;;
         native-observation)
           [ "$#" -eq 1 ] || blocked
           exec omavless runtime observation

@@ -3,6 +3,7 @@
 //! Explicit client-side desktop adapters. Never registered on the daemon socket.
 //! Successful data is private; errors contain only fixed public vocabulary.
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::unistd::Uid;
 use std::env;
@@ -21,6 +22,21 @@ use std::time::{Duration, Instant};
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 pub const MAX_PATH_BYTES: usize = 4096;
 const MAX_PNG_BYTES: usize = 4 * 1024 * 1024;
+const PNG_DATA_URI_PREFIX: &str = "data:image/png;base64,";
+pub const MAX_QR_DATA_URI_BYTES: usize = PNG_DATA_URI_PREFIX.len() + MAX_PNG_BYTES.div_ceil(3) * 4;
+
+fn png_data_uri(png: &[u8]) -> Result<String> {
+    if png.len() > MAX_PNG_BYTES || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(Error::Unavailable);
+    }
+    let mut result = String::with_capacity(PNG_DATA_URI_PREFIX.len() + png.len().div_ceil(3) * 4);
+    result.push_str(PNG_DATA_URI_PREFIX);
+    STANDARD.encode_string(png, &mut result);
+    if result.len() > MAX_QR_DATA_URI_BYTES {
+        return Err(Error::Unavailable);
+    }
+    Ok(result)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -222,6 +238,12 @@ impl DesktopHelpers {
             return Err(Error::Unavailable);
         }
         Ok(output)
+    }
+
+    /// Private in-memory image for an explicit frontend. No filename, store or
+    /// socket access; the existing encoder owns input, process and PNG bounds.
+    pub fn qr_data_uri(&self, data: &[u8]) -> Result<String> {
+        png_data_uri(&self.qr_png(data)?)
     }
 }
 
@@ -670,6 +692,61 @@ mod tests {
             Err(Error::InvalidInput)
         );
         assert_eq!(fs::read_dir(&f.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn qr_data_uri_is_canonical_bounded_and_matches_binary_output() {
+        for length in [8, 9, 10, MAX_PNG_BYTES] {
+            let mut png = vec![0; length];
+            png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+            let encoded = png_data_uri(&png).unwrap();
+            assert!(encoded.len() <= MAX_QR_DATA_URI_BYTES);
+            assert_eq!(
+                STANDARD
+                    .decode(encoded.strip_prefix(PNG_DATA_URI_PREFIX).unwrap())
+                    .unwrap(),
+                png
+            );
+            assert!(!encoded.contains('\n'));
+        }
+        assert_eq!(MAX_QR_DATA_URI_BYTES, 5_592_430);
+        assert_eq!(
+            png_data_uri(b"private-invalid-image"),
+            Err(Error::Unavailable)
+        );
+        let mut oversize = vec![0; MAX_PNG_BYTES + 1];
+        oversize[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        assert_eq!(png_data_uri(&oversize), Err(Error::Unavailable));
+        let f = Fixture::new();
+        assert_eq!(
+            f.helpers().qr_data_uri(b"private seed"),
+            Err(Error::MissingQr)
+        );
+        f.tool("qrencode", "test \"$*\" = '-o - -s 8 -m 2' || exit 5; IFS= read -r value; test \"$value\" = 'private seed' || exit 6; printf '\\211PNG\\r\\n\\032\\n'");
+        let binary = f.helpers().qr_png(b"private seed\n").unwrap();
+        assert_eq!(
+            f.helpers().qr_data_uri(b"private seed\n").unwrap(),
+            png_data_uri(&binary).unwrap()
+        );
+        assert_eq!(f.helpers().qr_data_uri(b"\xff"), Err(Error::InvalidInput));
+        assert_eq!(
+            f.helpers().qr_data_uri(&vec![b'x'; MAX_TEXT_BYTES + 1]),
+            Err(Error::TooLarge)
+        );
+        // qrencode is not an interactive dialog: exit 1 is failure, not cancel.
+        f.tool("qrencode", "printf 'private-invalid-image'; exit 1");
+        assert_eq!(
+            f.helpers().qr_data_uri(b"private seed"),
+            Err(Error::Unavailable)
+        );
+        f.tool(
+            "qrencode",
+            "printf '\\211PNG\\r\\n\\032\\n'; /usr/bin/head -c 4194304 /dev/zero",
+        );
+        assert_eq!(
+            f.helpers().qr_data_uri(b"private seed"),
+            Err(Error::TooLarge)
+        );
     }
 
     #[test]

@@ -2042,6 +2042,17 @@ Item {
   // deliberate act); the QR is rendered by the backend into XDG_RUNTIME_DIR
   // and displayed by the centred QR window, which owns the PNG until closeQr.
   property string qrPath: ""
+  property string qrDataUri: ""
+  property var _nativeQrContext: null
+  property var _nativeQrExportContext: null
+  property var _nativeQrRenderContext: null
+  property string _nativeQrInput: ""
+  property var nativeQrExportProcess: null
+  property var nativeQrRenderProcess: null
+  onNativeOwnerChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativeSnapshotChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativeSnapshotFailedChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativePendingChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
   property string qrName: ""
   // The QR window is the only surface a QR request reports through — the
   // panel closes the moment one starts, so a render failure has to be
@@ -2050,7 +2061,63 @@ Item {
   property bool qrLoading: false
   // Stable local UI code only. Never forward qrencode/backend stderr to QML.
   property string qrErrorCode: ""
-  readonly property bool qrVisible: qrLoading || qrPath !== "" || qrErrorCode !== ""
+  readonly property bool qrVisible: qrLoading || qrPath !== "" || qrDataUri !== "" || qrErrorCode !== ""
+
+  function nativeQrCurrent(context) {
+    return context !== null && context === _nativeQrContext && nativeOwner
+      && !nativeSnapshotFailed && nativeSnapshot !== null
+      && nativeSnapshot.instanceId === context.instanceId && nativeSnapshot.revision === context.revision
+      && !nativePending
+  }
+
+  function showNativeQr(profile) {
+    if (!nativeCanAct || !profile || !nativeSnapshot.profiles.some(function(p) { return p.id === profile.uuid })) return ""
+    if (nativeQrExportProcess !== null || nativeQrRenderProcess !== null) return ""
+    closeQr()
+    _nativeQrContext = {instanceId: nativeSnapshot.instanceId, revision: nativeSnapshot.revision}
+    _nativeQrExportContext = _nativeQrContext
+    qrName = String(profile.name)
+    qrLoading = true
+    nativeQrExportProcess = nativeQrExportComponent.createObject(root, {command: ["bash", backendPath, "native-profile-qr", profile.uuid]})
+    if (nativeQrExportProcess === null) { qrLoading = false; qrErrorCode = "render_failed"; return "" }
+    nativeQrExportProcess.running = true
+    return ""
+  }
+
+  function finishNativeQrExport(code, output) {
+    var context = _nativeQrExportContext
+    _nativeQrExportContext = null
+    if (!nativeQrCurrent(context)) { if (context === _nativeQrContext) closeQr(); return }
+    var input = code === 0 ? NativeSnapshot.parseQrExport(output, context.revision) : null
+    if (input === null) { qrLoading = false; qrErrorCode = "render_failed"; return }
+    _nativeQrInput = input
+    _nativeQrRenderContext = context
+    nativeQrRenderProcess = nativeQrRenderComponent.createObject(root, {command: ["bash", backendPath, "native-qr-render"], stdinEnabled: true})
+    if (nativeQrRenderProcess === null) { _nativeQrInput = ""; qrLoading = false; qrErrorCode = "render_failed"; return }
+    nativeQrRenderProcess.running = true
+  }
+
+  function finishNativeQrRender(code, output, error) {
+    var context = _nativeQrRenderContext
+    _nativeQrRenderContext = null
+    _nativeQrInput = ""
+    if (!nativeQrCurrent(context)) { if (context === _nativeQrContext) closeQr(); return }
+    qrLoading = false
+    qrDataUri = code === 0 ? NativeSnapshot.qrDataUri(output) : ""
+    if (qrDataUri === "") qrErrorCode = code !== 0 && String(error || "").trim() === "QR encoder unavailable: install qrencode" ? "dependency_missing" : "render_failed"
+  }
+
+  function disposeNativeQrProcess(kind, process, code, output, error) {
+    try {
+      if (kind === "export") {
+        nativeQrExportProcess = null
+        finishNativeQrExport(code, output)
+      } else {
+        nativeQrRenderProcess = null
+        finishNativeQrRender(code, output, error)
+      }
+    } finally { process.destroy() }
+  }
 
   function exportToPath(profile, path) {
     if (nativeOwner) return rejectNativeAction()
@@ -2069,7 +2136,7 @@ Item {
 
   // Returns "" when a code is on its way, or why nothing will appear.
   function showQr(profile) {
-    if (nativeOwner) { rejectNativeAction(); return actionRejection }
+    if (nativeOwner) return showNativeQr(profile)
     if (!profile || !profile.uuid) return "no such profile"
     if (editProcess.running || pickerProcess.running)
       return "close the open editor or file picker first"
@@ -2106,6 +2173,11 @@ Item {
     // The process itself is left to finish: killing qrencode mid-write would
     // strand the file mktemp already created.
     _qrWanted = false
+    _nativeQrContext = null
+    _nativeQrExportContext = null
+    _nativeQrRenderContext = null
+    _nativeQrInput = ""
+    qrDataUri = ""
     removeQrFile(qrPath)
     qrPath = ""
     qrName = ""
@@ -2901,6 +2973,38 @@ Item {
       else {
         root.actionStatus = ""
         root.lastError = "Could not copy to the clipboard — is wl-clipboard installed?"
+      }
+    }
+  }
+
+  Component {
+    id: nativeQrExportComponent
+    Process {
+      id: process
+      running: false
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) {
+        root.disposeNativeQrProcess("export", process, code, output.text, "")
+      }
+    }
+  }
+
+  Component {
+    id: nativeQrRenderComponent
+    Process {
+      id: process
+      running: false
+      stdinEnabled: false
+      onStarted: {
+        if (root.nativeQrCurrent(root._nativeQrRenderContext)) write(root._nativeQrInput)
+        root._nativeQrInput = ""
+        stdinEnabled = false
+      }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { id: error; waitForEnd: true }
+      onExited: function(code) {
+        root.disposeNativeQrProcess("render", process, code, output.text, error.text)
       }
     }
   }

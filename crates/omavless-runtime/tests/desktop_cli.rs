@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -44,6 +45,63 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn qr_data_uri_cli_preserves_binary_command_and_keeps_input_private() {
+    let f = Fixture::new();
+    let missing = f.call(&["desktop", "qr-data-uri"], b"private-token");
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(missing.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&missing.stderr).contains("private-token"));
+    let tool = f.0.join("qrencode");
+    fs::write(&tool, b"#!/bin/bash\ntest \"$*\" = '-o - -s 8 -m 2' || exit 9\nIFS= read -r input\ntest \"$input\" = 'private-token' || exit 8\nprintf '\\211PNG\\r\\n\\032\\n'\n").unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+    let binary = f.call(&["desktop", "qr"], b"private-token\n");
+    let encoded = f.call(&["desktop", "qr-data-uri"], b"private-token\n");
+    assert!(binary.status.success() && encoded.status.success());
+    assert!(binary.stderr.is_empty() && encoded.stderr.is_empty());
+    let text = String::from_utf8(encoded.stdout).unwrap();
+    assert_eq!(text, "data:image/png;base64,iVBORw0KGgo=");
+    assert_eq!(
+        STANDARD
+            .decode(text.strip_prefix("data:image/png;base64,").unwrap())
+            .unwrap(),
+        binary.stdout
+    );
+    assert!(!text.contains("private-token"));
+    let oversized = f.call(&["desktop", "qr-data-uri"], &vec![b'x'; 65537]);
+    assert_eq!(oversized.status.code(), Some(2));
+    assert!(oversized.stdout.is_empty());
+    for (args, input) in [
+        (
+            vec!["desktop", "qr-data-uri", "private-token"],
+            b"".as_slice(),
+        ),
+        (vec!["desktop", "qr-data-uri"], b"\xff".as_slice()),
+        (
+            vec!["desktop", "qr-data-uri"],
+            b"private-token\0".as_slice(),
+        ),
+    ] {
+        let output = f.call(&args, input);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+    }
+    fs::write(&tool, b"#!/bin/bash\nprintf 'private-token'\nexit 1\n").unwrap();
+    let failed = f.call(&["desktop", "qr-data-uri"], b"private-token");
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&failed.stderr).contains("private-token"));
+    fs::write(&tool, b"#!/bin/bash\nprintf 'private-invalid-image'\n").unwrap();
+    let invalid = f.call(&["desktop", "qr-data-uri"], b"private-token");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("private-invalid-image"));
+    assert!(!f.0.join("omavless").exists());
+    assert!(!f.0.join("omavless-desktop").exists());
+    assert!(!f.0.join(".config").exists());
 }
 
 #[test]

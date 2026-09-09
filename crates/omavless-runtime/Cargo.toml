@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64 = "0.22"
 nix = { version = "0.30", features = ["fs", "process", "signal", "socket", "user"] }
 omavless-control-protocol = { path = "../omavless-control-protocol" }
 omavless-domain = { path = "../omavless-domain" }

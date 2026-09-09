@@ -462,7 +462,7 @@ Panel {
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
     if (vless.nativeOwner) {
-      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
+      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeQr, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
         if (row) targets.push(row.focusTarget)
@@ -1245,7 +1245,6 @@ Panel {
     // which holds the same kind of surface. One handler covers every entry
     // point — the q key, the row button and IPC.
     function onQrVisibleChanged() {
-      if (vless.nativeOwner) return
       if (!vless.qrVisible) return
       if (root.opened) root.close()
       if (root.pendingRename !== null) root.cancelRename()
@@ -1576,6 +1575,7 @@ Panel {
             Button { id: nativeRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestRename(root.nativeSelectedRecord()) }
             Button { id: nativeFavorite; text: root.textFor(root.nativeSelectedRecord() && root.nativeSelectedRecord().favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.toggleFavorite(root.nativeSelectedRecord()) }
             Button { id: nativeDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: root.requestDelete(root.nativeSelectedRecord()) }
+            Button { id: nativeQr; text: "QR"; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSelectedRecord() !== null; onClicked: vless.showQr(root.nativeSelectedRecord()) }
           }
           Flow {
             Layout.fillWidth: true
@@ -3148,9 +3148,10 @@ Panel {
   QrWindow {
     id: qrWindow
     anchorItem: button
-    open: !vless.nativeOwner && vless.qrVisible
+    open: vless.qrVisible
     name: vless.qrName
     path: vless.qrPath
+    dataUri: vless.qrDataUri
     loading: vless.qrLoading
     errorCode: vless.qrErrorCode
     locale: root.uiLocale
