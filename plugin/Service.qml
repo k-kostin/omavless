@@ -19,6 +19,58 @@ Item {
   property bool nativeOwner: false
   property var nativeSnapshot: null
   property bool nativeSnapshotFailed: false
+  property var nativeObservation: null
+  property var nativePending: null
+  property string nativeActionCode: ""
+  property bool nativeOutcomeUnknown: false
+  readonly property bool nativeActionRunning: nativeActionProcess.running
+  readonly property bool nativeFactsCurrent: nativeOwner && !nativeSnapshotFailed
+    && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
+    && nativeObservation.availability === "observed"
+  readonly property bool nativeCanAct: nativeFactsCurrent && !nativePending
+    && nativeSnapshot.lastKnownActual !== "manualRecoveryRequired"
+    && !nativeObservation.manualRecoveryRequired
+  property int _nativeOperationSerial: 0
+
+  function refreshNativeObservation() {
+    if (!nativeOwner || nativeActionRunning || nativeObservationProcess.running) return false
+    nativeObservationProcess.running = true
+    return true
+  }
+
+  function requestNativeAction(action, profileId, mode) {
+    if (!nativeCanAct || ["connect", "disconnect", "mode"].indexOf(action) < 0) return false
+    if (action !== "disconnect" && ["rule", "global", "direct"].indexOf(mode) < 0) return false
+    if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    if (action === "connect") args.push(profileId, mode)
+    else if (action === "mode") args.push(mode)
+    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      operationId:operation, action:action, command:args}
+    nativeActionCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.running = true
+    return true
+  }
+
+  function reconcileNativeAction() {
+    if (!nativeOwner || !nativePending || nativeActionRunning) return false
+    // Explicit retry carries identical instance/revision/operation and payload.
+    nativeActionProcess.command = nativePending.command
+    nativeActionProcess.running = true
+    return true
+  }
+
+  function acceptRefreshedNativeState() {
+    if (!nativeFactsCurrent || nativeActionRunning || !nativeOutcomeUnknown) return false
+    // Human acknowledgement does not claim the old operation succeeded/failed.
+    nativePending = null
+    nativeOutcomeUnknown = false
+    nativeActionCode = ""
+    return true
+  }
 
   function enterNativeReadOnly() {
     nativeOwner = true
@@ -546,6 +598,7 @@ Item {
   }
 
   function refresh() {
+    if (nativeActionRunning) return false
     // Timer and manual refreshes coalesce. This is not an operation failure:
     // recording it in lastError would make the bar urgent forever after a
     // normal timer overlap, but IPC can still return the rejection reason.
@@ -971,6 +1024,7 @@ Item {
       if (!snapshot) { nativeSnapshotFailed = true; return false }
       nativeSnapshot = snapshot
       nativeSnapshotFailed = false
+      Qt.callLater(refreshNativeObservation)
       lastError = ""
       _pollError = false
       return true
@@ -1116,6 +1170,10 @@ Item {
     nativeOwner = false
     nativeSnapshot = null
     nativeSnapshotFailed = false
+    nativeObservation = null
+    nativePending = null
+    nativeOutcomeUnknown = false
+    nativeActionCode = ""
     lastUuid = payload.lastId
     coreSetup = {
       installed: setup.installed,
@@ -2324,6 +2382,39 @@ Item {
     onTriggered: root.samplePing()
   }
 
+
+  Process {
+    id: nativeObservationProcess
+    running: false
+    command: ["bash", root.backendPath, "native-observation"]
+    stdout: StdioCollector { id: nativeObservationStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.nativeObservation = exitCode === 0 ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
+    }
+  }
+
+  Process {
+    id: nativeActionProcess
+    running: false
+    stdout: StdioCollector { id: nativeActionStdout; waitForEnd: true }
+    // Raw errors never enter visible state or the shared legacy error channel.
+    onExited: function(exitCode) {
+      var result = NativeSnapshot.parseAction(nativeActionStdout.text, root.nativePending)
+      if (!result || exitCode === 73) {
+        root.nativeOutcomeUnknown = true
+        root.nativeActionCode = ""
+      } else if (!result.ok && result.code === "daemon_restarting") {
+        root.nativeOutcomeUnknown = true
+        root.nativeActionCode = result.code
+      } else {
+        root.nativeOutcomeUnknown = false
+        root.nativePending = null
+        root.nativeActionCode = result.ok ? "" : result.code
+      }
+      root.nativeObservation = null
+      root.refreshAfterChange()
+    }
+  }
 
   Process {
     id: statusProcess

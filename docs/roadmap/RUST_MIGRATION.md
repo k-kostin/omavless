@@ -1358,6 +1358,10 @@ adds owner-fenced `runtime.observation` / `runtime observation`: strict visible
 inventories and PID-authenticated owned-controller configuration facts, separate
 from cached lifecycle state. It does not establish TUN ownership, routes, DNS or
 internet connectivity and does not change the QML snapshot contract or owner.
+The [native action bridge](../testing/R5_NATIVE_PLUGIN_ACTIONS.md) then adds
+profile selection and explicit connection/mode controls, instance/revision/replay
+fencing and outcome-unknown handling. Full native tool parity, installed
+activation/login and R6 Python retirement remain separate required gates.
 
 The [explicit disconnected activation candidate](../testing/R5_DISCONNECTED_ACTIVATION.md)
 exposes only the fixed local `cutover activate` command, with installed package
@@ -1373,8 +1377,8 @@ Full VPN/TUN HTTPS/cleanup probe and disconnected daemon restart passed.
 Installed QML exposed native controls and fresh local facts. Both startup units
 remain disabled. Exact binary/package identities, combined test counts, listener
 attribution and harness corrections are recorded in the linked report. Human
-native-button connect/disconnect, complete frontend coverage, login activation
-and Python-absence acceptance remain pending; R5/R6 are not complete.
+native-button connect/disconnect also passed. Complete frontend coverage, login
+activation and Python-absence acceptance remain pending; R5/R6 are not complete.
 
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch

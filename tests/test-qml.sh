@@ -439,4 +439,6 @@ if command -v qmllint >/dev/null 2>&1; then
   qmllint "$sparkline"
 fi
 
+grep -q 'var flick = vless.nativeOwner ? nativeFlick' "$panel"
+
 echo "QML contracts: ok"
