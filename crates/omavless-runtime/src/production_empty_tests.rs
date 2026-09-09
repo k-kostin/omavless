@@ -57,6 +57,84 @@ impl Drop for Fixture {
     }
 }
 
+fn disconnected_native_fixture(native: &str, legacy: &str) -> Fixture {
+    let f = Fixture::new(&format!(
+        "if [ \"$3\" = omavless-runtime.service ]; then printf '{native}'; else printf '{legacy}'; fi"
+    ));
+    f.runtime_child();
+    drop(UnixListener::bind(&f.paths.rust_control_socket).unwrap());
+    fs::set_permissions(
+        &f.paths.rust_control_socket,
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    f
+}
+
+const ACTIVE_NATIVE: &str =
+    "ActiveState=active\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n";
+const INACTIVE_LEGACY: &str =
+    "ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n";
+
+#[test]
+fn disconnected_native_requires_complete_final_inventories() {
+    for kind in [
+        "valid",
+        "missingcomm",
+        "core",
+        "tun",
+        "missingproc",
+        "missingnet",
+    ] {
+        let f = disconnected_native_fixture(ACTIVE_NATIVE, INACTIVE_LEGACY);
+        let observer = f.observer();
+        match kind {
+            "missingproc" => fs::remove_dir(&f.paths.proc_root).unwrap(),
+            "missingnet" => fs::remove_dir(&f.paths.sys_class_net).unwrap(),
+            "tun" => {
+                fs::create_dir(f.paths.sys_class_net.join("tun")).unwrap();
+                fs::write(f.paths.sys_class_net.join("tun/tun_flags"), b"0x1001\n").unwrap();
+            }
+            "core" | "missingcomm" => {
+                fs::create_dir(f.paths.proc_root.join("42")).unwrap();
+                if kind == "core" {
+                    fs::write(f.paths.proc_root.join("42/comm"), b"mihomo\n").unwrap();
+                }
+            }
+            _ => {}
+        }
+        let result = observer.verify_disconnected_native();
+        if kind == "valid" {
+            let result = result.unwrap();
+            assert!(result.rust_owner_active);
+            assert_eq!((result.core_count, result.tun_count), (0, 0));
+        } else {
+            assert!(result.is_err());
+        }
+    }
+}
+
+#[test]
+fn disconnected_native_refuses_zero_pid_transitional_and_legacy_owners() {
+    for native in [
+        ACTIVE_NATIVE.replace("42", "0"),
+        ACTIVE_NATIVE.replace("=active", "=inactive"),
+        ACTIVE_NATIVE.replace("=active", "=activating"),
+        ACTIVE_NATIVE.replace("=active", "=deactivating"),
+        ACTIVE_NATIVE.replace("success", "exit-code"),
+    ] {
+        let f = disconnected_native_fixture(&native, INACTIVE_LEGACY);
+        assert!(f.observer().verify_disconnected_native().is_err());
+    }
+    for legacy in [
+        INACTIVE_LEGACY.replace("MainPID=0", "MainPID=2"),
+        INACTIVE_LEGACY.replace("=inactive", "=active"),
+    ] {
+        let f = disconnected_native_fixture(ACTIVE_NATIVE, &legacy);
+        assert!(f.observer().verify_disconnected_native().is_err());
+    }
+}
+
 #[test]
 fn verified_empty_does_not_require_or_create_store_or_config() {
     let f = Fixture::empty();
@@ -222,4 +300,30 @@ fn retained_descendant_stdout_cannot_extend_query_deadline() {
     assert!(started.elapsed() < Duration::from_millis(800));
     // The deliberately unowned helper self-terminates; never send broad kills.
     thread::sleep(Duration::from_millis(1100));
+}
+
+#[test]
+fn cutover_environment_query_is_fixed_bounded_and_has_no_host_effects() {
+    for oversized in [false, true] {
+        let f = Fixture::empty();
+        let body = if oversized {
+            "printf '%65537s' ''"
+        } else {
+            "printf 'HOME=/home/test\\nXDG_RUNTIME_DIR=/run/user/1000\\n'"
+        };
+        fs::write(&f.paths.systemctl, format!(
+            "#!/bin/sh\n[ \"$#\" = 2 ] && [ \"$1\" = --user ] && [ \"$2\" = show-environment ] || exit 9\n{body}\n"
+        )).unwrap();
+        thread::sleep(Duration::from_millis(20));
+        let result = manager_environment_query(&f.paths.systemctl);
+        if oversized {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap() == "HOME=/home/test\nXDG_RUNTIME_DIR=/run/user/1000\n");
+        }
+        assert!(!f.paths.store.exists());
+        assert!(!f.paths.active_config.exists());
+        assert!(!f.paths.rust_control_socket.exists());
+        assert_eq!(fs::read_dir(&f.paths.runtime_base).unwrap().count(), 0);
+    }
 }

@@ -64,6 +64,9 @@ fn run() -> Result<(), CliError> {
         println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  runtime observation              fresh local facts; not VPN connectivity");
         println!("  plugin target                    read committed launcher target only");
+        println!(
+            "  cutover activate                 explicit disconnected native ownership transition"
+        );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"
@@ -220,6 +223,25 @@ fn run() -> Result<(), CliError> {
         println!(
             "{}",
             serde_json::to_string(&result.public_json()).map_err(|_| "Output failed")?
+        );
+        return Ok(());
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "cutover")
+    {
+        if !omavless_runtime::cutover_activation::is_activation(&arguments) {
+            return Err("Invalid cutover command".into());
+        }
+        let outcome = omavless_runtime::cutover_activation::activate()
+            .map_err(|error| match error {
+                omavless_runtime::cutover_transaction::CutoverTransactionError::PreconditionsFailed =>
+                    "Ownership cutover preconditions are not satisfied; require the matching installed package, disconnected legacy state, disabled startup and compatible private store. Run cutover-preflight and store-compatibility; do not edit ownership markers.".to_owned(),
+                _ => error.to_string(),
+            })?;
+        println!(
+            "{}",
+            json!({"version": 1, "outcome": "rust_committed", "generation": outcome.marker.generation()})
         );
         return Ok(());
     }

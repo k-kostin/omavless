@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Deterministic orchestration for the future explicit R5 ownership cutover.
+//! Deterministic orchestration for the explicit R5 ownership cutover.
 //!
-//! This module has no production host adapter or CLI entry point. It sequences
+//! This module has no direct CLI entry point. It sequences
 //! only fixed-purpose host operations behind [`CutoverTransactionHost`], and
-//! compensates back to a verified legacy state on any failure. A later host
-//! adapter must make the explicit candidate lock handoff below atomic with
+//! compensates back to a verified legacy state on recoverable failure. The host
+//! adapter makes the explicit candidate lock handoff below atomic with
 //! respect to the durable preparing marker.
 
 use crate::cutover::{

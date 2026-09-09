@@ -2,12 +2,10 @@
 
 //! Fixed-path production host composition for the explicit R5 cutover.
 //!
-//! This module deliberately exposes no CLI command. It binds the accepted pure
-//! cutover transaction to private desired/ownership state, the two fixed user
-//! services, the private runtime socket and credential-safe host observation.
-//! The Omarchy compatibility bridge remains an injected fixed-purpose adapter.
-//! Its durable generation-fenced target state exists, but semantic plugin
-//! dispatch is not wired yet, so the transaction remains unreachable.
+//! The explicit CLI admits only strict disconnected hosts with startup disabled.
+//! It binds the accepted transaction to private desired/ownership state, the two
+//! fixed user services, the private runtime socket and fixed frontend selector.
+//! Live legacy adoption remains an internal, unexposed transaction capability.
 
 use crate::RuntimePaths;
 use crate::call;
@@ -25,12 +23,15 @@ use crate::production_observation::{
     LEGACY_SERVICE, ProductionObservationPaths, ProductionOwnershipObserver, RUST_SERVICE,
     SERVICE_QUERY_TIMEOUT, service_state_with_timeout,
 };
+use nix::fcntl::{Flock, FlockArg, OFlag};
 use nix::unistd::Uid;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
 use omavless_store::{atomic_replace_private, read_private_utf8};
 use serde_json::{Value, json};
 use std::env;
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -137,6 +138,14 @@ struct StagedIntent {
     mode: RoutingMode,
 }
 
+/// Private exact pre-transition desired file, including original absence.
+/// This in-memory snapshot is synchronous compensation, not a crash journal.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CutoverDesiredSnapshot {
+    state: DesiredState,
+    bytes: Option<String>,
+}
+
 /// Production transaction host with the shared migration lease initially held.
 /// Construction alone performs no service, marker, desired-state or bridge
 /// mutation.
@@ -145,12 +154,83 @@ pub struct ProductionCutoverHost<B> {
     uid: u32,
     bridge: B,
     lock: Option<MigrationLock>,
-    captured_desired: Option<DesiredState>,
+    captured_desired: Option<CutoverDesiredSnapshot>,
     staged_desired: Option<DesiredState>,
     staged_intent: Option<StagedIntent>,
+    stopped_owner: Option<Flock<File>>,
 }
 
 impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
+    /// The only CLI activation boundary: no live adoption or startup conversion.
+    pub(crate) fn activate_disconnected(
+        &mut self,
+    ) -> Result<
+        crate::cutover_transaction::CutoverTransactionOutcome,
+        crate::cutover_transaction::CutoverTransactionError,
+    > {
+        use crate::cutover_transaction::{CutoverTransactionError, execute_cutover};
+        let rejected = CutoverTransactionError::PreconditionsFailed;
+        let marker = self.read_marker().map_err(|_| rejected)?;
+        if marker.phase() != crate::cutover::OwnershipPhase::Legacy {
+            return Err(rejected);
+        }
+        self.observer()
+            .map_err(|_| rejected)?
+            .verify_empty()
+            .map_err(|_| rejected)?;
+        self.fence_stopped_owner().map_err(|_| rejected)?;
+        crate::login_transaction::check_startup_receipt(
+            &self.paths.cutover,
+            self.uid,
+            self.lock().map_err(|_| rejected)?,
+            None,
+        )
+        .map_err(|_| rejected)?;
+        if crate::routing_preset::pending(&self.paths.desired) {
+            return Err(rejected);
+        }
+        let text = read_private_utf8(&self.paths.store, self.uid).map_err(|_| rejected)?;
+        let store = parse_private_store(&text).map_err(|_| rejected)?;
+        if !store.startup_is_configured() || store.startup_preferences().enabled {
+            return Err(rejected);
+        }
+        let pointers = omavless_domain::private_store::apply_compatibility_pointer_update(
+            &text,
+            omavless_domain::private_store::CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .map_err(|_| rejected)?;
+        if pointers.changed
+            || read_desired(&self.paths.desired, self.uid)
+                .map_err(|_| rejected)?
+                .connected
+        {
+            return Err(rejected);
+        }
+        for service in [LEGACY_SERVICE, RUST_SERVICE] {
+            let installation = crate::production_observation::cutover_service_installation(
+                &self.paths.systemctl,
+                service,
+            )
+            .map_err(|_| rejected)?;
+            crate::cutover_activation::check_service_installation(
+                &installation,
+                service == RUST_SERVICE,
+            )
+            .map_err(|_| rejected)?;
+        }
+        // Validate template/mode and desired generation before preparing ownership.
+        let snapshot = self.capture_desired().map_err(|_| rejected)?;
+        self.prepare_staged_desired(CutoverReadiness::ReadyDisconnected, &snapshot.state)
+            .map_err(|_| rejected)?;
+        self.observer()
+            .map_err(|_| rejected)?
+            .verify_empty()
+            .map_err(|_| rejected)?;
+        execute_cutover(self, &marker)
+    }
+
     fn new(paths: ProductionCutoverPaths, uid: u32, bridge: B) -> Result<Self, CutoverHostError> {
         // Construct the observer before acquiring the lease so unsafe fixed
         // paths fail without creating the migration lock file.
@@ -165,6 +245,7 @@ impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
             captured_desired: None,
             staged_desired: None,
             staged_intent: None,
+            stopped_owner: None,
         })
     }
 
@@ -371,6 +452,91 @@ impl<B: ProductionPluginBridge> ProductionCutoverHost<B> {
         atomic_replace_private(&self.paths.active_config, config.as_bytes(), self.uid)
             .map_err(|_| CutoverHostError)
     }
+
+    fn desired_bytes(&self) -> Result<Option<String>, CutoverHostError> {
+        match fs::symlink_metadata(&self.paths.desired.file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(CutoverHostError),
+            Ok(metadata) if metadata.len() <= crate::desired::MAX_DESIRED_STATE_BYTES => {
+                read_private_utf8(&self.paths.desired.file, self.uid)
+                    .map(Some)
+                    .map_err(|_| CutoverHostError)
+            }
+            Ok(_) => Err(CutoverHostError),
+        }
+    }
+
+    fn restore_desired(&self, snapshot: &CutoverDesiredSnapshot) -> Result<(), CutoverHostError> {
+        let current = self.desired_bytes()?;
+        if current == snapshot.bytes {
+            return Ok(());
+        }
+        // Never overwrite an unrecognized concurrent or partial replacement.
+        let staged = self.staged_desired.as_ref().ok_or(CutoverHostError)?;
+        let mut expected = serde_json::to_string(staged).map_err(|_| CutoverHostError)?;
+        expected.push('\n');
+        if current.as_deref() != Some(expected.as_str()) {
+            return Err(CutoverHostError);
+        }
+        match &snapshot.bytes {
+            Some(bytes) => {
+                atomic_replace_private(&self.paths.desired.file, bytes.as_bytes(), self.uid)
+                    .map_err(|_| CutoverHostError)?
+            }
+            None => {
+                fs::remove_file(&self.paths.desired.file).map_err(|_| CutoverHostError)?;
+                File::open(&self.paths.desired.directory)
+                    .and_then(|directory| directory.sync_all())
+                    .map_err(|_| CutoverHostError)?;
+            }
+        }
+        (self.desired_bytes()? == snapshot.bytes)
+            .then_some(())
+            .ok_or(CutoverHostError)
+    }
+
+    fn fence_stopped_owner(&mut self) -> Result<(), CutoverHostError> {
+        // Absence is legal before a candidate ever starts. Existing locks must
+        // be safe and unlocked; retain the lease until compensation completes.
+        let path = &self.paths.runtime.owner_lock;
+        let metadata = match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return if self.stopped_owner.is_none() {
+                    Ok(())
+                } else {
+                    Err(CutoverHostError)
+                };
+            }
+            Err(_) => return Err(CutoverHostError),
+            Ok(metadata) => metadata,
+        };
+        if !metadata.is_file() || metadata.uid() != self.uid || metadata.mode() & 0o7777 != 0o600 {
+            return Err(CutoverHostError);
+        }
+        if let Some(lease) = &self.stopped_owner {
+            // A failure before release_for_candidate keeps the admission lease.
+            // Reopening and flocking would conflict with our own open-file
+            // description. Reuse it only while the fixed path still names it.
+            let held = lease.metadata().map_err(|_| CutoverHostError)?;
+            return (held.dev() == metadata.dev() && held.ino() == metadata.ino())
+                .then_some(())
+                .ok_or(CutoverHostError);
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(OFlag::O_NOFOLLOW.bits())
+            .open(path)
+            .map_err(|_| CutoverHostError)?;
+        let opened = file.metadata().map_err(|_| CutoverHostError)?;
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            return Err(CutoverHostError);
+        }
+        let lease =
+            Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|_| CutoverHostError)?;
+        self.stopped_owner = Some(lease);
+        Ok(())
+    }
 }
 
 /// Parse only the three scalar spellings which OmaVLESS itself emits. The
@@ -406,7 +572,7 @@ fn parse_mode_scalar(raw: &str) -> Result<RoutingMode, CutoverHostError> {
 }
 
 impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost<B> {
-    type DesiredSnapshot = DesiredState;
+    type DesiredSnapshot = CutoverDesiredSnapshot;
 
     fn observe(&mut self) -> Result<OwnershipObservation, CutoverHostError> {
         self.observer()?.observe().map_err(|_| CutoverHostError)
@@ -437,16 +603,29 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
             return Err(CutoverHostError);
         }
         let desired = read_desired(&self.paths.desired, self.uid).map_err(|_| CutoverHostError)?;
-        self.captured_desired = Some(desired.clone());
-        Ok(desired)
+        let bytes = self.desired_bytes()?;
+        if read_desired(&self.paths.desired, self.uid).map_err(|_| CutoverHostError)? != desired {
+            return Err(CutoverHostError);
+        }
+        let snapshot = CutoverDesiredSnapshot {
+            state: desired,
+            bytes,
+        };
+        self.captured_desired = Some(snapshot.clone());
+        Ok(snapshot)
     }
 
     fn stage_desired(&mut self, readiness: CutoverReadiness) -> Result<(), CutoverHostError> {
         let captured = self.captured_desired.as_ref().ok_or(CutoverHostError)?;
-        let (desired, intent) = self.prepare_staged_desired(readiness, captured)?;
-        write_desired(&self.paths.desired, self.uid, &desired).map_err(|_| CutoverHostError)?;
-        self.staged_desired = Some(desired);
+        if self.desired_bytes()? != captured.bytes {
+            return Err(CutoverHostError);
+        }
+        let (desired, intent) = self.prepare_staged_desired(readiness, &captured.state)?;
+        // Retain candidate identity even if atomic publication reports an
+        // uncertain error after replacement, so exact compensation is possible.
+        self.staged_desired = Some(desired.clone());
         self.staged_intent = intent;
+        write_desired(&self.paths.desired, self.uid, &desired).map_err(|_| CutoverHostError)?;
         Ok(())
     }
 
@@ -462,6 +641,9 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
         if self.read_marker()? != *preparing || self.lock.is_none() {
             return Err(CutoverHostError);
         }
+        // Disconnected activation may hold an existing idle native owner lock
+        // during admission. Only the durable preparing handoff releases it.
+        self.stopped_owner.take();
         self.lock.take();
         Ok(())
     }
@@ -543,6 +725,16 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
         if self.identity_from_hello(candidate.bootstrap())? != candidate {
             return Err(CutoverHostError);
         }
+        if self
+            .staged_desired
+            .as_ref()
+            .is_some_and(|desired| !desired.connected)
+        {
+            return self
+                .observer()?
+                .verify_disconnected_native()
+                .map_err(|_| CutoverHostError);
+        }
         self.observe()
     }
 
@@ -555,15 +747,13 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
     fn stop_rust(&mut self) -> Result<(), CutoverHostError> {
         self.run_service_action("stop", RUST_SERVICE)?;
         self.wait_service(RUST_SERVICE, false)?;
-        let observation = self.observe()?;
-        if observation.rust_owner_active
-            || observation.rust_controller_ready
-            || observation.core_count != 0
-            || observation.tun_count != 0
-        {
-            return Err(CutoverHostError);
-        }
-        Ok(())
+        self.observer()?
+            .verify_empty()
+            .map_err(|_| CutoverHostError)?;
+        self.fence_stopped_owner()?;
+        self.observer()?
+            .verify_empty()
+            .map_err(|_| CutoverHostError)
     }
 
     fn restore_legacy(
@@ -574,7 +764,7 @@ impl<B: ProductionPluginBridge> CutoverTransactionHost for ProductionCutoverHost
         if self.lock.is_none() || self.captured_desired.as_ref() != Some(desired) {
             return Err(CutoverHostError);
         }
-        write_desired(&self.paths.desired, self.uid, desired).map_err(|_| CutoverHostError)?;
+        self.restore_desired(desired)?;
         match readiness {
             CutoverReadiness::ReadyDisconnected => {
                 self.run_service_action("stop", LEGACY_SERVICE)?;
@@ -654,6 +844,10 @@ mod tests {
 
     fn publish_service_harness(path: &Path, script: &str) {
         let staged = path.with_extension("staged");
+        let script = format!(
+            "#!/bin/sh\ncase \"$*\" in *--property=UnitFileState*) printf 'UnitFileState=disabled\\nNeedDaemonReload=no\\nDropInPaths=\\nFragmentPath=/usr/lib/systemd/user/omavless-runtime.service\\n'; exit 0 ;; esac\n{}",
+            script.strip_prefix("#!/bin/sh\n").unwrap_or(script)
+        );
         fs::write(&staged, script).unwrap();
         fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
         fs::rename(staged, path).unwrap();
@@ -733,7 +927,7 @@ mod tests {
         let state = fixture.root.join("rust-service-state");
         fs::write(&state, "inactive\n").unwrap();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) {} printf 'active\\n' > \"$state\"; exit 0 ;;\n  stop:omavless-runtime.service) {} printf 'inactive\\n' > \"$state\"; rm -f -- \"$socket\"; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  start:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\"; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) {} printf 'active\\n' > \"$state\"; exit 0 ;;\n  stop:omavless-runtime.service) {} printf 'inactive\\n' > \"$state\"; rm -f -- \"$socket\"; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  start:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\"; exit 0 ;;\nesac\nexit 9\n",
             state.display(),
             fixture.paths.runtime.socket.display(),
             if fail_runtime_start { "exit 7;" } else { "" },
@@ -782,6 +976,7 @@ mod tests {
     }
 
     fn assert_disconnected_restored(fixture: &Fixture, bridge: &FakeBridge) {
+        assert!(!fixture.paths.desired.file.exists());
         assert_eq!(
             read_desired(&fixture.paths.desired, fixture.uid).unwrap(),
             DesiredState::default()
@@ -807,7 +1002,8 @@ mod tests {
             ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, FakeBridge::new())
                 .unwrap();
         let captured = host.capture_desired().unwrap();
-        assert_eq!(captured, DesiredState::default());
+        assert_eq!(captured.state, DesiredState::default());
+        assert!(captured.bytes.is_none());
         host.stage_desired(CutoverReadiness::ReadyDisconnected)
             .unwrap();
         let desired = read_desired(&host.paths.desired, fixture.uid).unwrap();
@@ -822,6 +1018,207 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn desired_compensation_preserves_exact_bytes_and_absence_and_refuses_foreign_bytes() {
+        for original in [
+            None,
+            Some(
+                "{\"schemaVersion\":1,\"generation\":9,\"connected\":false,\"profileId\":\"\",\"mode\":\"direct\"}  \n",
+            ),
+        ] {
+            let fixture = Fixture::new("desired-compensation");
+            prepare_disconnected_fixture(&fixture);
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, FakeBridge::new())
+                    .unwrap();
+            // The accepted desired reader creates only the fixed state directory.
+            read_desired(&fixture.paths.desired, fixture.uid).unwrap();
+            if let Some(bytes) = original {
+                fixture.write_private(&fixture.paths.desired.file, bytes);
+            }
+            let captured = host.capture_desired().unwrap();
+            host.stage_desired(CutoverReadiness::ReadyDisconnected)
+                .unwrap();
+            host.restore_desired(&captured).unwrap();
+            assert!(host.desired_bytes().unwrap().as_deref() == original);
+            host.restore_desired(&captured).unwrap();
+            host.stage_desired(CutoverReadiness::ReadyDisconnected)
+                .unwrap();
+            fixture.write_private(&fixture.paths.desired.file, "foreign-private-bytes");
+            assert!(host.restore_desired(&captured).is_err());
+            assert!(fs::read(&fixture.paths.desired.file).unwrap() == b"foreign-private-bytes");
+        }
+    }
+
+    #[test]
+    fn native_cleanup_refuses_locked_owner_and_retains_its_cleanup_fence() {
+        let fixture = Fixture::new("cleanup-fence");
+        prepare_disconnected_fixture(&fixture);
+        fs::create_dir(&fixture.paths.runtime.directory).unwrap();
+        fs::set_permissions(
+            &fixture.paths.runtime.directory,
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        let owner =
+            crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).unwrap();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, FakeBridge::new())
+                .unwrap();
+        assert!(host.stop_rust().is_err());
+        drop(owner);
+        host.stop_rust().unwrap();
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_err());
+        drop(host);
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_ok());
+    }
+
+    #[test]
+    fn early_activation_failure_reuses_idle_owner_lease_for_compensation() {
+        let fixture = Fixture::new("early-activation-failure");
+        prepare_disconnected_fixture(&fixture);
+        fs::create_dir(&fixture.paths.runtime.directory).unwrap();
+        fs::set_permissions(
+            &fixture.paths.runtime.directory,
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        drop(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).unwrap());
+        // Fail the first legacy stop, before the candidate handoff releases the
+        // existing idle owner lease. Compensation's second stop succeeds.
+        let failed = fixture.root.join("legacy-stop-failed");
+        publish_service_harness(
+            &fixture.paths.systemctl,
+            &format!(
+                "#!/bin/sh\nif [ \"$2:$3\" = stop:omavless.service ] && [ ! -e '{}' ]; then : > '{}'; exit 7; fi\nif [ \"$2\" = show ]; then printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n'; fi\nexit 0\n",
+                failed.display(),
+                failed.display(),
+            ),
+        );
+        let bridge = FakeBridge::new();
+        let observed = bridge.clone();
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+        assert_eq!(
+            host.activate_disconnected(),
+            Err(CutoverTransactionError::TransitionFailedRestored)
+        );
+        assert!(failed.exists());
+        assert_disconnected_restored(&fixture, &observed);
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_err());
+        drop(host);
+        assert!(crate::OwnerLock::acquire(&fixture.paths.runtime.owner_lock, fixture.uid).is_ok());
+    }
+
+    #[test]
+    fn retained_owner_lease_refuses_missing_replaced_or_unsafe_path() {
+        for variant in ["missing", "replacement", "symlink", "mode"] {
+            let fixture = Fixture::new("retained-owner-identity");
+            fs::create_dir(&fixture.paths.runtime.directory).unwrap();
+            fs::set_permissions(
+                &fixture.paths.runtime.directory,
+                fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+            let path = &fixture.paths.runtime.owner_lock;
+            drop(crate::OwnerLock::acquire(path, fixture.uid).unwrap());
+            let mut host =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, FakeBridge::new())
+                    .unwrap();
+            host.fence_stopped_owner().unwrap();
+            host.fence_stopped_owner().unwrap();
+            if variant == "mode" {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+            } else {
+                let original = fixture.root.join("original-lock");
+                fs::rename(path, &original).unwrap();
+                match variant {
+                    "missing" => {}
+                    "replacement" => fixture.write_private(path, ""),
+                    "symlink" => std::os::unix::fs::symlink(&original, path).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            assert!(host.fence_stopped_owner().is_err());
+        }
+    }
+
+    #[test]
+    fn activation_refuses_startup_and_nonempty_host_before_preparing() {
+        for variant in [
+            "startup-enabled",
+            "startup-unconfigured",
+            "tun",
+            "receipt",
+            "pending",
+            "missing-inventory",
+        ] {
+            let fixture = Fixture::new("activation-refusal");
+            prepare_disconnected_fixture(&fixture);
+            let store = fs::read_to_string(&fixture.paths.store).unwrap();
+            match variant {
+                "startup-enabled" => fixture.write_private(
+                    &fixture.paths.store,
+                    &store.replace("\"enabled\":false", "\"enabled\":true"),
+                ),
+                "startup-unconfigured" => fixture.write_private(
+                    &fixture.paths.store,
+                    &store.replace("\"startupConfigured\":true", "\"startupConfigured\":false"),
+                ),
+                "tun" => {
+                    fs::create_dir(fixture.paths.observation.sys_class_net.join("Meta")).unwrap();
+                    fs::write(
+                        fixture
+                            .paths
+                            .observation
+                            .sys_class_net
+                            .join("Meta/tun_flags"),
+                        "1\n",
+                    )
+                    .unwrap();
+                }
+                "receipt" => fixture.write_private(
+                    &fixture
+                        .paths
+                        .cutover
+                        .runtime_base
+                        .join("omavless-login.receipt"),
+                    "private-invalid",
+                ),
+                "pending" => {
+                    read_desired(&fixture.paths.desired, fixture.uid).unwrap();
+                    fixture.write_private(
+                        &fixture
+                            .paths
+                            .desired
+                            .directory
+                            .join("routing-preset.pending.json"),
+                        "private-invalid",
+                    );
+                }
+                "missing-inventory" => {
+                    fs::remove_dir(&fixture.paths.observation.proc_root).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let bridge = FakeBridge::new();
+            let observed = bridge.clone();
+            let Ok(mut host) =
+                ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge)
+            else {
+                assert_eq!(variant, "missing-inventory");
+                continue;
+            };
+            assert_eq!(
+                host.activate_disconnected(),
+                Err(CutoverTransactionError::PreconditionsFailed)
+            );
+            assert!(!fixture.paths.cutover.ownership_marker.exists());
+            assert!(!fixture.paths.desired.file.exists());
+            assert!(observed.calls.lock().unwrap().is_empty());
+        }
     }
 
     #[test]
@@ -1182,7 +1579,7 @@ mod tests {
         let service_state = fixture.root.join("rust-service-state");
         fs::write(&service_state, "inactive\n").unwrap();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\" ; exit 0 ;;\nesac\nexit 9\n",
             service_state.display()
         );
         publish_service_harness(&fixture.paths.systemctl, &script);
@@ -1247,10 +1644,9 @@ mod tests {
         let bridge = FakeBridge::new();
         let observed_bridge = bridge.clone();
         let paths = fixture.paths.clone();
-        let marker = OwnershipMarker::default();
         let cutover_paths = paths.cutover.clone();
         let mut host = ProductionCutoverHost::new(paths, fixture.uid, bridge).unwrap();
-        let outcome = execute_cutover(&mut host, &marker).unwrap();
+        let outcome = host.activate_disconnected().unwrap();
         assert_eq!(outcome.marker.phase(), OwnershipPhase::Rust);
         assert_eq!(outcome.marker.generation(), 2);
         assert_eq!(
@@ -1262,6 +1658,65 @@ mod tests {
             vec![BridgeTarget::Rust]
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn final_incomplete_inventory_cannot_commit_disconnected_candidate() {
+        struct IncompleteInventoryBridge {
+            proc_root: PathBuf,
+        }
+        impl ProductionPluginBridge for IncompleteInventoryBridge {
+            fn switch(
+                &mut self,
+                target: BridgeTarget,
+                _marker: &OwnershipMarker,
+                _lock: &MigrationLock,
+            ) -> Result<(), CutoverHostError> {
+                if target == BridgeTarget::Rust {
+                    // A process directory becomes unreadable/incomplete only
+                    // after candidate startup, immediately before final proof.
+                    fs::create_dir(self.proc_root.join("42")).unwrap();
+                }
+                Ok(())
+            }
+        }
+        let fixture = Fixture::new("final-inventory-refusal");
+        prepare_disconnected_fixture(&fixture);
+        install_service_harness(&fixture, false, false);
+        let hello =
+            json!({"instanceId":"final-scan-candidate","version":1,"runtimeOwnership":false});
+        let server = spawn_candidate_server(
+            &fixture,
+            vec![
+                (
+                    "runtime.transitionBootstrap",
+                    json!({"instanceId":"final-scan-candidate","preparingGeneration":1,"rustGeneration":2,"runtimeOwnership":false}),
+                ),
+                ("system.hello", hello.clone()),
+                (
+                    "status.get",
+                    json!({"desired":"disconnected","actual":"disconnected","activeProfileId":"","mode":"rule","transition":"cutoverPreparing","runtimeOwnership":false}),
+                ),
+                ("system.hello", hello.clone()),
+                ("system.hello", hello),
+            ],
+        );
+        let bridge = IncompleteInventoryBridge {
+            proc_root: fixture.paths.observation.proc_root.clone(),
+        };
+        let mut host =
+            ProductionCutoverHost::new(fixture.paths.clone(), fixture.uid, bridge).unwrap();
+        assert_eq!(
+            host.activate_disconnected(),
+            Err(CutoverTransactionError::ManualRecoveryRequired)
+        );
+        server.join().unwrap();
+        assert_eq!(
+            read_marker(&fixture.paths.cutover, fixture.uid)
+                .unwrap()
+                .phase(),
+            OwnershipPhase::CutoverPreparing
+        );
     }
 
     #[test]
@@ -1286,7 +1741,7 @@ mod tests {
         fs::write(&service_state, "inactive\n").unwrap();
         let socket = fixture.paths.runtime.socket.clone();
         let script = format!(
-            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; rm -f -- \"$socket\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); printf 'ActiveState=%s\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n' \"$value\" ; exit 0 ;;\nesac\nexit 9\n",
+            "#!/bin/sh\nstate='{}'\nsocket='{}'\ncase \"$2:$3\" in\n  start:omavless-runtime.service) printf 'active\\n' > \"$state\" ; exit 0 ;;\n  stop:omavless-runtime.service) printf 'inactive\\n' > \"$state\" ; rm -f -- \"$socket\" ; exit 0 ;;\n  stop:omavless.service) exit 0 ;;\n  show:omavless.service) printf 'ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n' ; exit 0 ;;\n  show:omavless-runtime.service) value=$(tr -d '\\n' < \"$state\"); pid=0; if [ \"$value\" = active ]; then pid=42; fi; printf 'ActiveState=%s\\nMainPID=%s\\nExecMainStatus=0\\nResult=success\\n' \"$value\" \"$pid\" ; exit 0 ;;\nesac\nexit 9\n",
             service_state.display(),
             socket.display()
         );

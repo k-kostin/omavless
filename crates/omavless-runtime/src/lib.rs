@@ -40,6 +40,7 @@ mod core_readiness;
 mod core_selector;
 mod custom_rule_protocol;
 pub mod cutover;
+pub mod cutover_activation;
 pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
