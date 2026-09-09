@@ -61,6 +61,7 @@ fn run() -> Result<(), CliError> {
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
+        println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"

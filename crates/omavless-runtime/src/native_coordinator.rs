@@ -672,7 +672,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         .map_err(|_| NativeOwnerError::Invariant)?;
         let store = omavless_domain::private_store::parse_private_store(&input)
             .map_err(|_| NativeOwnerError::Invariant)?;
-        project(&store)
+        let result = project(&store)?;
+        if self.required_ownership.is_none_or(|fence| {
+            !self
+                .transaction
+                .ownership_matches(fence.phase, fence.generation)
+        }) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok(result)
     }
 
     pub(crate) fn custom_rules(
@@ -693,6 +701,18 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 actual,
                 crate::routing_preset::pending(&desired_paths),
             ))
+        })
+    }
+
+    pub(crate) fn ui_snapshot(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::ui_snapshot::validate(request)?;
+        let actual = self.actual();
+        let desired_paths = self.transaction.desired_paths().clone();
+        let uid = self.transaction.uid();
+        self.with_owned_private_store(|store| {
+            let desired = crate::desired::read_desired_snapshot(&desired_paths, uid)
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            Ok(crate::ui_snapshot::project(store, &desired, actual))
         })
     }
 

@@ -87,6 +87,7 @@ pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
 mod support_diagnostics;
+mod ui_snapshot;
 
 pub const SOCKET_NAME: &str = "control.sock";
 pub const OWNER_LOCK_NAME: &str = "owner.lock";
@@ -240,6 +241,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "ui.snapshot",
     "diagnostics.export",
     "diagnostics.summary",
     "diagnostics.rules",
@@ -281,6 +283,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn ui_snapshot(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn route_plan(
         &mut self,
         request: &Value,
@@ -530,6 +536,12 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn ui_snapshot(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.ui_snapshot(request)
+    }
     fn route_plan(
         &mut self,
         request: &Value,
@@ -1538,6 +1550,14 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
+        "ui.snapshot" if runtime_ownership => {
+            let mut response = owner.ui_snapshot(request)?;
+            if response["ok"] == true {
+                response["result"]["instanceId"] = json!(instance_id);
+            }
+            omavless_control_protocol::validate_response(&response)?;
+            return Ok(response);
+        }
         "routing.check" if runtime_ownership => return owner.check_route(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
         "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
@@ -2040,9 +2060,18 @@ mod tests {
             success_response("max-subscriptions", 1, subscription_list_json(&projection)).unwrap();
         let profiles = encode_response(&profiles).unwrap();
         let subscriptions = encode_response(&subscriptions).unwrap();
+        let mut snapshot = ui_snapshot::project(
+            &store,
+            &DesiredState::default(),
+            lifecycle::ActualState::Disconnected,
+        );
+        snapshot["instanceId"] = json!("instance-bounded");
+        snapshot["transition"] = Value::Null;
+        let snapshot = encode_response(&success_response("max-ui", 1, snapshot).unwrap()).unwrap();
+        assert!(snapshot.len() <= MAX_RESPONSE_FRAME_BYTES);
         assert!(profiles.len() <= MAX_RESPONSE_FRAME_BYTES);
         assert!(subscriptions.len() <= MAX_RESPONSE_FRAME_BYTES);
-        for output in [&profiles, &subscriptions] {
+        for output in [&profiles, &subscriptions, &snapshot] {
             let output = std::str::from_utf8(output).unwrap();
             for secret in ["vless://", "11111111", "192.0.2.1", "subscription-token"] {
                 assert!(!output.contains(secret));
@@ -3613,6 +3642,113 @@ mod tests {
         }
         assert!(fs::read(&store_path).unwrap() == original);
         assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn ui_snapshot_socket_is_private_consistent_read_only_and_owner_fenced() {
+        let base = temporary_base("ui-snapshot");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let desired_path = base.join("state/omavless/desired.json");
+        let desired_before = fs::read(&desired_path).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let caps = call(&paths, "capabilities.get", json!({})).unwrap();
+        assert!(
+            caps["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "ui.snapshot")
+        );
+        let snapshot = call(&paths, "ui.snapshot", json!({})).unwrap();
+        assert_eq!(snapshot["ok"], true);
+        assert_eq!(snapshot["revision"], 0);
+        assert!(snapshot["result"]["instanceId"].is_string());
+        assert_eq!(snapshot["result"]["schemaVersion"], 1);
+        assert_eq!(snapshot["result"]["healthFresh"], false);
+        assert_eq!(snapshot["result"]["liveHealth"], "unavailable");
+        assert_eq!(snapshot["result"]["desired"]["connected"], false);
+        assert_eq!(snapshot["result"]["profiles"][0]["id"], PROFILE_ID);
+        assert_eq!(snapshot["result"]["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            snapshot["result"]["subscriptions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(snapshot["result"]["subscriptions"][0]["profileCount"], 0);
+        assert!(
+            omavless_control_protocol::encode_response(&snapshot)
+                .unwrap()
+                .len()
+                < 4096
+        );
+        for forbidden in [
+            "://",
+            "192.0.2",
+            "11111111-1111-4111-8111-111111111111",
+            "uri",
+            "password",
+            "subscriptionKey",
+        ] {
+            assert!(!snapshot.to_string().contains(forbidden));
+        }
+        assert_eq!(
+            call(&paths, "ui.snapshot", json!({"path":"private-token"})).unwrap()["error"]["code"],
+            "invalid_argument"
+        );
+        fs::write(&store_path, b"private-corrupt").unwrap();
+        assert_eq!(
+            call(&paths, "ui.snapshot", json!({})).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::write(&store_path, &original).unwrap();
+        assert_eq!(
+            call(&paths, "ui.snapshot", json!({})).unwrap()["result"],
+            snapshot["result"]
+        );
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "ui.snapshot", json!({})).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn preparing_candidate_cannot_read_ui_snapshot() {
+        let base = temporary_base("ui-candidate");
+        let (owner, _cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let before = calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            subscription_transport::HttpsSubscriptionTransport::new(),
+        );
+        let worker = thread::spawn(move || server.serve(Some(1)).unwrap());
+        assert_eq!(
+            call(&paths, "ui.snapshot", json!({})).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

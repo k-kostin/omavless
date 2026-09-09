@@ -761,6 +761,10 @@ The [snapshot validation boundary](docs/testing/R5_STARTUP_VALIDATION_SNAPSHOT.m
 captures inputs once and preserves scratch ownership. Core validation isolation
 is not assumed: a controlled Mihomo `-t` probe observes a geodata download attempt.
 Route fast paths do not implement live unmatched Routing observation.
+The [private UI metadata snapshot](docs/testing/R5_UI_METADATA_SNAPSHOT.md)
+adds an owner-gated coherent store/intent read and fixed CLI entry point.
+It explicitly reports cached, not live, health; the installed QML launcher and
+Python ownership remain unchanged pending the frontend integration gate.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
 [exact-head acceptance report](docs/testing/TRY_OMARCHY_R5_ACCEPTANCE_2026-09-08.md).

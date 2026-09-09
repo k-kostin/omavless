@@ -378,6 +378,15 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         crate::native_dispatch::respond_to_support_report(&mut self.coordinator, request)
     }
 
+    pub(crate) fn ui_snapshot(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        let mut response =
+            crate::native_dispatch::respond_to_ui_snapshot(&mut self.coordinator, request)?;
+        if response["ok"] == true {
+            response["result"]["transition"] = serde_json::json!(self.transition());
+        }
+        Ok(response)
+    }
+
     pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
         self.coordinator.diagnostic_snapshot()
     }
