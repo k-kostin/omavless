@@ -1748,6 +1748,7 @@ mod tests {
     struct FakeHost {
         observation: OwnedObservation,
         calls: Arc<AtomicUsize>,
+        lifecycle_effects: Arc<AtomicUsize>,
         route_config: Option<std::path::PathBuf>,
         fresh_calls: Arc<AtomicUsize>,
         fresh_result: std::result::Result<lifecycle::NativeLocalObservation, HostStepError>,
@@ -1823,11 +1824,13 @@ mod tests {
 
         fn prepare(&mut self, _desired: &DesiredState) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
 
         fn start_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             self.observation = OwnedObservation {
                 service_active: true,
                 controller_ready: true,
@@ -1840,11 +1843,13 @@ mod tests {
 
         fn commit_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
 
         fn stop_owned(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             self.observation = OwnedObservation {
                 service_active: false,
                 controller_ready: false,
@@ -1857,6 +1862,7 @@ mod tests {
 
         fn discard_prepared(&mut self) -> std::result::Result<(), HostStepError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.lifecycle_effects.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
     }
@@ -2045,6 +2051,7 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            lifecycle_effects: Arc::new(AtomicUsize::new(0)),
             fresh_calls: Arc::new(AtomicUsize::new(0)),
             fresh_result: Err(HostStepError::Observation),
             on_fresh: None,
@@ -2130,9 +2137,14 @@ mod tests {
     #[test]
     fn plugin_profile_actions_use_shared_fencing_replay_and_safe_results() {
         let base = temporary_base("plugin-profile-actions");
-        let (owner, _, calls) = native_owner_fixture(&base);
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        // Periodic reconciliation may observe even when all actions are
+        // store-only. Count prepare/start/commit/stop/discard, not observations.
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
         let paths = RuntimePaths::below(&base.join("runtime"));
-        let baseline = calls.load(Ordering::Relaxed);
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
         let worker = thread::spawn(move || server.serve(Some(19)).unwrap());
@@ -2195,10 +2207,13 @@ mod tests {
                 "conflict"
             );
             assert_eq!(fs::read(&store_path).unwrap(), after);
-            assert_eq!(calls.load(Ordering::Relaxed), baseline);
+            assert_eq!(effects.load(Ordering::Relaxed), 0);
+            assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
             revision = applied["revision"].clone();
         }
         worker.join().unwrap();
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
         let store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
         assert!(store["profiles"].as_array().unwrap().is_empty());
         fs::remove_dir_all(base).unwrap();
