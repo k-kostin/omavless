@@ -52,4 +52,11 @@ test('private names stay plaintext and selected row exposes managed-safe actions
   assert.equal(context().nativeRecord(managed).managed,true);assert.equal(context().nativeRecord(standalone).managed,false);
   assert.match(section,/visible: nativeRow.selected/);
 });
+test('compact import and inline actions retain labels and keyboard targets',()=>{
+  for(const id of ['nativeImportClipboard','nativeImportFile'])
+    assert.match(source,new RegExp('OmaNavigationButton \\{ id: '+id+';[^\\n]*tooltipText:[^\\n]*focusable: true'));
+  for(const id of ['rowRename','rowPin','rowDelete','rowQr','rowEdit'])
+    assert.match(source,new RegExp('PanelActionButton \\{ id: '+id+'; size: Style.space\\(24\\);[^\\n]*tooltipText:[^\\n]*focusable: true'));
+  assert.match(source,/visible: !nativeRow.selected; text: nativeRow.isProfile/);
+});
 console.log('native main panel: '+count+' passed');

@@ -1629,6 +1629,7 @@ Panel {
               iconComponent: Component { PlainText { text: root.heroStatusIcon; color: root.iconColor; font.family: root.fontFamily; font.pixelSize: Style.font.display } }
               trailingControl: Component {
                 Row {
+                  height: nativeHeader.controlHeight
                   spacing: Style.space(4)
                   OmaNavigationButton {
                     size: nativeHeader.controlHeight
@@ -1698,13 +1699,13 @@ Panel {
             Button { id: nativeGlobal; text: root.routingModeText("global"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "global") }
             Button { id: nativeDirect; text: root.routingModeText("direct"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
-          Flow {
+          RowLayout {
             visible: root.page === "main"
             Layout.fillWidth: true
             spacing: Style.space(6)
-            PlainText { text: root.textFor("profiles.title"); color: root.foreground; font.family: root.fontFamily }
-            Button { id: nativeImportClipboard; text: root.textFor("native.importClipboard"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
-            Button { id: nativeImportFile; text: root.textFor("native.importFile"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
+            PlainText { Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; text: root.textFor("profiles.title"); color: root.foreground; font.family: root.fontFamily }
+            OmaNavigationButton { id: nativeImportClipboard; iconText: "󰅍"; tooltipText: root.textFor("native.importClipboard"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
+            OmaNavigationButton { id: nativeImportFile; iconText: "󰉓"; tooltipText: root.textFor("native.importFile"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
           }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorCode !== ""; text: vless.nativeEditorCode ? root.textFor("native.editor." + vless.nativeEditorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.privateDraft"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
@@ -1774,17 +1775,17 @@ Panel {
                 Layout.fillWidth: true
                 Button { id: nativeChoose; text: nativeRow.selected ? "●" : "○"; focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing; onClicked: root.nativeSelectedProfile = nativeRow.profile.id }
                 PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? nativeRow.profile.name : ""; textFormat: Text.PlainText; color: nativeRow.isProfile && nativeRow.profile.id === root.nativeView.activeId ? Color.accent : root.foreground; font.family: root.fontFamily; elide: Text.ElideRight }
-                PlainText { text: nativeRow.isProfile ? nativeRow.profile.protocol : ""; color: root.dim; font.family: root.fontFamily }
-              }
-              Flow {
+                PlainText { visible: !nativeRow.selected; text: nativeRow.isProfile ? nativeRow.profile.protocol : ""; color: root.dim; font.family: root.fontFamily }
+              Row {
                 visible: nativeRow.selected
-                Layout.fillWidth: true
-                spacing: Style.space(4)
-                Button { id: rowRename; text: root.textFor("common.rename"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestRename(nativeRow.record) }
-                Button { id: rowPin; text: root.textFor(nativeRow.isProfile && nativeRow.profile.favorite ? "native.unpin" : "native.pin"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.toggleFavorite(nativeRow.record) }
-                Button { id: rowDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestDelete(nativeRow.record) }
-                Button { id: rowQr; text: "QR"; focusable: true; bordered: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.showQr(nativeRow.record) }
-                Button { id: rowEdit; text: root.textFor("native.editor.open"); focusable: true; bordered: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && nativeRow.record !== null && !nativeRow.record.managed; onClicked: { if (root.handOffToEditor(nativeRow.record)) root.close() } }
+                Layout.alignment: Qt.AlignVCenter
+                spacing: Style.space(2)
+                PanelActionButton { id: rowRename; size: Style.space(24); iconText: "󰑕"; tooltipText: root.textFor("common.rename"); focusable: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestRename(nativeRow.record) }
+                PanelActionButton { id: rowPin; size: Style.space(24); iconText: nativeRow.isProfile && nativeRow.profile.favorite ? "󰓎" : "󰓒"; tooltipText: root.textFor(nativeRow.isProfile && nativeRow.profile.favorite ? "native.unpin" : "native.pin"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.toggleFavorite(nativeRow.record) }
+                PanelActionButton { id: rowDelete; size: Style.space(24); iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestDelete(nativeRow.record) }
+                PanelActionButton { id: rowQr; size: Style.space(24); iconText: "󰐲"; tooltipText: root.textFor("native.main.qr"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.showQr(nativeRow.record) }
+                PanelActionButton { id: rowEdit; size: Style.space(24); iconText: "󰏫"; tooltipText: root.textFor("native.editor.open"); focusable: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && nativeRow.record !== null && !nativeRow.record.managed; onClicked: { if (root.handOffToEditor(nativeRow.record)) root.close() } }
+              }
               }
             }
           }
