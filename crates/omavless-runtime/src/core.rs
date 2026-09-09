@@ -352,7 +352,23 @@ mod tests {
             }
             let resource = fs::File::open(root.join("resource")).unwrap();
             assert!(Flock::lock(resource, FlockArg::LockExclusiveNonblock).is_err());
-            core.stop(Duration::from_secs(1)).unwrap();
+            // This is a resource/exclusivity test, not a one-second latency
+            // contract. Stop reserves 80% for TERM; the old one-second test
+            // left only 200ms for KILL scheduling and two complete /proc scans
+            // while the rest of the workspace tests were spawning processes.
+            // Use the normal caller budget without changing production timing.
+            let outcome = core.stop(Duration::from_secs(5)).unwrap_or_else(|error| {
+                panic!("helper cleanup ({spawn}, {helper}, early={early}): {error:?}")
+            });
+            assert!(
+                root.join("helper-ready").exists(),
+                "helper must actually spawn ({spawn}, {helper}, early={early})"
+            );
+            if helper == "ignore-term" {
+                // A fixture expiring by itself must not masquerade as proof
+                // that the owned-group escalation path drained its resource.
+                assert!(!outcome.graceful, "ignored TERM must require escalation");
+            }
             let resource = fs::File::open(root.join("resource")).unwrap();
             let released = Flock::lock(resource, FlockArg::LockExclusiveNonblock);
             assert!(
