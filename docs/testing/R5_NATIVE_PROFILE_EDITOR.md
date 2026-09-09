@@ -73,3 +73,14 @@ fixed public message. QML retains the draft for correction without claiming an
 unknown mutation. Exit 73 remains reserved for transport failures after entering
 the socket client. Deterministic tests assert that rejected input never connects;
 other plugin command exit contracts are unchanged.
+
+At implementation head `b1d0cfb07204688b8e0ed49821bc3f37d22229c5`, isolated
+QML plus the real native CLI/runtime passed rejected input (EN/RU), successful
+inactive save, unchanged save, and explicit recovery of an acknowledged
+rejected draft. Revision stayed 0 on rejection, advanced to 1 on Save, stayed 1
+on unchanged Save, and advanced to 2 after explicit corrected-draft recovery.
+Terminal outcomes cleared processes/seed/pending/unknown state; rejection alone
+retained the draft. These save cases used a synthetic editor-output wrapper,
+not human edits in Zenity, and do not establish active-profile host acceptance.
+The earlier actual Zenity open/Cancel gate is separate. No private store was
+changed and no test tunnel was started.
