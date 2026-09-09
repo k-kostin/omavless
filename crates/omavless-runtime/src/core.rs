@@ -4,11 +4,13 @@
 
 use crate::core_readiness::ConfigReadiness;
 use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
+use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid};
+use nix::unistd::{Pid, getpgid};
 use omavless_mihomo::{ErrorKind, ReadOnlyEndpoint, controller_get};
 use std::fmt;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -85,6 +87,7 @@ impl OwnedCore {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .process_group(0)
             .spawn()
             .map_err(|_| CoreError::SpawnFailed)?;
         Ok(Self {
@@ -99,12 +102,18 @@ impl OwnedCore {
     }
 
     pub fn running(&mut self) -> Result<bool, CoreError> {
-        self.child
-            .as_mut()
-            .ok_or(CoreError::StopFailed)?
-            .try_wait()
-            .map(|status| status.is_none())
-            .map_err(|_| CoreError::StopFailed)
+        let pid = self.pid().ok_or(CoreError::StopFailed)?;
+        let pid = i32::try_from(pid).map_err(|_| CoreError::StopFailed)?;
+        // Do not reap on observation. The waitable leader pins its process-group
+        // ID until stop has drained its helpers, including post-exit helpers.
+        match waitid(
+            Id::Pid(Pid::from_raw(pid)),
+            WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+        ) {
+            Ok(WaitStatus::StillAlive) => Ok(true),
+            Ok(WaitStatus::Exited(..) | WaitStatus::Signaled(..)) => Ok(false),
+            _ => Err(CoreError::StopFailed),
+        }
     }
 
     pub fn controller_ready(&self, timeout: Duration) -> Result<bool, CoreError> {
@@ -194,33 +203,51 @@ impl OwnedCore {
         if timeout.is_zero() || timeout > Duration::from_secs(30) {
             return Err(CoreError::InvalidArgument);
         }
-        let child = self.child.as_mut().ok_or(CoreError::StopFailed)?;
-        if child
-            .try_wait()
-            .map_err(|_| CoreError::StopFailed)?
-            .is_some()
+        // Establish that this is still our unreaped child before signalling.
+        // No path in OwnedCore reaps before group cleanup succeeds.
+        let _ = self.running()?;
+        let pid = i32::try_from(self.pid().ok_or(CoreError::StopFailed)?)
+            .map_err(|_| CoreError::StopFailed)?;
+        if pid <= 1
+            || getpgid(Some(Pid::from_raw(pid))).map_err(|_| CoreError::StopFailed)?
+                != Pid::from_raw(pid)
         {
-            self.child.take();
-            return Ok(StopOutcome { graceful: true });
+            return Err(CoreError::StopFailed);
         }
-        let pid = i32::try_from(child.id()).map_err(|_| CoreError::StopFailed)?;
-        kill(Pid::from_raw(pid), Signal::SIGTERM).map_err(|_| CoreError::StopFailed)?;
+        kill(Pid::from_raw(-pid), Signal::SIGTERM).map_err(|_| CoreError::StopFailed)?;
         let deadline = Instant::now() + timeout;
+        let grace_deadline = Instant::now() + timeout.mul_f32(0.8);
+        let mut forced = false;
+        let mut empty_observations = 0;
         while Instant::now() < deadline {
-            if child
-                .try_wait()
-                .map_err(|_| CoreError::StopFailed)?
-                .is_some()
+            if !self.running()?
+                && !crate::core_group::group_has_live_members(Path::new("/proc"), pid)
+                    .map_err(|_| CoreError::StopFailed)?
             {
-                self.child.take();
-                return Ok(StopOutcome { graceful: true });
+                empty_observations += 1;
+                if empty_observations >= 2 {
+                    self.child
+                        .as_mut()
+                        .ok_or(CoreError::StopFailed)?
+                        .wait()
+                        .map_err(|_| CoreError::StopFailed)?;
+                    self.child.take();
+                    return Ok(StopOutcome { graceful: !forced });
+                }
+            } else {
+                empty_observations = 0;
             }
-            thread::sleep(POLL_INTERVAL);
+            if Instant::now() >= grace_deadline {
+                // The leader remains unreaped, so even after its exit this
+                // cannot address a recycled PGID. Repeat for late-forked helpers.
+                kill(Pid::from_raw(-pid), Signal::SIGKILL).map_err(|_| CoreError::StopFailed)?;
+                forced = true;
+            }
+            thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
         }
-        child.kill().map_err(|_| CoreError::StopFailed)?;
-        child.wait().map_err(|_| CoreError::StopFailed)?;
-        self.child.take();
-        Ok(StopOutcome { graceful: false })
+        // Keep the identity pinned for retry/manual recovery, never pretend
+        // the tree is gone merely because the direct child exited.
+        Err(CoreError::StopFailed)
     }
 }
 
@@ -272,6 +299,89 @@ mod tests {
         fs::write(&path, "mode: rule\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         path
+    }
+
+    #[test]
+    fn helper_resources_are_drained_even_after_leader_exit_or_term_spawn() {
+        use nix::fcntl::{Flock, FlockArg};
+        struct Unrelated(Child);
+        impl Drop for Unrelated {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut unrelated = Unrelated(Command::new("/usr/bin/sleep").arg("60").spawn().unwrap());
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(self.0.join("keep-running"));
+            }
+        }
+        for (spawn, helper, early) in [
+            ("startup", "exit-term", false),
+            ("startup", "ignore-term", false),
+            ("term", "ignore-term", false),
+            ("startup", "ignore-term", true),
+        ] {
+            let root = root("inherited-resource");
+            let cleanup = Cleanup(root.clone());
+            let fixture = root.join("fake-core");
+            fs::write(
+                &fixture,
+                include_str!("../../../tools/owned_core_helper_fixture.py"),
+            )
+            .unwrap();
+            fs::set_permissions(&fixture, fs::Permissions::from_mode(0o700)).unwrap();
+            let config = root.join("config.json");
+            fs::write(&config, format!(r#"{{"spawn":"{spawn}","helper":"{helper}","detach":false,"exitAfterReady":{early}}}"#)).unwrap();
+            let mut core =
+                OwnedCore::spawn(&fixture, &root, &config, &root.join("unused.sock")).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !root.join("core-ready").exists() {
+                assert!(Instant::now() < deadline, "fixture readiness");
+                thread::sleep(POLL_INTERVAL);
+            }
+            if early {
+                while core.running().unwrap() {
+                    assert!(Instant::now() < deadline, "early exit");
+                    thread::sleep(POLL_INTERVAL);
+                }
+                // Repeated observations must leave the zombie/PGID pinned.
+                assert!(!core.running().unwrap());
+            }
+            let resource = fs::File::open(root.join("resource")).unwrap();
+            assert!(Flock::lock(resource, FlockArg::LockExclusiveNonblock).is_err());
+            core.stop(Duration::from_secs(1)).unwrap();
+            let resource = fs::File::open(root.join("resource")).unwrap();
+            let released = Flock::lock(resource, FlockArg::LockExclusiveNonblock);
+            assert!(
+                released.is_ok(),
+                "stop returned with an inherited resource held"
+            );
+            assert!(core.pid().is_none());
+            assert!(unrelated.0.try_wait().unwrap().is_none());
+            drop(released);
+            drop(core);
+            drop(cleanup);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn lost_waitable_child_identity_refuses_group_signal() {
+        let root = root("reaped-identity");
+        let executable = script(&root, "exit 0");
+        let config = config(&root);
+        let mut core =
+            OwnedCore::spawn(&executable, &root, &config, &root.join("unused.sock")).unwrap();
+        core.child.as_mut().unwrap().wait().unwrap();
+        assert_eq!(
+            core.stop(Duration::from_secs(1)),
+            Err(CoreError::StopFailed)
+        );
+        core.child.take();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -127,3 +127,12 @@ it is committed or proposed for merge. A process-group-only solution therefore
 remains unproven; investigate helper spawning/teardown races and resource
 ownership before choosing the implementation. All temporary services/TUNs were
 cleaned up after both runs.
+
+## Subsequent owned-helper repair
+
+The later [owned-helper cleanup checkpoint](R5_OWNED_HELPER_CLEANUP.md) retains
+the direct child as waitable until its group is drained, including helpers
+created during TERM handling. This supersedes the rejected quick experiment,
+not the original negative evidence. See that report and PR #196's exact-head
+results for repeated native connect/disconnect acceptance. Production ownership
+and package activation remain unchanged.
