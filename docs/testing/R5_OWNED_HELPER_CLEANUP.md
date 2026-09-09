@@ -147,3 +147,41 @@ package-manager installation/update/removal, enabled-login startup conversion,
 production ownership handoff or private-profile Full VPN acceptance. No claim
 that disabled startup under native ownership was tested: this case deliberately
 has no ownership marker at all.
+
+## Rebased candidate: private VLESS Full VPN gate
+
+Harness/source head: `520818bb9dc5d793fc4186df731db6db1d173d86`, rebased onto
+main `4975b6388eb4b982d662587c978439495006946e`. Try Omarchy ARM64, Mihomo
+1.19.30. The tested binary was built at
+`36528c532ebc24d5d9fee6fef017dcb69d3d9121`, with SHA256
+`d80166888331fb278136989ab24f294b260d8cf319669f51a3001b0f7b84fdcb`.
+Only the acceptance harness and its deterministic tests changed between that
+build source and the harness/source head; runtime and packaged-unit files are
+identical. This is an explicitly qualified runtime-equivalent binary gate,
+not a claim that the binary was rebuilt at the later harness commit.
+
+One existing private VLESS fixture was copied into the isolated test store,
+preserving its protocol fields while replacing local identity and detaching
+subscription links. The original private store remained untouched. No protocol
+feature beyond the actual VLESS fixture is inferred and no private identity is
+published here.
+
+| Public case | Result |
+| --- | --- |
+| Private VLESS, temporary Full VPN/global mode | PASS |
+| Bounded HTTPS probe to the generic public probe site | PASS |
+| Probe explicitly bound to generated TUN, RX and TX increased | PASS |
+| Unprivileged daemon; core network capabilities; owned process group | PASS |
+| Exactly one owned core/TUN; responsive private Unix controller | PASS |
+| Semantic connect / disconnect | PASS — 109 ms / 4069 ms |
+| No new host TCP/TCP6 listener; no TCP-controller configuration | PASS |
+| PID-specific TCP listener attribution | NOT PROVEN — restricted proc FD visibility |
+| Final service/core/helper/TUN cleanup | PASS |
+
+The TUN-bound probe establishes that bounded request's TUN usage, not all-host
+traffic capture, DNS leak protection or physical-network behavior. The gate
+uses an isolated temporary user service under the reviewed candidate policy;
+it does not install the canonical package, transfer production ownership or
+establish login activation. Those #178/R5 gates remain separate. The focused
+acceptance-tool suite passes 26 deterministic tests with no private fixture or
+network requirement.
