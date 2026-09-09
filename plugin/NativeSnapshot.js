@@ -22,6 +22,23 @@ function qrDataUri(raw) {
   if (body.length % 4 !== 0 || body.length / 4 * 3 - padding > 4194304) return ""
   return raw
 }
+function editorText(value, max) {
+  try {
+    return typeof value === "string" && value.indexOf("\u0000") < 0
+      && value.length <= max && unescape(encodeURIComponent(value)).length <= max
+  } catch (_) { return false }
+}
+function parseEditorInput(raw, revision) {
+  try {
+    var p = envelope(raw)
+    if (!p || !object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.ok !== true || p.revision !== revision
+        || !object(p.result, ["name", "input"])
+        || !text(p.result.name, 80, false) || !editorText(p.result.input, 32768)
+        || p.result.input === "") return null
+    return {name:p.result.name, input:p.result.input}
+  } catch (_) { return null }
+}
 function object(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   var found = Object.keys(value)
@@ -146,7 +163,7 @@ function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-replace"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
@@ -199,4 +216,11 @@ function parseImportPreview(raw, revision) {
         || typeof v.credentialHint !== "string" || !/^••••(?:[0-9a-f]{4})?$/i.test(v.credentialHint)) return null
     return {kind:"profile", profile:v}
   } catch (_) { return null }
+}
+
+function parseActionExit(raw, pending, exitCode) {
+  // Reserved replacement-only CLI exit proves no socket dispatch occurred.
+  if (exitCode === 74 && pending && pending.action === "profile-replace")
+    return {ok:false, code:"invalid_argument"}
+  return parseAction(raw, pending)
 }

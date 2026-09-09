@@ -51,6 +51,14 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 1 ] || blocked
           exec omavless desktop qr-data-uri
           ;;
+        native-profile-edit-input)
+          [ "$#" -eq 2 ] || blocked
+          exec omavless profile edit-input "$2"
+          ;;
+        native-profile-editor)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless desktop edit
+          ;;
         native-observation)
           [ "$#" -eq 1 ] || blocked
           exec omavless runtime observation
@@ -66,7 +74,7 @@ if command -v omavless >/dev/null 2>&1; then
             native-import-file) exec omavless desktop pick-import ;;
           esac
           ;;
-        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import)
+        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import|native-profile-replace)
           action=${1#native-}
           shift
           exec omavless plugin "$action" "$@"

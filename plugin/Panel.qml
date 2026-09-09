@@ -462,7 +462,7 @@ Panel {
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
     if (vless.nativeOwner) {
-      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeQr, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
+      var targets = [nativeRefresh, nativeConnect, nativeDisconnect, nativeRule, nativeGlobal, nativeDirect, nativeRename, nativeFavorite, nativeDelete, nativeQr, nativeEdit, nativeEditorReopen, nativeEditorDiscard, nativeImportClipboard, nativeImportFile, nativeReconcile, nativeAcceptState]
       for (var i = 0; i < nativeProfiles.count; i++) {
         var row = nativeProfiles.itemAt(i)
         if (row) targets.push(row.focusTarget)
@@ -1033,7 +1033,11 @@ Panel {
   }
 
   function handOffToEditor(profile) {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) {
+      if (!vless.startNativeEditor(profile)) return false
+      editHandedOff = true
+      return true
+    }
     if (profile && profile.managed) {
       openSubscriptions()
       vless.subscriptionStatus = "Managed by " + profile.sourceName + " — edit the subscription instead"
@@ -1261,6 +1265,10 @@ Panel {
     // Retire the UI-only marker so a later headless editor failure cannot
     // mistake this panel for the caller that needs reopening.
     function onEditFinished() { root.editHandedOff = false }
+    function onNativeEditorAttention() {
+      root.editHandedOff = false
+      if (!root.opened) root.open()
+    }
   }
 
   IpcHandler {
@@ -1582,6 +1590,15 @@ Panel {
             spacing: Style.space(6)
             Button { id: nativeImportClipboard; text: root.textFor("native.importClipboard"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: vless.startNativeImport("clipboard") }
             Button { id: nativeImportFile; text: root.textFor("native.importFile"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
+            Button { id: nativeEdit; text: root.textFor("native.editor.open"); focusable: true; bordered: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && root.nativeSelectedRecord() !== null && !root.nativeSelectedRecord().managed; onClicked: { if (root.handOffToEditor(root.nativeSelectedRecord())) root.close() } }
+          }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeEditorCode !== ""; text: vless.nativeEditorCode ? root.textFor("native.editor." + vless.nativeEditorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.privateDraft"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          Flow {
+            Layout.fillWidth: true
+            spacing: Style.space(6)
+            Button { id: nativeEditorReopen; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.reopen"); focusable: true; bordered: true; enabled: !vless.nativeEditorRunning && !vless.nativePending; onClicked: { if (vless.reopenNativeEditor()) root.close() } }
+            Button { id: nativeEditorDiscard; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.discard"); focusable: true; bordered: true; enabled: !vless.nativeEditorRunning && !vless.nativePending && !vless.nativeActionRunning; onClicked: vless.discardNativeEditor() }
           }
           Button { id: nativeReconcile; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.reconcile"); focusable: true; bordered: true; enabled: !vless.nativeActionRunning; onClicked: vless.reconcileNativeAction() }
           Button { id: nativeAcceptState; visible: vless.nativeOutcomeUnknown; text: root.textFor("native.acceptState"); focusable: true; bordered: true; enabled: vless.nativeFactsCurrent && !vless.nativeActionRunning; onClicked: vless.acceptRefreshedNativeState() }
