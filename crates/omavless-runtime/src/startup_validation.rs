@@ -4,11 +4,11 @@ use crate::desired::DesiredState;
 use crate::lifecycle::HostStepError;
 use crate::native_host::NativeHostPaths;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
-use omavless_domain::private_store::parse_private_store;
+use omavless_domain::private_store::{PrivateStore, parse_private_store};
 use omavless_store::read_private_utf8;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -103,33 +103,65 @@ pub(crate) fn validate(
     let store = read_private_utf8(&paths.store, uid).map_err(|_| HostStepError::Prepare)?;
     let store = parse_private_store(&store).map_err(|_| HostStepError::Prepare)?;
     let template = read_private_utf8(&paths.template, uid).map_err(|_| HostStepError::Prepare)?;
+    validate_snapshot(paths, uid, desired, &store, &template)
+}
+
+/// Pure canonical rendering from already captured inputs. No private-file
+/// rereads and no core execution. This does not prove host/config readiness.
+fn render_snapshot(
+    desired: &DesiredState,
+    store: &PrivateStore,
+    template: &str,
+    controller: &Path,
+) -> Result<String, HostStepError> {
+    desired.validate().map_err(|_| HostStepError::Prepare)?;
+    if !desired.connected {
+        return Err(HostStepError::Prepare);
+    }
     if template.len() > omavless_domain::config::MAX_TEMPLATE_BYTES {
         return Err(HostStepError::Prepare);
     }
-    let controller = paths
-        .controller_socket
-        .to_str()
-        .ok_or(HostStepError::Prepare)?;
-    let config = store
+    let controller = controller.to_str().ok_or(HostStepError::Prepare)?;
+    store
         .prepare_config_mode(
             &desired.profile_id,
-            &template,
+            template,
             controller,
             desired.mode.as_str(),
         )
-        .map_err(|_| HostStepError::Prepare)?;
+        .map_err(|_| HostStepError::Prepare)
+}
+
+/// Validates the supplied snapshot only. The caller remains responsible for
+/// capability/NNP preflight. `-d` retains the existing persistent data directory;
+/// neither the temporary config nor this function provides filesystem/network
+/// isolation from provider/geodata/path options in the exact rendered config.
+fn validate_snapshot(
+    paths: &NativeHostPaths,
+    uid: u32,
+    desired: &DesiredState,
+    store: &PrivateStore,
+    template: &str,
+) -> Result<(), HostStepError> {
+    let config = render_snapshot(desired, store, template, &paths.controller_socket)?;
+    if !crate::native_host::private_directory(&paths.runtime_directory, uid) {
+        return Err(HostStepError::Prepare);
+    }
     let path = paths.runtime_directory.join(".startup-check.yaml");
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
         .open(&path)
         .map_err(|_| HostStepError::Prepare)?;
+    // Keep the original descriptor open through validation/cleanup so its inode
+    // cannot be recycled into a replacement file that we would wrongly remove.
+    let original = file.metadata().map_err(|_| HostStepError::Cleanup)?;
     let result = file
         .write_all(config.as_bytes())
         .map_err(|_| HostStepError::Prepare)
         .and_then(|()| {
-            drop(file);
             omavless_mihomo::validate_config(
                 &paths.core,
                 &paths.data_directory,
@@ -139,9 +171,22 @@ pub(crate) fn validate(
             .map(|_| ())
             .map_err(|_| HostStepError::Prepare)
         });
+    let current = fs::symlink_metadata(&path).map_err(|_| HostStepError::Cleanup)?;
+    if !current.is_file()
+        || current.uid() != uid
+        || current.dev() != original.dev()
+        || current.ino() != original.ino()
+        || current.mode() & 0o7777 != 0o600
+    {
+        return Err(HostStepError::Cleanup);
+    }
     fs::remove_file(&path).map_err(|_| HostStepError::Cleanup)?;
     result
 }
+
+#[cfg(test)]
+#[path = "startup_validation_snapshot_tests.rs"]
+mod snapshot_tests;
 
 #[cfg(test)]
 mod tests {
