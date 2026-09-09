@@ -38,3 +38,37 @@ fixture or an isolated synthetic store. Screenshots are private unless their
 pixels have been reviewed for fixture identity. Python remains oracle/rollback;
 import, editor, subscriptions, routing tools and startup are not completed by
 this slice. R5/R6 remain open.
+
+## Try Omarchy ARM64 checkpoint — 2026-09-09
+
+Installed source: `4f22099bc46707117b8e90e8f0a19996d89293ae`, directly on
+main `8ec90a73b422dac530bdb2175bb6224fca9fe01e` after #206 merged.
+The rebase preserves both feature/test patches (`=`/`=`) and the complete
+tree is identical to tested `ee05b2a26902b2a9969b57aa6a0de31175905596`.
+
+- Rust: 748 passed, four existing ignored; strict clippy, format and parity pass.
+- Python: 337 run, 336 passed, one root-only skip with installed Mihomo enabled.
+- QML actions: 15 executed JavaScript tests; snapshot: six; launcher: 15.
+  QML, localization, shell syntax and diff checks pass.
+- Exact-head CI run `34374013077` passes.
+- Local package `omavless 0.0.0.r363.g4f22099bc467-1` installed normally.
+  `/usr/bin/omavless` and the running daemon executable both have SHA256
+  `cc7bd98525464d2c58c0b40cae7bf68864a86d31f26cba14483ea32b6bedb711`.
+- Exact QML/launcher installed; native metadata/fresh-fact reads pass. Native
+  service active, legacy inactive, both startup units disabled, plugin enabled,
+  disconnected with zero visible Mihomo/TUN.
+
+The same executable and QML were also exercised against a separate synthetic
+store/socket, never the user's real profile records. Actual QML rename
+confirmation updated the snapshot, pin/unpin completed, and English/Russian
+rename/delete-cancel surfaces rendered without overlap. Markup-like synthetic
+names remained plain text. The native Tab-target cycle reached 25 controls;
+long-list bottom rows remained scrollable. Private screenshots were inspected
+locally, not committed or published. One closed-panel capture was discarded
+and repeated with the dialog actually visible.
+
+Human installed mouse/keyboard checks, disposable-profile delete confirmation,
+duplicate-rename/unknown-outcome visual states and the candidate's connection
+regression remain pending. The former installed #206 connection evidence is
+not relabeled as proof of all new profile controls. Keep this PR Draft until
+its declared UI/host checks are satisfied; this is not complete UI parity.
