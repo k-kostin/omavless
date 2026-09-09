@@ -1323,3 +1323,10 @@ applies those plans to private files under owner/migration locks and ownership
 generation fences. A pending/consumed receipt protects against blind retry of
 interrupted writes. This is not multi-file atomicity or cross-boot recovery;
 uncertainty remains explicit. No production caller or login unit is added.
+
+The [read-side startup barrier](../testing/R5_LOGIN_STARTUP_BARRIER.md) now checks
+the canonical receipt under the migration lease before native reconciliation.
+Unsafe/pending/stale receipts refuse without host effects; matching consumed
+receipts preserve normal current-intent recovery. Candidate cutover refuses any
+receipt. This does not activate the applying transaction or establish a trusted
+login epoch. Installed Python ownership, #178 and the R5/R6 gates remain.
