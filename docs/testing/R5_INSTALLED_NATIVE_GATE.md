@@ -51,3 +51,37 @@ References: [native service acceptance](../../tests/native_service_acceptance.py
 ad-hoc probe is replaced by this checked-in harness, not imported from a machine
 specific workspace. Deterministic parser/authorization/privacy tests run through
 `tests/run.sh`; executing them never starts VPN or asks for authorization.
+
+## Executed Try Omarchy ARM64 evidence — 2026-09-09
+
+The integrating agent executed the checked-in harness at exact source
+`d44b89b6c85548c0eeba155411ee7fb550fe8e93` against the already installed combined
+runtime candidate `ffcf4d2654b74c0fb746664eb73545eb9028fbc6`. Installed executable
+SHA256 was
+`3ef3ac70b063c910b90fa032d52b4edbe253291e63eee1cfe94cf94abbc0a223`.
+This is ARM64/virtualized installed evidence, not a new activation or a claim
+that the harness's source HEAD was the installed runtime HEAD.
+
+| Public evidence | Result |
+| --- | --- |
+| Existing representative VLESS / Full VPN connect | PASS; 198 ms |
+| Service-owned core and exactly one TUN | PASS |
+| Private Unix controller | PASS |
+| Only expected loopback proxy and system-TUN forwarder listeners | PASS |
+| No TCP controller in generated configuration | PASS |
+| Every new expected listener attributed to the core PID and inode | PASS |
+| Bounded generic HTTPS and measured TUN use | PASS |
+| Finally disconnect and core/TUN/controller cleanup | PASS |
+| Original disconnected mode restored | PASS |
+
+The explicit read-only socket-inspection authorization was retried after
+temporary PAM authentication failures. Acceptance was recorded only after
+normal authorization succeeded and all checks passed; no OS security policy,
+authentication configuration or privilege boundary was weakened. Intermediate
+authorization failures are not successful attribution evidence.
+
+The two harness commits were subsequently rebased onto main
+`2d8cd107e94e8ed8747418d99a08edf0a0fb53dc`; range-diff marks both patches
+unchanged. The added evidence text does not alter the executed harness.
+Eight focused deterministic tests pass. This single representative installed
+case does not complete V0, full frontend parity, login activation or R6.
