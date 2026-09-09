@@ -120,6 +120,7 @@ exec /usr/bin/cat
             ("profile-favorite", []),
             ("profile-delete", []),
             ("profile-import", []),
+            ("profile-replace", []),
         ]:
             with self.subTest(action=action):
                 args = ["instance-one", "4", "operation-one", *tail]
@@ -127,6 +128,38 @@ exec /usr/bin/cat
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(self.calls(), ["native:plugin:target", "arg:plugin", "arg:" + action, *["arg:" + value for value in args]])
                 self.trace.unlink()
+
+    def test_native_editor_fixed_reads_refuse_extra_arguments(self):
+        self.action_native()
+        for args, expected in [
+            (("native-profile-edit-input", "synthetic-record"), ["profile", "edit-input", "synthetic-record"]),
+            (("native-profile-editor",), ["desktop", "edit"]),
+        ]:
+            result = self.run_launcher(*args)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + value for value in expected]])
+            self.trace.unlink()
+        for args in [("native-profile-edit-input",), ("native-profile-edit-input", "id", "private-token"), ("native-profile-editor", "private-token")]:
+            result = self.run_launcher(*args)
+            self.assertEqual(result.returncode, 71)
+            self.assertNotIn("private-token", result.stderr)
+            self.assertEqual(self.calls(), ["native:plugin:target"])
+            self.trace.unlink()
+
+    def test_native_editor_and_replacement_keep_private_input_on_stdin(self):
+        self.script("omavless", '''
+if [ "$1" = plugin ] && [ "$2" = target ]; then printf 'rust\\n'; exit 0; fi
+for argument in "$@"; do printf 'arg:%s\\n' "$argument" >> "$BRIDGE_TEST_TRACE"; done
+exec /usr/bin/cat
+''')
+        for args in [("native-profile-editor",), ("native-profile-replace", "instance", "4", "operation")]:
+            synthetic = 'record\nSynthetic\nvless://synthetic;$(false)'
+            result = subprocess.run(["/bin/sh", str(LAUNCHER), *args], input=synthetic,
+                                    env=self.env, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, synthetic)
+            self.assertNotIn("synthetic", " ".join(self.calls()))
+            self.trace.unlink()
 
     def test_native_action_transport_unknown_exit_and_envelope_are_preserved(self):
         self.action_native(code=73)

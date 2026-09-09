@@ -114,6 +114,127 @@ Item {
     return true
   }
 
+  // Private editor draft is independent of replay metadata. An acknowledged
+  // rejection must never erase the user's successfully returned bounded text.
+  property var nativeEditorDraft: null
+  property string nativeEditorCode: ""
+  property var nativeEditorReadProcess: null
+  property var nativeEditorProcess: null
+  property string _nativeEditorSeed: ""
+  readonly property bool nativeEditorRunning: nativeEditorReadProcess !== null || nativeEditorProcess !== null
+  signal nativeEditorAttention()
+
+  function nativeEditorFence(draft) {
+    return draft !== null && draft === nativeEditorDraft && nativeOwner
+      && nativeFactsCurrent && nativeSnapshot.instanceId === draft.instanceId
+      && nativeSnapshot.revision === draft.revision
+      && nativeSnapshot.profiles.some(function(p) { return p.id === draft.profileId && p.subscriptionId === "" })
+  }
+
+  function startNativeEditor(profile) {
+    if (!nativeCanAct || nativeEditorDraft !== null || nativeEditorRunning || !profile) return false
+    var found = nativeSnapshot.profiles.find(function(p) { return p.id === profile.uuid && p.subscriptionId === "" })
+    if (!found) return false
+    nativeEditorDraft = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      profileId:found.id, name:"", seed:"", input:"", unresolved:false}
+    nativeEditorCode = ""
+    nativeEditorReadProcess = nativeEditorReadComponent.createObject(root, {
+      command:["bash", backendPath, "native-profile-edit-input", found.id], context:nativeEditorDraft})
+    if (!nativeEditorReadProcess) { nativeEditorDraft = null; nativeEditorCode = "unavailable"; nativeEditorAttention(); return false }
+    nativeEditorReadProcess.running = true
+    return true
+  }
+
+  function finishNativeEditorRead(context, code, output) {
+    if (context !== nativeEditorDraft) return
+    var value = code === 0 ? NativeSnapshot.parseEditorInput(output, context.revision) : null
+    if (!value || !nativeEditorFence(context) || nativePending) {
+      nativeEditorDraft = null
+      nativeEditorCode = "unavailable"
+      nativeEditorAttention()
+      return
+    }
+    context.name = value.name
+    context.seed = value.input
+    context.input = value.input
+    nativeEditorDraft = context
+    reopenNativeEditor()
+  }
+
+  function reopenNativeEditor() {
+    var draft = nativeEditorDraft
+    if (!draft || nativeEditorRunning || nativePending) return false
+    // Reopening is local recovery only. Saving below still requires the
+    // original fence, and unresolved outcomes never create another mutation.
+    _nativeEditorSeed = draft.input
+    nativeEditorCode = ""
+    nativeEditorProcess = nativeEditorComponent.createObject(root, {
+      command:["bash", backendPath, "native-profile-editor"], context:draft, stdinEnabled:true})
+    if (!nativeEditorProcess) { _nativeEditorSeed = ""; nativeEditorCode = "unavailable"; nativeEditorAttention(); return false }
+    nativeEditorProcess.running = true
+    return true
+  }
+
+  function discardNativeEditor() {
+    if (nativeEditorRunning || nativeActionRunning || nativePending) return false
+    nativeEditorDraft = null
+    _nativeEditorSeed = ""
+    nativeEditorCode = ""
+    return true
+  }
+
+  function finishNativeEditor(context, code, output, error) {
+    _nativeEditorSeed = ""
+    if (context !== nativeEditorDraft) return
+    if (code === 3) {
+      if (context.input !== context.seed || context.unresolved) {
+        nativeEditorCode = context.unresolved ? "unknown" : nativeEditorFence(context) ? "rejected" : "stale"
+        nativeEditorAttention()
+      } else {
+        nativeEditorDraft = null
+        nativeEditorCode = ""
+        editFinished()
+      }
+      return
+    }
+    if (code !== 0 || !NativeSnapshot.editorText(output, 65536)) {
+      nativeEditorCode = String(error || "").trim() === "Profile editor unavailable: install zenity" ? "missing" : "unavailable"
+      nativeEditorAttention()
+      return
+    }
+    context.input = output
+    nativeEditorDraft = context
+    if (context.unresolved) { nativeEditorCode = "unknown"; nativeEditorAttention(); return }
+    if (output === context.seed) { nativeEditorDraft = null; nativeEditorCode = ""; editFinished(); return }
+    if (!NativeSnapshot.editorText(output, 32768) || output === "") { nativeEditorCode = "rejected"; nativeEditorAttention(); return }
+    if (!nativeEditorFence(context) || !nativeCanAct) { nativeEditorCode = "stale"; nativeEditorAttention(); return }
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-profile-replace", context.instanceId, String(context.revision), operation]
+    nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
+      action:"profile-replace", command:args, input:context.profileId + "\n" + context.name + "\n" + output}
+    nativeOutcomeUnknown = false
+    nativeActionCode = ""
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    nativeEditorAttention()
+  }
+
+  function finishNativeEditorAction(result, unknown) {
+    if (!nativePending || nativePending.action !== "profile-replace" || !nativeEditorDraft) return
+    if (unknown) {
+      nativeEditorDraft.unresolved = true
+      nativeEditorCode = "unknown"
+    } else if (result.ok) {
+      nativeEditorDraft = null
+      nativeEditorCode = ""
+      editFinished()
+    } else {
+      nativeEditorDraft.unresolved = false
+      nativeEditorCode = "rejected"
+    }
+  }
+
   function refreshNativeObservation() {
     if (!nativeOwner || nativeActionRunning || nativeObservationProcess.running) return false
     nativeObservationProcess.running = true
@@ -2011,7 +2132,7 @@ Item {
   signal editFinished()
 
   function editConfig(profile, seedText) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return startNativeEditor(profile)
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     if (pickerProcess.running) return rejectAction("close the file picker before editing")
     if (clipboardProcess.running) return rejectAction("clipboard import is still running")
@@ -2585,6 +2706,7 @@ Item {
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
       var result = NativeSnapshot.parseAction(nativeActionStdout.text, root.nativePending)
+      root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       if (!result || exitCode === 73) {
         root.nativeOutcomeUnknown = true
         root.nativeActionCode = ""
@@ -2598,6 +2720,39 @@ Item {
       }
       root.nativeObservation = null
       root.refreshAfterChange()
+    }
+  }
+
+  Component {
+    id: nativeEditorReadComponent
+    Process {
+      id: process
+      property var context
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) {
+        root.nativeEditorReadProcess = null
+        try { root.finishNativeEditorRead(context, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
+
+  Component {
+    id: nativeEditorComponent
+    Process {
+      id: process
+      property var context
+      onStarted: {
+        if (context === root.nativeEditorDraft) write(root._nativeEditorSeed)
+        root._nativeEditorSeed = ""
+        stdinEnabled = false
+      }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { id: error; waitForEnd: true }
+      onExited: function(code) {
+        root.nativeEditorProcess = null
+        try { root.finishNativeEditor(context, code, output.text, error.text) } finally { process.destroy() }
+      }
     }
   }
 
