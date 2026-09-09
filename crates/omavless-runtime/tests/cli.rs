@@ -992,3 +992,70 @@ fn daemon_and_semantic_cli_use_one_private_runtime() {
     assert!(!socket.exists());
     fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn daemon_refuses_pending_login_without_consuming_intent_or_leaving_socket() {
+    use std::io::Read;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let state = base.join("state/omavless");
+    fs::create_dir(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    let desired = br#"{"schemaVersion":1,"generation":2,"connected":true,"profileId":"synthetic","mode":"global"}"#;
+    let receipt = serde_json::to_vec(&serde_json::json!({
+        "schemaVersion": 1, "epochHash": "a".repeat(64),
+        "ownershipGeneration": 1, "phase": "pending"
+    }))
+    .unwrap();
+    for (path, bytes) in [
+        (
+            state.join("ownership.json"),
+            br#"{"schemaVersion":1,"generation":1,"phase":"rust"}"#.as_slice(),
+        ),
+        (state.join("desired.json"), desired.as_slice()),
+        (base.join("omavless-login.receipt"), receipt.as_slice()),
+    ] {
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let mut child = ChildGuard(
+        isolated_command(&base)
+            .arg("daemon")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon must refuse boundedly"
+        );
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(status.code(), Some(2));
+    let mut error = String::new();
+    child
+        .0
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut error)
+        .unwrap();
+    assert!(error.contains("native owner is unavailable"));
+    assert!(!error.contains(base.to_string_lossy().as_ref()));
+    assert!(!error.contains("synthetic"));
+    assert_eq!(fs::read(state.join("desired.json")).unwrap(), desired);
+    assert_eq!(
+        fs::read(base.join("omavless-login.receipt")).unwrap(),
+        receipt
+    );
+    assert!(!base.join("omavless/control.sock").exists());
+    drop(child);
+    fs::remove_dir_all(base).unwrap();
+}

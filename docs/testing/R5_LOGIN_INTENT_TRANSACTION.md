@@ -63,11 +63,11 @@ but not necessarily user-manager teardown or reboot. This is not cross-boot
 recovery evidence. Trusted epoch creation/reset, startup ordering, orphan-receipt
 recovery and legacy unit-enable conversion remain future host work.
 
-**Activation blocker:** current production startup does not inspect this new
-receipt. Before any production entry point can call this transaction, daemon
-startup/reconciliation must honor its barrier and the host must establish
-once-per-user-manager ordering. Do not infer production crash safety from these
-offline tests alone.
+The subsequent [startup barrier](R5_LOGIN_STARTUP_BARRIER.md) makes native owner
+construction inspect this receipt before reconciliation. **Activation remains
+blocked:** the host must still establish trusted once-per-user-manager ordering
+before any production entry point calls this transaction. Do not infer complete
+production login crash safety from these offline tests alone.
 
 ## Reference and acceptance
 

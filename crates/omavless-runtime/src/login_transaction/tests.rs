@@ -1,5 +1,24 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+
+#[test]
+fn startup_receipt_requires_exact_migration_lease_even_when_absent() {
+    let first = Fixture::new(false);
+    let other = Fixture::new(false);
+    let lock = MigrationLock::acquire(&first.paths.cutover, first.paths.uid).unwrap();
+    assert_eq!(
+        check_startup_receipt(&first.paths.cutover, first.paths.uid, &lock, Some(2)),
+        Ok(())
+    );
+    assert_eq!(
+        check_startup_receipt(&other.paths.cutover, other.paths.uid, &lock, Some(2)),
+        Err(LoginTransactionError::ManualRecoveryRequired)
+    );
+    assert_eq!(
+        check_startup_receipt(&first.paths.cutover, first.paths.uid + 1, &lock, Some(2)),
+        Err(LoginTransactionError::ManualRecoveryRequired)
+    );
+}
 use serde_json::json;
 use std::os::unix::fs::{PermissionsExt, symlink};
 

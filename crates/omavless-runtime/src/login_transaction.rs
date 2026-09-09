@@ -3,8 +3,9 @@
 //!
 //! A trusted future host supplies an epoch; hashing it does not prove a new login.
 //! That host must order this transaction before daemon startup and make startup
-//! honor pending receipts. Currently startup does neither: this module alone is
-//! NOT a production crash-safety or once-per-login guarantee. Receipts live below
+//! honor pending receipts. Production owner construction now reads that barrier,
+//! but no login trigger invokes this transaction. This module alone is NOT a
+//! production crash-safety or once-per-login guarantee. Receipts live below
 //! the user runtime base, outside the removable daemon runtime directory. They
 //! do not provide recovery across user-manager teardown or reboot.
 //!
@@ -219,7 +220,11 @@ impl Snapshot {
 }
 
 fn receipt(paths: &LoginPaths) -> Result<Option<Receipt>> {
-    let raw = private_optional(&paths.receipt, paths.uid, MAX_RECEIPT_BYTES)
+    read_receipt(&paths.receipt, paths.uid)
+}
+
+fn read_receipt(path: &Path, uid: u32) -> Result<Option<Receipt>> {
+    let raw = private_optional(path, uid, MAX_RECEIPT_BYTES)
         .map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
     raw.map(|raw| {
         let parsed: Receipt = serde_json::from_str(&raw)
@@ -238,6 +243,30 @@ fn receipt(paths: &LoginPaths) -> Result<Option<Receipt>> {
         Ok(parsed)
     })
     .transpose()
+}
+
+/// Read-only startup fence under the exact migration lease. `None` denotes a
+/// preparing candidate, for which no existing login receipt is legitimate.
+/// Committed startup recognizes completion, never freshness or login intent.
+pub(crate) fn check_startup_receipt(
+    paths: &CutoverPaths,
+    uid: u32,
+    lock: &MigrationLock,
+    committed_generation: Option<u64>,
+) -> Result<()> {
+    if !lock.authorizes(paths, uid) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
+        None => Ok(()),
+        Some(value)
+            if value.phase == Phase::Consumed
+                && committed_generation == Some(value.ownership_generation) =>
+        {
+            Ok(())
+        }
+        Some(_) => Err(LoginTransactionError::ManualRecoveryRequired),
+    }
 }
 
 fn exact_owner(paths: &LoginPaths, generation: u64) -> Result<()> {

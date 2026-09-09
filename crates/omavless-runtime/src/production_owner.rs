@@ -14,6 +14,7 @@ use crate::cutover::{
 };
 use crate::desired::DesiredPaths;
 use crate::lifecycle::{ActualState, LifecycleHost};
+use crate::login_transaction::check_startup_receipt;
 use crate::native_coordinator::{
     CandidatePromotion, NativeOwnerError, OfflineNativeCoordinator, PreparedSubscriptionRefresh,
 };
@@ -127,6 +128,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
+        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
             host,
             desired_paths,
@@ -189,6 +192,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         bootstrap: TransitionBootstrap,
         lock: MigrationLock,
     ) -> Result<Self, ProductionOwnerError> {
+        check_startup_receipt(&cutover_paths, uid, &lock, None)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let mut coordinator = OfflineNativeCoordinator::new_transition_candidate(
             host,
             desired_paths,
@@ -450,11 +455,13 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         let cutover_paths =
             CutoverPaths::current(uid).map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let lock = MigrationLock::acquire(&cutover_paths, uid).map_err(lock_error)?;
-        if !read_marker(&cutover_paths, uid)
-            .is_ok_and(|marker| marker.phase() == OwnershipPhase::Rust)
-        {
+        let marker = read_marker(&cutover_paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
+        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let store_path = host_paths.store.clone();
@@ -482,6 +489,8 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         if bootstrap.preparing_generation() != preparing_generation {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
+        check_startup_receipt(&cutover_paths, uid, &lock, None)
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let store_path = host_paths.store.clone();
@@ -505,20 +514,30 @@ mod tests {
     use crate::desired::{DesiredState, OwnedObservation, write_desired};
     use crate::lifecycle::HostStepError;
     use serde_json::json;
+    use std::cell::Cell;
     use std::fs;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
     use std::path::PathBuf;
+    use std::rc::Rc;
 
     struct FakeHost {
         observation: OwnedObservation,
         calls: usize,
         lock_check: Option<(CutoverPaths, u32)>,
         lock_was_held: bool,
+        observed_calls: Rc<Cell<usize>>,
+    }
+
+    impl FakeHost {
+        fn called(&mut self) {
+            self.calls += 1;
+            self.observed_calls.set(self.observed_calls.get() + 1);
+        }
     }
 
     impl LifecycleHost for FakeHost {
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
-            self.calls += 1;
+            self.called();
             if let Some((paths, uid)) = self.lock_check.as_ref() {
                 self.lock_was_held =
                     matches!(MigrationLock::acquire(paths, *uid), Err(CutoverError::Busy));
@@ -527,27 +546,27 @@ mod tests {
         }
 
         fn prepare(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
-            self.calls += 1;
+            self.called();
             Ok(())
         }
 
         fn start_prepared(&mut self) -> Result<(), HostStepError> {
-            self.calls += 1;
+            self.called();
             Ok(())
         }
 
         fn commit_prepared(&mut self) -> Result<(), HostStepError> {
-            self.calls += 1;
+            self.called();
             Ok(())
         }
 
         fn stop_owned(&mut self) -> Result<(), HostStepError> {
-            self.calls += 1;
+            self.called();
             Ok(())
         }
 
         fn discard_prepared(&mut self) -> Result<(), HostStepError> {
-            self.calls += 1;
+            self.called();
             Ok(())
         }
     }
@@ -614,6 +633,7 @@ mod tests {
                 calls: 0,
                 lock_check: Some((self.cutover.clone(), self.uid)),
                 lock_was_held: false,
+                observed_calls: Rc::new(Cell::new(0)),
             }
         }
 
@@ -658,6 +678,140 @@ mod tests {
         assert!(!owner.startup_outcome().changed);
         assert_eq!(owner.coordinator.host().calls, 1);
         assert!(owner.coordinator.host().lock_was_held);
+    }
+
+    #[test]
+    fn consumed_matching_receipt_allows_recovery_without_login_replay() {
+        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let receipt = fixture.cutover.runtime_base.join("omavless-login.receipt");
+        let payload = json!({"schemaVersion":1,"epochHash":"a".repeat(64),
+            "ownershipGeneration":1,"phase":"consumed"})
+        .to_string();
+        omavless_store::atomic_replace_private(&receipt, payload.as_bytes(), fixture.uid).unwrap();
+        let before = fs::read(&fixture.desired.file).unwrap();
+        let owner = ProductionNativeOwner::initialize(
+            fixture.host(),
+            fixture.desired.clone(),
+            &fixture.store,
+            fixture.cutover.clone(),
+            fixture.uid,
+        )
+        .unwrap();
+        assert_eq!(owner.actual(), ActualState::Disconnected);
+        assert_eq!(owner.coordinator.host().calls, 1);
+        assert_eq!(fs::read(&fixture.desired.file).unwrap(), before);
+        assert_eq!(fs::read_to_string(receipt).unwrap(), payload);
+    }
+
+    #[test]
+    fn unsafe_receipts_block_committed_and_candidate_before_any_host_call() {
+        for candidate in [false, true] {
+            // A consumed generation matching a committed owner is still invalid
+            // for a preparing candidate; test it separately below.
+            for kind in [
+                "pending",
+                "stale",
+                "malformed",
+                "duplicate",
+                "oversize",
+                "mode",
+                "symlink",
+            ] {
+                let fixture = Fixture::new(if candidate {
+                    OwnershipPhase::CutoverPreparing
+                } else {
+                    OwnershipPhase::Rust
+                });
+                write_desired(
+                    &fixture.desired,
+                    fixture.uid,
+                    &DesiredState {
+                        connected: true,
+                        profile_id: "synthetic".to_owned(),
+                        ..DesiredState::default()
+                    },
+                )
+                .unwrap();
+                let path = fixture.cutover.runtime_base.join("omavless-login.receipt");
+                let raw = match kind {
+                    "malformed" => "{private-fragment".to_owned(),
+                    "duplicate" => format!(
+                        r#"{{"schemaVersion":1,"schemaVersion":1,"epochHash":"{}","ownershipGeneration":1,"phase":"consumed"}}"#,
+                        "a".repeat(64)
+                    ),
+                    "oversize" => "x".repeat(1025),
+                    _ => json!({"schemaVersion":1,"epochHash":"a".repeat(64),
+                        "ownershipGeneration":if kind == "stale" {2} else {1},
+                        "phase":if kind == "pending" {"pending"} else {"consumed"}})
+                    .to_string(),
+                };
+                if kind == "symlink" {
+                    symlink(&fixture.store, &path).unwrap();
+                } else {
+                    omavless_store::atomic_replace_private(&path, raw.as_bytes(), fixture.uid)
+                        .unwrap();
+                    if kind == "mode" {
+                        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+                    }
+                }
+                let before = fs::read(&fixture.desired.file).unwrap();
+                let store_before = fs::read(&fixture.store).unwrap();
+                let receipt_before = fs::read(&path).unwrap();
+                let host = fixture.host();
+                let calls = host.observed_calls.clone();
+                let result = if candidate {
+                    ProductionNativeOwner::initialize_candidate(
+                        host,
+                        fixture.desired.clone(),
+                        &fixture.store,
+                        fixture.cutover.clone(),
+                        fixture.uid,
+                        1,
+                    )
+                } else {
+                    ProductionNativeOwner::initialize(
+                        host,
+                        fixture.desired.clone(),
+                        &fixture.store,
+                        fixture.cutover.clone(),
+                        fixture.uid,
+                    )
+                };
+                assert!(
+                    matches!(result, Err(ProductionOwnerError::ManualRecoveryRequired)),
+                    "{candidate}/{kind}"
+                );
+                assert_eq!(calls.get(), 0);
+                assert_eq!(fs::read(&fixture.desired.file).unwrap(), before);
+                assert_eq!(fs::read(&fixture.store).unwrap(), store_before);
+                assert_eq!(fs::read(&path).unwrap(), receipt_before);
+            }
+        }
+    }
+
+    #[test]
+    fn candidate_refuses_even_valid_consumed_receipt() {
+        let fixture = Fixture::new(OwnershipPhase::CutoverPreparing);
+        let path = fixture.cutover.runtime_base.join("omavless-login.receipt");
+        let raw = json!({"schemaVersion":1,"epochHash":"a".repeat(64),"ownershipGeneration":1,"phase":"consumed"}).to_string();
+        omavless_store::atomic_replace_private(&path, raw.as_bytes(), fixture.uid).unwrap();
+        let host = fixture.host();
+        let calls = host.observed_calls.clone();
+        let before = fs::read(&fixture.desired.file).unwrap();
+        let result = ProductionNativeOwner::initialize_candidate(
+            host,
+            fixture.desired.clone(),
+            &fixture.store,
+            fixture.cutover.clone(),
+            fixture.uid,
+            1,
+        );
+        assert!(matches!(
+            result,
+            Err(ProductionOwnerError::ManualRecoveryRequired)
+        ));
+        assert_eq!(calls.get(), 0);
+        assert_eq!(fs::read(&fixture.desired.file).unwrap(), before);
     }
 
     #[test]
