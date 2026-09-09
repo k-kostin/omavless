@@ -241,7 +241,7 @@ Panel {
   readonly property string problemIcon: ""
   readonly property string barStatusIcon: vless.lastError !== ""
     ? problemIcon
-    : (vless.active ? barConnectedIcon : barDisconnectedIcon)
+    : (vless.nativeOwner ? "?" : (vless.active ? barConnectedIcon : barDisconnectedIcon))
   readonly property string heroStatusIcon: vless.lastError !== ""
     ? problemIcon
     : (vless.active ? heroConnectedIcon : heroDisconnectedIcon)
@@ -263,6 +263,7 @@ Panel {
     return false
   }
   readonly property string barTooltip: {
+    if (vless.nativeOwner) return textFor("native.healthUnavailable")
     if (vless.lastError !== "") return vless.plainText("OmaVLESS · " + visibleErrorText(), 180)
     if (!vless.active) {
       var down = "OmaVLESS · " + textFor("status.disconnected")
@@ -364,6 +365,7 @@ Panel {
       : "URL stays private and is shown only in this editor")))
 
   function openSubscriptions() {
+    if (vless.nativeOwner) return false
     if (!vless.supports("subscriptions")) return
     page = "subscriptions"
     cursorActive = false
@@ -381,12 +383,14 @@ Panel {
   }
 
   function openSettings() {
+    if (vless.nativeOwner) return false
     page = "settings"
     cursorActive = false
     if (settingsFlick) settingsFlick.contentY = 0
   }
 
   function openOnboarding(step) {
+    if (vless.nativeOwner) return false
     onboardingDismissed = false
     onboardingWizard.openAt(step || 1)
   }
@@ -410,6 +414,7 @@ Panel {
   }
 
   function openRoutingTools() {
+    if (vless.nativeOwner) return false
     vless.loadCustomRules()
     routingToolsPrompt.openTools()
   }
@@ -424,6 +429,7 @@ Panel {
   }
 
   function openAdvancedDiagnostics() {
+    if (vless.nativeOwner) return false
     page = "diagnostics"
     cursorActive = false
     advancedDiagnosticsPage.resetSearchFocus()
@@ -439,6 +445,7 @@ Panel {
   // Keep that event inside an active OmaVLESS page instead of delegating it
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
+    if (vless.nativeOwner) return [nativeRefresh]
     if (page === "subscriptions") return [
       subscriptionBackButton, subscriptionRefreshButton, subscriptionAddButton
     ]
@@ -557,6 +564,7 @@ Panel {
   }
 
   function addSubscription() {
+    if (vless.nativeOwner) return false
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading) return
     vless.clearSubscriptionMessage()
     editingSubscription = null
@@ -567,6 +575,7 @@ Panel {
   }
 
   function editSubscription(subscription) {
+    if (vless.nativeOwner) return false
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading || !subscription) return
     editingSubscription = subscription
     subscriptionImportFile = ""
@@ -926,6 +935,7 @@ Panel {
   }
 
   function requestDelete(profile) {
+    if (vless.nativeOwner) return false
     if (vless.busy || vless.editing || vless.importSourceBusy || !profile) return
     if (profile.managed) {
       openSubscriptions()
@@ -967,6 +977,7 @@ Panel {
   }
 
   function requestEdit(profile) {
+    if (vless.nativeOwner) return false
     if (vless.busy || vless.editing || vless.importSourceBusy || !profile) return
     if (profile.managed) {
       openSubscriptions()
@@ -994,6 +1005,7 @@ Panel {
   }
 
   function handOffToEditor(profile) {
+    if (vless.nativeOwner) return false
     if (profile && profile.managed) {
       openSubscriptions()
       vless.subscriptionStatus = "Managed by " + profile.sourceName + " — edit the subscription instead"
@@ -1007,6 +1019,7 @@ Panel {
   // Returns whether the prompt opened, so callers know whether the panel has
   // anything to hand over to.
   function requestRename(profile) {
+    if (vless.nativeOwner) return false
     if (vless.busy || vless.editing || vless.importSourceBusy || !profile) return false
     if (profile.managed) {
       openSubscriptions()
@@ -1125,15 +1138,31 @@ Panel {
 
   Service {
     id: vless
+    objectName: "omavlessService"
     settings: root.settings
     panelVisible: root.opened
-    diagnosticsPageVisible: root.opened && root.page === "diagnostics"
-    trafficMonitoring: (root.opened && root.page === "main") || vless.showBarThroughput
-    pingMonitoring: root.opened && root.page === "main"
+    diagnosticsPageVisible: !vless.nativeOwner && root.opened && root.page === "diagnostics"
+    trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
+    pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
   }
 
   Connections {
     target: vless
+    function onNativeOwnerChanged() {
+      if (!vless.nativeOwner) return
+      root.page = "main"
+      root.pendingDelete = null
+      root.pendingSubscriptionDelete = null
+      root.pendingEdit = null
+      root.pendingRename = null
+      root.cursorActive = false
+      subscriptionPrompt.dismiss()
+      routingPresetPrompt.dismiss()
+      startupPrompt.dismiss()
+      onboardingWizard.dismiss()
+      routingToolsPrompt.dismiss()
+      root.cancelImport()
+    }
     function onProfilesChanged() { root.restoreCursor() }
     function onOnboardingNeededChanged() {
       if (root.opened && vless.onboardingNeeded && !root.onboardingDismissed)
@@ -1153,10 +1182,12 @@ Panel {
     // The picker runs whether or not the popup is open (bar right-click,
     // IPC); open the popup so the name prompt has somewhere to appear.
     function onImportReady(kind, payload, suggestedName) {
+      if (vless.nativeOwner) return
       if (!root.opened) root.open()
       root.beginImport(kind, payload, suggestedName)
     }
     function onSubscriptionImportReady(kind, payload, suggestedName) {
+      if (vless.nativeOwner) return
       if (!root.opened) root.open()
       root.beginSubscriptionImport(kind, payload, suggestedName)
     }
@@ -1165,6 +1196,7 @@ Panel {
     // which holds the same kind of surface. One handler covers every entry
     // point — the q key, the row button and IPC.
     function onQrVisibleChanged() {
+      if (vless.nativeOwner) return
       if (!vless.qrVisible) return
       if (root.opened) root.close()
       if (root.pendingRename !== null) root.cancelRename()
@@ -1212,11 +1244,12 @@ Panel {
       return vless.disconnectAll() ? "ok" : "error: " + vless.actionRejection
     }
     function status(): string { return vless.statusText }
-    function routing(): string { return vless.routingTitle + " · " + vless.routingSummary }
+    function routing(): string { return vless.nativeOwner ? "Native routing observation unavailable" : vless.routingTitle + " · " + vless.routingSummary }
     // Credential-free support snapshot. Names, ids, endpoints, provider URLs
     // and free-form error strings stay out because they can identify a user
     // even when they do not contain the complete profile credential.
     function diagnostics(): string {
+      if (vless.nativeOwner) return JSON.stringify({nativeReadOnly: true, liveHealth: "unavailable", metadataUnavailable: vless.nativeSnapshotFailed})
       return JSON.stringify({
         active: vless.active,
         profiles: vless.profiles.length,
@@ -1233,7 +1266,7 @@ Panel {
     // The connection grid without the panel. Rates and ping only move while
     // something is watching them, so a headless caller sees the totals and
     // the addresses live, and "--" where a sample would have to be paid for.
-    function details(): string { return vless.detailsText() }
+    function details(): string { return vless.nativeOwner ? "Native live details unavailable" : vless.detailsText() }
     // Headless import — no prompt, the name is derived from the filename.
     // (`import` is a JS keyword, hence the longer name.)
     function importConfig(path: string): string {
@@ -1327,7 +1360,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      vless.nativeOwner ? nativeColumn.implicitHeight : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -1343,10 +1376,11 @@ Panel {
         || routingToolsPrompt.visible || profileSearch.activeFocus
         || root.panelTabFocusActive || advancedDiagnosticsPage.keyboardControlActive
       onMoveRequested: function(dx, dy) {
+        if (vless.nativeOwner) return
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
       }
-      onActivateRequested: if (root.cursorActive) root.activateCursor()
+      onActivateRequested: if (!vless.nativeOwner && root.cursorActive) root.activateCursor()
       onCloseRequested: {
         if (root.page === "subscriptions") root.closeSubscriptions()
         else if (root.page === "diagnostics") root.closeAdvancedDiagnostics()
@@ -1355,6 +1389,7 @@ Panel {
       }
       onTabRequested: function(direction) { root.focusPanelControl(direction) }
       onDeleteRequested: {
+        if (vless.nativeOwner) return
         if (root.page === "subscriptions") {
           if (root.cursorActive && !vless.probingProfiles)
             root.pendingSubscriptionDelete = root.selectedSubscription()
@@ -1363,6 +1398,7 @@ Panel {
         }
       }
       onTextKey: function(t) {
+        if (vless.nativeOwner) { if (t === "r" || t === "R") vless.refresh(); return }
         if (root.page === "diagnostics") {
           if (t === "r" || t === "R") vless.refreshAdvancedDiagnostics()
           else if (t === "/") advancedDiagnosticsPage.resetSearchFocus()
@@ -1445,10 +1481,63 @@ Panel {
         onHoveredChanged: if (!hovered) root.cursorActive = false
       }
 
+      Flickable {
+        id: nativeFlick
+        anchors.fill: parent
+        visible: vless.nativeOwner
+        clip: true
+        contentWidth: width
+        contentHeight: nativeColumn.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+        ColumnLayout {
+          id: nativeColumn
+          width: Math.max(0, nativeFlick.width - root.scrollGutter)
+          spacing: Style.space(12)
+          PlainText { Layout.fillWidth: true; text: root.textFor("native.title"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; text: root.textFor("native.readOnly"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; text: root.textFor("native.healthUnavailable"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSnapshotFailed; text: root.textFor("native.refreshFailed"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          Button { id: nativeRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning; onClicked: vless.refresh() }
+          PlainText {
+            Layout.fillWidth: true
+            visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed
+            text: vless.nativeSnapshot ? root.textFor("native.desired", {state: vless.nativeSnapshot.desired.connected ? "connected" : "disconnected", mode: vless.nativeSnapshot.desired.mode}) : ""
+            textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap
+          }
+          PlainText {
+            Layout.fillWidth: true
+            visible: vless.nativeSnapshot !== null
+            text: vless.nativeSnapshot ? root.textFor("native.cachedActual", {state: vless.nativeSnapshot.lastKnownActual}) : ""
+            textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap
+          }
+          PlainText { Layout.fillWidth: true; text: root.textFor("native.profiles"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily }
+          Repeater {
+            model: vless.nativeSnapshot ? vless.nativeSnapshot.profiles : []
+            delegate: PlainText {
+              required property var modelData
+              Layout.fillWidth: true
+              text: modelData.name + " · " + modelData.protocol
+              textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap
+            }
+          }
+          PlainText { Layout.fillWidth: true; text: root.textFor("native.subscriptions"); textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily }
+          Repeater {
+            model: vless.nativeSnapshot ? vless.nativeSnapshot.subscriptions : []
+            delegate: PlainText {
+              required property var modelData
+              Layout.fillWidth: true
+              text: modelData.name
+              textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap
+            }
+          }
+        }
+      }
+
       AdvancedDiagnostics {
         id: advancedDiagnosticsPage
         anchors.fill: parent
-        visible: root.page === "diagnostics"
+        visible: !vless.nativeOwner && root.page === "diagnostics"
         service: vless
         foreground: root.foreground
         dim: root.dim
@@ -1462,7 +1551,7 @@ Panel {
 
       Flickable {
         id: panelFlick
-        visible: root.page === "main"
+        visible: !vless.nativeOwner && root.page === "main"
         anchors.fill: parent
         contentWidth: width
         contentHeight: column.implicitHeight
@@ -2168,7 +2257,7 @@ Panel {
       Flickable {
         id: settingsFlick
         anchors.fill: parent
-        visible: root.page === "settings"
+        visible: !vless.nativeOwner && root.page === "settings"
         contentWidth: width
         contentHeight: settingsColumn.implicitHeight
         clip: true
@@ -2513,7 +2602,7 @@ Panel {
       Flickable {
         id: subscriptionsFlick
         anchors.fill: parent
-        visible: root.page === "subscriptions"
+        visible: !vless.nativeOwner && root.page === "subscriptions"
         contentWidth: width
         contentHeight: subscriptionsColumn.implicitHeight
         clip: true
@@ -2971,7 +3060,7 @@ Panel {
   QrWindow {
     id: qrWindow
     anchorItem: button
-    open: vless.qrVisible
+    open: !vless.nativeOwner && vless.qrVisible
     name: vless.qrName
     path: vless.qrPath
     loading: vless.qrLoading
@@ -2992,7 +3081,7 @@ Panel {
   RenameWindow {
     id: renameWindow
     anchorItem: button
-    open: root.pendingRename !== null
+    open: !vless.nativeOwner && root.pendingRename !== null
     title: root.textFor("rename.title",
       { name: root.pendingRename ? root.pendingRename.name : "" })
     placeholder: root.textFor("import.profile_name")

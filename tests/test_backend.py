@@ -3312,9 +3312,22 @@ rules:
             self.assertEqual(result.stdout, "")
             self.assertEqual(
                 result.stderr.strip(),
-                "OmaVLESS native runtime ownership blocks this legacy operation",
+                "OmaVLESS frontend ownership is unavailable; no legacy fallback",
             )
             self.assertNotIn("private-password-fragment", result.stderr)
+            self.assertFalse(paths.store.exists())
+            # The Python admission fence must also survive direct invocation;
+            # it closes ownership changes racing a prior launcher decision.
+            direct = subprocess.run(
+                [sys.executable, str(ROOT / "backend.py"), "import", "Example"],
+                input=private_input, capture_output=True, text=True,
+                timeout=5, env=env, check=False,
+            )
+            self.assertNotEqual(direct.returncode, 0)
+            self.assertEqual(direct.stdout, "")
+            self.assertEqual(direct.stderr.strip(),
+                "OmaVLESS native runtime ownership blocks this legacy operation")
+            self.assertNotIn("private-password-fragment", direct.stderr)
             self.assertFalse(paths.store.exists())
 
     def test_rust_ownership_keeps_read_only_status_available_without_migration(self):

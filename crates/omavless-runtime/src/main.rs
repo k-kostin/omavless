@@ -62,6 +62,7 @@ fn run() -> Result<(), CliError> {
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
+        println!("  plugin target                    read committed launcher target only");
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"
@@ -83,6 +84,23 @@ fn run() -> Result<(), CliError> {
         );
         println!(
             "                                  explicit private client-only helpers; input through stdin"
+        );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "plugin")
+        && arguments.get(1).is_some_and(|arg| arg == "target")
+    {
+        if arguments.len() != 2 {
+            return Err("Invalid plugin target command".into());
+        }
+        let target = omavless_runtime::frontend_bridge::current_plugin_target()
+            .map_err(|error| error.to_string())?;
+        println!(
+            "{}",
+            match target {
+                omavless_runtime::cutover_transaction::BridgeTarget::Legacy => "legacy",
+                omavless_runtime::cutover_transaction::BridgeTarget::Rust => "rust",
+            }
         );
         return Ok(());
     }

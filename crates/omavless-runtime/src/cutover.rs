@@ -288,6 +288,15 @@ impl MigrationLock {
 
 pub fn read_marker(paths: &CutoverPaths, uid: u32) -> Result<OwnershipMarker, CutoverError> {
     prepare_state_directory(&paths.state_directory, uid)?;
+    read_marker_existing(paths, uid)
+}
+
+/// Shared canonical marker decoder without directory creation or repair.
+/// Read-only callers must separately validate the existing parent hierarchy.
+pub(crate) fn read_marker_existing(
+    paths: &CutoverPaths,
+    uid: u32,
+) -> Result<OwnershipMarker, CutoverError> {
     let metadata = match fs::symlink_metadata(&paths.ownership_marker) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(OwnershipMarker::default());

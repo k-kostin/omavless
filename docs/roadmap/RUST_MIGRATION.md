@@ -1348,6 +1348,10 @@ provides `ui.snapshot` / `plugin snapshot` under the committed owner's store
 lease, with desired intent separate from explicitly stale lifecycle state.
 This does not supply all legacy QML status fields or switch the installed
 launcher. Python removal and R5/R6 completion remain gated on actual integration.
+The subsequent [native read bridge](../testing/R5_NATIVE_PLUGIN_READ_BRIDGE.md)
+wires the launcher selector and an explicitly read-only QML view. It does not
+activate ownership or enable native VPN controls; live health and the complete
+frontend operation bridge remain necessary before R6.
 
 The [snapshot validation boundary](../testing/R5_STARTUP_VALIDATION_SNAPSHOT.md)
 now separates exact-input rendering from filesystem loading and guards scratch
