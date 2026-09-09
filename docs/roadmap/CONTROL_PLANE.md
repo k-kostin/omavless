@@ -443,7 +443,20 @@ These are registered native prerequisites, not activation of the installed
 frontend or a production ownership transition. The exact boundary and local
 acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 
-### Connection and routing
+### Private UI metadata read
+
+`ui.snapshot` takes empty params; fixed CLI `omavless plugin snapshot`. It
+requires committed native ownership and reads one canonical private store and
+desired intent under the migration/store lease. The result has schemaVersion1,
+runtime `instanceId`, separate desired intent and `lastKnownActual`, explicitly
+unavailable live health, existing safe profile/subscription projections and
+stored startup/onboarding/routing metadata. The ordinary response revision is
+unchanged. This is private same-user UI data (IDs/display names included), not
+a shareable support report; credentials/endpoints/configuration are excluded.
+It does not implement legacy QML status or switch the frontend. See
+[R5_UI_METADATA_SNAPSHOT.md](../testing/R5_UI_METADATA_SNAPSHOT.md).
+
+### Connection and routing methods
 
 - `connection.connect` with opaque profile ID and optional mode;
 - `connection.disconnect`;

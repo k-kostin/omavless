@@ -59,6 +59,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["plugin", "snapshot"] => Some(SemanticRequest {
+            method: "ui.snapshot",
+            params: json!({}),
+        }),
         ["diagnostics", "export"] => Some(SemanticRequest {
             method: "diagnostics.export",
             params: json!({}),
@@ -471,6 +475,23 @@ mod tests {
             "".to_owned(),
         ] {
             assert!(parse_semantic_route_check(&args(&["routing", "check"]), &query).is_err());
+        }
+    }
+
+    #[test]
+    fn plugin_snapshot_cli_is_an_exact_read_without_stdin_or_params() {
+        let request = parse_semantic_read(&args(&["plugin", "snapshot"]))
+            .unwrap()
+            .unwrap();
+        let (method, params) = request.into_parts();
+        assert_eq!(method, "ui.snapshot");
+        assert_eq!(params, json!({}));
+        for arguments in [
+            &["plugin"][..],
+            &["plugin", "snapshot", "private-token"],
+            &["plugin", "raw"],
+        ] {
+            assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
         }
     }
 

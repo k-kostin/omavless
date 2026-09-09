@@ -14,6 +14,60 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "ui.snapshot");
+        assert_eq!(request["params"], serde_json::json!({}));
+        let response=success_response(request["id"].as_str().unwrap(),9,serde_json::json!({"schemaVersion":1,"healthFresh":false,"instanceId":"synthetic-instance"})).unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let output = isolated_command(&base)
+        .args(["plugin", "snapshot"])
+        .output()
+        .unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["revision"], 9);
+    assert_eq!(response["result"]["healthFresh"], false);
+    let invalid = isolated_command(&base)
+        .args(["plugin", "snapshot", "private-token"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("private-token"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn support_export_cli_sends_only_fixed_read_and_rejects_destination_arguments() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,

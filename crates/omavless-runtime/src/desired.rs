@@ -156,6 +156,21 @@ fn prepare_directory(path: &Path, uid: u32) -> Result<()> {
 
 pub fn read_desired(paths: &DesiredPaths, uid: u32) -> Result<DesiredState> {
     prepare_directory(&paths.directory, uid)?;
+    read_desired_file(paths, uid)
+}
+
+/// Read-only metadata snapshot: no directory creation or permission repair.
+/// An existing private directory with no desired file retains canonical default.
+pub(crate) fn read_desired_snapshot(paths: &DesiredPaths, uid: u32) -> Result<DesiredState> {
+    let metadata =
+        fs::symlink_metadata(&paths.directory).map_err(|_| DesiredError::UnsafeStateDirectory)?;
+    if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+        return Err(DesiredError::UnsafeStateDirectory);
+    }
+    read_desired_file(paths, uid)
+}
+
+fn read_desired_file(paths: &DesiredPaths, uid: u32) -> Result<DesiredState> {
     match fs::symlink_metadata(&paths.file) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(DesiredState::default());
@@ -167,6 +182,9 @@ pub fn read_desired(paths: &DesiredPaths, uid: u32) -> Result<DesiredState> {
         Err(_) => return Err(DesiredError::Io),
     }
     let raw = read_private_utf8(&paths.file, uid)?;
+    if raw.len() as u64 > MAX_DESIRED_STATE_BYTES {
+        return Err(DesiredError::TooLarge);
+    }
     let state: DesiredState = serde_json::from_str(&raw).map_err(|_| DesiredError::InvalidState)?;
     state.validate()?;
     Ok(state)
@@ -181,6 +199,57 @@ pub fn write_desired(paths: &DesiredPaths, uid: u32, state: &DesiredState) -> Re
         return Err(DesiredError::TooLarge);
     }
     atomic_replace_private(&paths.file, &payload, uid).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    #[test]
+    fn readonly_desired_never_creates_or_repairs_paths_and_reuses_parser() {
+        let root = crate::test_temp::directory("desired-snapshot").unwrap();
+        let uid = nix::unistd::Uid::current().as_raw();
+        let paths = DesiredPaths::below(&root);
+        assert!(read_desired_snapshot(&paths, uid).is_err());
+        assert!(!paths.directory.exists());
+        fs::create_dir(&paths.directory).unwrap();
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            read_desired_snapshot(&paths, uid).unwrap(),
+            DesiredState::default()
+        );
+        assert!(!paths.file.exists());
+        write_desired(&paths, uid, &DesiredState::default()).unwrap();
+        let original = fs::read(&paths.file).unwrap();
+        assert_eq!(
+            read_desired_snapshot(&paths, uid).unwrap(),
+            read_desired(&paths, uid).unwrap()
+        );
+        assert_eq!(fs::read(&paths.file).unwrap(), original);
+        for payload in [
+            b"private-malformed".to_vec(),
+            vec![b'x'; MAX_DESIRED_STATE_BYTES as usize + 1],
+        ] {
+            fs::write(&paths.file, &payload).unwrap();
+            assert!(read_desired_snapshot(&paths, uid).is_err());
+            assert_eq!(fs::read(&paths.file).unwrap(), payload);
+        }
+        fs::remove_file(&paths.file).unwrap();
+        std::os::unix::fs::symlink("missing", &paths.file).unwrap();
+        assert!(read_desired_snapshot(&paths, uid).is_err());
+        assert!(
+            fs::symlink_metadata(&paths.file)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read_desired_snapshot(&paths, uid).is_err());
+        assert_eq!(
+            fs::metadata(&paths.directory).unwrap().mode() & 0o777,
+            0o755
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
