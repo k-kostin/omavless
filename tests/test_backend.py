@@ -61,19 +61,55 @@ TUIC_URI = (
 
 
 class BackendTests(unittest.TestCase):
+    def fixture_environment(self, home: Path, runtime: Path):
+        # Python honors OMAVLESS_HOME; the native launcher selector honors
+        # HOME/XDG roots instead. Both must name the same disposable fixture,
+        # even when tests run after real installed Rust ownership activation.
+        env = os.environ.copy()
+        env.update({
+            "HOME": str(home),
+            "OMAVLESS_HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_STATE_HOME": str(home / ".local" / "state"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+            "XDG_RUNTIME_DIR": str(runtime),
+        })
+        return env
+
     def make_env(self, home: Path, systemctl_body: str = "#!/bin/sh\nexit 3\n"):
         runtime = home / "runtime"
         runtime.mkdir(mode=0o700)
         fake_systemctl = home / "systemctl"
         fake_systemctl.write_text(systemctl_body, encoding="utf-8")
         fake_systemctl.chmod(0o755)
-        env = os.environ.copy()
-        env.update({
-            "OMAVLESS_HOME": str(home),
-            "XDG_RUNTIME_DIR": str(runtime),
-            "OMAVLESS_SYSTEMCTL": str(fake_systemctl),
-        })
+        env = self.fixture_environment(home, runtime)
+        env["OMAVLESS_SYSTEMCTL"] = str(fake_systemctl)
         return env, runtime
+
+    def test_fixture_roots_do_not_inherit_another_installed_owner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            outside = parent / "other-installation"
+            outside.mkdir(mode=0o700)
+            marker = self.write_ownership_marker(self.paths_for(outside), "rust", 9)
+            original = marker.read_bytes()
+            home = parent / "fixture"
+            home.mkdir(mode=0o700)
+            inherited = self.fixture_environment(outside, outside / "runtime")
+            with mock.patch.dict(os.environ, inherited):
+                env, runtime = self.make_env(home)
+            for key in ("HOME", "OMAVLESS_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+                        "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
+                self.assertTrue(Path(env[key]).is_relative_to(home), key)
+            result = subprocess.run(
+                [str(ROOT / "backend.sh"), "status"], env=env,
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("activeId", json.loads(result.stdout))
+            self.assertEqual(marker.read_bytes(), original)
+            self.assertFalse((outside / ".config").exists())
+            self.assertFalse((outside / "runtime").exists())
 
     def paths_for(self, home: Path, runtime: Path | None = None):
         runtime = runtime or home / "runtime"
@@ -4517,10 +4553,8 @@ esac
                 encoding="utf-8",
             )
             systemctl.chmod(0o755)
-            env = os.environ.copy()
+            env = self.fixture_environment(home, runtime)
             env.update({
-                "OMAVLESS_HOME": str(home),
-                "XDG_RUNTIME_DIR": str(runtime),
                 "OMAVLESS_SYSTEMCTL": str(systemctl),
                 "OMAVLESS_REMOVAL_GRACE_SECONDS": "0",
                 "PATH": str(fake_bin) + os.pathsep + env["PATH"],
