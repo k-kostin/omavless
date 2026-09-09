@@ -1317,3 +1317,9 @@ unresolved legacy enablement, with bounded generation changes only when needed.
 It performs no host effects, writes, IPC registration or installed activation.
 Once-per-login consumption, ownership/lock proofs, configured readiness and
 legacy unit conversion still belong to the future fixed host integration.
+
+The subsequent [offline login transaction](../testing/R5_LOGIN_INTENT_TRANSACTION.md)
+applies those plans to private files under owner/migration locks and ownership
+generation fences. A pending/consumed receipt protects against blind retry of
+interrupted writes. This is not multi-file atomicity or cross-boot recovery;
+uncertainty remains explicit. No production caller or login unit is added.

@@ -744,6 +744,10 @@ The [offline login-intent planner](docs/testing/R5_LOGIN_INTENT_PLANNER.md)
 separates first-login policy from daemon restart, preserving explicit disconnect
 on restart and refusing unresolved legacy enablement. It has no installed
 trigger, host effects or production registration; those gates remain open.
+The [offline login transaction](docs/testing/R5_LOGIN_INTENT_TRANSACTION.md)
+adds real private-file publication, ownership/lock fences and a pending/consumed
+receipt. It remains unreachable from production until startup honors its
+recovery barrier and trusted once-per-user-manager triggering is implemented.
 Route fast paths do not implement live unmatched Routing observation.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
