@@ -185,3 +185,22 @@ it does not install the canonical package, transfer production ownership or
 establish login activation. Those #178/R5 gates remain separate. The focused
 acceptance-tool suite passes 26 deterministic tests with no private fixture or
 network requirement.
+
+## Deterministic-test scheduling budget correction
+
+PR #206 CI run `34353599902` failed the inherited-resource regression at
+`stop(1s)` with `StopFailed`; fixture readiness had succeeded. The old failure
+did not identify the scenario or distinguish scheduling exhaustion from an
+observation error, so scheduling pressure is a hypothesis, not a proven cause.
+The stop algorithm reserves 80% of its caller budget for TERM, leaving only
+200 ms of that test budget for KILL scheduling and two complete process scans.
+
+The test now supplies the existing normal five-second caller budget. Production
+deadlines, process-group scanning and signalling are unchanged. All four cases
+still require released inherited flock, reaped leader and an untouched unrelated
+process. A helper-ready assertion proves the late-spawn scenario actually ran;
+ignored-TERM cases additionally require a non-graceful stop, preventing the
+fixture's own ten-second lifetime from silently substituting for escalation.
+Failures identify only synthetic scenario labels. Focused stress and full-suite
+validation remain required on this correction's exact head; this note does not
+claim either was already run.
