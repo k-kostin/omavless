@@ -124,6 +124,13 @@ Item {
   readonly property bool nativeEditorRunning: nativeEditorReadProcess !== null || nativeEditorProcess !== null
   signal nativeEditorAttention()
 
+  function nativeEditorContextCurrent(context) {
+    var draft = nativeEditorDraft
+    return context !== null && draft !== null && typeof context.token === "string"
+      && context.token === draft.token && context.instanceId === draft.instanceId
+      && context.revision === draft.revision && context.profileId === draft.profileId
+  }
+
   function nativeEditorFence(draft) {
     return draft !== null && draft === nativeEditorDraft && nativeOwner
       && nativeFactsCurrent && nativeSnapshot.instanceId === draft.instanceId
@@ -135,7 +142,7 @@ Item {
     if (!nativeCanAct || nativeEditorDraft !== null || nativeEditorRunning || !profile) return false
     var found = nativeSnapshot.profiles.find(function(p) { return p.id === profile.uuid && p.subscriptionId === "" })
     if (!found) return false
-    nativeEditorDraft = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+    nativeEditorDraft = {token:"editor-" + (++_nativeOperationSerial), instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       profileId:found.id, name:"", seed:"", input:"", unresolved:false}
     nativeEditorCode = ""
     nativeEditorReadProcess = nativeEditorReadComponent.createObject(root, {
@@ -146,7 +153,8 @@ Item {
   }
 
   function finishNativeEditorRead(context, code, output) {
-    if (context !== nativeEditorDraft) return
+    if (!nativeEditorContextCurrent(context)) return
+    context = nativeEditorDraft
     var value = code === 0 ? NativeSnapshot.parseEditorInput(output, context.revision) : null
     if (!value || !nativeEditorFence(context) || nativePending) {
       nativeEditorDraft = null
@@ -185,7 +193,8 @@ Item {
 
   function finishNativeEditor(context, code, output, error) {
     _nativeEditorSeed = ""
-    if (context !== nativeEditorDraft) return
+    if (!nativeEditorContextCurrent(context)) return
+    context = nativeEditorDraft
     if (code === 3) {
       if (context.input !== context.seed || context.unresolved) {
         nativeEditorCode = context.unresolved ? "unknown" : nativeEditorFence(context) ? "rejected" : "stale"
@@ -2743,7 +2752,7 @@ Item {
       id: process
       property var context
       onStarted: {
-        if (context === root.nativeEditorDraft) write(root._nativeEditorSeed)
+        if (root.nativeEditorContextCurrent(context)) write(root._nativeEditorSeed)
         root._nativeEditorSeed = ""
         stdinEnabled = false
       }

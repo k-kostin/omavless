@@ -15,7 +15,7 @@ function context(){
     nativePending:null,nativeActionRunning:false,nativeOutcomeUnknown:false,nativeActionCode:'',nativeActionProcess:{},
     _nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',attention:0,finished:0});
   c.root=c;c.nativeEditorAttention=()=>c.attention++;c.editFinished=()=>c.finished++;
-  for(const name of ['nativeEditorFence','startNativeEditor','finishNativeEditorRead','reopenNativeEditor',
+  for(const name of ['nativeEditorContextCurrent','nativeEditorFence','startNativeEditor','finishNativeEditorRead','reopenNativeEditor',
     'discardNativeEditor','finishNativeEditor','finishNativeEditorAction','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
@@ -25,6 +25,19 @@ function context(){
 function opened(){const c=context();assert(c.startNativeEditor({uuid:'record'}));c.nativeEditorReadProcess=null;c.finishNativeEditorRead(c.nativeEditorDraft,0,frame());return c;}
 function saved(){const c=opened();c.nativeEditorProcess=null;c.finishNativeEditor(c.nativeEditorDraft,0,edited,'');return c;}
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('QML copied process context matches token, not object identity',()=>{
+  const c=context();c.startNativeEditor({uuid:'record'});
+  const copy=JSON.parse(JSON.stringify(c.nativeEditorDraft));
+  c.nativeEditorReadProcess=null;c.finishNativeEditorRead(copy,0,frame());
+  assert.equal(c._nativeEditorSeed,seed);
+  const editorCopy=JSON.parse(JSON.stringify(c.nativeEditorDraft));
+  c.nativeEditorProcess=null;c.finishNativeEditor(editorCopy,0,edited,'');
+  assert.equal(c.nativePending.input,'record\nSynthetic\n'+edited);
+  for(const field of ['token','instanceId','revision','profileId']) {
+    const stale={...editorCopy,[field]:'other'};
+    assert.equal(c.nativeEditorContextCurrent(stale),false);
+  }
+});
 test('strict editor read shape, bounds and original revision',()=>{
   assert.equal(parser.parseEditorInput(frame(),4).input,seed);
   for(const input of ['\u0000','\ud800','é'.repeat(16385)])assert.equal(parser.parseEditorInput(frame(input),4),null);
