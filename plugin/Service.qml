@@ -31,6 +31,88 @@ Item {
     && nativeSnapshot.lastKnownActual !== "manualRecoveryRequired"
     && !nativeObservation.manualRecoveryRequired
   property int _nativeOperationSerial: 0
+  property var _nativeImportContext: null
+  property var _nativeSourceContext: null
+  property var _nativePreviewContext: null
+  property string nativeImportCode: ""
+  readonly property bool nativeImportBusy: nativeImportSource.running || nativeImportPreview.running
+
+  function cancelNativeImport() {
+    _nativeImportContext = null
+    importPreview = ({})
+  }
+
+  function startNativeImport(kind) {
+    if (!nativeCanAct || nativeImportBusy || _nativeImportContext || ["file", "clipboard"].indexOf(kind) < 0) return false
+    nativeImportCode = ""
+    importPreview = ({})
+    _nativeImportContext = {kind:kind, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
+    _nativeSourceContext = _nativeImportContext
+    nativeImportSource.command = ["bash", backendPath, "native-import-" + kind]
+    nativeImportSource.running = true
+    return true
+  }
+
+  function nativeImportCurrent(context) {
+    return context !== null && context === _nativeImportContext && nativeCanAct
+      && context.instanceId === nativeSnapshot.instanceId && context.revision === nativeSnapshot.revision
+  }
+
+  function finishNativeImportSource(exitCode, output, error) {
+    var context = _nativeSourceContext
+    _nativeSourceContext = null
+    if (context !== _nativeImportContext || context === null) return
+    if (exitCode === 3) { cancelNativeImport(); return }
+    if (!nativeImportCurrent(context)) { nativeImportCode = "stale"; cancelNativeImport(); return }
+    if (exitCode !== 0) {
+      // Match only fixed helper messages; raw stderr never reaches the UI.
+      nativeImportCode = String(error).trim() === "File picker unavailable: install zenity, kdialog or yad" ? "picker"
+        : String(error).trim() === "Clipboard unavailable: install wl-clipboard" ? "clipboard" : "source"
+      cancelNativeImport()
+      return
+    }
+    if (!NativeSnapshot.importInput(output)) { nativeImportCode = "input"; cancelNativeImport(); return }
+    context.input = output
+    _nativePreviewContext = context
+    nativeImportPreview.stdinEnabled = true
+    nativeImportPreview.running = true
+  }
+
+  function finishNativeImportPreview(exitCode, output) {
+    var context = _nativePreviewContext
+    _nativePreviewContext = null
+    if (context !== _nativeImportContext || context === null) return
+    if (!nativeImportCurrent(context)) { nativeImportCode = "stale"; cancelNativeImport(); return }
+    var result = exitCode === 0 ? NativeSnapshot.parseImportPreview(output, context.revision) : null
+    if (!result) { nativeImportCode = "input"; cancelNativeImport(); return }
+    if (result.kind === "subscription") {
+      nativeImportCode = result.duplicate ? "duplicateSubscription" : "subscription"
+      cancelNativeImport()
+      return
+    }
+    context.ready = true
+    importPreview = result.profile
+    importReady("native-" + context.kind, "", result.profile.suggestedName || "Profile")
+  }
+
+  function confirmNativeImport(name) {
+    var context = _nativeImportContext
+    if (!nativeImportCurrent(context) || !context.ready) { nativeImportCode = "stale"; return false }
+    if (!isValidName(name) || /[\r\n]/.test(name)
+        || nativeSnapshot.profiles.some(function(p) { return p.name === name })) return false
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-profile-import", context.instanceId, String(context.revision), operation]
+    nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
+      action:"profile-import", command:args, input:name + "\n" + context.input}
+    nativeActionCode = ""
+    nativeImportCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    cancelNativeImport()
+    return true
+  }
 
   function refreshNativeObservation() {
     if (!nativeOwner || nativeActionRunning || nativeObservationProcess.running) return false
@@ -2481,6 +2563,30 @@ Item {
 
   // Kept out of runControl: these return data rather than pass/fail, and a
   // file dialog can sit open for a while — `busy` would freeze the panel.
+  Process {
+    id: nativeImportSource
+    running: false
+    command: []
+    stdout: StdioCollector { id: nativeImportSourceOut; waitForEnd: true }
+    stderr: StdioCollector { id: nativeImportSourceError; waitForEnd: true }
+    onExited: function(code) { root.finishNativeImportSource(code, nativeImportSourceOut.text, nativeImportSourceError.text) }
+  }
+
+  Process {
+    id: nativeImportPreview
+    running: false
+    command: ["bash", backendPath, "native-import-preview"]
+    stdinEnabled: true
+    onStarted: {
+      if (root._nativePreviewContext) write(root._nativePreviewContext.input)
+      stdinEnabled = false
+    }
+    stdout: StdioCollector { id: nativeImportPreviewOut; waitForEnd: true }
+    // Drain but never publish backend/parser error fragments.
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) { root.finishNativeImportPreview(code, nativeImportPreviewOut.text) }
+  }
+
   Process {
     id: pickerProcess
     running: false

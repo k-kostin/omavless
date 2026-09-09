@@ -89,6 +89,7 @@ exit {code}
             ("profile-rename", []),
             ("profile-favorite", []),
             ("profile-delete", []),
+            ("profile-import", []),
         ]:
             with self.subTest(action=action):
                 args = ["instance-one", "4", "operation-one", *tail]
@@ -104,6 +105,23 @@ exit {code}
         self.assertEqual(result.stdout, '{"synthetic_action":true}\n')
         self.assertEqual(result.stderr, "Synthetic fixed error\n")
         self.assertNotIn("python", self.calls())
+
+    def test_native_import_readers_are_fixed_and_refuse_extra_arguments(self):
+        self.action_native()
+        for command, expected in [
+            ("native-import-preview", ["import", "preview"]),
+            ("native-import-clipboard", ["desktop", "clipboard-read"]),
+            ("native-import-file", ["desktop", "pick-import"]),
+        ]:
+            result = self.run_launcher(command)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + x for x in expected]])
+            self.trace.unlink()
+            result = self.run_launcher(command, "private-input")
+            self.assertEqual(result.returncode, 71)
+            self.assertEqual(self.calls(), ["native:plugin:target"])
+            self.assertNotIn("private-input", result.stderr)
+            self.trace.unlink()
 
     def test_native_action_arguments_are_never_shell_evaluated(self):
         self.action_native()

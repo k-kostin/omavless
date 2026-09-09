@@ -417,8 +417,8 @@ grep -q 'tooltipText: root.safeTooltip(root.textFor("tooltip.delete_profile"' "$
 grep -q 'locale: root.uiLocale' "$panel"
 (( $(grep -c 'locale: root.uiLocale' "$panel") >= 9 ))
 grep -q 'readonly property bool modalInputActive:' "$panel"
-(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 3 ))
-(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 3 ))
+(( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 4 ))
+(( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 4 ))
 bash -n "$installer"
 bash -n "$uninstaller"
 
@@ -440,5 +440,7 @@ if command -v qmllint >/dev/null 2>&1; then
 fi
 
 grep -q 'var flick = vless.nativeOwner ? nativeFlick' "$panel"
+grep -Fq 'return vless.startNativeImport("file") ? "ok" : "error: native import unavailable"' "$panel"
+grep -Fq 'if (vless.nativeOwner) return vless.startNativeImport("clipboard") ? "ok" : "error: native import unavailable"' "$panel"
 
 echo "QML contracts: ok"
