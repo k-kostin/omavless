@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# Generated only by build-local-package.sh; all sources are local and hashed.
+pkgname=omavless
+pkgver=0.0.0.r@COUNT@.g@SHORT_SHA@
+pkgrel=1
+pkgdesc='Private native VPN runtime and semantic CLI (development checkpoint)'
+arch=('@ARCH@')
+url='https://github.com/k-kostin/omavless'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'ca-certificates' 'mihomo')
+optdepends=('zenity: graphical file import and profile editing'
+            'kdialog: alternative graphical file picker'
+            'yad: alternative graphical file picker and editor'
+            'qrencode: explicit profile QR export'
+            'wl-clipboard: Wayland clipboard import and export')
+# Keep the reviewed prebuilt bytes intact, including their recorded SHA256.
+options=('!strip' '!debug' 'docs')
+source=('payload.tar')
+sha256sums=('@PAYLOAD_SHA256@')
+
+package() {
+  # fakeroot owns package metadata; source extraction ownership is irrelevant.
+  cp -a --no-preserve=ownership -- "$srcdir/usr" "$pkgdir/usr"
+}
