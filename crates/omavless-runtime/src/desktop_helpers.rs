@@ -523,8 +523,14 @@ mod tests {
         }
         fn tool(&self, name: &str, body: &str) -> PathBuf {
             let path = self.0.join(name);
-            fs::write(&path, format!("#!/bin/bash\n{body}\n")).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            let staged = self.0.join(format!(".{name}.staged"));
+            fs::write(&staged, format!("#!/bin/bash\n{body}\n")).unwrap();
+            fs::set_permissions(&staged, fs::Permissions::from_mode(0o700)).unwrap();
+            fs::rename(staged, &path).unwrap();
+            // Match core fixtures: avoid in-place executable rewrites and give
+            // overlay-backed runners a bounded publication settling interval.
+            // Production helpers and exact cancellation assertions are unchanged.
+            thread::sleep(Duration::from_millis(20));
             path
         }
         fn helpers(&self) -> DesktopHelpers {

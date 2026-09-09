@@ -77,3 +77,21 @@ Two invocation mistakes were corrected before counting evidence: the Python
 opt-in requires an absolute core path, not `1`; the Rust opt-ins are selected
 by that environment variable, not `--ignored`. Only corrected executed results
 above are counted. No code workaround was made for either invocation error.
+
+The later frontend IPC routing adjustment preserves all compiled Rust code;
+installed QML head `2f7c4775f46d67efea317649836aceb0c6cd78c4` matches the checkout.
+Package `0.0.0.r367.ge60337fb933f-1`, `/usr/bin/omavless` and the running daemon
+share SHA256 `22ff534cf7736eb897e1f4e08b42b5ba5f2a7e81cc63d56fe55e6914915d1ea1`.
+Plugin enabled, native facts coherent, disconnected with zero Mihomo/TUN.
+Installed native helper discovery reports clipboard/picker/QR available and
+zenity selected. Actual human chooser/clipboard and connection smoke remain
+pending, not inferred from capabilities or synthetic tests.
+
+CI run `34377693501` failed in the pre-existing editor fixture: expected
+`Cancelled`, received `Unavailable`. It is not an import assertion failure.
+The editor passes empty stdin, excluding the proposed seed-pipe EPIPE race.
+The generic error does not establish the failing OS stage; transient executable
+publication is a hypothesis, not a proven root cause. Test helpers now use
+staged rename and the same bounded publication interval as existing core
+fixtures. Production process/cancellation behavior and exact Cancelled/private
+cleanup assertions are unchanged. A new green full gate is required.
