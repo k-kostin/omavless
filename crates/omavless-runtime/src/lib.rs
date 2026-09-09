@@ -2234,14 +2234,19 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(19)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(25)).unwrap());
         let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
         let store_path = base.join("config/profiles.json");
         let mut revision = hello["revision"].clone();
         for (index, action, extra) in [
             (0, "profile-rename", json!({"name":"Private renamed label"})),
             (1, "profile-favorite", json!({"enabled":true})),
-            (2, "profile-delete", json!({})),
+            (
+                2,
+                "profile-replace",
+                json!({"name":"Private replacement label","input":"trojan://synthetic-password@203.0.113.1:443"}),
+            ),
+            (3, "profile-delete", json!({})),
         ] {
             let mut params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":revision,"operationId":format!("profile-action-{index}"),"action":action,"profileId":PROFILE_ID});
             params
@@ -2270,6 +2275,17 @@ mod tests {
             );
             let after = fs::read(&store_path).unwrap();
             assert_ne!(after, before);
+            if action == "profile-replace" {
+                let store: Value = serde_json::from_slice(&after).unwrap();
+                assert_eq!(store["profiles"].as_array().unwrap().len(), 1);
+                assert_eq!(store["profiles"][0]["id"], PROFILE_ID);
+                assert_eq!(store["profiles"][0]["name"], "Private replacement label");
+                assert_eq!(
+                    store["profiles"][0]["uri"],
+                    "trojan://synthetic-password@203.0.113.1:443"
+                );
+                assert_eq!(store["profiles"][0]["favorite"], true);
+            }
             let replay = call_plugin_action(&paths, params.clone()).unwrap();
             assert_eq!(replay["result"], applied["result"]);
             assert_eq!(replay["revision"], applied["revision"]);

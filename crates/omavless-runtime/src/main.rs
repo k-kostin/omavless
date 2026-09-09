@@ -75,6 +75,9 @@ fn run() -> Result<(), CliError> {
         println!("  plugin profile-favorite INSTANCE REVISION OPERATION stdin: ID newline on|off");
         println!("  plugin profile-delete INSTANCE REVISION OPERATION   stdin: ID");
         println!("  plugin profile-import INSTANCE REVISION OPERATION   stdin: NAME newline INPUT");
+        println!(
+            "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
+        );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"

@@ -66,6 +66,15 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "action",
             "profileId",
         ],
+        "profile-replace" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "profileId",
+            "name",
+            "input",
+        ],
         "profile-import" => &[
             "instanceId",
             "expectedRevision",
@@ -95,6 +104,7 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "profile-rename" => "profiles.rename",
         "profile-favorite" => "profiles.favorite",
         "profile-delete" => "profiles.delete",
+        "profile-replace" => "profiles.replace",
         "profile-import" => "profiles.import",
         _ => return Err(InvalidArgument),
     });
@@ -131,6 +141,7 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
         }
         "profile-favorite" => Some(36 + 1 + 3 + 1),
         "profile-delete" => Some(36 + 1),
+        "profile-replace" => Some(36 + 1 + crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
         "profile-import" => Some(crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
         _ => None,
     }
@@ -152,6 +163,7 @@ pub fn cli_params(
                 "profile-rename",
                 "profile-favorite",
                 "profile-delete",
+                "profile-replace",
                 "profile-import",
             ]
             .iter()
@@ -189,7 +201,7 @@ pub fn cli_params(
         }
         [
             "plugin",
-            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import"),
+            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import" | "profile-replace"),
             instance,
             revision,
             operation,
@@ -207,7 +219,22 @@ pub fn cli_params(
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
     }
-    if action == "profile-import" {
+    if action == "profile-replace" {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        let (id, replacement) = input.split_once('\n').ok_or(InvalidArgument)?;
+        let (_, replaced) = crate::semantic_cli::parse_semantic_profile_replace(
+            &["profile".into(), "replace".into(), id.into()],
+            Some(replacement),
+        )?
+        .into_parts();
+        params
+            .as_object_mut()
+            .ok_or(InvalidArgument)?
+            .extend(replaced.as_object().ok_or(InvalidArgument)?.clone());
+    } else     if action == "profile-import" {
         let (_, imported) = crate::semantic_cli::parse_semantic_profile_import(
             &["profile".into(), "import".into()],
             private_stdin,
@@ -272,6 +299,11 @@ mod tests {
             ),
             ("disconnect", "connection.disconnect", json!({})),
             ("mode", "routing.set_mode", json!({"mode":"global"})),
+            (
+                "profile-replace",
+                "profiles.replace",
+                json!({"profileId":"00000000-0000-4000-8000-000000000001","name":"Replaced","input":"trojan://synthetic-password@203.0.113.1:443"}),
+            ),
             (
                 "profile-import",
                 "profiles.import",
@@ -404,6 +436,42 @@ mod tests {
             .into();
         for value in ["true", "false", "1", "ON", "off "] {
             assert!(cli_params(&args, Some(&format!("{id}\n{value}"))).is_err());
+        }
+    }
+
+    #[test]
+    fn replacement_cli_reuses_canonical_framing_and_bounds() {
+        let args: Vec<_> = ["plugin", "profile-replace", "instance", "7", "operation"]
+            .map(OsString::from)
+            .into();
+        let id = "00000000-0000-4000-8000-000000000001";
+        let link = "trojan://synthetic-password@203.0.113.1:443";
+        let input = format!("{id}\nPrivate label\n{link}\n");
+        let params = cli_params(&args, Some(&input)).unwrap().unwrap();
+        assert_eq!(params["profileId"], id);
+        assert_eq!(params["name"], "Private label");
+        assert_eq!(params["input"], format!("{link}\n"));
+        assert_eq!(cli_input_limit(&args), Some(33126));
+        assert!(cli_params(&args, None).is_err());
+        for invalid in [
+            String::new(),
+            id.into(),
+            format!("{id}\nName"),
+            format!("{id}\n\n{link}"),
+            format!("bad-id\nName\n{link}"),
+            format!("{id}\n{}\n{link}", "x".repeat(321)),
+            format!("{id}\nName\n{}", "x".repeat(32769)),
+        ] {
+            assert!(cli_params(&args, Some(&invalid)).is_err());
+        }
+        let mut extra = args;
+        extra.push("private-token".into());
+        assert_eq!(cli_input_limit(&extra), None);
+        assert!(cli_params(&extra, Some(&input)).is_err());
+        for key in ["path", "oldId", "enabled", "command"] {
+            let mut changed = params.clone();
+            changed[key] = json!("private-token");
+            assert!(parse(&request(changed)).is_err());
         }
     }
 

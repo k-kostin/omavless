@@ -34,6 +34,72 @@ fn private_invoke(
 }
 
 #[test]
+fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
+    let base = test_temp::directory("private-replace-cli").unwrap();
+    let directory = base.join("omavless");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = "00000000-0000-4000-8000-000000000001";
+    let link = "trojan://synthetic-password@203.0.113.1:443\n";
+    let worker = thread::spawn(move || {
+        for lost in [false, true] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], "plugin.action");
+            assert_eq!(
+                request["params"],
+                json!({"action":"profile-replace","instanceId":"instance-1","expectedRevision":3,"operationId":"operation-1","profileId":id,"name":"Private replacement label","input":link})
+            );
+            if lost {
+                continue;
+            }
+            let response = success_response(request["id"].as_str().unwrap(), 4, json!({"schemaVersion":1,"instanceId":"instance-1","operationId":"operation-1","action":"profile-replace","applied":true})).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+    });
+    let input = format!("{id}\nPrivate replacement label\n{link}");
+    for code in [0, 73] {
+        let output = private_invoke(&base, "profile-replace", input.as_bytes(), &[]);
+        assert_eq!(output.status.code(), Some(code));
+        for bytes in [&output.stdout, &output.stderr] {
+            let text = String::from_utf8_lossy(bytes);
+            for private in [
+                id,
+                "Private replacement label",
+                "synthetic-password",
+                "203.0.113.1",
+            ] {
+                assert!(!text.contains(private));
+            }
+        }
+    }
+    worker.join().unwrap();
+    for (input, extra) in [
+        (Vec::new(), vec![]),
+        (vec![0xff], vec![]),
+        (format!("{id}\nName").into_bytes(), vec![]),
+        (
+            format!("{id}\nName\n{}", "x".repeat(32769)).into_bytes(),
+            vec![],
+        ),
+        (input.into_bytes(), vec!["private-token"]),
+    ] {
+        let output = private_invoke(&base, "profile-replace", &input, &extra);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn private_import_cli_preserves_input_and_rejects_invalid_requests_locally() {
     let base = test_temp::directory("private-import-cli").unwrap();
     let directory = base.join("omavless");
