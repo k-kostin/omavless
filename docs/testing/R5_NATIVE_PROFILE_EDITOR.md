@@ -84,3 +84,24 @@ retained the draft. These save cases used a synthetic editor-output wrapper,
 not human edits in Zenity, and do not establish active-profile host acceptance.
 The earlier actual Zenity open/Cancel gate is separate. No private store was
 changed and no test tunnel was started.
+
+## Combined installed checkpoint
+
+The temporary integration candidate `fe8c57f5d0f2cf5a7a2425d622b50a05e216842d`
+combines #212, #213 and #214 without making the PRs a permanent stack.
+Mechanical conflicts were resolved preserving all three boundaries. Local
+gates: 755 Rust passed/four existing ignored, fmt/clippy/parity passed; Python
+342 run/341 passed/one root-only skip; 51 native JS cases, 20 launcher tests,
+QML contracts and two installed-Mihomo opt-ins passed.
+
+Try Omarchy ARM64 installed package `0.0.0.r379.gfe8c57f5d0f2-1` and restarted
+the native service/frontend. Installed binary matches the built candidate:
+SHA-256 `0342a03165147f213fc0a2341696370f326fd7c127b52f44acb753a9fe2ac4cd`.
+Service/Panel/NativeSnapshot files compare byte-identically. Plugin enabled;
+desired and actual disconnected, Full VPN mode preserved, visible Mihomo/TUN
+0/0. Package creation initially exhausted the separate /tmp tmpfs; moving only
+build artifacts to the main disk resolved it without changing system policy.
+
+Combined human import/QR/editor and connect/disconnect acceptance is pending.
+This installed checkpoint is not a claim that the three independent PR heads
+have completed all host gates, nor that active-profile editing has passed.
