@@ -1090,6 +1090,24 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        // Remote plugin actions must bypass the general owner-held mutation
+        // path. Canonical preflight and completion retain replay/ownership;
+        // HTTP runs only in the existing bounded detached fetch path.
+        if request["method"] == "plugin.action"
+            && let Ok(action) = plugin_action::parse(request)
+            && matches!(
+                action.canonical["method"].as_str(),
+                Some("subscriptions.add" | "subscriptions.update" | "subscriptions.refresh")
+            )
+        {
+            let mut response =
+                self.dispatch_remote_subscription(&action.canonical, Some(&action.instance))?;
+            if response["ok"] == true {
+                response["result"] = json!({"schemaVersion":1,"instanceId":self.instance_id,"operationId":action.operation,"action":action.action,"applied":true});
+            }
+            omavless_control_protocol::validate_response(&response)?;
+            return Ok(response);
+        }
         if request["method"] == "routing.check" {
             return self.dispatch_route_check(request);
         }
@@ -1109,7 +1127,7 @@ impl RuntimeServer {
             request["method"].as_str(),
             Some("subscriptions.add" | "subscriptions.update" | "subscriptions.refresh")
         ) {
-            return self.dispatch_remote_subscription(request);
+            return self.dispatch_remote_subscription(request, None);
         }
         let mut dispatcher = match self.dispatcher.lock() {
             Ok(dispatcher) => dispatcher,
@@ -1276,6 +1294,7 @@ impl RuntimeServer {
     fn dispatch_remote_subscription(
         &self,
         request: &Value,
+        expected_instance: Option<&str>,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
         let preflight = {
@@ -1285,6 +1304,19 @@ impl RuntimeServer {
                     return error_response(id, 0, StableErrorCode::InternalError, false, None);
                 }
             };
+            if expected_instance.is_some_and(|instance| instance != self.instance_id) {
+                let revision = match &*dispatcher {
+                    RuntimeDispatcher::ReadOnly => 0,
+                    RuntimeDispatcher::Native(owner) => owner.revision(),
+                };
+                return error_response(
+                    id,
+                    revision,
+                    StableErrorCode::DaemonRestarting,
+                    false,
+                    None,
+                );
+            }
             match &mut *dispatcher {
                 RuntimeDispatcher::ReadOnly => {
                     return dispatch_read_only(request, &self.instance_id);
@@ -3545,6 +3577,90 @@ mod tests {
             "succeeded"
         );
         drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn plugin_remote_subscriptions_fence_before_fetch_and_release_owner_during_http() {
+        let base = temporary_base("plugin-remote-subscriptions");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        let worker = thread::spawn(move || server.serve(Some(17)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let mut revision = hello["revision"].clone();
+        for (index, action, extra) in [
+            (
+                0,
+                "subscription-add",
+                json!({"name":"Private new source","url":"https://private.example/token"}),
+            ),
+            (
+                1,
+                "subscription-update",
+                json!({"subscriptionId":SUBSCRIPTION_ID,"name":"Private changed source","url":"https://private.example/changed"}),
+            ),
+            (
+                2,
+                "subscription-refresh",
+                json!({"subscriptionId":SUBSCRIPTION_ID}),
+            ),
+        ] {
+            let mut params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":revision,"operationId":format!("remote-{index}"),"action":action});
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let mut stale = params.clone();
+            stale["instanceId"] = json!("previous-instance");
+            assert_eq!(
+                call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+                "daemon_restarting"
+            );
+            assert!(matches!(
+                started_rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ));
+            let fetch_paths = paths.clone();
+            let fetch_params = params.clone();
+            let fetch =
+                thread::spawn(move || call_plugin_action(&fetch_paths, fetch_params).unwrap());
+            started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            // Neither request can complete if the plugin route holds the owner
+            // mutex across the blocked transport. Disconnect is a safe no-op.
+            assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
+            assert_eq!(
+                call(&paths, "connection.disconnect", json!({})).unwrap()["ok"],
+                true
+            );
+            release_tx.send(()).unwrap();
+            let applied = fetch.join().unwrap();
+            assert_eq!(applied["ok"], true);
+            assert_eq!(
+                applied["result"],
+                json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":params["operationId"],"action":action,"applied":true})
+            );
+            let replay = call_plugin_action(&paths, params).unwrap();
+            assert_eq!(replay["result"], applied["result"]);
+            assert_eq!(replay["revision"], applied["revision"]);
+            assert!(matches!(
+                started_rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ));
+            revision = applied["revision"].clone();
+        }
+        let deleted = call_plugin_action(&paths, json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":revision,"operationId":"delete-source","action":"subscription-delete","subscriptionId":SUBSCRIPTION_ID})).unwrap();
+        assert_eq!(deleted["ok"], true);
+        worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 

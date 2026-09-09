@@ -34,6 +34,117 @@ fn private_invoke(
 }
 
 #[test]
+fn private_subscription_cli_maps_fixed_actions_without_echo() {
+    let base = test_temp::directory("private-subscription-cli").unwrap();
+    let directory = base.join("omavless");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+    let admission_probe = listener.try_clone().unwrap();
+    let worker = thread::spawn(move || {
+        for (action, extra) in [
+            (
+                "subscription-add",
+                json!({"name":"Private source","url":"https://private.example/token"}),
+            ),
+            (
+                "subscription-update",
+                json!({"subscriptionId":id,"name":"Private source","url":"https://private.example/token"}),
+            ),
+            ("subscription-delete", json!({"subscriptionId":id})),
+            ("subscription-refresh", json!({"subscriptionId":id})),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            let mut expected = json!({"action":action,"instanceId":"instance-1","operationId":"operation-1","expectedRevision":3});
+            expected
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            assert_eq!(request["params"], expected);
+            assert_eq!(request["method"], "plugin.action");
+            if action == "subscription-refresh" {
+                continue;
+            }
+            let response = success_response(request["id"].as_str().unwrap(), 4, json!({"schemaVersion":1,"instanceId":"instance-1","operationId":"operation-1","action":action,"applied":true})).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+    });
+    for (action, input) in [
+        (
+            "subscription-add",
+            "Private source\nhttps://private.example/token".into(),
+        ),
+        (
+            "subscription-update",
+            format!("{id}\nPrivate source\nhttps://private.example/token"),
+        ),
+        ("subscription-delete", id.to_owned()),
+        ("subscription-refresh", id.to_owned()),
+    ] {
+        let output = private_invoke(&base, action, input.as_bytes(), &[]);
+        assert_eq!(
+            output.status.code(),
+            Some(if action == "subscription-refresh" {
+                73
+            } else {
+                0
+            })
+        );
+        for bytes in [&output.stdout, &output.stderr] {
+            let text = String::from_utf8_lossy(bytes);
+            for private in [id, "Private source", "private.example", "token"] {
+                assert!(!text.contains(private));
+            }
+        }
+    }
+    worker.join().unwrap();
+    admission_probe.set_nonblocking(true).unwrap();
+    for (action, input, extra) in [
+        (
+            "subscription-add",
+            b"Private source\nnot-url".to_vec(),
+            vec![],
+        ),
+        ("subscription-update", vec![0xff], vec![]),
+        (
+            "subscription-update",
+            format!("{id}\nPrivate source\nnot-url").into_bytes(),
+            vec![],
+        ),
+        ("subscription-refresh", b"private-token".to_vec(), vec![]),
+        ("subscription-delete", Vec::new(), vec![]),
+        ("subscription-add", vec![b'x'; 9000], vec![]),
+        (
+            "subscription-delete",
+            id.as_bytes().to_vec(),
+            vec!["private-token"],
+        ),
+    ] {
+        let output = private_invoke(&base, action, &input, &extra);
+        assert_eq!(output.status.code(), Some(74));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "OmaVLESS action was not submitted; review the input before retrying\n"
+        );
+        assert_eq!(
+            admission_probe.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
     let base = test_temp::directory("private-replace-cli").unwrap();
     let directory = base.join("omavless");
@@ -107,7 +218,7 @@ fn private_replace_cli_maps_exact_stdin_and_lost_reply_without_echo() {
         assert!(!String::from_utf8_lossy(&output.stderr).contains("private-token"));
         assert_eq!(
             String::from_utf8(output.stderr).unwrap(),
-            "OmaVLESS replacement was not submitted; review the editor input before retrying\n"
+            "OmaVLESS action was not submitted; review the input before retrying\n"
         );
         assert_eq!(
             admission_probe.accept().unwrap_err().kind(),

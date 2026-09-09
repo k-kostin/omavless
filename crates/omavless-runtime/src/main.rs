@@ -75,6 +75,18 @@ fn run() -> Result<(), CliError> {
         println!("  plugin profile-rename INSTANCE REVISION OPERATION   stdin: ID newline NAME");
         println!("  plugin profile-favorite INSTANCE REVISION OPERATION stdin: ID newline on|off");
         println!("  plugin profile-delete INSTANCE REVISION OPERATION   stdin: ID");
+        println!(
+            "  plugin subscription-add INSTANCE REVISION OPERATION    stdin: NAME newline URL"
+        );
+        println!(
+            "  plugin subscription-update INSTANCE REVISION OPERATION stdin: ID newline NAME newline URL"
+        );
+        println!(
+            "  plugin subscription-delete|subscription-refresh INSTANCE REVISION OPERATION stdin: ID"
+        );
+        println!(
+            "    replacement/subscription actions: exit 74 means not submitted; exit 73 means outcome unknown"
+        );
         println!("  plugin profile-import INSTANCE REVISION OPERATION   stdin: NAME newline INPUT");
         println!(
             "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
@@ -260,12 +272,25 @@ fn run() -> Result<(), CliError> {
         );
         return Ok(());
     }
-    let replacement = arguments.first().is_some_and(|arg| arg == "plugin")
-        && arguments.get(1).is_some_and(|arg| arg == "profile-replace");
+    let explicit_admission = arguments.first().is_some_and(|arg| arg == "plugin")
+        && arguments
+            .get(1)
+            .and_then(|arg| arg.to_str())
+            .is_some_and(|arg| {
+                matches!(
+                    arg,
+                    "profile-replace"
+                        | "subscription-add"
+                        | "subscription-update"
+                        | "subscription-delete"
+                        | "subscription-refresh"
+                )
+            });
     // This classification is valid only before dispatch. After entering the
-    // socket client, transport errors remain outcome-unknown even for replace.
+    // socket client, transport errors remain outcome-unknown. Other actions
+    // retain their existing exit-code contract.
     let admission_error = |message: String| {
-        if replacement {
+        if explicit_admission {
             CliError::ActionNotAdmitted
         } else {
             CliError::Message(message)
@@ -380,9 +405,7 @@ fn main() -> ExitCode {
             ExitCode::from(73)
         }
         Err(CliError::ActionNotAdmitted) => {
-            eprintln!(
-                "OmaVLESS replacement was not submitted; review the editor input before retrying"
-            );
+            eprintln!("OmaVLESS action was not submitted; review the input before retrying");
             ExitCode::from(74)
         }
         Err(CliError::Message(message)) => {
