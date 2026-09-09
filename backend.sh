@@ -43,6 +43,10 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-diagnostics-summary)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless diagnostics summary
+          ;;
         native-profile-qr)
           [ "$#" -eq 2 ] || blocked
           exec omavless profile export "$2" qr

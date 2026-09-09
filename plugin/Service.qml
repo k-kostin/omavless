@@ -518,7 +518,11 @@ Item {
   // lastError, so a controller/API problem cannot turn a healthy VPN shield
   // into a fatal-looking bar state.
   property bool diagnosticsPageVisible: false
-  readonly property bool advancedDiagnosticsLoading: advancedDiagnosticsProcess.running
+  readonly property bool advancedDiagnosticsLoading: advancedDiagnosticsProcess.running || _nativeDiagnosticsProcess !== null
+  property var _nativeDiagnosticsProcess: null
+  property int _nativeDiagnosticsRequestGeneration: -1
+  property bool _nativeDiagnosticsOwner: false
+  property string _nativeDiagnosticsInstance: ""
   property string advancedDiagnosticsErrorCode: ""
   property string advancedDiagnosticsError: ""
   property var loadedRules: []
@@ -869,7 +873,7 @@ Item {
     _advancedDiagnosticsRefreshPending = false
     advancedDiagnosticsErrorCode = ""
     advancedDiagnosticsError = ""
-    if (diagnosticsPageVisible) {
+    if (diagnosticsPageVisible || nativeOwner) {
       loadedRules = []
       loadedRuleTotal = 0
       loadedRulesTruncated = false
@@ -877,7 +881,7 @@ Item {
       loadedRuleProviderTotal = 0
       loadedRuleProvidersTruncated = false
       advancedDiagnosticsLoadedAt = 0
-      refreshAdvancedDiagnostics()
+      if (diagnosticsPageVisible) refreshAdvancedDiagnostics()
     }
   }
 
@@ -970,7 +974,7 @@ Item {
   }
 
   function refreshAdvancedDiagnostics() {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return refreshNativeDiagnostics()
     if (!diagnosticsPageVisible) return false
     if (advancedDiagnosticsProcess.running) {
       // A re-open must get a fresh answer after the request from the previous
@@ -990,11 +994,75 @@ Item {
 
   function refreshAdvancedDiagnosticsAfterChange() {
     if (!diagnosticsPageVisible) return false
-    if (advancedDiagnosticsProcess.running) {
+    if (advancedDiagnosticsLoading) {
       _advancedDiagnosticsRefreshPending = true
       return false
     }
     return refreshAdvancedDiagnostics()
+  }
+
+  function clearNativeDiagnosticsSample() {
+    loadedRules = []; loadedRuleTotal = 0; loadedRulesTruncated = false
+    loadedRuleProviders = []; loadedRuleProviderTotal = 0; loadedRuleProvidersTruncated = false
+    advancedDiagnosticsLoadedAt = 0
+  }
+
+  function invalidateNativeDiagnosticsIdentity() {
+    var owner = nativeOwner
+    var instance = owner && nativeSnapshot ? nativeSnapshot.instanceId : ""
+    if (_nativeDiagnosticsOwner === owner && _nativeDiagnosticsInstance === instance) return false
+    _nativeDiagnosticsOwner = owner
+    _nativeDiagnosticsInstance = instance
+    _advancedDiagnosticsGeneration++
+    _advancedDiagnosticsRefreshPending = false
+    clearNativeDiagnosticsSample()
+    advancedDiagnosticsErrorCode = ""
+    advancedDiagnosticsError = ""
+    // Local identity changes invalidate samples; ordinary revision updates do
+    // not poll. This still does not authenticate the identity of a response.
+    if (owner && instance !== "" && diagnosticsPageVisible) refreshNativeDiagnostics()
+    return true
+  }
+
+  function refreshNativeDiagnostics() {
+    if (!nativeOwner || !diagnosticsPageVisible) return false
+    if (_nativeDiagnosticsProcess !== null) {
+      if (_nativeDiagnosticsRequestGeneration !== _advancedDiagnosticsGeneration)
+        _advancedDiagnosticsRefreshPending = true
+      return false
+    }
+    // This is an independent sample, not a same-daemon/health assertion.
+    advancedDiagnosticsErrorCode = ""
+    advancedDiagnosticsError = ""
+    _nativeDiagnosticsRequestGeneration = _advancedDiagnosticsGeneration
+    _nativeDiagnosticsProcess = nativeDiagnosticsComponent.createObject(root, {
+      command:["bash", backendPath, "native-diagnostics-summary"],
+      generation:_advancedDiagnosticsGeneration, instance:nativeSnapshot ? nativeSnapshot.instanceId : ""})
+    if (!_nativeDiagnosticsProcess) {
+      clearNativeDiagnosticsSample()
+      advancedDiagnosticsErrorCode = "unavailable"
+      advancedDiagnosticsError = "Diagnostic sample is unavailable"
+      return false
+    }
+    _nativeDiagnosticsProcess.running = true
+    return true
+  }
+
+  function finishNativeDiagnostics(generation, instance, code, output) {
+    var stale = !nativeOwner || !diagnosticsPageVisible || generation !== _advancedDiagnosticsGeneration
+      || !nativeSnapshot || instance !== nativeSnapshot.instanceId
+    if (!stale) {
+      var value = code === 0 ? NativeSnapshot.parseDiagnosticsSummary(output) : null
+      if (!value || !applyAdvancedDiagnostics(JSON.stringify(value))) {
+        clearNativeDiagnosticsSample()
+        advancedDiagnosticsErrorCode = "unavailable"
+        advancedDiagnosticsError = "Diagnostic sample is unavailable"
+      }
+    }
+    if (_advancedDiagnosticsRefreshPending && diagnosticsPageVisible) {
+      _advancedDiagnosticsRefreshPending = false
+      Qt.callLater(refreshAdvancedDiagnostics)
+    }
   }
 
   function applyAdvancedDiagnostics(raw) {
@@ -2284,8 +2352,14 @@ Item {
   property string _nativeQrInput: ""
   property var nativeQrExportProcess: null
   property var nativeQrRenderProcess: null
-  onNativeOwnerChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
-  onNativeSnapshotChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativeOwnerChanged: {
+    if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
+    invalidateNativeDiagnosticsIdentity()
+  }
+  onNativeSnapshotChanged: {
+    if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
+    invalidateNativeDiagnosticsIdentity()
+  }
   onNativeSnapshotFailedChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
   onNativePendingChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
   property string qrName: ""
@@ -3161,6 +3235,22 @@ Item {
     }
   }
 
+  Component {
+    id: nativeDiagnosticsComponent
+    Process {
+      id: sample
+      property int generation
+      property string instance
+      stdout: StdioCollector { id: sampleOutput; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) {
+        root._nativeDiagnosticsProcess = null
+        try { root.finishNativeDiagnostics(generation, instance, code, sampleOutput.text) }
+        finally { sample.destroy() }
+      }
+    }
+  }
+
   Process {
     id: advancedDiagnosticsProcess
     running: false
@@ -3173,7 +3263,7 @@ Item {
     // never echo controller/configuration details from stderr.
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      var stale = !root.diagnosticsPageVisible
+      var stale = root.nativeOwner || !root.diagnosticsPageVisible
         || root._advancedDiagnosticsRequestGeneration !== root._advancedDiagnosticsGeneration
       if (!stale) {
         if (exitCode === 0

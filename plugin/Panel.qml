@@ -551,7 +551,6 @@ Panel {
   }
 
   function openAdvancedDiagnostics() {
-    if (vless.nativeOwner) return false
     page = "diagnostics"
     cursorActive = false
     advancedDiagnosticsPage.resetSearchFocus()
@@ -567,8 +566,9 @@ Panel {
   // Keep that event inside an active OmaVLESS page instead of delegating it
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
+    if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeSubscriptionsSetting.focusTarget, nativeRefresh]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       for (var s = 0; s < nativeSubscriptions.count; s++) {
@@ -618,7 +618,7 @@ Panel {
   }
 
   function scrollPanelControlIntoView(target) {
-    var flick = vless.nativeOwner ? nativeFlick : page === "subscriptions" ? subscriptionsFlick
+    var flick = page === "diagnostics" ? advancedDiagnosticsPage.flickable : vless.nativeOwner ? nativeFlick : page === "subscriptions" ? subscriptionsFlick
       : (page === "settings" ? settingsFlick : panelFlick)
     if (!flick || !target) return
     Qt.callLater(function() {
@@ -1317,7 +1317,7 @@ Panel {
     objectName: "omavlessService"
     settings: root.settings
     panelVisible: root.opened
-    diagnosticsPageVisible: !vless.nativeOwner && root.opened && root.page === "diagnostics"
+    diagnosticsPageVisible: root.opened && root.page === "diagnostics"
     trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
     pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
   }
@@ -1562,7 +1562,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      vless.nativeOwner ? nativeColumn.implicitHeight : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -1600,6 +1600,11 @@ Panel {
         }
       }
       onTextKey: function(t) {
+        if (root.page === "diagnostics") {
+          if (t === "r" || t === "R") vless.refreshAdvancedDiagnostics()
+          else if (t === "/") advancedDiagnosticsPage.resetSearchFocus()
+          return
+        }
         if (vless.nativeOwner) {
           if (t === "r" || t === "R") vless.refresh()
           else if (t === "g" || t === "G") root.openSettings()
@@ -1697,7 +1702,7 @@ Panel {
         id: nativeFlick
         Keys.onPressed: function(event) { root.handleNativeNavigationKey(event) }
         anchors.fill: parent
-        visible: vless.nativeOwner
+        visible: vless.nativeOwner && root.page !== "diagnostics"
         clip: true
         contentWidth: width
         contentHeight: nativeColumn.implicitHeight
@@ -1809,6 +1814,7 @@ Panel {
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
+          SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
@@ -1931,7 +1937,7 @@ Panel {
       AdvancedDiagnostics {
         id: advancedDiagnosticsPage
         anchors.fill: parent
-        visible: !vless.nativeOwner && root.page === "diagnostics"
+        visible: root.page === "diagnostics"
         service: vless
         foreground: root.foreground
         dim: root.dim
@@ -1940,7 +1946,7 @@ Panel {
         locale: root.uiLocale
         onBackRequested: root.closeAdvancedDiagnostics()
         onRefreshRequested: vless.refreshAdvancedDiagnostics()
-        onRefreshProvidersRequested: vless.refreshRuleProviders()
+        onRefreshProvidersRequested: if (!vless.nativeOwner) vless.refreshRuleProviders()
       }
 
       Flickable {
