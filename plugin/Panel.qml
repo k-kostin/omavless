@@ -1498,7 +1498,7 @@ Panel {
           PlainText { Layout.fillWidth: true; text: root.textFor("native.readOnly"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; text: root.textFor("native.healthUnavailable"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSnapshotFailed; text: root.textFor("native.refreshFailed"); textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
-          Button { id: nativeRefresh; text: root.textFor("common.refresh"); enabled: !vless.statusProcessRunning; onClicked: vless.refresh() }
+          Button { id: nativeRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: !vless.statusProcessRunning; onClicked: vless.refresh() }
           PlainText {
             Layout.fillWidth: true
             visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed

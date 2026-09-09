@@ -93,6 +93,7 @@ test('native view keeps data plain and hides old interactive pages', () => {
   assert(view.includes('PlainText {'));
   assert(!/(?:^|\s)Text \{/.test(view));
   assert(!view.includes('Text.AutoText'));
+  assert(view.includes('focusable: true; bordered: true'));
   assert(source.includes('liveHealth: "unavailable", metadataUnavailable: vless.nativeSnapshotFailed'));
 });
 console.log(`${count} native snapshot tests passed`);
