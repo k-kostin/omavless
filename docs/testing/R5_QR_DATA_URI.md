@@ -46,6 +46,24 @@ rendered the actual qrencode PNG in EN and RU. Both captures were visually
 reviewed: image, translated credential warning and Close button were visible
 without overlap. Dismissal cleared image/input and both dynamic processes were
 destroyed. No real private profile or installed plugin was changed by this gate.
-This preliminary working-tree check must be repeated or hash-verified against
-the committed candidate. Keyboard/error-state and final integration acceptance
-remain pending; this checkpoint is not merge acceptance.
+Candidate `9a3b81d89eadf9fd0188f567217e7515d5a167b9`: the exercised QML,
+JavaScript and launcher compare byte-identically with the committed files.
+The exercised Rust binary SHA-256 is
+`2a939aa2e06bfec2560ae6a4b5139ac3aa26df9f3091f1355163eaf94b16e69e`.
+Actual installed qrencode produced byte-identical binary and decoded data-URI
+output. Full Python suite: 339 run, 338 passed, one root-only skip; all JS/QML
+contracts, plugin validation, syntax/compile/manifest checks passed. The initial
+sandbox run could not open the test loopback socket; the unrestricted rerun
+passed. CI run 34382810020 passed.
+
+The actual QR layer accepted Escape via the installed Omarchy/Hyprland Lua key
+dispatcher and cleared its private image. Panel reopen passed. Injected encoder
+failure displayed only the localized fixed rendering error in EN/RU; delayed
+encoding followed by dismissal discarded the late result and destroyed both
+collectors. These fault cases used an isolated test-only encoder wrapper, not
+changes to host packages or real private data. Missing-encoder/stale-owner
+behavior is covered deterministically, not claimed as installed visual evidence.
+
+Final installed integration acceptance remains pending; the installed #212
+import candidate is deliberately preserved rather than replaced with this
+independent branch's older-main frontend. This checkpoint is not merge acceptance.
