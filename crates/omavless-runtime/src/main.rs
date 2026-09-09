@@ -92,7 +92,7 @@ fn run() -> Result<(), CliError> {
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
         println!(
-            "  desktop capabilities|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|export-file|cleanup"
+            "  desktop capabilities|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|qr-data-uri|export-file|cleanup"
         );
         println!(
             "                                  explicit private client-only helpers; input through stdin"
@@ -142,13 +142,16 @@ fn run() -> Result<(), CliError> {
                 let path = read_semantic_input(MAX_PATH_BYTES + 1)?;
                 desktop_helpers::read_import_file(path.trim_end_matches('\n').as_bytes())
             }
-            Some("clipboard-copy" | "edit" | "qr") => {
+            Some("clipboard-copy" | "edit" | "qr" | "qr-data-uri") => {
                 let input = read_semantic_input(MAX_TEXT_BYTES)?;
                 match arguments[1].to_str() {
                     Some("clipboard-copy") => helpers
                         .clipboard_copy(input.as_bytes())
                         .map(|()| Vec::new()),
                     Some("qr") => helpers.qr_png(input.as_bytes()),
+                    Some("qr-data-uri") => helpers
+                        .qr_data_uri(input.as_bytes())
+                        .map(String::into_bytes),
                     _ => {
                         let directory = desktop_helpers::current_desktop_runtime()
                             .map_err(|e| e.to_string())?;

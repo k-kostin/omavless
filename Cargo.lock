@@ -488,6 +488,7 @@ dependencies = [
 name = "omavless-runtime"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "nix",
  "omavless-control-protocol",
  "omavless-domain",

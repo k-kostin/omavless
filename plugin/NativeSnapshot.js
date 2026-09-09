@@ -1,5 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Pure parser: returns a fresh projection or null; never changes UI state.
+function parseQrExport(raw, revision) {
+  try {
+    if (typeof raw !== "string" || raw.length > 262144 || unescape(encodeURIComponent(raw)).length > 262144) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || p.ok !== true
+        || !id(p.id, false) || !number(p.revision, 9007199254740991) || p.revision !== revision
+        || !object(p.result, ["format", "content"]) || p.result.format !== "uri"
+        || !text(p.result.content, 32768, false)
+        || unescape(encodeURIComponent(p.result.content)).length > 32768) return null
+    return p.result.content
+  } catch (_) { return null }
+}
+function qrDataUri(raw) {
+  // The fixed Rust helper emits only PNG, without a trailing newline.
+  if (typeof raw !== "string" || raw.length > 5592430
+      || !/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(raw)) return ""
+  var body = raw.slice(22)
+  var padding = body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0
+  if (body.length % 4 !== 0 || body.length / 4 * 3 - padding > 4194304) return ""
+  return raw
+}
 function object(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   var found = Object.keys(value)
