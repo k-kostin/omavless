@@ -149,6 +149,8 @@ Panel {
   }
 
   property string nativeSelectedProfile: ""
+  property string nativeSubscriptionId: ""
+  readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
   property var nativeExpanded: ({})
   readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed)
@@ -163,6 +165,9 @@ Panel {
 
   function buildNativeRows() {
     var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
+    if (page === "subscription") return profiles.filter(function(p) {
+      return p.subscriptionId === nativeSubscriptionId
+    }).map(function(p) { return {kind:"profile", profile:p} })
     var rows = []
     profiles.filter(function(p) { return p.subscriptionId === "" }).forEach(function(p) { rows.push({kind:"profile", profile:p}) })
     nativeView.subscriptions.forEach(function(subscription) {
@@ -184,20 +189,15 @@ Panel {
   function browseNativeSubscription(id) {
     if (!nativeView.subscriptions.some(function(s) { return s.id === id })) return false
     profileFilter = ""
-    var next = Object.assign({}, nativeExpanded)
-    next[id] = true
-    nativeExpanded = next
-    page = "main"
-    nativeCursor = nativeRows.findIndex(function(row) { return row.kind === "subscription" && row.subscription.id === id })
-    Qt.callLater(function() {
-      var item = nativeProfiles.itemAt(nativeCursor)
-      if (item) root.scrollPanelControlIntoView(item)
-    })
+    nativeSubscriptionId = id
+    page = "subscription"
+    nativeCursor = -1
+    nativeFlick.contentY = 0
     return true
   }
 
   function moveNativeCursor(direction) {
-    if (page !== "main" || nativeRows.length === 0 || direction === 0) return
+    if ((page !== "main" && page !== "subscription") || nativeRows.length === 0 || direction === 0) return
     nativeCursor = nativeCursor < 0 ? (direction < 0 ? nativeRows.length - 1 : 0)
       : Math.max(0, Math.min(nativeRows.length - 1, nativeCursor + direction))
     var row = nativeRows[nativeCursor]
@@ -212,7 +212,7 @@ Panel {
     if (!vless.nativeOwner || nativeSearch.activeFocus || root.modalInputActive) return
     if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
       var direction = event.key === Qt.Key_Up ? -1 : 1
-      if (page === "main") {
+      if (page === "main" || page === "subscription") {
         root.moveNativeCursor(direction)
         keyCatcher.forceActiveFocus()
       } else root.focusPanelControl(direction)
@@ -223,7 +223,7 @@ Panel {
   }
 
   function activateNativeCursor() {
-    if (page !== "main" || nativeCursor < 0 || nativeCursor >= nativeRows.length) return
+    if ((page !== "main" && page !== "subscription") || nativeCursor < 0 || nativeCursor >= nativeRows.length) return
     var row = nativeRows[nativeCursor]
     if (row.kind === "subscription") toggleNativeSubscription(row.subscription.id)
     else if (vless.nativeCanAct && !row.profile.missing) {
@@ -486,7 +486,7 @@ Panel {
       : "URL stays private and is shown only in this editor")))
 
   function openSubscriptions() {
-    if (vless.nativeOwner) { page = "subscriptions"; nativeFlick.contentY = 0; return true }
+    if (vless.nativeOwner) { nativeSubscriptionId = ""; profileFilter = ""; page = "subscriptions"; nativeFlick.contentY = 0; return true }
     if (!vless.supports("subscriptions")) return
     page = "subscriptions"
     cursorActive = false
@@ -570,6 +570,7 @@ Panel {
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
+        : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
@@ -653,7 +654,8 @@ Panel {
 
   function handlePanelControlKey(event) {
     if (event.key === Qt.Key_Escape) {
-      if (root.page === "subscriptions") root.closeSubscriptions()
+      if (root.page === "subscription") root.openSubscriptions()
+      else if (root.page === "subscriptions") root.closeSubscriptions()
       else if (root.page === "settings") root.closeSettings()
       else root.close()
       event.accepted = true
@@ -1335,6 +1337,7 @@ Panel {
     function onNativeSubscriptionSaved() { subscriptionPrompt.dismiss(); root.editingSubscription = null }
     function onNativeSnapshotChanged() {
       if (!vless.nativeOwner || !vless.nativeSnapshot) return
+      if (root.page === "subscription" && !vless.nativeSnapshot.subscriptions.some(function(s) { return s.id === root.nativeSubscriptionId })) root.openSubscriptions()
       if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile }))
         root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
     }
@@ -1584,7 +1587,8 @@ Panel {
       }
       onActivateRequested: { if (vless.nativeOwner) root.activateNativeCursor(); else if (root.cursorActive) root.activateCursor() }
       onCloseRequested: {
-        if (root.page === "subscriptions") root.closeSubscriptions()
+        if (root.page === "subscription") root.openSubscriptions()
+        else if (root.page === "subscriptions") root.closeSubscriptions()
         else if (root.page === "diagnostics") root.closeAdvancedDiagnostics()
         else if (root.page === "settings") root.closeSettings()
         else root.close()
@@ -1609,7 +1613,7 @@ Panel {
           if (t === "r" || t === "R") vless.refresh()
           else if (t === "g" || t === "G") root.openSettings()
           else if (t === "s" || t === "S") root.openSubscriptions()
-          else if (root.page === "main") {
+          else if (root.page === "main" || root.page === "subscription") {
             if (t === "t" || t === "T") root.nativeToggleConnection()
             else if (t === "/") nativeSearch.forceActiveFocus()
             else if ((t === "q" || t === "Q") && root.nativeSelectedRecord() !== null) vless.showQr(root.nativeSelectedRecord())
@@ -1783,9 +1787,9 @@ Panel {
             visible: root.page !== "main"
             Layout.fillWidth: true
             spacing: Style.space(10)
-            OmaNavigationButton { id: nativeSettingsBack; iconText: "󰁍"; tooltipText: root.textFor("tooltip.back_profiles"); focusable: true; onClicked: { root.page = "main"; nativeFlick.contentY = 0 } }
-            PlainText { Layout.fillWidth: true; text: root.textFor(root.page === "subscriptions" ? "settings.subscriptions" : "settings.title"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.title }
-            OmaNavigationButton { id: nativeRefresh; iconText: "󰑓"; tooltipText: root.textFor("common.refresh"); focusable: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
+            OmaNavigationButton { id: nativeSettingsBack; iconText: "󰁍"; tooltipText: root.textFor("common.back"); focusable: true; onClicked: { if (root.page === "subscription") root.openSubscriptions(); else root.page = "main"; nativeFlick.contentY = 0 } }
+            PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.page === "subscription" ? (root.nativeSubscription ? root.nativeSubscription.name : "") : root.textFor(root.page === "subscriptions" ? "settings.subscriptions" : "settings.title"); elide: Text.ElideRight; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.title }
+            OmaNavigationButton { id: nativeRefresh; visible: root.page !== "subscription"; iconText: "󰑓"; tooltipText: root.textFor("common.refresh"); focusable: true; enabled: !vless.statusProcessRunning && !vless.nativeActionRunning; onClicked: vless.refresh() }
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.appearance"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeLanguageRow; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.language"); description: root.textFor("settings.language_description"); actionText: root.languageSettingLabel(); onAction: root.cycleLanguageSetting() }
@@ -1828,7 +1832,7 @@ Panel {
             delegate: ColumnLayout {
               id: nativeSubscriptionRow
               required property var modelData
-              property var focusTargets: [nativeSubscriptionOpen.focusTarget, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete]
+              property var focusTargets: [nativeSubscriptionOpen.focusTarget]
               Layout.fillWidth: true
               SettingsActionRow {
                 id: nativeSubscriptionOpen
@@ -1838,13 +1842,16 @@ Panel {
                 actionText: root.textFor("common.open")
                 onAction: root.browseNativeSubscription(nativeSubscriptionRow.modelData.id)
               }
-              RowLayout {
-                Layout.alignment: Qt.AlignRight
-                Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", nativeSubscriptionRow.modelData.id, "", "") }
-                Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(nativeSubscriptionRow.modelData) }
-                Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: root.requestNativeSubscriptionDelete(nativeSubscriptionRow.modelData) }
-              }
             }
+          }
+          PlainText { Layout.fillWidth: true; visible: root.page === "subscription" && root.nativeSubscription !== null; text: root.nativeSubscription ? root.localizedCount("managed_profile", root.nativeSubscription.profileCount) + " · " + root.subscriptionAge(root.nativeSubscription.updatedAt) : ""; color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          Flow {
+            visible: root.page === "subscription" && root.nativeSubscription !== null
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", root.nativeSubscriptionId, "", "") }
+            Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(root.nativeSubscription) }
+            Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: root.requestNativeSubscriptionDelete(root.nativeSubscription) }
           }
           RowLayout {
             visible: root.page === "main"
@@ -1869,7 +1876,7 @@ Panel {
           TextField {
             id: nativeSearch
             Layout.fillWidth: true
-            visible: root.page === "main"
+            visible: root.page === "main" || root.page === "subscription"
             maximumLength: 128
             placeholderText: root.textFor("profiles.search")
             text: root.profileFilter
@@ -1886,10 +1893,10 @@ Panel {
             }
             Keys.onEscapePressed: function(event) { root.profileFilter = ""; keyCatcher.forceActiveFocus(); event.accepted = true }
           }
-          PlainText { Layout.fillWidth: true; visible: root.page === "main" && root.nativeRows.length === 0; text: root.textFor("native.main.empty"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.textFor("native.main.empty"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           Repeater {
             id: nativeProfiles
-            model: root.page === "main" ? root.nativeRows : []
+            model: root.page === "main" || root.page === "subscription" ? root.nativeRows : []
             delegate: ColumnLayout {
               id: nativeRow
               required property int index
