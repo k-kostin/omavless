@@ -163,7 +163,7 @@ function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-replace"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
@@ -200,7 +200,7 @@ function parseImportPreview(raw, revision) {
     var r = p.result
     if (object(r, ["version", "kind", "suggestedName", "duplicate"]) && r.version === 1
         && r.kind === "subscription" && text(r.suggestedName, 80, false)
-        && typeof r.duplicate === "boolean") return {kind:"subscription", duplicate:r.duplicate}
+        && typeof r.duplicate === "boolean") return {kind:"subscription", duplicate:r.duplicate, suggestedName:r.suggestedName}
     if (!object(r, ["version", "kind", "profile"]) || r.version !== 1 || r.kind !== "profile") return null
     var v = r.profile
     if (!object(v, ["version", "protocol", "server", "port", "transport", "security", "sni", "flow", "insecure", "advancedXhttp", "experimental", "experimentalFeatures", "compatibilityNote", "credentialHint", "suggestedName"])
@@ -219,8 +219,23 @@ function parseImportPreview(raw, revision) {
 }
 
 function parseActionExit(raw, pending, exitCode) {
-  // Reserved replacement-only CLI exit proves no socket dispatch occurred.
-  if (exitCode === 74 && pending && pending.action === "profile-replace")
+  // Reserved CLI exit proves local rejection before socket dispatch.
+  if (exitCode === 74 && pending && ["profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh"].indexOf(pending.action) >= 0)
     return {ok:false, code:"invalid_argument"}
   return parseAction(raw, pending)
+}
+
+// Explicit private editor read, never ordinary status or diagnostics. Canonical
+// URL policy remains in Rust; this checks only the response shape and bounds.
+function parseSubscriptionEditor(raw, revision) {
+  try {
+    if (!editorText(raw, 65536)) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || !id(p.id, false)
+        || p.ok !== true || p.revision !== revision
+        || !object(p.result, ["name", "url"]) || !text(p.result.name, 80, false)
+        || !text(p.result.url, 8192, false) || !editorText(p.result.url, 8192)) return null
+    return {name:p.result.name, url:p.result.url}
+  } catch (_) { return null }
 }

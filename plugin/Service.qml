@@ -86,8 +86,15 @@ Item {
     var result = exitCode === 0 ? NativeSnapshot.parseImportPreview(output, context.revision) : null
     if (!result) { nativeImportCode = "input"; cancelNativeImport(); return }
     if (result.kind === "subscription") {
-      nativeImportCode = result.duplicate ? "duplicateSubscription" : "subscription"
+      if (result.duplicate) {
+        nativeImportCode = "duplicateSubscription"
+        cancelNativeImport()
+        return
+      }
+      var url = context.input.trim()
+      var kind = context.kind
       cancelNativeImport()
+      startNativeSubscription("", result.suggestedName, url, kind)
       return
     }
     context.ready = true
@@ -112,6 +119,104 @@ Item {
     nativeActionProcess.running = true
     cancelNativeImport()
     return true
+  }
+
+  property var nativeSubscriptionDraft: null
+  property var nativeSubscriptionReadProcess: null
+  property string nativeSubscriptionCode: ""
+  readonly property bool nativeSubscriptionLoading: nativeSubscriptionReadProcess !== null
+  signal nativeSubscriptionReady(string name, string url, string kind, bool editing)
+  signal nativeSubscriptionSaved()
+
+  function cancelNativeSubscription() {
+    nativeSubscriptionDraft = null
+    nativeSubscriptionCode = ""
+  }
+
+  function startNativeSubscription(id, name, url, kind) {
+    if (!nativeCanAct || nativeSubscriptionLoading || nativeSubscriptionDraft !== null) return false
+    if (id !== "" && !nativeSnapshot.subscriptions.some(function(s) { return s.id === id })) return false
+    nativeSubscriptionCode = ""
+    nativeSubscriptionDraft = {token:"subscription-" + (++_nativeOperationSerial), id:id,
+      instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
+    if (id === "") nativeSubscriptionReady(name || "", url || "", kind || "manual", false)
+    else {
+      nativeSubscriptionReadProcess = nativeSubscriptionReadComponent.createObject(root, {
+        command:["bash", backendPath, "native-subscription-edit-input", id], context:nativeSubscriptionDraft})
+      if (!nativeSubscriptionReadProcess) { nativeSubscriptionDraft = null; nativeSubscriptionCode = "unavailable"; return false }
+      nativeSubscriptionReadProcess.running = true
+    }
+    return true
+  }
+
+  function nativeSubscriptionCurrent() {
+    var d = nativeSubscriptionDraft
+    return d !== null && !d.unresolved && nativeCanAct && d.instanceId === nativeSnapshot.instanceId && d.revision === nativeSnapshot.revision
+  }
+
+  function finishNativeSubscriptionRead(context, code, output) {
+    var draft = nativeSubscriptionDraft
+    // Dynamic QML Process properties can copy the JS object; compare the
+    // unique token and fences, not object identity.
+    if (!context || !draft || context.token !== draft.token || context.id !== draft.id
+        || context.instanceId !== draft.instanceId || context.revision !== draft.revision) return
+    var value = code === 0 ? NativeSnapshot.parseSubscriptionEditor(output, context.revision) : null
+    if (!value || !nativeSubscriptionCurrent()) {
+      nativeSubscriptionDraft = null
+      nativeSubscriptionCode = "unavailable"
+      return
+    }
+    nativeSubscriptionReady(value.name, value.url, "manual", true)
+  }
+
+  function requestNativeSubscriptionAction(action, id, name, url, fence) {
+    if (!nativeCanAct || ["subscription-add", "subscription-update", "subscription-delete", "subscription-refresh"].indexOf(action) < 0) return false
+    if (action === "subscription-delete" && (!fence || fence.id !== id
+        || fence.instanceId !== nativeSnapshot.instanceId || fence.revision !== nativeSnapshot.revision)) {
+      nativeSubscriptionCode = "stale"
+      return false
+    }
+    var editing = action === "subscription-add" || action === "subscription-update"
+    if (editing && (!nativeSubscriptionCurrent() || nativeSubscriptionDraft.id !== id)) {
+      nativeSubscriptionCode = "stale"
+      return false
+    }
+    if (action !== "subscription-add" && !nativeSnapshot.subscriptions.some(function(s) { return s.id === id })) return false
+    if (action === "subscription-add" && id !== "") return false
+    var input = id
+    if (editing) {
+      // Only framing/bounds here. The canonical Rust validator owns URL policy.
+      if (!isValidName(name) || /[\r\n]/.test(name) || !NativeSnapshot.editorText(url, 8192)
+          || !url || /[\r\n\u0000]/.test(url)) return false
+      input = (id ? id + "\n" : "") + name + "\n" + url
+    }
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      operationId:operation, action:action, command:args, input:input}
+    nativeActionCode = ""
+    nativeSubscriptionCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    return true
+  }
+
+  function finishNativeSubscriptionAction(result, unknown) {
+    if (!nativePending || nativePending.action.indexOf("subscription-") !== 0) return
+    if (unknown) {
+      if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = true
+      nativeSubscriptionCode = "unknown"
+    }
+    else if (result.ok) {
+      nativeSubscriptionDraft = null
+      nativeSubscriptionCode = "saved"
+      nativeSubscriptionSaved()
+    } else {
+      if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
+      nativeSubscriptionCode = "rejected"
+    }
   }
 
   // Private editor draft is independent of replay metadata. An acknowledged
@@ -2703,6 +2808,20 @@ Item {
     }
   }
 
+  Component {
+    id: nativeSubscriptionReadComponent
+    Process {
+      id: process
+      property var context
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) {
+        root.nativeSubscriptionReadProcess = null
+        try { root.finishNativeSubscriptionRead(context, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
+
   Process {
     id: nativeActionProcess
     running: false
@@ -2716,6 +2835,7 @@ Item {
     onExited: function(exitCode) {
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
+      root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       if (!result || exitCode === 73) {
         root.nativeOutcomeUnknown = true
         root.nativeActionCode = ""

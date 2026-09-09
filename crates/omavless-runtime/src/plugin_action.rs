@@ -83,6 +83,30 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "name",
             "input",
         ],
+        "subscription-add" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "name",
+            "url",
+        ],
+        "subscription-update" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "subscriptionId",
+            "name",
+            "url",
+        ],
+        "subscription-delete" | "subscription-refresh" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "subscriptionId",
+        ],
         _ => return Err(InvalidArgument),
     };
     if !exact_fields(params, fields, fields) {
@@ -106,12 +130,20 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "profile-delete" => "profiles.delete",
         "profile-replace" => "profiles.replace",
         "profile-import" => "profiles.import",
+        "subscription-add" => "subscriptions.add",
+        "subscription-update" => "subscriptions.update",
+        "subscription-delete" => "subscriptions.delete",
+        "subscription-refresh" => "subscriptions.refresh",
         _ => return Err(InvalidArgument),
     });
     let mapped = canonical["params"].as_object_mut().ok_or(InvalidArgument)?;
     mapped.remove("instanceId");
     mapped.remove("action");
-    if action == "profile-import" {
+    if action == "subscription-refresh" {
+        crate::subscription_refresh_protocol::parse_subscription_refresh_request(&canonical)?;
+    } else if action.starts_with("subscription-") {
+        crate::subscription_mutation_protocol::parse_subscription_mutation_request(&canonical)?;
+    } else if action == "profile-import" {
         crate::profile_import_protocol::parse_profile_import_request(&canonical)?;
     } else if action.starts_with("profile-") {
         crate::profile_mutation_protocol::parse_profile_mutation_request(&canonical)?;
@@ -143,6 +175,9 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
         "profile-delete" => Some(36 + 1),
         "profile-replace" => Some(36 + 1 + crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
         "profile-import" => Some(crate::semantic_cli::MAX_PROFILE_IMPORT_STDIN_BYTES),
+        "subscription-add" => Some(crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
+        "subscription-update" => Some(37 + crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
+        "subscription-delete" | "subscription-refresh" => Some(37),
         _ => None,
     }
 }
@@ -165,6 +200,10 @@ pub fn cli_params(
                 "profile-delete",
                 "profile-replace",
                 "profile-import",
+                "subscription-add",
+                "subscription-update",
+                "subscription-delete",
+                "subscription-refresh",
             ]
             .iter()
             .any(|v| arg == v)
@@ -201,8 +240,15 @@ pub fn cli_params(
         }
         [
             "plugin",
-            action @ ("profile-rename" | "profile-favorite" | "profile-delete" | "profile-import"
-            | "profile-replace"),
+            action @ ("profile-rename"
+            | "profile-favorite"
+            | "profile-delete"
+            | "profile-import"
+            | "profile-replace"
+            | "subscription-add"
+            | "subscription-update"
+            | "subscription-delete"
+            | "subscription-refresh"),
             instance,
             revision,
             operation,
@@ -220,7 +266,33 @@ pub fn cli_params(
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
     }
-    if action == "profile-replace" {
+    if action.starts_with("subscription-") {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        let command = action
+            .strip_prefix("subscription-")
+            .ok_or(InvalidArgument)?;
+        let (id, body) = match command {
+            "add" => (None, Some(input)),
+            "update" => {
+                let (id, body) = input.split_once('\n').ok_or(InvalidArgument)?;
+                (Some(id), Some(body))
+            }
+            _ => (Some(input.strip_suffix('\n').unwrap_or(input)), None),
+        };
+        let mut canonical_args = vec![OsString::from("subscription"), OsString::from(command)];
+        if let Some(id) = id {
+            canonical_args.push(id.into());
+        }
+        let (_, mapped) =
+            crate::semantic_cli::parse_semantic_mutation(&canonical_args, body)?.into_parts();
+        params
+            .as_object_mut()
+            .ok_or(InvalidArgument)?
+            .extend(mapped.as_object().ok_or(InvalidArgument)?.clone());
+    } else if action == "profile-replace" {
         let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
         if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
             return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
@@ -290,6 +362,60 @@ mod tests {
         // Invalid cases must reach the parser rather than the checked builder.
         json!({"api":"omavless.control","version":1,"id":"test","method":"plugin.action","params":params})
     }
+    #[test]
+    fn subscription_actions_have_exact_private_stdin_and_canonical_parsers() {
+        let id = "10000000-0000-4000-8000-000000000001";
+        for (action, input, method) in [
+            (
+                "subscription-add",
+                "Private source\nhttps://private.example/token".to_owned(),
+                "subscriptions.add",
+            ),
+            (
+                "subscription-update",
+                format!("{id}\nPrivate source\nhttps://private.example/token"),
+                "subscriptions.update",
+            ),
+            ("subscription-delete", id.to_owned(), "subscriptions.delete"),
+            (
+                "subscription-refresh",
+                id.to_owned(),
+                "subscriptions.refresh",
+            ),
+        ] {
+            let args: Vec<_> = ["plugin", action, "instance", "7", "operation"]
+                .map(OsString::from)
+                .into();
+            let params = cli_params(&args, Some(&input)).unwrap().unwrap();
+            assert_eq!(
+                parse(&request(params.clone())).unwrap().canonical["method"],
+                method
+            );
+            for key in params.as_object().unwrap().keys() {
+                let mut changed = params.clone();
+                changed.as_object_mut().unwrap().remove(key);
+                assert!(parse(&request(changed)).is_err());
+            }
+            for invalid in [
+                String::new(),
+                "private-token".into(),
+                format!("{input}\nextra"),
+                "x".repeat(9000),
+            ] {
+                assert!(cli_params(&args, Some(&invalid)).is_err());
+            }
+            assert!(cli_params(&args, None).is_err());
+            let mut extra = args.clone();
+            extra.push("private-token".into());
+            assert!(cli_params(&extra, Some(&input)).is_err());
+            for key in ["path", "command", "fetchResult"] {
+                let mut changed = params.clone();
+                changed[key] = json!("private-token");
+                assert!(parse(&request(changed)).is_err());
+            }
+        }
+    }
+
     #[test]
     fn exact_actions_reuse_canonical_validation() {
         for (action, method, extra) in [

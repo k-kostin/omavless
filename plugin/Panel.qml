@@ -472,7 +472,10 @@ Panel {
   readonly property bool subscriptionUrlValid: subscriptionImportFile !== ""
     || /^https?:\/\/[^\s]+$/i.test(subscriptionUrlClean)
   readonly property bool subscriptionAccepted: subscriptionNameValid && subscriptionUrlValid
-  readonly property string subscriptionHint: vless.subscriptionError !== ""
+    && (!vless.nativeOwner || (vless.nativeSubscriptionCurrent() && !vless.nativePending))
+  readonly property string subscriptionHint: vless.nativeOwner
+    ? (vless.nativeSubscriptionCode !== "" ? textFor("native.subscription." + vless.nativeSubscriptionCode)
+      : textFor("native.subscription.private")) : vless.subscriptionError !== ""
     ? vless.subscriptionError
     : (!subscriptionNameValid
     ? "Use a non-empty provider name up to 80 characters"
@@ -493,6 +496,7 @@ Panel {
   }
 
   function closeSubscriptions() {
+    if (vless.nativeOwner) vless.cancelNativeSubscription()
     page = "main"
     pendingSubscriptionDelete = null
     editingSubscription = null
@@ -565,11 +569,11 @@ Panel {
   function panelTabTargets() {
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeSubscriptionsSetting.focusTarget, nativeRefresh]
-        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh]
+        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
-        if (subscriptionRow) targets.push(subscriptionRow.focusTarget)
+        if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
       }
       targets = targets.concat([nativeRecoveryDisconnect, nativeEditorReopen, nativeEditorDiscard, nativeReconcile, nativeAcceptState])
       for (var i = 0; i < nativeProfiles.count; i++) {
@@ -696,7 +700,7 @@ Panel {
   }
 
   function addSubscription() {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) return vless.startNativeSubscription("", "", "", "manual")
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading) return
     vless.clearSubscriptionMessage()
     editingSubscription = null
@@ -707,7 +711,7 @@ Panel {
   }
 
   function editSubscription(subscription) {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner) return subscription ? vless.startNativeSubscription(subscription.id, "", "", "manual") : false
     if (vless.busy || vless.probingProfiles || vless.subscriptionEditorLoading || !subscription) return
     editingSubscription = subscription
     subscriptionImportFile = ""
@@ -719,6 +723,11 @@ Panel {
 
   function confirmSubscription() {
     if (!subscriptionAccepted) return
+    if (vless.nativeOwner) {
+      var draft = vless.nativeSubscriptionDraft
+      if (draft) vless.requestNativeSubscriptionAction(draft.id ? "subscription-update" : "subscription-add", draft.id, subscriptionNameClean, subscriptionUrlClean)
+      return
+    }
     var uuid = editingSubscription ? editingSubscription.uuid : ""
     var started = subscriptionImportFile !== ""
       ? vless.saveSubscriptionFile(subscriptionNameClean, uuid, subscriptionImportFile)
@@ -727,6 +736,13 @@ Panel {
     editingSubscription = null
     subscriptionImportFile = ""
     subscriptionPrompt.dismiss()
+  }
+
+  function requestNativeSubscriptionDelete(subscription) {
+    if (!vless.nativeCanAct || !subscription) return false
+    pendingSubscriptionDelete = {id:subscription.id, name:subscription.name,
+      instanceId:vless.nativeSnapshot.instanceId, revision:vless.nativeSnapshot.revision}
+    return true
   }
 
   function subscriptionAge(updatedAt) {
@@ -1251,6 +1267,7 @@ Panel {
   // or a `pickConfigFile` landing) would be invisible, unclickable and
   // unfocused until it went away.
   onOpenedChanged: {
+    if (!opened && vless.nativeOwner) vless.cancelNativeSubscription()
     pendingDelete = null
     pendingSubscriptionDelete = null
     pendingEdit = null
@@ -1307,6 +1324,15 @@ Panel {
 
   Connections {
     target: vless
+    function onNativeSubscriptionReady(name, url, kind, editing) {
+      if (!root.opened) root.open()
+      root.editingSubscription = null
+      root.subscriptionImportFile = ""
+      subscriptionPrompt.title = root.textFor(editing ? "native.subscription.edit" : kind === "file" ? "native.subscription.file" : "subscription.add_title")
+      subscriptionPrompt.confirmLabel = root.textFor(editing ? "common.save" : "common.add")
+      subscriptionPrompt.openWith(name, url)
+    }
+    function onNativeSubscriptionSaved() { subscriptionPrompt.dismiss(); root.editingSubscription = null }
     function onNativeSnapshotChanged() {
       if (!vless.nativeOwner || !vless.nativeSnapshot) return
       if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile }))
@@ -1786,18 +1812,32 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscriptions.scope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== ""; text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "saved" ? root.dim : root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
             model: root.page === "subscriptions" ? root.nativeView.subscriptions : []
-            delegate: SettingsActionRow {
+            delegate: ColumnLayout {
+              id: nativeSubscriptionRow
               required property var modelData
+              property var focusTargets: [nativeSubscriptionOpen.focusTarget, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete]
               Layout.fillWidth: true
-              title: modelData.name
-              description: root.localizedCount("managed_profile", modelData.profileCount) + " · " + root.subscriptionAge(modelData.updatedAt)
-              actionText: root.textFor("common.open")
-              onAction: root.browseNativeSubscription(modelData.id)
+              SettingsActionRow {
+                id: nativeSubscriptionOpen
+                Layout.fillWidth: true
+                title: nativeSubscriptionRow.modelData.name
+                description: root.localizedCount("managed_profile", nativeSubscriptionRow.modelData.profileCount) + " · " + root.subscriptionAge(nativeSubscriptionRow.modelData.updatedAt)
+                actionText: root.textFor("common.open")
+                onAction: root.browseNativeSubscription(nativeSubscriptionRow.modelData.id)
+              }
+              RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", nativeSubscriptionRow.modelData.id, "", "") }
+                Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(nativeSubscriptionRow.modelData) }
+                Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: root.requestNativeSubscriptionDelete(nativeSubscriptionRow.modelData) }
+              }
             }
           }
           RowLayout {
@@ -3208,14 +3248,15 @@ Panel {
         locale: root.uiLocale
         hint: root.subscriptionHint
         accepted: root.subscriptionAccepted
-        loading: root.editingSubscription !== null && vless.subscriptionEditorLoading
-        error: vless.subscriptionError !== ""
+        loading: vless.nativeOwner ? vless.nativeActionRunning : root.editingSubscription !== null && vless.subscriptionEditorLoading
+        error: vless.nativeOwner ? vless.nativeSubscriptionCode !== "" && vless.nativeSubscriptionCode !== "saved" : vless.subscriptionError !== ""
         foreground: root.foreground
         dim: root.dim
         urgent: root.urgent
         fontFamily: root.fontFamily
         onConfirmed: root.confirmSubscription()
         onCanceled: {
+          if (vless.nativeOwner) vless.cancelNativeSubscription()
           root.editingSubscription = null
           root.subscriptionImportFile = ""
           dismiss()
@@ -3402,7 +3443,9 @@ Panel {
         onConfirmed: {
           var subscription = root.pendingSubscriptionDelete
           root.pendingSubscriptionDelete = null
-          vless.deleteSubscription(subscription)
+          if (vless.nativeOwner) {
+            if (subscription) vless.requestNativeSubscriptionAction("subscription-delete", subscription.id, "", "", subscription)
+          } else vless.deleteSubscription(subscription)
         }
       }
     }

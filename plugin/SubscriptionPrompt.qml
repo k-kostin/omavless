@@ -180,7 +180,7 @@ Item {
               ? prompt.urgent : prompt.dim
             font.family: prompt.fontFamily
             font.pixelSize: Style.font.caption
-            wrapMode: Text.WrapAnywhere
+            wrapMode: Text.Wrap
           }
         }
 

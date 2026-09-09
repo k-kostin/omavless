@@ -7,6 +7,16 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "common.edit": {"en":"Edit","ru":"Изменить"},
+  "native.subscription.edit": {"en":"Edit subscription","ru":"Редактировать подписку"},
+  "native.subscription.file": {"en":"Add subscription from file","ru":"Добавить подписку из файла"},
+  "native.subscription.private": {"en":"The URL stays private. Confirm to fetch and save the subscription.","ru":"URL остаётся приватным. Подтвердите загрузку и сохранение подписки."},
+  "native.subscription.help": {"en":"Open profiles, refresh a subscription, or edit its private name and URL. Removing a subscription also removes its managed profiles.","ru":"Откройте профили, обновите подписку или измените её название и приватный URL. Удаление подписки также удаляет её профили."},
+  "native.subscription.unavailable": {"en":"Could not load the private editor. Refresh the panel and try again.","ru":"Не удалось загрузить данные редактора. Обновите панель и повторите попытку."},
+  "native.subscription.stale": {"en":"State changed. Cancel and reopen this editor before saving.","ru":"Состояние изменилось. Отмените и заново откройте редактор перед сохранением."},
+  "native.subscription.rejected": {"en":"Subscription was not saved. Check the input; if state changed, cancel and reopen the editor.","ru":"Подписка не сохранена. Проверьте данные; если состояние изменилось, закройте и заново откройте редактор."},
+  "native.subscription.unknown": {"en":"Result not confirmed. Close the dialog and use the recovery controls; do not submit a new request.","ru":"Результат не подтверждён. Закройте диалог и используйте действия восстановления; не отправляйте новый запрос."},
+  "native.subscription.saved": {"en":"Subscription action completed.","ru":"Действие с подпиской выполнено."},
   "native.state.unavailable": {"en":"STATE UNVERIFIED","ru":"СОСТОЯНИЕ НЕ ПРОВЕРЕНО"},
   "native.state.disconnected": {"en":"DISCONNECTED","ru":"ОТКЛЮЧЕНО"},
   "native.state.connected": {"en":"CONNECTED · LOCAL CHECK","ru":"ПОДКЛЮЧЕНО · ЛОКАЛЬНО"},
@@ -25,7 +35,7 @@ var CATALOG = {
   "native.subscriptions.browse": {"en":"Expand or collapse subscription profiles","ru":"Развернуть или свернуть профили подписки"},
   "native.main.qr": {"en":"Show selected profile QR","ru":"QR-код выбранного профиля"},
   "native.main.empty": {"en":"No matching profiles. Import a profile or clear the search.","ru":"Подходящих профилей нет. Импортируйте профиль или очистите поиск."},
-  "native.main.unavailable": {"en":"Subscription management, startup preferences, routing tools, traffic, diagnostics and Quit are not yet available through this native panel. Existing profiles remain usable. Local connection checks do not prove Internet reachability.","ru":"Управление подписками, автозапуск, инструменты маршрутизации, трафик, диагностика и полный выход пока недоступны в этой панели Rust. Существующие профили работают. Локальная проверка подключения не подтверждает доступность Интернета."},
+  "native.main.unavailable": {"en":"Batch subscription updates, latency tests, startup preferences, routing tools, traffic, advanced diagnostics and Quit are not yet available through this native panel.","ru":"Обновление всех подписок, тесты задержки, автозапуск, инструменты маршрутизации, трафик, расширенная диагностика и полный выход пока недоступны в этой панели Rust."},
   "native.title": {"en":"Rust runtime","ru":"Среда выполнения Rust"},
   "native.readOnly": {"en":"Preview bridge · read-only. VPN controls are not enabled in this checkpoint.","ru":"Предварительный мост · только чтение. Управление VPN на этом этапе недоступно."},
   "native.healthUnavailable": {"en":"Live VPN health is unavailable","ru":"Текущее состояние VPN не проверено"},

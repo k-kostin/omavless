@@ -24,8 +24,9 @@ function harness() {
     nativePending:null,nativeOutcomeUnknown:false,nativeActionCode:'',nativeImportCode:'',
     _nativeOperationSerial:0,_nativeImportContext:null,_nativeSourceContext:null,_nativePreviewContext:null,
     importPreview:{},nativeImportSource:{running:false},nativeImportPreview:{running:false},
-    nativeActionProcess:{running:false},backendPath:'/synthetic/backend.sh',ready:[]});
+    nativeActionProcess:{running:false},backendPath:'/synthetic/backend.sh',ready:[],subscriptionReady:[]});
   c.importReady = (...args) => c.ready.push(args);
+  c.startNativeSubscription = (...args) => { c.subscriptionReady.push(args); return true; };
   for (const name of ['nativeFactsCurrent','nativeCanAct','nativeActionRunning','nativeImportBusy']) {
     const match = source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:property|readonly|function|$))'));
     assert(match, name);
@@ -91,11 +92,13 @@ test('stale revision instance and owner refuse source preview and confirmation',
     const c=harness();previewed(c);change(c);assert.equal(c.confirmNativeImport('New'),false);assert.equal(c.nativePending,null);
   }
 });
-test('subscription classifications stay explicitly unavailable without profile confirmation',()=>{
-  for(const duplicate of [false,true]) {
-    const c=harness();sourced(c);c.nativeImportPreview.running=false;
+test('subscription classifications route clipboard/file to confirmation only, duplicates refuse',()=>{
+  for(const kind of ['clipboard','file']) for(const duplicate of [false,true]) {
+    const c=harness();sourced(c,' https://synthetic.invalid/token ',kind);c.nativeImportPreview.running=false;
     c.finishNativeImportPreview(0,frame({version:1,kind:'subscription',suggestedName:'Subscription',duplicate}));
-    assert.equal(c.nativeImportCode,duplicate?'duplicateSubscription':'subscription');
+    assert.equal(c.nativeImportCode,duplicate?'duplicateSubscription':'');
+    assert.equal(c.subscriptionReady.length,duplicate?0:1);
+    if(!duplicate)assert.deepEqual(c.subscriptionReady[0],['','Subscription','https://synthetic.invalid/token',kind]);
     assert.equal(c.ready.length,0);assert.equal(c._nativeImportContext,null);assert.equal(c.nativePending,null);
   }
 });

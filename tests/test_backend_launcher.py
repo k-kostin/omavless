@@ -83,6 +83,7 @@ exit {code}
     def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
         self.action_native()
         for args, expected in [
+            (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
             (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),
             (("native-qr-render",), ["desktop", "qr-data-uri"]),
         ]:
@@ -139,7 +140,7 @@ exec /usr/bin/cat
             self.assertEqual(result.returncode, 0)
             self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + value for value in expected]])
             self.trace.unlink()
-        for args in [("native-profile-edit-input",), ("native-profile-edit-input", "id", "private-token"), ("native-profile-editor", "private-token")]:
+        for args in [("native-profile-edit-input",), ("native-profile-edit-input", "id", "private-token"), ("native-profile-editor", "private-token"), ("native-subscription-edit-input",), ("native-subscription-edit-input", "id", "private-token")]:
             result = self.run_launcher(*args)
             self.assertEqual(result.returncode, 71)
             self.assertNotIn("private-token", result.stderr)
