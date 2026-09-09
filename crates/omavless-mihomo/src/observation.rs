@@ -3,7 +3,195 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::io::Read;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
+
+/// Incomplete or unsafe host inventory. No observed names or paths are exposed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrictObservationError;
+
+impl std::fmt::Display for StrictObservationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Host inventory could not be verified")
+    }
+}
+impl std::error::Error for StrictObservationError {}
+
+type StrictResult<T> = Result<T, StrictObservationError>;
+
+fn fixed_process_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 15
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+}
+
+/// Unlike the tolerant display projection, every incomplete scan is an error.
+/// An empty result proves only this bounded observation, not atomic host state.
+pub fn processes_named_strict(proc_root: &Path, name: &str) -> StrictResult<BTreeSet<u32>> {
+    processes_named_strict_bounded(proc_root, name, 65_536, MAX_NAMED_PROCESSES)
+}
+
+fn processes_named_strict_bounded(
+    proc_root: &Path,
+    name: &str,
+    entries_limit: usize,
+    matches_limit: usize,
+) -> StrictResult<BTreeSet<u32>> {
+    if !fixed_process_name(name) {
+        return Err(StrictObservationError);
+    }
+    let root = fs::symlink_metadata(proc_root).map_err(|_| StrictObservationError)?;
+    if !root.is_dir() {
+        return Err(StrictObservationError);
+    }
+    let mut found = BTreeSet::new();
+    for (index, entry) in fs::read_dir(proc_root)
+        .map_err(|_| StrictObservationError)?
+        .enumerate()
+    {
+        if index >= entries_limit {
+            return Err(StrictObservationError);
+        }
+        let entry = entry.map_err(|_| StrictObservationError)?;
+        let raw = entry.file_name();
+        let bytes = raw.as_encoded_bytes();
+        if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let text = raw.to_str().ok_or(StrictObservationError)?;
+        let pid = text.parse::<u32>().map_err(|_| StrictObservationError)?;
+        if pid == 0 || pid.to_string() != text {
+            return Err(StrictObservationError);
+        }
+        let directory = entry.path();
+        let before_dir = fs::symlink_metadata(&directory).map_err(|_| StrictObservationError)?;
+        if !before_dir.is_dir() {
+            return Err(StrictObservationError);
+        }
+        let path = directory.join("comm");
+        let before = fs::symlink_metadata(&path).map_err(|_| StrictObservationError)?;
+        if !before.is_file() {
+            return Err(StrictObservationError);
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+            .open(&path)
+            .map_err(|_| StrictObservationError)?;
+        let opened = file.metadata().map_err(|_| StrictObservationError)?;
+        if !opened.is_file() || opened.dev() != before.dev() || opened.ino() != before.ino() {
+            return Err(StrictObservationError);
+        }
+        let mut raw = Vec::new();
+        file.take(65)
+            .read_to_end(&mut raw)
+            .map_err(|_| StrictObservationError)?;
+        if raw.len() > 64 || raw.contains(&0) {
+            return Err(StrictObservationError);
+        }
+        // Linux comm is a byte string, not necessarily UTF-8 or nonempty.
+        // Unrelated valid names must not make safe inventory unavailable.
+        let comm = raw.strip_suffix(b"\n").ok_or(StrictObservationError)?;
+        let after_dir = fs::symlink_metadata(&directory).map_err(|_| StrictObservationError)?;
+        let after = fs::symlink_metadata(&path).map_err(|_| StrictObservationError)?;
+        if !after_dir.is_dir()
+            || after_dir.dev() != before_dir.dev()
+            || after_dir.ino() != before_dir.ino()
+            || !after.is_file()
+            || after.dev() != opened.dev()
+            || after.ino() != opened.ino()
+        {
+            return Err(StrictObservationError);
+        }
+        if comm == name.as_bytes() {
+            found.insert(pid);
+            if found.len() > matches_limit {
+                return Err(StrictObservationError);
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Fail-closed TUN count. Real sysfs interface symlinks are followed, but broken
+/// targets, unreadable entries and overflow are never reported as zero.
+pub fn tun_interface_count_strict(sys_class_net: &Path) -> StrictResult<u8> {
+    tun_interface_count_strict_bounded(sys_class_net, 512, 8)
+}
+
+fn tun_interface_count_strict_bounded(
+    root: &Path,
+    entries_limit: usize,
+    count_limit: u8,
+) -> StrictResult<u8> {
+    if !fs::metadata(root)
+        .map_err(|_| StrictObservationError)?
+        .is_dir()
+    {
+        return Err(StrictObservationError);
+    }
+    let mut count = 0u8;
+    for (index, entry) in fs::read_dir(root)
+        .map_err(|_| StrictObservationError)?
+        .enumerate()
+    {
+        if index >= entries_limit {
+            return Err(StrictObservationError);
+        }
+        let path = entry.map_err(|_| StrictObservationError)?.path();
+        let before = fs::metadata(&path).map_err(|_| StrictObservationError)?;
+        if !before.is_dir() {
+            return Err(StrictObservationError);
+        }
+        match fs::symlink_metadata(path.join("tun_flags")) {
+            Ok(flags) if flags.is_file() => {
+                let file = fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+                    .open(path.join("tun_flags"))
+                    .map_err(|_| StrictObservationError)?;
+                let opened = file.metadata().map_err(|_| StrictObservationError)?;
+                if !opened.is_file() || opened.dev() != flags.dev() || opened.ino() != flags.ino() {
+                    return Err(StrictObservationError);
+                }
+                let mut raw = String::new();
+                file.take(33)
+                    .read_to_string(&mut raw)
+                    .map_err(|_| StrictObservationError)?;
+                if raw.len() > 32 {
+                    return Err(StrictObservationError);
+                }
+                let value = raw.trim();
+                let parsed = if let Some(hex) = value.strip_prefix("0x") {
+                    u32::from_str_radix(hex, 16)
+                } else {
+                    value.parse::<u32>()
+                };
+                if parsed.is_err() {
+                    return Err(StrictObservationError);
+                }
+                count = count.checked_add(1).ok_or(StrictObservationError)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err(StrictObservationError),
+        }
+        let after = fs::metadata(&path).map_err(|_| StrictObservationError)?;
+        if !after.is_dir()
+            || before.dev() != after.dev()
+            || before.ino() != after.ino()
+            || count > count_limit
+        {
+            return Err(StrictObservationError);
+        }
+    }
+    Ok(count)
+}
+
+#[cfg(test)]
+#[path = "observation_strict_tests.rs"]
+mod strict_tests;
 
 pub const MAX_PROCESS_FAMILY: usize = 64;
 pub const MAX_NAMED_PROCESSES: usize = 64;
