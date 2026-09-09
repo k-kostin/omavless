@@ -1305,3 +1305,15 @@ See `docs/testing/R5_BATCH_SCHEDULER.md` for current evidence boundaries;
 `CLOUD_BATCH_SCHEDULER_HANDOFF_2026-09-04.md` is historical. Frontend compatibility
 client integration and the actual R5/T1 transition remain implementation work;
 this is not production cutover or permission to remove Python.
+
+### Offline login-intent decision boundary
+
+The pure planner described in
+[`R5_LOGIN_INTENT_PLANNER.md`](../testing/R5_LOGIN_INTENT_PLANNER.md) separates
+first-login preferences from current desired state. Daemon restart and an
+already-consumed login preserve exact durable intent, including explicit
+disconnect. First login resolves canonical configured preferences or refuses
+unresolved legacy enablement, with bounded generation changes only when needed.
+It performs no host effects, writes, IPC registration or installed activation.
+Once-per-login consumption, ownership/lock proofs, configured readiness and
+legacy unit conversion still belong to the future fixed host integration.

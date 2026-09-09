@@ -740,6 +740,10 @@ route fast paths (#180).
 Startup preference persistence is not login autoconnect:
 once-per-login activation and legacy unit-state conversion remain, with the
 packaged capability/`NoNewPrivileges` conflict tracked separately in #178.
+The [offline login-intent planner](docs/testing/R5_LOGIN_INTENT_PLANNER.md)
+separates first-login policy from daemon restart, preserving explicit disconnect
+on restart and refusing unresolved legacy enablement. It has no installed
+trigger, host effects or production registration; those gates remain open.
 Route fast paths do not implement live unmatched Routing observation.
 The final combined candidate passed555 Rust tests and270 Python tests with
 installed-Mihomo opt-ins; see the
