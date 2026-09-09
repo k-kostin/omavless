@@ -102,3 +102,48 @@ separately requiring no new host TCP/TCP6 listener and no configured TCP
 controller. It never upgrades denied inspection into positive absence evidence.
 Fixed command output is captured privately with a post-capture size check;
 this is not a hard streaming memory bound.
+
+## Exact local checkpoint, 2026-09-09
+
+Implementation head: `335765e9640aa7c70dc94bd3907a0a3c13f150aa`.
+Try Omarchy ARM64, Mihomo 1.19.30. Binary SHA256:
+`5d9e8e0df4f9076ad5d764a16e36efe32179f1f60112519dbc43e1a3b118f171`.
+Rebuilding the committed head preserved that digest.
+
+639 Rust tests passed, four ignored; installed-Mihomo opt-in, clippy, formatting
+and parity passed. 289 Python tests passed with no skips, including 17
+acceptance-tool helper tests; QML/i18n contracts passed.
+
+Three synthetic native lifecycle cycles each in global, rule and direct passed:
+one owned core/TUN, actual mode through the private controller, successful
+semantic disconnect, no remaining helper in the service cgroup. A strengthened
+three-cycle global run also verified daemon NNP=0/CapEff=0 and core NNP=0 with
+network capabilities, owned process group, 54–79 ms connect and 4077–4083 ms
+disconnect. No new host TCP/TCP6 listener or TCP-controller configuration;
+per-core FD attribution remained NOT PROVEN due to proc permissions.
+
+All temporary services/core/helpers/TUN were absent afterward. An authorization
+dialog outlived its requesting helper; the human confirmed it disappeared.
+No password handling, policy bypass or provider traffic was performed.
+
+## Staged package directory gate
+
+`tests/staged_native_unit_acceptance.py` is a separate opt-in **no-connect** gate.
+It runs `stage-payload.sh`, copies the staged unit into a uniquely named
+runtime-only test unit and changes only the executable paths, namespaced
+Directory paths and synthetic application environment. The actual user manager
+creates the leaf directories; exported directory locations and mode0700 are
+verified before writing test sentinels. Environment overrides alone are not
+assumed to relocate systemd's provisioning paths.
+
+With the same exact binary above, this gate passed: absent ownership means
+read-only/disconnected, socket0600, configuration/state/cache persist through
+stop/start, runtime directory is removed/recreated, restart remains disconnected,
+service membership contains only the daemon, core/TUN remain zero. Test unit
+and unique directories were cleaned up; installed units were not changed.
+
+This is staged-payload and actual user-unit provisioning evidence, **not** a
+package-manager installation/update/removal, enabled-login startup conversion,
+production ownership handoff or private-profile Full VPN acceptance. No claim
+that disabled startup under native ownership was tested: this case deliberately
+has no ownership marker at all.
