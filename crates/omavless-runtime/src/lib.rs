@@ -1653,12 +1653,7 @@ fn call_with_timeout(
     timeout: Duration,
 ) -> Result<Value> {
     let uid = Uid::current().as_raw();
-    validate_directory(&paths.directory, uid)?;
-    let directory =
-        fs::symlink_metadata(&paths.directory).map_err(|_| RuntimeError::UnsafeRuntimeDirectory)?;
-    if directory.mode() & 0o7777 != 0o700 {
-        return Err(RuntimeError::UnsafeRuntimeDirectory);
-    }
+    validate_client_directory(&paths.directory, uid)?;
     let socket =
         fs::symlink_metadata(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
     if !socket.file_type().is_socket() || socket.uid() != uid || socket.mode() & 0o7777 != 0o600 {
@@ -1666,6 +1661,23 @@ fn call_with_timeout(
     }
     let stream = UnixStream::connect(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
     call_stream_with_timeout(stream, uid, method, params, timeout)
+}
+
+fn validate_client_directory(path: &Path, uid: u32) -> Result<()> {
+    // A stopped runtime may have no RuntimeDirectory (notably after reboot).
+    // Absence is availability, not proof of unsafe permissions. Do not create
+    // the directory or relax any check for an entry that actually exists.
+    let directory = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            RuntimeError::SocketUnavailable
+        } else {
+            RuntimeError::UnsafeRuntimeDirectory
+        }
+    })?;
+    if !directory.is_dir() || directory.uid() != uid || directory.mode() & 0o7777 != 0o700 {
+        return Err(RuntimeError::UnsafeRuntimeDirectory);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1934,6 +1946,92 @@ mod tests {
         let mut bytes = Vec::new();
         peer.read_to_end(&mut bytes).unwrap();
         assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn native_client_absent_endpoint_is_unavailable_without_creating_state() {
+        let base = temporary_base("client-absent");
+        let paths = RuntimePaths::below(&base);
+        let private = json!({"name":"private-name", "url":"https://private.invalid/secret"});
+        assert_eq!(
+            call(&paths, "subscriptions.add", private.clone()),
+            Err(RuntimeError::SocketUnavailable)
+        );
+        assert!(!paths.directory.exists());
+        prepare_runtime_directory(&paths.directory, Uid::current().as_raw()).unwrap();
+        assert_eq!(
+            call(&paths, "subscriptions.add", private.clone()),
+            Err(RuntimeError::SocketUnavailable)
+        );
+        assert_eq!(fs::read_dir(&paths.directory).unwrap().count(), 0);
+        // A safe socket inode without a listener is also unavailable, not unsafe.
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        drop(listener);
+        assert_eq!(
+            call(&paths, "subscriptions.add", private),
+            Err(RuntimeError::SocketUnavailable)
+        );
+        assert!(!paths.owner_lock.exists());
+        assert_eq!(fs::read_dir(&paths.directory).unwrap().count(), 1);
+        for error in [
+            RuntimeError::SocketUnavailable,
+            RuntimeError::UnsafeRuntimeDirectory,
+        ] {
+            for sentinel in ["private-name", "private.invalid", "secret"] {
+                assert!(!error.to_string().contains(sentinel));
+            }
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn native_client_unsafe_directory_still_refuses_before_connecting() {
+        use std::os::unix::fs::symlink;
+        let base = temporary_base("client-unsafe-directory");
+        let paths = RuntimePaths::below(&base);
+        let uid = Uid::current().as_raw();
+        prepare_runtime_directory(&paths.directory, uid).unwrap();
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let private = json!({"url":"https://private.invalid/secret"});
+        assert_eq!(
+            validate_client_directory(&paths.directory, uid.wrapping_add(1)),
+            Err(RuntimeError::UnsafeRuntimeDirectory)
+        );
+        for mode in [0o750, 0o777, 0o1700] {
+            fs::set_permissions(&paths.directory, fs::Permissions::from_mode(mode)).unwrap();
+            assert_eq!(
+                call(&paths, "subscriptions.add", private.clone()),
+                Err(RuntimeError::UnsafeRuntimeDirectory)
+            );
+        }
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let actual = base.join("actual");
+        fs::rename(&paths.directory, &actual).unwrap();
+        symlink(&actual, &paths.directory).unwrap();
+        assert_eq!(
+            call(&paths, "subscriptions.add", private.clone()),
+            Err(RuntimeError::UnsafeRuntimeDirectory)
+        );
+        fs::remove_file(&paths.directory).unwrap();
+        symlink(base.join("absent"), &paths.directory).unwrap();
+        assert_eq!(
+            call(&paths, "subscriptions.add", private.clone()),
+            Err(RuntimeError::UnsafeRuntimeDirectory)
+        );
+        fs::remove_file(&paths.directory).unwrap();
+        fs::write(&paths.directory, b"not a directory").unwrap();
+        assert_eq!(
+            call(&paths, "subscriptions.add", private),
+            Err(RuntimeError::UnsafeRuntimeDirectory)
+        );
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
