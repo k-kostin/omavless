@@ -3088,17 +3088,39 @@ rules:
                 '#!/bin/sh\nprintf x >> "$OMAVLESS_COUNT"\nexit 3\n',
             )
             env["OMAVLESS_COUNT"] = str(counter)
+            # Freeze the cache's wall clock across genuinely separate Python
+            # processes. Interpreter startup on the ARM VM can exceed the real
+            # one-second cache window; that is not a failure to share a cache.
+            # Exercise the unchanged production TTL explicitly afterward.
+            runner = (
+                "import runpy, sys\n"
+                "from unittest.mock import patch\n"
+                "entry, instant = sys.argv[1], float(sys.argv[2])\n"
+                "sys.argv = [entry, 'status']\n"
+                "with patch('time.time', return_value=instant):\n"
+                "    runpy.run_path(entry, run_name='__main__')\n"
+            )
             for _ in range(2):
                 result = subprocess.run(
-                    [str(ROOT / "backend.sh"), "status"], env=env,
+                    [sys.executable, "-c", runner, str(ROOT / "backend.py"), "1000000"], env=env,
                     text=True, capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+                # Filesystem mtime is a separate clock from mocked time.time.
+                # Control the fixture timestamp as well, without changing TTL.
+                os.utime(home / "runtime" / f"omavless.{os.getuid()}.status", (1000000, 1000000))
             # One generated snapshot may inspect the OmaVLESS unit, a known
             # competing unit and (when another TUN exists) the service PID.
             # The important contract is that concurrent callers share that
             # one bounded batch instead of multiplying it per monitor.
             self.assertIn(counter.read_text(encoding="utf-8"), {"x", "xx", "xxx"})
+            one_snapshot_calls = counter.read_text(encoding="utf-8")
+            expired = subprocess.run(
+                [sys.executable, "-c", runner, str(ROOT / "backend.py"), "1000002"],
+                env=env, text=True, capture_output=True,
+            )
+            self.assertEqual(expired.returncode, 0, expired.stderr)
+            self.assertEqual(counter.read_text(encoding="utf-8"), one_snapshot_calls * 2)
 
     def test_json_status_preserves_punctuation_without_custom_escaping(self):
         with tempfile.TemporaryDirectory() as temp:
