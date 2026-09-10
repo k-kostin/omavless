@@ -99,6 +99,7 @@ fn run() -> Result<(), CliError> {
             "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
         );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!("  runtime test                      explicit current-route HTTPS/IP observation");
         println!(
             "  diagnostics export               shareable native configuration report (no live host checks)"
         );

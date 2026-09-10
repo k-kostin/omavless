@@ -43,6 +43,10 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-connection-test)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless runtime test
+          ;;
         native-routing-rules)
           [ "$#" -eq 1 ] || blocked
           exec omavless routing rules

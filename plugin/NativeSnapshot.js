@@ -1,4 +1,22 @@
 // SPDX-License-Identifier: MIT
+// Explicit private UI observation, never shareable support or tunnel proof.
+function connectionTest(raw, context) {
+  try {
+    if (!context || typeof raw !== "string" || raw.length > 2048) return null
+    var p = JSON.parse(raw), r = p.result
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || !id(p.id, false)
+        || p.ok !== true || p.revision !== context.revision
+        || !object(r, ["schemaVersion", "scope", "https", "observedIp", "elapsedMs", "code", "instanceId"])
+        || r.instanceId !== context.instanceId || r.schemaVersion !== 1 || r.scope !== "current_route_https"
+        || typeof r.https !== "boolean" || !number(r.elapsedMs, 3000)
+        || r.code !== (r.https ? "ok" : "request_failed")) return null
+    if (r.https) {
+      if (typeof r.observedIp !== "string" || r.observedIp.length > 45 || r.observedIp.length < 3 || !/^[0-9a-fA-F:.]+$/.test(r.observedIp)) return null
+    } else if (r.observedIp !== null) return null
+    return {https:r.https, elapsedMs:r.elapsedMs, observedIp:r.observedIp, code:r.code}
+  } catch (_) { return null }
+}
 // Independent diagnostic sample: this response has no daemon instance proof
 // and must never update connection health or ownership observations.
 function parseDiagnosticsSummary(raw) {
