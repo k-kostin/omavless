@@ -92,6 +92,7 @@ pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
 mod support_diagnostics;
 pub mod traffic;
+pub mod tun_ping;
 mod ui_snapshot;
 
 pub const SOCKET_NAME: &str = "control.sock";
@@ -241,12 +242,14 @@ pub struct RuntimeServer {
     dispatcher: Arc<Mutex<RuntimeDispatcher>>,
     batch_scheduler: batch_scheduler::BatchScheduler,
     remote_fetches: remote_fetch::RemoteFetchPool,
+    ping_read: Mutex<()>,
     _owner: OwnerLock,
 }
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.traffic",
+    "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
@@ -291,6 +294,11 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn ping_plan(
+        &mut self,
+        request: &Value,
+        deadline: std::time::Instant,
+    ) -> std::result::Result<tun_ping::Context, StableErrorCode>;
     fn traffic(
         &mut self,
         request: &Value,
@@ -552,6 +560,15 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn ping_plan(
+        &mut self,
+        request: &Value,
+        deadline: std::time::Instant,
+    ) -> std::result::Result<tun_ping::Context, StableErrorCode> {
+        self.owner
+            .ping_plan(request, deadline)
+            .map_err(|e| e.stable_code())
+    }
     fn traffic(
         &mut self,
         request: &Value,
@@ -954,6 +971,7 @@ impl RuntimeServer {
             dispatcher: Arc::new(Mutex::new(RuntimeDispatcher::ReadOnly)),
             batch_scheduler: batch_scheduler::BatchScheduler::default(),
             remote_fetches: remote_fetch::RemoteFetchPool::default(),
+            ping_read: Mutex::new(()),
             _owner: owner,
         })
     }
@@ -1120,6 +1138,9 @@ impl RuntimeServer {
             omavless_control_protocol::validate_response(&response)?;
             return Ok(response);
         }
+        if request["method"] == "runtime.ping" {
+            return self.dispatch_ping(request);
+        }
         if request["method"] == "routing.check" {
             return self.dispatch_route_check(request);
         }
@@ -1162,6 +1183,76 @@ impl RuntimeServer {
                 dispatch_native(request, &self.instance_id, owner.as_mut())
             }
         }
+    }
+
+    fn dispatch_ping(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.dispatch_ping_with(request, tun_ping::collect)
+    }
+
+    fn dispatch_ping_with(
+        &self,
+        request: &Value,
+        collect: impl FnOnce(&tun_ping::Binding, &str, std::time::Instant) -> Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        let deadline = std::time::Instant::now() + tun_ping::DEADLINE;
+        let target = match tun_ping::host(request) {
+            Ok(host) => host,
+            Err(_) => return error_response(id, 0, StableErrorCode::InvalidArgument, false, None),
+        };
+        let Ok(_single) = self.ping_read.try_lock() else {
+            return error_response(id, 0, StableErrorCode::Busy, true, None);
+        };
+        let Some(_permit) = self.remote_fetches.try_acquire() else {
+            return error_response(id, 0, StableErrorCode::Busy, true, None);
+        };
+        let (revision, context) = {
+            let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return dispatch_read_only(request, &self.instance_id);
+            };
+            let revision = owner.revision();
+            match owner.ping_plan(request, deadline) {
+                Ok(context) => (revision, context),
+                Err(code) => {
+                    return error_response(id, revision, code, code == StableErrorCode::Busy, None);
+                }
+            }
+        };
+        let mut result = collect(&context.binding, &target, deadline);
+        let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        let current = owner.revision();
+        if revision != current {
+            return error_response(id, current, StableErrorCode::Conflict, true, None);
+        }
+        match owner.ping_plan(request, deadline) {
+            Ok(now) if now == context => (),
+            Err(code) => {
+                return error_response(id, current, code, code == StableErrorCode::Busy, None);
+            }
+            _ => return error_response(id, current, StableErrorCode::Conflict, true, None),
+        }
+        if std::time::Instant::now() >= deadline {
+            return error_response(id, current, StableErrorCode::CoreRejected, false, None);
+        }
+        result["instanceId"] = Value::String(self.instance_id.clone());
+        success_response(id, current, result)
     }
 
     fn dispatch_route_check(
@@ -1843,6 +1934,20 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn ping_binding(
+            &mut self,
+            desired: &DesiredState,
+            _deadline: std::time::Instant,
+        ) -> std::result::Result<tun_ping::Binding, HostStepError> {
+            static SLOT: std::sync::OnceLock<Arc<tun_ping::PingSlot>> = std::sync::OnceLock::new();
+            let slot = Arc::clone(SLOT.get_or_init(Arc::default));
+            Ok(tun_ping::Binding {
+                device: "tun-test".into(),
+                identity: desired.generation.to_string(),
+                epoch: slot.epoch().unwrap(),
+                slot,
+            })
+        }
         fn traffic_counters(
             &mut self,
             desired: &DesiredState,
@@ -2691,6 +2796,80 @@ mod tests {
         assert_eq!(stale["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn ping_dispatch_fences_inputs_and_cannot_run_disconnected() {
+        let base = temporary_base("ping-admission");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(3)).unwrap());
+        let result = call(&paths, "runtime.ping", json!({"host":"1.1.1.1"})).unwrap();
+        assert_eq!(result["error"]["code"], "capability_unavailable");
+        for params in [
+            json!({"host":"private.example","device":"eth0"}),
+            json!({"host":"https://private.invalid/password=secret"}),
+        ] {
+            let result = call(&paths, "runtime.ping", params).unwrap();
+            assert_eq!(result["error"]["code"], "invalid_argument");
+            assert!(!result.to_string().contains("private"));
+            assert!(!result.to_string().contains("secret"));
+        }
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn ping_detached_read_fences_store_desired_config_owner_and_disconnect() {
+        for change in ["none", "store", "desired", "config", "owner", "disconnect"] {
+            let base = temporary_base("ping-fence");
+            let (owner, cutover, _) = owner_fixture_with_route(&base, OwnershipPhase::Rust, true);
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server = RuntimeServer::bind_with_owner_factory(paths, move |_| Ok(owner)).unwrap();
+            let req = |method, params| make_request("test", method, params).unwrap();
+            assert_eq!(
+                server
+                    .dispatch(&req("connection.connect", json!({"profileId":PROFILE_ID})))
+                    .unwrap()["ok"],
+                true
+            );
+            let request = req("runtime.ping", json!({"host":"private.example"}));
+            let result = server.dispatch_ping_with(&request, |_,_,_| {
+                // Neither owner mutex nor migration lease is held during work.
+                assert_eq!(server.dispatch(&req("status.get", json!({}))).unwrap()["ok"], true);
+                assert_eq!(server.dispatch(&request).unwrap()["error"]["code"], "busy");
+                match change {
+                    "store" => {
+                        let path = base.join("config/profiles.json");
+                        let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                        value["onboardingComplete"] = json!(false);
+                        fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+                    }
+                    "desired" => {
+                        let paths = DesiredPaths::below(&base.join("state"));
+                        let mut value = crate::desired::read_desired(&paths, Uid::current().as_raw()).unwrap();
+                        value.generation += 1;
+                        write_desired(&paths, Uid::current().as_raw(), &value).unwrap();
+                    }
+                    "config" => fs::write(base.join("config/route.yaml"), b"changed").unwrap(),
+                    "owner" => write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2),
+                    "disconnect" => assert_eq!(server.dispatch(&req("connection.disconnect", json!({}))).unwrap()["ok"], true),
+                    _ => (),
+                }
+                json!({"schemaVersion":1,"scope":"controller_attributed_tun_icmp","availability":"observed","sample":{"outcome":"reply","latencyMs":12.5},"code":"ok"})
+            }).unwrap();
+            assert_eq!(result["ok"], change == "none");
+            for private in ["private.example", PROFILE_ID, "tun-test", "192.0.2.1"] {
+                assert!(!result.to_string().contains(private));
+            }
+            if change == "none" {
+                assert_eq!(result["result"]["instanceId"], server.instance_id);
+            }
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]

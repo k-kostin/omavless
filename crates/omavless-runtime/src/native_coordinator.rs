@@ -752,6 +752,56 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    pub(crate) fn ping_plan(
+        &mut self,
+        request: &Value,
+        deadline: std::time::Instant,
+    ) -> Result<crate::tun_ping::Context, NativeOwnerError> {
+        crate::tun_ping::host(request)?;
+        self.with_owned_read(|owner| {
+            use sha2::{Digest, Sha256};
+            if owner.transaction.blocked() || owner.actual() == ActualState::ManualRecoveryRequired
+            {
+                return Err(NativeOwnerError::ManualRecoveryRequired);
+            }
+            let desired = owner.desired().map_err(|_| NativeOwnerError::Invariant)?;
+            if !desired.connected || owner.actual() != ActualState::Connected {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            crate::private_store_transaction::validate_store_path(
+                owner.transaction.store_path(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let input = omavless_store::read_private_utf8(
+                owner.transaction.store_path(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            omavless_domain::private_store::parse_private_store(&input)
+                .map_err(|_| NativeOwnerError::Invariant)?;
+            let store_digest = Sha256::digest(input.as_bytes()).into();
+            let (pid, config_digest) = owner
+                .host_mut()
+                .route_core_identity()
+                .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+            let binding = owner
+                .host_mut()
+                .ping_binding(&desired, deadline)
+                .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+            if owner.desired().map_err(|_| NativeOwnerError::Invariant)? != desired {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::tun_ping::Context {
+                binding,
+                desired,
+                store_digest,
+                config_digest,
+                pid,
+            })
+        })
+    }
+
     pub(crate) fn custom_rules(
         &mut self,
         request: &Value,

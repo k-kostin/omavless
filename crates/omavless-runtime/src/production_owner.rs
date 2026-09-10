@@ -411,6 +411,14 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.coordinator.route_plan(request)
     }
 
+    pub(crate) fn ping_plan(
+        &mut self,
+        request: &Value,
+        deadline: std::time::Instant,
+    ) -> Result<crate::tun_ping::Context, NativeOwnerError> {
+        self.coordinator.ping_plan(request, deadline)
+    }
+
     pub(crate) fn check_route(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_route_check(&mut self.coordinator, request)
     }
