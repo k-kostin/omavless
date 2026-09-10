@@ -100,6 +100,8 @@ exit {code}
         self.action_native()
         for args, expected in [
             (("native-routing-rules",), ["routing", "rules"]),
+            (("native-support-report",), ["diagnostics", "export"]),
+            (("native-clipboard-copy",), ["desktop", "clipboard-copy"]),
             (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
             (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),

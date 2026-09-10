@@ -208,6 +208,39 @@ function routingResult(raw, revision) {
     && p.api === "omavless.control" && p.version === 1 && id(p.id, false)
     && p.ok === true && number(p.revision, 9007199254740991) && p.revision === revision ? p.result : null
 }
+// Explicit shareable configuration-only projection. Never copy the raw frame.
+function configurationReport(raw, revision) {
+  try {
+    var r = routingResult(raw, revision)
+    if (!object(r, ["schemaVersion", "scope", "runtime", "configuration", "coverage"])
+        || r.schemaVersion !== 1 || r.scope !== "native_configuration") return null
+    var h = r.runtime, c = r.configuration, v = r.coverage
+    if (!object(h, ["implementation", "version", "lastKnownState", "routingTransactionPending"])
+        || h.implementation !== "rust" || !text(h.version, 32, false) || !/^\d+\.\d+\.\d+$/.test(h.version)
+        || ["disconnected", "starting", "connected", "reconnecting", "stopping", "failed", "manual_recovery_required"].indexOf(h.lastKnownState) < 0
+        || typeof h.routingTransactionPending !== "boolean"
+        || !object(v, ["privateStoreValidated", "liveHostObservation", "controllerQuery", "loginActivationVerified"])
+        || v.privateStoreValidated !== true || v.liveHostObservation !== false || v.controllerQuery !== false || v.loginActivationVerified !== false
+        || !object(c, ["inventory", "routing", "startup", "updates", "onboardingComplete"])) return null
+    var i = c.inventory, s = c.startup, t = c.routing
+    if (!object(i, ["profiles", "favorites", "subscriptions", "customRules"])
+        || !number(i.profiles, 256) || !number(i.favorites, i.profiles) || !number(i.subscriptions, 64) || !number(i.customRules, 128)
+        || !object(t, ["preset", "configured", "lastManualRuleUpdate"]) || !text(t.preset, 80, true)
+        || typeof t.configured !== "boolean" || t.configured !== (t.preset !== "") || !number(t.lastManualRuleUpdate, 9007199254740991)
+        || !object(s, ["configured", "enabled", "target", "mode"]) || typeof s.configured !== "boolean" || typeof s.enabled !== "boolean"
+        || ["last", "profile"].indexOf(s.target) < 0 || ["rule", "global"].indexOf(s.mode) < 0
+        || !object(c.updates, ["latestSubscription"]) || !number(c.updates.latestSubscription, 9007199254740991)
+        || typeof c.onboardingComplete !== "boolean") return null
+    // Unknown user-defined preset labels are never shareable identifiers.
+    var preset = ["", "custom", "roscomvpn-default", "china-cn-direct", "iran-ir-direct"].indexOf(t.preset) >= 0 ? t.preset : "custom"
+    return JSON.stringify({schemaVersion:1, scope:"native_configuration", runtime:{implementation:"rust", version:h.version,
+      lastKnownState:h.lastKnownState, routingTransactionPending:h.routingTransactionPending}, configuration:{inventory:{profiles:i.profiles,
+      favorites:i.favorites, subscriptions:i.subscriptions, customRules:i.customRules}, routing:{preset:preset, configured:t.configured,
+      lastManualRuleUpdate:t.lastManualRuleUpdate}, startup:{configured:s.configured, enabled:s.enabled, target:s.target, mode:s.mode},
+      updates:{latestSubscription:c.updates.latestSubscription}, onboardingComplete:c.onboardingComplete}, coverage:{privateStoreValidated:true,
+      liveHostObservation:false, controllerQuery:false, loginActivationVerified:false}}, null, 2) + "\n"
+  } catch (_) { return null }
+}
 function parseCustomRules(raw, revision) {
   try {
     var r = routingResult(raw, revision)

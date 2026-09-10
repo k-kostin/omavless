@@ -624,6 +624,11 @@ Item {
   // available, and one success restores the configured interval.
   property int statusFailureCount: 0
   property bool panelVisible: false
+  onPanelVisibleChanged: {
+    _nativeSupportGeneration++
+    nativeSupportStatus = ""
+    if (_nativeSupportRead) _nativeSupportRead.running = false
+  }
   readonly property int statusBaseIntervalSec:
     panelVisible ? refreshIntervalSec : Math.max(30, refreshIntervalSec)
   readonly property int statusPollIntervalMs:
@@ -2378,6 +2383,51 @@ Item {
     return true
   }
 
+  property string nativeSupportStatus: ""
+  property var _nativeSupportRead: null
+  property bool _nativeSupportCopy: false
+  property int _nativeSupportGeneration: 0
+  readonly property bool nativeSupportBusy: _nativeSupportRead !== null || _nativeSupportCopy
+
+  function copyNativeConfigurationReport() {
+    if (!nativeFactsCurrent || !panelVisible || nativeSupportBusy || copying) return false
+    nativeSupportStatus = "loading"
+    _nativeSupportRead = nativeSupportComponent.createObject(root, {
+      command:["bash", backendPath, "native-support-report"],
+      instance:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, generation:_nativeSupportGeneration})
+    if (!_nativeSupportRead) { nativeSupportStatus = "failed"; return false }
+    _nativeSupportRead.running = true
+    return true
+  }
+
+  function finishNativeConfigurationReport(instance, revision, generation, code, output) {
+    if (generation !== _nativeSupportGeneration) return false
+    if (!nativeFactsCurrent || !panelVisible || nativeSnapshot.instanceId !== instance || nativeSnapshot.revision !== revision) {
+      nativeSupportStatus = "failed"; return false
+    }
+    var report = code === 0 ? NativeSnapshot.configurationReport(output, revision) : null
+    if (report === null || !copyText(report)) { nativeSupportStatus = "failed"; return false }
+    _nativeSupportCopy = true
+    return true
+  }
+
+  Component {
+    id: nativeSupportComponent
+    Process {
+      id: process
+      property string instance
+      property double revision
+      property int generation
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer timeout: Timer { interval: 15000; running: process.running; onTriggered: process.running = false }
+      onExited: function(code) {
+        root._nativeSupportRead = null
+        try { root.finishNativeConfigurationReport(instance, revision, generation, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
+
   function copyText(value) {
     var text = String(value || "")
     if (text === "" || text === "--") return false
@@ -3458,7 +3508,7 @@ Item {
   Process {
     id: copyProcess
     running: false
-    command: ["wl-copy"]
+    command: root.nativeOwner ? ["bash", root.backendPath, "native-clipboard-copy"] : ["wl-copy"]
     stdinEnabled: false
     onStarted: {
       write(root._copyText)
@@ -3466,6 +3516,11 @@ Item {
       stdinEnabled = false
     }
     onExited: function(exitCode) {
+      if (root._nativeSupportCopy) {
+        root._nativeSupportCopy = false
+        root.nativeSupportStatus = exitCode === 0 ? "copied" : "failed"
+        return
+      }
       if (exitCode === 0) root.showTransientStatus("Copied to clipboard")
       else {
         root.actionStatus = ""
