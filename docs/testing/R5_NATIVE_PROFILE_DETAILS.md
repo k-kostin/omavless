@@ -47,8 +47,8 @@ QML follow-up: six focused Details tests, i18n/contracts, fixed launcher checks,
 plugin validation and actual installed-import QML component compilation passed.
 
 Full Python reruns under concurrent VM load took approximately 124 seconds.
-The second run passed 342/343 cases (four skips included in the total) but the
-existing cross-process status-cache timing assertion failed; an earlier busy
+The second run had 338 passes, four skips and one failure among 343 cases: the
+existing cross-process status-cache timing assertion failed. An earlier busy
 run also hit unrelated core-start/oracle deadlines. No checks were relaxed.
 An unloaded serial aggregate run remains required before a full-suite green
 claim. No installed profile or live tunnel was used by this branch.
