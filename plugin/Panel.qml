@@ -570,7 +570,7 @@ Panel {
       var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
-        : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
+        : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativePingTest, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1322,6 +1322,7 @@ Panel {
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
     trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
     nativeTrafficMonitoring: vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
+    nativePingMonitoring: vless.nativeOwner && root.opened && root.page === "main"
     pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
   }
 
@@ -1845,6 +1846,18 @@ Panel {
               txColor: root.trafficTxColor
               guideColor: Util.alpha(root.foreground, 0.16)
             }
+            RowLayout {
+              Layout.fillWidth: true
+              DetailPair {
+                Layout.fillWidth: true
+                label: root.textFor("metric.ping")
+                value: !vless.nativePingFresh ? "--" : vless.nativePingSummary.latency === null
+                  ? root.textFor("native.ping.timeout") : root.textFor("native.ping.milliseconds", {ms:Number(vless.nativePingSummary.latency).toLocaleString(Qt.locale(root.uiLocale), "f", vless.nativePingSummary.latency > 0 && vless.nativePingSummary.latency < 10 ? 1 : 0)})
+              }
+              DetailPair { Layout.fillWidth: true; label: root.textFor("metric.packet_loss"); value: vless.nativePingFresh ? String(vless.nativePingSummary.loss) + "%" : "--" }
+              Button { id: nativePingTest; text: root.textFor("native.ping.test"); focusable: true; bordered: true; enabled: vless.nativePingEligible; onClicked: vless.testNativePing() }
+            }
+            PlainText { Layout.fillWidth: true; text: root.textFor("native.ping." + (vless.nativePingStatus || "unavailable")); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
             PlainText { Layout.fillWidth: true; visible: vless.nativeTrafficFresh; text: root.textFor("traffic.native_note"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           }
           RowLayout {

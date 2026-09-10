@@ -902,6 +902,92 @@ Item {
       }
     }
   }
+  property bool nativePingMonitoring: false
+  property var nativePingSamples: []
+  property string nativePingStatus: ""
+  property var _nativePingRead: null
+  property var _nativePingFence: null
+  property int _nativePingGeneration: 0
+  property double _nativePingReceivedAt: 0
+  property double _nativePingClock: Date.now()
+  readonly property bool nativePingEligible: nativeOwner && nativePingMonitoring && nativeCanAct
+    && nativeSnapshot.desired.connected && nativeSnapshot.lastKnownActual === "connected" && pingHost !== ""
+  readonly property bool nativePingFresh: nativePingEligible && nativePingStatus === "observed"
+    && nativePingSamples.length > 0 && _nativePingClock >= _nativePingReceivedAt
+    && _nativePingClock - _nativePingReceivedAt <= 10000
+  readonly property var nativePingSummary: NativeSnapshot.pingWindow(nativePingFresh ? nativePingSamples : [])
+
+  function clearNativePing() {
+    _nativePingGeneration++
+    nativePingSamples = []; nativePingStatus = ""; _nativePingFence = null; _nativePingReceivedAt = 0
+  }
+  function nativePingCurrent(context) {
+    return !!(context && nativePingEligible && context.generation === _nativePingGeneration
+      && context.instanceId === nativeSnapshot.instanceId && context.revision === nativeSnapshot.revision
+      && context.host === pingHost)
+  }
+  function sampleNativePing() {
+    _nativePingClock = Date.now()
+    if (nativePingSamples.length && (_nativePingClock < _nativePingReceivedAt || _nativePingClock - _nativePingReceivedAt > 10000)) clearNativePing()
+    if (!nativePingEligible || _nativePingRead !== null) return false
+    var context = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      generation:_nativePingGeneration, host:pingHost}
+    _nativePingFence = context
+    nativePingStatus = nativePingSamples.length ? "observed" : "loading"
+    _nativePingRead = nativePingComponent.createObject(root, {context:context,
+      command:["bash", backendPath, "native-ping"], stdinEnabled:true})
+    if (!_nativePingRead) { nativePingStatus = "unavailable"; return false }
+    _nativePingRead.running = true
+    return true
+  }
+  function testNativePing() {
+    if (!nativePingEligible || (_nativePingRead !== null && !nativePingCurrent(_nativePingRead.context))) return false
+    // A manual request joins the same current in-flight probe; never duplicate it.
+    nativePingSamples = []; nativePingStatus = "loading"
+    return _nativePingRead !== null || sampleNativePing()
+  }
+  function finishNativePing(context, code, output) {
+    if (!nativePingCurrent(context)) return
+    var result = code === 0 ? NativeSnapshot.parsePing(output, context) : null
+    if (!result || !result.available) { nativePingStatus = "unavailable"; return }
+    var next = nativePingSamples.slice()
+    next.push(result.value)
+    while (next.length > 10) next.shift()
+    nativePingSamples = next; nativePingStatus = "observed"
+    _nativePingReceivedAt = Date.now(); _nativePingClock = _nativePingReceivedAt
+  }
+  onNativePingEligibleChanged: {
+    clearNativePing()
+    if (nativePingEligible) sampleNativePing()
+  }
+  onPingHostChanged: {
+    clearNativePing()
+    if (nativePingEligible) sampleNativePing()
+  }
+  Timer {
+    interval: 3000
+    repeat: true
+    running: root.nativePingEligible
+    onTriggered: root.sampleNativePing()
+  }
+  Component {
+    id: nativePingComponent
+    Process {
+      id: process
+      property var context
+      onStarted: {
+        if (root.nativePingCurrent(context)) write(context.host + "\n")
+        stdinEnabled = false
+      }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer watchdog: Timer { interval: 6000; running: process.running; onTriggered: process.running = false }
+      onExited: function(code) {
+        root._nativePingRead = null
+        try { root.finishNativePing(context, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
   property bool pingMonitoring: false
   // device -> {rx, tx, at, rxRate, txRate}. The raw counters double as
   // session totals come from Mihomo's TUN interface.
@@ -2537,6 +2623,7 @@ Item {
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    if (_nativePingFence && !nativePingCurrent(_nativePingFence)) clearNativePing()
     if (_nativeTrafficFence && !nativeTrafficCurrent(_nativeTrafficFence)) clearNativeTraffic()
     if ((_nativeRulesFence && !nativeRoutingCurrent(_nativeRulesFence)) || (_nativeRouteFence && !nativeRoutingCurrent(_nativeRouteFence))) clearNativeRouting()
     if (nativeOwner && nativeRoutingToolsVisible && nativeFactsCurrent && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()

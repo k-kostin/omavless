@@ -43,6 +43,10 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-ping)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless runtime ping
+          ;;
         native-traffic)
           [ "$#" -eq 1 ] || blocked
           exec omavless runtime traffic
