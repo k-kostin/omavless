@@ -87,4 +87,14 @@ test('Process watchdog uses an explicit QML property',()=>{
  assert(component.includes('property Timer timeout: Timer'));
  assert(!/\n\s+Timer \{/.test(component));
 });
+test('provider status and errors are visible beside its action',()=>{
+ const panel=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
+ const start=panel.indexOf('  function nativeProviderUpdateDescription('),end=panel.indexOf('\n  }',start)+4;
+ const c=vm.createContext({vless:{nativeBatchJob:{kind:'providers',state:'running',completed:2,total:23,errorCode:''},nativeBatchUnknown:false,nativeBatchErrorCode:''},textFor:(key,v)=>v?`${v.completed}/${v.total}`:key});c.root=c;
+ vm.runInContext(panel.slice(start,end),c);
+ assert.equal(c.nativeProviderUpdateDescription(),'native.batch.running · 2/23');
+ c.vless.nativeBatchJob.state='failed';c.vless.nativeBatchJob.errorCode='core_rejected';
+ assert(c.nativeProviderUpdateDescription().includes('\nerror.core_rejected'));
+ assert(panel.includes('description: root.nativeProviderUpdateDescription()'));
+});
 console.log('native batch: '+count+' passed');

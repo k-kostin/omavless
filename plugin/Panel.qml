@@ -540,6 +540,15 @@ Panel {
     vless.loadCustomRules()
   }
 
+  function nativeProviderUpdateDescription() {
+    var job = vless.nativeBatchJob
+    if (!job || job.kind !== "providers") return root.textFor("settings.rules_automatic")
+    var status = root.textFor("native.batch." + (vless.nativeBatchUnknown ? "unknown" : job.state))
+      + " · " + root.textFor("native.batch.progress", {completed:job.completed, total:job.total})
+    var code = vless.nativeBatchErrorCode || (job.errorCode ? "error." + job.errorCode : "")
+    return code ? status + "\n" + root.textFor(code) : status
+  }
+
   function closeRoutingTools() {
     routingToolsPrompt.dismiss()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1843,7 +1852,7 @@ Panel {
           SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
-          SettingsActionRow { id: nativeProvidersRefresh; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.remote_rules"); description: root.textFor("settings.rules_automatic"); actionText: root.textFor("common.refresh"); actionEnabled: vless.nativeCanAct && !vless.nativeBatchBusy; onAction: vless.refreshRuleProviders() }
+          SettingsActionRow { id: nativeProvidersRefresh; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.remote_rules"); description: root.nativeProviderUpdateDescription(); actionText: root.textFor("common.refresh"); actionEnabled: vless.nativeCanAct && !vless.nativeBatchBusy; onAction: vless.refreshRuleProviders() }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
