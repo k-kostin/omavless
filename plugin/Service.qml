@@ -2597,6 +2597,7 @@ Item {
   property var nativeFileExportContext: null
   property var nativeFileExportProcess: null
   property string nativeFileExportStatus: ""
+  property string nativeFileExportKind: "profile"
   function validNativeExportPath(path) {
     return typeof path === "string" && path[0] === "/" && path.length <= 4096
       && !/[\u0000-\u001f\u007f]/.test(path) && NativeSnapshot.editorText(path, 4096)
@@ -2604,13 +2605,26 @@ Item {
   function nativeFileExportCurrent(context) {
     return context !== null && context === nativeFileExportContext && nativeCanAct
       && nativeSnapshot.instanceId === context.instanceId && nativeSnapshot.revision === context.revision
-      && nativeSnapshot.profiles.some(function(p) { return p.id === context.id })
+      && (context.kind === "report" || nativeSnapshot.profiles.some(function(p) { return p.id === context.id }))
+  }
+  function startNativeReportFileExport(path) {
+    if (!nativeCanAct || nativeFileExportProcess !== null || !validNativeExportPath(path)) return false
+    var context = {kind:"report", instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, path:path}
+    nativeFileExportContext = context
+    nativeFileExportKind = "report"
+    nativeFileExportStatus = "pending"
+    nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
+      context:context, command:["bash", backendPath, "native-support-report"]})
+    if (nativeFileExportProcess === null) { nativeFileExportContext = null; nativeFileExportStatus = "failed"; return false }
+    nativeFileExportProcess.running = true
+    return true
   }
   function startNativeFileExport(profile, path) {
     if (!nativeCanAct || nativeFileExportProcess !== null || !profile || !validNativeExportPath(path)
         || !nativeSnapshot.profiles.some(function(p) { return p.id === profile.uuid })) return false
     var context = {id:profile.uuid, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, path:path}
     nativeFileExportContext = context
+    nativeFileExportKind = "profile"
     nativeFileExportStatus = "pending"
     nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
       context:context, command:["bash", backendPath, "native-profile-file", profile.uuid]})
@@ -2627,7 +2641,8 @@ Item {
         nativeFileExportContext = null
         return
       }
-      var content = nativeFileExportCurrent(context) && code === 0 ? NativeSnapshot.parseQrExport(output, context.revision) : null
+      var content = nativeFileExportCurrent(context) && code === 0
+        ? (context.kind === "report" ? NativeSnapshot.configurationReport(output, context.revision) : NativeSnapshot.parseQrExport(output, context.revision)) : null
       if (content === null) { nativeFileExportStatus = "failed"; nativeFileExportContext = null; return }
       nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
         context:context, writing:true, privateInput:context.path + "\n" + content,

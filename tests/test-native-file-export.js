@@ -10,7 +10,7 @@ function context() {
   const c = vm.createContext({NativeSnapshot:parser, nativeCanAct:true, nativeSnapshot:{instanceId:'instance',revision:7,profiles:[{id:'one'},{id:'two'}]}, nativeFileExportContext:null, nativeFileExportProcess:null, nativeFileExportStatus:'',backendPath:'/synthetic/backend.sh'});
   c.root = c;
   c.nativeFileExportComponent = {createObject:(_, properties) => ({...properties, destroy(){this.destroyed=true}})};
-  for (const name of ['validNativeExportPath','nativeFileExportCurrent','startNativeFileExport','finishNativeFileExport']) {
+  for (const name of ['validNativeExportPath','nativeFileExportCurrent','startNativeFileExport','startNativeReportFileExport','finishNativeFileExport']) {
     const start=source.indexOf('  function '+name+'('), end=source.indexOf('\n  }', start)+4;
     assert(start>=0); vm.runInContext(source.slice(start,end), c);
   }
@@ -58,16 +58,39 @@ test('failure malformed and mismatched reply do not release private data', () =>
   }
 });
 test('explicit confirmation UI and Process cleanup guards', () => {
-  assert(panel.includes('hint: root.textFor("native.fileExport.warning")'));
+  assert(panel.includes('? "native.support.exportWarning" : "native.fileExport.warning"'));
   assert(panel.includes('context.revision !== vless.nativeSnapshot.revision'));
   assert(panel.includes('context.instanceId !== vless.nativeSnapshot.instanceId'));
   assert(panel.includes('exportWindow.value = ""'));
-  assert(panel.includes('rowQr, rowExport, rowEdit]'));
+  // Other restored profile actions may follow Edit; export must retain its
+  // position without freezing the complete keyboard navigation array.
+  assert(panel.includes('rowQr, rowExport, rowEdit'));
   const component=source.slice(source.indexOf('id: nativeFileExportComponent'),source.indexOf('id: nativeQrRenderComponent'));
   assert(component.includes('property Timer watchdog: Timer'));
   assert(component.includes('writeAdmitted = root.nativeFileExportCurrent(context)'));
   assert(component.includes('if (writeAdmitted) write(privateInput)'));
   assert(component.includes('privateInput = ""'));
   assert(!component.includes('console.'));
+});
+test('report export uses canonical report projection, not profile export', () => {
+  const c=context(); let parsed=0;
+  c.NativeSnapshot={editorText:parser.editorText,configurationReport:(raw,revision)=>{parsed++;assert.equal(raw,'synthetic response');assert.equal(revision,7);return '{"safe":true}';},parseQrExport:()=>{throw Error('wrong exporter')}};
+  assert(c.startNativeReportFileExport('/tmp/report.json'));
+  const reader=c.nativeFileExportProcess;
+  assert.equal(reader.command.join('|'),'bash|/synthetic/backend.sh|native-support-report');
+  c.finishNativeFileExport(reader,0,'synthetic response');
+  assert.equal(parsed,1);assert.equal(c.nativeFileExportProcess.privateInput,'/tmp/report.json\n{"safe":true}');
+  assert(c.nativeFileExportCurrent(c.nativeFileExportContext));
+  c.nativeSnapshot.revision++;assert(!c.nativeFileExportCurrent(c.nativeFileExportContext));
+});
+test('stale and malformed reports never reach writer', () => {
+  for(const stale of [false,true]) {
+    const c=context();c.startNativeReportFileExport('/tmp/report.json');
+    if(stale)c.nativeSnapshot.instanceId='replacement';
+    c.finishNativeFileExport(c.nativeFileExportProcess,0,'secret-invalid-report');
+    assert.equal(c.nativeFileExportProcess,null);assert.equal(c.nativeFileExportStatus,'failed');
+  }
+  assert(panel.includes('context.kind === "report") vless.startNativeReportFileExport'));
+  assert(panel.includes('targets.push(nativeSupportExportSetting.focusTarget)'));
 });
 console.log(`${count} native file-export tests passed`);

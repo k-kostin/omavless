@@ -460,6 +460,12 @@ Panel {
     exportWindow.openWith("")
     root.close()
   }
+  function requestReportExport() {
+    if (!vless.nativeCanAct || vless.nativeFileExportProcess !== null) return
+    pendingFileExport = {kind:"report", instanceId:vless.nativeSnapshot.instanceId, revision:vless.nativeSnapshot.revision}
+    exportWindow.openWith("")
+    root.close()
+  }
   function cancelFileExport() {
     pendingFileExport = null
     exportWindow.value = ""
@@ -469,7 +475,8 @@ Panel {
     var context = pendingFileExport
     if (!context || !vless.nativeCanAct || context.instanceId !== vless.nativeSnapshot.instanceId
         || context.revision !== vless.nativeSnapshot.revision) { cancelFileExport(); return }
-    vless.exportToPath(context.profile, exportWindow.value)
+    if (context.kind === "report") vless.startNativeReportFileExport(exportWindow.value)
+    else vless.exportToPath(context.profile, exportWindow.value)
     cancelFileExport()
     root.open()
   }
@@ -592,6 +599,7 @@ Panel {
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       if (page === "settings") targets.push(nativeSupportSetting.focusTarget)
+      if (page === "settings") targets.push(nativeSupportExportSetting.focusTarget)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1809,7 +1817,7 @@ Panel {
           PlainText {
             Layout.fillWidth: true
             visible: vless.nativeFileExportStatus !== ""
-            text: vless.nativeFileExportStatus !== "" ? root.textFor("native.fileExport." + vless.nativeFileExportStatus) : ""
+            text: vless.nativeFileExportStatus !== "" ? root.textFor((vless.nativeFileExportKind === "report" ? "native.supportExport." : "native.fileExport.") + vless.nativeFileExportStatus) : ""
             color: vless.nativeFileExportStatus === "failed" ? root.urgent : root.dim
             font.family: root.fontFamily
             wrapMode: Text.Wrap
@@ -1875,6 +1883,7 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow { id: nativeSupportSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("native.support.title"); description: root.textFor("native.support.scope"); actionText: root.textFor("native.support.copy"); actionEnabled: vless.nativeFactsCurrent && !vless.nativeSupportBusy && !vless.copying; onAction: vless.copyNativeConfigurationReport() }
+          SettingsActionRow { id: nativeSupportExportSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("native.support.export"); description: root.textFor("native.support.scope"); actionText: root.textFor("common.export"); actionEnabled: vless.nativeCanAct && vless.nativeFileExportProcess === null; onAction: root.requestReportExport() }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings" && vless.nativeSupportStatus !== ""; text: vless.nativeSupportStatus !== "" ? root.textFor("native.support." + vless.nativeSupportStatus) : ""; color: vless.nativeSupportStatus === "failed" ? root.urgent : root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
@@ -3568,9 +3577,9 @@ Panel {
     id: exportWindow
     anchorItem: button
     open: root.pendingFileExport !== null
-    title: root.textFor("native.fileExport.title")
+    title: root.textFor(root.pendingFileExport && root.pendingFileExport.kind === "report" ? "native.support.export" : "native.fileExport.title")
     placeholder: root.textFor("native.fileExport.path")
-    hint: root.textFor("native.fileExport.warning")
+    hint: root.textFor(root.pendingFileExport && root.pendingFileExport.kind === "report" ? "native.support.exportWarning" : "native.fileExport.warning")
     accepted: root.pendingFileExport !== null && vless.validNativeExportPath(value)
       && vless.nativeCanAct && vless.nativeSnapshot.instanceId === root.pendingFileExport.instanceId
       && vless.nativeSnapshot.revision === root.pendingFileExport.revision
