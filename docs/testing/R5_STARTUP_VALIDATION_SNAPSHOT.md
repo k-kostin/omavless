@@ -44,6 +44,12 @@ Without the opt-in it skips, including ordinary cloud execution.
 
 ## Next integration boundary
 
+The separate [isolated adapter](R5_ISOLATED_LOGIN_VALIDATION.md) now offers a
+fixed mandatory-bubblewrap execution boundary for exact bundled templates and
+complete bounded cached resources, with static ELF core snapshots. It does not
+replace this production validator or activate login. Custom/dynamic resources,
+missing caches and unsupported sandbox/core hosts explicitly refuse.
+
 Before wiring login readiness, establish bounded resource-aware isolated
 validation or explicitly refuse cases that cannot be validated safely. Do not
 silently remove resource fields and call the original config validated. Trusted

@@ -47,6 +47,7 @@ pub mod desktop_helpers;
 mod diagnostic_read;
 pub mod frontend_bridge;
 pub mod import_read_protocol;
+pub mod isolated_validation;
 pub mod lifecycle;
 pub mod login_intent;
 pub mod login_transaction;
