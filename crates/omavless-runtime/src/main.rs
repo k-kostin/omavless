@@ -115,7 +115,7 @@ fn run() -> Result<(), CliError> {
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
         println!(
-            "  desktop capabilities|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|qr-data-uri|export-file|cleanup"
+            "  desktop capabilities|core-readiness|clipboard-read|clipboard-copy|pick-import|file-read|edit|qr|qr-data-uri|export-file|cleanup"
         );
         println!(
             "                                  explicit private client-only helpers; input through stdin"
@@ -150,6 +150,10 @@ fn run() -> Result<(), CliError> {
         let output = match arguments[1].to_str() {
             Some("capabilities") => {
                 println!("{}", helpers.capabilities());
+                return Ok(());
+            }
+            Some("core-readiness") => {
+                println!("{}", helpers.core_readiness());
                 return Ok(());
             }
             Some("clipboard-read") => helpers.clipboard_read(),

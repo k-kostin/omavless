@@ -48,6 +48,29 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn core_readiness_cli_is_fixed_read_only_and_does_not_claim_service_permissions() {
+    let f = Fixture::new();
+    let before = fs::read_dir(&f.0).unwrap().count();
+    let response = f.call(&["desktop", "core-readiness"], b"");
+    assert!(response.status.success());
+    assert!(response.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&response.stdout).unwrap();
+    assert_eq!(value["schemaVersion"], 1);
+    assert_eq!(value["scope"], "desktop_setup_facts");
+    assert_eq!(value["installed"], false);
+    assert_eq!(value["version"], serde_json::Value::Null);
+    assert_eq!(value["servicePermissionReadiness"], "not_verified");
+    assert_eq!(value["coverage"]["serviceContextVerified"], false);
+    assert_eq!(value["coverage"]["tunCreationVerified"], false);
+    assert_eq!(value["coverage"]["controllerQueried"], false);
+    assert_eq!(fs::read_dir(&f.0).unwrap().count(), before);
+    let rejected = f.call(&["desktop", "core-readiness", "private-token"], b"");
+    assert_eq!(rejected.status.code(), Some(2));
+    assert!(rejected.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
+}
+
+#[test]
 fn qr_data_uri_cli_preserves_binary_command_and_keeps_input_private() {
     let f = Fixture::new();
     let missing = f.call(&["desktop", "qr-data-uri"], b"private-token");
