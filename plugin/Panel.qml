@@ -572,6 +572,7 @@ Panel {
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       if (page === "main") targets.push(nativeTestButton)
+      if (page === "settings") targets.push(nativeExitIpSetting.focusTarget)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1863,6 +1864,15 @@ Panel {
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          SettingsActionRow {
+            id: nativeExitIpSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.observed_exit_ip")
+            description: root.textFor("settings.exit_ip_description")
+            actionText: root.textFor(vless.showExitIp ? "common.on" : "common.off")
+            onAction: root.setWidgetSetting("showExitIp", !vless.showExitIp, true)
+          }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }

@@ -24,4 +24,8 @@ c.clearNativeTest();c.finishNativeConnectionTest(context,0,JSON.stringify(frame)
 c.nativeTestGeneration=1;c.panelVisible=false;c.finishNativeConnectionTest(context,0,JSON.stringify(frame));assert.equal(c.nativeTestResult,null);
 assert(source.includes('property Timer watchdog: Timer'));assert(source.includes('nativeSnapshot.revision !== nativeTestFence.revision'));
 const panel=fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');assert(panel.includes('targets.push(nativeTestButton)'));assert(panel.includes('vless.showExitIp'));assert(panel.includes('root.textFor("native.test.scope")'));
+assert(panel.includes('targets.push(nativeExitIpSetting.focusTarget)'));
+const privacyRow=panel.slice(panel.indexOf('id: nativeExitIpSetting'),panel.indexOf('id: nativeExitIpSetting')+650);
+assert(privacyRow.includes('root.setWidgetSetting("showExitIp", !vless.showExitIp, true)'));
+assert(!privacyRow.includes('requestNativeAction'));
 console.log('native connection test: parser/fences/privacy/UI PASS');
