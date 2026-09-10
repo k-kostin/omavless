@@ -568,9 +568,11 @@ Panel {
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
-        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
+        : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
+      targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
+      if (page === "settings") targets.push(nativeProvidersRefresh.focusTarget)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1841,11 +1843,28 @@ Panel {
           SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }
+          SettingsActionRow { id: nativeProvidersRefresh; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.remote_rules"); description: root.textFor("settings.rules_automatic"); actionText: root.textFor("common.refresh"); actionEnabled: vless.nativeCanAct && !vless.nativeBatchBusy; onAction: vless.refreshRuleProviders() }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.state." + root.nativeView.state) + "\n" + root.nativeLocalStatus(); color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.healthScope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }
+          Button { id: nativeSubscriptionRefreshAll; visible: root.page === "subscriptions"; text: root.textFor("diagnostics.update_all"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && root.nativeView.subscriptions.length > 0; onClicked: vless.refreshAllSubscriptions() }
+          ColumnLayout {
+            Layout.fillWidth: true
+            visible: vless.nativeBatchJob !== null
+            PlainText { Layout.fillWidth: true; text: vless.nativeBatchJob ? root.textFor("native.batch." + vless.nativeBatchJob.kind) + " · " + root.textFor("native.batch." + (vless.nativeBatchUnknown ? "unknown" : vless.nativeBatchJob.state)) : ""; color: root.foreground; font.family: root.fontFamily; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; text: vless.nativeBatchJob ? root.textFor("native.batch.progress", {completed:vless.nativeBatchJob.completed,total:vless.nativeBatchJob.total}) : ""; color: root.dim; font.family: root.fontFamily }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeBatchErrorCode !== "" || (vless.nativeBatchJob !== null && vless.nativeBatchJob.errorCode !== ""); text: root.textFor(vless.nativeBatchErrorCode !== "" ? vless.nativeBatchErrorCode : "error." + (vless.nativeBatchJob ? vless.nativeBatchJob.errorCode : "capability_unavailable")); color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
+            Flow {
+              Layout.fillWidth: true
+              spacing: Style.space(8)
+              Button { id: nativeBatchCheck; visible: vless.nativeBatchUnknown; text: root.textFor("native.batch.check"); focusable: true; bordered: true; enabled: !vless.nativeBatchRequestRunning; onClicked: vless.retryNativeBatch() }
+              Button { id: nativeBatchCancel; visible: vless.nativeBatchBusy; text: root.textFor("common.cancel"); focusable: true; bordered: true; enabled: !vless.nativeBatchRequestRunning && vless.nativeBatchJob !== null && vless.nativeBatchJob.cancellable && !vless.nativeBatchJob.cancelRequested; onClicked: vless.cancelNativeBatch() }
+              Button { id: nativeBatchDismiss; visible: !vless.nativeBatchBusy; text: root.textFor("common.close"); focusable: true; bordered: true; onClicked: vless.dismissNativeBatch() }
+              Button { id: nativeBatchAbandon; visible: vless.nativeBatchAbandonable; text: root.textFor("native.acceptState"); focusable: true; bordered: true; onClicked: vless.abandonNativeBatch() }
+            }
+          }
           PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== ""; text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "saved" ? root.dim : root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
           Repeater {

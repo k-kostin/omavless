@@ -12,6 +12,7 @@ function context(){
     loadedRules:[],loadedRuleTotal:0,loadedRulesTruncated:false,loadedRuleProviders:[],loadedRuleProviderTotal:0,loadedRuleProvidersTruncated:false,advancedDiagnosticsLoadedAt:0,
     nativeDiagnosticsComponent:{createObject:(_root,properties)=>({...properties,running:false})},backendPath:'/synthetic/backend.sh',queued:[],rejected:0});
   c.root=c;c.Qt={callLater:fn=>c.queued.push(fn)};c.rejectNativeAction=()=>{c.rejected++;return false;};
+  c.startNativeBatch=kind=>{c.batchRequested=kind;return true;};
   for(const name of ['clearNativeDiagnosticsSample','invalidateNativeDiagnosticsIdentity','refreshNativeDiagnostics','finishNativeDiagnostics','refreshAdvancedDiagnostics','applyAdvancedDiagnostics','plainText','refreshRuleProviders']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start,name);vm.runInContext(source.slice(start,end),c);
@@ -55,7 +56,7 @@ test('actual Service fixed read updates display only, never current health or mu
   c._nativeDiagnosticsProcess=null;c.finishNativeDiagnostics(2,'instance',0,frame());
   assert.equal(c.loadedRules.length,1);assert.equal(c.loadedRuleProviders[0].refreshable,false);assert(c.advancedDiagnosticsLoadedAt>0);
   assert.equal(JSON.stringify(c.nativeSnapshot),snapshot);assert.equal(JSON.stringify(c.nativeObservation),observation);assert.equal(c.nativePending,null);
-  assert.equal(c.refreshRuleProviders(),false);assert.equal(c.rejected,1);
+  assert.equal(c.refreshRuleProviders(),true);assert.equal(c.batchRequested,'providers');assert.equal(c.nativePending,null);
 });
 test('private errors and malformed samples become fixed unavailable with empty rows',()=>{
   for(const [code,output] of [[2,'private-token'],[0,'private-token']]){
