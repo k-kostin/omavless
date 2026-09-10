@@ -240,12 +240,13 @@ Panel {
   }
 
   function nativeToggleConnection() {
-    if (!vless.nativeCanAct) return
-    if (nativeView.connected) vless.requestNativeAction("disconnect", "", "")
+    if (!vless.nativeCanAct) return false
+    if (nativeView.connected) return vless.requestNativeAction("disconnect", "", "")
     else if (nativeView.state === "disconnected") {
       var selected = nativeSelectedProfile || nativeView.lastProfileId
-      if (selected) vless.requestNativeAction("connect", selected, nativeView.mode)
+      if (selected) return vless.requestNativeAction("connect", selected, nativeView.mode)
     }
+    return false
   }
 
   function nativeLocalStatus() {
@@ -1434,12 +1435,14 @@ Panel {
     // VPN toggle, not panel visibility — open/close/show/hide already cover
     // the popup, and the bar's left click promises the same thing.
     function toggle(): string {
+      if (vless.nativeOwner) return root.nativeToggleConnection() ? "ok" : "error: native action unavailable"
       return vless.toggle() ? "ok" : "error: " + vless.actionRejection
     }
     function refresh(): string {
       return vless.refresh() ? "ok" : "error: " + vless.actionRejection
     }
     function down(): string {
+      if (vless.nativeOwner) return vless.requestNativeAction("disconnect", "", "") ? "ok" : "error: native action unavailable"
       return vless.disconnectAll() ? "ok" : "error: " + vless.actionRejection
     }
     function status(): string { return vless.statusText }
