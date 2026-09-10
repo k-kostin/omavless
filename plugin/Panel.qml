@@ -505,7 +505,7 @@ Panel {
   }
 
   function openSettings() {
-    if (vless.nativeOwner) { page = "settings"; nativeFlick.contentY = 0; return true }
+    if (vless.nativeOwner) { page = "settings"; nativeFlick.contentY = 0; vless.refreshNativeDesktopCapabilities(); return true }
     page = "settings"
     cursorActive = false
     if (settingsFlick) settingsFlick.contentY = 0
@@ -572,6 +572,7 @@ Panel {
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       if (page === "settings") targets.push(nativeSupportSetting.focusTarget)
+      if (page === "settings") targets = targets.concat([nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeHelpersRefresh.focusTarget])
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1806,6 +1807,48 @@ Panel {
             Layout.fillWidth: true
             PlainText { Layout.fillWidth: true; text: root.textFor("native.main.modeLabel"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             Button { id: nativeModeSetting; text: root.nativeModeLabel(root.nativeView.mode); focusable: true; bordered: false; foreground: root.foreground; onClicked: root.openSettings() }
+          }
+          PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.setup_startup"); foreground: root.foreground; fontFamily: root.fontFamily }
+          SettingsActionRow {
+            id: nativeHelpersRefresh
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("native.helpers.title")
+            description: root.textFor(vless.nativeDesktopLoading ? "common.loading" : vless.nativeDesktopCapabilities ? "native.helpers.scope" : "native.helpers.unavailable")
+            actionText: root.textFor("common.refresh")
+            actionEnabled: !vless.nativeDesktopLoading
+            onAction: vless.refreshNativeDesktopCapabilities()
+          }
+          SettingsActionRow {
+            id: nativeFileImportRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.file_import")
+            description: !vless.nativeDesktopCapabilities ? root.textFor("native.helpers.unavailable") : vless.nativeDesktopCapabilities.filePicker
+              ? root.textFor("settings.file_picker_provider", {provider:vless.nativeDesktopCapabilities.filePicker}) : root.textFor("settings.file_picker_missing")
+            actionText: root.textFor(vless.nativeDesktopCapabilities && vless.nativeDesktopCapabilities.filePicker ? "common.ready" : "common.copy_command")
+            actionEnabled: !!vless.nativeDesktopCapabilities && !vless.nativeDesktopCapabilities.filePicker && vless.nativeDesktopCapabilities.clipboardWriteAvailable && !vless.copying
+            onAction: vless.copyText(root.filePickerInstallCommand)
+          }
+          SettingsActionRow {
+            id: nativeProfileEditorRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.profile_editor")
+            description: root.textFor(!vless.nativeDesktopCapabilities ? "native.helpers.unavailable" : vless.nativeDesktopCapabilities.configEditorAvailable ? "settings.profile_editor_ready" : "settings.profile_editor_missing")
+            actionText: root.textFor(vless.nativeDesktopCapabilities && vless.nativeDesktopCapabilities.configEditorAvailable ? "common.ready" : "common.copy_command")
+            actionEnabled: !!vless.nativeDesktopCapabilities && !vless.nativeDesktopCapabilities.configEditorAvailable && vless.nativeDesktopCapabilities.clipboardWriteAvailable && !vless.copying
+            onAction: vless.copyText(root.profileEditorInstallCommand)
+          }
+          SettingsActionRow {
+            id: nativeQrExportRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.qr_export")
+            description: root.textFor(!vless.nativeDesktopCapabilities ? "native.helpers.unavailable" : vless.nativeDesktopCapabilities.qrEncoderAvailable ? "settings.qr_export_ready" : "settings.qr_export_missing")
+            actionText: root.textFor(vless.nativeDesktopCapabilities && vless.nativeDesktopCapabilities.qrEncoderAvailable ? "common.ready" : "common.copy_command")
+            actionEnabled: !!vless.nativeDesktopCapabilities && !vless.nativeDesktopCapabilities.qrEncoderAvailable && vless.nativeDesktopCapabilities.clipboardWriteAvailable && !vless.copying
+            onAction: vless.copyText(root.qrEncoderInstallCommand)
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.modeLabel"); foreground: root.foreground; fontFamily: root.fontFamily }
           RowLayout {

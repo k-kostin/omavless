@@ -10,7 +10,7 @@ function context(){
   const calls=[];
   const c=vm.createContext({NativePresentation:presentation,profileFilter:'',nativeExpanded:{},nativeSelectedProfile:'local',nativeSubscriptionId:'',pendingSubscriptionDelete:null,
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
-    vless:{nativeCanAct:true,nativeOwner:true,requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
+    vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
     nativeCursor:-1,nativeProfiles:{itemAt:()=>null},Qt:{callLater:f=>f()}});
   c.root=c;c.calls=calls;
   for(const name of ['nativeRecord','buildNativeRows','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
@@ -37,8 +37,8 @@ test('power toggles only verified connected or disconnected state',()=>{
   c.nativeView.connected=false;c.nativeView.state='unavailable';c.nativeToggleConnection();assert.equal(c.calls.length,0);
   c.nativeView.state='disconnected';c.vless.nativeCanAct=false;c.nativeToggleConnection();assert.equal(c.calls.length,0);
 });
-test('settings changes only page and scroll, locale reuses existing persistence',()=>{
-  const c=context();assert(c.openSettings());assert.equal(c.page,'settings');assert.equal(c.nativeFlick.contentY,0);assert.equal(c.calls.length,0);
+test('settings opens and reads helper inventory without runtime mutation, locale reuses existing persistence',()=>{
+  const c=context();assert(c.openSettings());assert.equal(c.page,'settings');assert.equal(c.nativeFlick.contentY,0);assert.deepEqual(c.calls,[['desktop-capabilities']]);
   assert.match(source,/id: nativeLanguageRow[^\n]*onAction: root.cycleLanguageSetting\(\)/);
 });
 test('familiar header, truthful states, same-height focusable controls and no outer power box',()=>{

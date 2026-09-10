@@ -7,6 +7,9 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.helpers.title": {"en":"Desktop helpers","ru":"Компоненты интерфейса"},
+  "native.helpers.scope": {"en":"Local file picker, editor and QR tools only; this is not a VPN readiness check.","ru":"Только выбор файлов, редактор и QR. Это не проверка готовности VPN."},
+  "native.helpers.unavailable": {"en":"Helper availability is unverified. Refresh to check.","ru":"Наличие компонентов не проверено. Нажмите «Обновить»."},
   "native.support.title": {"en":"Configuration report","ru":"Отчёт о конфигурации"},
   "native.support.scope": {"en":"Copies counts and configured preferences only. No profile links, live network checks or verified login activation.","ru":"Копирует только счётчики и настройки. Без ссылок профилей, проверок сети и подтверждения автозапуска."},
   "native.support.copy": {"en":"Copy report","ru":"Копировать отчёт"},

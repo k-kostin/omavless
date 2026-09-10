@@ -625,6 +625,11 @@ Item {
   property int statusFailureCount: 0
   property bool panelVisible: false
   onPanelVisibleChanged: {
+    if (!panelVisible) {
+      _nativeDesktopGeneration++
+      nativeDesktopCapabilities = null
+      if (_nativeDesktopRead) _nativeDesktopRead.running = false
+    }
     _nativeSupportGeneration++
     nativeSupportStatus = ""
     if (_nativeSupportRead) _nativeSupportRead.running = false
@@ -2384,6 +2389,51 @@ Item {
   }
 
   property string nativeSupportStatus: ""
+  property var nativeDesktopCapabilities: null
+  property bool nativeDesktopLoading: false
+  property int _nativeDesktopGeneration: 0
+  property var _nativeDesktopRead: null
+
+  function refreshNativeDesktopCapabilities() {
+    if (!nativeOwner || !panelVisible || nativeDesktopLoading) return false
+    nativeDesktopCapabilities = null
+    nativeDesktopLoading = true
+    _nativeDesktopRead = nativeDesktopComponent.createObject(root, {
+      command:["bash", backendPath, "native-desktop-capabilities"], generation:++_nativeDesktopGeneration})
+    if (!_nativeDesktopRead) { nativeDesktopLoading = false; return false }
+    _nativeDesktopRead.running = true
+    return true
+  }
+
+  function finishNativeDesktopCapabilities(generation, code, output) {
+    if (generation !== _nativeDesktopGeneration) return false
+    nativeDesktopLoading = false
+    nativeDesktopCapabilities = nativeOwner && panelVisible && code === 0 ? NativeSnapshot.desktopCapabilities(output) : null
+    return nativeDesktopCapabilities !== null
+  }
+
+  function completeNativeDesktopRead(process, generation, code, output) {
+    // A retired process must never clear a newer read's busy state or handle.
+    if (_nativeDesktopRead !== process) return false
+    _nativeDesktopRead = null
+    nativeDesktopLoading = false
+    return finishNativeDesktopCapabilities(generation, code, output)
+  }
+
+  Component {
+    id: nativeDesktopComponent
+    Process {
+      id: process
+      property int generation
+      property bool timedOut: false
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer timeout: Timer { interval: 10000; running: process.running; onTriggered: { process.timedOut = true; process.running = false } }
+      onExited: function(code) {
+        try { root.completeNativeDesktopRead(process, generation, timedOut ? -1 : code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
   property var _nativeSupportRead: null
   property bool _nativeSupportCopy: false
   property int _nativeSupportGeneration: 0

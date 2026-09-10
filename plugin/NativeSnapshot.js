@@ -1,4 +1,23 @@
 // SPDX-License-Identifier: MIT
+// Fixed local helper inventory only: no core/TUN readiness or live health.
+function desktopCapabilities(raw) {
+  try {
+    if (typeof raw !== "string" || raw.length > 2048) return null
+    // The helper emits a flat ASCII object. Refuse escapes, nesting and duplicate
+    // keys before JSON.parse can silently collapse them.
+    if (!/^\s*\{\s*"[A-Za-z0-9]+"\s*:\s*(?:true|false|null|1|"[a-z0-9]+")\s*(?:,\s*"[A-Za-z0-9]+"\s*:\s*(?:true|false|null|1|"[a-z0-9]+")\s*)*\}\s*$/.test(raw)) return null
+    var names = raw.match(/"[A-Za-z0-9]+"\s*:/g)
+    if (!names || names.length !== 7) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["schemaVersion", "clipboardReadAvailable", "clipboardWriteAvailable", "filePicker", "configEditorAvailable", "qrEncoderAvailable", "gtk4FallbackAvailable"])
+        || p.schemaVersion !== 1 || [null, "zenity", "kdialog", "yad"].indexOf(p.filePicker) < 0
+        || typeof p.clipboardReadAvailable !== "boolean" || typeof p.clipboardWriteAvailable !== "boolean"
+        || typeof p.configEditorAvailable !== "boolean" || typeof p.qrEncoderAvailable !== "boolean"
+        || p.gtk4FallbackAvailable !== false) return null
+    return {filePicker:p.filePicker, configEditorAvailable:p.configEditorAvailable,
+      qrEncoderAvailable:p.qrEncoderAvailable, clipboardWriteAvailable:p.clipboardWriteAvailable}
+  } catch (_) { return null }
+}
 // Independent diagnostic sample: this response has no daemon instance proof
 // and must never update connection health or ownership observations.
 function parseDiagnosticsSummary(raw) {
