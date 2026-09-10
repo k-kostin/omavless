@@ -84,6 +84,26 @@ pub(crate) fn collect() -> Value {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "explicit external HTTPS acceptance; fixed public targets, current host route"]
+    fn fixed_live_https_acceptance() {
+        // Call the exact production collector, including its aggregate deadline.
+        // Never format this private result in assertions or diagnostic output.
+        let result = collect();
+        assert_eq!(result["schemaVersion"], 1);
+        assert_eq!(result["scope"], "current_route_https");
+        assert!(
+            result["https"] == true && result["code"] == "ok",
+            "fixed current-route HTTPS observation failed; VPN health is not inferred"
+        );
+        assert!(
+            result["observedIp"]
+                .as_str()
+                .is_some_and(|ip| public_ip(ip.as_bytes()).is_some()),
+            "successful HTTPS observation must contain a valid private IP result"
+        );
+        assert!(result["elapsedMs"].as_u64().is_some_and(|ms| ms < 3000));
+    }
+    #[test]
     fn explicit_observation_has_bounded_ip_only() {
         let r = collect_with(|_, _| Some(b"203.0.113.7\n".to_vec()));
         assert_eq!(r["https"], true);

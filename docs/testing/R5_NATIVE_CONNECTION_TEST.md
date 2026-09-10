@@ -33,3 +33,38 @@ strict clippy, Python/JS/QML and actual installed-Quickshell component compilati
 pass. An initial concurrent-build run hit the existing process-cleanup timing
 test (`helper_resources_are_drained_even_after_leader_exit_or_term_spawn`);
 the complete isolated-target rerun passes without changing that test or runtime.
+
+## Try Omarchy ARM64 installed observation — 2026-09-10
+
+Combined installed source `fba22a12d82aef75cd1f225eb6e6b592d7c9ec2f`
+initially returned `request_failed` repeatedly while the connected Routing
+runtime remained healthy. No transport/lifecycle fix was applied. A later
+read-only sequence through the same installed `omavless runtime test` returned
+HTTPS success three consecutive times, at 1294 / 413 / 415 ms. Observed IPs
+were retained only inside the local process and omitted from evidence.
+
+A temporary category-only diagnostic observed one three-second timeout and
+later successful responses using the identical TLS/header/proxy policy. Current
+fixed-target DNS inventories contained IPv4 addresses only, so an IPv6-first
+failure is not established. Remote-route variability remains a possible cause,
+not a proven one. `request_failed` means the bounded external observation did
+not succeed; it is **not** a VPN connection-failure or leak verdict. The accepted
+three-second aggregate budget and certificate verification remain unchanged.
+
+The retained opt-in gate calls the exact production collector:
+
+```bash
+cargo test -p omavless-runtime --lib connection_test::tests::fixed_live_https_acceptance -- --ignored
+```
+
+It contacts only the two fixed public targets under current host routing,
+performs no store/service/tunnel mutation, and never formats the private result
+or raw transport errors. It is intentionally excluded from deterministic CI;
+external reachability failure is a failed observation, not implementation proof.
+This collector gate does not replace installed daemon admission, revision
+fencing, UI or TUN attribution acceptance.
+
+Follow-up local gates: five focused deterministic tests PASS (one explicit
+network gate ignored by default); the opt-in collector test PASS in 0.56 s;
+Rust formatting and `git diff --check` PASS. This follow-up changes only tests
+and evidence documentation, not production transport or lifecycle behavior.
