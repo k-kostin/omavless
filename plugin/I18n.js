@@ -7,6 +7,12 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.support.title": {"en":"Configuration report","ru":"Отчёт о конфигурации"},
+  "native.support.scope": {"en":"Copies counts and configured preferences only. No profile links, live network checks or verified login activation.","ru":"Копирует только счётчики и настройки. Без ссылок профилей, проверок сети и подтверждения автозапуска."},
+  "native.support.copy": {"en":"Copy report","ru":"Копировать отчёт"},
+  "native.support.loading": {"en":"Preparing configuration report…","ru":"Подготовка отчёта о конфигурации…"},
+  "native.support.copied": {"en":"Configuration report copied to clipboard.","ru":"Отчёт о конфигурации скопирован в буфер обмена."},
+  "native.support.failed": {"en":"Could not copy the report. Refresh the panel and check clipboard availability.","ru":"Не удалось скопировать отчёт. Обновите панель и проверьте доступность буфера обмена."},
   "common.edit": {"en":"Edit","ru":"Изменить"},
   "native.subscription.edit": {"en":"Edit subscription","ru":"Редактировать подписку"},
   "native.subscription.file": {"en":"Add subscription from file","ru":"Добавить подписку из файла"},

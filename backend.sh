@@ -43,6 +43,14 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-support-report)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless diagnostics export
+          ;;
+        native-clipboard-copy)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless desktop clipboard-copy
+          ;;
         native-routing-rules)
           [ "$#" -eq 1 ] || blocked
           exec omavless routing rules
