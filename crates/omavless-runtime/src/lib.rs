@@ -2254,6 +2254,52 @@ mod tests {
     }
 
     #[test]
+    fn plugin_custom_rules_are_instance_fenced_and_replay_safe() {
+        let base = temporary_base("plugin-custom-rules");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired = fs::read(&desired_path).unwrap();
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":hello["revision"],"operationId":"add-rule","action":"custom-rule-add","kind":"suffix","routeAction":"direct","value":"private.example"});
+        let mut stale = params.clone();
+        stale["instanceId"] = json!("old-instance");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        let mut stale = params.clone();
+        stale["expectedRevision"] = json!(999);
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let added = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(added["ok"], true);
+        assert!(!added.to_string().contains("private.example"));
+        let replay = call_plugin_action(&paths, params).unwrap();
+        assert_eq!(replay["result"], added["result"]);
+        assert_eq!(replay["revision"], added["revision"]);
+        let rules = call(&paths, "routing.custom_rules.list", json!({})).unwrap();
+        assert_eq!(rules["result"]["rules"].as_array().unwrap().len(), 1);
+        let delete = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":added["revision"],"operationId":"delete-rule","action":"custom-rule-delete","ruleId":rules["result"]["rules"][0]["id"]});
+        let deleted = call_plugin_action(&paths, delete.clone()).unwrap();
+        assert_eq!(deleted["ok"], true);
+        assert_eq!(
+            call_plugin_action(&paths, delete).unwrap()["revision"],
+            deleted["revision"]
+        );
+        worker.join().unwrap();
+        assert_eq!(effects.load(Ordering::Relaxed), 0);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn plugin_profile_actions_use_shared_fencing_replay_and_safe_results() {
         let base = temporary_base("plugin-profile-actions");
         let (mut owner, _, _) = native_owner_fixture(&base);

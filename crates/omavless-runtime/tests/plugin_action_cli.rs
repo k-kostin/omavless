@@ -34,6 +34,40 @@ fn private_invoke(
 }
 
 #[test]
+fn routing_cli_local_rejection_is_not_submitted_and_private() {
+    let base = test_temp::directory("routing-admission").unwrap();
+    let directory = base.join("omavless");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    for (action, input) in [
+        ("routing-preset", "unknown\non".into()),
+        (
+            "custom-rule-add",
+            "domain\ndirect\nhttps://private.invalid/token".into(),
+        ),
+        ("custom-rule-delete", "private-token".into()),
+        ("custom-rule-add", "x".repeat(1100)),
+    ] {
+        let output = private_invoke(&base, action, input.as_bytes(), &[]);
+        assert_eq!(output.status.code(), Some(74));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "OmaVLESS action was not submitted; review the input before retrying\n"
+        );
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn private_subscription_cli_maps_fixed_actions_without_echo() {
     let base = test_temp::directory("private-subscription-cli").unwrap();
     let directory = base.join("omavless");

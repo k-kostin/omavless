@@ -43,6 +43,14 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-routing-rules)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless routing rules
+          ;;
+        native-routing-check)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless routing check
+          ;;
         native-diagnostics-summary)
           [ "$#" -eq 1 ] || blocked
           exec omavless diagnostics summary
@@ -82,7 +90,7 @@ if command -v omavless >/dev/null 2>&1; then
             native-import-file) exec omavless desktop pick-import ;;
           esac
           ;;
-        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import|native-profile-replace|native-subscription-add|native-subscription-update|native-subscription-delete|native-subscription-refresh)
+        native-connect|native-disconnect|native-mode|native-profile-rename|native-profile-favorite|native-profile-delete|native-profile-import|native-profile-replace|native-subscription-add|native-subscription-update|native-subscription-delete|native-subscription-refresh|native-routing-preset|native-custom-rule-add|native-custom-rule-delete)
           action=${1#native-}
           shift
           exec omavless plugin "$action" "$@"

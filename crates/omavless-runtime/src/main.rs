@@ -76,6 +76,13 @@ fn run() -> Result<(), CliError> {
         println!("  plugin profile-favorite INSTANCE REVISION OPERATION stdin: ID newline on|off");
         println!("  plugin profile-delete INSTANCE REVISION OPERATION   stdin: ID");
         println!(
+            "  plugin routing-preset INSTANCE REVISION OPERATION   stdin: PRESET newline on|off (keep mode)"
+        );
+        println!(
+            "  plugin custom-rule-add INSTANCE REVISION OPERATION  stdin: KIND newline ACTION newline VALUE"
+        );
+        println!("  plugin custom-rule-delete INSTANCE REVISION OPERATION stdin: ID");
+        println!(
             "  plugin subscription-add INSTANCE REVISION OPERATION    stdin: NAME newline URL"
         );
         println!(
@@ -284,6 +291,9 @@ fn run() -> Result<(), CliError> {
                         | "subscription-update"
                         | "subscription-delete"
                         | "subscription-refresh"
+                        | "routing-preset"
+                        | "custom-rule-add"
+                        | "custom-rule-delete"
                 )
             });
     // This classification is valid only before dispatch. After entering the

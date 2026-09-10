@@ -463,12 +463,85 @@ Item {
   readonly property bool probingProfiles: probeProcess.running
   readonly property bool subscriptionEditorLoading: subscriptionUrlProcess.running
   signal subscriptionUrlReady(string uuid, string url)
+  property bool nativeRoutingToolsVisible: false
+  property string nativeRoutingErrorCode: ""
+  property var _nativeRoutingRead: null
+  property int _nativeRoutingGeneration: 0
+  property var _nativeRulesFence: null
+  property var _nativeRouteFence: null
+  readonly property bool nativeRoutingBusy: _nativeRoutingRead !== null || nativePending !== null
+  onNativeRoutingToolsVisibleChanged: {
+    clearNativeRouting()
+    if (!nativeRoutingToolsVisible && _nativeRoutingRead !== null) { _nativeRoutingRead.input = ""; _nativeRoutingRead.running = false }
+    if (nativeRoutingToolsVisible && nativeOwner) loadCustomRules()
+  }
+
+  function clearNativeRouting() {
+    _nativeRoutingGeneration++
+    customRules = []
+    routeCheckResult = null
+    _nativeRulesFence = null
+    _nativeRouteFence = null
+    nativeRoutingErrorCode = ""
+  }
+
+  function nativeRoutingCurrent(context) {
+    return !!(context && nativeOwner && nativeRoutingToolsVisible && nativeFactsCurrent
+      && context.generation === _nativeRoutingGeneration && context.instanceId === nativeSnapshot.instanceId
+      && context.revision === nativeSnapshot.revision)
+  }
+
+  function startNativeRoutingRead(kind, input) {
+    if (!nativeRoutingToolsVisible || !nativeFactsCurrent || nativeRoutingBusy) return false
+    nativeRoutingErrorCode = ""
+    if (kind === "check") routeCheckResult = null
+    var context = {kind:kind, generation:_nativeRoutingGeneration, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
+    _nativeRoutingRead = nativeRoutingReadComponent.createObject(root, {
+      command:["bash", backendPath, kind === "rules" ? "native-routing-rules" : "native-routing-check"],
+      context:context, input:input || "", stdinEnabled:kind === "check"})
+    if (!_nativeRoutingRead) { nativeRoutingErrorCode = "error.capability_unavailable"; return false }
+    _nativeRoutingRead.running = true
+    return true
+  }
+
+  function finishNativeRoutingRead(context, code, output) {
+    if (!nativeRoutingCurrent(context)) return
+    var result = code === 0 ? (context.kind === "rules" ? NativeSnapshot.parseCustomRules(output, context.revision)
+      : NativeSnapshot.parseRouteCheck(output, context.revision)) : null
+    if (result === null) { nativeRoutingErrorCode = "error.capability_unavailable"; return }
+    if (context.kind === "rules") { customRules = result; _nativeRulesFence = context }
+    else { routeCheckResult = result; _nativeRouteFence = context }
+  }
+
+  function requestNativeRoutingAction(action, input) {
+    if (!nativeCanAct || nativeRoutingBusy) return false
+    if (["routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(action) < 0) return false
+    var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      operationId:operation, action:action, command:args, input:input}
+    clearNativeRouting()
+    nativeActionCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    return true
+  }
+
+  function finishNativeRoutingAction(result, unknown) {
+    if (!nativePending || ["routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(nativePending.action) < 0) return
+    nativeRoutingErrorCode = unknown ? "error.daemon_restarting" : result.ok ? ""
+      : ["invalid_argument", "conflict", "busy", "not_found", "permission_denied", "manual_recovery_required", "transition_failed_restored"].indexOf(result.code) >= 0
+        ? "error." + result.code : "error.capability_unavailable"
+  }
+
   property var customRules: []
   property string routingToolStatus: ""
   property string routingToolError: ""
   property var routeCheckResult: null
-  readonly property bool routingToolsLoading: customRulesProcess.running
-  readonly property bool routeChecking: routeCheckProcess.running
+  readonly property bool routingToolsLoading: customRulesProcess.running || (_nativeRoutingRead !== null && _nativeRoutingRead.context.kind === "rules")
+  readonly property bool routeChecking: routeCheckProcess.running || (_nativeRoutingRead !== null && _nativeRoutingRead.context.kind === "check")
   property string _routeCheckInput: ""
   // Names of the profiles currently active
   readonly property var activeNames: {
@@ -1751,7 +1824,10 @@ Item {
   }
 
   function useRoutingPreset(profile, keepMode) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) {
+      if (!routingPresetById(String(profile || ""))) { nativeRoutingErrorCode = "error.invalid_argument"; return false }
+      return requestNativeRoutingAction("routing-preset", profile + "\n" + (keepMode ? "on" : "off"))
+    }
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var value = String(profile || "")
     if (!routingPresetById(value)) return rejectAction("unsupported routing preset")
@@ -1803,7 +1879,7 @@ Item {
   }
 
   function loadCustomRules() {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return startNativeRoutingRead("rules", "")
     if (customRulesProcess.running) return false
     routingToolError = ""
     customRulesProcess.command = ["bash", backendPath, "custom-rules"]
@@ -1812,7 +1888,14 @@ Item {
   }
 
   function addCustomRule(kind, action, value) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) {
+      var input = String(value || "").trim()
+      if (["domain", "suffix", "ipcidr"].indexOf(kind) < 0 || ["proxy", "direct", "reject"].indexOf(action) < 0
+          || !NativeSnapshot.text(input, 1024, false) || !NativeSnapshot.editorText(input, 1024)) {
+        nativeRoutingErrorCode = "error.invalid_argument"; return false
+      }
+      return requestNativeRoutingAction("custom-rule-add", kind + "\n" + action + "\n" + input)
+    }
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     var matchKind = String(kind || "")
     var routeAction = String(action || "")
@@ -1830,7 +1913,12 @@ Item {
   }
 
   function deleteCustomRule(rule) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) {
+      if (!rule || !nativeRoutingCurrent(_nativeRulesFence) || !customRules.some(function(r) { return r.id === rule.id })) {
+        nativeRoutingErrorCode = "error.conflict"; return false
+      }
+      return requestNativeRoutingAction("custom-rule-delete", rule.id)
+    }
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (!rule || !rule.id) return rejectAction("no such custom routing rule")
     routingToolError = ""
@@ -1849,7 +1937,13 @@ Item {
   }
 
   function checkRoute(value) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) {
+      var input = String(value || "").trim()
+      if (!NativeSnapshot.text(input, 1024, false) || !NativeSnapshot.editorText(input, 1024)) {
+        nativeRoutingErrorCode = "error.invalid_argument"; return false
+      }
+      return startNativeRoutingRead("check", input)
+    }
     if (routeCheckProcess.running) return false
     var query = String(value || "").trim()
     if (query === "" || query.length > 1024) {
@@ -2353,14 +2447,21 @@ Item {
   property var nativeQrExportProcess: null
   property var nativeQrRenderProcess: null
   onNativeOwnerChanged: {
+    clearNativeRouting()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    if ((_nativeRulesFence && !nativeRoutingCurrent(_nativeRulesFence)) || (_nativeRouteFence && !nativeRoutingCurrent(_nativeRouteFence))) clearNativeRouting()
+    if (nativeOwner && nativeRoutingToolsVisible && nativeFactsCurrent && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotFailedChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativeFactsCurrentChanged: {
+    if (!nativeFactsCurrent) clearNativeRouting()
+    else if (nativeRoutingToolsVisible && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
+  }
   onNativePendingChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
   property string qrName: ""
   // The QR window is the only surface a QR request reports through — the
@@ -2910,6 +3011,7 @@ Item {
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
+      root.finishNativeRoutingAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       if (!result || exitCode === 73) {
         root.nativeOutcomeUnknown = true
         root.nativeActionCode = ""
@@ -2923,6 +3025,27 @@ Item {
       }
       root.nativeObservation = null
       root.refreshAfterChange()
+    }
+  }
+
+  Component {
+    id: nativeRoutingReadComponent
+    Process {
+      id: process
+      property var context
+      property string input: ""
+      onStarted: { if (stdinEnabled) write(input); input = ""; stdinEnabled = false }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) {
+        root._nativeRoutingRead = null
+        var stale = !root.nativeRoutingCurrent(context)
+        try { root.finishNativeRoutingRead(context, code, output.text) } finally { process.destroy() }
+        // A page reopen or a newer snapshot may have waited for this reader.
+        // Retry only stale reads, never a genuine backend/parser failure.
+        if (stale && root.nativeRoutingToolsVisible && root.nativeFactsCurrent && !root.nativeRoutingBusy && !root._nativeRulesFence)
+          Qt.callLater(root.loadCustomRules)
+      }
     }
   }
 
