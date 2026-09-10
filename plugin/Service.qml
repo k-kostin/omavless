@@ -647,6 +647,37 @@ Item {
     ruleUpdateAvailable: false
   })
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property bool nativeCoreSetupVisible: false
+  property var nativeCoreSetupFacts: null
+  property string nativeCoreSetupStatus: ""
+  property var _nativeCoreSetupRead: null
+  property int _nativeCoreSetupGeneration: 0
+  readonly property bool nativeCoreSetupBusy: _nativeCoreSetupRead !== null
+  onNativeCoreSetupVisibleChanged: {
+    _nativeCoreSetupGeneration++
+    nativeCoreSetupFacts = null
+    nativeCoreSetupStatus = ""
+    if (nativeCoreSetupVisible) refreshNativeCoreSetup()
+  }
+  function refreshNativeCoreSetup() {
+    if (!nativeOwner || !nativeCoreSetupVisible || _nativeCoreSetupRead !== null) return false
+    nativeCoreSetupFacts = null
+    nativeCoreSetupStatus = "loading"
+    _nativeCoreSetupRead = nativeCoreSetupComponent.createObject(root, {
+      generation:_nativeCoreSetupGeneration, command:["bash", backendPath, "native-core-readiness"]})
+    if (_nativeCoreSetupRead === null) { nativeCoreSetupStatus = "failed"; return false }
+    _nativeCoreSetupRead.running = true
+    return true
+  }
+  function finishNativeCoreSetup(process, code, output) {
+    _nativeCoreSetupRead = null
+    try {
+      if (!nativeOwner || !nativeCoreSetupVisible) return
+      if (process.generation !== _nativeCoreSetupGeneration) { refreshNativeCoreSetup(); return }
+      nativeCoreSetupFacts = code === 0 ? NativeSnapshot.parseCoreSetupFacts(output) : null
+      nativeCoreSetupStatus = nativeCoreSetupFacts === null ? "failed" : ""
+    } finally { process.destroy() }
+  }
   property var filePicker: ({ available: false, provider: "" })
   property var desktopHelpers: ({
     configEditorAvailable: false,
@@ -3484,6 +3515,19 @@ Item {
       onExited: function(code) {
         root.disposeNativeQrProcess("export", process, code, output.text, "")
       }
+    }
+  }
+
+  Component {
+    id: nativeCoreSetupComponent
+    Process {
+      id: process
+      property int generation: 0
+      running: false
+      property Timer watchdog: Timer { interval: 8000; running: process.running; onTriggered: process.signal(9) }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) { root.finishNativeCoreSetup(process, code, output.text) }
     }
   }
 

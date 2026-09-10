@@ -99,6 +99,7 @@ exit {code}
     def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
         self.action_native()
         for args, expected in [
+            (("native-core-readiness",), ["desktop", "core-readiness"]),
             (("native-routing-rules",), ["routing", "rules"]),
             (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
@@ -109,7 +110,7 @@ exit {code}
             self.assertEqual(result.returncode, 0)
             self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + item for item in expected]])
             self.trace.unlink()
-        for args in [("native-profile-qr",), ("native-profile-qr", "id", "private-token"), ("native-qr-render", "private-token")]:
+        for args in [("native-core-readiness", "private-token"), ("native-profile-qr",), ("native-profile-qr", "id", "private-token"), ("native-qr-render", "private-token")]:
             result = self.run_launcher(*args)
             self.assertEqual(result.returncode, 71)
             self.assertEqual(self.calls(), ["native:plugin:target"])
