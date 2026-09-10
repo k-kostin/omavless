@@ -1,0 +1,8 @@
+[
+  {"id":"first","at":1000,"rx":100,"tx":200,"rated":false,"rxRate":0,"txRate":0},
+  {"id":"increment","at":3000,"rx":300,"tx":600,"rated":true,"rxRate":100,"txRate":200},
+  {"id":"idle","at":4000,"rx":300,"tx":600,"rated":true,"rxRate":0,"txRate":0},
+  {"id":"counter-reset","at":5000,"rx":10,"tx":20,"rated":false,"rxRate":0,"txRate":0},
+  {"id":"closed-panel-gap","at":40000,"rx":1000,"tx":2000,"rated":false,"rxRate":0,"txRate":0},
+  {"id":"clock-not-advanced","at":40000,"rx":1100,"tx":2100,"rated":false,"rxRate":0,"txRate":0}
+]

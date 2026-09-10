@@ -275,6 +275,41 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn traffic_counters(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<crate::traffic::TrafficCounters, HostStepError> {
+        let deadline = Instant::now() + Duration::from_millis(500);
+        if !desired.connected {
+            return Err(HostStepError::Observation);
+        }
+        let valid = |facts: NativeLocalObservation| {
+            facts.owned_core_running
+                && facts.visible_mihomo_count == 1
+                && facts.visible_tun_count == 1
+                && facts.owned_controller_config_verified
+                && facts.desired_profile_matches_owned
+        };
+        if !valid(self.fresh_observation(desired)?) {
+            return Err(HostStepError::Observation);
+        }
+        let pid = self.core_pid().ok_or(HostStepError::Observation)?;
+        let sample = crate::traffic::read(
+            &self.paths.proc_root,
+            &self.paths.sys_class_net,
+            pid,
+            desired.generation,
+        )
+        .ok_or(HostStepError::Observation)?;
+        let core_alive = self
+            .core
+            .as_mut()
+            .is_some_and(|core| core.pid() == Some(pid) && core.running().unwrap_or(false));
+        if !core_alive || Instant::now() >= deadline {
+            return Err(HostStepError::Observation);
+        }
+        Ok(sample)
+    }
     fn fresh_observation(
         &mut self,
         desired: &DesiredState,
