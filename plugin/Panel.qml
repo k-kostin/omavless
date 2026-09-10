@@ -330,6 +330,19 @@ Panel {
     })
   }
 
+  function nativeStartupSummaryText() {
+    // Stored preferences only, never evidence of an enabled login service.
+    if (!vless.nativeOwner || vless.nativeSnapshotFailed || !vless.nativeSnapshot)
+      return textFor("native.startup.unavailable")
+    var startup = vless.nativeSnapshot.startup
+    if (!startup || !startup.configured) return textFor("native.startup.unconfigured")
+    if (!startup.enabled) return textFor("startup.off")
+    return textFor("startup.summary", {
+      target: textFor(startup.target === "last" ? "startup.last_used" : "native.startup.specific"),
+      mode: textFor(startup.mode === "global" ? "mode.full_vpn" : "mode.routing")
+    })
+  }
+
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
@@ -1849,6 +1862,14 @@ Panel {
             actionText: root.textFor(vless.nativeDesktopCapabilities && vless.nativeDesktopCapabilities.qrEncoderAvailable ? "common.ready" : "common.copy_command")
             actionEnabled: !!vless.nativeDesktopCapabilities && !vless.nativeDesktopCapabilities.qrEncoderAvailable && vless.nativeDesktopCapabilities.clipboardWriteAvailable && !vless.copying
             onAction: vless.copyText(root.qrEncoderInstallCommand)
+          }
+          SettingsActionRow {
+            id: nativeStartupSummaryRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.start_at_login")
+            description: root.nativeStartupSummaryText() + "\n" + root.textFor("native.startup.scope")
+            actionVisible: false
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.main.modeLabel"); foreground: root.foreground; fontFamily: root.fontFamily }
           RowLayout {
@@ -3623,6 +3644,7 @@ Panel {
     property string description: ""
     property string actionText: ""
     property bool actionEnabled: true
+    property bool actionVisible: true
     readonly property Item focusTarget: actionButton
     signal action()
 
@@ -3664,10 +3686,11 @@ Panel {
 
       Button {
         id: actionButton
+        visible: settingRow.actionVisible
         text: settingRow.actionText
         bordered: true
         enabled: settingRow.actionEnabled
-        focusable: settingRow.actionEnabled
+        focusable: settingRow.actionEnabled && settingRow.actionVisible
         Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
         foreground: enabled ? root.foreground : root.dim
         fontFamily: root.fontFamily

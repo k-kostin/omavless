@@ -23,3 +23,11 @@ instruction without execution, and unchanged VPN runtime ownership.
 This checkpoint does not complete R5/R6, verify autoconnect, or permit removal
 of the retained Python oracle. Exact-head visual acceptance is recorded by the
 installing agent separately.
+
+The follow-up startup row uses the already validated native UI snapshot only.
+It distinguishes missing metadata, unconfigured preferences, configured Off and
+configured last/specific profile plus Routing/Full VPN. It never displays private
+profile identity and always states that login activation is unverified. There
+is no Configure button or mutation. The existing SettingsActionRow gains an
+explicit optional hidden action, defaulting to its unchanged legacy behavior.
+Onboarding completion is not presented as setup/core readiness.

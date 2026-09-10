@@ -62,4 +62,30 @@ test('old controls, explicit clipboard actions, focus and watchdog contract',()=
  assert(component.includes('property Timer timeout: Timer')); assert(component.includes('timedOut ? -1 : code'));
  assert(!component.includes('coreSetup')); assert(!component.includes('console.'));
 });
+test('startup stored preference rendering is EN/RU, read-only and identity-free',()=>{
+ const panel=fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');
+ const i18n=require('../plugin/I18n.js');
+ const start=panel.indexOf('  function nativeStartupSummaryText('),end=panel.indexOf('\n  }',start)+4;
+ for(const locale of ['en','ru']) {
+  const c=vm.createContext({vless:{nativeOwner:true,nativeSnapshotFailed:false,nativeSnapshot:{startup:{configured:true,enabled:false,target:'last',mode:'rule'}}},textFor:(key,values)=>i18n.translate(key,locale,values||{})});
+  vm.runInContext(panel.slice(start,end),c);
+  assert.equal(c.nativeStartupSummaryText(),i18n.translate('startup.off',locale));
+  c.vless.nativeSnapshot.startup.configured=false;
+  assert.equal(c.nativeStartupSummaryText(),i18n.translate('native.startup.unconfigured',locale));
+  c.vless.nativeSnapshot.startup.configured=true; c.vless.nativeSnapshot.startup.enabled=true;
+  for(const target of ['last','profile']) for(const mode of ['rule','global']) {
+   Object.assign(c.vless.nativeSnapshot.startup,{target,mode});
+   const value=c.nativeStartupSummaryText();
+   assert.equal(value,i18n.translate('startup.summary',locale,{target:i18n.translate(target==='last'?'startup.last_used':'native.startup.specific',locale),mode:i18n.translate(mode==='rule'?'mode.routing':'mode.full_vpn',locale)}));
+  }
+  c.vless.nativeSnapshotFailed=true; assert.equal(c.nativeStartupSummaryText(),i18n.translate('native.startup.unavailable',locale));
+  c.vless.nativeSnapshotFailed=false; c.vless.nativeSnapshot=null; assert.equal(c.nativeStartupSummaryText(),i18n.translate('native.startup.unavailable',locale));
+ }
+ const fn=panel.slice(start,end); assert(!fn.includes('profileId')); assert(!fn.includes('.name')); assert(!fn.includes('requestNativeAction'));
+ const row=panel.slice(panel.indexOf('id: nativeStartupSummaryRow'),panel.indexOf('id: nativeStartupSummaryRow')+400);
+ assert(row.includes('actionVisible: false')); assert(row.includes('native.startup.scope')); assert(!row.includes('onAction:'));
+ assert(panel.includes('property bool actionVisible: true'));
+ assert(panel.includes('focusable: settingRow.actionEnabled && settingRow.actionVisible'));
+ assert(panel.includes('text: settingRow.description')); // Existing PlainText sink.
+});
 console.log(`${count} native Settings readiness tests passed`);

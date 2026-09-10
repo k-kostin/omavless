@@ -7,6 +7,10 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.startup.scope": {"en":"Stored preference only. Login activation is unverified; editing is not yet available in the native panel.","ru":"Только сохранённая настройка. Автозапуск не проверен; изменение в панели Rust пока недоступно."},
+  "native.startup.unavailable": {"en":"Stored preference unavailable","ru":"Сохранённая настройка недоступна"},
+  "native.startup.unconfigured": {"en":"Preference not configured","ru":"Настройка не задана"},
+  "native.startup.specific": {"en":"Specific profile","ru":"Определённый профиль"},
   "native.helpers.title": {"en":"Desktop helpers","ru":"Компоненты интерфейса"},
   "native.helpers.scope": {"en":"Local file picker, editor and QR tools only; this is not a VPN readiness check.","ru":"Только выбор файлов, редактор и QR. Это не проверка готовности VPN."},
   "native.helpers.unavailable": {"en":"Helper availability is unverified. Refresh to check.","ru":"Наличие компонентов не проверено. Нажмите «Обновить»."},
