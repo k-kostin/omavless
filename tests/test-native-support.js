@@ -59,4 +59,9 @@ test('native clipboard and UI bounded lifecycle contract',()=>{
  assert(panel.includes('targets.push(nativeSupportSetting.focusTarget)'));
  assert(panel.includes('onAction: vless.copyNativeConfigurationReport()'));
 });
+test('Process watchdog uses an explicit QML property',()=>{
+ const component=source.slice(source.indexOf('id: nativeSupportComponent'),source.indexOf('onExited: function(code)',source.indexOf('id: nativeSupportComponent')));
+ assert(component.includes('property Timer timeout: Timer'));
+ assert(!/\n\s+Timer \{/.test(component));
+});
 console.log(`${count} native support-report tests passed`);
