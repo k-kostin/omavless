@@ -453,6 +453,26 @@ Panel {
   // fine. Duplicates are refused: every name-based entry point in the
   // widget treats an ambiguous name as an error, so don't let one be made.
   readonly property string renameClean: renameWindow.value.trim()
+  property var pendingFileExport: null
+  function requestFileExport(profile) {
+    if (!vless.nativeCanAct || !profile || vless.nativeFileExportProcess !== null) return
+    pendingFileExport = {profile:profile, instanceId:vless.nativeSnapshot.instanceId, revision:vless.nativeSnapshot.revision}
+    exportWindow.openWith("")
+    root.close()
+  }
+  function cancelFileExport() {
+    pendingFileExport = null
+    exportWindow.value = ""
+    exportWindow.dismiss()
+  }
+  function confirmFileExport() {
+    var context = pendingFileExport
+    if (!context || !vless.nativeCanAct || context.instanceId !== vless.nativeSnapshot.instanceId
+        || context.revision !== vless.nativeSnapshot.revision) { cancelFileExport(); return }
+    vless.exportToPath(context.profile, exportWindow.value)
+    cancelFileExport()
+    root.open()
+  }
   readonly property bool renameNameValid: vless.isValidName(renameClean)
   readonly property bool renameDuplicate: renameClean !== ""
     && (pendingRename === null || renameClean !== pendingRename.name)
@@ -1287,6 +1307,7 @@ Panel {
       onboardingDismissed = false
       if (vless.qrVisible) vless.closeQr()
       cancelRename()
+      cancelFileExport()
       // The error surface is back on screen; whatever happens to the editor
       // now needs no rescue.
       editHandedOff = false
@@ -1784,6 +1805,15 @@ Panel {
               }
             }
           }
+
+          PlainText {
+            Layout.fillWidth: true
+            visible: vless.nativeFileExportStatus !== ""
+            text: vless.nativeFileExportStatus !== "" ? root.textFor("native.fileExport." + vless.nativeFileExportStatus) : ""
+            color: vless.nativeFileExportStatus === "failed" ? root.urgent : root.dim
+            font.family: root.fontFamily
+            wrapMode: Text.Wrap
+          }
           RowLayout {
             visible: root.page !== "main"
             Layout.fillWidth: true
@@ -1930,7 +1960,7 @@ Panel {
               readonly property var profile: isProfile ? modelData.profile : null
               readonly property bool selected: isProfile && root.nativeSelectedProfile === profile.id
               readonly property var record: isProfile ? root.nativeRecord(profile) : null
-              property var focusTargets: isProfile ? [nativeChoose, rowRename, rowPin, rowDelete, rowQr, rowEdit] : [nativeGroup]
+              property var focusTargets: isProfile ? [nativeChoose, rowRename, rowPin, rowDelete, rowQr, rowExport, rowEdit] : [nativeGroup]
               Layout.fillWidth: true
               spacing: Style.space(4)
               RowLayout {
@@ -1958,6 +1988,7 @@ Panel {
                 PanelActionButton { id: rowPin; size: Style.space(24); iconText: nativeRow.isProfile && nativeRow.profile.favorite ? "󰓎" : "󰓒"; tooltipText: root.textFor(nativeRow.isProfile && nativeRow.profile.favorite ? "native.unpin" : "native.pin"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.toggleFavorite(nativeRow.record) }
                 PanelActionButton { id: rowDelete; size: Style.space(24); iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestDelete(nativeRow.record) }
                 PanelActionButton { id: rowQr; size: Style.space(24); iconText: "󰐲"; tooltipText: root.textFor("native.main.qr"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.showQr(nativeRow.record) }
+                PanelActionButton { id: rowExport; size: Style.space(24); iconText: "󰈔"; tooltipText: root.textFor("native.fileExport.title"); focusable: true; enabled: vless.nativeCanAct && vless.nativeFileExportProcess === null && nativeRow.isProfile; onClicked: root.requestFileExport(nativeRow.record) }
                 PanelActionButton { id: rowEdit; size: Style.space(24); iconText: "󰏫"; tooltipText: root.textFor("native.editor.open"); focusable: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && nativeRow.record !== null && !nativeRow.record.managed; onClicked: { if (root.handOffToEditor(nativeRow.record)) root.close() } }
               }
               }
@@ -3531,6 +3562,26 @@ Panel {
     fontFamily: root.fontFamily
     onConfirmed: root.confirmRename()
     onCanceled: root.cancelRename()
+  }
+
+  RenameWindow {
+    id: exportWindow
+    anchorItem: button
+    open: root.pendingFileExport !== null
+    title: root.textFor("native.fileExport.title")
+    placeholder: root.textFor("native.fileExport.path")
+    hint: root.textFor("native.fileExport.warning")
+    accepted: root.pendingFileExport !== null && vless.validNativeExportPath(value)
+      && vless.nativeCanAct && vless.nativeSnapshot.instanceId === root.pendingFileExport.instanceId
+      && vless.nativeSnapshot.revision === root.pendingFileExport.revision
+    confirmLabel: root.textFor("common.export")
+    locale: root.uiLocale
+    foreground: root.foreground
+    dim: root.dim
+    urgent: root.urgent
+    fontFamily: root.fontFamily
+    onConfirmed: root.confirmFileExport()
+    onCanceled: root.cancelFileExport()
   }
 
   // Every cell in the grid holds its place from the moment the tunnel comes
