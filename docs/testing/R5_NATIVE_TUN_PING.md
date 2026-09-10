@@ -110,3 +110,73 @@ manifest JSON, Omarchy plugin validation, actual Quickshell component compilatio
 and `git diff --check` pass. Component compilation does not instantiate the
 panel or establish visual acceptance. Installed live binding/replacement and
 human visual gates remain pending on the final combined candidate.
+
+## Combined installed checkpoint — 2026-09-10
+
+Environment: Try Omarchy, Arch Linux ARM64 virtualized on Apple Silicon.
+Combined source: `51ee8204bc4a4816b5f0069cef180875846a367e`.
+Package: `omavless 0.0.0.r421.g51ee8204bc4a-1`.
+Installed binary SHA-256:
+`767ab191af807dc5b6b34b3d4248e05aa94781b5dbc6da99edb8a587e840c099`.
+This scratch composition includes the separately owned native UI/runtime PRs;
+it is not published `main` and is not standalone branch acceptance. The owner
+has explicitly withheld main push/merge permission pending the complete UI.
+
+The combined local gate passed 576 runtime tests, with one explicitly ignored
+external HTTPS opt-in; strict workspace/all-target clippy, 345 Python tests
+(four existing skips), all JS/QML contracts including nine ping checks, actual
+Quickshell component compilation, syntax/manifest/plugin validation and diff
+checks passed. Installed package identity and 25 runtime-relevant plugin files
+matched the composition. Compilation is not EN/RU visual acceptance.
+
+Initial installed sampling produced `unavailable`, `reply`, `reply`. An
+independent HTTPS observation failed in that run; it is not hidden or treated
+as proof of a broken tunnel. The existing HTTPS checkpoint also records earlier
+successful observations. These are separate network observations, not provider
+interoperability or all-route protection claims.
+
+The actual cancellation check observed a ping child owned by the runtime,
+then requested normal disconnect. The child was reaped before disconnect
+completed, its client finished, stale success was suppressed and the final
+state was disconnected. An earlier attempt that never observed a child was
+not counted as cancellation proof. No persistent network restriction, firewall
+change or fabricated protocol fixture was used.
+
+### Resumed-session verification
+
+After the VM restarted, the package/source identity remained unchanged but the
+temporary test scripts were gone. Both startup units were still disabled and
+there was no running core/TUN. The interrupted previous test had left durable
+connected intent. Explicit normal service startup followed by native disconnect
+restored Rule/disconnected without editing the private store or desired file.
+This is a restart/restoration observation, **not** login activation acceptance.
+
+Both installed-Mihomo opt-ins (`core_supervisor_mihomo`, `native_host_mihomo`)
+passed on this exact composition with `/usr/bin/mihomo` 1.19.30, linux arm64.
+An initial sandboxed attempt could not establish controller readiness; the same
+tests passed outside the agent sandbox. These two tests use isolated synthetic
+configurations without TUN or provider traffic, not the user's live profile.
+
+The resumed private live runs used the existing profile and fixed public ICMP
+target, publishing only classifications. Two short series stopped on
+`capability_unavailable`, after respectively `loss` and `reply, loss`. Neither
+series is reported as wholly successful. With the panel closed to exclude its
+automatic sampler, the final bounded series recorded:
+
+| Sample | ICMP outcome | Elapsed | Core/TUN after probe | Private controller |
+| --- | --- | --- | --- | --- |
+| 1 | loss | 2059 ms | 1 / 1, connected | verified |
+| 2 | reply | 72 ms | 1 / 1, connected | verified |
+| 3 | loss | 2050 ms | 1 / 1, connected | verified |
+
+Every resumed run executed disconnect in `finally`; final fresh observation
+confirmed Rule/disconnected, zero Mihomo/TUN and no manual-recovery state.
+Loss is a real unanswered ICMP observation, not an implementation PASS or a
+claim that VPN connectivity failed. Intermittent admission/observation refusal
+remains recorded; its specific internal cause has not been established.
+No real profile IDs, labels, credentials, target device names or raw private
+controller errors were copied into this report.
+
+Remaining declared gates: final installed EN/RU layout review, mode-replacement
+while a ping is running, and the complete R5/R6 frontend/login/retirement matrix.
+Do not infer those from the passing child-disconnect or synthetic mode tests.
