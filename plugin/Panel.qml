@@ -536,9 +536,8 @@ Panel {
   }
 
   function openRoutingTools() {
-    if (vless.nativeOwner) return false
-    vless.loadCustomRules()
     routingToolsPrompt.openTools()
+    vless.loadCustomRules()
   }
 
   function closeRoutingTools() {
@@ -568,7 +567,7 @@ Panel {
   function panelTabTargets() {
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeLanguageRow.focusTarget, nativeRule, nativeGlobal, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeRefresh]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -678,7 +677,7 @@ Panel {
 
   function applyFirstRoutingPreset(preset) {
     routingPresetPrompt.dismiss()
-    vless.useRoutingPreset(preset, false)
+    vless.useRoutingPreset(preset, vless.nativeOwner)
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -1319,6 +1318,7 @@ Panel {
     objectName: "omavlessService"
     settings: root.settings
     panelVisible: root.opened
+    nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
     trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
     pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
@@ -1815,6 +1815,28 @@ Panel {
             Button { id: nativeDirect; Layout.fillWidth: true; text: root.nativeModeLabel("direct"); foreground: root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.modeHelp"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          SettingsActionRow {
+            id: nativeRoutingPresetSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.routing_profile")
+            description: vless.nativeSnapshot && vless.nativeSnapshot.routing.storedPreset !== ""
+              ? root.textFor("settings.routing_selected", {name: root.routingPresetCountryText(vless.routingPresetById(vless.nativeSnapshot.routing.storedPreset))})
+              : root.textFor("settings.routing_choose")
+            actionText: root.textFor("common.configure")
+            actionEnabled: vless.nativeCanAct
+            onAction: routingPresetPrompt.openWith(vless.nativeSnapshot ? vless.nativeSnapshot.routing.storedPreset : "")
+          }
+          SettingsActionRow {
+            id: nativeRoutingToolsSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("settings.routing_tools")
+            description: root.textFor("settings.routing_tools_description", {count: root.localizedCount("custom_rule", vless.nativeSnapshot ? vless.nativeSnapshot.routing.customRuleCount : 0)})
+            actionText: root.textFor("common.open")
+            onAction: root.openRoutingTools()
+          }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings" && vless.nativeRoutingErrorCode !== ""; text: root.textFor(vless.nativeRoutingErrorCode); color: root.urgent; font.family: root.fontFamily; wrapMode: Text.Wrap }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeSubscriptionsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.subscriptions"); description: root.localizedCount("provider", root.nativeView.subscriptions.length); actionText: root.textFor("common.open"); onAction: root.openSubscriptions() }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
@@ -3198,13 +3220,13 @@ Panel {
         rules: vless.customRules
         result: vless.routeCheckResult
         loading: vless.routingToolsLoading || vless.routeChecking
-        busy: vless.busy || vless.routingToolsLoading || vless.routeChecking
-        refreshAvailable: vless.routing.ruleUpdateAvailable
+        busy: vless.busy || vless.routingToolsLoading || vless.routeChecking || (vless.nativeOwner && !vless.nativeCanAct)
+        refreshAvailable: !vless.nativeOwner && vless.routing.ruleUpdateAvailable
         rulesUpdatedLabel: vless.routing.rulesUpdatedAt > 0
           ? root.subscriptionAge(vless.routing.rulesUpdatedAt)
           : root.textFor("settings.rules_automatic")
-        statusText: vless.routingToolStatus
-        errorText: vless.routingToolError
+        statusText: vless.nativeOwner ? (vless.nativeRoutingBusy ? root.textFor("native.pending") : "") : vless.routingToolStatus
+        errorText: vless.nativeOwner ? (vless.nativeRoutingErrorCode !== "" ? root.textFor(vless.nativeRoutingErrorCode) : "") : vless.routingToolError
         foreground: root.foreground
         dim: root.dim
         urgent: root.urgent
@@ -3223,7 +3245,7 @@ Panel {
         id: routingPresetPrompt
         anchors.fill: parent
         presets: vless.routingPresets
-        accepted: selectedPreset !== "" && !vless.busy
+        accepted: selectedPreset !== "" && !vless.busy && (!vless.nativeOwner || vless.nativeCanAct)
         foreground: root.foreground
         dim: root.dim
         fontFamily: root.fontFamily

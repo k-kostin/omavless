@@ -107,6 +107,30 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "action",
             "subscriptionId",
         ],
+        "routing-preset" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "preset",
+            "keepMode",
+        ],
+        "custom-rule-add" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "kind",
+            "routeAction",
+            "value",
+        ],
+        "custom-rule-delete" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "ruleId",
+        ],
         _ => return Err(InvalidArgument),
     };
     if !exact_fields(params, fields, fields) {
@@ -134,12 +158,23 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "subscription-update" => "subscriptions.update",
         "subscription-delete" => "subscriptions.delete",
         "subscription-refresh" => "subscriptions.refresh",
+        "routing-preset" => "routing.set_preset",
+        "custom-rule-add" => "routing.custom_rules.add",
+        "custom-rule-delete" => "routing.custom_rules.delete",
         _ => return Err(InvalidArgument),
     });
     let mapped = canonical["params"].as_object_mut().ok_or(InvalidArgument)?;
     mapped.remove("instanceId");
     mapped.remove("action");
-    if action == "subscription-refresh" {
+    if action == "custom-rule-add" {
+        let policy = mapped.remove("routeAction").ok_or(InvalidArgument)?;
+        mapped.insert("action".into(), policy);
+    }
+    if action == "routing-preset" {
+        crate::routing_preset::parse(&canonical)?;
+    } else if action.starts_with("custom-rule-") {
+        crate::custom_rule_protocol::parse(&canonical)?;
+    } else if action == "subscription-refresh" {
         crate::subscription_refresh_protocol::parse_subscription_refresh_request(&canonical)?;
     } else if action.starts_with("subscription-") {
         crate::subscription_mutation_protocol::parse_subscription_mutation_request(&canonical)?;
@@ -178,6 +213,11 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
         "subscription-add" => Some(crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
         "subscription-update" => Some(37 + crate::semantic_cli::MAX_SUBSCRIPTION_STDIN_BYTES),
         "subscription-delete" | "subscription-refresh" => Some(37),
+        "routing-preset" => Some(64 + 1 + 3 + 1),
+        "custom-rule-add" => {
+            Some(6 + 1 + 6 + 1 + omavless_domain::routing::MAX_CUSTOM_RULE_VALUE_BYTES)
+        }
+        "custom-rule-delete" => Some(37),
         _ => None,
     }
 }
@@ -204,6 +244,9 @@ pub fn cli_params(
                 "subscription-update",
                 "subscription-delete",
                 "subscription-refresh",
+                "routing-preset",
+                "custom-rule-add",
+                "custom-rule-delete",
             ]
             .iter()
             .any(|v| arg == v)
@@ -248,7 +291,10 @@ pub fn cli_params(
             | "subscription-add"
             | "subscription-update"
             | "subscription-delete"
-            | "subscription-refresh"),
+            | "subscription-refresh"
+            | "routing-preset"
+            | "custom-rule-add"
+            | "custom-rule-delete"),
             instance,
             revision,
             operation,
@@ -266,7 +312,66 @@ pub fn cli_params(
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
     }
-    if action.starts_with("subscription-") {
+    if matches!(
+        action,
+        "routing-preset" | "custom-rule-add" | "custom-rule-delete"
+    ) {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        let (args, value) = match action {
+            "routing-preset" => {
+                let (preset, keep) = input
+                    .strip_suffix('\n')
+                    .unwrap_or(input)
+                    .split_once('\n')
+                    .ok_or(InvalidArgument)?;
+                let mut args = vec!["routing".into(), "preset".into(), OsString::from(preset)];
+                match keep {
+                    "on" => args.push("keep-mode".into()),
+                    "off" => (),
+                    _ => return Err(InvalidArgument),
+                }
+                (args, None)
+            }
+            "custom-rule-add" => {
+                let (kind, rest) = input.split_once('\n').ok_or(InvalidArgument)?;
+                let (policy, value) = rest.split_once('\n').ok_or(InvalidArgument)?;
+                (
+                    vec![
+                        "routing".into(),
+                        "rule-add".into(),
+                        kind.into(),
+                        policy.into(),
+                    ],
+                    Some(value),
+                )
+            }
+            _ => (
+                vec![
+                    "routing".into(),
+                    "rule-delete".into(),
+                    input.strip_suffix('\n').unwrap_or(input).into(),
+                ],
+                None,
+            ),
+        };
+        let (_, mut mapped) =
+            crate::semantic_cli::parse_semantic_mutation(&args, value)?.into_parts();
+        if action == "custom-rule-add" {
+            let policy = mapped
+                .as_object_mut()
+                .ok_or(InvalidArgument)?
+                .remove("action")
+                .ok_or(InvalidArgument)?;
+            mapped["routeAction"] = policy;
+        }
+        params
+            .as_object_mut()
+            .ok_or(InvalidArgument)?
+            .extend(mapped.as_object().ok_or(InvalidArgument)?.clone());
+    } else if action.starts_with("subscription-") {
         let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
         if input.len() > cli_input_limit(arguments).ok_or(InvalidArgument)? {
             return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
@@ -362,6 +467,70 @@ mod tests {
         // Invalid cases must reach the parser rather than the checked builder.
         json!({"api":"omavless.control","version":1,"id":"test","method":"plugin.action","params":params})
     }
+    #[test]
+    fn routing_actions_reuse_canonical_parsers_and_disambiguate_policy_action() {
+        for (action, input, method, expected) in [
+            (
+                "routing-preset",
+                "china-cn-direct\non",
+                "routing.set_preset",
+                json!({"preset":"china-cn-direct","keepMode":true}),
+            ),
+            (
+                "routing-preset",
+                "iran-ir-direct\noff\n",
+                "routing.set_preset",
+                json!({"preset":"iran-ir-direct","keepMode":false}),
+            ),
+            (
+                "custom-rule-add",
+                "suffix\nproxy\nexample.invalid",
+                "routing.custom_rules.add",
+                json!({"kind":"suffix","action":"proxy","value":"example.invalid"}),
+            ),
+            (
+                "custom-rule-delete",
+                "00000000-0000-4000-8000-000000000001\n",
+                "routing.custom_rules.delete",
+                json!({"ruleId":"00000000-0000-4000-8000-000000000001"}),
+            ),
+        ] {
+            let args: Vec<_> = ["plugin", action, "instance", "7", "operation"]
+                .map(OsString::from)
+                .into();
+            let params = cli_params(&args, Some(input)).unwrap().unwrap();
+            assert_eq!(params["action"], action);
+            let canonical = parse(&request(params.clone())).unwrap().canonical;
+            assert_eq!(canonical["method"], method);
+            for (key, value) in expected.as_object().unwrap() {
+                assert_eq!(canonical["params"][key], *value);
+            }
+            for key in params.as_object().unwrap().keys() {
+                let mut changed = params.clone();
+                changed.as_object_mut().unwrap().remove(key);
+                assert!(parse(&request(changed)).is_err());
+            }
+            assert!(cli_params(&args, None).is_err());
+            for invalid in [String::new(), "private-token".into(), "x".repeat(1100)] {
+                assert!(cli_params(&args, Some(&invalid)).is_err());
+            }
+            let mut extra = args.clone();
+            extra.push("private-token".into());
+            assert!(cli_params(&extra, Some(input)).is_err());
+        }
+        let args: Vec<_> = ["plugin", "custom-rule-add", "instance", "7", "operation"]
+            .map(OsString::from)
+            .into();
+        for input in [
+            "unknown\nproxy\nexample.invalid",
+            "domain\nexecute\nexample.invalid",
+            "domain\nproxy\nhttps://private.invalid/token",
+            "domain\nproxy\nexample.invalid\nextra",
+        ] {
+            assert!(cli_params(&args, Some(input)).is_err());
+        }
+    }
+
     #[test]
     fn subscription_actions_have_exact_private_stdin_and_canonical_parsers() {
         let id = "10000000-0000-4000-8000-000000000001";

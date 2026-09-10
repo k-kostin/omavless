@@ -17,7 +17,7 @@ function context(){
     'requestNativeSubscriptionAction','finishNativeSubscriptionAction','reconcileNativeAction','acceptRefreshedNativeState','isValidName']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;assert(start>=0&&end>start,name);vm.runInContext(source.slice(start,end),c);
   }
-  c.root=c;c.nativeActionStdout={text:''};c.finishNativeEditorAction=()=>{};c.refreshAfterChange=()=>{};
+  c.root=c;c.nativeActionStdout={text:''};c.finishNativeEditorAction=()=>{};c.finishNativeRoutingAction=()=>{};c.refreshAfterChange=()=>{};
   const actionStart=source.indexOf('    id: nativeActionProcess');
   const handlerStart=source.indexOf('    onExited: function(exitCode) {',actionStart);
   const handlerEnd=source.indexOf('\n    }',handlerStart)+6;

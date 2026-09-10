@@ -201,11 +201,47 @@ function coherent(snapshot, observation) {
     && snapshot.desired.connected === observation.desired.connected && snapshot.desired.mode === observation.desired.mode)
 }
 
+function routingResult(raw, revision) {
+  if (!editorText(raw, 262144)) return null
+  var p = JSON.parse(raw)
+  return object(p, ["api", "version", "id", "ok", "revision", "result"])
+    && p.api === "omavless.control" && p.version === 1 && id(p.id, false)
+    && p.ok === true && number(p.revision, 9007199254740991) && p.revision === revision ? p.result : null
+}
+function parseCustomRules(raw, revision) {
+  try {
+    var r = routingResult(raw, revision)
+    if (!object(r, ["version", "rules"]) || r.version !== 1 || !Array.isArray(r.rules) || r.rules.length > 128) return null
+    var seen = Object.create(null), result = []
+    for (var i = 0; i < r.rules.length; i++) {
+      var v = r.rules[i]
+      if (!object(v, ["id", "kind", "action", "value"]) || !text(v.id, 36, false)
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.id) || seen[v.id]
+          || ["domain", "suffix", "ipcidr"].indexOf(v.kind) < 0 || ["proxy", "direct", "reject"].indexOf(v.action) < 0
+          || !text(v.value, 1024, false) || !editorText(v.value, 1024)) return null
+      seen[v.id] = true
+      result.push({id:v.id, kind:v.kind, action:v.action, value:v.value})
+    }
+    return result
+  } catch (_) { return null }
+}
+function parseRouteCheck(raw, revision) {
+  try {
+    var r = routingResult(raw, revision)
+    if (!object(r, ["version", "query", "outcome", "ruleType", "rulePayload", "target", "source"]) || r.version !== 1
+        || !text(r.query, 1024, false) || !editorText(r.query, 1024)
+        || ["vpn", "direct", "block", "unknown"].indexOf(r.outcome) < 0
+        || !text(r.ruleType, 80, true) || !text(r.rulePayload, 1024, true) || !editorText(r.rulePayload, 1024)
+        || !text(r.target, 80, true) || ["mode", "custom", "disconnected", "live"].indexOf(r.source) < 0) return null
+    return {query:r.query, outcome:r.outcome, ruleType:r.ruleType, rulePayload:r.rulePayload, target:r.target, source:r.source}
+  } catch (_) { return null }
+}
+
 function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
@@ -262,7 +298,7 @@ function parseImportPreview(raw, revision) {
 
 function parseActionExit(raw, pending, exitCode) {
   // Reserved CLI exit proves local rejection before socket dispatch.
-  if (exitCode === 74 && pending && ["profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh"].indexOf(pending.action) >= 0)
+  if (exitCode === 74 && pending && ["profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(pending.action) >= 0)
     return {ok:false, code:"invalid_argument"}
   return parseAction(raw, pending)
 }

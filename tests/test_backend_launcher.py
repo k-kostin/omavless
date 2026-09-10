@@ -99,6 +99,8 @@ exit {code}
     def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
         self.action_native()
         for args, expected in [
+            (("native-routing-rules",), ["routing", "rules"]),
+            (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
             (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),
             (("native-qr-render",), ["desktop", "qr-data-uri"]),
@@ -138,6 +140,9 @@ exec /usr/bin/cat
             ("profile-delete", []),
             ("profile-import", []),
             ("profile-replace", []),
+            ("routing-preset", []),
+            ("custom-rule-add", []),
+            ("custom-rule-delete", []),
         ]:
             with self.subTest(action=action):
                 args = ["instance-one", "4", "operation-one", *tail]
