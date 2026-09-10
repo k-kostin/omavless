@@ -87,6 +87,37 @@ function object(value, keys) {
   return found.length === keys.length && found.every(function(k) { return keys.indexOf(k) >= 0 })
 }
 
+function parsePing(raw, context) {
+  try {
+    if (typeof raw !== "string" || raw.length > 2048 || !context) return null
+    var p = envelope(raw), r = p && p.result
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true
+        || p.revision !== context.revision || !object(r, ["schemaVersion", "scope", "availability", "sample", "code", "instanceId"])
+        || r.schemaVersion !== 1 || r.scope !== "controller_attributed_tun_icmp" || r.instanceId !== context.instanceId) return null
+    if (r.availability === "unavailable")
+      return r.sample === null && r.code === "probe_unavailable" ? {available:false} : null
+    var s = r.sample
+    if (r.availability !== "observed" || !object(s, ["outcome", "latencyMs"])) return null
+    if (s.outcome === "loss") return s.latencyMs === null && r.code === "timeout" ? {available:true, value:-1} : null
+    return s.outcome === "reply" && r.code === "ok" && typeof s.latencyMs === "number"
+      && isFinite(s.latencyMs) && s.latencyMs >= 0 && s.latencyMs <= 3000 ? {available:true, value:s.latencyMs} : null
+  } catch (_) { return null }
+}
+
+// Same ten-sample arithmetic as the legacy addPingSample/pingLatency/pingLoss.
+function pingWindow(samples) {
+  var sum = 0, replies = 0, lost = 0
+  if (!Array.isArray(samples) || samples.length > 10) return null
+  for (var i = 0; i < samples.length; i++) {
+    var value = samples[i]
+    if (typeof value !== "number" || !isFinite(value) || value > 3000 || (value < 0 && value !== -1)) return null
+    if (value === -1) lost++
+    else { sum += value; replies++ }
+  }
+  return {count:samples.length, latency:replies ? sum / replies : null,
+    loss:samples.length ? Math.round(lost * 100 / samples.length) : null}
+}
+
 function parseTraffic(raw, context) {
   try {
     var p = envelope(raw)

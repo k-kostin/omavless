@@ -187,6 +187,7 @@ pub struct NativeLifecycleHost {
     readiness: Option<ConfigReadiness>,
     previous_config: Option<Option<Vec<u8>>>,
     active_install_attempted: bool,
+    ping_slot: std::sync::Arc<crate::tun_ping::PingSlot>,
 }
 
 impl NativeLifecycleHost {
@@ -224,6 +225,7 @@ impl NativeLifecycleHost {
             readiness: None,
             previous_config: None,
             active_install_attempted: false,
+            ping_slot: std::sync::Arc::default(),
         })
     }
 
@@ -275,6 +277,60 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn ping_binding(
+        &mut self,
+        desired: &DesiredState,
+        deadline: Instant,
+    ) -> Result<crate::tun_ping::Binding, HostStepError> {
+        let deadline = deadline.min(Instant::now() + Duration::from_millis(500));
+        if Instant::now() >= deadline || !desired.connected {
+            return Err(HostStepError::Observation);
+        }
+        let facts = self.fresh_observation(desired)?;
+        if !facts.owned_core_running
+            || facts.visible_mihomo_count != 1
+            || facts.visible_tun_count != 1
+            || !facts.owned_controller_config_verified
+            || !facts.desired_profile_matches_owned
+        {
+            return Err(HostStepError::Observation);
+        }
+        let pid = self.core_pid().ok_or(HostStepError::Observation)?;
+        let reported = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
+            pid,
+            omavless_mihomo::ReadOnlyEndpoint::Configs,
+            deadline,
+        )
+        .ok_or(HostStepError::Observation)?;
+        let device =
+            crate::traffic::controller_device(&reported).ok_or(HostStepError::Observation)?;
+        let sample =
+            crate::traffic::read_device(&self.paths.sys_class_net, pid, desired.generation, device)
+                .ok_or(HostStepError::Observation)?;
+        let after = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
+            pid,
+            omavless_mihomo::ReadOnlyEndpoint::Configs,
+            deadline,
+        )
+        .ok_or(HostStepError::Observation)?;
+        if crate::traffic::controller_device(&after) != Some(device)
+            || Instant::now() >= deadline
+            || !self
+                .core
+                .as_mut()
+                .is_some_and(|c| c.pid() == Some(pid) && c.running().unwrap_or(false))
+        {
+            return Err(HostStepError::Observation);
+        }
+        Ok(crate::tun_ping::Binding {
+            device: device.to_owned(),
+            identity: sample.identity,
+            slot: std::sync::Arc::clone(&self.ping_slot),
+            epoch: self.ping_slot.epoch().ok_or(HostStepError::Observation)?,
+        })
+    }
     fn traffic_counters(
         &mut self,
         desired: &DesiredState,
@@ -479,6 +535,9 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        if !self.ping_slot.revoke() {
+            return Err(HostStepError::Start);
+        }
         if self.core.is_some() || self.profile_id.is_none() {
             return Err(HostStepError::Start);
         }
@@ -515,6 +574,9 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn stop_owned(&mut self) -> Result<(), HostStepError> {
+        if !self.ping_slot.revoke() {
+            return Err(HostStepError::Stop);
+        }
         if let Some(mut core) = self.core.take()
             && core.stop(STOP_TIMEOUT).is_err()
         {
@@ -544,6 +606,9 @@ impl LifecycleHost for NativeLifecycleHost {
 
 impl Drop for NativeLifecycleHost {
     fn drop(&mut self) {
+        // Shutdown has no successor TUN. Cleanup is best effort in Drop;
+        // ordinary stop/start instead refuse if synchronous reaping is unproven.
+        let _ = self.ping_slot.revoke();
         if let Some(mut core) = self.core.take() {
             let _ = core.stop(STOP_TIMEOUT);
         }
@@ -620,6 +685,22 @@ mod tests {
         );
         assert!(!host.paths.active_config.exists());
         assert!(!host.paths.store.exists());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ping_tickets_are_revoked_before_host_stop_and_start() {
+        let (root, mut host) = observation_fixture();
+        let first = host.ping_slot.epoch().unwrap();
+        host.stop_owned().unwrap();
+        assert!(host.ping_slot.epoch().unwrap() > first);
+        let stopped = host.ping_slot.epoch().unwrap();
+        assert!(host.start_prepared().is_err());
+        assert!(host.ping_slot.epoch().unwrap() > stopped);
+        host.ping_slot.poison_for_test();
+        assert!(host.stop_owned().is_err());
+        assert!(host.start_prepared().is_err());
         drop(host);
         fs::remove_dir_all(root).unwrap();
     }

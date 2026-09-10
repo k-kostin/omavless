@@ -108,6 +108,9 @@ fn run() -> Result<(), CliError> {
         println!("  routing rule-delete RULE_ID       remove one custom rule");
         println!("  routing refresh-providers INSTANCE_ID OPERATION_ID [REVISION]");
         println!("  routing check                    read private domain/IP query from stdin");
+        println!(
+            "  runtime ping                     read one ASCII DNS/IP target from stdin; TUN-bound ICMP"
+        );
         println!("  onboarding complete              mark first-use setup complete");
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
@@ -322,6 +325,11 @@ fn run() -> Result<(), CliError> {
         ("status.get", json!({}))
     } else if arguments == ["capabilities"] {
         ("capabilities.get", json!({}))
+    } else if arguments == ["runtime", "ping"] {
+        let input = read_semantic_input(omavless_runtime::tun_ping::MAX_INPUT)?;
+        omavless_runtime::semantic_cli::parse_semantic_ping(&arguments, &input)
+            .map_err(|error| error.to_string())?
+            .into_parts()
     } else if arguments == ["routing", "check"] {
         let input = read_semantic_input(omavless_domain::routing::MAX_CUSTOM_RULE_VALUE_BYTES)?;
         omavless_runtime::semantic_cli::parse_semantic_route_check(&arguments, &input)

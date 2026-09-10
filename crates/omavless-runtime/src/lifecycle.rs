@@ -67,6 +67,13 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    fn ping_binding(
+        &mut self,
+        _desired: &DesiredState,
+        _deadline: std::time::Instant,
+    ) -> Result<crate::tun_ping::Binding, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     fn traffic_counters(
         &mut self,
         _desired: &DesiredState,

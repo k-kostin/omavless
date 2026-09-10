@@ -7,7 +7,7 @@ pkgdesc='Private native VPN runtime and semantic CLI (development checkpoint)'
 arch=('@ARCH@')
 url='https://github.com/k-kostin/omavless'
 license=('MIT')
-depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'ca-certificates' 'mihomo')
+depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'ca-certificates' 'mihomo' 'iputils')
 optdepends=('zenity: graphical file import and profile editing'
             'kdialog: alternative graphical file picker'
             'yad: alternative graphical file picker and editor'

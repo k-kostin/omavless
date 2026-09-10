@@ -136,6 +136,20 @@ pub fn parse_semantic_route_check(
     })
 }
 
+pub fn parse_semantic_ping(
+    arguments: &[OsString],
+    input: &str,
+) -> Result<SemanticRequest, SemanticCliError> {
+    if utf8(arguments)?.as_slice() != ["runtime", "ping"] {
+        return Err(SemanticCliError::InvalidCommand);
+    }
+    let host = crate::tun_ping::canonical_host(input).ok_or(SemanticCliError::InvalidArgument)?;
+    Ok(SemanticRequest {
+        method: "runtime.ping",
+        params: json!({"host":host}),
+    })
+}
+
 /// Explicit private input, never a raw method or caller-provided JSON envelope.
 pub fn parse_semantic_import_preview(
     arguments: &[OsString],
