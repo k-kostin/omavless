@@ -71,6 +71,10 @@ pub fn parse_semantic_read(
             method: "diagnostics.export",
             params: json!({}),
         }),
+        ["runtime", "test"] => Some(SemanticRequest {
+            method: "runtime.connection_test",
+            params: json!({}),
+        }),
         ["diagnostics", kind @ ("summary" | "rules" | "providers")] => Some(SemanticRequest {
             method: match *kind {
                 "summary" => "diagnostics.summary",

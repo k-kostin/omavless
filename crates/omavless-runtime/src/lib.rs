@@ -33,6 +33,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod batch_scheduler;
+mod connection_test;
 pub mod connection_transaction;
 pub mod core;
 mod core_group;
@@ -245,6 +246,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "runtime.connection_test",
     "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
@@ -1111,6 +1113,9 @@ impl RuntimeServer {
         if request["method"] == "routing.check" {
             return self.dispatch_route_check(request);
         }
+        if request["method"] == "runtime.connection_test" {
+            return self.dispatch_connection_test(request);
+        }
         if diagnostic_read::METHODS.contains(&request["method"].as_str().unwrap_or("")) {
             return self.dispatch_diagnostics(request);
         }
@@ -1220,6 +1225,79 @@ impl RuntimeServer {
             Ok(value) => success_response(id, current, value),
             Err(code) => error_response(id, current, code, false, None),
         }
+    }
+
+    fn dispatch_connection_test(
+        &self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.dispatch_connection_test_with(request, connection_test::collect)
+    }
+
+    fn dispatch_connection_test_with<F: FnOnce() -> Value>(
+        &self,
+        request: &Value,
+        collect: F,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        let id = request["id"].as_str().unwrap_or("invalid");
+        if !empty_params(request) {
+            return error_response(id, 0, StableErrorCode::InvalidArgument, false, None);
+        }
+        // A coherent private snapshot fences both sides of detached network I/O.
+        // It is retained internally, never copied into the probe response.
+        let mut read_request = request.clone();
+        read_request["method"] = json!("ui.snapshot");
+        let snapshot = {
+            let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                return error_response(id, 0, StableErrorCode::Busy, true, None);
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return dispatch_read_only(request, &self.instance_id);
+            };
+            let snapshot = owner.ui_snapshot(&read_request)?;
+            if snapshot["ok"] != true {
+                return Ok(snapshot);
+            }
+            if snapshot["result"]["desired"]["connected"] != true
+                || snapshot["result"]["lastKnownActual"] != "connected"
+            {
+                return error_response(
+                    id,
+                    owner.revision(),
+                    StableErrorCode::CapabilityUnavailable,
+                    false,
+                    None,
+                );
+            }
+            snapshot
+        };
+        let revision = snapshot["revision"].as_u64().unwrap_or(0);
+        let Some(_permit) = self.remote_fetches.try_acquire() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let result = collect();
+        let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+            return error_response(id, revision, StableErrorCode::Busy, true, None);
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return error_response(
+                id,
+                revision,
+                StableErrorCode::CapabilityUnavailable,
+                false,
+                None,
+            );
+        };
+        let current = owner.ui_snapshot(&read_request)?;
+        if current["ok"] != true {
+            return Ok(current);
+        }
+        if current != snapshot {
+            return error_response(id, owner.revision(), StableErrorCode::Conflict, true, None);
+        }
+        let mut result = result;
+        result["instanceId"] = json!(self.instance_id);
+        success_response(id, revision, result)
     }
 
     fn dispatch_diagnostics(
@@ -2531,6 +2609,79 @@ mod tests {
             before
         );
         worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn connection_test_requires_connected_owner_and_no_arbitrary_target() {
+        let base = temporary_base("connection-test-admission");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let req = make_request("test", "runtime.connection_test", json!({})).unwrap();
+        let reply = server
+            .dispatch_connection_test_with(&req, || panic!("disconnected must not fetch"))
+            .unwrap();
+        assert_eq!(reply["error"]["code"], "capability_unavailable");
+        let req = make_request(
+            "test",
+            "runtime.connection_test",
+            json!({"url":"https://private.invalid/secret"}),
+        )
+        .unwrap();
+        let reply = server
+            .dispatch_connection_test_with(&req, || panic!("invalid must not fetch"))
+            .unwrap();
+        assert_eq!(reply["error"]["code"], "invalid_argument");
+        assert!(!reply.to_string().contains("secret"));
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn connection_test_does_not_block_disconnect_and_rejects_stale_observation() {
+        let base = temporary_base("connection-test-detached");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let connected = server
+            .dispatch(
+                &make_request(
+                    "connect",
+                    "connection.connect",
+                    json!({"profileId":PROFILE_ID,"mode":"rule","operationId":"test-connect"}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(connected["ok"], true);
+        let req = make_request("test", "runtime.connection_test", json!({})).unwrap();
+        let before = calls.load(Ordering::Relaxed);
+        let result=server.dispatch_connection_test_with(&req,||json!({"schemaVersion":1,"scope":"current_route_https","https":true,"observedIp":"203.0.113.7","elapsedMs":1,"code":"ok"})).unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["result"]["instanceId"], server.instance_id);
+        assert_eq!(calls.load(Ordering::Relaxed), before);
+        let result = server
+            .dispatch_connection_test_with(&req, || {
+                let down = make_request(
+                    "down",
+                    "connection.disconnect",
+                    json!({"operationId":"test-disconnect"}),
+                )
+                .unwrap();
+                assert_eq!(server.dispatch(&down).unwrap()["ok"], true);
+                json!({"observedIp":"203.0.113.7"})
+            })
+            .unwrap();
+        assert_eq!(result["error"]["code"], "conflict");
+        assert!(!result.to_string().contains("203.0.113.7"));
+        drop(server);
         fs::remove_dir_all(base).unwrap();
     }
 

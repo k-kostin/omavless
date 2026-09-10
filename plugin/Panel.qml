@@ -571,6 +571,7 @@ Panel {
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
+      if (page === "main") targets.push(nativeTestButton)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1781,6 +1782,25 @@ Panel {
                   }
                 }
               }
+            }
+          }
+          ColumnLayout {
+            visible: root.page === "main" && root.nativeView.connected
+            Layout.fillWidth: true
+            RowLayout {
+              Layout.fillWidth: true
+              PlainText { Layout.fillWidth: true; text: root.textFor("native.test.title"); color: root.foreground; font.family: root.fontFamily }
+              Button { id: nativeTestButton; text: root.textFor(vless.nativeTestProcess ? "common.loading" : "action.test"); bordered: true; focusable: true; enabled: vless.nativeCanAct && vless.nativeTestProcess === null; onClicked: vless.startNativeConnectionTest() }
+            }
+            PlainText {
+              visible: vless.nativeTestStatus !== ""
+              Layout.fillWidth: true
+              text: root.textFor("native.test." + (vless.nativeTestStatus || "unavailable"), {ms:vless.nativeTestResult ? vless.nativeTestResult.elapsedMs : 0})
+                + (vless.nativeTestResult && vless.nativeTestResult.https && vless.showExitIp ? "\n" + root.textFor("settings.observed_exit_ip") + ": " + vless.nativeTestResult.observedIp : "")
+                + "\n" + root.textFor("native.test.scope")
+              color: vless.nativeTestStatus === "failed" ? root.urgent : root.dim
+              font.family: root.fontFamily
+              wrapMode: Text.Wrap
             }
           }
           RowLayout {

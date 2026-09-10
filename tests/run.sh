@@ -27,6 +27,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-snapshot.js"
   node "$here/test-native-actions.js"
   node "$here/test-native-main-panel.js"
+  node "$here/test-native-connection-test.js"
   node "$here/test-native-import.js"
   node "$here/test-native-subscriptions.js"
   node "$here/test-native-routing.js"

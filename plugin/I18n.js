@@ -7,6 +7,12 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.test.title": {"en":"HTTPS connection check","ru":"Проверка HTTPS-соединения"},
+  "native.test.loading": {"en":"Checking…","ru":"Проверка…"},
+  "native.test.ok": {"en":"HTTPS responded in {ms} ms","ru":"Ответ HTTPS за {ms} мс"},
+  "native.test.failed": {"en":"HTTPS request failed or timed out","ru":"Ошибка HTTPS-запроса или истекло время ожидания"},
+  "native.test.unavailable": {"en":"Check unavailable; refresh and try again","ru":"Проверка недоступна; обновите состояние и повторите"},
+  "native.test.scope": {"en":"This request follows current routing. It does not verify every route or rule out leaks.","ru":"Запрос использует текущую маршрутизацию. Это не проверка всех маршрутов или отсутствия утечек."},
   "common.edit": {"en":"Edit","ru":"Изменить"},
   "native.subscription.edit": {"en":"Edit subscription","ru":"Редактировать подписку"},
   "native.subscription.file": {"en":"Add subscription from file","ru":"Добавить подписку из файла"},
