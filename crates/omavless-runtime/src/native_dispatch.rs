@@ -247,6 +247,17 @@ fn profile_export_response(id: &str, revision: u64, uri: &str) -> Result<Value, 
     success_response(id, revision, json!({"format":"uri", "content":uri}))
 }
 
+pub(crate) fn respond_to_profile_details<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.profile_details(request) {
+        Ok(details) => success_response(id, owner.revision(), details.into_private_ui_value()),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Explicit private standalone editor payload; never ordinary status data.
 pub(crate) fn respond_to_profile_edit_input<H: LifecycleHost>(
     owner: &mut OfflineNativeCoordinator<H>,

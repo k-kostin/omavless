@@ -904,6 +904,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    pub(crate) fn profile_details(
+        &mut self,
+        request: &Value,
+    ) -> Result<omavless_domain::private_store::PrivateProfileDetails, NativeOwnerError> {
+        let parsed = crate::profile_read_protocol::parse_profile_details_request(request)?;
+        self.with_owned_private_store(|store| {
+            store
+                .profile_details(parsed.private_profile_id())
+                .map_err(|error| match error {
+                    PrivateStoreError::ProfileNotFound => NativeOwnerError::RecordNotFound,
+                    _ => NativeOwnerError::Invariant,
+                })
+        })
+    }
+
     /// Read one explicit subscription editor payload while exact native
     /// ownership and the shared private-store lock are continuously held.
     pub(crate) fn subscription_edit_input(

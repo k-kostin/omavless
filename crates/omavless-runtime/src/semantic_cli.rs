@@ -94,6 +94,10 @@ pub fn parse_semantic_read(
             method: "profiles.edit_input",
             params: json!({"profileId":record_id(id)?}),
         }),
+        ["profile", "details", id] => Some(SemanticRequest {
+            method: "profiles.details",
+            params: json!({"profileId":record_id(id)?}),
+        }),
         ["profile", "export", id, purpose @ ("qr" | "file")] => Some(SemanticRequest {
             method: "profiles.export",
             params: json!({"profileId":record_id(id)?, "purpose":purpose}),
@@ -729,6 +733,18 @@ mod tests {
 
     #[test]
     fn read_commands_map_to_exact_runtime_shapes() {
+        assert_eq!(
+            parse_semantic_read(&args(&["profile", "details", PROFILE]))
+                .unwrap()
+                .unwrap()
+                .into_parts(),
+            ("profiles.details", json!({"profileId":PROFILE}))
+        );
+        assert!(
+            parse_semantic_read(&args(&["profile", "details", PROFILE, "private-token"]))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             parse_semantic_read(&args(&["profile", "edit-input", PROFILE]))
                 .unwrap()

@@ -206,6 +206,7 @@ versioned and bounded.
 
 - `profiles.list`, `profiles.get` — safe metadata only;
 - `profiles.edit_input` — explicit sensitive standalone editor seed;
+- `profiles.details` — explicit private UI endpoint/transport facts for one record;
 - `imports.classify`, `profiles.import` — explicit bounded sensitive input;
 - `profiles.replace`, `profiles.rename`, `profiles.favorite`, `profiles.delete`;
 - `profiles.test` — bounded latency/availability;
@@ -213,6 +214,16 @@ versioned and bounded.
 
 Credential-bearing import/export data never appears in argv, ordinary status,
 logs or event broadcasts. V1 has no generic filesystem-write method.
+
+`profiles.details` accepts exactly `{"profileId": ID}` and returns version-1
+`version/name/protocol/server/transport/security/sni` fields under the native
+ownership/private-store read lease. This is intentional same-user private UI
+data, not ordinary status or shareable diagnostics. Credential fields, profile
+IDs, raw URI, credential hints and TUN addresses are excluded. Name is bounded
+by the store's 80-character limit, endpoint by 1018 bytes, SNI by 1012 bytes,
+protocol/security by 16 bytes and transport by 32 bytes. Frontends must use
+plain-text sinks and discard this read on detail closure, selected-record change
+or stale instance/revision. The fixed CLI is `profile details ID`.
 
 `profiles.edit_input` accepts exactly `{"profileId": ID}`, with no mutation
 metadata, path, seed text or purpose flag. Its fixed CLI is

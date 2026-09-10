@@ -61,6 +61,7 @@ fn run() -> Result<(), CliError> {
         );
         println!("  profile import                  read confirmed name + profile link from stdin");
         println!("  profile export PROFILE_ID qr|file  explicit private credential output");
+        println!("  profile details PROFILE_ID  explicit private endpoint metadata");
         println!("  profile edit-input PROFILE_ID    explicit private editor input");
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
