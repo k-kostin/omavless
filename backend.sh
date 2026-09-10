@@ -43,6 +43,10 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-desktop-capabilities)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless desktop capabilities
+          ;;
         native-support-report)
           [ "$#" -eq 1 ] || blocked
           exec omavless diagnostics export
