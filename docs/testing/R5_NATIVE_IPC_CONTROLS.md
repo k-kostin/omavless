@@ -16,3 +16,10 @@ connection is added. Python remains oracle. Deterministic tests cover native
 selection/fallback, connected/unavailable/rejected dispatch and legacy routing.
 Installed IPC connect/disconnect and unchanged one-owner observations remain
 required before merge; UI compilation alone is not lifecycle evidence.
+
+Profile-targeted IPC (edit, rename, QR and the separately composed file export)
+now resolves from validated native metadata instead of the intentionally empty
+legacy array. Exact IDs take precedence; duplicate names fail without enumerating
+private IDs or echoing input. All actions still use their existing generation,
+revision and capability admission. Ten deterministic resolver checks supplement
+the eight connection-dispatch checks. No new IPC method is introduced.

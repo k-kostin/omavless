@@ -16,3 +16,28 @@ c.vless.requestNativeAction=()=>false;assert.equal(c.down(),'error: native actio
 c.vless.nativeOwner=false;c.vless.toggle=()=>true;c.vless.disconnectAll=()=>true;
 assert.equal(c.toggle(),'ok');assert.equal(c.down(),'ok');
 console.log('native IPC controls: 8 checks passed');
+
+const service=fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
+const s=vm.createContext({nativeOwner:true,nativeCanAct:true,nativeSnapshot:{profiles:[
+  {id:'record-a',name:'Example',favorite:true,subscriptionId:''},
+  {id:'record-b',name:'Duplicate',favorite:false,subscriptionId:'subscription-a'},
+  {id:'record-c',name:'Duplicate',favorite:false,subscriptionId:'subscription-a'}]},
+  profiles:[],findByUuid:()=>{throw Error('legacy lookup')},findByName:()=>{throw Error('legacy lookup')}});
+for(const name of ['resolveTarget','countByName']) {
+  const start=service.indexOf('  function '+name+'('),end=service.indexOf('\n  }',start)+4;
+  assert(start>=0);vm.runInContext(service.slice(start,end),s);
+}
+assert.equal(s.resolveTarget('record-a').profile.name,'Example');
+assert.equal(s.resolveTarget('Example').profile.uuid,'record-a');
+assert.equal(s.resolveTarget('record-b').profile.managed,true);
+assert.equal(s.resolveTarget('Duplicate').profile,null);
+assert.equal(s.countByName('Duplicate'),2);
+const privateTarget='https://private.invalid/password=not-a-real-secret';
+assert.equal(s.resolveTarget(privateTarget).error,'no such profile');
+assert(!JSON.stringify(s.resolveTarget(privateTarget)).includes(privateTarget));
+assert.equal(s.resolveTarget('x'.repeat(161)).profile,null);
+s.nativeCanAct=false;assert.equal(s.resolveTarget('record-a').profile,null);
+s.nativeCanAct=true;s.nativeSnapshot=null;assert.equal(s.resolveTarget('record-a').profile,null);
+s.nativeOwner=false;s.findByUuid=value=>value==='legacy'?{uuid:value}:null;
+assert.equal(s.resolveTarget('legacy').profile.uuid,'legacy');
+console.log('native IPC profile resolution: 10 checks passed');

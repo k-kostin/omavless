@@ -1464,6 +1464,20 @@ Item {
   // profile model evolves.
   function resolveTarget(target) {
     var value = String(target || "")
+    if (nativeOwner) {
+      // Native metadata never populates the legacy profiles array. Resolve
+      // explicit desktop actions from the same validated snapshot as the UI.
+      // Do not echo unknown targets or enumerate IDs in public errors.
+      if (!nativeCanAct || !nativeSnapshot || value.length === 0 || value.length > 160)
+        return {profile:null, error:"native profile unavailable"}
+      var exact = nativeSnapshot.profiles.find(function(p) { return p.id === value })
+      var matches = exact ? [exact] : nativeSnapshot.profiles.filter(function(p) { return p.name === value })
+      if (matches.length !== 1)
+        return {profile:null, error:matches.length > 1 ? "ambiguous profile name; select by record ID" : "no such profile"}
+      var nativeProfile = matches[0]
+      return {profile:{uuid:nativeProfile.id, name:nativeProfile.name, favorite:nativeProfile.favorite,
+        managed:nativeProfile.subscriptionId !== ""}, error:""}
+    }
     var profile = findByUuid(value)
     if (profile) return { profile: profile, error: "" }
     var count = countByName(value)
@@ -1479,6 +1493,7 @@ Item {
 
   function countByName(name) {
     var value = String(name || "")
+    if (nativeOwner) return nativeSnapshot ? nativeSnapshot.profiles.filter(function(p) { return p.name === value }).length : 0
     var n = 0
     for (var i = 0; i < profiles.length; i++) {
       if ((profiles[i].rawName || profiles[i].name) === value) n++
