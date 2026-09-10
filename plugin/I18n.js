@@ -7,6 +7,11 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.supportExport.pending": {"en":"Exporting configuration report…","ru":"Экспорт отчёта о конфигурации…"},
+  "native.supportExport.saved": {"en":"Configuration report saved to a private file","ru":"Отчёт о конфигурации сохранён в приватный файл"},
+  "native.supportExport.failed": {"en":"Could not export the report. Check the destination and try again.","ru":"Не удалось экспортировать отчёт. Проверьте путь и повторите попытку."},
+  "native.support.export": {"en":"Export configuration report","ru":"Экспорт отчёта о конфигурации"},
+  "native.support.exportWarning": {"en":"Enter an absolute file path. Export replaces an existing regular file. This bounded configuration report contains no profile credentials and is not a live support bundle.","ru":"Введите абсолютный путь к файлу. Существующий обычный файл будет заменён. Этот ограниченный отчёт не содержит ключей профилей и не является полной диагностикой работающего VPN."},
   "native.support.title": {"en":"Configuration report","ru":"Отчёт о конфигурации"},
   "native.support.scope": {"en":"Copies counts and configured preferences only. No profile links, live network checks or verified login activation.","ru":"Копирует только счётчики и настройки. Без ссылок профилей, проверок сети и подтверждения автозапуска."},
   "native.support.copy": {"en":"Copy report","ru":"Копировать отчёт"},
