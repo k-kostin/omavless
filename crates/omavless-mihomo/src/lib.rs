@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 pub mod diagnostics;
 pub mod observation;
+pub mod probe_plan;
 pub mod route_observation;
 pub mod rule_provider;
 
@@ -39,7 +40,7 @@ pub const MAX_CORE_PATH_BYTES: usize = 4096;
 pub const MAX_SOCKET_PATH_BYTES: usize = 4096;
 pub const MAX_PROBE_TARGETS: usize = 64;
 pub const MAX_PROBE_ALIAS_BYTES: usize = 128;
-pub const PROBE_REQUESTS_PER_TARGET: usize = 9;
+pub const PROBE_REQUESTS_PER_TARGET: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -460,22 +461,21 @@ pub struct ProbeStep {
     pub sample_index: usize,
 }
 
-/// Build the fixed three-public-URL, three-sample sequence for already
-/// validated, IP-pinned isolated probe targets.
+/// Project group-round membership onto targets. This is NOT a list of HTTP
+/// requests: each URL is requested once for the whole group (see `probe_plan`).
 pub fn probe_schedule(target_count: usize) -> Result<Vec<ProbeStep>> {
     if target_count == 0 || target_count > MAX_PROBE_TARGETS {
         return Err(MihomoError::new(ErrorKind::InvalidArgument));
     }
     let mut steps = Vec::with_capacity(target_count * PROBE_REQUESTS_PER_TARGET);
-    for sample_index in 0..3 {
-        for url_index in 0..3 {
-            for target_index in 0..target_count {
-                steps.push(ProbeStep {
-                    target_index,
-                    url_index,
-                    sample_index,
-                });
-            }
+    let sample_index = 0;
+    for url_index in 0..PROBE_REQUESTS_PER_TARGET {
+        for target_index in 0..target_count {
+            steps.push(ProbeStep {
+                target_index,
+                url_index,
+                sample_index,
+            });
         }
     }
     Ok(steps)
@@ -862,7 +862,7 @@ mod tests {
     #[test]
     fn probe_schedule_is_deterministic_and_bounded() {
         let steps = probe_schedule(2).unwrap();
-        assert_eq!(steps.len(), 18);
+        assert_eq!(steps.len(), 6);
         assert_eq!(
             steps[0],
             ProbeStep {
