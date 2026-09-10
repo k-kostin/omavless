@@ -129,6 +129,25 @@ exec /usr/bin/cat
         self.assertEqual(result.stdout, synthetic)
         self.assertEqual(self.calls(), ["arg:desktop", "arg:qr-data-uri"])
 
+    def test_native_long_operation_launchers_are_fixed_and_bounded(self):
+        self.action_native()
+        for command, tail, expected in [
+            ("native-subscriptions-refresh-all", ["instance", "op", "4"], ["subscription", "refresh-all"]),
+            ("native-providers-refresh", ["instance", "op", "4"], ["routing", "refresh-providers"]),
+            ("native-operation-get", ["instance", "op"], ["operation", "get"]),
+            ("native-operation-cancel", ["instance", "op"], ["operation", "cancel"]),
+        ]:
+            result = self.run_launcher(command, *tail)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + value for value in expected + tail]])
+            self.trace.unlink()
+            for invalid in [tail[:-1], tail + ["private-token"]]:
+                result = self.run_launcher(command, *invalid)
+                self.assertEqual(result.returncode, 71)
+                self.assertNotIn("private-token", result.stderr)
+                self.assertEqual(self.calls(), ["native:plugin:target"])
+                self.trace.unlink()
+
     def test_native_actions_preserve_exact_fixed_mapping_and_arguments(self):
         self.action_native()
         for action, tail in [

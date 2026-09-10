@@ -43,6 +43,20 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-subscriptions-refresh-all|native-providers-refresh)
+          [ "$#" -eq 4 ] || blocked
+          case "$1" in
+            native-subscriptions-refresh-all) exec omavless subscription refresh-all "$2" "$3" "$4" ;;
+            native-providers-refresh) exec omavless routing refresh-providers "$2" "$3" "$4" ;;
+          esac
+          ;;
+        native-operation-get|native-operation-cancel)
+          [ "$#" -eq 3 ] || blocked
+          case "$1" in
+            native-operation-get) exec omavless operation get "$2" "$3" ;;
+            native-operation-cancel) exec omavless operation cancel "$2" "$3" ;;
+          esac
+          ;;
         native-routing-rules)
           [ "$#" -eq 1 ] || blocked
           exec omavless routing rules

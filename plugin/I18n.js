@@ -7,6 +7,17 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.batch.subscriptions": {"en":"Subscription update","ru":"Обновление подписок"},
+  "native.batch.providers": {"en":"Remote rules update","ru":"Обновление удалённых правил"},
+  "native.batch.queued": {"en":"Queued","ru":"В очереди"},
+  "native.batch.starting": {"en":"Starting","ru":"Запускается"},
+  "native.batch.running": {"en":"Running","ru":"Выполняется"},
+  "native.batch.succeeded": {"en":"Completed","ru":"Завершено"},
+  "native.batch.failed": {"en":"Failed","ru":"Ошибка"},
+  "native.batch.cancelled": {"en":"Cancelled","ru":"Отменено"},
+  "native.batch.unknown": {"en":"Result unconfirmed — check this operation before starting another","ru":"Результат не подтверждён — проверьте эту операцию перед запуском новой"},
+  "native.batch.progress": {"en":"{completed} / {total}","ru":"{completed} / {total}"},
+  "native.batch.check": {"en":"Check operation","ru":"Проверить операцию"},
   "common.edit": {"en":"Edit","ru":"Изменить"},
   "native.subscription.edit": {"en":"Edit subscription","ru":"Редактировать подписку"},
   "native.subscription.file": {"en":"Add subscription from file","ru":"Добавить подписку из файла"},

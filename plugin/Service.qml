@@ -31,6 +31,134 @@ Item {
     && nativeSnapshot.lastKnownActual !== "manualRecoveryRequired"
     && !nativeObservation.manualRecoveryRequired
   property int _nativeOperationSerial: 0
+  // Daemon jobs outlive the panel. They do not occupy nativePending, so an
+  // urgent Disconnect remains usable; the owner serializes competing writes.
+  property var nativeBatchJob: null
+  property bool nativeBatchUnknown: false
+  property string nativeBatchErrorCode: ""
+  property var _nativeBatchProcess: null
+  property int _nativeBatchFailures: 0
+  property int _nativeBatchPolls: 0
+  readonly property bool nativeBatchRequestRunning: _nativeBatchProcess !== null
+  readonly property bool nativeBatchBusy: nativeBatchJob !== null && !nativeBatchJob.terminal
+  readonly property bool nativeBatchAbandonable: nativeBatchUnknown && nativeBatchJob !== null && !nativeBatchJob.terminal
+    && !nativeBatchRequestRunning && nativeFactsCurrent && nativeSnapshot.instanceId !== nativeBatchJob.instanceId
+
+  function startNativeBatch(kind) {
+    if (!nativeCanAct || nativeBatchBusy || nativeBatchRequestRunning || ["subscriptions", "providers"].indexOf(kind) < 0) return false
+    var operation = "qml-batch-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    nativeBatchJob = {kind:kind, instanceId:nativeSnapshot.instanceId, operationId:operation,
+      revision:nativeSnapshot.revision, state:"starting", completed:0, total:0, cancellable:false,
+      cancelRequested:false, terminal:false, acknowledged:false, errorCode:""}
+    _nativeBatchFailures = 0; _nativeBatchPolls = 0
+    nativeBatchUnknown = false; nativeBatchErrorCode = ""
+    return runNativeBatchRequest("start")
+  }
+
+  function runNativeBatchRequest(kind) {
+    var job = nativeBatchJob
+    if (!job || job.terminal || nativeBatchRequestRunning || ["start", "get", "cancel"].indexOf(kind) < 0) return false
+    if (!nativeOwner || !nativeSnapshot || nativeSnapshot.instanceId !== job.instanceId) {
+      nativeBatchUnknown = true; nativeBatchErrorCode = "error.daemon_restarting"; return false
+    }
+    nativeBatchPoll.stop()
+    var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? "native-subscriptions-refresh-all" : "native-providers-refresh")
+      : kind === "get" ? "native-operation-get" : "native-operation-cancel", job.instanceId, job.operationId]
+    if (kind === "start") command.push(String(job.revision))
+    _nativeBatchProcess = nativeBatchComponent.createObject(root, {command:command, requestKind:kind, operation:job.operationId})
+    if (!_nativeBatchProcess) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return false }
+    _nativeBatchProcess.running = true
+    return true
+  }
+
+  function finishNativeBatchRequest(kind, operation, code, output) {
+    var job = nativeBatchJob
+    if (!job || job.operationId !== operation || job.terminal) return
+    var result = NativeSnapshot.parseOperation(output, job, kind)
+    // Never reinterpret an old instance's completion as current owner state.
+    if (!nativeOwner || !nativeSnapshot || nativeSnapshot.instanceId !== job.instanceId) result = null
+    if (!result || !result.ok) {
+      nativeBatchUnknown = true
+      nativeBatchErrorCode = result && result.code === "daemon_restarting" ? "error.daemon_restarting" : "error.capability_unavailable"
+      _nativeBatchFailures++
+      // A well-formed start rejection is terminal only before any dispatch
+      // uncertainty. Replay rejection after lost acknowledgement is ambiguous.
+      if (kind === "start" && result && !result.ok && !job.startUncertain && result.code !== "daemon_restarting" && code !== 73) {
+        var rejected = Object.assign({}, job, {state:"failed", terminal:true, errorCode:result.code})
+        nativeBatchJob = rejected; nativeBatchUnknown = false
+        nativeBatchErrorCode = nativeBatchPublicError(result.code)
+        refreshAfterChange()
+        return
+      }
+      if (kind === "start") nativeBatchJob = Object.assign({}, job, {startUncertain:true})
+      if (job.acknowledged && _nativeBatchFailures < 5 && _nativeBatchPolls < 300) {
+        nativeBatchPoll.interval = Math.min(30000, 2000 * Math.pow(2, _nativeBatchFailures))
+        nativeBatchPoll.start()
+      }
+      return
+    }
+    if (code !== 0) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return }
+    nativeBatchJob = Object.assign({}, job, result, {acknowledged:true})
+    nativeBatchUnknown = false; nativeBatchErrorCode = result.state === "failed" ? nativeBatchPublicError(result.errorCode) : ""
+    _nativeBatchFailures = 0
+    if (result.terminal) { refreshAfterChange(); if (diagnosticsPageVisible) refreshAdvancedDiagnostics(); return }
+    if (_nativeBatchPolls >= 300) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return }
+    nativeBatchPoll.interval = 2000
+    nativeBatchPoll.start()
+  }
+
+  function retryNativeBatch() {
+    if (!nativeBatchJob || nativeBatchJob.terminal || nativeBatchRequestRunning) return false
+    _nativeBatchFailures = 0; _nativeBatchPolls = 0
+    return runNativeBatchRequest(nativeBatchJob.acknowledged ? "get" : "start")
+  }
+
+  function nativeBatchPublicError(code) {
+    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_rejected", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
+      ? "error." + code : "error.capability_unavailable"
+  }
+
+  function cancelNativeBatch() {
+    if (!nativeBatchJob || !nativeBatchJob.acknowledged || !nativeBatchJob.cancellable || nativeBatchJob.cancelRequested) return false
+    return runNativeBatchRequest("cancel")
+  }
+
+  function dismissNativeBatch() {
+    if (nativeBatchRequestRunning || (nativeBatchJob && !nativeBatchJob.terminal)) return false
+    nativeBatchPoll.stop(); nativeBatchJob = null; nativeBatchUnknown = false; nativeBatchErrorCode = ""
+    return true
+  }
+
+  // Explicit acknowledgement of a lost old-epoch result, not a successful or
+  // cancelled job. Fresh coherent new-owner facts are required before release.
+  function abandonNativeBatch() {
+    if (!nativeBatchAbandonable) return false
+    nativeBatchPoll.stop(); nativeBatchJob = null; nativeBatchUnknown = false; nativeBatchErrorCode = ""
+    return true
+  }
+
+  Timer {
+    id: nativeBatchPoll
+    interval: 2000
+    repeat: false
+    onTriggered: { root._nativeBatchPolls++; root.runNativeBatchRequest("get") }
+  }
+
+  Component {
+    id: nativeBatchComponent
+    Process {
+      id: process
+      property string requestKind
+      property string operation
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer timeout: Timer { interval: 15000; running: process.running; onTriggered: process.running = false }
+      onExited: function(code) {
+        root._nativeBatchProcess = null
+        try { root.finishNativeBatchRequest(requestKind, operation, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
   property var _nativeImportContext: null
   property var _nativeSourceContext: null
   property var _nativePreviewContext: null
@@ -1928,7 +2056,7 @@ Item {
   }
 
   function refreshRuleProviders() {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return startNativeBatch("providers")
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     routingToolError = ""
     routingToolStatus = "Refreshing remote rule data…"
@@ -2229,7 +2357,7 @@ Item {
   }
 
   function refreshAllSubscriptions() {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return startNativeBatch("subscriptions")
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     if (probingProfiles) return rejectSubscriptionAction("Wait for the latency test to finish")
     if (subscriptions.length === 0) return rejectAction("no subscriptions to update")

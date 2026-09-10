@@ -142,7 +142,8 @@ test('settings and subscriptions use native metadata, no legacy mutations',()=>{
   const section=source.slice(source.indexOf('id: nativeFlick'),source.indexOf('AdvancedDiagnostics {'));
   assert.match(section,/id: nativeSubscriptions/);assert.match(section,/root.nativeView.subscriptions/);
   assert.match(section,/root.nativeModeLabel\("rule"\)/);
-  assert(!section.includes('vless.useRoutingPreset('));assert(!section.includes('vless.refreshAllSubscriptions('));
+  assert(!section.includes('vless.useRoutingPreset('));
+  assert.match(section,/onClicked: vless.refreshAllSubscriptions\(\)/);
   assert.match(source,/profileSearch.activeFocus \|\| nativeSearch.activeFocus/);
 });
 test('refresh-order null facts remain unavailable rather than throwing',()=>{

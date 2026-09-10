@@ -86,6 +86,47 @@ function object(value, keys) {
   var found = Object.keys(value)
   return found.length === keys.length && found.every(function(k) { return keys.indexOf(k) >= 0 })
 }
+
+// Version-one long-operation projection, shared by fixed start/get/cancel.
+// Private provider data and backend messages are never retained.
+function parseOperation(raw, job, kind) {
+  try {
+    var p = envelope(raw)
+    if (!p || !job || !number(job.revision, 9007199254740991)) return null
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    function error(value) {
+      return object(value, ["code", "message", "retryable"]) && codes.indexOf(value.code) >= 0
+        && text(value.message, 512, false) && typeof value.retryable === "boolean"
+    }
+    if (p.ok === false) {
+      if (!object(p, ["api", "version", "id", "ok", "revision", "error"]) || !error(p.error)) return null
+      return {ok:false, code:p.error.code}
+    }
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true
+        || !object(p.result, kind === "cancel" ? ["accepted", "operation"] : ["operation"])
+        || (kind === "cancel" && typeof p.result.accepted !== "boolean")) return null
+    var o = p.result.operation, method = job.kind === "subscriptions" ? "subscriptions.refresh_all" : job.kind === "providers" ? "routing.refresh_providers" : ""
+    if (!object(o, ["instanceId", "operationId", "method", "state", "baseRevision", "outcomeRevision", "progress", "cancelRequested", "cancellable", "error"])
+        || !text(o.instanceId, 128, false) || !/^[\x21-\x7e]+$/.test(o.instanceId) || !id(o.operationId, false)
+        || o.instanceId !== job.instanceId || o.operationId !== job.operationId || o.method !== method || method === ""
+        || !number(o.baseRevision, 9007199254740991) || o.baseRevision !== job.revision
+        || ["queued", "running", "succeeded", "failed", "cancelled"].indexOf(o.state) < 0
+        || !object(o.progress, ["completed", "total"]) || !number(o.progress.total, job.kind === "subscriptions" ? 64 : 256)
+        || !number(o.progress.completed, o.progress.total) || typeof o.cancelRequested !== "boolean" || typeof o.cancellable !== "boolean") return null
+    var terminal = ["succeeded", "failed", "cancelled"].indexOf(o.state) >= 0
+    if (terminal ? !number(o.outcomeRevision, 9007199254740991) || o.outcomeRevision < o.baseRevision || o.cancellable
+        : o.outcomeRevision !== null) return null
+    if ((o.state === "failed") !== (o.error !== null) || (o.error !== null && !error(o.error))
+        || (o.state === "cancelled" && !o.cancelRequested) || (o.state === "queued" && o.progress.completed !== 0)
+        || (o.state === "succeeded" && (o.progress.completed !== o.progress.total || o.outcomeRevision !== o.baseRevision + (o.progress.total === 0 ? 0 : 1)))) return null
+    if (p.revision < o.baseRevision || (terminal && p.revision < o.outcomeRevision)) return null
+    if (job.acknowledged && (o.progress.completed < job.completed || o.progress.total < job.total
+        || (job.state === "running" && o.state === "queued") || (job.cancelRequested && !o.cancelRequested))) return null
+    return {ok:true, state:o.state, completed:o.progress.completed, total:o.progress.total,
+      cancelRequested:o.cancelRequested, cancellable:o.cancellable, terminal:terminal,
+      errorCode:o.error === null ? "" : o.error.code, outcomeRevision:o.outcomeRevision}
+  } catch (_) { return null }
+}
 function text(value, max, empty) {
   if (typeof value !== "string" || (!empty && !value.length) || /[\x00-\x1f\x7f]/.test(value)) return false
   // Domain bounds count Unicode scalar values, not UTF-16 code units.
