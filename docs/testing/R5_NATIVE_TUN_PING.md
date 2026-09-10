@@ -78,6 +78,8 @@ discarded. No full job scheduler or generic child registry is introduced.
 Ping RTT/loss is an observation, not VPN health, remote protocol maturity,
 fail-closed protection or proof that every route is proxied. HTTPS exit-IP and
 subscription HTTP group-delay probes remain distinct operations.
+The core may handle ICMP differently from proxied TCP; these timings must not be
+presented as provider/server latency.
 
 ## Required evidence
 
@@ -92,3 +94,19 @@ Installed acceptance remains separate: exact packaged binary identity, verified
 TUN binding under real user-service permissions, existing fixture sampling,
 no direct fallback, mode/disconnect/replacement cleanup, EN/RU presentation and
 no duplicate core/TUN/controller. Do not infer these from deterministic tests.
+
+## Local pre-install checkpoint — 2026-09-10
+
+Backend implementation: `9a34926`; initial QML composition: `5027dd2`.
+The runtime crate gate passed 555 tests before the final test-only RTT oracle
+addition. The final focused filter passed 12 tests (11 ping tests plus one
+existing name match), including ten fixtures executed through the actual
+original QML awk expression. All-target strict clippy passes.
+
+The full reference gate passed 343 Python tests with four existing skips;
+all JS/QML contracts pass, including nine native ping checks and original
+last-ten-samples mean/loss differentials. Python compilation, shell syntax,
+manifest JSON, Omarchy plugin validation, actual Quickshell component compilation
+and `git diff --check` pass. Component compilation does not instantiate the
+panel or establish visual acceptance. Installed live binding/replacement and
+human visual gates remain pending on the final combined candidate.

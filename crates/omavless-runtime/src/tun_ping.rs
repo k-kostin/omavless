@@ -490,6 +490,43 @@ mod tests {
         assert!(public.len() < 300);
     }
     #[test]
+    fn ping_rtt_matches_original_qml_awk_oracle() {
+        use std::io::Write;
+        let source = include_str!("../../../plugin/Service.qml");
+        let oracle = "/^rtt|^round-trip/ {print $5; exit}";
+        assert!(source.contains(oracle));
+        for prefix in ["rtt min/avg/max/mdev", "round-trip min/avg/max/stddev"] {
+            for number in ["0.000", "0.125", "12.500", "1999.900", "3000.000"] {
+                let fixture = format!("{prefix} = {number}/{number}/{number}/0.000 ms\n");
+                let mut child = Command::new("awk")
+                    .args(["-F/", oracle])
+                    .env("LC_ALL", "C")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap();
+                child
+                    .stdin
+                    .take()
+                    .unwrap()
+                    .write_all(fixture.as_bytes())
+                    .unwrap();
+                let output = child.wait_with_output().unwrap();
+                assert!(output.status.success());
+                let expected: f64 = std::str::from_utf8(&output.stdout)
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
+                assert_eq!(
+                    parse_output(Some(0), fixture.as_bytes()),
+                    Sample::Reply(expected)
+                );
+            }
+        }
+    }
+    #[test]
     fn ping_exec_fixed_arguments_and_no_fallback() {
         let fixture = Fixture::new(
             "[[ $LC_ALL = C && $# = 10 && $1 = -n && $2 = -q && $3 = -c && $4 = 1 && $5 = -W && $6 = 2 && $7 = -I && $8 = tun-test && $9 = -- && ${10} = 1.1.1.1 ]] || exit 2\nprintf 'rtt min/avg/max/mdev = 1/1/1/0 ms\\n'",
