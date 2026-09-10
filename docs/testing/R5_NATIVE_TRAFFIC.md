@@ -39,3 +39,28 @@ counter parity, eight JS parser/rate/staleness/graph tests, and real Quickshell
 component compilation. Installed exact-head counter movement and lifecycle
 regression remain required before merge. Python remains oracle/rollback; this
 does not complete ICMP monitoring, subscription probes, R5 or R6.
+
+## Installed Try Omarchy ARM64 evidence — 2026-09-10
+
+Combined package source `fba22a12d82aef75cd1f225eb6e6b592d7c9ec2f`,
+package `0.0.0.r415.gfba22a12d82a-1`, Mihomo 1.19.30:
+
+- two real native traffic samples parse through the actual QML parser;
+- opaque counter identity is stable, monotonic deltas are valid and RX/TX
+  counters move under the existing private Routing connection;
+- one owned core and one TUN, authenticated private controller configuration,
+  no manual recovery; no attributable Mihomo TCP listener observed;
+- installed panel IPC down then toggle disconnects/reconnects and restores the
+  same private profile and mode;
+- 25 installed plugin/runtime-relevant files match the combined checkout bytes;
+- a shell restart initially timed out and left two Omarchy launchers. After
+  verifying the session unlocked, the redundant launcher was stopped. One
+  responsive shell remains; this was not treated as successful restart evidence
+  until IPC and zero plugin error classifications were verified.
+
+Combined local gates: Python 345 tests (4 skipped), runtime crate 565 tests,
+strict workspace clippy, QML/JS contracts and actual component compilation pass.
+Installed-Mihomo opt-in tests pass (2); those synthetic no-TUN tests alone are
+not private VPN evidence. Visual EN/RU layout and graph review remains pending;
+the installed read/lifecycle checks do not substitute for it. A stale Settings
+migration notice was shortened in both locales without claiming complete parity.

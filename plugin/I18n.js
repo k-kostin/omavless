@@ -35,7 +35,7 @@ var CATALOG = {
   "native.subscriptions.browse": {"en":"Expand or collapse subscription profiles","ru":"Развернуть или свернуть профили подписки"},
   "native.main.qr": {"en":"Show selected profile QR","ru":"QR-код выбранного профиля"},
   "native.main.empty": {"en":"No matching profiles. Import a profile or clear the search.","ru":"Подходящих профилей нет. Импортируйте профиль или очистите поиск."},
-  "native.main.unavailable": {"en":"Batch subscription updates, latency tests, startup preferences, routing tools, traffic and Quit are not yet available through this native panel.","ru":"Обновление всех подписок, тесты задержки, автозапуск, инструменты маршрутизации, трафик и полный выход пока недоступны в этой панели Rust."},
+  "native.main.unavailable": {"en":"Native interface migration is in progress. Login activation, subscription latency tests and complete Quit remain pending.","ru":"Перенос интерфейса на Rust продолжается. Автозапуск, тесты задержки подписок и полный выход ещё не готовы."},
   "native.diagnostics.scope": {"en":"Independent read-only sample from the private controller, not a connection-health check. Refresh to read again. Provider updates are not available here yet.","ru":"Отдельный снимок из приватного контроллера, не проверка работоспособности VPN. Нажмите «Обновить» для повторного чтения. Обновление провайдеров здесь пока недоступно."},
   "native.diagnostics.provider.loaded": {"en":"loaded","ru":"загружен"},
   "native.diagnostics.provider.empty": {"en":"empty","ru":"пусто"},
