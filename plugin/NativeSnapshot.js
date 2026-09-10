@@ -86,6 +86,31 @@ function object(value, keys) {
   var found = Object.keys(value)
   return found.length === keys.length && found.every(function(k) { return keys.indexOf(k) >= 0 })
 }
+
+function parseTraffic(raw, context) {
+  try {
+    var p = envelope(raw)
+    if (!p || !context || !object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true || p.revision !== context.revision) return null
+    var r = p.result
+    if (!object(r, ["schemaVersion", "scope", "availability", "sample", "instanceId"]) || r.schemaVersion !== 1
+        || r.scope !== "controller_attributed_tun_counters" || r.instanceId !== context.instanceId) return null
+    if (r.availability === "unavailable") return r.sample === null ? {available:false} : null
+    var s = r.sample
+    if (r.availability !== "observed" || !object(s, ["identity", "rxBytes", "txBytes", "sampledAtMs"])
+        || typeof s.identity !== "string" || !/^[0-9a-f]{64}$/.test(s.identity)
+        || !number(s.rxBytes, 9007199254740991) || !number(s.txBytes, 9007199254740991) || !number(s.sampledAtMs, 9007199254740991)) return null
+    return {available:true, identity:s.identity, rx:s.rxBytes, tx:s.txBytes, sampledAtMs:s.sampledAtMs}
+  } catch (_) { return null }
+}
+
+// Original applyTraffic reset semantics, using daemon monotonic elapsed time
+// rather than wall-clock subtraction. Identity changes reset the series.
+function trafficDelta(sample, previous) {
+  var dt = previous ? (sample.sampledAtMs - previous.sampledAtMs) / 1000 : 0
+  var rated = !!previous && sample.identity === previous.identity && sample.rx >= previous.rx && sample.tx >= previous.tx && dt > 0 && dt <= 30
+  return {identity:sample.identity, rx:sample.rx, tx:sample.tx, sampledAtMs:sample.sampledAtMs,
+    rated:rated, rxRate:rated ? (sample.rx - previous.rx) / dt : 0, txRate:rated ? (sample.tx - previous.tx) / dt : 0}
+}
 function text(value, max, empty) {
   if (typeof value !== "string" || (!empty && !value.length) || /[\x00-\x1f\x7f]/.test(value)) return false
   // Domain bounds count Unicode scalar values, not UTF-16 code units.

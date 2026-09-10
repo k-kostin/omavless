@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
-//! Fixed sysfs counters attributed through the parent-owned core's TUN fd.
+//! Fixed sysfs counters attributed by the authenticated parent-owned controller.
 //! No controller stream, connections, device-name request or private data.
 use crate::mutation_protocol::MutationProtocolError;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::fs::{self, OpenOptions};
+#[cfg(test)]
+use std::fs;
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
@@ -31,7 +33,7 @@ pub(crate) fn validate(request: &Value) -> Result<(), MutationProtocolError> {
 }
 
 pub(crate) fn project(sample: Option<TrafficCounters>) -> Value {
-    json!({"schemaVersion":1,"scope":"owned_tun_counters","availability":if sample.is_some() {"observed"} else {"unavailable"},
+    json!({"schemaVersion":1,"scope":"controller_attributed_tun_counters","availability":if sample.is_some() {"observed"} else {"unavailable"},
         "sample":sample.map(|s| json!({"identity":s.identity,"rxBytes":s.rx_bytes,"txBytes":s.tx_bytes,"sampledAtMs":s.sampled_at_ms}))})
 }
 
@@ -66,6 +68,7 @@ fn integer(path: &Path, deadline: Instant) -> Option<u64> {
     (value <= 9_007_199_254_740_991).then_some(value)
 }
 
+#[cfg(test)]
 fn interface(proc_root: &Path, pid: u32, deadline: Instant) -> Option<String> {
     let mut names = std::collections::BTreeSet::new();
     let mut count = 0;
@@ -113,6 +116,7 @@ fn interface(proc_root: &Path, pid: u32, deadline: Instant) -> Option<String> {
 }
 
 /// Caller verifies live owned child/controller both before and after this read.
+#[cfg(test)]
 pub(crate) fn read(
     proc_root: &Path,
     sys_net: &Path,
@@ -121,7 +125,23 @@ pub(crate) fn read(
 ) -> Option<TrafficCounters> {
     let deadline = Instant::now() + Duration::from_millis(100);
     let name = interface(proc_root, pid, deadline)?;
-    let path = sys_net.join(&name);
+    let sample = read_device(sys_net, pid, generation, &name)?;
+    (interface(proc_root, pid, deadline)? == name).then_some(sample)
+}
+
+/// Device is supplied only by the PID-authenticated private controller, never IPC.
+/// Caller brackets this with fresh controller identity/device and lifecycle checks.
+pub(crate) fn read_device(
+    sys_net: &Path,
+    pid: u32,
+    generation: u64,
+    name: &str,
+) -> Option<TrafficCounters> {
+    let deadline = Instant::now() + Duration::from_millis(100);
+    if !valid_device(name) {
+        return None;
+    }
+    let path = sys_net.join(name);
     let flags = bounded(&path.join("tun_flags"), 32, deadline)?;
     let flags = u32::from_str_radix(flags.trim().strip_prefix("0x")?, 16).ok()?;
     if flags & 3 != 1 {
@@ -133,9 +153,7 @@ pub(crate) fn read(
     }
     let rx = integer(&path.join("statistics/rx_bytes"), deadline)?;
     let tx = integer(&path.join("statistics/tx_bytes"), deadline)?;
-    if integer(&path.join("ifindex"), deadline)? != index
-        || interface(proc_root, pid, deadline)? != name
-    {
+    if integer(&path.join("ifindex"), deadline)? != index {
         return None;
     }
     let token = format!("{pid}:{generation}:{index}");
@@ -152,6 +170,24 @@ pub(crate) fn read(
         tx_bytes: tx,
         sampled_at_ms,
     })
+}
+
+pub(crate) fn controller_device(payload: &Value) -> Option<&str> {
+    if payload["tun"]["enable"] != true {
+        return None;
+    }
+    let name = payload["tun"]["device"].as_str()?;
+    valid_device(name).then_some(name)
+}
+
+fn valid_device(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 15
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
 #[cfg(test)]
@@ -294,5 +330,24 @@ mod tests {
         assert!(!encoded.contains("Meta"));
         assert!(!encoded.contains("/proc"));
         assert_eq!(value["sample"]["identity"].as_str().unwrap().len(), 64);
+    }
+    #[test]
+    fn controller_attribution_does_not_require_dumpable_capability_core() {
+        let f = Fixture::new();
+        fs::remove_dir_all(f.0.join("proc")).unwrap();
+        let payload = json!({"tun":{"enable":true,"device":"Meta"}});
+        let device = controller_device(&payload).unwrap();
+        let sample = read_device(&f.0.join("net"), 123, 4, device).unwrap();
+        assert_eq!(sample.rx_bytes, 123456);
+        for value in [
+            json!({}),
+            json!({"tun":{"enable":false,"device":"Meta"}}),
+            json!({"tun":{"enable":true,"device":"../private"}}),
+            json!({"tun":{"enable":true,"device":""}}),
+        ] {
+            assert!(controller_device(&value).is_none());
+        }
+        assert!(read_device(&f.0.join("net"), 123, 4, "other").is_none());
+        assert!(read_device(&f.0.join("net"), 123, 4, "../private").is_none());
     }
 }

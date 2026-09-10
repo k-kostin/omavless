@@ -36,6 +36,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-editor.js"
   node "$here/test-native-presentation.js"
   node "$here/test-traffic-reference.js"
+  node "$here/test-native-traffic.js"
 else
   echo "node unavailable: i18n runtime tests not run" >&2
   exit 1

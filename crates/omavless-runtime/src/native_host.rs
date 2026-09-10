@@ -294,13 +294,31 @@ impl LifecycleHost for NativeLifecycleHost {
             return Err(HostStepError::Observation);
         }
         let pid = self.core_pid().ok_or(HostStepError::Observation)?;
-        let sample = crate::traffic::read(
-            &self.paths.proc_root,
-            &self.paths.sys_class_net,
+        // File capabilities deliberately make the core's fdinfo unreadable to
+        // the user runtime. Do not change dumpability or guess the sole TUN.
+        // Ask the exact PID-authenticated private controller for its device.
+        let reported = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
             pid,
-            desired.generation,
+            omavless_mihomo::ReadOnlyEndpoint::Configs,
+            deadline,
         )
         .ok_or(HostStepError::Observation)?;
+        let device =
+            crate::traffic::controller_device(&reported).ok_or(HostStepError::Observation)?;
+        let sample =
+            crate::traffic::read_device(&self.paths.sys_class_net, pid, desired.generation, device)
+                .ok_or(HostStepError::Observation)?;
+        let after = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
+            pid,
+            omavless_mihomo::ReadOnlyEndpoint::Configs,
+            deadline,
+        )
+        .ok_or(HostStepError::Observation)?;
+        if crate::traffic::controller_device(&after) != Some(device) {
+            return Err(HostStepError::Observation);
+        }
         let core_alive = self
             .core
             .as_mut()
