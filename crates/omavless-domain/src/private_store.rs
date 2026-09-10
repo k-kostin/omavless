@@ -165,6 +165,17 @@ pub struct ProfileEditInput {
     input: String,
 }
 
+/// Explicit same-user UI metadata. No Debug/serialization: endpoints and labels
+/// remain private, even though reusable credentials are excluded.
+pub struct PrivateProfileDetails {
+    value: Value,
+}
+impl PrivateProfileDetails {
+    pub fn into_private_ui_value(self) -> Value {
+        self.value
+    }
+}
+
 impl ProfileEditInput {
     #[must_use]
     pub fn private_name(&self) -> &str {
@@ -1390,6 +1401,44 @@ impl PrivateStore {
             .ok_or(PrivateStoreError::ProfileNotFound)?;
         Ok(PrivateProfileExport {
             uri: profile.uri.clone(),
+        })
+    }
+
+    pub fn profile_details(
+        &self,
+        profile_id: &str,
+    ) -> Result<PrivateProfileDetails, PrivateStoreError> {
+        let profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        // Reuse the already validated canonical model, not a second URI parser.
+        // Reconstruct an allowlisted projection instead of removing known secrets.
+        let preview = profile.canonical.private_preview();
+        let field = |key: &str, max: usize| -> Result<String, PrivateStoreError> {
+            let value = preview[key]
+                .as_str()
+                .ok_or(PrivateStoreError::InvalidShape)?;
+            if value.len() > max || value.chars().any(char::is_control) {
+                return Err(PrivateStoreError::InvalidShape);
+            }
+            Ok(value.to_owned())
+        };
+        let host = field("server", 1012)?;
+        let port = preview["port"]
+            .as_u64()
+            .filter(|port| (1..=65535).contains(port))
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        Ok(PrivateProfileDetails {
+            value: serde_json::json!({
+                "version":1, "name":profile.name,
+                "protocol":field("protocol", 16)?,
+                "server":format!("{host}:{port}"),
+                "transport":field("transport", 32)?,
+                "security":field("security", 16)?,
+                "sni":field("sni", 1012)?,
+            }),
         })
     }
 

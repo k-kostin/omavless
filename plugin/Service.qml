@@ -647,6 +647,53 @@ Item {
     ruleUpdateAvailable: false
   })
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property string nativeDetailsProfileId: ""
+  property var nativeProfileDetails: null
+  property string nativeProfileDetailsStatus: ""
+  property var _nativeDetailsRead: null
+  property int _nativeDetailsGeneration: 0
+  property var _nativeDetailsContext: null
+  readonly property bool nativeProfileDetailsBusy: _nativeDetailsRead !== null
+  onNativeDetailsProfileIdChanged: {
+    clearNativeProfileDetails()
+    if (nativeDetailsProfileId !== "") refreshNativeProfileDetails()
+  }
+  function clearNativeProfileDetails() {
+    _nativeDetailsGeneration++
+    nativeProfileDetails = null
+    nativeProfileDetailsStatus = ""
+    _nativeDetailsContext = null
+  }
+  function nativeProfileDetailsCurrent(context) {
+    return context !== null && nativeCanAct && context.generation === _nativeDetailsGeneration
+      && nativeDetailsProfileId === context.id && nativeSnapshot.instanceId === context.instanceId
+      && nativeSnapshot.revision === context.revision
+      && nativeSnapshot.profiles.some(function(p) { return p.id === context.id })
+  }
+  function refreshNativeProfileDetails() {
+    if (!nativeCanAct || nativeDetailsProfileId === "" || _nativeDetailsRead !== null) return false
+    var context = {id:nativeDetailsProfileId, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, generation:_nativeDetailsGeneration}
+    if (!nativeProfileDetailsCurrent(context)) return false
+    nativeProfileDetails = null
+    nativeProfileDetailsStatus = "loading"
+    _nativeDetailsContext = context
+    _nativeDetailsRead = nativeProfileDetailsComponent.createObject(root, {
+      context:context, command:["bash", backendPath, "native-profile-details", context.id]})
+    if (_nativeDetailsRead === null) { nativeProfileDetailsStatus = "failed"; return false }
+    _nativeDetailsRead.running = true
+    return true
+  }
+  function finishNativeProfileDetails(process, code, output) {
+    _nativeDetailsRead = null
+    try {
+      if (!nativeProfileDetailsCurrent(process.context)) {
+        if (nativeDetailsProfileId !== "") refreshNativeProfileDetails()
+        return
+      }
+      nativeProfileDetails = code === 0 ? NativeSnapshot.parseProfileDetails(output, process.context.revision) : null
+      nativeProfileDetailsStatus = nativeProfileDetails === null ? "failed" : ""
+    } finally { process.destroy() }
+  }
   property var filePicker: ({ available: false, provider: "" })
   property var desktopHelpers: ({
     configEditorAvailable: false,
@@ -2452,6 +2499,7 @@ Item {
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    if (_nativeDetailsContext !== null && !nativeProfileDetailsCurrent(_nativeDetailsContext)) clearNativeProfileDetails()
     if ((_nativeRulesFence && !nativeRoutingCurrent(_nativeRulesFence)) || (_nativeRouteFence && !nativeRoutingCurrent(_nativeRouteFence))) clearNativeRouting()
     if (nativeOwner && nativeRoutingToolsVisible && nativeFactsCurrent && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
@@ -2462,7 +2510,10 @@ Item {
     if (!nativeFactsCurrent) clearNativeRouting()
     else if (nativeRoutingToolsVisible && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
   }
-  onNativePendingChanged: { if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr() }
+  onNativePendingChanged: {
+    if (_nativeDetailsContext !== null && !nativeProfileDetailsCurrent(_nativeDetailsContext)) clearNativeProfileDetails()
+    if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
+  }
   property string qrName: ""
   // The QR window is the only surface a QR request reports through — the
   // panel closes the moment one starts, so a render failure has to be
@@ -3484,6 +3535,19 @@ Item {
       onExited: function(code) {
         root.disposeNativeQrProcess("export", process, code, output.text, "")
       }
+    }
+  }
+
+  Component {
+    id: nativeProfileDetailsComponent
+    Process {
+      id: process
+      property var context: null
+      running: false
+      property Timer watchdog: Timer { interval: 8000; running: process.running; onTriggered: process.signal(9) }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) { root.finishNativeProfileDetails(process, code, output.text) }
     }
   }
 

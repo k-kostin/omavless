@@ -149,6 +149,9 @@ Panel {
   }
 
   property string nativeSelectedProfile: ""
+  property string nativeExpandedDetailsId: ""
+  onNativeSelectedProfileChanged: nativeExpandedDetailsId = ""
+  onPageChanged: nativeExpandedDetailsId = ""
   property string nativeSubscriptionId: ""
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
@@ -1268,6 +1271,7 @@ Panel {
   // or a `pickConfigFile` landing) would be invisible, unclickable and
   // unfocused until it went away.
   onOpenedChanged: {
+    nativeExpandedDetailsId = ""
     if (!opened && vless.nativeOwner) vless.cancelNativeSubscription()
     pendingDelete = null
     pendingSubscriptionDelete = null
@@ -1319,6 +1323,8 @@ Panel {
     settings: root.settings
     panelVisible: root.opened
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
+    nativeDetailsProfileId: root.opened && nativeOwner && nativeCanAct && root.nativeExpandedDetailsId === root.nativeSelectedProfile
+      && (root.page === "main" || root.page === "subscription") ? root.nativeExpandedDetailsId : ""
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
     trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
     pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
@@ -1927,7 +1933,7 @@ Panel {
               readonly property var profile: isProfile ? modelData.profile : null
               readonly property bool selected: isProfile && root.nativeSelectedProfile === profile.id
               readonly property var record: isProfile ? root.nativeRecord(profile) : null
-              property var focusTargets: isProfile ? [nativeChoose, rowRename, rowPin, rowDelete, rowQr, rowEdit] : [nativeGroup]
+              property var focusTargets: isProfile ? [nativeChoose, rowRename, rowPin, rowDelete, rowQr, rowEdit, rowDetails, rowDetailsRefresh] : [nativeGroup]
               Layout.fillWidth: true
               spacing: Style.space(4)
               RowLayout {
@@ -1956,7 +1962,28 @@ Panel {
                 PanelActionButton { id: rowDelete; size: Style.space(24); iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: vless.nativeCanAct && nativeRow.record !== null && !nativeRow.record.managed; onClicked: root.requestDelete(nativeRow.record) }
                 PanelActionButton { id: rowQr; size: Style.space(24); iconText: "󰐲"; tooltipText: root.textFor("native.main.qr"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: vless.showQr(nativeRow.record) }
                 PanelActionButton { id: rowEdit; size: Style.space(24); iconText: "󰏫"; tooltipText: root.textFor("native.editor.open"); focusable: true; enabled: vless.nativeCanAct && vless.nativeEditorDraft === null && !vless.nativeEditorRunning && nativeRow.record !== null && !nativeRow.record.managed; onClicked: { if (root.handOffToEditor(nativeRow.record)) root.close() } }
+                PanelActionButton { id: rowDetails; size: Style.space(24); iconText: "󰋽"; tooltipText: root.textFor("native.details.open"); focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile; onClicked: root.nativeExpandedDetailsId = root.nativeExpandedDetailsId === nativeRow.profile.id ? "" : nativeRow.profile.id }
               }
+              }
+              ColumnLayout {
+                Layout.fillWidth: true
+                visible: nativeRow.selected && root.nativeExpandedDetailsId === nativeRow.profile.id
+                RowLayout {
+                  Layout.fillWidth: true
+                  PlainText { Layout.fillWidth: true; text: root.textFor("native.details.private"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+                  OmaNavigationButton { id: rowDetailsRefresh; iconText: "󰑓"; tooltipText: root.textFor("common.refresh"); focusable: true; enabled: vless.nativeCanAct && !vless.nativeProfileDetailsBusy; onClicked: vless.refreshNativeProfileDetails() }
+                }
+                PlainText { Layout.fillWidth: true; visible: vless.nativeProfileDetailsStatus !== ""; text: vless.nativeProfileDetailsStatus !== "" ? root.textFor("native.details." + vless.nativeProfileDetailsStatus) : ""; color: vless.nativeProfileDetailsStatus === "failed" ? root.urgent : root.dim; font.family: root.fontFamily; wrapMode: Text.Wrap }
+                GridLayout {
+                  Layout.fillWidth: true
+                  columns: 1
+                  visible: vless.nativeProfileDetails !== null
+                  rowSpacing: Style.spacing.labelGap
+                  DetailPair { label: root.textFor("metric.server"); value: vless.nativeProfileDetails ? vless.nativeProfileDetails.server : "--" }
+                  DetailPair { label: root.textFor("import.protocol"); value: vless.nativeProfileDetails ? vless.nativeProfileDetails.protocol : "--" }
+                  DetailPair { label: root.textFor("metric.transport"); value: vless.nativeProfileDetails ? vless.nativeProfileDetails.transport + " / " + vless.nativeProfileDetails.security : "--" }
+                  DetailPair { label: "SNI"; value: vless.nativeProfileDetails ? root.detailText(vless.nativeProfileDetails.sni) : "--" }
+                }
               }
             }
           }

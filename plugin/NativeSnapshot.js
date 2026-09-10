@@ -1,4 +1,22 @@
 // SPDX-License-Identifier: MIT
+function parseProfileDetails(raw, revision) {
+  try {
+    if (!editorText(raw, 16384)) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["api", "version", "id", "ok", "revision", "result"])
+        || p.api !== "omavless.control" || p.version !== 1 || p.ok !== true
+        || !id(p.id, false) || !number(p.revision, 9007199254740991) || p.revision !== revision
+        || !object(p.result, ["version", "name", "protocol", "server", "transport", "security", "sni"])) return null
+    var d = p.result
+    if (d.version !== 1 || !text(d.name, 80, false) || !editorText(d.name, 320)
+        || ["vless", "trojan", "hysteria2", "tuic"].indexOf(d.protocol) < 0
+        || !text(d.server, 259, false) || !editorText(d.server, 1018)
+        || !text(d.transport, 32, false) || !editorText(d.transport, 32)
+        || !text(d.security, 16, false) || !editorText(d.security, 16)
+        || !text(d.sni, 253, true) || !editorText(d.sni, 1012)) return null
+    return {name:d.name, protocol:d.protocol, server:d.server, transport:d.transport, security:d.security, sni:d.sni}
+  } catch (_) { return null }
+}
 // Independent diagnostic sample: this response has no daemon instance proof
 // and must never update connection health or ownership observations.
 function parseDiagnosticsSummary(raw) {

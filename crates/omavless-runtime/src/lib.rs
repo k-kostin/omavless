@@ -254,6 +254,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "routing.check",
     "routing.custom_rules.list",
     "profiles.edit_input",
+    "profiles.details",
     "profiles.export",
     "imports.classify",
     "profiles.list",
@@ -319,6 +320,10 @@ trait NativeRuntimeOwner: Send {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn profile_export(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn profile_details(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -811,6 +816,13 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.profile_export(request)
+    }
+
+    fn profile_details(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.profile_details(request)
     }
 
     fn bootstrap_generations(&self) -> Option<(u64, u64)> {
@@ -1613,6 +1625,7 @@ fn dispatch_native(
         "routing.check" if runtime_ownership => return owner.check_route(request),
         "profiles.export" if runtime_ownership => return owner.profile_export(request),
         "profiles.edit_input" if runtime_ownership => return owner.profile_edit_input(request),
+        "profiles.details" if runtime_ownership => return owner.profile_details(request),
         _ if NATIVE_READ_METHODS.contains(&method) && !runtime_ownership => {
             return error_response(
                 id,
@@ -4381,6 +4394,91 @@ mod tests {
             assert!(!revoked.to_string().contains(&expected));
         }
         assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn explicit_profile_details_are_private_read_only_and_owner_fenced() {
+        let base = temporary_base("profile-details");
+        let (owner, cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let calls_before = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let params = json!({"profileId":PROFILE_ID});
+        let result = call(&paths, "profiles.details", params.clone()).unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["revision"], 0);
+        assert_eq!(result["result"].as_object().unwrap().len(), 7);
+        for key in [
+            "uri",
+            "uuid",
+            "id",
+            "password",
+            "key",
+            "address",
+            "credentialHint",
+        ] {
+            assert!(result["result"].get(key).is_none());
+        }
+        let list = call(&paths, "profiles.list", json!({})).unwrap();
+        assert!(
+            !list
+                .to_string()
+                .contains(result["result"]["server"].as_str().unwrap())
+        );
+        let invalid = call(
+            &paths,
+            "profiles.details",
+            json!({"profileId":PROFILE_ID,"private":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        let missing = call(
+            &paths,
+            "profiles.details",
+            json!({"profileId":"00000000-0000-4000-8000-000000000099"}),
+        )
+        .unwrap();
+        assert_eq!(missing["error"]["code"], "not_found");
+        assert!(fs::read(&store_path).unwrap() == original);
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            call(&paths, "profiles.details", params.clone()).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&store_path, b"private-token-corrupt").unwrap();
+        let corrupt = call(&paths, "profiles.details", params.clone()).unwrap();
+        assert_eq!(corrupt["error"]["code"], "internal_error");
+        assert!(!corrupt.to_string().contains("private-token"));
+        fs::write(&store_path, &original).unwrap();
+        let target = base.join("config/saved-store.json");
+        fs::rename(&store_path, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &store_path).unwrap();
+        assert_eq!(
+            call(&paths, "profiles.details", params.clone()).unwrap()["error"]["code"],
+            "internal_error"
+        );
+        fs::remove_file(&store_path).unwrap();
+        fs::rename(&target, &store_path).unwrap();
+        for (phase, generation) in [
+            (OwnershipPhase::RollbackPreparing, 2),
+            (OwnershipPhase::Rust, 3),
+        ] {
+            write_marker(&cutover, phase, generation);
+            assert_eq!(
+                call(&paths, "profiles.details", params.clone()).unwrap()["error"]["code"],
+                "capability_unavailable"
+            );
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        assert!(fs::read(&store_path).unwrap() == original);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

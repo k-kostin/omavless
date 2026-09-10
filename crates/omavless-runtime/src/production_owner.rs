@@ -369,6 +369,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     pub(crate) fn profile_export(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_profile_export(&mut self.coordinator, request)
     }
+    pub(crate) fn profile_details(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_profile_details(&mut self.coordinator, request)
+    }
 
     pub(crate) fn custom_rules(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_custom_rules(&mut self.coordinator, request)
