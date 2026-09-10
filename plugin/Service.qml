@@ -356,8 +356,8 @@ Item {
   }
 
   function requestNativeAction(action, profileId, mode) {
-    if (!nativeCanAct || ["connect", "disconnect", "mode"].indexOf(action) < 0) return false
-    if (action !== "disconnect" && ["rule", "global", "direct"].indexOf(mode) < 0) return false
+    if (!nativeCanAct || ["connect", "disconnect", "mode", "onboarding-complete"].indexOf(action) < 0) return false
+    if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
     var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
@@ -1901,7 +1901,7 @@ Item {
   }
 
   function completeOnboarding() {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return requestNativeAction("onboarding-complete", "", "")
     if (busy) return rejectAction("another OmaVLESS operation is already running")
     actionRejection = ""
     actionStatus = "Finishing setup…"

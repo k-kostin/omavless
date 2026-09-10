@@ -91,6 +91,7 @@ test('pending delete identity does not retarget when viewing another subscriptio
 });
 test('deleted selected subscription returns overview and clears detail/search without mutations',()=>{
   const c=context();c.browseNativeSubscription('sub');c.profileFilter='private-search';
+  c.syncNativeOnboarding=()=>{}; // Independently exercised by test-native-onboarding.js.
   c.nativeView.subscriptions=[];c.vless.nativeSnapshot={instanceId:'instance',revision:5,subscriptions:[],profiles:[standalone],desired:{connected:false},lastProfileId:'local'};
   const start=source.indexOf('    function onNativeSnapshotChanged() {'),end=source.indexOf('\n    }',start)+6;
   vm.runInContext(source.slice(start,end),c);c.onNativeSnapshotChanged();

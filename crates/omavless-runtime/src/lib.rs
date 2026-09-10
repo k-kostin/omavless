@@ -4888,6 +4888,99 @@ mod tests {
     }
 
     #[test]
+    fn plugin_onboarding_completion_preserves_host_intent_and_all_fences() {
+        let base = temporary_base("plugin-onboarding");
+        let (mut owner, cutover, host_calls) = native_owner_fixture(&base);
+        let effects = Arc::clone(&owner.batch_coordinator().host_mut().lifecycle_effects);
+        let initial_effects = effects.load(Ordering::Relaxed);
+        let desired_path = DesiredPaths::below(&base.join("state")).file;
+        let desired_before = fs::read(&desired_path).unwrap();
+        let store = base.join("config/profiles.json");
+        let mut document: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        document["onboardingComplete"] = json!(false);
+        fs::write(&store, serde_json::to_vec(&document).unwrap()).unwrap();
+        let initial_calls = host_calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(9)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"instanceId":hello["result"]["instanceId"],"expectedRevision":0,"operationId":"completion","action":"onboarding-complete"});
+        let original = fs::read(&store).unwrap();
+        let mut stale_instance = params.clone();
+        stale_instance["instanceId"] = json!("old-instance");
+        assert_eq!(
+            call_plugin_action(&paths, stale_instance).unwrap()["error"]["code"],
+            "daemon_restarting"
+        );
+        assert_eq!(fs::read(&store).unwrap(), original);
+        let first = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(first["ok"], true);
+        assert_eq!(first["revision"], 1);
+        assert_eq!(
+            first["result"],
+            json!({"schemaVersion":1,"instanceId":params["instanceId"],"operationId":"completion","action":"onboarding-complete","applied":true})
+        );
+        let saved: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        assert_eq!(saved["onboardingComplete"], true);
+        for field in [
+            "startup",
+            "startupConfigured",
+            "activeId",
+            "lastId",
+            "routing",
+        ] {
+            assert_eq!(saved[field], document[field]);
+        }
+        let bytes = fs::read(&store).unwrap();
+        assert_eq!(
+            call_plugin_action(&paths, params.clone()).unwrap()["revision"],
+            1
+        );
+        let mut stale = params.clone();
+        stale["operationId"] = json!("new-completion");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let mut collision = params.clone();
+        collision["action"] = json!("disconnect");
+        assert_eq!(
+            call_plugin_action(&paths, collision).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let pending = DesiredPaths::below(&base.join("state"))
+            .directory
+            .join("routing-preset.pending.json");
+        fs::write(
+            &pending,
+            b"{\"schemaVersion\":1,\"kind\":\"routing-preset\"}\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            call_plugin_action(&paths, params.clone()).unwrap()["error"]["code"],
+            "manual_recovery_required"
+        );
+        fs::remove_file(&pending).unwrap(); // Synthetic fixture only.
+        write_marker(&cutover, OwnershipPhase::Rust, 3);
+        assert_eq!(
+            call_plugin_action(&paths, params).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert_eq!(
+            call(&paths, "startup.configure", json!({})).unwrap()["error"]["code"],
+            "unknown_method"
+        );
+        assert_eq!(fs::read(&store).unwrap(), bytes);
+        assert_eq!(host_calls.load(Ordering::Relaxed), initial_calls);
+        assert_eq!(effects.load(Ordering::Relaxed), initial_effects);
+        assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn onboarding_socket_is_store_only_idempotent_and_fenced() {
         let base = temporary_base("onboarding-completion");
         let (owner, cutover, host_calls) = native_owner_fixture(&base);

@@ -317,7 +317,7 @@ function parseImportPreview(raw, revision) {
 
 function parseActionExit(raw, pending, exitCode) {
   // Reserved CLI exit proves local rejection before socket dispatch.
-  if (exitCode === 74 && pending && ["profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(pending.action) >= 0)
+  if (exitCode === 74 && pending && ["profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete"].indexOf(pending.action) >= 0)
     return {ok:false, code:"invalid_argument"}
   return parseAction(raw, pending)
 }

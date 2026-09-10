@@ -14,6 +14,11 @@ Item {
   id: wizard
 
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
+  property bool nativeContext: false
+  property var nativeCoreFacts: null
+  property string nativeCoreDescription: ""
+  property string nativeStatus: ""
+  property bool nativeCanContinue: true
   property var filePicker: ({ available: false, provider: "" })
   property var presets: []
   property var profiles: []
@@ -144,6 +149,16 @@ Item {
             font.bold: true
           }
 
+          PlainText {
+            width: parent.width
+            visible: wizard.nativeContext && wizard.nativeStatus !== ""
+            text: wizard.nativeStatus
+            color: wizard.urgent
+            font.family: wizard.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
+          }
+
           Column {
             width: parent.width
             spacing: Style.space(9)
@@ -151,7 +166,7 @@ Item {
 
             PlainText {
               width: parent.width
-              text: wizard.textFor(!wizard.coreSetup.installed
+              text: wizard.nativeContext ? wizard.nativeCoreDescription : wizard.textFor(!wizard.coreSetup.installed
                 ? "onboarding.core.missing" : (wizard.coreSetup.tunReady
                   ? "onboarding.core.ready" : "onboarding.core.tun_missing"))
               color: wizard.dim
@@ -161,31 +176,42 @@ Item {
             }
 
             CommandRow {
-              visible: !wizard.coreSetup.installed
+              visible: !wizard.nativeContext && !wizard.coreSetup.installed
               label: wizard.textFor("onboarding.install_mihomo")
               command: wizard.installCommand
             }
 
             CommandRow {
-              visible: wizard.coreSetup.installed && !wizard.coreSetup.tunReady
+              visible: !wizard.nativeContext && wizard.coreSetup.installed && !wizard.coreSetup.tunReady
               label: wizard.textFor("onboarding.grant_tun")
               command: wizard.capabilityCommand
             }
 
             CommandRow {
-              visible: wizard.coreSetup.installed
+              visible: !wizard.nativeContext && wizard.coreSetup.installed
               label: wizard.textFor("onboarding.verify_installation")
               command: wizard.verifyCommand
             }
 
             PlainText {
-              visible: wizard.coreSetup.path !== ""
+              visible: !wizard.nativeContext && wizard.coreSetup.path !== ""
               width: parent.width
               text: wizard.coreSetup.path
               color: wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideMiddle
+            }
+            PlainText {
+              visible: wizard.nativeContext
+              width: parent.width
+              text: (wizard.nativeCoreFacts === null ? "" : wizard.textFor("native.core.tun." + wizard.nativeCoreFacts.tunDevice)
+                + "\n" + wizard.textFor("native.core.capabilities." + wizard.nativeCoreFacts.fileNetworkCapabilities) + "\n")
+                + wizard.textFor("native.core.scope")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
             }
           }
 
@@ -248,7 +274,7 @@ Item {
                     text: presetCard.selected
                       ? wizard.textFor("common.selected") : wizard.textFor("common.choose")
                     bordered: true
-                    enabled: !presetCard.selected && !wizard.busy
+                    enabled: !presetCard.selected && !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
                     foreground: enabled ? wizard.foreground : wizard.dim
                     fontFamily: wizard.fontFamily
                     onClicked: wizard.presetChosen(presetCard.modelData.id)
@@ -265,7 +291,8 @@ Item {
 
             PlainText {
               width: parent.width
-              text: wizard.profiles.length > 0
+              text: wizard.nativeContext && wizard.profiles.length > 0
+                ? wizard.textFor("native.onboarding.profiles", {count:wizard.localizedCount("connection", wizard.profiles.length)}) : wizard.profiles.length > 0
                 ? wizard.textFor("onboarding.connections_ready", {
                     count: wizard.localizedCount("connection", wizard.profiles.length)
                   })
@@ -277,7 +304,7 @@ Item {
             }
 
             PlainText {
-              visible: !wizard.filePicker.available
+              visible: !wizard.nativeContext && !wizard.filePicker.available
               width: parent.width
               text: wizard.textFor("onboarding.file_picker_missing")
               color: wizard.urgent
@@ -287,7 +314,7 @@ Item {
             }
 
             CommandRow {
-              visible: !wizard.filePicker.available
+              visible: !wizard.nativeContext && !wizard.filePicker.available
               width: parent.width
               label: wizard.textFor("onboarding.install_file_picker")
               command: "omarchy pkg add zenity"
@@ -298,7 +325,7 @@ Item {
               Button {
                 text: wizard.textFor("onboarding.paste_link")
                 bordered: true
-                enabled: !wizard.busy
+                enabled: !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.pasteRequested()
@@ -306,12 +333,22 @@ Item {
               Button {
                 text: wizard.textFor("onboarding.choose_file")
                 bordered: true
-                enabled: wizard.filePicker.available && !wizard.busy
+                enabled: (wizard.nativeContext ? wizard.nativeCanContinue : wizard.filePicker.available) && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.fileRequested()
               }
             }
+          }
+
+          PlainText {
+            visible: wizard.nativeContext && wizard.step === 3
+            width: parent.width
+            text: wizard.textFor("native.onboarding.scope")
+            color: wizard.dim
+            font.family: wizard.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
 
           Item {
@@ -348,7 +385,7 @@ Item {
                 visible: wizard.step === 1
                 text: wizard.textFor("common.continue")
                 bordered: true
-                enabled: wizard.coreSetup.tunReady && !wizard.busy
+                enabled: (wizard.nativeContext || wizard.coreSetup.tunReady) && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.step = 2
@@ -370,7 +407,7 @@ Item {
                 text: wizard.profiles.length > 0
                   ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
                 bordered: true
-                enabled: !wizard.busy
+                enabled: !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.finishRequested()

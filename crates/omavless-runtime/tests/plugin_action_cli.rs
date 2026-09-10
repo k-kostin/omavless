@@ -34,6 +34,56 @@ fn private_invoke(
 }
 
 #[test]
+fn onboarding_cli_has_fixed_envelope_admission_and_unknown_outcome() {
+    let base = test_temp::directory("onboarding-cli").unwrap();
+    let directory = base.join("omavless");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let rejected = private_invoke(&base, "onboarding-complete", b"", &["private-token"]);
+    assert_eq!(rejected.status.code(), Some(74));
+    assert!(rejected.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    listener.set_nonblocking(false).unwrap();
+    let worker = thread::spawn(move || {
+        for reply in [true, false] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], "plugin.action");
+            assert_eq!(
+                request["params"],
+                json!({"action":"onboarding-complete","instanceId":"instance-1","expectedRevision":3,"operationId":"operation-1"})
+            );
+            if reply {
+                let response = success_response(request["id"].as_str().unwrap(),4,json!({"schemaVersion":1,"instanceId":"instance-1","operationId":"operation-1","action":"onboarding-complete","applied":true})).unwrap();
+                stream
+                    .write_all(&encode_response(&response).unwrap())
+                    .unwrap();
+            }
+        }
+    });
+    assert!(
+        private_invoke(&base, "onboarding-complete", b"", &[])
+            .status
+            .success()
+    );
+    let unknown = private_invoke(&base, "onboarding-complete", b"", &[]);
+    assert_eq!(unknown.status.code(), Some(73));
+    assert!(unknown.stdout.is_empty());
+    worker.join().unwrap();
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn routing_cli_local_rejection_is_not_submitted_and_private() {
     let base = test_temp::directory("routing-admission").unwrap();
     let directory = base.join("omavless");

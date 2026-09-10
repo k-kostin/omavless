@@ -43,6 +43,11 @@ if command -v omavless >/dev/null 2>&1; then
     legacy) ;;
     rust)
       case "${1-}" in
+        native-onboarding-complete)
+          [ "$#" -eq 4 ] || blocked
+          shift
+          exec omavless plugin onboarding-complete "$@"
+          ;;
         native-core-readiness)
           [ "$#" -eq 1 ] || blocked
           exec omavless desktop core-readiness
