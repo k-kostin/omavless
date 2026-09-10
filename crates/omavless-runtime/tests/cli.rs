@@ -14,6 +14,39 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 struct ChildGuard(Child);
 
 #[test]
+fn status_without_runtime_reports_unavailable_not_unsafe_and_never_creates_state() {
+    let base = runtime_base();
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    for directory_present in [false, true] {
+        if directory_present {
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&paths.directory)
+                .unwrap();
+        }
+        let output = isolated_command(&base).arg("status").output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, b"OmaVLESS runtime socket is unavailable\n");
+        assert_eq!(paths.directory.exists(), directory_present);
+        assert!(!paths.owner_lock.exists());
+        assert!(!paths.socket.exists());
+        assert!(!base.join("state").exists());
+    }
+    // A real unsafe directory must still be diagnosed distinctly.
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o750)).unwrap();
+    let output = isolated_command(&base).arg("status").output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"OmaVLESS runtime directory is unsafe\n");
+    assert_eq!(
+        fs::metadata(&paths.directory).unwrap().permissions().mode() & 0o7777,
+        0o750
+    );
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn plugin_snapshot_cli_uses_fixed_private_read_and_rejects_extra_arguments() {
     assert_fixed_observation_read("plugin", "snapshot", "ui.snapshot");
 }
