@@ -14,7 +14,10 @@ trap 'rm -rf -- "$fixture"' EXIT
 cp "$here/qml-load/shell.qml" "$fixture/shell.qml"
 for module in Commons Ui services; do ln -s "$shell_root/$module" "$fixture/$module"; done
 status=0
-QT_QPA_PLATFORM=wayland OMAVLESS_QML_ENTRY="file://$entry" timeout --kill-after=2s 5s qs -p "$fixture" --no-color >"$fixture/result" 2>&1 || status=$?
+# A cold QML cache on the accepted ARM VM can take longer while Rust tests
+# are compiling. This is a compile gate, not a five-second UI latency claim.
+# Keep a hard bound and require the explicit component-ready marker below.
+QT_QPA_PLATFORM=wayland OMAVLESS_QML_ENTRY="file://$entry" timeout --kill-after=2s 30s qs -p "$fixture" --no-color >"$fixture/result" 2>&1 || status=$?
 # Some installed Quickshell versions keep the shell process alive after Qt.quit.
 # timeout only stops this isolated instance; readiness must still be explicit.
 [[ "$status" == 0 || "$status" == 124 ]] || { echo 'QML component load: FAIL (runner)'; exit 1; }
