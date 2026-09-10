@@ -27,5 +27,28 @@ already established Python `preview_profile` metadata boundary. The test asserts
 this count rather than hiding or copying the legacy bug. No new protocol
 fixtures or interoperability/maturity claims follow from this correction.
 
-Installed native UI composition/visual checks remain distinct. This backend
-checkpoint does not change QML, retire Python or complete R5/R6.
+The QML follow-up reuses the original `DetailPair` grid inside an explicitly
+expanded selected profile row. The info action is deliberate: ordinary profile
+selection/list/status does not fetch endpoints. Panel close, page/selection
+change, mutation admission loss and stale instance/revision discard the private
+projection. Fixed-ID launcher, strict bounded parser and disposable read process
+prevent private output from reaching argv, logs or shareable reports. An
+eight-second watchdog caps frontend waiting. English/Russian privacy text warns
+that the view describes saved configuration, not effective connection health.
+
+Installed visual checks remain distinct. No TUN address, copy/export action or
+generic IPC metadata dump is added. This does not retire Python or complete R5/R6.
+
+## Candidate checks, 2026-09-10
+
+Dedicated-target backend checks passed: runtime 538 tests, domain 80 tests
+(including the 109-case details comparison), strict clippy and formatting.
+QML follow-up: six focused Details tests, i18n/contracts, fixed launcher checks,
+plugin validation and actual installed-import QML component compilation passed.
+
+Full Python reruns under concurrent VM load took approximately 124 seconds.
+The second run passed 342/343 cases (four skips included in the total) but the
+existing cross-process status-cache timing assertion failed; an earlier busy
+run also hit unrelated core-start/oracle deadlines. No checks were relaxed.
+An unloaded serial aggregate run remains required before a full-suite green
+claim. No installed profile or live tunnel was used by this branch.
