@@ -59,6 +59,7 @@ Panel {
   // bring it back; an IPC edit never sets this and stays headless.
   property bool editHandedOff: false
   property bool onboardingDismissed: false
+  property string nativeOnboardingPresetPending: ""
   // Relative update/test ages need one inexpensive shared clock. Without it,
   // text bound through helper functions would stay frozen until other state
   // happened to change.
@@ -512,19 +513,43 @@ Panel {
   }
 
   function openOnboarding(step) {
-    if (vless.nativeOwner) return false
+    if (vless.nativeOwner && (!vless.nativeSnapshot || vless.nativeSnapshotFailed || vless.nativePending)) return false
     onboardingDismissed = false
     onboardingWizard.openAt(step || 1)
+    return true
+  }
+
+  function syncNativeOnboarding() {
+    if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
+    if (nativeOnboardingPresetPending !== "" && !vless.nativePending) {
+      if (onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+        onboardingWizard.step = 3
+      if (vless.nativeActionCode !== "" || vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
+        nativeOnboardingPresetPending = ""
+    }
+    if (!vless.nativeSnapshot.onboardingComplete && !onboardingDismissed && !onboardingWizard.visible
+        && !vless.nativePending && !vless.nativeImportBusy && !importDialog.visible && !subscriptionPrompt.visible)
+      openOnboarding(1)
+  }
+
+  function chooseOnboardingPreset(preset) {
+    if (!vless.useRoutingPreset(preset, false)) return false
+    if (vless.nativeOwner) nativeOnboardingPresetPending = preset
+    else onboardingWizard.step = 3
+    return true
   }
 
   function dismissOnboarding() {
     onboardingDismissed = true
+    nativeOnboardingPresetPending = ""
     onboardingWizard.dismiss()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function finishOnboarding() {
     if (!vless.completeOnboarding()) return
+    onboardingDismissed = true
+    nativeOnboardingPresetPending = ""
     onboardingWizard.dismiss()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -580,6 +605,7 @@ Panel {
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativeQrControl, nativePowerControl, nativeModeSetting, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
       if (page === "settings") targets.splice(1, 0, nativeCoreSetupRow.focusTarget)
+      if (page === "settings") targets.splice(2, 0, nativeOnboardingSetting.focusTarget)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -1288,6 +1314,7 @@ Panel {
     routingPresetPrompt.dismiss()
     startupPrompt.dismiss()
     onboardingWizard.dismiss()
+    nativeOnboardingPresetPending = ""
     routingToolsPrompt.dismiss()
     cancelImport(opened)
     if (opened) {
@@ -1305,6 +1332,7 @@ Panel {
       Qt.callLater(function() {
         keyCatcher.forceActiveFocus()
         if (vless.onboardingNeeded && !root.onboardingDismissed) root.openOnboarding(1)
+        root.syncNativeOnboarding()
       })
     }
   }
@@ -1328,7 +1356,7 @@ Panel {
     settings: root.settings
     panelVisible: root.opened
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
-    nativeCoreSetupVisible: root.opened && root.page === "settings" && vless.nativeOwner
+    nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible) && vless.nativeOwner
     diagnosticsPageVisible: root.opened && root.page === "diagnostics"
     trafficMonitoring: !vless.nativeOwner && ((root.opened && root.page === "main") || vless.showBarThroughput)
     pingMonitoring: !vless.nativeOwner && root.opened && root.page === "main"
@@ -1350,9 +1378,16 @@ Panel {
       if (root.page === "subscription" && !vless.nativeSnapshot.subscriptions.some(function(s) { return s.id === root.nativeSubscriptionId })) root.openSubscriptions()
       if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile }))
         root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
+      root.syncNativeOnboarding()
     }
+    function onNativePendingChanged() { root.syncNativeOnboarding() }
     function onNativeOwnerChanged() {
-      if (!vless.nativeOwner) return
+      if (!vless.nativeOwner) {
+        onboardingWizard.dismiss()
+        root.nativeOnboardingPresetPending = ""
+        root.onboardingDismissed = true
+        return
+      }
       root.page = "main"
       root.pendingDelete = null
       root.pendingSubscriptionDelete = null
@@ -1810,6 +1845,16 @@ Panel {
             actionText: root.textFor("common.refresh")
             actionEnabled: !vless.nativeCoreSetupBusy
             onAction: vless.refreshNativeCoreSetup()
+          }
+          SettingsActionRow {
+            id: nativeOnboardingSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("onboarding.title")
+            description: root.textFor("native.onboarding.scope")
+            actionText: root.textFor("common.open")
+            actionEnabled: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed && !vless.nativePending
+            onAction: root.openOnboarding(1)
           }
           PlainText {
             Layout.fillWidth: true
@@ -3201,12 +3246,19 @@ Panel {
       OnboardingWizard {
         id: onboardingWizard
         anchors.fill: parent
+        nativeContext: vless.nativeOwner
+        nativeCoreFacts: vless.nativeCoreSetupFacts
+        nativeCoreDescription: root.nativeCoreSetupDescription()
+        nativeCanContinue: vless.nativeCanAct
+        nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
+          : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
+          : vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
         coreSetup: vless.coreSetup
         filePicker: vless.filePicker
         presets: vless.routingPresets
-        profiles: vless.profiles
-        routingPreset: vless.routingPresetConfigured ? vless.routing.preset : ""
-        busy: vless.busy || vless.importSourceBusy
+        profiles: vless.nativeOwner ? root.nativeView.profiles : vless.profiles
+        routingPreset: vless.nativeOwner ? (vless.nativeSnapshot ? vless.nativeSnapshot.routing.storedPreset : "") : vless.routingPresetConfigured ? vless.routing.preset : ""
+        busy: vless.nativeOwner ? vless.nativeActionRunning || vless.nativeImportBusy || vless.nativeCoreSetupBusy : vless.busy || vless.importSourceBusy
         installCommand: root.mihomoInstallCommand
         capabilityCommand: root.mihomoCapabilityCommand
         verifyCommand: root.mihomoVerifyCommand
@@ -3216,12 +3268,10 @@ Panel {
         urgent: root.urgent
         fontFamily: root.fontFamily
         onCopyCommand: function(command) { vless.copyText(command) }
-        onRefreshRequested: vless.refresh()
-        onPresetChosen: function(preset) {
-          if (vless.useRoutingPreset(preset, false)) onboardingWizard.step = 3
-        }
-        onPasteRequested: vless.pasteConfig()
-        onFileRequested: vless.pickConfigFile()
+        onRefreshRequested: { vless.refresh(); if (vless.nativeOwner) vless.refreshNativeCoreSetup() }
+        onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
+        onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
+        onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }
         onFinishRequested: root.finishOnboarding()
         onCanceled: root.dismissOnboarding()
       }

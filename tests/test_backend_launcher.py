@@ -80,6 +80,18 @@ exit {code}
         self.assertEqual(result.stdout, "")
         self.assertNotIn("private-token", result.stderr)
 
+    def test_native_onboarding_completion_has_fixed_fenced_arguments(self):
+        self.action_native()
+        result = self.run_launcher("native-onboarding-complete", "instance", "7", "operation")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), ["native:plugin:target", "arg:plugin", "arg:onboarding-complete", "arg:instance", "arg:7", "arg:operation"])
+        for args in [("native-onboarding-complete",), ("native-onboarding-complete", "instance", "7", "operation", "private-token")]:
+            self.trace.unlink()
+            result = self.run_launcher(*args)
+            self.assertEqual(result.returncode, 71)
+            self.assertEqual(self.calls(), ["native:plugin:target"])
+            self.assertNotIn("private-token", result.stderr)
+
     def test_native_diagnostics_is_fixed_read_without_extra_arguments_or_legacy_fallback(self):
         self.action_native()
         result = self.run_launcher("native-diagnostics-summary")

@@ -4,7 +4,8 @@ This bounded checkpoint exposes the already registered `onboarding.complete`
 transaction through fixed `plugin onboarding-complete INSTANCE REVISION
 OPERATION` CLI syntax. It has no private stdin, flags, arbitrary method or
 caller-provided setup values. The existing direct `onboarding complete` command
-is unchanged. No QML, installed package, service or private fixture is changed.
+is unchanged. The follow-up QML bridge below reuses the existing wizard. No
+installed package, service or private fixture is changed by development tests.
 
 ## Ownership and parity
 
@@ -37,9 +38,34 @@ Startup configuration, current profile/routing selection and host-call count
 remain unchanged. Existing coordinator completion/compensation tests remain
 the oracle for transaction mechanics. All fixtures are synthetic private files.
 
-Installed QML completion acceptance is a separate future bridge gate. No live
+Installed QML completion acceptance is a separate integration gate. No live
 VPN or login behavior is claimed from these deterministic tests. Python cannot
 be retired by this checkpoint; R5/R6 remain incomplete.
+
+## Existing three-step wizard restored for native ownership
+
+The same OnboardingWizard component retains its legacy default and gains an
+explicit native context. It displays the independent core-installation facts
+from the core-readiness prerequisite, always labels service permission/TUN
+creation unverified, and hides the legacy install/setcap/path commands. Browsing
+setup is not gated on fabricated `tunReady` facts. Native steps reuse the
+existing routing-preset action and clipboard/file private import flow; preset
+selection advances only after the matching stored preset is observed, not on
+the initial click. Imported-profile counts do not claim tested connectivity.
+
+Unacknowledged first use opens the guide once per panel opening. Dismissal does
+not write anything; completed setups remain accessible through Settings Open.
+Finishing submits only the fenced completion acknowledgement and closes to the
+normal pending/error/reconcile surface. Closing a panel does not cancel or
+relabel an admitted mutation. Unknown outcomes retain the original operation
+for the existing exact replay/state-review controls. No startup preferences or
+login units are configured by the guide.
+
+UI tests cover first-use/dismiss/completed states, stale metadata, concurrent
+import dialogs, preset-confirmation ordering, explicit completion admission,
+unchanged legacy defaults, English/Russian semantic text and the actual QML
+component compile graph. Exact installed English/Russian three-step visual and
+import/completion acceptance remains required before merging this UI slice.
 
 ## Startup preferences remain intentionally unregistered
 
