@@ -71,6 +71,9 @@ fn run() -> Result<(), CliError> {
         );
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
+        println!(
+            "  plugin onboarding-complete INSTANCE REVISION OPERATION  save completion only; no host setup or login activation"
+        );
         println!("  plugin mode INSTANCE REVISION OPERATION rule|global|direct");
         println!("  plugin profile-rename INSTANCE REVISION OPERATION   stdin: ID newline NAME");
         println!("  plugin profile-favorite INSTANCE REVISION OPERATION stdin: ID newline on|off");
@@ -291,6 +294,7 @@ fn run() -> Result<(), CliError> {
                 matches!(
                     arg,
                     "profile-replace"
+                        | "onboarding-complete"
                         | "subscription-add"
                         | "subscription-update"
                         | "subscription-delete"

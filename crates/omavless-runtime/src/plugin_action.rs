@@ -35,7 +35,9 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
             "profileId",
             "mode",
         ],
-        "disconnect" => &["instanceId", "expectedRevision", "operationId", "action"],
+        "disconnect" | "onboarding-complete" => {
+            &["instanceId", "expectedRevision", "operationId", "action"]
+        }
         "mode" => &[
             "instanceId",
             "expectedRevision",
@@ -148,6 +150,7 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
     canonical["method"] = json!(match action {
         "connect" => "connection.connect",
         "disconnect" => "connection.disconnect",
+        "onboarding-complete" => "onboarding.complete",
         "mode" => "routing.set_mode",
         "profile-rename" => "profiles.rename",
         "profile-favorite" => "profiles.favorite",
@@ -170,7 +173,9 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         let policy = mapped.remove("routeAction").ok_or(InvalidArgument)?;
         mapped.insert("action".into(), policy);
     }
-    if action == "routing-preset" {
+    if action == "onboarding-complete" {
+        crate::onboarding_protocol::parse(&canonical)?;
+    } else if action == "routing-preset" {
         crate::routing_preset::parse(&canonical)?;
     } else if action.starts_with("custom-rule-") {
         crate::custom_rule_protocol::parse(&canonical)?;
@@ -234,6 +239,7 @@ pub fn cli_params(
             ![
                 "connect",
                 "disconnect",
+                "onboarding-complete",
                 "mode",
                 "profile-rename",
                 "profile-favorite",
@@ -275,9 +281,13 @@ pub fn cli_params(
             Some(*profile),
             Some(*mode),
         ),
-        ["plugin", "disconnect", instance, revision, operation] => {
-            ("disconnect", *instance, *revision, *operation, None, None)
-        }
+        [
+            "plugin",
+            action @ ("disconnect" | "onboarding-complete"),
+            instance,
+            revision,
+            operation,
+        ] => (*action, *instance, *revision, *operation, None, None),
         ["plugin", "mode", instance, revision, operation, mode] => {
             ("mode", *instance, *revision, *operation, None, Some(*mode))
         }
@@ -466,6 +476,58 @@ mod tests {
     fn request(params: Value) -> Value {
         // Invalid cases must reach the parser rather than the checked builder.
         json!({"api":"omavless.control","version":1,"id":"test","method":"plugin.action","params":params})
+    }
+    #[test]
+    fn onboarding_cli_is_exact_fenced_and_has_no_private_input_or_setup_flags() {
+        let args: Vec<_> = [
+            "plugin",
+            "onboarding-complete",
+            "instance",
+            "7",
+            "operation",
+        ]
+        .map(OsString::from)
+        .into();
+        let params = cli_params(&args, None).unwrap().unwrap();
+        assert_eq!(cli_input_limit(&args), None);
+        assert_eq!(
+            params,
+            json!({"action":"onboarding-complete","instanceId":"instance","expectedRevision":7,"operationId":"operation"})
+        );
+        let mapped = parse(&request(params.clone())).unwrap();
+        assert_eq!(mapped.canonical["method"], "onboarding.complete");
+        assert_eq!(
+            mapped.canonical["params"],
+            json!({"expectedRevision":7,"operationId":"operation"})
+        );
+        for key in params.as_object().unwrap().keys() {
+            let mut missing = params.clone();
+            missing.as_object_mut().unwrap().remove(key);
+            assert!(parse(&request(missing)).is_err());
+        }
+        for (key, value) in [
+            ("enabled", json!(true)),
+            ("path", json!("private-token")),
+            ("instanceId", json!("")),
+            ("expectedRevision", json!(null)),
+            ("expectedRevision", json!(-1)),
+            ("operationId", json!("")),
+        ] {
+            let mut invalid = params.clone();
+            invalid[key] = value;
+            assert!(parse(&request(invalid)).is_err());
+        }
+        assert!(cli_params(&args, Some("private-token")).is_err());
+        let mut extra = args.clone();
+        extra.push("private-token".into());
+        assert!(cli_params(&extra, None).is_err());
+        let mut invalid = args.clone();
+        invalid[3] = "+7".into();
+        assert!(cli_params(&invalid, None).is_err());
+        // Startup configuration remains intentionally unregistered.
+        let mut startup = args;
+        startup[1] = "startup-configure".into();
+        assert_eq!(cli_params(&startup, None).unwrap(), None);
     }
     #[test]
     fn routing_actions_reuse_canonical_parsers_and_disambiguate_policy_action() {
