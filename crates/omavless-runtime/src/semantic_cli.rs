@@ -59,6 +59,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["runtime", "traffic"] => Some(SemanticRequest {
+            method: "runtime.traffic",
+            params: json!({}),
+        }),
         ["runtime", "observation"] => Some(SemanticRequest {
             method: "runtime.observation",
             params: json!({}),
@@ -514,6 +518,21 @@ mod tests {
         ] {
             assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
         }
+    }
+
+    #[test]
+    fn traffic_read_is_fixed_without_path_or_interface_arguments() {
+        let (method, params) = parse_semantic_read(&args(&["runtime", "traffic"]))
+            .unwrap()
+            .unwrap()
+            .into_parts();
+        assert_eq!(method, "runtime.traffic");
+        assert_eq!(params, json!({}));
+        assert!(
+            parse_semantic_read(&args(&["runtime", "traffic", "private-token"]))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

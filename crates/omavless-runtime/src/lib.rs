@@ -91,6 +91,7 @@ pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
 pub mod subscription_transport;
 mod support_diagnostics;
+pub mod traffic;
 mod ui_snapshot;
 
 pub const SOCKET_NAME: &str = "control.sock";
@@ -245,6 +246,7 @@ pub struct RuntimeServer {
 
 const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities.get"];
 const NATIVE_READ_METHODS: &[&str] = &[
+    "runtime.traffic",
     "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
@@ -289,6 +291,10 @@ enum RuntimeDispatcher {
 }
 
 trait NativeRuntimeOwner: Send {
+    fn traffic(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn runtime_observation(
         &mut self,
         request: &Value,
@@ -546,6 +552,12 @@ impl<H> NativeRuntimeOwner for RegisteredNativeOwner<H>
 where
     H: lifecycle::LifecycleHost + Send + 'static,
 {
+    fn traffic(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.traffic(request)
+    }
     fn runtime_observation(
         &mut self,
         request: &Value,
@@ -1598,9 +1610,11 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
-        "ui.snapshot" | "runtime.observation" if runtime_ownership => {
+        "ui.snapshot" | "runtime.observation" | "runtime.traffic" if runtime_ownership => {
             let mut response = if method == "ui.snapshot" {
                 owner.ui_snapshot(request)?
+            } else if method == "runtime.traffic" {
+                owner.traffic(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -1829,6 +1843,18 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn traffic_counters(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<traffic::TrafficCounters, HostStepError> {
+            self.fresh_observation(desired)?;
+            Ok(traffic::TrafficCounters {
+                identity: "a".repeat(64),
+                rx_bytes: 123,
+                tx_bytes: 456,
+                sampled_at_ms: 1000,
+            })
+        }
         fn fresh_observation(
             &mut self,
             _desired: &DesiredState,
@@ -2614,6 +2640,94 @@ mod tests {
         assert_eq!(fs::read(&store).unwrap(), b"private-corrupt-store");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_socket_fences_revision_disconnect_ownership_and_private_output() {
+        let base = temporary_base("traffic-socket");
+        let (mut owner, cutover, _calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let empty = call(&paths, "runtime.traffic", json!({})).unwrap();
+        assert_eq!(empty["result"]["availability"], "unavailable");
+        assert!(empty["result"]["sample"].is_null());
+        let connect=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"traffic-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connect["ok"], true);
+        let sample = call(&paths, "runtime.traffic", json!({})).unwrap();
+        assert_eq!(sample["ok"], true);
+        assert_eq!(sample["revision"], connect["revision"]);
+        assert_eq!(
+            sample["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(sample["result"]["sample"]["rxBytes"], 123);
+        for secret in [
+            PROFILE_ID,
+            "Example",
+            "192.0.2.1",
+            "subscription-token",
+            "vless://",
+            "controllerSocket",
+        ] {
+            assert!(!sample.to_string().contains(secret));
+        }
+        assert!(encode_response(&sample).unwrap().len() < 1024);
+        let invalid = call(&paths, "runtime.traffic", json!({"path":"private-token"})).unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"traffic-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        assert_eq!(down["ok"], true);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let stale = call(&paths, "runtime.traffic", json!({})).unwrap();
+        assert_eq!(stale["error"]["code"], "capability_unavailable");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_discards_counters_after_desired_or_owner_changes_during_read() {
+        for desired_changes in [true, false] {
+            let base = temporary_base("traffic-read-race");
+            let (mut owner, cutover, _) = native_owner_fixture(&base);
+            let desired = base.join("state/omavless/desired.json");
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.on_fresh = Some(Box::new(move || {
+                if desired_changes {
+                    fs::write(
+                        &desired,
+                        serde_json::to_vec(&DesiredState {
+                            generation: 99,
+                            ..DesiredState::default()
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                } else {
+                    write_marker(&cutover, OwnershipPhase::Rust, 2);
+                }
+            }));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+            let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"traffic-connect","expectedRevision":0})).unwrap();
+            assert_eq!(connected["ok"], true);
+            let sample = call(&paths, "runtime.traffic", json!({})).unwrap();
+            assert_eq!(sample["error"]["code"], "capability_unavailable");
+            assert!(sample.get("result").is_none());
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]

@@ -1,6 +1,12 @@
 const assert = require("assert")
 const I18n = require("../plugin/I18n.js")
 
+// Do not keep claiming already-restored routing/traffic controls are absent.
+assert(!I18n.translate("native.main.unavailable", "en").includes("routing tools"))
+assert(!I18n.translate("native.main.unavailable", "ru").includes("инструменты маршрутизации"))
+assert(I18n.translate("native.main.unavailable", "en").includes("Login activation"))
+assert(I18n.translate("native.main.unavailable", "ru").includes("Автозапуск"))
+
 assert.strictEqual(I18n.normalizeLocale("ru_RU.UTF-8"), "ru")
 assert.strictEqual(I18n.normalizeLocale("ru-RU"), "ru")
 assert.strictEqual(I18n.normalizeLocale("en_US"), "en")

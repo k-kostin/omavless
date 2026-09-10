@@ -819,6 +819,89 @@ Item {
   // A proxy profile has no connection state, and a tunnel that is silent is not
   // thereby broken. Sampled on a short timer only while the panel is open.
   property bool trafficMonitoring: false
+  property bool nativeTrafficMonitoring: false
+  property var nativeTrafficSample: null
+  property var nativeRxHistory: []
+  property var nativeTxHistory: []
+  property var _nativeTrafficRead: null
+  property var _nativeTrafficFence: null
+  property int _nativeTrafficGeneration: 0
+  property double _nativeTrafficReceivedAt: 0
+  property double _nativeTrafficClock: Date.now()
+  readonly property bool nativeTrafficEligible: nativeOwner && nativeTrafficMonitoring && nativeFactsCurrent
+    && nativeSnapshot.desired.connected && nativeSnapshot.lastKnownActual === "connected" && !nativePending
+  readonly property bool nativeTrafficFresh: nativeTrafficEligible && nativeTrafficSample !== null
+    && _nativeTrafficClock >= _nativeTrafficReceivedAt && _nativeTrafficClock - _nativeTrafficReceivedAt <= 10000
+  onNativeTrafficEligibleChanged: {
+    clearNativeTraffic()
+    if (nativeTrafficEligible) sampleNativeTraffic()
+    else if (_nativeTrafficRead !== null) _nativeTrafficRead.running = false
+  }
+
+  function clearNativeTraffic() {
+    _nativeTrafficGeneration++
+    nativeTrafficSample = null; nativeRxHistory = []; nativeTxHistory = []
+    _nativeTrafficFence = null; _nativeTrafficReceivedAt = 0
+  }
+
+  function nativeTrafficCurrent(context) {
+    return !!(context && nativeTrafficEligible && context.generation === _nativeTrafficGeneration
+      && context.instanceId === nativeSnapshot.instanceId && context.revision === nativeSnapshot.revision)
+  }
+
+  function sampleNativeTraffic() {
+    _nativeTrafficClock = Date.now()
+    if (!nativeTrafficFresh && nativeTrafficSample !== null) clearNativeTraffic()
+    if (!nativeTrafficEligible || _nativeTrafficRead !== null) return false
+    var context = {generation:_nativeTrafficGeneration, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision}
+    _nativeTrafficRead = nativeTrafficComponent.createObject(root, {context:context, command:["bash", backendPath, "native-traffic"]})
+    if (!_nativeTrafficRead) { clearNativeTraffic(); return false }
+    _nativeTrafficRead.running = true
+    return true
+  }
+
+  function finishNativeTraffic(context, code, output) {
+    if (!nativeTrafficCurrent(context)) return
+    var parsed = code === 0 ? NativeSnapshot.parseTraffic(output, context) : null
+    if (!parsed || !parsed.available) { clearNativeTraffic(); return }
+    var next = NativeSnapshot.trafficDelta(parsed, nativeTrafficSample)
+    if (!next.rated) { nativeRxHistory = []; nativeTxHistory = [] }
+    else {
+      var rx = nativeRxHistory.slice(), tx = nativeTxHistory.slice()
+      rx.push(next.rxRate); tx.push(next.txRate)
+      while (rx.length > historyMaxPoints) rx.shift()
+      while (tx.length > historyMaxPoints) tx.shift()
+      nativeRxHistory = rx; nativeTxHistory = tx
+    }
+    nativeTrafficSample = next; _nativeTrafficFence = context
+    _nativeTrafficReceivedAt = Date.now(); _nativeTrafficClock = _nativeTrafficReceivedAt
+  }
+
+  function nativeTrafficValue(key, rate) {
+    if (!nativeTrafficFresh || (rate && !nativeTrafficSample.rated)) return "--"
+    return rate ? fmtRate(nativeTrafficSample[key]) : fmtSize(nativeTrafficSample[key])
+  }
+
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.nativeTrafficEligible
+    onTriggered: root.sampleNativeTraffic()
+  }
+  Component {
+    id: nativeTrafficComponent
+    Process {
+      id: process
+      property var context
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer watchdog: Timer { interval: 6000; running: process.running; onTriggered: process.running = false }
+      onExited: function(code) {
+        root._nativeTrafficRead = null
+        try { root.finishNativeTraffic(context, code, output.text) } finally { process.destroy() }
+      }
+    }
+  }
   property bool pingMonitoring: false
   // device -> {rx, tx, at, rxRate, txRate}. The raw counters double as
   // session totals come from Mihomo's TUN interface.
@@ -827,6 +910,8 @@ Item {
   property var txHistory: []
   readonly property int historyMaxPoints: 30
   readonly property string barThroughput: {
+    if (nativeOwner) return nativeTrafficFresh && nativeTrafficSample.rated
+      ? "↓" + fmtBytes(nativeTrafficSample.rxRate) + " ↑" + fmtBytes(nativeTrafficSample.txRate) : ""
     var t = trafficOf(primaryDevice)
     if (!trafficLive(t) || !t.rated) return ""
     return "↓" + fmtBytes(t.rxRate) + " ↑" + fmtBytes(t.txRate)
@@ -2452,6 +2537,7 @@ Item {
     invalidateNativeDiagnosticsIdentity()
   }
   onNativeSnapshotChanged: {
+    if (_nativeTrafficFence && !nativeTrafficCurrent(_nativeTrafficFence)) clearNativeTraffic()
     if ((_nativeRulesFence && !nativeRoutingCurrent(_nativeRulesFence)) || (_nativeRouteFence && !nativeRoutingCurrent(_nativeRouteFence))) clearNativeRouting()
     if (nativeOwner && nativeRoutingToolsVisible && nativeFactsCurrent && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()

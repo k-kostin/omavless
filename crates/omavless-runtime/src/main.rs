@@ -65,6 +65,7 @@ fn run() -> Result<(), CliError> {
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  runtime observation              fresh local facts; not VPN connectivity");
+        println!("  runtime traffic                  owned TUN counters, or unavailable");
         println!("  plugin target                    read committed launcher target only");
         println!(
             "  cutover activate                 explicit disconnected native ownership transition"

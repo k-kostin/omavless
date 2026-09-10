@@ -99,6 +99,7 @@ exit {code}
     def test_native_qr_fixed_read_and_renderer_no_extra_arguments(self):
         self.action_native()
         for args, expected in [
+            (("native-traffic",), ["runtime", "traffic"]),
             (("native-routing-rules",), ["routing", "rules"]),
             (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
