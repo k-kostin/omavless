@@ -2580,7 +2580,7 @@ Item {
   }
 
   function exportToPath(profile, path) {
-    if (nativeOwner) return rejectNativeAction()
+    if (nativeOwner) return startNativeFileExport(profile, path)
     if (!profile || !profile.uuid) return rejectAction("no such profile")
     if (exportProcess.running) return rejectAction("an export is already running")
     var dest = String(path || "")
@@ -2592,6 +2592,49 @@ Item {
     exportProcess.command = ["bash", backendPath, "export-file", "--", profile.uuid, dest]
     exportProcess.running = true
     return true
+  }
+
+  property var nativeFileExportContext: null
+  property var nativeFileExportProcess: null
+  property string nativeFileExportStatus: ""
+  function validNativeExportPath(path) {
+    return typeof path === "string" && path[0] === "/" && path.length <= 4096
+      && !/[\u0000-\u001f\u007f]/.test(path) && NativeSnapshot.editorText(path, 4096)
+  }
+  function nativeFileExportCurrent(context) {
+    return context !== null && context === nativeFileExportContext && nativeCanAct
+      && nativeSnapshot.instanceId === context.instanceId && nativeSnapshot.revision === context.revision
+      && nativeSnapshot.profiles.some(function(p) { return p.id === context.id })
+  }
+  function startNativeFileExport(profile, path) {
+    if (!nativeCanAct || nativeFileExportProcess !== null || !profile || !validNativeExportPath(path)
+        || !nativeSnapshot.profiles.some(function(p) { return p.id === profile.uuid })) return false
+    var context = {id:profile.uuid, instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, path:path}
+    nativeFileExportContext = context
+    nativeFileExportStatus = "pending"
+    nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
+      context:context, command:["bash", backendPath, "native-profile-file", profile.uuid]})
+    if (nativeFileExportProcess === null) { nativeFileExportContext = null; nativeFileExportStatus = "failed"; return false }
+    nativeFileExportProcess.running = true
+    return true
+  }
+  function finishNativeFileExport(process, code, output) {
+    var context = process.context
+    nativeFileExportProcess = null
+    try {
+      if (process.writing) {
+        nativeFileExportStatus = code === 0 && process.writeAdmitted ? "saved" : "failed"
+        nativeFileExportContext = null
+        return
+      }
+      var content = nativeFileExportCurrent(context) && code === 0 ? NativeSnapshot.parseQrExport(output, context.revision) : null
+      if (content === null) { nativeFileExportStatus = "failed"; nativeFileExportContext = null; return }
+      nativeFileExportProcess = nativeFileExportComponent.createObject(root, {
+        context:context, writing:true, privateInput:context.path + "\n" + content,
+        stdinEnabled:true, command:["bash", backendPath, "native-export-write"]})
+      if (nativeFileExportProcess === null) { nativeFileExportStatus = "failed"; nativeFileExportContext = null; return }
+      nativeFileExportProcess.running = true
+    } finally { process.destroy() }
   }
 
   // Returns "" when a code is on its way, or why nothing will appear.
@@ -3539,6 +3582,30 @@ Item {
       onExited: function(code) {
         root.disposeNativeQrProcess("export", process, code, output.text, "")
       }
+    }
+  }
+
+  Component {
+    id: nativeFileExportComponent
+    Process {
+      id: process
+      property var context: null
+      property bool writing: false
+      property bool writeAdmitted: false
+      property string privateInput: ""
+      running: false
+      onStarted: {
+        if (writing) {
+          writeAdmitted = root.nativeFileExportCurrent(context)
+          if (writeAdmitted) write(privateInput)
+          privateInput = ""
+          stdinEnabled = false
+        }
+      }
+      property Timer watchdog: Timer { interval: 15000; running: process.running; onTriggered: process.signal(9) }
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      onExited: function(code) { privateInput = ""; root.finishNativeFileExport(process, code, output.text) }
     }
   }
 

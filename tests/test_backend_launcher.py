@@ -105,13 +105,15 @@ exit {code}
             (("native-routing-check",), ["routing", "check"]),
             (("native-subscription-edit-input", "synthetic-record"), ["subscription", "edit-input", "synthetic-record"]),
             (("native-profile-qr", "synthetic-record"), ["profile", "export", "synthetic-record", "qr"]),
+            (("native-profile-file", "synthetic-record"), ["profile", "export", "synthetic-record", "file"]),
+            (("native-export-write",), ["desktop", "export-file"]),
             (("native-qr-render",), ["desktop", "qr-data-uri"]),
         ]:
             result = self.run_launcher(*args)
             self.assertEqual(result.returncode, 0)
             self.assertEqual(self.calls(), ["native:plugin:target", *["arg:" + item for item in expected]])
             self.trace.unlink()
-        for args in [("native-profile-qr",), ("native-profile-qr", "id", "private-token"), ("native-qr-render", "private-token")]:
+        for args in [("native-profile-qr",), ("native-profile-qr", "id", "private-token"), ("native-qr-render", "private-token"), ("native-profile-file",), ("native-profile-file", "id", "private-token"), ("native-export-write", "private-token")]:
             result = self.run_launcher(*args)
             self.assertEqual(result.returncode, 71)
             self.assertEqual(self.calls(), ["native:plugin:target"])

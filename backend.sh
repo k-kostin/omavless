@@ -67,6 +67,14 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 2 ] || blocked
           exec omavless profile export "$2" qr
           ;;
+        native-profile-file)
+          [ "$#" -eq 2 ] || blocked
+          exec omavless profile export "$2" file
+          ;;
+        native-export-write)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless desktop export-file
+          ;;
         native-qr-render)
           [ "$#" -eq 1 ] || blocked
           exec omavless desktop qr-data-uri
