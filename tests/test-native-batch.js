@@ -82,4 +82,9 @@ test('explicit stale epoch acknowledgement requires coherent new facts and no re
  c.nativeSnapshot.instanceId='new';c.nativeFactsCurrent=false;assert.equal(c.abandonNativeBatch(),false);c.nativeFactsCurrent=true;
  assert(c.abandonNativeBatch());assert.equal(c.nativeBatchJob,null);assert.equal(c.refreshes,0);assert(c.startNativeBatch('providers'));
 });
+test('Process watchdog uses an explicit QML property',()=>{
+ const component=source.slice(source.indexOf('id: nativeBatchComponent'),source.indexOf('onExited: function(code)',source.indexOf('id: nativeBatchComponent')));
+ assert(component.includes('property Timer timeout: Timer'));
+ assert(!/\n\s+Timer \{/.test(component));
+});
 console.log('native batch: '+count+' passed');

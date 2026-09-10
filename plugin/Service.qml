@@ -152,7 +152,7 @@ Item {
       property string operation
       stdout: StdioCollector { id: output; waitForEnd: true }
       stderr: StdioCollector { waitForEnd: true }
-      Timer { interval: 15000; running: process.running; onTriggered: process.running = false }
+      property Timer timeout: Timer { interval: 15000; running: process.running; onTriggered: process.running = false }
       onExited: function(code) {
         root._nativeBatchProcess = null
         try { root.finishNativeBatchRequest(requestKind, operation, code, output.text) } finally { process.destroy() }
