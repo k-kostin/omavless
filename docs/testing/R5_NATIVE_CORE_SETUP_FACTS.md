@@ -42,8 +42,14 @@ tokens are required, rather than substring matches. Deterministic gates cover
 missing/failing discovery helpers, malformed/private output, non-device paths,
 response scope, fixed CLI arity, byte/time bounds and no persistent writes.
 
-This does not alter existing QML or retire Python. Installed readiness UI and
-onboarding remain a separate frontend integration gate.
+The Settings binding reuses `SettingsActionRow` with an enabled Refresh action,
+strict bounded parser and disposable watchdog-protected process. It refreshes
+on Settings entry and refuses late replies after page closure/ownership change;
+fast close/reopen schedules a fresh sample rather than accepting the old one.
+English/Russian text explicitly separates desktop inventory from runtime
+permission/TUN readiness. It does not write legacy `coreSetup.tunReady`, expose a
+nonfunctional Configure action, or execute/copy guessed installation commands.
+Installed visual review remains separate, and Python retirement is not claimed.
 
 ## Local candidate validation
 

@@ -1,4 +1,23 @@
 // SPDX-License-Identifier: MIT
+function parseCoreSetupFacts(raw) {
+  try {
+    if (!editorText(raw, 8192)) return null
+    var p = JSON.parse(raw)
+    if (!object(p, ["schemaVersion", "scope", "installed", "version", "tunDevice", "fileNetworkCapabilities", "servicePermissionReadiness", "coverage", "remediation"])
+        || p.schemaVersion !== 1 || p.scope !== "desktop_setup_facts" || typeof p.installed !== "boolean"
+        || !(p.version === null || (typeof p.version === "string" && /^[0-9]{1,8}\.[0-9]{1,8}\.[0-9]{1,8}$/.test(p.version)))
+        || ["present", "unavailable", "unknown"].indexOf(p.tunDevice) < 0
+        || ["present", "missing", "unknown", "not_applicable"].indexOf(p.fileNetworkCapabilities) < 0
+        || p.servicePermissionReadiness !== "not_verified"
+        || !object(p.coverage, ["serviceContextVerified", "tunCreationVerified", "controllerQueried"])
+        || p.coverage.serviceContextVerified !== false || p.coverage.tunCreationVerified !== false || p.coverage.controllerQueried !== false
+        || p.remediation !== (p.installed ? "verify_native_host_setup" : "install_core_using_host_setup")
+        || (!p.installed && (p.version !== null || p.fileNetworkCapabilities !== "not_applicable"))
+        || (p.installed && p.fileNetworkCapabilities === "not_applicable")) return null
+    return {installed:p.installed, version:p.version, tunDevice:p.tunDevice, fileNetworkCapabilities:p.fileNetworkCapabilities}
+  } catch (_) { return null }
+}
+
 // Independent diagnostic sample: this response has no daemon instance proof
 // and must never update connection health or ownership observations.
 function parseDiagnosticsSummary(raw) {
