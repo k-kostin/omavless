@@ -3,6 +3,9 @@
 Current candidate: **0.8.0-rc.1**. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
+The [ARM64 preparation report](../../docs/testing/NATIVE_080_RC_PREPARATION_2026-09-13.md)
+records the actual built pair, checksums, isolated installer tests and remaining
+installed-release gates. It is not a stable-release acceptance claim.
 
 The build tuple is one reviewed source commit, locked Rust workspace version,
 prebuilt native ELF SHA-256, Arch package and matching native-only frontend.
