@@ -62,6 +62,36 @@ class PackagePolicyTests(unittest.TestCase):
                 gate.key_values(data, "=", {"schemaVersion"}, True)
             self.assertNotIn(marker, str(result.exception))
 
+    def identity(self, schema="2", product="0.8.0-rc.1"):
+        raw = (f"schemaVersion={schema}\nsourceCommit={'a' * 40}\nbinarySha256={'b' * 64}\n"
+               "architecture=aarch64\nprovenance=caller-supplied-prebuilt\n")
+        if schema == "2":
+            raw += f"productVersion={product}\n"
+        return raw.encode()
+
+    def test_candidate_identity_matches_exact_package_version(self):
+        value = gate.validate_build_identity(dict(arch="aarch64", pkgver="0.8.0rc1-1"), self.identity())
+        self.assertEqual(value["productVersion"], "0.8.0-rc.1")
+        for pkgver in ("0.8.0-1", "0.8.0rc2-1", "0.8.0rc1-2", "0.0.0.r1.gaaaaaaaaaaaa-1"):
+            self.assertRefused("package_version", lambda: gate.validate_build_identity(
+                dict(arch="aarch64", pkgver=pkgver), self.identity()))
+
+    def test_legacy_identity_keeps_source_prefix_guard(self):
+        package = dict(arch="aarch64", pkgver="0.0.0.r1.gaaaaaaaaaaaa-1")
+        gate.validate_build_identity(package, self.identity("1"))
+        self.assertRefused("build_identity", lambda: gate.validate_build_identity(
+            dict(package, pkgver="0.0.0.r1.gbbbbbbbbbbbb-1"), self.identity("1")))
+
+    def test_candidate_identity_rejects_extra_duplicate_unsafe_and_stable_versions(self):
+        package = dict(arch="aarch64", pkgver="0.8.0rc1-1")
+        for raw in (self.identity() + b"arbitrary=value\n",
+                    self.identity() + b"productVersion=0.8.0-rc.1\n", self.identity("3"),
+                    self.identity(product="0.8.0"), self.identity(product="private-secret;false"),
+                    self.identity().replace(b"aarch64", b"x86_64")):
+            with self.assertRaises(gate.Refused) as raised:
+                gate.validate_build_identity(package, raw)
+            self.assertNotIn("private-secret", str(raised.exception))
+
     def test_private_file_regular_owned_0600_and_no_symlink(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(gate, "safe_parents"):
             target = Path(folder, "private.json")

@@ -183,6 +183,28 @@ def validate_listing(raw):
                 "archive_member_type")
 
 
+def validate_build_identity(package, raw):
+    schema = key_values(raw, "=", {"schemaVersion"})["schemaVersion"]
+    require(schema in ("1", "2"), "build_identity")
+    keys = {"schemaVersion", "sourceCommit", "binarySha256", "architecture", "provenance"}
+    if schema == "2":
+        keys.add("productVersion")
+    identity = key_values(raw, "=", keys, True)
+    require(identity["architecture"] == package["arch"]
+            and re.fullmatch(r"[0-9a-f]{40}", identity["sourceCommit"])
+            and re.fullmatch(r"[0-9a-f]{64}", identity["binarySha256"])
+            and identity["provenance"] == "caller-supplied-prebuilt", "build_identity")
+    if schema == "1":
+        require(re.fullmatch(r"0\.0\.0\.r[0-9]+\.g[0-9a-f]{12}-[0-9]+", package["pkgver"]),
+                "package_version")
+        require(".g" + identity["sourceCommit"][:12] + "-" in package["pkgver"], "build_identity")
+    else:
+        version = identity["productVersion"]
+        require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*", version), "package_version")
+        require(package["pkgver"] == version.replace("-rc.", "rc") + "-1", "package_version")
+    return identity
+
+
 def inspect_archive(path):
     require(path.name.endswith(".pkg.tar.zst"), "archive_type")
     uid = path.lstat().st_uid
@@ -199,15 +221,7 @@ def inspect_archive(path):
     package = key_values(member(".PKGINFO"), " = ", {"pkgname", "pkgver", "arch"})
     require(package["pkgname"] == "omavless" and package["arch"] == os.uname().machine,
             "package_identity")
-    require(re.fullmatch(r"0\.0\.0\.r[0-9]+\.g[0-9a-f]{12}-[0-9]+", package["pkgver"]),
-            "package_version")
-    identity = key_values(member("usr/share/doc/omavless/build-identity.txt"), "=",
-                          {"schemaVersion", "sourceCommit", "binarySha256", "architecture", "provenance"}, True)
-    require(identity["schemaVersion"] == "1" and identity["architecture"] == package["arch"]
-            and re.fullmatch(r"[0-9a-f]{40}", identity["sourceCommit"])
-            and re.fullmatch(r"[0-9a-f]{64}", identity["binarySha256"])
-            and ".g" + identity["sourceCommit"][:12] + "-" in package["pkgver"],
-            "build_identity")
+    identity = validate_build_identity(package, member("usr/share/doc/omavless/build-identity.txt"))
     require(member("usr/bin/omavless", True) == identity["binarySha256"], "archive_binary_mismatch")
     units = {name: member("usr/lib/systemd/user/" + name, True) for name in UNITS}
     require(fingerprint(path, uid) == mark, "archive_changed")

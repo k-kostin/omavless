@@ -63,9 +63,16 @@ mkdir -- "$builddir/payload" "$builddir/home" "$builddir/config"
 bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" || fail
 staged_hash=$(sha256sum -- "$builddir/payload/usr/bin/omavless"); staged_hash=${staged_hash%% *}
 [[ $staged_hash == "$binary_hash" ]] || fail
-printf 'schemaVersion=1\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\n' \
+identity_schema=1
+[[ ${4-} != --candidate ]] || identity_schema=2
+printf 'schemaVersion=%s\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\n' \
+  "$identity_schema" \
   "$expected_sha" "$binary_hash" "$architecture" \
   > "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
+if [[ ${4-} == --candidate ]]; then
+  printf 'productVersion=%s\n' "$candidate_version" \
+    >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
+fi
 chmod 0644 -- "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
   -cf "$builddir/payload.tar" -C "$builddir/payload" usr || fail

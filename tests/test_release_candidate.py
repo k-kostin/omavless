@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import tomllib
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('release_candidate', ROOT / 'packaging/release/build-candidate.py')
@@ -196,6 +197,16 @@ esac
         self.assertEqual(len(identity['artifacts']), 2)
         for name, sha in identity['artifacts'].items():
             self.assertEqual(RELEASE.digest(self.output / name), sha)
+        spec = importlib.util.spec_from_file_location('candidate_package_gate', ROOT / 'tests/installed_native_package.py')
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        archive, = self.output.glob('*.pkg.tar.zst')
+        # Temporary test roots live below /tmp; production archive inspection
+        # retains its stricter trusted-parent rule. No install method is called.
+        with patch.object(gate, 'safe_parents'):
+            checked = gate.inspect_archive(archive)
+        self.assertEqual(checked['source'], self.sha)
+        self.assertEqual(checked['binary'], identity['binarySha256'])
         self.assertEqual(self.git('status', '--porcelain'), b'')
 
 
