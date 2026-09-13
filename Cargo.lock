@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-control-protocol"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "omavless-parity",
  "serde",
@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-domain"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "base64 0.22.1",
  "idna",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-mihomo"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "nix",
  "omavless-domain",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-parity"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-profile"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-runtime"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 dependencies = [
  "base64 0.22.1",
  "nix",
@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "omavless-store"
-version = "0.1.0"
+version = "0.8.0-rc.1"
 
 [[package]]
 name = "once_cell"

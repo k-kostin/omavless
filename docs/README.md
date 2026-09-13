@@ -16,6 +16,8 @@ Read [AGENTS.md](../AGENTS.md), the [delivery roadmap](../DEVELOPMENT_ROADMAP.md
 and the [architecture/roadmap index](roadmap/README.md).
 The [current delivery status](roadmap/CURRENT_STATUS.md) separates the accepted
 native application, published marketplace snapshot and remaining follow-ups.
+Native release assembly and owner-controlled publication gates are described
+in [packaging/release](../packaging/release/README.md).
 Reusable project workflows live in [`skills/`](../skills/omavless-ui-review/SKILL.md),
 not in the installed frontend payload.
 

@@ -10,6 +10,7 @@ python3 -m unittest -v \
   "$here/test_native_uninstall_guard.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
+  "$here/test_release_candidate.py" \
   "$here/test_installed_native_acceptance.py" \
   "$here/test_installed_native_domain.py" \
   "$here/test_installed_native_bridge.py" \

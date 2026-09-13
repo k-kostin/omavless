@@ -17,7 +17,7 @@ Rust runtime or migrate an existing installation.
 | [Native Rust application + plugin](docs/user/NATIVE_INSTALL.md) | Reviewed Arch/Omarchy candidate: prebuilt runtime package, explicit activation, matching QML frontend. No Python runtime required. |
 
 The native implementation is integrated into `main`; it is not yet a stable
-0.8.0 release. [Release preparation](https://github.com/k-kostin/omavless/pull/239)
+0.8.0 release. [0.8.0-rc.1 release preparation](packaging/release/README.md)
 is separate from marketplace publication. Existing users are not automatically
 migrated.
 

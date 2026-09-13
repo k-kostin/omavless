@@ -16,7 +16,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   and Try Omarchy ARM64 UI/live-refresh acceptance. Its compact main-page
   action reuses the existing Rust operation; VPN ownership is unchanged.
 - Native **0.8.0-rc.1** assembly remains in separate open
-  [#239](https://github.com/k-kostin/omavless/pull/239). Local artifacts and
+  [#239](https://github.com/k-kostin/omavless/pull/239), following the
+  [release assembly guide](../../packaging/release/README.md). Local artifacts and
   archive checks are recorded there; they are not a stable release, an installed
   upgrade of this VM, or a marketplace update. The previously built RC frontend
   predates #240; rebuild and record new artifact identities before shipping it.

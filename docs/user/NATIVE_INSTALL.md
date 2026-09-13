@@ -1,6 +1,6 @@
 # Native Rust candidate: local installation and recovery
 
-This guide is for an explicitly reviewed **local development candidate** on
+This guide is for an explicitly reviewed **native candidate** on
 Arch/Omarchy. It is not a marketplace release, automatic migration, AUR package
 announcement. Its scoped [local R6 acceptance](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
 does not establish a public release. The published 0.7.0
@@ -14,6 +14,12 @@ it is not a hidden fallback for an activated native owner.
 
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
+
+For the prepared **0.8.0-rc.1** artifact pair, verify `SHA256SUMS` and the exact
+source/architecture in `release-candidate.json` before following this guide.
+No RC artifact is a stable 0.8.0 release, and marketplace publication remains
+owner-controlled. The repository's compatibility manifest remains 0.7.0;
+the separately assembled native frontend carries the RC version.
 
 ## Before installation
 
@@ -125,7 +131,11 @@ activation is not recovery. A refused or interrupted transition must follow the
 [activation/recovery contract](../testing/R5_DISCONNECTED_ACTIVATION.md); there
 is no supported force-activation or marker-deletion shortcut.
 
-From the reviewed checkout matching the candidate frontend:
+From the extracted **candidate frontend archive**, run `./install.sh` without
+arguments: its entry point always selects native-only installation. It requires
+the already activated owner and cannot install the legacy payload.
+
+Alternatively, from the reviewed **full source checkout** matching the candidate:
 
 ```sh
 ./install.sh --native-only

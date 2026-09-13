@@ -1,6 +1,6 @@
 # OmaVLESS native package payload
 
-This directory defines the inert filesystem payload for the future Arch
+This directory defines the inert filesystem payload for the native Arch
 package. The payload contains the prebuilt `omavless` executable, its packaged
 systemd runtime and login-preparation user units, license, third-party notices
 and this packaging note.
@@ -59,6 +59,16 @@ local-source/checksum/package conventions and
 release signing, CI binary distribution, auto-update or a runtime installer.
 
 Installing these files alone does not switch VPN ownership. Until the explicit
-R5 cutover is accepted, the Omarchy plugin and Python compatibility backend
-remain the production owner. Package activation, update, removal and rollback
-remain separately reviewed host-integration work.
+activation transaction is performed, the existing owner remains authoritative.
+The native R6 path is accepted; use the
+[installation/recovery guide](../../docs/user/NATIVE_INSTALL.md) and retain its
+exact host evidence and limitations.
+
+## 0.8.0 candidate assembly
+
+The optional fourth argument `--candidate` selects only the checked-in Cargo
+RC version, rendered in Arch's compatible `0.8.0rc1` spelling. The ordinary
+three-argument development package identity is unchanged. Stable versions and
+arbitrary version input are rejected by this RC path. Prefer the
+[release assembler](../release/README.md) to pair the package with a matching
+native-only frontend and integrity record. No publication is performed.

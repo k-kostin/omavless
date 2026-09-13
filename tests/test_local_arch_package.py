@@ -16,7 +16,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
     def test_fixed_command_boundaries_and_reviewed_identity(self):
         script = (ROOT / "packaging/arch/build-local-package.sh").read_text()
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
-        self.assertIn('[[ $# -eq 3 && $EUID -ne 0 ]] || fail', code)
+        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && $4 == --candidate ) ) && $EUID -ne 0 ]] || fail', code)
         self.assertIn('^[0-9a-f]{40}$', code)
         self.assertEqual(code.count('git -C "$repo_root" rev-parse HEAD'), 2)
         self.assertEqual(code.count('status --porcelain --untracked-files=normal'), 2)
@@ -42,7 +42,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
         self.assertIn("source=('payload.tar')", template)
         self.assertIn("sha256sums=('@PAYLOAD_SHA256@')", template)
         self.assertIn("options=('!strip' '!debug' 'docs')", template)
-        self.assertIn('pkgver=0.0.0.r@COUNT@.g@SHORT_SHA@', template)
+        self.assertIn('pkgver=@VERSION@', template)
         self.assertIn("arch=('@ARCH@')", template)
         self.assertNotIn('SKIP', template)
         self.assertNotRegex(template, r'(?m)^\s*(?:build|prepare|check)\s*\(\)|^\s*install=')
@@ -59,6 +59,7 @@ class LocalArchPackageTests(unittest.TestCase):
         self.repo.mkdir()
         for name in ("packaging/arch/stage-payload.sh", "packaging/arch/build-local-package.sh",
                      "packaging/arch/PKGBUILD.local.in", "packaging/arch/README.md",
+                     "Cargo.toml",
                      "packaging/systemd/omavless-runtime.service",
                      "packaging/systemd/omavless-login-prepare.service", "LICENSE", "THIRD_PARTY_NOTICES.md"):
             target = self.repo / name
@@ -71,9 +72,10 @@ class LocalArchPackageTests(unittest.TestCase):
         self.build = self.base / "build"
         self.build.mkdir()
 
-    def invoke(self, binary="/usr/bin/true", sha=None, build=None):
+    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False):
         return subprocess.run(["bash", str(self.repo / "packaging/arch/build-local-package.sh"),
-                               str(build or self.build), str(binary), sha or self.sha],
+                               str(build or self.build), str(binary), sha or self.sha,
+                               *(["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
 
     def test_refuses_wrong_identity_dirty_checkout_unsafe_paths_without_payload(self):
@@ -101,6 +103,28 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("build refused or failed", result.stderr)
         self.assertFalse(any(self.build.iterdir()))
+
+    def test_candidate_refuses_stable_version_before_payload(self):
+        cargo = self.repo / 'Cargo.toml'
+        cargo.write_text('[workspace.package]\nversion = "0.8.0"\n')
+        subprocess.run(['git', '-C', str(self.repo), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(self.repo), '-c', 'user.name=Synthetic',
+                        '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'stable'],
+                       check=True, capture_output=True)
+        sha = subprocess.check_output(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], text=True).strip()
+        self.assertNotEqual(self.invoke(sha=sha, candidate=True).returncode, 0)
+        self.assertFalse(any(self.build.iterdir()))
+
+    def test_offline_candidate_makepkg_version(self):
+        if os.geteuid() == 0 or not all(shutil.which(t) for t in ('makepkg', 'fakeroot', 'bsdtar', 'readelf', 'zstd')):
+            self.skipTest('non-root Arch packaging tools required')
+        result = self.invoke(candidate=True)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        archive, = self.build.glob('omavless-0.8.0rc1-1-*.pkg.tar.zst')
+        metadata = subprocess.check_output(['bsdtar', '-xOf', str(archive), '.PKGINFO'], text=True)
+        self.assertIn('pkgver = 0.8.0rc1-1\n', metadata)
+        if shutil.which('vercmp'):
+            self.assertLess(int(subprocess.check_output(['vercmp', '0.8.0rc1', '0.8.0'])), 0)
 
     def test_offline_real_makepkg_payload_identity_and_no_activation_hooks(self):
         if os.geteuid() == 0:

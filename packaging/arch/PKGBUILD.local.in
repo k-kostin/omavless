@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Generated only by build-local-package.sh; all sources are local and hashed.
 pkgname=omavless
-pkgver=0.0.0.r@COUNT@.g@SHORT_SHA@
+pkgver=@VERSION@
 pkgrel=1
 pkgdesc='Private native VPN runtime and semantic CLI (development checkpoint)'
 arch=('@ARCH@')

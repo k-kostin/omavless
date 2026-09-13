@@ -16,6 +16,9 @@ All notable changes to OmaVLESS are documented here.
 - Native login autoconnect is Off by default. Optional Last/pinned acceptance,
   DNS/provider findings and experimental-protocol evidence remain separate
   follow-ups. No new protocol or host support is implied.
+- Prepare workspace version `0.8.0-rc.1` and offline exact-source Arch package
+  plus matching native-only frontend, hashes and explicit provenance. No tag,
+  release upload or marketplace update is implied.
 - Native 0.8.0 RC assembly is tracked separately in #239. There is no stable
   0.8.0 release or marketplace update yet.
 

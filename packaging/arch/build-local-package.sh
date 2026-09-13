@@ -4,7 +4,7 @@
 set -euo pipefail
 export LC_ALL=C
 fail() { echo 'OmaVLESS local package build refused or failed.' >&2; exit 2; }
-[[ $# -eq 3 && $EUID -ne 0 ]] || fail
+[[ ( $# -eq 3 || ( $# -eq 4 && $4 == --candidate ) ) && $EUID -ne 0 ]] || fail
 builddir=$1
 binary=$2
 expected_sha=$3
@@ -33,6 +33,14 @@ case "$builddir/" in "$repo_root/"*) fail ;; esac
 count=$(git -C "$repo_root" rev-list --count HEAD)
 epoch=$(git -C "$repo_root" show -s --format=%ct HEAD)
 [[ $count =~ ^[0-9]+$ && $epoch =~ ^[0-9]+$ ]] || fail
+package_version="0.0.0.r$count.g${expected_sha:0:12}"
+if [[ ${4-} == --candidate ]]; then
+  # Only the checked-in RC version can label a candidate; never accept a caller
+  # supplied package version or turn a candidate build into a stable release.
+  candidate_version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$repo_root/Cargo.toml")
+  [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || fail
+  package_version=${candidate_version/-rc./rc}
+fi
 architecture=$(uname -m)
 case $architecture in
   aarch64) machine='AArch64' ;;
@@ -62,7 +70,7 @@ chmod 0644 -- "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
   -cf "$builddir/payload.tar" -C "$builddir/payload" usr || fail
 payload_hash=$(sha256sum -- "$builddir/payload.tar"); payload_hash=${payload_hash%% *}
-sed -e "s/@COUNT@/$count/g" -e "s/@SHORT_SHA@/${expected_sha:0:12}/g" \
+sed -e "s/@VERSION@/$package_version/g" \
   -e "s/@ARCH@/$architecture/g" -e "s/@PAYLOAD_SHA256@/$payload_hash/g" \
   "$script_dir/PKGBUILD.local.in" > "$builddir/PKGBUILD"
 # Use the root-owned distribution configuration, not per-user build hooks.
@@ -77,7 +85,7 @@ cd -- "$builddir"
 env -i PATH=/usr/bin:/bin HOME="$builddir/home" XDG_CONFIG_HOME="$builddir/config" \
   LANG=C.UTF-8 SOURCE_DATE_EPOCH="$epoch" \
   /usr/bin/makepkg --config "$builddir/makepkg.conf" --nodeps --nocheck --noconfirm || fail
-archive="$builddir/omavless-0.0.0.r$count.g${expected_sha:0:12}-1-$architecture.pkg.tar.zst"
+archive="$builddir/omavless-$package_version-1-$architecture.pkg.tar.zst"
 [[ -f $archive && ! -L $archive ]] || fail
 packaged_hash=$(bsdtar -xOf "$archive" usr/bin/omavless | sha256sum) || fail
 [[ ${packaged_hash%% *} == "$binary_hash" ]] || fail

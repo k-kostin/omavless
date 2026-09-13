@@ -16,7 +16,7 @@ Native integration #238 is merged; its included Drafts are reconciled. The
 preserves the pre-merge checks and reconciliation mapping, not an outstanding
 integration task. Main also contains #240's accepted subscription-row refresh.
 Separate [#239](https://github.com/k-kostin/omavless/pull/239) prepares native
-0.8.0 RC artifacts; no stable release or marketplace update has occurred.
+[0.8.0 RC artifacts](packaging/release/README.md); no stable release or marketplace update has occurred.
 
 This file is the compact source of truth for **what happens next**, dependency
 order and acceptance state. Detailed contracts live under `docs/roadmap/`.
