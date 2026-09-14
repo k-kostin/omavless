@@ -25,6 +25,25 @@ const hostFixture = () => {
  return r;
 };
 function test(name, fn) { try { fn(); count++; } catch(e) { e.message = name + ': ' + e.message; throw e; } }
+test('reports accept stable and release-candidate runtime versions across supported schemas',()=>{
+ const cargo=fs.readFileSync(__dirname+'/../Cargo.toml','utf8');
+ const current=cargo.match(/^version = "([^"]+)"$/m)[1];
+ for(const version of ['0.1.0','0.8.0','0.8.0-rc.1','0.8.0-rc.12',current]) {
+  for(const make of [fixture,modernFixture,hostFixture]) {
+   const r=make();r.runtime.version=version;
+   const result=parser.configurationReport(frame(r),7);assert(result,version);
+   assert.equal(JSON.parse(result).runtime.version,version);
+  }
+ }
+});
+test('runtime version remains bounded machine vocabulary, not arbitrary release text',()=>{
+ for(const version of ['0.8.0-rc.0','0.8.0-rc.01','0.8.0-rc.','0.8.0-RC.1','0.8.0-beta.1',
+  '0.8.0-rc.1+private','0.8.0\n','0.8.0-rc.1/private','v0.8.0','0.8.0-rc.1 password=secret',
+  '1'.repeat(33)+'.0.0',null,800]) {
+  const r=hostFixture();r.runtime.version=version;
+  assert.equal(parser.configurationReport(frame(r),7),null);
+ }
+});
 test('v3 host facts preserve bounded setup and configured counts without network claims',()=>{
  const r=hostFixture(), result=JSON.parse(parser.configurationReport(frame(r),7));
  assert.equal(result.schemaVersion,3); assert.equal(result.host.configuredPolicy.rules,42);

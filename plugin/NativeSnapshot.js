@@ -492,7 +492,7 @@ function configurationReport(raw, revision) {
     var filesObserved = !!(host && host.files && Object.keys(host.files).every(function(k) { return host.files[k] !== null }))
     var h = r.runtime, c = r.configuration, v = r.coverage
     if (!object(h, ["implementation", "version", "lastKnownState", "routingTransactionPending"])
-        || h.implementation !== "rust" || !text(h.version, 32, false) || !/^\d+\.\d+\.\d+$/.test(h.version)
+        || h.implementation !== "rust" || !text(h.version, 32, false) || !/^\d+\.\d+\.\d+(?:-rc\.[1-9][0-9]*)?$/.test(h.version)
         || ["disconnected", "starting", "connected", "reconnecting", "stopping", "failed", "manual_recovery_required"].indexOf(h.lastKnownState) < 0
         || typeof h.routingTransactionPending !== "boolean"
         || !(modern ? object(v, ["privateStoreValidated", "liveHostObservation", "controllerQuery", "loginActivationVerified", "coreSetupVerified", "serviceEnablementVerified", "loadedPolicyCounts", "fileReadiness"])
