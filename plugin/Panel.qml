@@ -583,6 +583,7 @@ Panel {
     if (vless.nativeOwner && (!vless.nativeSnapshot || vless.nativeSnapshotFailed || vless.nativePending)) return false
     onboardingDismissed = false
     onboardingWizard.openAt(step || 1)
+    if (vless.nativeOwner) vless.refreshNativeDesktopCapabilities()
     return true
   }
 
@@ -3670,6 +3671,8 @@ Panel {
         anchors.fill: parent
         nativeContext: vless.nativeOwner
         nativeCoreFacts: vless.nativeCoreSetupFacts
+        nativeDesktopFacts: vless.nativeDesktopCapabilities
+        nativeDesktopLoading: vless.nativeDesktopLoading
         nativeCoreDescription: root.nativeCoreSetupDescription()
         nativeCanContinue: vless.nativeCanAct
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
@@ -3690,7 +3693,11 @@ Panel {
         urgent: root.urgent
         fontFamily: root.fontFamily
         onCopyCommand: function(command) { vless.copyText(command) }
-        onRefreshRequested: { vless.refresh(); if (vless.nativeOwner) vless.refreshNativeCoreSetup() }
+        onRefreshRequested: {
+          vless.refresh()
+          if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
+        }
+        onSetupGuideRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/INSTALL.md")
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
         onPasteRequested: { if (vless.nativeOwner) vless.startNativeImport("clipboard"); else vless.pasteConfig() }
         onFileRequested: { if (vless.nativeOwner) vless.startNativeImport("file"); else vless.pickConfigFile() }

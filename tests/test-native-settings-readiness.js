@@ -18,6 +18,13 @@ test('strict schema, unknown provider and no fabricated fallback',()=>{
  }
  for(const key of Object.keys(fixture())) { const f=fixture(); delete f[key]; assert.equal(parser.desktopCapabilities(JSON.stringify(f)),null); }
 });
+test('clipboard input and output availability remain independent in the UI projection',()=>{
+ for(const read of [true,false])for(const write of [true,false]) {
+  const value=parser.desktopCapabilities(JSON.stringify({...fixture(),clipboardReadAvailable:read,clipboardWriteAvailable:write}));
+  assert.equal(value.clipboardReadAvailable,read);assert.equal(value.clipboardWriteAvailable,write);
+ }
+ assert.equal(parser.desktopCapabilities(JSON.stringify({...fixture(),clipboardReadAvailable:'true'})),null);
+});
 test('malformed duplicate bounded nested and private input rejected',()=>{
  const raw=JSON.stringify(fixture());
  for(const value of ['',raw.replace('{','{"schemaVersion":1,'),raw+'{}','x'.repeat(2049),'private-secret',raw.replace('true','{"private":"secret"}'),raw.replace('schemaVersion','schema\\u0056ersion')]) assert.equal(parser.desktopCapabilities(value),null);

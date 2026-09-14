@@ -15,7 +15,8 @@ function desktopCapabilities(raw) {
         || typeof p.configEditorAvailable !== "boolean" || typeof p.qrEncoderAvailable !== "boolean"
         || p.gtk4FallbackAvailable !== false) return null
     return {filePicker:p.filePicker, configEditorAvailable:p.configEditorAvailable,
-      qrEncoderAvailable:p.qrEncoderAvailable, clipboardWriteAvailable:p.clipboardWriteAvailable}
+      qrEncoderAvailable:p.qrEncoderAvailable, clipboardReadAvailable:p.clipboardReadAvailable,
+      clipboardWriteAvailable:p.clipboardWriteAvailable}
   } catch (_) { return null }
 }
 function parseCoreSetupFacts(raw) {

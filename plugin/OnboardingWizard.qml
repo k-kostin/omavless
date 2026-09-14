@@ -16,6 +16,11 @@ Item {
   property var coreSetup: ({ installed: false, tunReady: false, path: "" })
   property bool nativeContext: false
   property var nativeCoreFacts: null
+  property var nativeDesktopFacts: null
+  property bool nativeDesktopLoading: false
+  readonly property bool clipboardReady: !nativeContext || (nativeDesktopFacts !== null && nativeDesktopFacts.clipboardReadAvailable === true)
+  readonly property bool pickerReady: nativeContext ? nativeDesktopFacts !== null && !!nativeDesktopFacts.filePicker : filePicker.available
+  readonly property bool commandCopyReady: !nativeContext || (nativeDesktopFacts !== null && nativeDesktopFacts.clipboardWriteAvailable === true)
   property string nativeCoreDescription: ""
   property string nativeStatus: ""
   property bool nativeCanContinue: true
@@ -36,6 +41,7 @@ Item {
 
   signal copyCommand(string command)
   signal refreshRequested()
+  signal setupGuideRequested()
   signal presetChosen(string preset)
   signal pasteRequested()
   signal fileRequested()
@@ -98,6 +104,7 @@ Item {
       MouseArea { anchors.fill: parent; onClicked: {} }
 
       Flickable {
+        objectName: "onboardingScroll"
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -213,6 +220,24 @@ Item {
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
             }
+            PlainText {
+              visible: wizard.nativeContext
+              width: parent.width
+              text: wizard.textFor("native.onboarding.setup_help")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            Button {
+              objectName: "onboardingSetupGuide"
+              visible: wizard.nativeContext
+              text: wizard.textFor("native.onboarding.setup_guide")
+              bordered: true
+              foreground: wizard.foreground
+              fontFamily: wizard.fontFamily
+              onClicked: wizard.setupGuideRequested()
+            }
           }
 
           Column {
@@ -296,7 +321,7 @@ Item {
                 ? wizard.textFor("onboarding.connections_ready", {
                     count: wizard.localizedCount("connection", wizard.profiles.length)
                   })
-                : wizard.textFor("onboarding.import_help")
+                : wizard.textFor(wizard.nativeContext ? "native.onboarding.import_help" : "onboarding.import_help")
               color: wizard.profiles.length > 0 ? Color.accent : wizard.dim
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -304,9 +329,9 @@ Item {
             }
 
             PlainText {
-              visible: !wizard.nativeContext && !wizard.filePicker.available
+              visible: wizard.nativeContext ? wizard.nativeDesktopFacts !== null && !wizard.pickerReady : !wizard.filePicker.available
               width: parent.width
-              text: wizard.textFor("onboarding.file_picker_missing")
+              text: wizard.textFor(wizard.nativeContext ? "native.onboarding.picker_missing" : "onboarding.file_picker_missing")
               color: wizard.urgent
               font.family: wizard.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -314,26 +339,71 @@ Item {
             }
 
             CommandRow {
-              visible: !wizard.nativeContext && !wizard.filePicker.available
+              visible: wizard.nativeContext ? wizard.nativeDesktopFacts !== null && !wizard.pickerReady : !wizard.filePicker.available
               width: parent.width
               label: wizard.textFor("onboarding.install_file_picker")
               command: "omarchy pkg add zenity"
             }
 
+            PlainText {
+              visible: wizard.nativeContext && wizard.nativeDesktopFacts !== null && !wizard.clipboardReady
+              width: parent.width
+              text: wizard.textFor("native.onboarding.clipboard_missing")
+              color: wizard.urgent
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            CommandRow {
+              visible: wizard.nativeContext && wizard.nativeDesktopFacts !== null && !wizard.clipboardReady
+              label: wizard.textFor("native.onboarding.install_clipboard")
+              command: "omarchy pkg add wl-clipboard"
+            }
+            PlainText {
+              visible: wizard.nativeContext && wizard.nativeDesktopFacts !== null && !wizard.commandCopyReady && (!wizard.clipboardReady || !wizard.pickerReady)
+              width: parent.width
+              text: wizard.textFor("native.onboarding.copy_unavailable")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+            PlainText {
+              visible: wizard.nativeContext && wizard.nativeDesktopFacts === null
+              width: parent.width
+              text: wizard.textFor(wizard.nativeDesktopLoading ? "common.loading" : "native.onboarding.helpers_unknown")
+              color: wizard.dim
+              font.family: wizard.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            Button {
+              objectName: "onboardingHelpersRefresh"
+              visible: wizard.nativeContext && (!wizard.clipboardReady || !wizard.pickerReady)
+              text: wizard.textFor("common.check_again")
+              bordered: true
+              enabled: !wizard.busy && !wizard.nativeDesktopLoading
+              foreground: enabled ? wizard.foreground : wizard.dim
+              fontFamily: wizard.fontFamily
+              onClicked: wizard.refreshRequested()
+            }
+
             Row {
               spacing: Style.space(8)
               Button {
+                objectName: "onboardingPaste"
                 text: wizard.textFor("onboarding.paste_link")
                 bordered: true
-                enabled: !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
+                enabled: wizard.clipboardReady && !wizard.busy && (!wizard.nativeContext || wizard.nativeCanContinue)
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.pasteRequested()
               }
               Button {
+                objectName: "onboardingFile"
                 text: wizard.textFor("onboarding.choose_file")
                 bordered: true
-                enabled: (wizard.nativeContext ? wizard.nativeCanContinue : wizard.filePicker.available) && !wizard.busy
+                enabled: wizard.pickerReady && (!wizard.nativeContext || wizard.nativeCanContinue) && !wizard.busy
                 foreground: enabled ? wizard.foreground : wizard.dim
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.fileRequested()
@@ -403,6 +473,7 @@ Item {
               }
 
               Button {
+                objectName: "onboardingFinish"
                 visible: wizard.step === 3
                 text: wizard.profiles.length > 0
                   ? wizard.textFor("onboarding.finish") : wizard.textFor("onboarding.finish_later")
@@ -457,10 +528,12 @@ Item {
       }
       Button {
         id: copyButton
+        objectName: "onboardingCopyCommand"
         text: wizard.textFor("common.copy")
         tooltipText: wizard.textFor("onboarding.copy_command_tooltip")
         bordered: true
-        foreground: wizard.foreground
+        enabled: wizard.commandCopyReady && !wizard.busy
+        foreground: enabled ? wizard.foreground : wizard.dim
         fontFamily: wizard.fontFamily
         onClicked: wizard.copyCommand(commandRow.command)
       }
