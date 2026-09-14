@@ -9,8 +9,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
 - Owner-approved [Python reference retirement](LEGACY_RETIREMENT.md) preserves
   the complete pre-retirement tree in frozen `archive/python-legacy` at
   `aa5873783c019edc303a732e55ea8c85f1f0b090`. Native RC delivery (#239) and
-  native-only defaults (#242) are merged. Fixture-backed legacy removal is the
-  final integration checkpoint; leaving RC remains a separate owner decision.
+  native-only defaults (#242) are merged. [#243](https://github.com/k-kostin/omavless/pull/243)
+  integrates the accepted fixture-backed legacy removal, completing the four-step
+  checkpoint. Leaving RC remains a separate owner decision; use GitHub for the
+  final merge SHA, not historical preparation-only status below.
 
 - Native integration [#238](https://github.com/k-kostin/omavless/pull/238)
   merged at `778647215deb1cb27e66e10e628fd0e78beee1af`. Its PR and main CI
@@ -73,9 +75,10 @@ replay, not a supported fallback or second native lifecycle owner.
 
 ## Next work, in order
 
-1. Integrate the locally validated fixture-backed reference retirement; retain
-   the accepted native-only source/default-install and unchanged R6 evidence.
-2. Only after the retirement sequence, prepare stable release/package metadata
+1. Retain the completed four-step reference retirement, native-only default and
+   scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
+   migration gates merely because test/docs cleanup merged.
+2. Prepare stable release/package metadata
    and owner-reviewed plugin-page screenshots. Do not change the published
    0.7.0 marketplace identity without separate approval.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
