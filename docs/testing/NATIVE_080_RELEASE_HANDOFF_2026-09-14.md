@@ -39,6 +39,22 @@ Private backups and captures are outside Git. Preserve both original and test
 snapshots until the owner no longer needs recovery. No private names, record IDs,
 URIs, credentials or screenshots belong in the public release report.
 
+### Post-merge CI harness finding
+
+Main run `34849402594` at `f11ed070845c4650f4dec851114c4391800321a5`
+failed in `desktop_dialog_cancellation_retains_exit_three_without_error_output`.
+The panic was the test helper's stdin `write_all(...).unwrap()` returning
+BrokenPipe, not a failed cancellation/cleanup assertion. The negative case
+deliberately sends an extra CLI argument, which is rejected before stdin is
+read; writing an unused locale raced that correct early process exit.
+
+The narrow correction sends empty stdin for that argv-rejection case only.
+Valid chooser calls still receive their locale and must return cancellation
+code 3 without output; the invalid call still requires code 2, empty stdout and
+no private argument in stderr. No production code, timeout, error suppression,
+test skip, GUI interaction or host behavior changes. The failed run remains
+visible; subsequent exact-head CI must pass before this correction merges.
+
 ## Remaining release preparation
 
 The offline tooling checkpoint adds explicit stable assembly without changing

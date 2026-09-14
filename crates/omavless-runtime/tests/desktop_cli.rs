@@ -197,7 +197,9 @@ fn desktop_dialog_cancellation_retains_exit_three_without_error_output() {
         let response = f.call(&["desktop", operation], b"en");
         assert_eq!(response.status.code(), Some(3));
         assert!(response.stdout.is_empty() && response.stderr.is_empty());
-        let rejected = f.call(&["desktop", operation, "private-token"], b"en");
+        // Argument rejection happens before stdin is read. Feeding unused input
+        // here races the correctly exiting child (BrokenPipe in the test writer).
+        let rejected = f.call(&["desktop", operation, "private-token"], b"");
         assert_eq!(rejected.status.code(), Some(2));
         assert!(rejected.stdout.is_empty());
         assert!(!String::from_utf8_lossy(&rejected.stderr).contains("private-token"));
