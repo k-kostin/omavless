@@ -141,13 +141,26 @@ were inspected. The Rust binary remained unchanged.
 | Finish later | Actual button activation changed canonical completion false to true, dismissed wizard, pending/unknown false |
 | Close/reopen after shell restart | Completion remained true and wizard did not reopen automatically |
 | Network/startup | Disconnected Routing, no Mihomo/TUN/auxiliary, no recovery, startup Off |
-| Restore original private account data | Attended restoration pending at this checkpoint; do not infer restoration from the backup alone |
+| Restore original private account data | Whole original files restored and byte-verified before start; independent post-start profile-store byte comparison PASS, 37 profiles / 1 subscription restored |
+| Restore runtime | Independently observed disconnected Routing, no recovery/core/TUN, runtime active/enabled, plugin enabled, startup Off |
+| Attended restoration completion record | UNVERIFIED: restoration terminal closed without its final success marker; final acknowledgement/result cannot be inferred from healthy runtime. No host effects repeated; owner clarification requested |
 
 This closes the exercised graphical first-use/default completion question on
 the installed ARM64 package. It does not claim a newly provisioned OS, absent
 desktop-helper installation, all routing-preset choices, enabled autoconnect or
 fresh VPN interoperability. Earlier [fresh package activation evidence](R6_FRESH_PACKAGE_ACTIVATION_2026-09-11.md)
 retains its own exact identity and scope.
+
+The restoration helper recorded successful whole-file restoration before its
+attended service start. Subsequent independent reads confirm the original
+inventory and healthy disconnected state, but the helper's overall completion
+marker is absent and its terminal/process has exited. It is not known whether
+the final human acknowledgement was interrupted or a subsequent verification
+failed. Do not claim an entirely green guarded restoration invocation, fabricate
+an acknowledgement, or rerun host effects merely to obtain its missing marker.
+Private original and test snapshots are both retained for recovery. Final #244
+implementation/evidence CI at `4676a0ec617e65897555f469fe214149133a97b9` passed;
+this subsequent clarification changes documentation only.
 
 ## Combined RC support-report check
 
