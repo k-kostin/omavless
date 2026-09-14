@@ -148,7 +148,8 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(manifest["name"], "OmaVLESS")
         self.assertEqual(manifest["barWidget"]["displayName"], "OmaVLESS")
         self.assertEqual(manifest["version"], "0.8.0-rc.1")
-        self.assertEqual(backend.PLUGIN_VERSION, manifest["version"])
+        # The frozen Python reference is not the native product version.
+        self.assertEqual(backend.PLUGIN_VERSION, "0.7.0")
         self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
         self.assertEqual(manifest["entryPoints"]["barWidget"], "plugin/Panel.qml")
         self.assertIn("experimental Trojan, Hysteria2 and TUIC", manifest["description"])
