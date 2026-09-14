@@ -9,10 +9,12 @@ after the scoped R6 closure, not a new runtime migration or stable release.
    It is not a pure Python-only tree. Preserve the branch during cleanup; do not
    add fixes, merge new main into it, or resolve a test dependency by fetching its
    moving branch name. The immutable commit is the reference provenance.
-2. **Native RC distribution — in progress in #239.** Verify exact-source
-   archives and an attended installed update. Existing native R6 acceptance is
-   retained where unchanged. An archive inspection or on-disk binary alone is
-   not running-package acceptance.
+2. **Native RC distribution — accepted locally, #239 integration pending.**
+   Source `4549f6921e908a951698617027b4971057278920` has fresh archives and
+   an attended ARM64 installed update with actual restarted-binary evidence in
+   [the RC report](../testing/NATIVE_080_RC_PREPARATION_2026-09-13.md).
+   Existing native R6 acceptance is retained where unchanged. This is not a
+   stable release or broader host claim.
 3. **Default source/frontend installation — pending.** Make the ordinary path
    native-only, with actionable missing-package/ownership refusal and no Python
    fallback. Keep the accepted UI. Account for both the source installer and

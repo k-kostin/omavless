@@ -23,9 +23,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
 - Native **0.8.0-rc.1** assembly remains in separate open
   [#239](https://github.com/k-kostin/omavless/pull/239), following the
   [release assembly guide](../../packaging/release/README.md). Local artifacts and
-  archive checks are recorded there; they are not a stable release, an installed
-  upgrade of this VM, or a marketplace update. The previously built RC frontend
-  predates #240; rebuild and record new artifact identities before shipping it.
+  archive checks and the attended ARM64 installed update from source
+  `4549f6921e908a951698617027b4971057278920` are recorded there. The new pair
+  includes #240; earlier archived pairs retain their original identities.
+  This is not a stable release or marketplace update.
 - #30 and #135 remain separate Drafts. Do not merge or discard their evidence
   as part of repository cleanup. Marketplace text/screenshots and publication
   remain owner-controlled.

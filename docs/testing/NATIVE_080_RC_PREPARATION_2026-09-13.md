@@ -1,5 +1,8 @@
 # Native 0.8.0-rc.1 artifact preparation
 
+The initial record below is historical. The final section records the newer
+2026-09-14 artifact build and successful attended installed update.
+
 Try Omarchy ARM64, 2026-09-13. Release preparation in PR #239, **not a stable
 release, marketplace update or new installed R6 acceptance**. The accepted
 runtime/UI was left running; no package installation, service restart,
@@ -107,3 +110,54 @@ regenerated, relabelled, installed or uploaded during this maintenance. A final
 delivery must regenerate the matching frontend/package identity from its actual
 reviewed source. Current branch checks belong in #239; they do not turn these
 historical artifacts into a newer build or fresh installed-release acceptance.
+
+## Attended RC update — 2026-09-14
+
+Exact source: `4549f6921e908a951698617027b4971057278920`, clean checkout
+on the same main base. The new test-only `--upgrade-only` path reuses archive,
+running-process/private-state checks and the existing per-effect human barrier.
+It does not add a product privilege path or perform a removal rehearsal.
+
+Built locally on Try Omarchy ARM64 using Rust 1.98.0:
+`cargo build --release --locked --offline -p omavless-runtime --bin omavless`.
+The cached target was reused, not an unverified old archive. Rust/Cargo bytes
+remain unchanged from the earlier RC; build output verifies the same optimized
+binary. Fresh package/frontend archives are bound to the exact source above.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Native ELF | `e88f83496d4e301d41d02e1f53c4e19a21c02731dd8b5803d8cbdae8155d4807` |
+| `omavless-0.8.0rc1-1-aarch64.pkg.tar.zst` | `9407a1303b25db65b32d763c8939d85e16abb090158c3e905cb443eac01a5817` |
+| `omavless-0.8.0-rc.1-frontend.tar.xz` | `9f98eebb690c9d0b432552642f9cfdee3f6feb44cd341339f63217ee2734fca8` |
+
+Checksums and strict archive inspection PASS. Installed through normal attended
+`sudo pacman -U`, after a single acknowledged semantic Disconnect and service
+Stop. The human completed `ready`/`settled` separately for Disconnect, Stop,
+Install and Start; no scripted acknowledgements or automatic retry. Prior
+installed package was `0.0.0.r492.g7b75b747883d-1`.
+
+- Actual restarted process binary, `/usr/bin/omavless`, package version and
+  both packaged units match the inspected RC archive: PASS.
+- Private persistent files preserved byte-for-byte across the package update;
+  owner remains Rust, runtime enabled, startup Off: PASS.
+- Disconnected observation, no manual recovery, Mihomo/TUN/auxiliary = 0/0/0,
+  no live controller: PASS.
+- Matching extracted frontend installed through its ordinary `./install.sh`.
+  All 24 runtime-relevant frontend/template/manifest files match the archive;
+  manifest is `0.8.0-rc.1`, Python and legacy uninstall are absent, plugin remains
+  enabled: PASS. No UI behavior changed from accepted #240.
+- Local full suite: 474 Python tests, 470 PASS, four existing opt-in/root skips;
+  all JS/QML checks PASS. Package/authorization focused tests: 34 PASS.
+  The first full run had two legacy subprocess timeouts; both passed separately
+  and the complete rerun passed without code/test-bound changes.
+- Shell syntax, Python compile, manifest, diff and plugin validation: PASS.
+  `qmllint` unavailable. Exact-source CI run `34830017658`: PASS.
+
+No new 0.7.0 ownership-transition gate is claimed; unchanged accepted R6 migration
+evidence remains separate. This validates an existing-native ARM64 update, not
+x86_64, fresh-login autoconnect, arbitrary-schema rollback or network/provider
+interoperability. Final state is disconnected Routing with the plugin enabled.
+
+The owner-approved [retirement sequence](../roadmap/LEGACY_RETIREMENT.md) still
+requires native-only source defaults and reference-backed legacy removal before
+leaving RC. No stable tag/release or marketplace publication occurred.
