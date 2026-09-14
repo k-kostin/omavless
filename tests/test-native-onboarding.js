@@ -69,6 +69,46 @@ test('native completion shares exact pending fence and zero private arguments',(
  assert.equal(c.nativePending.command[2],'native-onboarding-complete');c.nativeCanAct=false;assert(!c.completeOnboarding());
  assert.equal(parser.parseActionExit('',{action:'onboarding-complete'},74).code,'invalid_argument');
 });
+function completionResponse() {
+ return {api:'omavless.control',version:1,id:'request',ok:true,revision:8,
+  result:{schemaVersion:1,instanceId:'instance',operationId:'operation',action:'onboarding-complete',applied:true}};
+}
+function completionPending() {return {instanceId:'instance',operationId:'operation',action:'onboarding-complete',revision:7}}
+test('completion success and already-complete acknowledgement are recognized with exact fences',()=>{
+ for(const revision of [7,8]) {
+  const frame=completionResponse();frame.revision=revision;
+  assert.equal(parser.parseActionExit(JSON.stringify(frame),completionPending(),0)?.ok,true);
+ }
+ for(const change of [p=>p.result.instanceId='other',p=>p.result.operationId='other',p=>p.result.action='disconnect',
+  p=>p.result.applied=false,p=>p.revision=6,p=>p.result.extra='private']) {
+  const frame=completionResponse();change(frame);assert.equal(parser.parseActionExit(JSON.stringify(frame),completionPending(),0),null);
+ }
+ const pending=completionPending();pending.action='unrecognized';
+ assert.equal(parser.parseActionExit(JSON.stringify(completionResponse()),pending,0),null);
+});
+test('completion rejection keeps only the safe code and malformed replies remain unknown',()=>{
+ const frame={api:'omavless.control',version:1,id:'request',ok:false,revision:7,
+  error:{code:'conflict',message:'https://private.invalid/password?key=secret',retryable:false}};
+ const result=parser.parseActionExit(JSON.stringify(frame),completionPending(),2);
+ assert.equal(result?.ok,false);assert.equal(result.code,'conflict');assert(!JSON.stringify(result).includes('private'));
+ assert.equal(parser.parseActionExit('',completionPending(),73),null);
+});
+test('real Service exit handler clears completion pending and refreshes confirmed state',()=>{
+ const process=service.slice(service.indexOf('    id: nativeActionProcess'));
+ const start=process.indexOf('    onExited: function(exitCode) {');
+ const end=process.indexOf('\n    }',start)+6;
+ const handler=process.slice(start,end).replace('    onExited: function(exitCode)', 'function exited(exitCode)');
+ function run(raw,code) {
+  const c=vm.createContext({NativeSnapshot:parser,nativeActionStdout:{text:raw},nativePending:completionPending(),
+   nativeOutcomeUnknown:false,nativeActionCode:'',nativeObservation:{},refreshes:0,
+   finishNativeEditorAction(){},finishNativeSubscriptionAction(){},finishNativeRoutingAction(){},
+   refreshAfterChange(){this.refreshes++}});c.root=c;vm.runInContext(handler,c);c.exited(code);return c;
+ }
+ const c=run(JSON.stringify(completionResponse()),0);
+ assert.equal(c.nativePending,null);assert.equal(c.nativeOutcomeUnknown,false);assert.equal(c.nativeActionCode,'');
+ assert.equal(c.nativeObservation,null);assert.equal(c.refreshes,1);
+ const unknown=run('',73);assert(unknown.nativePending);assert.equal(unknown.nativeOutcomeUnknown,true);
+});
 test('native wizard preserves layout and explicitly avoids legacy grants/readiness claims',()=>{
  assert(wizard.includes('property bool nativeContext: false'));
  assert(wizard.includes('visible: !wizard.nativeContext && wizard.coreSetup.installed && !wizard.coreSetup.tunReady'));
