@@ -52,9 +52,9 @@ class ReleaseCandidateTests(unittest.TestCase):
                  'commit', '-qm', 'fixture')
         self.sha = self.git('rev-parse', 'HEAD').decode().strip()
 
-    def archive(self, name='frontend.tar.xz'):
+    def archive(self, name='frontend.tar.xz', stable=False):
         target = self.output / name
-        RELEASE.frontend(self.repo, target, self.sha, RELEASE.version(self.repo), 1)
+        RELEASE.frontend(self.repo, target, self.sha, RELEASE.version(self.repo, stable), 1)
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
@@ -85,6 +85,26 @@ class ReleaseCandidateTests(unittest.TestCase):
             self.assertEqual(archive.extractfile('omavless-frontend/install-frontend.sh').read(),
                              (ROOT / 'install.sh').read_bytes())
 
+    def test_stable_mode_requires_exact_bounded_stable_version(self):
+        for valid in ('0.8.0', '1.2.34'):
+            (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{valid}"\n')
+            self.assertEqual(RELEASE.version(self.repo, stable=True), valid)
+            with self.assertRaises(ValueError):
+                RELEASE.version(self.repo)
+        for invalid in ('0.8.0-rc.1', '0.8.0-beta.1', '0.8.0+private', '0.8.0;false',
+                        'v0.8.0', '0.8', '1' * 33 + '.0.0'):
+            (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{invalid}"\n')
+            with self.assertRaises(ValueError):
+                RELEASE.version(self.repo, stable=True)
+
+    def test_stable_mode_refuses_rc_before_packaging(self):
+        with patch.object(RELEASE.subprocess, 'run', wraps=subprocess.run) as effects:
+            with self.assertRaises(ValueError):
+                RELEASE.assemble(self.repo, self.output, Path('/usr/bin/true'), self.sha, stable=True)
+            self.assertTrue(effects.called)
+            self.assertTrue(all(call.args[0][0] == 'git' for call in effects.call_args_list))
+        self.assertEqual(list(self.output.iterdir()), [])
+
     def test_symlink_inside_allowed_tree_is_rejected(self):
         (self.repo / 'plugin/unsafe.qml').symlink_to('/etc/passwd')
         self.commit()
@@ -111,8 +131,8 @@ class ReleaseCandidateTests(unittest.TestCase):
             RELEASE.assemble(self.repo, self.output, Path('/usr/bin/true'), self.sha)
         self.assertEqual(list(self.output.iterdir()), [sentinel])
 
-    def installer_env(self):
-        with tarfile.open(self.archive()) as archive:
+    def installer_env(self, stable=False):
+        with tarfile.open(self.archive(stable=stable)) as archive:
             archive.extractall(self.output, filter='data')
         self.frontend = self.output / 'omavless-frontend'
         self.bin = self.base / 'bin'
@@ -150,7 +170,15 @@ esac
                               env=env, capture_output=True, text=True, timeout=15)
 
     def test_fresh_and_existing_frontend_install_have_no_python_or_activation(self):
-        env = self.installer_env()
+        self.check_frontend_install(stable=False)
+
+    def test_stable_fresh_and_existing_frontend_install_without_python(self):
+        (self.repo / 'Cargo.toml').write_text('[workspace.package]\nversion = "0.8.0"\n')
+        self.commit()
+        self.check_frontend_install(stable=True)
+
+    def check_frontend_install(self, stable):
+        env = self.installer_env(stable)
         target = self.home / '.config/omarchy/plugins/kdk.omavless'
         for fresh in (True, False):
             if not fresh:
@@ -161,7 +189,7 @@ esac
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(list(target.rglob('*.py')), [])
             self.assertFalse((target / 'uninstall.sh').exists())
-            self.assertEqual(json.loads((target / 'manifest.json').read_text())['version'], RELEASE.version(ROOT))
+            self.assertEqual(json.loads((target / 'manifest.json').read_text())['version'], RELEASE.version(self.repo, stable))
             calls = self.trace.read_text().splitlines()
             self.assertEqual(calls.count('owner-read'), 2)
             self.assertEqual('plugin:enable' in calls, fresh)
@@ -183,9 +211,17 @@ esac
             self.assertFalse(target.exists())
 
     def test_real_offline_pair_integrity_and_provenance(self):
+        self.check_offline_pair(stable=False)
+
+    def test_real_stable_pair_integrity_and_inspector(self):
+        (self.repo / 'Cargo.toml').write_text('[workspace.package]\nversion = "0.8.0"\n')
+        self.commit()
+        self.check_offline_pair(stable=True)
+
+    def check_offline_pair(self, stable):
         if os.geteuid() == 0 or not all(shutil.which(t) for t in ('makepkg', 'fakeroot', 'bsdtar', 'readelf', 'zstd')):
             self.skipTest('non-root Arch packaging tools required')
-        RELEASE.assemble(self.repo, self.output, Path('/usr/bin/true'), self.sha)
+        RELEASE.assemble(self.repo, self.output, Path('/usr/bin/true'), self.sha, stable=stable)
         result = subprocess.run(['sha256sum', '--check', 'SHA256SUMS'], cwd=self.output,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0)
@@ -193,6 +229,7 @@ esac
         self.assertEqual(identity['sourceCommit'], self.sha)
         self.assertEqual(identity['provenance'], 'caller-supplied-prebuilt')
         self.assertEqual(identity['publication'], 'unpublished-candidate')
+        self.assertEqual(identity['version'], '0.8.0' if stable else '0.8.0-rc.1')
         self.assertEqual(identity['binarySha256'], hashlib.sha256(Path('/usr/bin/true').read_bytes()).hexdigest())
         self.assertEqual(len(identity['artifacts']), 2)
         for name, sha in identity['artifacts'].items():
@@ -207,6 +244,13 @@ esac
             checked = gate.inspect_archive(archive)
         self.assertEqual(checked['source'], self.sha)
         self.assertEqual(checked['binary'], identity['binarySha256'])
+        self.assertEqual(checked['version'], '0.8.0-1' if stable else '0.8.0rc1-1')
+        frontend, = self.output.glob('*-frontend.tar.xz')
+        with tarfile.open(frontend) as payload:
+            self.assertEqual(json.load(payload.extractfile('omavless-frontend/manifest.json'))['version'],
+                             identity['version'])
+            self.assertFalse(any(n.endswith('.py') or '/skills/' in n or '/tests/' in n
+                                 for n in payload.getnames()))
         self.assertEqual(self.git('status', '--porcelain'), b'')
 
 

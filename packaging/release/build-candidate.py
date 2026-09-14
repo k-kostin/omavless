@@ -40,9 +40,10 @@ def checked_source(root, expected):
         raise ValueError("uncommitted source")
 
 
-def version(root):
+def version(root, stable=False):
     value = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*", value):
+    pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + ("" if stable else r"-rc\.[1-9][0-9]*")
+    if not isinstance(value, str) or len(value) > 32 or not re.fullmatch(pattern, value):
         raise ValueError("candidate version required")
     return value
 
@@ -101,9 +102,9 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def assemble(root, output, binary, expected):
+def assemble(root, output, binary, expected, stable=False):
     checked_source(root, expected)
-    release_version = version(root)
+    release_version = version(root, stable)
     if not output.is_absolute() or output.resolve() != output or not output.is_dir():
         raise ValueError("unsafe output")
     if output == root or root in output.parents or output.stat().st_uid != os.getuid():
@@ -114,7 +115,7 @@ def assemble(root, output, binary, expected):
     build = output / "arch-build"
     build.mkdir(mode=0o700)
     subprocess.run(["/bin/bash", str(root / "packaging/arch/build-local-package.sh"),
-                    str(build), str(binary), expected, "--candidate"],
+                    str(build), str(binary), expected, "--stable" if stable else "--candidate"],
                    check=True, timeout=180, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     packages = list(build.glob("omavless-*.pkg.tar.zst"))
     if len(packages) != 1:
@@ -142,9 +143,11 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("binary", type=Path)
     parser.add_argument("commit")
+    parser.add_argument("--stable", action="store_true",
+                        help="assemble only a checked-in stable version; does not publish or change versions")
     args = parser.parse_args()
     try:
-        assemble(ROOT, args.output, args.binary, args.commit)
+        assemble(ROOT, args.output, args.binary, args.commit, args.stable)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         parser.exit(2, "Candidate assembly refused or failed; nothing was installed or published.\n")
     print("Native release candidate assembled; nothing was installed or published.")

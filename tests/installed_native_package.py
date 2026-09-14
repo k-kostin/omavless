@@ -185,9 +185,9 @@ def validate_listing(raw):
 
 def validate_build_identity(package, raw):
     schema = key_values(raw, "=", {"schemaVersion"})["schemaVersion"]
-    require(schema in ("1", "2"), "build_identity")
+    require(schema in ("1", "2", "3"), "build_identity")
     keys = {"schemaVersion", "sourceCommit", "binarySha256", "architecture", "provenance"}
-    if schema == "2":
+    if schema in ("2", "3"):
         keys.add("productVersion")
     identity = key_values(raw, "=", keys, True)
     require(identity["architecture"] == package["arch"]
@@ -200,7 +200,8 @@ def validate_build_identity(package, raw):
         require(".g" + identity["sourceCommit"][:12] + "-" in package["pkgver"], "build_identity")
     else:
         version = identity["productVersion"]
-        require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*", version), "package_version")
+        pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + (r"-rc\.[1-9][0-9]*" if schema == "2" else "")
+        require(len(version) <= 32 and re.fullmatch(pattern, version), "package_version")
         require(package["pkgver"] == version.replace("-rc.", "rc") + "-1", "package_version")
     return identity
 

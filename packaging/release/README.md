@@ -63,6 +63,38 @@ never by either delivered artifact. No new crate or runtime dependency is added.
 
 ## Release gates and deliberate stop
 
+### Explicit stable assembly (offline preparation only)
+
+The default assembler remains RC-only. Once the owner approves a clean source
+commit with the stable Cargo/lock/manifest versions, use the same assembler
+with an explicit `--stable`:
+
+```sh
+python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/prebuilt/omavless FULL_SOURCE_COMMIT_SHA --stable
+```
+
+This mode requires a three-part stable version from committed `Cargo.toml`;
+it rejects RC/beta/build suffixes and versions longer than 32 characters.
+Conversely, the default mode continues to reject stable versions. No CLI
+argument supplies or rewrites the version. The native binary must be built
+from that exact source separately; the assembler inspects but never executes it.
+
+Stable Arch packages use build-identity schema **3** with `productVersion`,
+mapped exactly to `VERSION-1`; schema 2 remains RC-only, schema 1 remains
+development/source-prefixed. The attended inspector understands all three and
+retains exact source, hash, architecture, payload and permission checks. Older
+inspectors reject schema 3: use the checker from the reviewed release source.
+No installed runtime reader or service policy changes with this test-tool schema.
+
+Outputs retain `release-candidate.json` and `publication: unpublished-candidate`
+even when the version is stable. An assembled archive is not publication,
+release approval, a signature or installed acceptance. No tag/upload/package
+installation/service action occurs. Tests build RC and stable pairs around a
+synthetic system ELF, not a falsely labelled OmaVLESS binary.
+
+The [VM-to-PC checklist](../../docs/testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md)
+separates completed VM gates from the remaining exact-artifact/owner gates.
+
 For an already activated native installation, the developer package gate can
 perform only the required update (no downgrade/removal rehearsal):
 
@@ -103,5 +135,5 @@ Candidate packages use build-identity schema 2: the existing source, binary,
 architecture and provenance fields plus `productVersion`. The attended package
 checker requires its exact RC-to-Arch version mapping and unchanged payload
 safety checks. Schema 1 development packages retain their SHA-in-version guard.
-Neither schema is a signature or proof that caller-supplied bytes were built
+None of these identity schemas is a signature or proof that caller-supplied bytes were built
 from the declared source.

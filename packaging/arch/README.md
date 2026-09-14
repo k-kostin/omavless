@@ -72,3 +72,9 @@ three-argument development package identity is unchanged. Stable versions and
 arbitrary version input are rejected by this RC path. Prefer the
 [release assembler](../release/README.md) to pair the package with a matching
 native-only frontend and integrity record. No publication is performed.
+
+The separate `--stable` mode accepts only a checked-in three-part stable Cargo
+version (at most 32 characters). It emits schema-3 build identity and exact
+`VERSION-1` package spelling; it never promotes or rewrites an RC version.
+The RC/default development modes and their schemas remain distinct. This is
+offline assembly, not stable-release approval, installation or publication.

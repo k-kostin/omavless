@@ -4,7 +4,7 @@
 set -euo pipefail
 export LC_ALL=C
 fail() { echo 'OmaVLESS local package build refused or failed.' >&2; exit 2; }
-[[ ( $# -eq 3 || ( $# -eq 4 && $4 == --candidate ) ) && $EUID -ne 0 ]] || fail
+[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) ) && $EUID -ne 0 ]] || fail
 builddir=$1
 binary=$2
 expected_sha=$3
@@ -34,11 +34,16 @@ count=$(git -C "$repo_root" rev-list --count HEAD)
 epoch=$(git -C "$repo_root" show -s --format=%ct HEAD)
 [[ $count =~ ^[0-9]+$ && $epoch =~ ^[0-9]+$ ]] || fail
 package_version="0.0.0.r$count.g${expected_sha:0:12}"
-if [[ ${4-} == --candidate ]]; then
-  # Only the checked-in RC version can label a candidate; never accept a caller
-  # supplied package version or turn a candidate build into a stable release.
+if [[ $# -eq 4 ]]; then
+  # RC and stable assembly are explicit, disjoint modes. Neither publishes.
+  # Only the checked-in Cargo version labels artifacts, never caller input.
   candidate_version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$repo_root/Cargo.toml")
-  [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || fail
+  [[ ${#candidate_version} -le 32 ]] || fail
+  if [[ $4 == --stable ]]; then
+    [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail
+  else
+    [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || fail
+  fi
   package_version=${candidate_version/-rc./rc}
 fi
 architecture=$(uname -m)
@@ -65,11 +70,12 @@ staged_hash=$(sha256sum -- "$builddir/payload/usr/bin/omavless"); staged_hash=${
 [[ $staged_hash == "$binary_hash" ]] || fail
 identity_schema=1
 [[ ${4-} != --candidate ]] || identity_schema=2
+[[ ${4-} != --stable ]] || identity_schema=3
 printf 'schemaVersion=%s\nsourceCommit=%s\nbinarySha256=%s\narchitecture=%s\nprovenance=caller-supplied-prebuilt\n' \
   "$identity_schema" \
   "$expected_sha" "$binary_hash" "$architecture" \
   > "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
-if [[ ${4-} == --candidate ]]; then
+if [[ $# -eq 4 ]]; then
   printf 'productVersion=%s\n' "$candidate_version" \
     >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 fi

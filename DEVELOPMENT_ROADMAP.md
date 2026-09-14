@@ -22,6 +22,13 @@ installation. [Python reference retirement](docs/roadmap/LEGACY_RETIREMENT.md)
 preserves the frozen archive and independent test fixtures. No stable release
 or marketplace update has occurred.
 
+Native onboarding #244 and RC support-report #245 are now merged after their
+combined Try Omarchy ARM64 acceptance. The next release sequence is VM closure,
+exact final artifact/version preparation, final x86_64 Omarchy acceptance, then
+owner-controlled publication; use the
+[release handoff](docs/testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md).
+This does not reopen R6 or declare AUTO-1/V0/DNS passed.
+
 This file is the compact source of truth for **what happens next**, dependency
 order and acceptance state. Detailed contracts live under `docs/roadmap/`.
 

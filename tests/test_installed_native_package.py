@@ -99,7 +99,7 @@ class PackagePolicyTests(unittest.TestCase):
     def identity(self, schema="2", product="0.8.0-rc.1"):
         raw = (f"schemaVersion={schema}\nsourceCommit={'a' * 40}\nbinarySha256={'b' * 64}\n"
                "architecture=aarch64\nprovenance=caller-supplied-prebuilt\n")
-        if schema == "2":
+        if schema in ("2", "3"):
             raw += f"productVersion={product}\n"
         return raw.encode()
 
@@ -119,12 +119,35 @@ class PackagePolicyTests(unittest.TestCase):
     def test_candidate_identity_rejects_extra_duplicate_unsafe_and_stable_versions(self):
         package = dict(arch="aarch64", pkgver="0.8.0rc1-1")
         for raw in (self.identity() + b"arbitrary=value\n",
-                    self.identity() + b"productVersion=0.8.0-rc.1\n", self.identity("3"),
+                    self.identity() + b"productVersion=0.8.0-rc.1\n", self.identity("4"),
                     self.identity(product="0.8.0"), self.identity(product="private-secret;false"),
                     self.identity().replace(b"aarch64", b"x86_64")):
             with self.assertRaises(gate.Refused) as raised:
                 gate.validate_build_identity(package, raw)
             self.assertNotIn("private-secret", str(raised.exception))
+
+    def test_stable_identity_is_distinct_and_exact(self):
+        package = dict(arch="aarch64", pkgver="0.8.0-1")
+        value = gate.validate_build_identity(package, self.identity("3", "0.8.0"))
+        self.assertEqual(value["productVersion"], "0.8.0")
+        for pkgver in ("0.8.0rc1-1", "0.8.1-1", "0.8.0-2"):
+            self.assertRefused("package_version", lambda: gate.validate_build_identity(
+                dict(package, pkgver=pkgver), self.identity("3", "0.8.0")))
+        for schema, product in (("2", "0.8.0"), ("3", "0.8.0-rc.1"),
+                                ("3", "0.8.0+private"), ("3", "1" * 33 + ".0.0")):
+            self.assertRefused("package_version", lambda: gate.validate_build_identity(
+                package, self.identity(schema, product)))
+
+    def test_stable_identity_keeps_all_metadata_fences(self):
+        package = dict(arch="aarch64", pkgver="0.8.0-1")
+        good = self.identity("3", "0.8.0")
+        for raw in (good + b"productVersion=0.8.0\n", good + b"arbitrary=value\n",
+                    good.replace(b"aarch64", b"x86_64"),
+                    good.replace(b"a" * 40, b"bad-source"),
+                    good.replace(b"b" * 64, b"bad-hash"),
+                    good.replace(b"caller-supplied-prebuilt", b"unverified")):
+            with self.assertRaises(gate.Refused):
+                gate.validate_build_identity(package, raw)
 
     def test_private_file_regular_owned_0600_and_no_symlink(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(gate, "safe_parents"):

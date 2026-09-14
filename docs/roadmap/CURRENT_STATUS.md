@@ -34,6 +34,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
 - #30 and #135 remain separate Drafts. Do not merge or discard their evidence
   as part of repository cleanup. Marketplace text/screenshots and publication
   remain owner-controlled.
+- Native onboarding [#244](https://github.com/k-kostin/omavless/pull/244)
+  merged at `9e8587847295a7a9a2dee64d7ab0ab004013cb73`; RC support-report
+  parsing [#245](https://github.com/k-kostin/omavless/pull/245) merged at
+  `6b9aa75dbe4ad76882b18d65895105ea85fbab93`. Their combined runtime/frontend
+  bytes match the already installed Try Omarchy candidate. Clean same-account
+  first-use onboarding and completion persistence passed; original private
+  profile bytes were restored and verified. The missing final restoration
+  helper marker and qualified owner recollection remain documented, not a
+  reason to repeat destructive setup. See the
+  [release handoff](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md).
 
 ## Accepted native checkpoint
 
@@ -78,9 +88,11 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Prepare stable release/package metadata
-   and owner-reviewed plugin-page screenshots. Do not change the published
-   0.7.0 marketplace identity without separate approval.
+2. Follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
+   finish exact stable artifact/version preparation, run the owner's final
+   x86_64 Omarchy pass, then obtain publication approval. Offline stable
+   assembly is distinct from changing the current RC version or publishing.
+   Do not change the 0.7.0 marketplace identity without separate approval.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.

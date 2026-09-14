@@ -16,7 +16,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
     def test_fixed_command_boundaries_and_reviewed_identity(self):
         script = (ROOT / "packaging/arch/build-local-package.sh").read_text()
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
-        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && $4 == --candidate ) ) && $EUID -ne 0 ]] || fail', code)
+        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) ) && $EUID -ne 0 ]] || fail', code)
         self.assertIn('^[0-9a-f]{40}$', code)
         self.assertEqual(code.count('git -C "$repo_root" rev-parse HEAD'), 2)
         self.assertEqual(code.count('status --porcelain --untracked-files=normal'), 2)
@@ -72,10 +72,10 @@ class LocalArchPackageTests(unittest.TestCase):
         self.build = self.base / "build"
         self.build.mkdir()
 
-    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False):
+    def invoke(self, binary="/usr/bin/true", sha=None, build=None, candidate=False, stable=False):
         return subprocess.run(["bash", str(self.repo / "packaging/arch/build-local-package.sh"),
                                str(build or self.build), str(binary), sha or self.sha,
-                               *(["--candidate"] if candidate else [])],
+                               *(["--stable"] if stable else ["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
 
     def test_refuses_wrong_identity_dirty_checkout_unsafe_paths_without_payload(self):
@@ -113,6 +113,10 @@ class LocalArchPackageTests(unittest.TestCase):
                        check=True, capture_output=True)
         sha = subprocess.check_output(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], text=True).strip()
         self.assertNotEqual(self.invoke(sha=sha, candidate=True).returncode, 0)
+        self.assertFalse(any(self.build.iterdir()))
+
+    def test_stable_refuses_rc_version_before_payload(self):
+        self.assertNotEqual(self.invoke(stable=True).returncode, 0)
         self.assertFalse(any(self.build.iterdir()))
 
     def test_offline_candidate_makepkg_version(self):
