@@ -143,7 +143,7 @@ were inspected. The Rust binary remained unchanged.
 | Network/startup | Disconnected Routing, no Mihomo/TUN/auxiliary, no recovery, startup Off |
 | Restore original private account data | Whole original files restored and byte-verified before start; independent post-start profile-store byte comparison PASS, 37 profiles / 1 subscription restored |
 | Restore runtime | Independently observed disconnected Routing, no recovery/core/TUN, runtime active/enabled, plugin enabled, startup Off |
-| Attended restoration completion record | UNVERIFIED: restoration terminal closed without its final success marker; final acknowledgement/result cannot be inferred from healthy runtime. No host effects repeated; owner clarification requested |
+| Attended restoration completion record | Owner tentatively recalls seeing PASS; durable final success marker remains absent. This is human recollection, not verified script completion. No host effects repeated |
 
 This closes the exercised graphical first-use/default completion question on
 the installed ARM64 package. It does not claim a newly provisioned OS, absent
@@ -158,6 +158,10 @@ marker is absent and its terminal/process has exited. It is not known whether
 the final human acknowledgement was interrupted or a subsequent verification
 failed. Do not claim an entirely green guarded restoration invocation, fabricate
 an acknowledgement, or rerun host effects merely to obtain its missing marker.
+Asked what the terminal displayed before closing, the owner subsequently
+reported that they thought it was PASS. Preserve that qualified recollection
+separately from the independently verified restored state; it does not establish
+the missing final ready/settled record or explain why the marker is absent.
 Private original and test snapshots are both retained for recovery. Final #244
 implementation/evidence CI at `4676a0ec617e65897555f469fe214149133a97b9` passed;
 this subsequent clarification changes documentation only.
