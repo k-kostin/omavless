@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 22,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "d869be1c2904e676fe3e04cdd92bce59706296708cfcf8b9ca8b93de6177d537",
+  "returncode": 1,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "",
+  "tool": "vless_canonical_parity.py"
+}

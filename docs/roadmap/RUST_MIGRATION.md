@@ -13,8 +13,10 @@ under the owner's explicit enabled-autoconnect deferral to
 [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md). Default Off/Python-absence evidence is
 retained; network failures are not relabelled PASS. See
 [current delivery status](CURRENT_STATUS.md) for the integrated tree and use
-GitHub for actual publication state. This is not blanket Python-source deletion
-or permission to start unrelated work.
+GitHub for actual publication state. The subsequent owner-approved
+[four-step retirement](LEGACY_RETIREMENT.md) separately authorizes native RC
+delivery, native-only source installation and fixture-backed Python-source
+removal. This is not permission to start unrelated work or publish marketplace.
 
 Historical local-only R6 continuity, 2026-09-11: native config preparation and
 [strict absent-legacy activation composition](../testing/R6_ABSENT_LEGACY_ACTIVATION.md)

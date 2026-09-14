@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 251,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "ba04ad7e706706bef79b365b50137aed4d2b58c5de5ddc7fa4ced5fde9c1bacd",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"cases\":[{\"accepted\":true,\"advanced_xhttp\":false,\"allow_insecure\":false,\"alpn_count\":0,\"classification\":\"accepted\",\"compatibility_note_present\":false,\"compatibility_pq\":false,\"compatibility_provider_metadata\":false,\"compatibility_spider\":false,\"compatibility_transport_metadata\":false,\"encryption_enabled\":false,\"experimental_feature_count\":0,\"flow\":\"none\",\"host_kind\":\"dns\",\"id\":\"private-case\",\"identity_fingerprint\":\"37e2ac75f82e015dff8b86d9a39623cd842b3e672e61aec7e5c676d8cbb9fdb6\",\"mihomo_fingerprint\":\"559111126c330d4afb58aa911735d81fe8d2dd5e924585dd1b7fe2e37c860814\",\"packet_encoding\":\"none\",\"port\":443,\"preview_fingerprint\":\"75125400b249d97834368bae9d086f88fb897b7d83c8ecbd13782a9e38d147bd\",\"reality_pq\":false,\"security\":\"tls\",\"standard_https_port\":true,\"transport\":\"ws\",\"xhttp_field_count\":0,\"xhttp_mode\":\"none\"}]}",
+  "tool": "vless_canonical_parity.py"
+}

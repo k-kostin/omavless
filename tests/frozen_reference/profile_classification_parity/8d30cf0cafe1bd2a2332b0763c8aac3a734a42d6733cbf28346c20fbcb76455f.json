@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 46,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "8d30cf0cafe1bd2a2332b0763c8aac3a734a42d6733cbf28346c20fbcb76455f",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"protocol\":\"hysteria2\"}\n",
+  "tool": "profile_classification_parity.py"
+}

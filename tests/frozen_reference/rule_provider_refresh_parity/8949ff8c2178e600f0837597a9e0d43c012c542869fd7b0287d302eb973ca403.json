@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 31,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "8949ff8c2178e600f0837597a9e0d43c012c542869fd7b0287d302eb973ca403",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[{\"ok\":true,\"updated\":2,\"attempted\":2,\"stamp\":true},{\"ok\":false,\"updated\":0,\"attempted\":2,\"stamp\":false},{\"ok\":false,\"updated\":0,\"attempted\":2,\"stamp\":false}]\n",
+  "tool": "rule_provider_refresh_parity.py"
+}

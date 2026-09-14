@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 864,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "685cbff4d2ffa581a43d8b8fd7eef80a56a0d81e32d237c3c62c1a431ed83c5f",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"duplicate_profile_name\"}\n",
+  "tool": "profile_mutation_parity.py"
+}

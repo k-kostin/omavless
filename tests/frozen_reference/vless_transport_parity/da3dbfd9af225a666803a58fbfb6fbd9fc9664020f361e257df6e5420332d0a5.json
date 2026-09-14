@@ -1,0 +1,11 @@
+{
+  "argumentCount": 1,
+  "inputBytes": 0,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "da3dbfd9af225a666803a58fbfb6fbd9fc9664020f361e257df6e5420332d0a5",
+  "returncode": 2,
+  "schemaVersion": 1,
+  "stderr": "Usage: vless_transport_parity.py\n",
+  "stdout": "",
+  "tool": "vless_transport_parity.py"
+}

@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 150265,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "dc9c413e4a3cb63a47f0c3002ccfbbd982a9dbedac487c78776209a7d5040672",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"too_many_subscription_entries\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

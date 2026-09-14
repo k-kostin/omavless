@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1558,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "7c4bd290e0ab3c508aebc8b2a1e5fc6111966c3ff7f79ccd25ef734601858519",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"subscription_not_found\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

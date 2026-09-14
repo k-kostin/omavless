@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 101,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "09d9a99d8597ee2c331d266bef8584b9b60c5aea9c68baefe550fac456349787",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"version\":1,\"cases\":[{\"id\":\"privacy\",\"ok\":false,\"code\":\"subscription_contains_no_supported_profiles\"}]}",
+  "tool": "subscription_feed_parity.py"
+}

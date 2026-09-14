@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 168,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "3b6f604c31e0d190b7528a445fc95e5a1657b9423febf7068dd2079980005e8f",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"pq\":false,\"pq_present\":false,\"reality\":true,\"short_id_present\":false,\"spider_x_present\":false}\n",
+  "tool": "vless_reality_parity.py"
+}

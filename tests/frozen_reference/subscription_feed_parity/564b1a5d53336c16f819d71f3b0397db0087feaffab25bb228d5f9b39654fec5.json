@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 2001,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "564b1a5d53336c16f819d71f3b0397db0087feaffab25bb228d5f9b39654fec5",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"version\":1,\"cases\":[{\"id\":\"raw-vless\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"raw-deduplicate-and-skip\",\"ok\":true,\"accepted\":1,\"skipped\":2},{\"id\":\"standard-base64\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"urlsafe-unpadded-base64\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"utf8-bom\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"python-control-whitespace-raw\",\"ok\":true,\"accepted\":2,\"skipped\":0},{\"id\":\"python-control-whitespace-base64\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"python-nonzero-unused-base64-bits\",\"ok\":true,\"accepted\":1,\"skipped\":0},{\"id\":\"all-supported-families\",\"ok\":true,\"accepted\":4,\"skipped\":0},{\"id\":\"unsupported-only\",\"ok\":false,\"code\":\"subscription_contains_no_supported_profiles\"},{\"id\":\"invalid-base64\",\"ok\":false,\"code\":\"subscription_contains_no_supported_profiles\"},{\"id\":\"invalid-supported-only\",\"ok\":false,\"code\":\"subscription_contains_no_supported_profiles\"}]}",
+  "tool": "subscription_feed_parity.py"
+}

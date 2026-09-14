@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 90,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "dd12b1cd5e44ee428b08a366039682f30e3d48920f847e96ae35e84a537ac042",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"host_kind\":\"dns\",\"label_kind\":\"ascii\",\"label_sanitized\":false,\"label_truncated\":false,\"standard_https_port\":true}\n",
+  "tool": "vless_authority_parity.py"
+}

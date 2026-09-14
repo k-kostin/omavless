@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 22,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "c76f48f93beba69c3f5a93760b0051e4dd06ea1ee9bd3ccb07b011d4ca8308b0",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"protocol\":\"vless\"}\n",
+  "tool": "profile_classification_parity.py"
+}

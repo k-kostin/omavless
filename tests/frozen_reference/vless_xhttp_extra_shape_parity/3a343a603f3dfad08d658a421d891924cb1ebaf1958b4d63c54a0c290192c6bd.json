@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 2056,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "3a343a603f3dfad08d658a421d891924cb1ebaf1958b4d63c54a0c290192c6bd",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"array_count\":0,\"boolean_count\":0,\"classification\":\"accepted\",\"false_count\":0,\"float_count\":0,\"integer_count\":0,\"maximum_depth\":1,\"non_ascii_present\":true,\"null_count\":0,\"object_count\":1,\"root_field_count\":1,\"source_empty\":false,\"string_count\":1,\"true_count\":0,\"value_count\":2}\n",
+  "tool": "vless_xhttp_extra_shape_parity.py"
+}

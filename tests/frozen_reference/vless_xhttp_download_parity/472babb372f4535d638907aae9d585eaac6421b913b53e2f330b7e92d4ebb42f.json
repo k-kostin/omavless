@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 495,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "472babb372f4535d638907aae9d585eaac6421b913b53e2f330b7e92d4ebb42f",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"alpn_count\":2,\"alpn_h2\":true,\"alpn_h3\":false,\"alpn_http_1_1\":true,\"c_max_reuse_times\":\"none\",\"classification\":\"accepted\",\"fingerprint_present\":true,\"h_keep_alive_period\":0,\"h_keep_alive_present\":false,\"h_max_request_times\":\"none\",\"h_max_reusable_secs\":\"none\",\"header_count\":1,\"host_kind\":\"dns\",\"max_concurrency\":\"none\",\"max_connections\":\"4\",\"normalized_field_count\":11,\"path_present\":true,\"port\":8443,\"port_present\":true,\"reality_pq_compatibility\":false,\"reality_pq_enabled\":false,\"reality_present\":false,\"reality_short_id_present\":false,\"reality_spider_compatibility\":false,\"reuse_field_count\":1,\"server_kind\":\"dns\",\"servername_kind\":\"dns\",\"skip_cert_verify\":false,\"skip_cert_verify_present\":true,\"tls\":true,\"tls_present\":true}\n",
+  "tool": "vless_xhttp_download_parity.py"
+}

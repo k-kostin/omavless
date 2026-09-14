@@ -1,0 +1,11 @@
+{
+  "argumentCount": 1,
+  "inputBytes": 105,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "bc730f701638ca0c3f95e480fc47eefafd0d0d12e6f1f4ec421159bd1c686984",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"invalid_request\"}\n",
+  "tool": "control_protocol_parity.py"
+}

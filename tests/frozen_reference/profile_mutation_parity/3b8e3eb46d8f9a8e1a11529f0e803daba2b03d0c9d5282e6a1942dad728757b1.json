@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1136,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "3b8e3eb46d8f9a8e1a11529f0e803daba2b03d0c9d5282e6a1942dad728757b1",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"subscribed_profile\"}\n",
+  "tool": "profile_mutation_parity.py"
+}

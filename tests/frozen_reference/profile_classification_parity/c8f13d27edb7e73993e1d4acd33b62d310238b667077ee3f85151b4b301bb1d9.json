@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 21,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "c8f13d27edb7e73993e1d4acd33b62d310238b667077ee3f85151b4b301bb1d9",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"protocol\":\"tuic\"}\n",
+  "tool": "profile_classification_parity.py"
+}

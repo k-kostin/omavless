@@ -15,8 +15,12 @@ Native integration #238 is merged; its included Drafts are reconciled. The
 [publication candidate](docs/testing/R6_PUBLICATION_CANDIDATE_2026-09-13.md)
 preserves the pre-merge checks and reconciliation mapping, not an outstanding
 integration task. Main also contains #240's accepted subscription-row refresh.
-Separate [#239](https://github.com/k-kostin/omavless/pull/239) prepares native
-[0.8.0 RC artifacts](packaging/release/README.md); no stable release or marketplace update has occurred.
+[#239](https://github.com/k-kostin/omavless/pull/239) merged the native
+[0.8.0 RC artifacts](packaging/release/README.md) and attended ARM64 update;
+[#242](https://github.com/k-kostin/omavless/pull/242) merged native-only source
+installation. [Python reference retirement](docs/roadmap/LEGACY_RETIREMENT.md)
+preserves the frozen archive and independent test fixtures. No stable release
+or marketplace update has occurred.
 
 This file is the compact source of truth for **what happens next**, dependency
 order and acceptance state. Detailed contracts live under `docs/roadmap/`.
@@ -46,8 +50,8 @@ Canonical references:
 
 Where an older document still describes Python versus compiled runtime as an
 open choice, `RUST_MIGRATION.md` is authoritative: **Rust is selected for the
-native runtime/domain/CLI; the later TUI is also Rust. Python is the separate
-legacy implementation and migration oracle, not the activated native owner.**
+native runtime/domain/CLI; the later TUI is also Rust. Python is an archived
+reference with frozen parity fixtures, not a production owner in main.**
 Where older wording says Arch/AUR is the only future host,
 `PLATFORM.md` is authoritative: Arch and NixOS are the initial host families.
 
@@ -75,8 +79,9 @@ Do not collapse these axes into one "done" label.
 ### No big-bang rewrite
 
 The migration used bounded Rust slices with parity and host gates. That native
-path is now accepted; retain Python only for the distinct legacy distribution
-and reference tests. Do not create a permanent dual native implementation.
+path is now accepted; its obsolete Python implementation is preserved on the
+frozen archive branch. Ordinary parity tests use independently recorded JSON
+expectations. Do not create a permanent dual native implementation.
 
 ### No premature TUI
 

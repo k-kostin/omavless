@@ -1,0 +1,11 @@
+{
+  "argumentCount": 2,
+  "inputBytes": 0,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "dc9602b83ea2c1dbe2b16ffff9f74822cd6ef9e3f16918b657dec2314763a6c1",
+  "returncode": 2,
+  "schemaVersion": 1,
+  "stderr": "Usage: control_protocol_parity.py request|response\n",
+  "stdout": "",
+  "tool": "control_protocol_parity.py"
+}

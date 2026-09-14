@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1119,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "66cfb6cef9c55a340a9fa729afe5d92c0204a6fa44f1c65e6115031d3a313e55",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"profile_not_found\"}\n",
+  "tool": "connection_pointer_parity.py"
+}

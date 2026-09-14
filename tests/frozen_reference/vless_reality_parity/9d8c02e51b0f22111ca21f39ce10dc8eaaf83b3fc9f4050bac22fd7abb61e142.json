@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 77,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "9d8c02e51b0f22111ca21f39ce10dc8eaaf83b3fc9f4050bac22fd7abb61e142",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"missing_server_port\",\"pq\":false,\"pq_present\":false,\"reality\":false,\"short_id_present\":false,\"spider_x_present\":false}\n",
+  "tool": "vless_reality_parity.py"
+}

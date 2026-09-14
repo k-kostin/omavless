@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 4532,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "1b16f96f0801cdc033001a5006e6bd9a5b0cfda1ea0f1cbc5d93ffff97ae2eec",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[{\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": true, \"digest\": \"3975898368e82ed0805fe1e66ee9a9a5f9bca5e5da6b3d5714d7ef3d365dd139\"}, {\"accepted\": true, \"digest\": \"ef1d42eac9cb7173fa18373c25777faf0a4f8d409f1954e93b67f35d887a01db\"}, {\"accepted\": false}, {\"accepted\": false}, {\"accepted\": false}]\n",
+  "tool": "onboarding_completion_parity.py"
+}

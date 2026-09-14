@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 4113,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "54735ce9efeb5721849bd8fdb94b3f500bd97e4a9a593332dad98460d79d602b",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[{\"ok\": true, \"digest\": \"d07e52d18a1ecd583452406adbc57a079890d70c4f1b713599f357bfa4795d1b\"}, {\"ok\": true, \"digest\": \"d07e52d18a1ecd583452406adbc57a079890d70c4f1b713599f357bfa4795d1b\"}, {\"ok\": true, \"digest\": \"e92a0be3119fddf04ce3c2001361ce5d813ade6c8b05a2af68f0b43a377e8a8e\"}, {\"ok\": true, \"digest\": \"df950e6f74fa62728e4cbe2faf0a441948693403105cb87e704991031390dca3\"}, {\"ok\": true, \"digest\": \"df950e6f74fa62728e4cbe2faf0a441948693403105cb87e704991031390dca3\"}, {\"ok\": true, \"digest\": \"ec405a27dd7d9e87e60cced658257ae86b64a3df7a9892e5ed02ece5a26cc140\"}, {\"ok\": true, \"digest\": \"ec405a27dd7d9e87e60cced658257ae86b64a3df7a9892e5ed02ece5a26cc140\"}, {\"ok\": true, \"digest\": \"e35eec21837922f3924c4d6cef68431e354b7c4e6dd72920e1abe9bae0d5022a\"}, {\"ok\": true, \"digest\": \"3cf181fbf5033f4c81e440a2500584adf2b0a171fb2c5d98ed4d7158bc44a7bd\"}, {\"ok\": true, \"digest\": \"4beeba6dda1b7ec5fd9a9afd0a02be130f37fd1a4ce52177c72f59e70e1501c2\"}, {\"ok\": true, \"digest\": \"cda09def040695047455656bc29e4be56197e5c1c9c61eb6715e84b91f9c0bad\"}, {\"ok\": true, \"digest\": \"485c0b153c8e2a1e7db1732a001a4193d9f1531ab18314d676cfe303b2ec6e93\"}, {\"ok\": true, \"digest\": \"257b6bbf979c746bc365915c8c33ef2056eee549fa6bc95821dd734e7fdf4499\"}, {\"ok\": true, \"digest\": \"527a294da6172b03b398e75e74235e787dfe8b57b11cb3e24200a921f33f8ac8\"}, {\"ok\": true, \"digest\": \"0c98df5dcfc4adb77aa4947e788017c0f742b8634c0c3e60f268bb9281e531df\"}, {\"ok\": true, \"digest\": \"45f358efba1b312f381e7ce390b08869147ff3906243108d70ed83232ca18841\"}, {\"ok\": true, \"digest\": \"10321b18f3daaa45be7e74b5a3b511d28351118cf2ac945fcb26244c4536d5d9\"}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": false}, {\"ok\": true, \"digest\": \"1a64e93fb9fd8f84c4a11dfe5944bdecd3c10b3fdd19311d6fcbb44cb608e0ba\"}]\n",
+  "tool": "diagnostic_projection_parity.py"
+}

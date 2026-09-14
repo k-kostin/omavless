@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1279,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "9e58f06a4da3c01f5dbadf0be6db3fff1269e73b8b203ee38730ba730cd131a1",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"cases\":[{\"accepted\":true,\"id\":\"one-delay\",\"samples\":{\"probe-1\":[42]}},{\"accepted\":true,\"id\":\"two-targets\",\"samples\":{\"probe-1\":[5,10],\"probe-2\":[20]}},{\"accepted\":true,\"id\":\"unknown-alias-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"zero-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"negative-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"over-limit-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"float-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"string-ignored\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"python-boolean-compatibility\",\"samples\":{\"probe-1\":[1]}},{\"accepted\":true,\"id\":\"all-timeout\",\"samples\":{\"probe-1\":[]}},{\"accepted\":false,\"id\":\"other-timeout\",\"samples\":{\"probe-1\":[]}},{\"accepted\":false,\"id\":\"other-status\",\"samples\":{\"probe-1\":[]}},{\"accepted\":false,\"id\":\"non-object\",\"samples\":{\"probe-1\":[]}},{\"accepted\":true,\"id\":\"null-value\",\"samples\":{\"probe-1\":[]}}]}",
+  "tool": "mihomo_probe_response_parity.py"
+}

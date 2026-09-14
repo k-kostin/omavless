@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 77,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "0112260c391314e8ebd1387cb6f1ffac0821527de17ea4652037737ffe10fedc",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"host_kind\":\"ipv6\",\"label_kind\":\"none\",\"label_sanitized\":false,\"label_truncated\":false,\"standard_https_port\":true}\n",
+  "tool": "vless_authority_parity.py"
+}

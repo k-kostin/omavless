@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 831,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "07191b9cef945243fcd36895a55e0028b28b1f08133b8732b8aee9106d1e7253",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"invalid_subscription_url\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

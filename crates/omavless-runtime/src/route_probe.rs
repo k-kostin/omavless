@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn installed_mihomo_and_actual_python_observe_exact_reject_without_tun() {
+    fn installed_mihomo_observes_exact_reject_without_tun() {
         let Some(core) = std::env::var_os("OMAVLESS_TEST_MIHOMO") else {
             return;
         };
@@ -469,19 +469,9 @@ mod tests {
         let result = collect(&directory.0, uid, &context, Instant::now() + DEADLINE).unwrap();
         assert_eq!(result["target"], "REJECT");
         assert_eq!(result["source"], "live");
-        let python = std::process::Command::new("python3")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../tools/route_live_reference.py"
-            ))
-            .arg(&directory.0)
-            .output()
-            .unwrap();
-        assert!(
-            python.status.success(),
-            "actual Python loopback live reference failed"
-        );
-        assert!(String::from_utf8(python.stdout).unwrap().contains("PASS"));
+        // This remains an actual installed-core Rust probe, never a frozen
+        // live PASS. Historical Python comparison is retained in the archive;
+        // synthetic exact-attribution fixtures cover offline reference parity.
         owned.stop(Duration::from_secs(2)).unwrap();
     }
 }

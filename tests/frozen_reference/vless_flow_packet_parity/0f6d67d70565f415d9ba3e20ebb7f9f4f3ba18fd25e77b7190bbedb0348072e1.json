@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 89,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "0f6d67d70565f415d9ba3e20ebb7f9f4f3ba18fd25e77b7190bbedb0348072e1",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"flow\":\"none\",\"mihomo_flow\":\"none\",\"packet_encoding\":\"xudp\"}\n",
+  "tool": "vless_flow_packet_parity.py"
+}

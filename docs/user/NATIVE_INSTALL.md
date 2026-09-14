@@ -8,9 +8,9 @@ marketplace snapshot remains unchanged. Ordinary `omarchy plugin add` does not
 install the native package or transfer ownership to Rust.
 
 The native runtime/CLI does not require Python, pip, a virtual environment or
-Cargo at runtime. Its Omarchy frontend is still QML. Python source temporarily
-retained in the repository supports migration/reference tests, not source
-installation. The default source frontend never falls back to Python.
+Cargo at runtime. Its Omarchy frontend is still QML. The old Python backend is
+preserved separately in a frozen historical archive; remaining Python files in
+main are developer test/build tools, not source installation or a runtime fallback.
 
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.

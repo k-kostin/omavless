@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 0,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "9ee588ba2521e5a7d1ea261ea4ccab4ad9b9724a8569cc2a32f812b985531e81",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[false, false, false, false, false, false, false, true]\n",
+  "tool": "core_setup_parity.py"
+}

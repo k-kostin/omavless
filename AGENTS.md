@@ -28,8 +28,10 @@ policy or useful implementation.
 
 Rust is the selected long-term implementation language for the standalone
 OmaVLESS application runtime, domain/backend logic, semantic CLI and TUI.
-Python is the validated current-plugin reference implementation and temporary
-migration oracle, not an open-ended alternative future runtime.
+Python is the archived validated reference, not an alternative runtime.
+The [retirement sequence](docs/roadmap/LEGACY_RETIREMENT.md) removes its old
+implementation from main after native distribution/default-install acceptance;
+ordinary parity tests use independently recorded language-neutral fixtures.
 
 The required end state is:
 
@@ -46,28 +48,29 @@ External core          Mihomo
 ```
 
 Read [`docs/roadmap/RUST_MIGRATION.md`](docs/roadmap/RUST_MIGRATION.md) before
-changing `backend.py`, control protocol code, profile adapters, subscriptions,
+changing control protocol code, reference fixtures, profile adapters, subscriptions,
 routing, Mihomo lifecycle/diagnostics, packaging or TUI plans.
 
 ### No big-bang rewrite
 
-Do not replace `backend.py` wholesale. Migrate one bounded subsystem at a time,
-using the existing Python behavior plus language-neutral contract fixtures as a
-reference. A Rust migration PR must state what Python owns before the change,
-what Rust owns afterward, what parity was checked and whether Python can be
-removed yet.
+R0–R6 migrated bounded subsystems against Python plus language-neutral fixtures,
+not a wholesale untested rewrite. The owner-approved post-R6 retirement removes
+the obsolete implementation, not its independent test expectations. Preserve the
+frozen archive and fixture provenance; do not silently regenerate expected
+answers from the Rust candidate or reintroduce a production Python fallback.
 
 Known Python bugs are not compatibility requirements. If parity exposes an
 unsafe or incorrect behavior, fix the explicit contract, add a regression case
-and make both implementations obey the corrected semantics before cutover.
+and document the intentional difference from the historical fixture. Do not
+restart development on the frozen archive to implement new Rust features.
 
-### New backend logic during migration
+### Backend ownership after migration
 
 - QML/presentation-only work stays QML.
-- Current security/correctness bugs may and should be fixed in Python
-  immediately; add a migration-suitable regression fixture.
-- Once the owning Rust migration stage exists, new pure profile/store/routing
-  logic should prefer the Rust domain boundary.
+- Security/correctness fixes belong to the current Rust owner, with regression
+  coverage. Historical Python-only tests remain in the archive, not the normal
+  CI suite for a deleted implementation.
+- New pure profile/store/routing logic belongs at the Rust domain boundary.
 - After R2, new protocol adapters are Rust-first. In particular P4
   WireGuard/AmneziaWG must not grow a large new Python-only parser without an
   explicit roadmap exception.

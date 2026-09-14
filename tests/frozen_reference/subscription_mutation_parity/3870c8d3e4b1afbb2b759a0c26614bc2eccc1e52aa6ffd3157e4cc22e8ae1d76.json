@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 819,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "3870c8d3e4b1afbb2b759a0c26614bc2eccc1e52aa6ffd3157e4cc22e8ae1d76",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"invalid_profile_id\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

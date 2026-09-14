@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 79,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "7f6b02afa3d58ed609cf2b9148808954ca8a415f5185df0fc07c4be0009dd743",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"alpn_count\":0,\"alpn_non_ascii\":false,\"classification\":\"accepted\",\"fingerprint_non_ascii\":false,\"fingerprint_present\":false,\"host_non_ascii\":false,\"host_present\":false,\"path_default\":false,\"path_non_ascii\":false,\"path_starts_with_slash\":false,\"service_name_non_ascii\":false,\"service_name_present\":false}\n",
+  "tool": "vless_transport_parity.py"
+}

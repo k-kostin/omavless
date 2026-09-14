@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 40,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "041b7ee847e5306f39f5fc1322f8dbc43edc886ccf572eb63ae93f513ccbc279",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"c_max_reuse_times\":\"none\",\"classification\":\"accepted\",\"h_keep_alive_period\":0,\"h_keep_alive_present\":false,\"h_max_request_times\":\"none\",\"h_max_reusable_secs\":\"none\",\"header_count\":0,\"max_concurrency\":\"none\",\"max_connections\":\"none\",\"no_grpc_header\":false,\"normalized_field_count\":1,\"reuse_field_count\":0,\"sc_max_each_post_bytes\":\"none\",\"sc_min_posts_interval_ms\":\"none\",\"seq_key_present\":false,\"seq_placement\":\"none\",\"session_key_present\":false,\"session_length\":\"none\",\"session_placement\":\"none\",\"session_table_present\":false,\"uplink_chunk_size\":\"none\",\"uplink_data_key_present\":false,\"uplink_data_placement\":\"none\",\"uplink_http_method\":\"none\",\"x_padding_bytes\":\"2147483647\",\"x_padding_header_present\":false,\"x_padding_key_present\":false,\"x_padding_method\":\"none\",\"x_padding_obfs_mode\":false,\"x_padding_placement\":\"none\"}\n",
+  "tool": "vless_xhttp_options_parity.py"
+}

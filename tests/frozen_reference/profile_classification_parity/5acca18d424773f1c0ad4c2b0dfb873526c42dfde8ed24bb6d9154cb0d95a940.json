@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 25,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "5acca18d424773f1c0ad4c2b0dfb873526c42dfde8ed24bb6d9154cb0d95a940",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"unsupported_protocol\",\"protocol\":\"none\"}\n",
+  "tool": "profile_classification_parity.py"
+}

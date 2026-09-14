@@ -18,7 +18,6 @@ rename_window="$plugin/RenameWindow.qml"
 name_prompt="$plugin/NamePrompt.qml"
 i18n="$plugin/I18n.js"
 installer="$here/../install.sh"
-uninstaller="$here/../uninstall.sh"
 
 grep -q 'moduleName: "kdk.omavless"' "$panel"
 grep -q 'ipcTarget: "kdk.omavless"' "$panel"
@@ -427,7 +426,9 @@ grep -q 'readonly property bool modalInputActive:' "$panel"
 (( $(grep -c 'interactive: contentHeight > height && !root.modalInputActive' "$panel") == 4 ))
 (( $(grep -c 'root.modalInputActive ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded' "$panel") == 4 ))
 bash -n "$installer"
-bash -n "$uninstaller"
+test ! -e "$here/../uninstall.sh"
+test ! -e "$here/../backend.py"
+test ! -e "$here/../omavless_control_protocol.py"
 
 if command -v qmllint >/dev/null 2>&1; then
   qmllint "$panel"

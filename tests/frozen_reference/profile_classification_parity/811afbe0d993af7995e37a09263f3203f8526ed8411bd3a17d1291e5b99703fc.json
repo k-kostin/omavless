@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 21,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "811afbe0d993af7995e37a09263f3203f8526ed8411bd3a17d1291e5b99703fc",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"missing_profile_link\",\"protocol\":\"none\"}\n",
+  "tool": "profile_classification_parity.py"
+}

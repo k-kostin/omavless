@@ -8,8 +8,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 - Owner-approved [Python reference retirement](LEGACY_RETIREMENT.md) preserves
   the complete pre-retirement tree in frozen `archive/python-legacy` at
-  `aa5873783c019edc303a732e55ea8c85f1f0b090`. Native RC delivery, native-only
-  defaults and fixture-backed legacy removal must finish before leaving RC.
+  `aa5873783c019edc303a732e55ea8c85f1f0b090`. Native RC delivery (#239) and
+  native-only defaults (#242) are merged. Fixture-backed legacy removal is the
+  final integration checkpoint; leaving RC remains a separate owner decision.
 
 - Native integration [#238](https://github.com/k-kostin/omavless/pull/238)
   merged at `778647215deb1cb27e66e10e628fd0e78beee1af`. Its PR and main CI
@@ -66,13 +67,14 @@ path: install the package, explicitly activate once, then install its matching
 frontend with `./install.sh`. The source/default installer is now native-only;
 `--native-only` is an alias. The launcher refuses absent/legacy/unknown native
 ownership without Python. Omarchy's clone-based installation does not install
-the package or run this installer. Retained Python sources are reference tests
-pending retirement, not a supported fallback or second native lifecycle owner.
+the package or run this installer. The old Python implementation is archived;
+remaining Python is independent developer/test/build tooling and frozen-reference
+replay, not a supported fallback or second native lifecycle owner.
 
 ## Next work, in order
 
-1. Complete fixture-backed Python reference retirement and exact native-only
-   source/default-install acceptance; retain unchanged R6 runtime evidence.
+1. Integrate the locally validated fixture-backed reference retirement; retain
+   the accepted native-only source/default-install and unchanged R6 evidence.
 2. Only after the retirement sequence, prepare stable release/package metadata
    and owner-reviewed plugin-page screenshots. Do not change the published
    0.7.0 marketplace identity without separate approval.

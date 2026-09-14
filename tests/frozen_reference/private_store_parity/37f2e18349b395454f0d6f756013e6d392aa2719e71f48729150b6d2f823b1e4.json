@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 3947,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "37f2e18349b395454f0d6f756013e6d392aa2719e71f48729150b6d2f823b1e4",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"cases\":[{\"id\":\"current-vless\",\"accepted\":true,\"version\":3,\"profileCount\":1,\"subscriptionCount\":0,\"protocolCounts\":{\"vless\":1,\"trojan\":0,\"hysteria2\":0,\"tuic\":0},\"activePresent\":true,\"lastPresent\":true,\"routingPreset\":\"roscomvpn-default\",\"customRuleCount\":0,\"startupConfigured\":true,\"onboardingComplete\":true,\"listDigest\":\"8546465a7f554015aa06945a3d9eaeb3714c15a96e71b11af81352d97c5e916d\"},{\"id\":\"legacy-v1-defaults\",\"accepted\":true,\"version\":3,\"profileCount\":1,\"subscriptionCount\":0,\"protocolCounts\":{\"vless\":1,\"trojan\":0,\"hysteria2\":0,\"tuic\":0},\"activePresent\":false,\"lastPresent\":false,\"routingPreset\":\"roscomvpn-default\",\"customRuleCount\":0,\"startupConfigured\":false,\"onboardingComplete\":true,\"listDigest\":\"cc07b50b9863f21087f4e3daa4a1bd07b44dffd95128d711920a48fe9feebccb\"},{\"id\":\"all-non-vless-families\",\"accepted\":true,\"version\":3,\"profileCount\":3,\"subscriptionCount\":0,\"protocolCounts\":{\"vless\":0,\"trojan\":1,\"hysteria2\":1,\"tuic\":1},\"activePresent\":false,\"lastPresent\":false,\"routingPreset\":\"\",\"customRuleCount\":0,\"startupConfigured\":true,\"onboardingComplete\":true,\"listDigest\":\"2df9efc04b46a012094ce4e2735385fa7ccdbc46b1816c2aea17e89be0be330d\"},{\"id\":\"subscription-and-custom-rule\",\"accepted\":true,\"version\":3,\"profileCount\":1,\"subscriptionCount\":1,\"protocolCounts\":{\"vless\":1,\"trojan\":0,\"hysteria2\":0,\"tuic\":0},\"activePresent\":false,\"lastPresent\":true,\"routingPreset\":\"custom\",\"customRuleCount\":1,\"startupConfigured\":true,\"onboardingComplete\":true,\"listDigest\":\"878cd5f228f58e94ed2088e6ceb9a0d6d2870a8e73024551df83634ffa77325d\"},{\"id\":\"invalid-protocol-mismatch\",\"accepted\":false},{\"id\":\"invalid-name\",\"accepted\":false},{\"id\":\"invalid-subscription-url\",\"accepted\":false},{\"id\":\"invalid-subscription-relationship\",\"accepted\":false},{\"id\":\"invalid-custom-rule\",\"accepted\":false},{\"id\":\"invalid-timestamp\",\"accepted\":false}]}",
+  "tool": "private_store_parity.py"
+}

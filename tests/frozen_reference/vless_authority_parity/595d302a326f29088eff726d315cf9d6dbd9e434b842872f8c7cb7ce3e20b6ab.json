@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 49,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "595d302a326f29088eff726d315cf9d6dbd9e434b842872f8c7cb7ce3e20b6ab",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"missing_server_port\",\"host_kind\":\"none\",\"label_kind\":\"none\",\"label_sanitized\":false,\"label_truncated\":false,\"standard_https_port\":false}\n",
+  "tool": "vless_authority_parity.py"
+}

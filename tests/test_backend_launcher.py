@@ -73,9 +73,11 @@ exit 99
         launcher = self.base / "backend.sh"
         launcher.write_text(LAUNCHER.read_text())
         backend = self.base / "backend.py"
+        archived_stub = self.base / "synthetic-legacy.py"
+        archived_stub.write_text("raise RuntimeError('legacy must never execute')\n")
         for kind in ("symlink", "directory"):
             if kind == "symlink":
-                backend.symlink_to(LAUNCHER.parent / "backend.py")
+                backend.symlink_to(archived_stub)
             else:
                 backend.mkdir()
             result = subprocess.run(["/bin/sh", str(launcher), "status"], env=self.env,

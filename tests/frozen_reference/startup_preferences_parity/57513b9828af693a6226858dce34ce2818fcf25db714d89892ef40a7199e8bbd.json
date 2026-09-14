@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 3385,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "57513b9828af693a6226858dce34ce2818fcf25db714d89892ef40a7199e8bbd",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[\"3d9f7646c3eb6f9340ac007e16443365a70068b57f59cd0eb7105a1abd4b7f96\", \"88f451bb498883197b07fa3de25e468a2ad50a0da716e56dd35116fc2a980288\", \"b3872494ddc3d4565c664f44b042c11a146888c685101f3e99aa6491d1fc2d1f\", \"2ff8bca37d4886390ccbfef1c9e940d3d56a3a662877bedc9bb7369d4f0df24f\", \"8a80ef96a54b7340fe891fb3fff4db2ea9dad23a3534635e67ccc96d3a498d94\", \"d9ebe9642dc0cf1a0c99316707788ea28419bd891149c21724aadc5167720aba\", \"83311e5e7c0ea3b3a16d12b3dfe92a0ac4b25325a67aba04de5e267c8e079be7\", \"5dcf6d82bd05ac689a08df975b1b9ddc08884381a7f81600d649bf08d67d02aa\"]\n",
+  "tool": "startup_preferences_parity.py"
+}

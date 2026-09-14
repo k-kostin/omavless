@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 181,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "f616d63900f5f8b3fd97d65b524df4057511d5ba8b1274e8efd8f35aa3251550",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"cases\":[{\"accepted\":false,\"advanced_xhttp\":false,\"allow_insecure\":false,\"alpn_count\":0,\"classification\":\"xhttp_extra_requires_transport\",\"compatibility_note_present\":false,\"compatibility_pq\":false,\"compatibility_provider_metadata\":false,\"compatibility_spider\":false,\"compatibility_transport_metadata\":false,\"encryption_enabled\":false,\"experimental_feature_count\":0,\"flow\":\"none\",\"host_kind\":\"none\",\"id\":\"rejected-case\",\"identity_fingerprint\":\"\",\"mihomo_fingerprint\":\"\",\"packet_encoding\":\"none\",\"port\":0,\"preview_fingerprint\":\"\",\"reality_pq\":false,\"security\":\"none\",\"standard_https_port\":false,\"transport\":\"none\",\"xhttp_field_count\":0,\"xhttp_mode\":\"none\"}]}",
+  "tool": "vless_canonical_parity.py"
+}

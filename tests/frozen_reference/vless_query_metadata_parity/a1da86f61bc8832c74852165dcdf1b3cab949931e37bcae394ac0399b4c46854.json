@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 95,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "a1da86f61bc8832c74852165dcdf1b3cab949931e37bcae394ac0399b4c46854",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"allow_insecure\":false,\"classification\":\"accepted\",\"non_xhttp_mode_metadata\":false,\"provider_metadata_present\":false,\"security\":\"none\",\"transport\":\"xhttp\",\"xhttp_mode\":\"packet-up\"}\n",
+  "tool": "vless_query_metadata_parity.py"
+}

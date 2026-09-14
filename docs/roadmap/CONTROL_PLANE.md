@@ -9,7 +9,18 @@ Implementation/migration authority:
 [`RUST_MIGRATION.md`](RUST_MIGRATION.md).
 Host/distribution authority: [`PLATFORM.md`](PLATFORM.md).
 
-## 0. Existing T1a Python checkpoint becomes the R1 reference
+## 0. Historical T1a checkpoint and current Rust reference gate
+
+Current source update, 2026-09-14: the Python module and its developer probe
+described below have been retired from main under the
+[reference retirement](LEGACY_RETIREMENT.md). They remain in frozen
+`archive/python-legacy`. Rust `omavless-control-protocol` is canonical; its
+differential tests consume archived Python replies bound to exact synthetic
+inputs, and still execute the real Rust parser for every case. For the current
+developer probe use `cargo run -p omavless-control-protocol --bin omavless-control-protocol-probe -- --help`.
+No current runtime ownership or v1 wire semantics change in this cleanup.
+
+The following explains the historical T1a → R1 transition:
 
 `omavless_control_protocol.py` already implements a credential-free reference
 for strict v1 frame/envelope mechanics:

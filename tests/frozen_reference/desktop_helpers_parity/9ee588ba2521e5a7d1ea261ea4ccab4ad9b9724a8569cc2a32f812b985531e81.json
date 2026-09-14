@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 0,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "9ee588ba2521e5a7d1ea261ea4ccab4ad9b9724a8569cc2a32f812b985531e81",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"discovery\": [{\"provider\": \"\", \"editor\": false}, {\"provider\": \"zenity\", \"editor\": true}, {\"provider\": \"kdialog\", \"editor\": false}, {\"provider\": \"zenity\", \"editor\": true}, {\"provider\": \"yad\", \"editor\": false}, {\"provider\": \"zenity\", \"editor\": true}, {\"provider\": \"kdialog\", \"editor\": false}, {\"provider\": \"zenity\", \"editor\": true}], \"clipboard\": [{\"id\": \"plain\", \"ok\": true, \"digest\": \"3f48d11458e37cd22c904295e44cb2e10fec3d19095046a0c9197efb3c5286c7\"}, {\"id\": \"other-mime\", \"ok\": true, \"digest\": \"3f48d11458e37cd22c904295e44cb2e10fec3d19095046a0c9197efb3c5286c7\"}, {\"id\": \"list-failed\", \"ok\": true, \"digest\": \"3f48d11458e37cd22c904295e44cb2e10fec3d19095046a0c9197efb3c5286c7\"}, {\"id\": \"paste-failed\", \"ok\": false, \"digest\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}, {\"id\": \"empty\", \"ok\": true, \"digest\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}]}\n",
+  "tool": "desktop_helpers_parity.py"
+}

@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 23,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "80b336954f6e5af0e9281c3bf64654d9e8b68083ed6e2a084929f15b98160a71",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"protocol\":\"trojan\"}\n",
+  "tool": "profile_classification_parity.py"
+}

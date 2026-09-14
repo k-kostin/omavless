@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 28,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "628675159953bf5e2ab9746d00ebbe635c283044a7737365801dcc6c33368cbc",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"count\": 2, \"digest\": \"57ff1c68535ea4dcacaeb2a43a85b3fb6c36de953cb6d323405c0681ed47085b\"}\n",
+  "tool": "global_selector_reference.py"
+}

@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 165,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "b567b84af751e549859a3450d06f36b40f18fbb5d0372012ce987dec3d8b23e8",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"enabled\":true,\"key_count\":1,\"large_key_present\":false,\"mode\":\"random\",\"padding_count\":1,\"rtt\":\"1rtt\",\"total_padding\":35}\n",
+  "tool": "vless_encryption_parity.py"
+}

@@ -1,0 +1,47 @@
+{
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "cases": [
+    {
+      "sha256": "1e5ad1aeb3149c73b1ae5dfffe21c9043b56662d220ae84c9af047a36c2c2f5c",
+      "counts": [
+        27,
+        23
+      ]
+    },
+    {
+      "sha256": "b2f027d9f46fa7557b0343e33e65490321560bdb4179ba92caf1d90f2c522e9e",
+      "counts": [
+        6,
+        5
+      ]
+    },
+    {
+      "sha256": "2cbe97008efd5859bfb20055472a15650e85375a270dcc8a57c31e3537fde4e8",
+      "counts": [
+        8,
+        7
+      ]
+    },
+    {
+      "sha256": "8cf0de52b8912bb67392afd43d3bc6b897ee880012ea20cfc7fd0aa3dbe881af",
+      "counts": [
+        1,
+        0
+      ]
+    },
+    {
+      "sha256": "d9f3a4280699575f263ae51797b0616261d4c2e8083061b0b35f3328674fc365",
+      "counts": [
+        0,
+        0
+      ]
+    },
+    {
+      "sha256": "2840a34f927f10b643d3969fce721e2ea9839e557461d3baf9054b039db10e3b",
+      "counts": [
+        1,
+        1
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1446,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "418480edcdcb9a547c8014bac9c86524e644eb2c7d926246a8176debbc9471e7",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"ambiguous_subscription_identity\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

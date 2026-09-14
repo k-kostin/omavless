@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1505,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "888aad8eb38a14e4ae11cd918ae12245248929732f9ce64c47f914a6e43a86c1",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"active_subscription\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

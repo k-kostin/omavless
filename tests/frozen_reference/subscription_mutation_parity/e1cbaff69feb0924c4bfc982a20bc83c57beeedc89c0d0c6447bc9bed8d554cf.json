@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 150118,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "e1cbaff69feb0924c4bfc982a20bc83c57beeedc89c0d0c6447bc9bed8d554cf",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":false,\"code\":\"too_many_profiles\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

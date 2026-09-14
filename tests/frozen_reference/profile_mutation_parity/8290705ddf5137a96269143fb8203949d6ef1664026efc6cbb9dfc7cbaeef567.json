@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 845,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "8290705ddf5137a96269143fb8203949d6ef1664026efc6cbb9dfc7cbaeef567",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":true,\"changed\":true,\"sha256\":\"444e86736a8638d519066aaa6347c0e41c97b7b04ad9f9b8d314df11c3947679\"}\n",
+  "tool": "profile_mutation_parity.py"
+}

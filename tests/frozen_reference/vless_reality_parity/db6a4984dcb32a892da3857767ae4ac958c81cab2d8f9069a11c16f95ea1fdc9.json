@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 181,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "db6a4984dcb32a892da3857767ae4ac958c81cab2d8f9069a11c16f95ea1fdc9",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"conflicting_aliases\",\"pq\":false,\"pq_present\":false,\"reality\":false,\"short_id_present\":false,\"spider_x_present\":false}\n",
+  "tool": "vless_reality_parity.py"
+}

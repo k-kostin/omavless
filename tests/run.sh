@@ -3,11 +3,10 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
-  "$here/test_backend.py" \
+  "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \
   "$here/test_native_launcher_no_python.py" \
   "$here/test_install_picker_policy.py" \
-  "$here/test_native_uninstall_guard.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
@@ -17,8 +16,6 @@ python3 -m unittest -v \
   "$here/test_installed_native_package.py" \
   "$here/test_installed_python_mask.py" \
   "$here/test_human_authorization.py" \
-  "$here/test_control_protocol.py" \
-  "$here/test_control_protocol_probe.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_staged_native_unit_acceptance.py" \
   "$here/test_control_protocol_parity.py" \

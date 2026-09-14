@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1281,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "abdfed67d068fa8d9ca29515f52134ee40e0f4a09dbea8adfaf64d366882a963",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "PASS 4 DNS cases; resolver order; health filter; address fallback\n",
+  "tool": "probe_resolver_parity.py"
+}

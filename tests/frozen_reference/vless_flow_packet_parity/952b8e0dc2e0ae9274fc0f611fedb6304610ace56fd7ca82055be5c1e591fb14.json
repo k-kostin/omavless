@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 150,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "952b8e0dc2e0ae9274fc0f611fedb6304610ace56fd7ca82055be5c1e591fb14",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":true,\"classification\":\"accepted\",\"flow\":\"xtls-rprx-vision-udp443\",\"mihomo_flow\":\"xtls-rprx-vision\",\"packet_encoding\":\"xudp\"}\n",
+  "tool": "vless_flow_packet_parity.py"
+}

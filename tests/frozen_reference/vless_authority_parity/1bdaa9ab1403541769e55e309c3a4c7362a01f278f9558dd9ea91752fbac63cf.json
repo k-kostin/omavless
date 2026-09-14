@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 59,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "1bdaa9ab1403541769e55e309c3a4c7362a01f278f9558dd9ea91752fbac63cf",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"accepted\":false,\"classification\":\"invalid_link\",\"host_kind\":\"none\",\"label_kind\":\"none\",\"label_sanitized\":false,\"label_truncated\":false,\"standard_https_port\":false}\n",
+  "tool": "vless_authority_parity.py"
+}

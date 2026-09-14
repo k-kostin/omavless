@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 20596,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "4067929770c7d524b743cd744cc74bd8d81c489a8e8fd3e12ccbc18b1f425161",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "[{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":true,\"digest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},{\"ok\":true,\"digest\":\"d9209611956a70e6c3d393782bb62099a61e5b194f5a06e214358edcb185c0ac\"},{\"ok\":true,\"digest\":\"d9209611956a70e6c3d393782bb62099a61e5b194f5a06e214358edcb185c0ac\"},{\"ok\":true,\"digest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},{\"ok\":true,\"digest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},{\"ok\":true,\"digest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":true,\"digest\":\"c75807c14b07e481d88035c5b23dbc47378a45b0b1b6e83792bf19d97b810f94\"},{\"ok\":true,\"digest\":\"9531cf21faa3dc75349bd6fa7a0eba3b8561ef0f06b5640c2b44c74ca1b56d2e\"},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":true,\"digest\":\"1cc43a6e0230831c6eee12ca1ee22e7b7148eec1ef6b1ac0600154c326cd8168\"},{\"ok\":false},{\"ok\":true,\"digest\":\"7592a4dedacd8a10cb375d90e7c2197f6867f765d1ef85a027226d749d6458d3\"},{\"ok\":false},{\"ok\":true,\"digest\":\"e5e725c999341c865fbf688fb2a4f79d2453b4e534dea2888ce4c836b8f00b35\"},{\"ok\":false},{\"ok\":false},{\"ok\":false},{\"ok\":true,\"digest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"}]\n",
+  "tool": "rule_provider_parity.py"
+}

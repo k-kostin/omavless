@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 831,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "4e49a9fa9574a9154311c4179f67f64c144b8a476c0bcc5e6a87b84345d3643e",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":true,\"changed\":true,\"counts\":{\"added\":1,\"removed\":0,\"stale\":0,\"total\":1},\"sha256\":\"1ebe2564ed8066d149cbecba14fc4a2a1accdffe1fd9a4c4b4066d8b265a27c3\"}\n",
+  "tool": "subscription_mutation_parity.py"
+}

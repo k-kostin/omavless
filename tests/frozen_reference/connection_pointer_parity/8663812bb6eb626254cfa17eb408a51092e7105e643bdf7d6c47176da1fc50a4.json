@@ -1,0 +1,11 @@
+{
+  "argumentCount": 0,
+  "inputBytes": 1092,
+  "referenceCommit": "aa5873783c019edc303a732e55ea8c85f1f0b090",
+  "requestSha256": "8663812bb6eb626254cfa17eb408a51092e7105e643bdf7d6c47176da1fc50a4",
+  "returncode": 0,
+  "schemaVersion": 1,
+  "stderr": "",
+  "stdout": "{\"ok\":true,\"changed\":true,\"pruned\":0,\"sha256\":\"87b37f5548b93000343b03495f28c1116927f5899dd2d8194cce76dd978cc280\"}\n",
+  "tool": "connection_pointer_parity.py"
+}
