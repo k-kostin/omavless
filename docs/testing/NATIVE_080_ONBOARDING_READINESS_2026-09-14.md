@@ -54,8 +54,12 @@ layout and all profile/subscription content remain unchanged.
 | Installed source update | PASS through `./install.sh`; no core restart |
 | Loaded-code verification | A shell restart was required: matching files initially still rendered cached old QML. New installation-guide control then verified visibly |
 | Installed wizard EN navigation | Core, routing and import steps inspected; pre-fix Finish failure recorded above |
-| Corrected installed Finish and fresh-account first use | Pending attended follow-through; do not infer PASS from synthetic dismissal or an already-true stored flag |
-| Real clipboard/chooser from the corrected wizard | Pending; helper presence and synthetic callback tests are not chooser acceptance |
+| Corrected installed Finish | PASS on already-configured account: owner traversed Setup assistant and pressed Finish; completion flag true, pending false, unknown outcome false, no manual recovery |
+| Fresh-account first use | NOT RUN: the existing account already had completion true; repeated Finish does not prove the first false-to-true transition |
+| Actual clipboard import pipeline | PASS: installed plugin IPC invoked the same Service import path, synthetic profile preview rendered, Escape canceled, inventory unchanged |
+| Actual file chooser and profile preview | PASS: installed importPick opened GTK portal through the native helper, synthetic file selected, profile preview inspected and canceled |
+| Actual file chooser and subscription confirmation | PASS: synthetic subscription-URL file selected in the chooser list, subscription-specific confirmation rendered with URL hidden, canceled without fetch/add |
+| Literal wizard import-button activation | Isolated real-widget callback/admission tests PASS; installed imports above entered through existing production IPC, not an automated wizard-button click |
 
 The [synthetic rendering harness](../../tests/onboarding-visual/README.md) never
 creates Service or accesses the store. Its Finish originally recorded a signal
@@ -67,13 +71,29 @@ All captures stay outside Git. Actual-user captures are private, even when a
 path happens to contain `shareable`. Only sanitized classifications are recorded
 here. No real profile/subscription was added, removed or renamed.
 
+Import smoke used only synthetic TEST-NET/.invalid inputs outside Git. Both
+file types reached explicit confirmation; neither was persisted. The portal
+initially returned the previously selected profile after automated location
+entry for the subscription file. That attempt is not subscription acceptance:
+the repeat navigated to the directory, visually verified the selected file in
+the list, and then inspected the correct subscription confirmation. No product
+parser change was made to compensate for uncertain desktop input.
+
+The clipboard test temporarily replaced clipboard text. Its initial test-only
+wrapper timed out because the forked clipboard writer retained captured pipes;
+the previous clipboard contents were not confirmed restored. Subsequent calls
+used detached output correctly. At cleanup the clipboard reader returned no
+text (exit 1), so restoration/explicit clearing is not claimed; no unrelated
+clipboard content was overwritten during cleanup. This is a test-harness side
+effect, not evidence of an application clipboard failure.
+
 Last verified runtime: Routing, disconnected, native runtime active, no pending
 action or manual recovery, Mihomo/TUN/auxiliary 0/0/0, plugin enabled, startup Off.
 This is not evidence that optional enabled login autoconnect works.
 
 ## Remaining stable-release gates
 
-Finish the explicitly pending installed onboarding checks; retain earlier
+Finish fresh-account first-use acceptance; retain earlier
 [fresh package activation evidence](R6_FRESH_PACKAGE_ACTIVATION_2026-09-11.md)
 without relabelling it a fresh graphical first-use pass. A disposable-account
 check must preserve the owner's store and follow the
