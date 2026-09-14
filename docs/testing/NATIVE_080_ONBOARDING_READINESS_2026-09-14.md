@@ -100,8 +100,36 @@ check must preserve the owner's store and follow the
 [host authorization barrier](HOST_AUTHORIZATION_ACCEPTANCE.md) for account/
 service effects. Do not replay the old unguarded package/account wrapper.
 
-The independent RC support-report parsing defect is tracked in
-[PR #245](https://github.com/k-kostin/omavless/pull/245).
+## Combined RC support-report check
+
+The independent [PR #245](https://github.com/k-kostin/omavless/pull/245),
+implementation `3bc48a43d5933292f630d38cfd4a4127ac7cef06`, corrects rejection
+of the installed `0.8.0-rc.1` report version. It accepts only stable versions
+and bounded positive-number RC versions, not arbitrary version text.
+
+A detached local integration worktree combined #244 at
+`211de881837bbd6cbe77d85ca9ea0d743d73e0a7` with that commit, producing
+`f7d8ac8e28af7e7213cc622818220dcbb13a8ec5`. The combined candidate was
+installed with `./install.sh`, all 24 runtime-relevant files
+matched byte-for-byte, and the shell was restarted without touching the Rust
+service or network. Focused support tests (18), onboarding tests (13) and QML
+contracts passed. Each independent implementation also has green GitHub CI.
+
+Actual installed Settings navigation used the existing keyboard controls,
+visually verified focus on Copy report, and activated that button. The visible
+success message appeared. The clipboard contained bounded schema-3 native
+support JSON (2160 bytes) with the expected RC version and without private
+identifier/credential fields. It also matched the candidate parser's strict
+projection of a fresh actual native response. No raw report or clipboard
+content is published.
+The report remains in the clipboard as the explicit result of this smoke.
+No Save-file dialog, VPN transition or host authorization was required.
+
+This is combined UI acceptance, not authorization to merge, publish stable
+artifacts or update the marketplace. The two PR branches remain independent.
+
+## Release boundary
+
 Final x86_64 package/install evidence must come from the Omarchy PC, not this
 ARM64 VM. Stable artifact/version and owner-approved release/marketplace gates
 remain those in the [release guide](../../packaging/release/README.md).
