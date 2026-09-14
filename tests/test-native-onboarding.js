@@ -138,7 +138,8 @@ test('first-use wizard has its own bounded height rather than the empty inventor
  }
 });
 test('wizard buttons share native keyboard activation without changing callbacks',()=>{
- assert(wizard.includes('component WizardButton: Button {\n    focusable: true'));
+ assert(wizard.includes('component WizardButton: Button {'));
+ assert(wizard.includes('    focusable: true'));
  assert.equal((wizard.match(/\bButton \{/g)||[]).length,1);
  assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,11);
  assert(wizard.includes('onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)'));
@@ -160,5 +161,19 @@ test('dismissed wizard and stale unfocused controls never scroll',()=>{
   c.revealControl({activeFocus,mapToItem:()=>{throw new Error('must not inspect stale target')}});
   assert.equal(c.onboardingScroll.contentY,17);
  }
+});
+test('wizard Tab remains local, skips disabled or hidden steps and wraps in both directions',()=>{
+ const a={visible:true,enabled:true,onboardingControl:true}, b={...a}, disabled={...a,enabled:false}, hidden={...a};
+ const c=vm.createContext({visible:true,enabled:true,children:[a,disabled,{visible:false,enabled:true,children:[hidden]},b]});c.wizard=c;
+ let selected;for(const item of [a,b,disabled,hidden])item.forceActiveFocus=()=>{for(const other of [a,b,disabled,hidden])other.activeFocus=false;item.activeFocus=true;selected=item};
+ functions(wizard,c,['focusControl']);c.focusControl(1);assert.equal(selected,a);c.focusControl(1);assert.equal(selected,b);
+ c.focusControl(1);assert.equal(selected,a);c.focusControl(-1);assert.equal(selected,b);
+ c.visible=false;selected=null;c.focusControl(1);assert.equal(selected,null);
+});
+test('wizard navigation consumes only Tab/Backtab and preserves other keys',()=>{
+ const calls=[],c=vm.createContext({Qt:{Key_Tab:1,Key_Backtab:2,ShiftModifier:4},focusControl:d=>calls.push(d)});
+ functions(wizard,c,['handleNavigation']);
+ for(const [key,modifiers,expected] of [[1,0,1],[1,4,-1],[2,0,-1]]) {const e={key,modifiers,accepted:false};c.handleNavigation(e);assert(e.accepted);assert.equal(calls.at(-1),expected)}
+ const e={key:3,modifiers:0,accepted:false};c.handleNavigation(e);assert(!e.accepted);assert.equal(calls.length,3);
 });
 console.log(`${count} native onboarding tests passed`);

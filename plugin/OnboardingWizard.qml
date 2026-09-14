@@ -74,8 +74,34 @@ Item {
   }
 
   component WizardButton: Button {
+    readonly property bool onboardingControl: true
     focusable: true
     onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)
+    Keys.onPressed: function(event) { wizard.handleNavigation(event) }
+  }
+
+  function focusControl(direction) {
+    var controls = []
+    function visit(item) {
+      if (!item.visible || !item.enabled) return
+      if (item.onboardingControl === true) controls.push(item)
+      var children = item.children || []
+      for (var i = 0; i < children.length; i++) visit(children[i])
+    }
+    visit(wizard)
+    if (controls.length === 0) return
+    var current = -1
+    for (var i = 0; i < controls.length; i++)
+      if (controls[i].activeFocus) current = i
+    var next = current < 0 ? (direction < 0 ? controls.length - 1 : 0)
+      : (current + direction + controls.length) % controls.length
+    controls[next].forceActiveFocus()
+  }
+
+  function handleNavigation(event) {
+    if (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab) return
+    focusControl((event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab ? -1 : 1)
+    event.accepted = true
   }
 
   function textFor(key, values) {
@@ -103,6 +129,7 @@ Item {
   }
 
   Keys.onEscapePressed: canceled()
+  Keys.onPressed: function(event) { wizard.handleNavigation(event) }
 
   Rectangle {
     anchors.fill: parent
