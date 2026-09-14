@@ -59,6 +59,25 @@ Item {
 
   function dismiss() { visible = false }
 
+  function revealControl(control) {
+    Qt.callLater(function() {
+      if (!wizard.visible || !control || !control.activeFocus) return
+      var top = control.mapToItem(onboardingScroll.contentItem, 0, 0).y
+      var bottom = top + control.height
+      var next = onboardingScroll.contentY
+      if (top < next) next = top
+      else if (bottom > next + onboardingScroll.height)
+        next = bottom - onboardingScroll.height
+      onboardingScroll.contentY = Math.max(0, Math.min(next,
+        Math.max(0, onboardingScroll.contentHeight - onboardingScroll.height)))
+    })
+  }
+
+  component WizardButton: Button {
+    focusable: true
+    onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)
+  }
+
   function textFor(key, values) {
     return I18n.translate(key, locale, values || {})
   }
@@ -104,6 +123,7 @@ Item {
       MouseArea { anchors.fill: parent; onClicked: {} }
 
       Flickable {
+        id: onboardingScroll
         objectName: "onboardingScroll"
         anchors.left: parent.left
         anchors.right: parent.right
@@ -229,7 +249,7 @@ Item {
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
             }
-            Button {
+            WizardButton {
               objectName: "onboardingSetupGuide"
               visible: wizard.nativeContext
               text: wizard.textFor("native.onboarding.setup_guide")
@@ -294,7 +314,7 @@ Item {
                       wrapMode: Text.WordWrap
                     }
                   }
-                  Button {
+                  WizardButton {
                     id: choosePreset
                     text: presetCard.selected
                       ? wizard.textFor("common.selected") : wizard.textFor("common.choose")
@@ -377,7 +397,7 @@ Item {
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
             }
-            Button {
+            WizardButton {
               objectName: "onboardingHelpersRefresh"
               visible: wizard.nativeContext && (!wizard.clipboardReady || !wizard.pickerReady)
               text: wizard.textFor("common.check_again")
@@ -390,7 +410,7 @@ Item {
 
             Row {
               spacing: Style.space(8)
-              Button {
+              WizardButton {
                 objectName: "onboardingPaste"
                 text: wizard.textFor("onboarding.paste_link")
                 bordered: true
@@ -399,7 +419,7 @@ Item {
                 fontFamily: wizard.fontFamily
                 onClicked: wizard.pasteRequested()
               }
-              Button {
+              WizardButton {
                 objectName: "onboardingFile"
                 text: wizard.textFor("onboarding.choose_file")
                 bordered: true
@@ -429,7 +449,7 @@ Item {
               anchors.right: parent.right
               spacing: Style.space(8)
 
-              Button {
+              WizardButton {
                 text: wizard.step === 1
                   ? wizard.textFor("common.close") : wizard.textFor("common.back")
                 bordered: true
@@ -441,7 +461,7 @@ Item {
                 }
               }
 
-              Button {
+              WizardButton {
                 visible: wizard.step === 1
                 text: wizard.textFor("common.check_again")
                 bordered: true
@@ -451,7 +471,7 @@ Item {
                 onClicked: wizard.refreshRequested()
               }
 
-              Button {
+              WizardButton {
                 visible: wizard.step === 1
                 text: wizard.textFor("common.continue")
                 bordered: true
@@ -461,7 +481,7 @@ Item {
                 onClicked: wizard.step = 2
               }
 
-              Button {
+              WizardButton {
                 visible: wizard.step === 2
                 text: wizard.routingPreset === ""
                   ? wizard.textFor("onboarding.skip_for_now") : wizard.textFor("common.continue")
@@ -472,7 +492,7 @@ Item {
                 onClicked: wizard.step = 3
               }
 
-              Button {
+              WizardButton {
                 objectName: "onboardingFinish"
                 visible: wizard.step === 3
                 text: wizard.profiles.length > 0
@@ -526,7 +546,7 @@ Item {
           elide: Text.ElideMiddle
         }
       }
-      Button {
+      WizardButton {
         id: copyButton
         objectName: "onboardingCopyCommand"
         text: wizard.textFor("common.copy")

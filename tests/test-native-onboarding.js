@@ -126,4 +126,39 @@ test('EN/RU scope and imported count never borrow connected/ready wording',()=>{
   const value=i18n.translate(key,locale,{count:2});assert(value);assert(!value.includes('Missing translation'));assert(!value.includes('{count}'));
  }
 });
+test('first-use wizard has its own bounded height rather than the empty inventory height',()=>{
+ const start=panel.indexOf('    contentHeight: panel.fittedContentHeight(');
+ const end=panel.indexOf('\n    )',start);
+ const expression=panel.slice(start,end+6).replace('    contentHeight: ','');
+ for(const visible of [false,true]) {
+  const c=vm.createContext({panel:{fittedContentHeight:(h,max)=>Math.min(h,max)},
+   Style:{space:n=>n},onboardingWizard:{visible},root:{page:'main'},vless:{nativeOwner:true},
+   nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false}});
+  assert.equal(vm.runInContext(expression,c),visible?600:280);
+ }
+});
+test('wizard buttons share native keyboard activation without changing callbacks',()=>{
+ assert(wizard.includes('component WizardButton: Button {\n    focusable: true'));
+ assert.equal((wizard.match(/\bButton \{/g)||[]).length,1);
+ assert.equal((wizard.match(/\bWizardButton \{/g)||[]).length,11);
+ assert(wizard.includes('onActiveFocusChanged: if (activeFocus) wizard.revealControl(this)'));
+ assert(wizard.includes('Keys.onEscapePressed: canceled()'));
+});
+test('focused wizard controls scroll into view, including constrained height',()=>{
+ for(const [top,height,initial,expected] of [[20,30,100,20],[350,40,0,190],[60,30,0,0],[480,30,0,300]]) {
+  const c=vm.createContext({visible:true,Qt:{callLater:f=>f()},
+   onboardingScroll:{contentItem:{},contentY:initial,height:200,contentHeight:500}});
+  c.wizard=c;functions(wizard,c,['revealControl']);
+  c.revealControl({activeFocus:true,height,mapToItem:()=>({y:top})});
+  assert.equal(c.onboardingScroll.contentY,expected);
+ }
+});
+test('dismissed wizard and stale unfocused controls never scroll',()=>{
+ for(const [visible,activeFocus] of [[false,true],[true,false]]) {
+  const c=vm.createContext({visible,Qt:{callLater:f=>f()},onboardingScroll:{contentY:17}});
+  c.wizard=c;functions(wizard,c,['revealControl']);
+  c.revealControl({activeFocus,mapToItem:()=>{throw new Error('must not inspect stale target')}});
+  assert.equal(c.onboardingScroll.contentY,17);
+ }
+});
 console.log(`${count} native onboarding tests passed`);
