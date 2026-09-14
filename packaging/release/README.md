@@ -62,6 +62,23 @@ never by either delivered artifact. No new crate or runtime dependency is added.
 
 ## Release gates and deliberate stop
 
+For an already activated native installation, the developer package gate can
+perform only the required update (no downgrade/removal rehearsal):
+
+```sh
+python3 tests/installed_native_package.py --run --upgrade-only --current-package /absolute/new-rc.pkg.tar.zst --rollback-package /absolute/installed-old.pkg.tar.zst
+```
+
+Run in a real interactive terminal, after startup Off, verified disconnect and
+settled OS authorization. `--rollback-package` must match the running installed
+package; `--current-package` is the strictly newer candidate. Both retained
+archives are inspected before effects. Each Stop/Install/Start requires a human
+`ready` before and `settled` after. Passwords go only to the normal OS/pacman
+prompt, never to these acknowledgement prompts. A failed step stops without
+automatic compensation. Successful output verifies the actual running binary,
+units, private-state preservation, enablement and disconnected core/TUN state.
+Without `--upgrade-only`, the existing explicit recovery rehearsal is unchanged.
+
 - [ ] Exact final candidate: full deterministic/parity/CI gates.
 - [ ] Matching native architecture package and frontend inspection/checksums.
 - [ ] Fresh and existing-native frontend installation/refusal tests, without

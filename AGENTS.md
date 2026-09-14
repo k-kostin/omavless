@@ -181,6 +181,10 @@ the change.
 ## Git discipline
 
 - `main` is the only long-lived development source of truth.
+- `archive/python-legacy` is a frozen historical snapshot at
+  `aa5873783c019edc303a732e55ea8c85f1f0b090`, not another development line.
+  Preserve it during branch cleanup; never merge new work into it or use it as
+  a mutable CI dependency. See [legacy retirement](docs/roadmap/LEGACY_RETIREMENT.md).
 - Use narrow feature/fix/docs branches and PRs; do not commit implementation
   work directly to `main`.
 - Before creating a branch, inspect open PRs and recently updated remote

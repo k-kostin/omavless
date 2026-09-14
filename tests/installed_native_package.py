@@ -385,7 +385,7 @@ class PackageGate:
         self.authorization.step(phase, transaction)
         self.unchanged()
 
-    def run(self):
+    def preflight(self, installed):
         self.authorization.require_terminal()
         require(os.getuid() != 0, "do_not_run_as_root")
         require(os.environ.get("HOME") == str(self.home) and "OMAVLESS_HOME" not in os.environ
@@ -394,7 +394,7 @@ class PackageGate:
                 and os.environ.get("XDG_STATE_HOME", str(self.home / ".local/state")) == str(self.home / ".local/state"),
                 "environment_mismatch")
         self.before = private_snapshot(self.home)
-        self.check_running(self.current)
+        self.check_running(installed)
         enabled = unit("UnitFileState")
         require(enabled == "enabled", "runtime_not_enabled")
         require(self.current["binary"] != self.rollback["binary"]
@@ -403,6 +403,24 @@ class PackageGate:
         emit("preflight", True, current_source=self.current["source"], rollback_source=self.rollback["source"],
              current_archive=self.current["fingerprint"][0], rollback_archive=self.rollback["fingerprint"][0],
              current_binary=self.current["binary"], rollback_binary=self.rollback["binary"])
+        return enabled
+
+    def upgrade(self):
+        """One attended update, not a destructive recovery rehearsal.
+
+        Start on the verified rollback archive, already disconnected. Each
+        effect uses the same human barrier; failure never triggers recovery.
+        """
+        enabled = self.preflight(self.rollback)
+        self.stop(self.rollback)
+        self.pacman(self.current)
+        self.start(self.current)
+        require(unit("UnitFileState") == enabled, "enablement_changed")
+        emit("upgrade_restart", True, private_state_preserved=True, actual_binary=True,
+             disconnected=True, startup_off=True, enabled=True)
+
+    def run(self):
+        enabled = self.preflight(self.current)
         self.stop(self.current)
         self.pacman(self.rollback)
         self.start(self.rollback)
@@ -429,6 +447,8 @@ class PackageGate:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--upgrade-only", action="store_true",
+                        help="update from the installed rollback archive to current; no removal/downgrade")
     parser.add_argument("--current-package", type=Path, required=True)
     parser.add_argument("--rollback-package", type=Path, required=True)
     args = parser.parse_args()
@@ -439,7 +459,11 @@ def main():
         authorization.require_terminal()
         require(os.getuid() != 0, "do_not_run_as_root")
         current, rollback = inspect_archive(args.current_package), inspect_archive(args.rollback_package)
-        PackageGate(current, rollback, authorization).run()
+        instance = PackageGate(current, rollback, authorization)
+        if args.upgrade_only:
+            instance.upgrade()
+        else:
+            instance.run()
         return 0
     except auth.AuthorizationUnsettled:
         emit("stopped", False, classification="human_authorization_unsettled",

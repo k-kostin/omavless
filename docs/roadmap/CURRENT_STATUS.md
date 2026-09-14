@@ -6,6 +6,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- Owner-approved [Python reference retirement](LEGACY_RETIREMENT.md) preserves
+  the complete pre-retirement tree in frozen `archive/python-legacy` at
+  `aa5873783c019edc303a732e55ea8c85f1f0b090`. Native RC delivery, native-only
+  defaults and fixture-backed legacy removal must finish before leaving RC.
+
 - Native integration [#238](https://github.com/k-kostin/omavless/pull/238)
   merged at `778647215deb1cb27e66e10e628fd0e78beee1af`. Its PR and main CI
   passed; #214–#237 are merged or explicitly superseded and their remote

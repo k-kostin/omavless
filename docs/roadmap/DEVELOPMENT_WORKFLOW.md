@@ -20,6 +20,12 @@ A temporary `beta/<scope>` branch is allowed only for a named integration/soak
 assembly when several accepted candidate heads genuinely need combined testing.
 Fixes return to the owning PRs; beta is deleted afterward.
 
+The owner-approved `archive/python-legacy` exception is a frozen full-repository
+snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
+reference and its tests, not a supported parallel release or development branch.
+Retain it during cleanup; new work still targets `main`. See the
+[retirement sequence](LEGACY_RETIREMENT.md).
+
 ## 2. Short-lived branch roles
 
 Use narrow branches such as:

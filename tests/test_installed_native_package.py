@@ -18,6 +18,40 @@ class Terminal(io.StringIO):
 
 
 class PackagePolicyTests(unittest.TestCase):
+    def test_upgrade_checks_installed_source_and_has_only_three_effects(self):
+        old, new = {"version": "old"}, {"version": "new"}
+        instance = gate.PackageGate(new, old)
+        events = []
+        with patch.object(instance, "preflight", side_effect=lambda p: events.append(("verify", p)) or "enabled"), \
+             patch.object(instance, "stop", side_effect=lambda p: events.append(("stop", p))), \
+             patch.object(instance, "pacman", side_effect=lambda p: events.append(("install", p))), \
+             patch.object(instance, "start", side_effect=lambda p: events.append(("start", p))), \
+             patch.object(gate, "unit", return_value="enabled"), patch.object(gate, "emit"):
+            instance.upgrade()
+        self.assertEqual(events, [("verify", old), ("stop", old), ("install", new), ("start", new)])
+
+    def test_upgrade_stops_after_any_failed_stage_without_compensation(self):
+        for failed in ("preflight", "stop", "pacman", "start"):
+            with self.subTest(failed=failed):
+                instance = gate.PackageGate({}, {})
+                events = []
+                def action(name):
+                    def effect(_):
+                        events.append(name)
+                        if name == failed:
+                            raise gate.Refused("synthetic_failure")
+                        return "enabled"
+                    return effect
+                with patch.object(instance, "preflight", side_effect=action("preflight")), \
+                     patch.object(instance, "stop", side_effect=action("stop")), \
+                     patch.object(instance, "pacman", side_effect=action("pacman")), \
+                     patch.object(instance, "start", side_effect=action("start")), \
+                     patch.object(gate, "emit") as emit:
+                    self.assertRefused("synthetic_failure", instance.upgrade)
+                    emit.assert_not_called()
+                sequence = ["preflight", "stop", "pacman", "start"]
+                self.assertEqual(events, sequence[:sequence.index(failed) + 1])
+
     def assertRefused(self, code, call):
         with self.assertRaises(gate.Refused) as result:
             call()
