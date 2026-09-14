@@ -90,3 +90,20 @@ AUTO-1 enabled login and recorded DNS/provider failures remain open. V0 remains
 Draft and fixture-constrained. No stable 0.8.0 tag/release is published; a
 **marketplace update additionally requires the owner present and explicit
 approval**. See the [release checklist](../../packaging/release/README.md).
+
+## Later branch maintenance — 2026-09-14
+
+PR #239 was rebased onto main `aa5873783c019edc303a732e55ea8c85f1f0b090`,
+which includes subscription-row refresh #240 and documentation cleanup #241.
+Documentation overlaps were reconciled with the shorter user README and current
+delivery ledger. The two non-documentation patches compare unchanged in
+`git range-diff`; the aggregate non-Markdown patch ID before/after is
+`22e2ee02579fff0e7f7511edfe3e177b0d7f0918`. Cargo, crates, packaging and package
+acceptance implementation bytes are unchanged from the previously tested RC.
+
+The archived pair above remains built from `ac4bd30825c43912b72c7e6cb3332f3b95db0680`.
+It does **not** contain #240 or the new user documentation. No archive was
+regenerated, relabelled, installed or uploaded during this maintenance. A final
+delivery must regenerate the matching frontend/package identity from its actual
+reviewed source. Current branch checks belong in #239; they do not turn these
+historical artifacts into a newer build or fresh installed-release acceptance.
