@@ -1,3 +1,9 @@
+"""Historical Python oracle tests, not the native source installation path.
+
+Subprocess reference checks deliberately invoke backend.py directly. The real
+frontend launcher is native-only and has separate refusal/dispatch tests.
+These references remain until the fixture-backed retirement step is complete.
+"""
 import importlib.util
 import io
 import http.client
@@ -102,7 +108,7 @@ class BackendTests(unittest.TestCase):
                         "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
                 self.assertTrue(Path(env[key]).is_relative_to(home), key)
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "status"], env=env,
+                [sys.executable, str(ROOT / "backend.py"), "status"], env=env,
                 capture_output=True, text=True, timeout=10,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -141,7 +147,7 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(manifest["id"], "kdk.omavless")
         self.assertEqual(manifest["name"], "OmaVLESS")
         self.assertEqual(manifest["barWidget"]["displayName"], "OmaVLESS")
-        self.assertEqual(manifest["version"], "0.7.0")
+        self.assertEqual(manifest["version"], "0.8.0-rc.1")
         self.assertEqual(backend.PLUGIN_VERSION, manifest["version"])
         self.assertEqual(backend.USER_AGENT, "OmaVLESS/0.7.0")
         self.assertEqual(manifest["entryPoints"]["barWidget"], "plugin/Panel.qml")
@@ -1993,7 +1999,7 @@ rules:
             home = Path(temp)
             env, _ = self.make_env(home)
             imported = subprocess.run(
-                [str(ROOT / "backend.sh"), "import", "Example"],
+                [sys.executable, str(ROOT / "backend.py"), "import", "Example"],
                 input=REALITY_URI, text=True, env=env, capture_output=True,
             )
             self.assertEqual(imported.returncode, 0, imported.stderr)
@@ -2004,7 +2010,7 @@ rules:
             data = json.loads(store.read_text(encoding="utf-8"))
             self.assertEqual(data["profiles"][0]["name"], "Example")
             status_result = subprocess.run(
-                [str(ROOT / "backend.sh"), "status"], env=env, text=True, capture_output=True,
+                [sys.executable, str(ROOT / "backend.py"), "status"], env=env, text=True, capture_output=True,
             )
             self.assertEqual(status_result.returncode, 0, status_result.stderr)
             status = json.loads(status_result.stdout)
@@ -2018,7 +2024,7 @@ rules:
             home = Path(temp)
             env, _runtime = self.make_env(home)
             imported = subprocess.run(
-                [str(ROOT / "backend.sh"), "import", "Trojan"],
+                [sys.executable, str(ROOT / "backend.py"), "import", "Trojan"],
                 input=TROJAN_URI, text=True, env=env, capture_output=True,
             )
             self.assertEqual(imported.returncode, 0, imported.stderr)
@@ -2039,7 +2045,7 @@ rules:
             home = Path(temp)
             env, _runtime = self.make_env(home)
             imported = subprocess.run(
-                [str(ROOT / "backend.sh"), "import", "Hysteria 2"],
+                [sys.executable, str(ROOT / "backend.py"), "import", "Hysteria 2"],
                 input=HYSTERIA2_URI, text=True, env=env, capture_output=True,
             )
             self.assertEqual(imported.returncode, 0, imported.stderr)
@@ -2062,7 +2068,7 @@ rules:
             home = Path(temp)
             env, _runtime = self.make_env(home)
             imported = subprocess.run(
-                [str(ROOT / "backend.sh"), "import", "TUIC"],
+                [sys.executable, str(ROOT / "backend.py"), "import", "TUIC"],
                 input=TUIC_URI, text=True, env=env, capture_output=True,
             )
             self.assertEqual(imported.returncode, 0, imported.stderr)
@@ -2233,11 +2239,11 @@ rules:
             source = home / "subscription.url"
             source.write_text(url, encoding="utf-8")
             stdin_result = subprocess.run(
-                [str(ROOT / "backend.sh"), "import-preview"],
+                [sys.executable, str(ROOT / "backend.py"), "import-preview"],
                 input=url, capture_output=True, text=True, env=env, check=False,
             )
             file_result = subprocess.run(
-                [str(ROOT / "backend.sh"), "import-preview", "--", str(source)],
+                [sys.executable, str(ROOT / "backend.py"), "import-preview", "--", str(source)],
                 capture_output=True, text=True, env=env, check=False,
             )
         self.assertEqual(stdin_result.returncode, 0, stdin_result.stderr)
@@ -2457,13 +2463,13 @@ rules:
                 env, _ = self.make_env(home)
                 url = f"http://127.0.0.1:{server.server_port}/sub?token=private"
                 added = subprocess.run(
-                    [str(ROOT / "backend.sh"), "subscription-save", "Local provider"],
+                    [sys.executable, str(ROOT / "backend.py"), "subscription-save", "Local provider"],
                     input=url, text=True, env=env, capture_output=True,
                 )
                 self.assertEqual(added.returncode, 0, added.stderr)
                 self.assertEqual(json.loads(added.stdout)["total"], 1)
                 public = subprocess.run(
-                    [str(ROOT / "backend.sh"), "status"], env=env,
+                    [sys.executable, str(ROOT / "backend.py"), "status"], env=env,
                     text=True, capture_output=True,
                 )
                 self.assertEqual(public.returncode, 0, public.stderr)
@@ -2985,7 +2991,7 @@ rules:
             home = Path(temp)
             env, _ = self.make_env(home)
             process = subprocess.Popen(
-                [str(ROOT / "backend.sh"), "preview"],
+                [sys.executable, str(ROOT / "backend.py"), "preview"],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, env=env,
             )
@@ -3044,7 +3050,7 @@ rules:
             legacy_last.write_text("Example\n", encoding="utf-8")
 
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "status"], env=env, text=True, capture_output=True,
+                [sys.executable, str(ROOT / "backend.py"), "status"], env=env, text=True, capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             current = home / ".config" / "omavless"
@@ -3072,7 +3078,7 @@ rules:
             new.write_text('{"profiles": [], "source": "new"}\n', encoding="utf-8")
 
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "status"], env=env, text=True, capture_output=True,
+                [sys.executable, str(ROOT / "backend.py"), "status"], env=env, text=True, capture_output=True,
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("exist and differ", result.stderr)
@@ -3199,7 +3205,7 @@ rules:
             config_dir.mkdir(parents=True)
             with backend.operation_lock(paths):
                 child = subprocess.Popen(
-                    [str(ROOT / "backend.sh"), "import", "Example"],
+                    [sys.executable, str(ROOT / "backend.py"), "import", "Example"],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, env=env,
                 )
@@ -3358,7 +3364,7 @@ rules:
             self.write_ownership_marker(paths, "rust", 9)
             private_input = REALITY_URI.replace("Example", "private-password-fragment")
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "import", "Example"],
+                [sys.executable, str(ROOT / "backend.py"), "import", "Example"],
                 input=private_input,
                 capture_output=True,
                 text=True,
@@ -3370,7 +3376,7 @@ rules:
             self.assertEqual(result.stdout, "")
             self.assertEqual(
                 result.stderr.strip(),
-                "OmaVLESS frontend ownership is unavailable; no legacy fallback",
+                "OmaVLESS native runtime ownership blocks this legacy operation",
             )
             self.assertNotIn("private-password-fragment", result.stderr)
             self.assertFalse(paths.store.exists())
@@ -3458,7 +3464,7 @@ rules:
             core.chmod(0o755)
             with backend.operation_lock(paths):
                 child = subprocess.Popen(
-                    [str(ROOT / "backend.sh"), "run-core", str(core)],
+                    [sys.executable, str(ROOT / "backend.py"), "run-core", str(core)],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                 )
                 try:
@@ -4023,7 +4029,7 @@ esac
                 "profiles": [{"id": profile_id, "name": "Example", "uri": REALITY_URI}],
             }), encoding="utf-8")
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "down-all"], env=env,
+                [sys.executable, str(ROOT / "backend.py"), "down-all"], env=env,
                 text=True, capture_output=True,
             )
             self.assertNotEqual(result.returncode, 0)
@@ -4190,7 +4196,7 @@ esac
                 encoding="utf-8",
             )
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "adopt-template", str(source)],
+                [sys.executable, str(ROOT / "backend.py"), "adopt-template", str(source)],
                 env=env, text=True, capture_output=True,
             )
             self.assertNotEqual(result.returncode, 0)
@@ -4199,7 +4205,7 @@ esac
 
     def test_raw_credential_export_command_is_not_exposed(self):
         result = subprocess.run(
-            [str(ROOT / "backend.sh"), "export", "unused"],
+            [sys.executable, str(ROOT / "backend.py"), "export", "unused"],
             text=True, capture_output=True,
         )
         self.assertNotEqual(result.returncode, 0)
@@ -4582,7 +4588,7 @@ esac
                 "PATH": str(fake_bin) + os.pathsep + env["PATH"],
             })
             result = subprocess.run(
-                [str(ROOT / "backend.sh"), "watch-plugin-removal"],
+                [sys.executable, str(ROOT / "backend.py"), "watch-plugin-removal"],
                 env=env, text=True, capture_output=True, timeout=10,
             )
             self.assertEqual(result.returncode, 0, result.stderr)

@@ -22,7 +22,8 @@ detect a changed download; they are not signatures or independent trust proof.
 
 The same `./install.sh` updates an already activated native frontend without
 installing a legacy fallback. The version in its manifest belongs to the native
-candidate; the repository's separate compatibility manifest remains 0.7.0.
+candidate, as does the current source manifest. The historical marketplace
+snapshot remains 0.7.0.
 Do not install this archive through a marketplace listing pointing at another
 commit, mix its frontend with an unverified older runtime, or run any command
 from this guide with private credentials in argv.

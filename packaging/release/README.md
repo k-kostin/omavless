@@ -15,8 +15,9 @@ stable `0.8.0`. The candidate frontend manifest gets the exact Cargo spelling.
 This follows Arch's [pkgver restrictions](https://man.archlinux.org/man/PKGBUILD.5.en)
 and [version ordering](https://man.archlinux.org/man/vercmp.8.en); local tests
 also exercise `vercmp` when installed.
-The root `manifest.json` intentionally remains the separate 0.7.0 compatibility
-payload; neither it nor the default repository installer is silently switched.
+The root `manifest.json` and source installer now describe the same native RC.
+Plain source `./install.sh` is native-only; `--native-only` remains an alias.
+The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 

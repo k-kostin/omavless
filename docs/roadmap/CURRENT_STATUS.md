@@ -20,8 +20,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   merged at `3b82c4f66ca624d88a6d28b6bd68ddd96c11155a`, after exact-head CI
   and Try Omarchy ARM64 UI/live-refresh acceptance. Its compact main-page
   action reuses the existing Rust operation; VPN ownership is unchanged.
-- Native **0.8.0-rc.1** assembly remains in separate open
-  [#239](https://github.com/k-kostin/omavless/pull/239), following the
+- Native **0.8.0-rc.1** assembly merged in
+  [#239](https://github.com/k-kostin/omavless/pull/239) at
+  `87844c1ffc24320285427a740ec43ffc6e68bee8`, following the
   [release assembly guide](../../packaging/release/README.md). Local artifacts and
   archive checks and the attended ARM64 installed update from source
   `4549f6921e908a951698617027b4971057278920` are recorded there. The new pair
@@ -62,19 +63,19 @@ startup on a user's machine.
 
 The [native guide](../user/NATIVE_INSTALL.md) is the supported reviewed-candidate
 path: install the package, explicitly activate once, then install its matching
-frontend with `./install.sh --native-only`. An activated native owner never
-falls back to Python. The ordinary installer still provides the distinct
-legacy-compatible payload; changing that default and publishing native release
-artifacts needs a separate distribution checkpoint. Retained Python code is not
-permission to grow a second native lifecycle owner.
+frontend with `./install.sh`. The source/default installer is now native-only;
+`--native-only` is an alias. The launcher refuses absent/legacy/unknown native
+ownership without Python. Omarchy's clone-based installation does not install
+the package or run this installer. Retained Python sources are reference tests
+pending retirement, not a supported fallback or second native lifecycle owner.
 
 ## Next work, in order
 
-1. Validate the 0.8.0 candidate package/frontend pair and its installation path;
-   retain accepted unchanged R6 runtime evidence, without a ceremonial repeat.
-2. Prepare clear native release/package installation and upgrade communication,
-   plugin-page screenshots and release metadata without silently changing the
-   default install route or the published 0.7.0 identity.
+1. Complete fixture-backed Python reference retirement and exact native-only
+   source/default-install acceptance; retain unchanged R6 runtime evidence.
+2. Only after the retirement sequence, prepare stable release/package metadata
+   and owner-reviewed plugin-page screenshots. Do not change the published
+   0.7.0 marketplace identity without separate approval.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.

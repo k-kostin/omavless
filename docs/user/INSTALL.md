@@ -1,152 +1,92 @@
-# Install OmaVLESS
+# Install OmaVLESS — native RC
 
-This guide covers normal Omarchy installation, Mihomo readiness, optional
-desktop helpers, updates and development installs.
-
-It describes the published/legacy-compatible plugin path. For an explicitly
-reviewed local Rust candidate, use the separate [native installation guide](NATIVE_INSTALL.md):
-native package setup, ownership activation and `--native-only` frontend
-installation are distinct steps. The Python/GTK fallback and legacy purge
-instructions below do not apply to a committed native owner. This distinction
-does not announce a new marketplace release. Scoped native R6 acceptance is
-recorded separately in the [closure report](../testing/R6_LOCAL_CLOSURE_2026-09-13.md).
+Current main/source installation is **0.8.0-rc.1**, not a stable release or
+marketplace publication. Use the [native installation and recovery guide](NATIVE_INSTALL.md)
+for package installation, first-user setup or legacy migration, explicit
+activation, frontend installation and updates. Python is not a runtime dependency.
 
 ## Requirements
 
-- Omarchy 4.x;
-- Python 3, included by Omarchy;
-- a trusted Mihomo binary;
-- `wl-clipboard` for clipboard import;
-- Omarchy's GTK4 file dialog, or optionally `zenity`, `kdialog` or `yad` for
-  file import;
-- optional `qrencode` for QR display.
+- Omarchy 4.x for this optional QML frontend;
+- the reviewed native OmaVLESS package for your architecture;
+- Mihomo and its required TUN permissions;
+- `wl-clipboard` for clipboard operations;
+- `zenity`, `kdialog` or `yad` for file selection;
+- `zenity` specifically for profile editing, `qrencode` for QR display.
 
-Mihoro is not required. If it is installed, OmaVLESS can discover its
-`~/.local/bin/mihomo` binary, but the two applications must not run competing
-full-tunnel services at the same time.
+Dependencies and private ownership are not created by adding the plugin.
+The native path does not use the historical Python/GTK picker fallback.
 
-## Add the plugin
+## Package first, frontend second
 
-```bash
-omarchy plugin add https://github.com/k-kostin/omavless --enable
+Follow [the native guide](NATIVE_INSTALL.md) before adding/updating source code.
+From its reviewed matching checkout or extracted frontend, use:
+
+```sh
+./install.sh
 ```
 
-The Omarchy command clones and validates the repository, then enables its bar
-widget. It does not run `install.sh`, install packages, invoke `sudo`, grant
-capabilities or start a tunnel.
+This is always native-only. It requires committed Rust ownership, preserves an
+existing plugin's enabled state/bar position, and replaces the frontend
+atomically without installing Python or the legacy uninstall script.
+`--native-only` remains an accepted alias. It does not enable a tunnel, grant
+privileges, build/download the package or activate ownership.
 
-## Install Mihomo
+Omarchy's `plugin add` and `plugin update` clone/update source but do **not**
+run this installer. Pointing an unmigrated Python installation at current main
+will refuse operation, not continue through a Python fallback. Complete the
+documented package and migration steps first.
 
-The simplest Omarchy-native option is the current `mihomo-bin` AUR package:
+## Mihomo and TUN readiness
 
-```bash
+Obtain Mihomo through the supported host package route, for example the reviewed
+`mihomo-bin` AUR package on Omarchy:
+
+```sh
 omarchy pkg aur add mihomo-bin
 mihomo_bin="$(command -v mihomo)"
 "$mihomo_bin" -v
 ```
 
-Review any AUR package before installing it if you do not already trust it.
-OmaVLESS also accepts a verified Mihomo binary at `~/.local/bin/mihomo`,
-anywhere on `PATH`, or at the absolute `OMAVLESS_MIHOMO` path inherited by
-Omarchy Shell.
+Review the package and verify the actual binary path before granting privileges.
+Do not run another competing full-tunnel application alongside OmaVLESS.
 
 ## Grant TUN capabilities
 
-Mihomo needs Linux capabilities to create the TUN interface and manage routes.
-After verifying `mihomo_bin`, run:
+After verifying `mihomo_bin`, the explicit administrator setup is:
 
-```bash
+```sh
 sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep "$mihomo_bin"
 getcap "$mihomo_bin"
 ```
 
-The result should list `cap_net_admin`, `cap_net_raw` and
-`cap_net_bind_service`. A package/core update can replace the binary and clear
-these capabilities; repeat the commands if TUN startup fails afterward.
+A package/core update can replace the binary and clear these capabilities.
+Inspect readiness if TUN startup fails afterward. OmaVLESS never grants these
+capabilities or creates passwordless policy for you. Complete all normal host
+authorization dialogs before another connection or service action.
 
-This is an explicit administrator action. OmaVLESS never runs it for you and
-does not create passwordless policy or privileged runtime helpers.
+## Desktop helpers
 
-## File picker and QR helpers
+If Settings reports a missing picker/editor, explicitly install the lightweight
+helper with `omarchy pkg add zenity`. Use `omarchy pkg add qrencode` for QR
+display, or `omarchy pkg add wl-clipboard` for clipboard operations.
+No helper is silently installed. Clipboard import does not require a picker.
 
-Current Omarchy provides a GTK4 file chooser used by OmaVLESS. The plugin also
-discovers `zenity`, `kdialog` and `yad` in deterministic order. On an unusually
-minimal installation, add the lightweight fallback with:
+## Updates and removal
 
-```bash
-omarchy pkg add zenity
-```
+Follow [native updates, Quit and removal](NATIVE_INSTALL.md#updates-close-quit-and-removal).
+An application package update requires a clean disconnected state and verified
+restart; changing the frontend alone does not update a running daemon.
 
-Onboarding and Settings report picker readiness before file import. Clipboard
-import does not depend on a file picker. Install `qrencode` only if QR display
-is wanted.
+Confirmed **Shut down OmaVLESS** in Settings performs the native shutdown.
+Plugin removal is not package removal, and neither is permission to delete
+private profiles. The historical `uninstall.sh --purge` is not a native remover.
 
-## First launch
+## Historical Python installation
 
-Open OmaVLESS from the bar. The first-run guide:
-
-1. checks Mihomo and TUN readiness;
-2. offers a Russia, China or Iran Routing policy, or a skip;
-3. opens the private import flow for the first profile or subscription.
-
-Before storing a profile, import review shows bounded connection facts while
-hiding the complete credential and key material.
-
-New installations do not connect automatically. Login autoconnect can be
-enabled later in Settings for the last-used or one fixed profile in Full VPN
-or Routing mode.
-
-## Existing Mihoro service
-
-OmaVLESS refuses to connect while Mihoro's `mihomo.service` is active because
-two full-route TUN cores must not compete for policy routing. Stop or disable
-Mihoro only when you intentionally want to use OmaVLESS:
-
-```bash
-systemctl --user disable --now mihomo.service
-```
-
-OmaVLESS never stops or reconfigures Mihoro automatically.
-
-## Updates
-
-Update through Omarchy:
-
-```bash
-omarchy plugin update kdk.omavless
-```
-
-Omarchy shows the Git diff before updating. Private profiles, subscriptions and
-routing configuration live outside the plugin checkout and are preserved.
-
-## Development install
-
-From a trusted exact checkout:
-
-```bash
-./install.sh
-```
-
-The script validates the checkout and atomically stages the plugin under
-`~/.config/omarchy/plugins/kdk.omavless`. A fresh install is enabled in the
-right bar section; an update preserves the existing enabled state and bar
-position. It does not restart the shell or start a tunnel.
-
-## Removal
-
-Normal removal stops the plugin-owned tunnel and services while preserving
-private profiles for a possible reinstall:
-
-```bash
-omarchy plugin remove kdk.omavless
-```
-
-To intentionally delete profiles, subscription URLs and routing data as well,
-run the bundled cleanup before removal:
-
-```bash
-~/.config/omarchy/plugins/kdk.omavless/uninstall.sh --purge
-omarchy plugin remove kdk.omavless
-```
-
-Neither path removes Mihomo or touches Mihoro data.
+The published marketplace 0.7.0 snapshot remains
+`69fe05b03129a23664fff3f8289821a7b7f80095`.
+The complete pre-retirement reference and its
+[historical install guide](https://github.com/k-kostin/omavless/blob/aa5873783c019edc303a732e55ea8c85f1f0b090/docs/user/INSTALL.md)
+are preserved in frozen `archive/python-legacy`. Those are historical
+instructions, not a second supported source installer or an automatic update route.

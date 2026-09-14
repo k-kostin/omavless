@@ -3,7 +3,7 @@
 
 Only ordinary file utilities are exposed. Omarchy, native ownership and Python
 are harmless stubs; no real user store, shell, service, network or auth command
-can be reached. GTK fallback is a legacy capability, not native readiness.
+can be reached. Source and artifact installs are native-only; no GTK fallback.
 """
 from pathlib import Path
 import subprocess
@@ -73,8 +73,8 @@ exit "$TEST_OWNER_EXIT"
         self.assertEqual(result.returncode, 0, "isolated installer failed")
         self.assertEqual(result.stderr, "")
         self.assertTrue((self.target / "manifest.json").is_file())
-        self.assertEqual((self.target / "backend.py").is_file(), "--native-only" not in arguments)
-        self.assertEqual((self.target / "uninstall.sh").is_file(), "--native-only" not in arguments)
+        self.assertFalse((self.target / "backend.py").exists())
+        self.assertFalse((self.target / "uninstall.sh").exists())
         self.assertNotIn("synthetic-private", result.stdout)
         self.assertIn("no tunnel was started", result.stdout)
         return result.stdout, self.trace.read_text().splitlines()
@@ -87,6 +87,15 @@ exit "$TEST_OWNER_EXIT"
         self.assert_missing(output)
         self.assertEqual(calls, ["native:plugin:target", "omarchy:plugin:validate", "native:plugin:target"])
         self.assertTrue((self.target / "plugin/Panel.qml").is_file())
+        self.assertEqual(list(self.target.rglob("*.py")), [])
+
+    def test_default_install_is_native_only_and_cleans_legacy_remnants(self):
+        (self.target / "backend.py").write_text("synthetic old backend")
+        (self.target / "uninstall.sh").write_text("synthetic old remover")
+        (self.bin / "python3").unlink()
+        output, calls = self.run_install()
+        self.assert_missing(output)
+        self.assertEqual(calls, ["native:plugin:target", "omarchy:plugin:validate", "native:plugin:target"])
         self.assertEqual(list(self.target.rglob("*.py")), [])
 
     def test_native_only_refuses_unknown_failed_legacy_and_missing_owner_before_writes(self):
@@ -132,59 +141,50 @@ if [ -f "$TEST_TRACE" ]; then printf 'legacy\\n'; else printf 'rust\\n'; fi
     def test_native_does_not_claim_successful_python_gtk_as_a_picker(self):
         output, calls = self.run_install()
         self.assert_missing(output)
-        self.assertEqual(calls, ["omarchy:plugin:validate", "native:plugin:target"])
+        self.assertEqual(calls, ["native:plugin:target", "omarchy:plugin:validate", "native:plugin:target"])
 
     def test_native_reporting_works_with_python_executable_absent(self):
         (self.bin / "python3").unlink()
         output, calls = self.run_install()
         self.assert_missing(output)
-        self.assertEqual(calls, ["omarchy:plugin:validate", "native:plugin:target"])
+        self.assertNotIn("python-gtk", calls)
 
     def test_all_supported_pickers_are_reported_without_launch_or_python(self):
         for picker in ("zenity", "kdialog", "yad"):
-            self.stub(picker, 'printf "picker-was-launched\\n" >> "$TEST_TRACE"\nexit 99\n')
+            self.stub(picker, 'exit 99\n')
             try:
-                for owner in ("rust", "legacy", "unknown"):
-                    with self.subTest(picker=picker, owner=owner):
-                        self.env["TEST_OWNER"] = owner
-                        output, calls = self.run_install()
-                        self.assertNotIn(MISSING, output)
-                        self.assertEqual(calls, ["omarchy:plugin:validate"])
+                output, calls = self.run_install()
+                self.assertNotIn(MISSING, output)
+                self.assertEqual(calls, ["native:plugin:target", "omarchy:plugin:validate", "native:plugin:target"])
             finally:
                 (self.bin / picker).unlink()
 
-    def test_legacy_gtk_available_and_unavailable_remain_actionable(self):
-        self.env["TEST_OWNER"] = "legacy"
-        for code in ("0", "1"):
-            with self.subTest(gtk_exit=code):
-                self.env["TEST_GTK_EXIT"] = code
-                output, calls = self.run_install()
-                self.assertEqual(calls, ["omarchy:plugin:validate", "native:plugin:target", "python-gtk"])
-                if code == "0":
-                    self.assertNotIn(MISSING, output)
-                else:
-                    self.assert_missing(output)
+    def assert_default_refused(self):
+        sentinel = self.target / "sentinel"
+        sentinel.write_text("preserved")
+        self.trace.unlink(missing_ok=True)
+        result = subprocess.run(["/bin/bash", str(INSTALLER)], env=self.env,
+                                capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(self.target.iterdir()), [sentinel])
+        self.assertIn("native package", result.stderr)
+        self.assertIn("NATIVE_INSTALL.md", result.stderr)
+        self.assertNotIn("synthetic-private", result.stdout + result.stderr)
+        calls = self.trace.read_text().splitlines() if self.trace.exists() else []
+        self.assertNotIn("python-gtk", calls)
+        self.assertNotIn("omarchy:plugin:validate", calls)
+        return calls
 
-    def test_unknown_or_failed_canonical_owner_never_probes_python(self):
-        for owner, code in (("", "0"), ("unknown", "0"), ("rust\nlegacy", "0"),
-                            ("legacy", "1"), ("rust", "73")):
+    def test_default_refuses_legacy_unknown_failed_and_absent_package(self):
+        for owner, code in (("legacy", "0"), ("", "0"), ("unknown", "0"),
+                            ("rust\nlegacy", "0"), ("legacy", "1"), ("rust", "73")):
             with self.subTest(owner=owner, code=code):
-                self.env["TEST_OWNER"] = owner
-                self.env["TEST_OWNER_EXIT"] = code
-                output, calls = self.run_install()
-                self.assert_missing(output)
-                self.assertEqual(calls, ["omarchy:plugin:validate", "native:plugin:target"])
-
-    def test_marketplace_legacy_without_native_or_artifacts_keeps_gtk(self):
+                self.env["TEST_OWNER"], self.env["TEST_OWNER_EXIT"] = owner, code
+                self.assertEqual(self.assert_default_refused(), ["native:plugin:target"])
         (self.bin / "omavless").unlink()
-        for existing_state in (False, True):
-            if existing_state:
-                (self.state / "omavless").mkdir(mode=0o700)
-            output, calls = self.run_install()
-            self.assertNotIn(MISSING, output)
-            self.assertEqual(calls, ["omarchy:plugin:validate", "python-gtk"])
+        self.assertEqual(self.assert_default_refused(), [])
 
-    def test_missing_native_binary_with_either_marker_never_probes_python(self):
+    def test_native_absence_never_reads_marker_contents_or_probes_gtk(self):
         (self.bin / "omavless").unlink()
         directory = self.state / "omavless"
         directory.mkdir(mode=0o700)
@@ -194,40 +194,35 @@ if [ -f "$TEST_TRACE" ]; then printf 'legacy\\n'; else printf 'rust\\n'; fi
                 if dangling:
                     marker.symlink_to(directory / "missing")
                 else:
-                    marker.write_text("synthetic ownership artifact: do not parse")
-                    marker.chmod(0o600)
+                    marker.write_text("synthetic-private ownership: do not parse")
                 try:
-                    output, calls = self.run_install()
-                    self.assert_missing(output)
-                    self.assertEqual(calls, ["omarchy:plugin:validate"])
+                    self.assertEqual(self.assert_default_refused(), [])
                 finally:
                     marker.unlink()
 
-    def test_missing_native_unsafe_state_roots_do_not_enable_gtk(self):
+    def test_absent_package_refusal_is_independent_of_unsafe_state_roots(self):
         (self.bin / "omavless").unlink()
         link = self.root / "state-alias"
         link.symlink_to(self.state, target_is_directory=True)
-        ordinary_file = self.root / "state-file"
-        ordinary_file.write_text("synthetic")
-        for state in ("", "relative", str(link), str(ordinary_file), str(self.state) + "/../state"):
-            with self.subTest(state_kind="synthetic"):
-                self.env["XDG_STATE_HOME"] = state
-                output, calls = self.run_install()
-                self.assert_missing(output)
-                self.assertEqual(calls, ["omarchy:plugin:validate"])
-
-    def test_missing_native_default_state_location_remains_legacy_only_if_absent(self):
-        (self.bin / "omavless").unlink()
+        ordinary = self.root / "state-file"
+        ordinary.write_text("synthetic")
+        for state in ("", "relative", str(link), str(ordinary), str(self.state) + "/../state"):
+            self.env["XDG_STATE_HOME"] = state
+            self.assertEqual(self.assert_default_refused(), [])
         del self.env["XDG_STATE_HOME"]
-        output, calls = self.run_install()
-        self.assertNotIn(MISSING, output)
-        self.assertIn("python-gtk", calls)
-        directory = self.home / ".local/state/omavless"
-        directory.mkdir(parents=True, mode=0o700)
-        (directory / "ownership.json").write_text("synthetic")
-        output, calls = self.run_install()
-        self.assert_missing(output)
-        self.assertEqual(calls, ["omarchy:plugin:validate"])
+        self.assertEqual(self.assert_default_refused(), [])
+
+    def test_default_rechecks_owner_before_replacing_installed_tree(self):
+        self.stub("omavless", '''
+if [ -f "$TEST_TRACE" ]; then printf 'legacy\\n'; else printf 'rust\\n'; fi
+''')
+        sentinel = self.target / "sentinel"
+        sentinel.write_text("preserved")
+        result = subprocess.run(["/bin/bash", str(INSTALLER)], env=self.env,
+                                capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(self.target.iterdir()), [sentinel])
+        self.assertEqual(list(self.target.parent.glob(".kdk.omavless.install.*")), [])
 
 
 if __name__ == "__main__":

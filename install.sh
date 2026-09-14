@@ -3,10 +3,11 @@
 # Copyright (c) 2026 OmaVLESS contributors
 set -euo pipefail
 
-native_only=false
+# Native-only by default. Keep the old explicit spelling as a harmless alias
+# for reviewed release wrappers and existing native update instructions.
 case "$#:${1-}" in
   0:) ;;
-  1:--native-only) native_only=true ;;
+  1:--native-only) ;;
   *) echo 'Usage: ./install.sh [--native-only]' >&2; exit 2 ;;
 esac
 
@@ -15,11 +16,11 @@ require_native_owner() {
   if ! command -v omavless >/dev/null 2>&1 \
       || ! selected=$(omavless plugin target </dev/null 2>/dev/null) \
       || [[ "$selected" != rust ]]; then
-    echo 'Native-only frontend requires an already committed Rust owner. Nothing was installed.' >&2
+    echo 'Install the reviewed OmaVLESS native package and complete its activation first; see docs/user/NATIVE_INSTALL.md. Nothing was installed.' >&2
     exit 1
   fi
 }
-if [[ "$native_only" == true ]]; then require_native_owner; fi
+require_native_owner
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 plugins_dir="$HOME/.config/omarchy/plugins"
@@ -55,10 +56,6 @@ cp -a \
   "$plugin_dir/README.md" \
   "$plugin_dir/CHANGELOG.md" \
   "$stage/"
-if [[ "$native_only" == false ]]; then
-  cp -a "$plugin_dir/backend.py" "$plugin_dir/uninstall.sh" "$stage/"
-  chmod 755 "$stage/backend.py" "$stage/uninstall.sh"
-fi
 cp -a "$plugin_dir/plugin" "$stage/plugin"
 mkdir -p "$stage/templates"
 cp -a "$plugin_dir/templates/." "$stage/templates/"
@@ -68,7 +65,7 @@ chmod 755 "$stage/backend.sh"
 
 # Refuse a revoked owner before replacing the installed tree. This does not
 # activate ownership; every later launcher invocation still checks canonically.
-if [[ "$native_only" == true ]]; then require_native_owner; fi
+require_native_owner
 
 if [[ -e "$target" ]]; then
   backup="${stage}.backup"
@@ -120,51 +117,10 @@ trap - EXIT
 
 echo "OmaVLESS is installed or updated; no tunnel was started."
 
-# GTK/Python is a legacy-only picker fallback. The Rust desktop helper reports
-# gtk4FallbackAvailable=false, so a successful Python probe must never promise
-# a picker the selected native owner cannot actually launch. Unknown ownership
-# is conservative too; this read must not activate, repair, or switch owners.
-legacy_picker_owner() {
-  local owner_target state_base remaining current component artifact
-  [[ "$native_only" == false ]] || return 1
-  if command -v omavless >/dev/null 2>&1; then
-    owner_target=$(omavless plugin target </dev/null 2>/dev/null) || return 1
-    [[ "$owner_target" == legacy ]]
-    return
-  fi
-
-  # Same missing-reader proof as backend.sh: only absent ownership artifacts
-  # permit the marketplace-only legacy path. Missing/dangling/unreadable
-  # ancestors must not be confused with a safely absent native marker.
-  if [[ ${XDG_STATE_HOME+x} == x ]]; then
-    state_base=$XDG_STATE_HOME
-  else
-    case "${HOME-}" in /*) ;; *) return 1 ;; esac
-    state_base=$HOME/.local/state
-  fi
-  case "$state_base" in /*) ;; *) return 1 ;; esac
-  [[ ${#state_base} -le 4096 ]] || return 1
-  remaining=${state_base#/}/omavless
-  current=
-  while [[ -n "$remaining" ]]; do
-    component=${remaining%%/*}
-    case "$remaining" in */*) remaining=${remaining#*/} ;; *) remaining= ;; esac
-    case "$component" in '') continue ;; .|..) return 1 ;; esac
-    current=$current/$component
-    [[ ! -L "$current" ]] || return 1
-    if [[ ! -e "$current" ]]; then return 0; fi
-    [[ -d "$current" && -r "$current" && -x "$current" ]] || return 1
-  done
-  for artifact in ownership.json frontend-bridge.target; do
-    [[ ! -e "$current/$artifact" && ! -L "$current/$artifact" ]] || return 1
-  done
-}
 
 if ! command -v zenity >/dev/null 2>&1 \
     && ! command -v kdialog >/dev/null 2>&1 \
-    && ! command -v yad >/dev/null 2>&1 \
-    && ! (legacy_picker_owner \
-      && python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; assert hasattr(Gtk, "FileChooserNative")' >/dev/null 2>&1); then
+    && ! command -v yad >/dev/null 2>&1; then
   echo 'File import unavailable — file picker missing. Run “omarchy pkg add zenity”'
   echo "Clipboard import remains available; kdialog and yad are also supported."
 fi

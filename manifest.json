@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kdk.omavless",
   "name": "OmaVLESS",
-  "version": "0.7.0",
+  "version": "0.8.0-rc.1",
   "author": "kdk",
   "license": "MIT",
   "description": "Import, subscribe to and switch VLESS plus experimental Trojan, Hysteria2 and TUIC profiles from the Omarchy bar using a dedicated Mihomo TUN service.",

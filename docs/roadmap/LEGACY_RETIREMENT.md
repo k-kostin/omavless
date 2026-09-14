@@ -9,16 +9,18 @@ after the scoped R6 closure, not a new runtime migration or stable release.
    It is not a pure Python-only tree. Preserve the branch during cleanup; do not
    add fixes, merge new main into it, or resolve a test dependency by fetching its
    moving branch name. The immutable commit is the reference provenance.
-2. **Native RC distribution — accepted locally, #239 integration pending.**
+2. **Native RC distribution — merged in #239.**
    Source `4549f6921e908a951698617027b4971057278920` has fresh archives and
    an attended ARM64 installed update with actual restarted-binary evidence in
    [the RC report](../testing/NATIVE_080_RC_PREPARATION_2026-09-13.md).
    Existing native R6 acceptance is retained where unchanged. This is not a
    stable release or broader host claim.
-3. **Default source/frontend installation — pending.** Make the ordinary path
-   native-only, with actionable missing-package/ownership refusal and no Python
-   fallback. Keep the accepted UI. Account for both the source installer and
-   Omarchy's clone-based plugin installation; the latter does not run install.sh.
+3. **Default source/frontend installation — implementation candidate.** The
+   ordinary installer and launcher are native-only, with explicit package/setup
+   refusal and no Python fallback. The accepted QML layout is unchanged.
+   Omarchy's clone-based installation also reaches the native-only launcher;
+   it does not install the package or run install.sh. Legacy subprocess tests
+   invoke backend.py directly as a temporary oracle, not the production launcher.
 4. **Reference/test detachment and removal — pending.** Preserve synthetic
    language-neutral behavior fixtures with their archived reference provenance;
    detach differential checks before removing obsolete runtime sources. Do not

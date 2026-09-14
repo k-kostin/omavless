@@ -162,16 +162,16 @@ exit {code}
         self.assertEqual(self.run_launcher("cleanup-runtime").returncode, 71)
         self.assertEqual(self.calls(), ["native:plugin:target"])
 
-    def test_legacy_cleanup_still_uses_reference_with_or_without_native_binary(self):
+    def test_source_cleanup_refuses_legacy_with_or_without_native_binary(self):
         for with_binary in [False, True]:
             if with_binary:
                 self.native("legacy")
             for command in ["cleanup-runtime", "cleanup-qr"]:
                 result = self.run_launcher(command)
-                self.assertEqual(result.returncode, 0)
-                self.assertEqual(result.stdout.splitlines(), [str(LAUNCHER.parent / "backend.py"), command])
-                self.assertEqual(self.calls(), (["native:plugin:target"] if with_binary else []) + ["python"])
-                self.trace.unlink()
+                self.assertEqual(result.returncode, 71)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(self.calls(), ["native:plugin:target"] if with_binary else [])
+                self.trace.unlink(missing_ok=True)
 
     def test_native_onboarding_completion_has_fixed_fenced_arguments(self):
         self.action_native()
@@ -422,19 +422,22 @@ exec /usr/bin/cat
         self.assertEqual(self.calls(), ["arg:plugin", "arg:profile-rename", "arg:instance", "arg:4", "arg:operation"])
         self.assertFalse(marker.exists())
 
-    def test_marketplace_without_native_and_without_artifacts_keeps_legacy(self):
+    def test_source_without_native_and_without_artifacts_refuses_before_python(self):
         result = self.run_launcher("status")
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(self.calls(), ["python"])
+        self.assertEqual(result.returncode, 71)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("native package", result.stderr)
+        self.assertIn("NATIVE_INSTALL.md", result.stderr)
         self.assertFalse((self.state / "omavless").exists())
 
-    def test_native_legacy_target_preserves_exact_arguments_without_shell_eval(self):
+    def test_legacy_target_rejects_arguments_without_shell_eval_or_echo(self):
         self.native("legacy")
         payload = 'space $(touch SHOULD_NOT_EXIST); `id` "quoted"'
         result = self.run_launcher("import", payload)
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.splitlines()[-2:], ["import", payload])
-        self.assertEqual(self.calls(), ["native:plugin:target", "python"])
+        self.assertEqual(result.returncode, 71)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn(payload, result.stderr)
+        self.assertEqual(self.calls(), ["native:plugin:target"])
         self.assertFalse(Path("SHOULD_NOT_EXIST").exists())
 
     def test_rust_status_uses_only_fixed_native_snapshot(self):
@@ -505,7 +508,7 @@ exec /usr/bin/cat
     def test_empty_existing_state_directory_is_not_changed(self):
         leaf = self.state / "omavless"
         leaf.mkdir(mode=0o700)
-        self.assertEqual(self.run_launcher("status").returncode, 0)
+        self.assertEqual(self.run_launcher("status").returncode, 71)
         self.assertEqual(list(leaf.iterdir()), [])
 
 

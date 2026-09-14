@@ -6,22 +6,23 @@ A compact, terminal-style VPN control panel for the Omarchy bar, powered by
 Import profiles and subscriptions, choose a connection mode, and manage your
 VPN without leaving the desktop. English and Russian interfaces are available.
 
-## Choose your installation
+## Installation — native release candidate
 
-There are two distinct paths. Installing the plugin alone does not install the
-Rust runtime or migrate an existing installation.
+Current source is **0.8.0-rc.1**: the Rust application plus its QML frontend.
+Follow the [native installation guide](docs/user/NATIVE_INSTALL.md) to install
+the reviewed package, prepare or migrate your private store, activate once,
+then install the matching frontend. Python is not required at runtime.
 
-| Path | What to expect |
-| --- | --- |
-| [Omarchy plugin](docs/user/INSTALL.md) | Legacy-compatible installation; the published marketplace snapshot is still **0.7.0**. Adding the GitHub repository directly uses repository code, not necessarily that reviewed snapshot. |
-| [Native Rust application + plugin](docs/user/NATIVE_INSTALL.md) | Reviewed Arch/Omarchy candidate: prebuilt runtime package, explicit activation, matching QML frontend. No Python runtime required. |
+Installing or updating the plugin alone does **not** install the runtime package
+or migrate an existing Python owner. Source `./install.sh` is native-only and
+refuses an absent or unactivated package; there is no Python fallback. Existing
+marketplace users should follow the migration guide before updating to main.
 
-The native implementation is integrated into `main`; it is not yet a stable
-0.8.0 release. [0.8.0-rc.1 release preparation](packaging/release/README.md)
-is separate from marketplace publication. Existing users are not automatically
-migrated.
+This is not stable 0.8.0 or a marketplace update. The published marketplace
+snapshot remains 0.7.0; its legacy source/instructions are preserved separately.
+[RC preparation](packaging/release/README.md) does not publish release assets.
 
-Both paths need Mihomo and TUN permissions. Desktop helpers provide clipboard,
+OmaVLESS needs Mihomo and TUN permissions. Desktop helpers provide clipboard,
 file selection, profile editing and QR functions. The installation guides
 explain the dependencies and explicit setup commands; OmaVLESS does not silently
 install packages or grant privileges.
@@ -47,8 +48,7 @@ management and shutdown controls. Changing the UI language does not restart
 the VPN. Login autoconnect is Off by default; the native candidate's optional
 Last/pinned fresh-login validation remains incomplete.
 
-See [native controls and everyday use](docs/user/NATIVE_USAGE.md), or the
-[legacy-compatible usage guide](docs/user/USAGE.md).
+See [controls and everyday use](docs/user/NATIVE_USAGE.md).
 
 ## Supported inputs
 

@@ -8,9 +8,9 @@ marketplace snapshot remains unchanged. Ordinary `omarchy plugin add` does not
 install the native package or transfer ownership to Rust.
 
 The native runtime/CLI does not require Python, pip, a virtual environment or
-Cargo at runtime. Its Omarchy frontend is still QML. Python source retained in
-the repository supports the separate legacy path and migration/reference tests;
-it is not a hidden fallback for an activated native owner.
+Cargo at runtime. Its Omarchy frontend is still QML. Python source temporarily
+retained in the repository supports migration/reference tests, not source
+installation. The default source frontend never falls back to Python.
 
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
@@ -18,8 +18,8 @@ selection, subscription refresh, language, diagnostics and Quit.
 For the prepared **0.8.0-rc.1** artifact pair, verify `SHA256SUMS` and the exact
 source/architecture in `release-candidate.json` before following this guide.
 No RC artifact is a stable 0.8.0 release, and marketplace publication remains
-owner-controlled. The repository's compatibility manifest remains 0.7.0;
-the separately assembled native frontend carries the RC version.
+owner-controlled. Both the source and assembled native frontend carry the RC
+version; the published historical marketplace snapshot remains 0.7.0.
 
 ## Before installation
 
@@ -138,15 +138,21 @@ the already activated owner and cannot install the legacy payload.
 Alternatively, from the reviewed **full source checkout** matching the candidate:
 
 ```sh
-./install.sh --native-only
+./install.sh
 ```
 
-This option requires already committed Rust ownership, preserves the plugin's
+This requires already committed Rust ownership, preserves the plugin's
 enabled state on update, and omits installed `backend.py` and the legacy
-`uninstall.sh`. Use **the same `--native-only` option for later local updates**.
-Plain `./install.sh` intentionally installs the compatibility payload; it does
-not roll ownership back. A missing Rust executable or unknown ownership never
-causes the native-only frontend to start Python.
+`uninstall.sh`. Plain `./install.sh` is also the native-only update path;
+`--native-only` remains a compatible alias. A missing Rust executable, legacy or
+unknown ownership refuses installation before replacing the existing frontend.
+It never starts Python, activates ownership, or downloads/builds a package.
+
+Omarchy's clone-based `plugin add`/`plugin update` does not run this installer or
+install the package. Do not point an unmigrated legacy installation at main:
+complete the package/ownership steps first. If the package is absent or ownership
+is not Rust, the source launcher refuses every action without changing private
+state; adding the plugin alone cannot make the native runtime available.
 
 To explicitly enable the runtime for future user sessions after activation:
 
