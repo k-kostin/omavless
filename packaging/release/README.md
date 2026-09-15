@@ -182,9 +182,11 @@ release scope must not advertise them as validated features. No AUR/NixOS
 publication, silent Cargo download, generic privileged helper, automatic
 cutover or seamless connected package upgrade is introduced here.
 
-Candidate packages use build-identity schema 2: the existing source, binary,
+Historical RC candidate packages use build-identity schema 2: the existing source, binary,
 architecture and provenance fields plus `productVersion`. The attended package
 checker requires its exact RC-to-Arch version mapping and unchanged payload
 safety checks. Schema 1 development packages retain their SHA-in-version guard.
+Current stable 0.8.0 packages use schema 3, as described above; the RC mapping
+does not apply to them.
 None of these identity schemas is a signature or proof that caller-supplied bytes were built
 from the declared source.

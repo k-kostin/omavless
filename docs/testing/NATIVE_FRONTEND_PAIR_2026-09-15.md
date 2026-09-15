@@ -90,3 +90,32 @@ Next owner/PC work:
 No tag, asset upload, main merge, marketplace change, package installation,
 service restart, VPN transition or privileged runtime path was introduced here.
 V0/#30, AUTO-1 and recorded DNS/provider limitations remain separate and open.
+
+## Consolidated PC handoff and instruction audit
+
+Use [the September 15 PC prompt](PC_080_ACCEPTANCE_PROMPT_2026-09-15.md), not the
+older shareable September 14 prompt alone. It identifies the independent PRs,
+latest screenshot revision, retained A/B source evidence, actual x86_64 work,
+unpublished-asset blocker and separate per-architecture guided-install matrix.
+It grants no release/marketplace/merge authority and explicitly prevents another
+ceremonial R6 acceptance cycle.
+
+The instruction audit checked #249's `setup-runtime.sh`, `SetupPage.qml`,
+`RequiredComponents.qml`, onboarding handlers and the release assemblers:
+
+| User path | Documentation conclusion |
+| --- | --- |
+| First installation | Distinguish manual candidate path from gated future public provisioning; component presence is not TUN/Internet readiness. |
+| App installed, not activated | Complete setup, not blind reinstall; existing data and migration preconditions preserved. |
+| Native update / frontend-only update | No repeated initialize/activate; package changes require disconnected update; compatible frontend-only changes do not replace the runtime. |
+| Set up later / Finish later | Bootstrap closes without dismissing component reminders; final wizard action records completion without requiring a profile. Neither connects a VPN. |
+| Cancel / retry | Initial consent is before effects; later failures may leave completed steps. No automatic rollback, auto-ack, stale-lock removal or unresolved-auth retry. |
+| Reopen after Quit | First-run helper deliberately does not re-enable an already activated owner; use explicit documented reopen. |
+| Artifact identity | Single-source candidate record or explicit dual-source pairing; never version-only compatibility or a new SHA attributed to an old ELF. |
+| Stable metadata | Schema 3 is stable 0.8.0; schema 2 wording is explicitly historical RC. |
+
+The user-guide corrections are docs-only in #249 at
+`329b77a660a46ef142eee5a907f8824cfb63fc17`; its tested production tree is identical
+to `4e2f17f`. This follow-up likewise changes no pairing implementation or
+installed code. Local relative-link/diff checks are sufficient for these
+documentation changes; no new package/GUI/authorization/live acceptance is claimed.
