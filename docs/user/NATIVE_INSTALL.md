@@ -7,6 +7,16 @@ does not establish a public release. The published 0.7.0
 marketplace snapshot remains unchanged. Ordinary `omarchy plugin add` does not
 install the native package or transfer ownership to Rust.
 
+## Choose your installation route
+
+| Starting point | Route | Do not do |
+| --- | --- | --- |
+| New user, no application/data | Before public packages/pins exist: reviewed package → initialize → activate → matching frontend, as below. After real guided-path acceptance: add plugin → Required components → terminal setup → Check again → onboarding. | Do not advertise the future guided path as available while pins are empty. |
+| Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
+| Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
+| Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
+| Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
+
 ## Guided first run — release preparation
 
 The frontend has a panel shell that works **without** the native application.
@@ -65,6 +75,22 @@ is unresolved. A lock from a killed installer is not cleared automatically.
 Existing active legacy owners, unsafe stores and interrupted migrations require
 the recovery guidance below; this page does not force migration or reset data.
 
+**Two different “later” actions:** **Set up later** on the runtime-independent
+panel closes it without installing anything or hiding missing-component reminders.
+**Finish later** at the final profile-import step of the normal onboarding wizard
+records that the wizard is complete without requiring a profile. It does not
+install missing components, certify TUN readiness or connect a VPN. The guide can
+be reopened from Settings; required-component checks remain independent of that
+wizard-completion flag.
+
+Cancelling the initial `INSTALL` consent occurs before installation effects.
+Cancelling/failing a later core/package/activation step is different: an earlier
+step may already have succeeded. There is no automatic uninstall or rollback.
+Close/resolve all terminal and authorization prompts, inspect the actual state,
+then use **Check again** and the appropriate remaining action. Never retry while
+an authorization is unresolved or delete a stale setup lock/ownership marker to
+force progress. A started terminal is not proof that setup succeeded.
+
 An already activated native installation bypasses provisioning. Updating it
 still uses the reviewed disconnected package-update procedure, not this
 first-install helper. The manual candidate path below remains available before
@@ -79,15 +105,19 @@ Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
 
 For the prepared **0.8.0** artifact pair, verify `SHA256SUMS` and the exact
-source/architecture in `release-candidate.json` before following this guide.
+source/architecture in `release-candidate.json` (single-source assembly) or
+`frontend-pair.json` (a newer frontend paired with an unchanged reviewed runtime)
+before following this guide. A pairing record retains both exact source commits
+and verified runtime/build/package input equality; a matching version alone is
+not compatibility proof. Preserve the original package build/acceptance evidence.
 An unpublished artifact is not a public release; marketplace publication remains
 owner-controlled. Both source and assembled frontend carry the same version;
 the historical marketplace snapshot remains 0.7.0. Earlier `0.8.0-rc.1`
 archives retain their original version and hashes, not the final candidate's.
 
 Use the runtime package for your processor (`aarch64` or `x86_64`). The QML
-frontend and supported features are common to both; its source/version must
-match the reviewed runtime release. Architecture-specific native binaries are
+frontend and supported features are common to both; use the reviewed artifact
+pair and its source/version records. Architecture-specific native binaries are
 not separate plugin products.
 
 ## Before installation
