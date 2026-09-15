@@ -4,6 +4,9 @@ Current final candidate: **0.8.0**, unpublished and pending final host gates.
 Use explicit `--stable` for this source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
+The [fresh-marketplace checkpoint](../../docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+is also required: the installed package acceptance alone does not prove that a
+marketplace user can obtain and initialize the application.
 The [ARM64 preparation report](../../docs/testing/NATIVE_080_RC_PREPARATION_2026-09-13.md)
 records the actual built pair, checksums, isolated installer tests and remaining
 installed-release gates. It is not a stable-release acceptance claim.
