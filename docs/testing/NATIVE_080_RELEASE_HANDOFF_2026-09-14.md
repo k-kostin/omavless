@@ -1,5 +1,11 @@
 # Native 0.8.0: VM closure and final PC release gates
 
+For the next PC session, use the consolidated
+[September 15 agent prompt](PC_080_ACCEPTANCE_PROMPT_2026-09-15.md).
+It includes the open #249–251 changes and separates installed x86_64 acceptance
+from still-unrun public guided provisioning. This report retains historical VM
+evidence; its older sequence must not hide those newer installation gates.
+
 Owner direction, 2026-09-14: merge technically accepted work here on Try
 Omarchy ARM64, finish applicable local release preparation, then run final
 acceptance on the x86_64 Omarchy PC before marketplace publication. Marketplace
@@ -134,6 +140,31 @@ Passwords belong only in the system/terminal prompt. Stop on unresolved
 authorization or manual recovery.
 
 ## Publication decision
+
+### September 15 frontend / package separation
+
+The ARM64 package source above remains the accepted runtime source. A newer
+frontend is permitted only with the [offline pairing proof](../../packaging/release/README.md#reuse-a-reviewed-package-with-a-newer-frontend):
+record both exact commits, preserve the package bytes/build provenance and verify
+unchanged runtime/build/package inputs. Do not silently label an old binary as
+built from a newer UI commit or require a recursive package-hash/source pin.
+This preparation tool changes no installed code or service and repeats no R6
+manual gate. Frontend-specific changes retain their own affected acceptance.
+
+Before choosing the final frontend, inspect open #249 (guided required-component
+setup) and #250 (product copy and synthetic, honestly disconnected screenshots).
+They are separate candidates, not claims that the published listing was updated.
+The #249 release pins were empty at its tested `4e2f17f88b230e4d43e05b738c6cf6f4c6caea43`
+head. Offline pairing does **not** supply a published download or close that gate.
+
+The PC agent should retain the original x86_64 build/installed-host checks,
+assemble a verified frontend/package pair if needed, and report the actual
+guided download → package install → activation → usable frontend path separately
+once real immutable packages and matching pins exist. Missing published assets
+remain an explicit installation gate, not a reason to fabricate pins or rerun
+unchanged Rust migration acceptance. Standard versus Manual setup remains a
+marketplace maintainer decision about the demonstrated install path; neither
+status is pre-approved by this document.
 
 Only after the exact final artifact checks and owner approval: publish the
 reviewed version/tag/assets, then separately approve the marketplace revision.
