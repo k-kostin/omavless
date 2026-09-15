@@ -1,10 +1,24 @@
 # OmaVLESS
 
-A compact, terminal-style VPN control panel for the Omarchy bar, powered by
-[Mihomo](https://github.com/MetaCubeX/mihomo).
+OmaVLESS is a VPN app for Omarchy that puts everyday connection controls
+directly in the bar.
 
-Import profiles and subscriptions, choose a connection mode, and manage your
-VPN without leaving the desktop. English and Russian interfaces are available.
+Bring your own compatible VLESS profile or HTTPS subscription, choose
+**Full VPN**, **Routing** or **Direct**, and connect from the panel. Switch
+between profiles or disconnect without leaving the desktop; one VPN connection
+is active at a time.
+
+Expand subscriptions and refresh their server lists beside your profiles.
+Profile management, routing tools, English/Russian language settings and
+privacy-safe support reports stay close at hand in a compact, terminal-style
+interface.
+
+Free and open source. **OmaVLESS is not a VPN provider:** VPN servers, accounts
+and service subscriptions are not included.
+
+![OmaVLESS panel, disconnected, showing demonstration profiles and the three connection modes](docs/marketing/images/main-en.png)
+
+*Native interface with demonstration data; no live connection is shown.*
 
 ## Installation — native 0.8.0 candidate
 
@@ -18,6 +32,13 @@ Installing or updating the plugin alone does **not** install the runtime package
 or migrate an existing Python owner. Source `./install.sh` is native-only and
 refuses an absent or unactivated package; there is no Python fallback. Existing
 marketplace users should follow the migration guide before updating to main.
+
+A guided first-run installer is being validated separately in
+[PR #249](https://github.com/k-kostin/omavless/pull/249). It adds missing-component
+cards and explicit setup from the panel. Until reviewed packages are published,
+pinned and tested through that complete path, it is **not an available
+marketplace installation method**. Use the current guide above, not instructions
+for an anticipated release.
 
 This version number is not a release announcement or marketplace update. The published marketplace
 snapshot remains 0.7.0; its legacy source/instructions are preserved separately.
@@ -54,6 +75,9 @@ the VPN. Login autoconnect is Off by default; the native candidate's optional
 Last/pinned fresh-login validation remains incomplete.
 
 See [controls and everyday use](docs/user/NATIVE_USAGE.md).
+
+[View the expanded subscription](docs/marketing/images/subscription-en.png)
+· [View Settings](docs/marketing/images/settings-en.png)
 
 ## Supported inputs
 
