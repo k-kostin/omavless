@@ -28,6 +28,8 @@ source "$1"
 setup_dir="$TEST_DIR"
 setup_temp="$TEST_DIR"
 native_present() { return 1; }
+core_binary_present() { return 1; }
+no_core_process() { return 0; }
 native() { printf 'UNEXPECTED_NATIVE_EFFECT' >&2; return 99; }
 package_install() { printf 'UNEXPECTED_PACKAGE_EFFECT' >&2; return 99; }
 install_core_dependency() { printf 'UNEXPECTED_CORE_EFFECT' >&2; return 99; }
@@ -55,6 +57,51 @@ curl() { printf 'UNEXPECTED_NETWORK_EFFECT' >&2; return 99; }
     def test_failed_native_read_is_not_a_fresh_install(self):
         result = self.run_shell('native_present() { return 0; }; native_target() { return 1; }; setup_status')
         self.assertEqual(result.stdout, "needs_attention\n")
+
+    def test_component_inventory_has_independent_bounded_facts(self):
+        for state in ("ready", "needs_activation", "needs_package", "release_unavailable", "needs_attention"):
+            for present in (True, False):
+                result = self.run_shell(f'setup_status() {{ echo {state}; }}; core_binary_present() {{ return {0 if present else 1}; }}; setup_components')
+                self.assertEqual(result.stdout, state + "\t" + ("present" if present else "missing") + "\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_missing_core_never_changes_existing_native_ownership_status(self):
+        result = self.run_shell('native_present() { return 0; }; native_target() { echo rust; }; setup_components')
+        self.assertEqual(result.stdout, "ready\tmissing\n")
+
+    def test_existing_core_dependency_is_a_noop_without_consent(self):
+        result = self.run_shell('core_dependency_present() { return 0; }; core_binary_present() { return 0; }; ensure_core_dependency')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_running_or_unobservable_core_blocks_install_without_prompt(self):
+        result = self.run_shell('core_dependency_present() { return 1; }; no_core_process() { return 1; }; ensure_core_dependency', 'CORE\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_core_install_only_never_runs_application_or_service_effects(self):
+        result = self.run_shell('''
+core_dependency_present() { [[ -f "$TEST_DIR/core" ]]; }
+core_binary_present() { core_dependency_present; }
+install_core_dependency() { touch "$TEST_DIR/core"; }
+ensure_core_dependency
+''', 'CORE\n')
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
+    def test_claimed_package_install_without_binary_does_not_report_success(self):
+        result = self.run_shell('core_dependency_present() { return 0; }; install_core_dependency() { return 0; }; ensure_core_dependency', 'CORE\n')
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_core_appearing_after_consent_blocks_package_action(self):
+        result = self.run_shell('''
+core_dependency_present() { return 1; }
+calls=0
+no_core_process() { calls=$((calls+1)); [[ $calls == 1 ]]; }
+ensure_core_dependency
+''', 'CORE\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('UNEXPECTED', result.stderr)
 
     def test_pinned_missing_runtime_is_installable_on_both_architectures(self):
         self.pins()
@@ -90,7 +137,7 @@ curl() { printf 'UNEXPECTED_NETWORK_EFFECT' >&2; return 99; }
             self.assertNotEqual(self.run_shell('release_fields').returncode, 0)
 
     def test_headless_install_and_unknown_arguments_have_no_effect(self):
-        for arguments in ["install", "install ru", "status en", "download", "install zz", "status extra more"]:
+        for arguments in ["install", "install ru", "install-core", "install-core ru", "components en", "status en", "download", "install zz", "status extra more"]:
             result = self.run_shell("setup_main " + arguments)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout + result.stderr, "")
@@ -164,6 +211,7 @@ package_info() { echo info >> "$TEST_DIR/trace"; echo 'omavless 0.8.0-1'; }
 package_install() { echo install >> "$TEST_DIR/trace"; }
 package_installed() { echo 'omavless 0.8.0-1'; }
 core_dependency_present() { ''' + ('return 0' if core else '[[ -f "$TEST_DIR/core" ]]') + '''; }
+core_binary_present() { core_dependency_present; }
 install_core_dependency() { echo core >> "$TEST_DIR/trace"; ''' + ('touch "$TEST_DIR/core"' if core_success else 'return 1') + '''; }
 install_package
 ''', consent)

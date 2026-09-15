@@ -31,6 +31,7 @@ Panel {
   // 71, including a MISSING binary. Only the independent target probe admits
   // the normal application, never that presentation flag alone.
   readonly property bool bootstrapRequired: setupPage.state !== "ready"
+  readonly property bool coreComponentMissing: setupPage.coreMissing
   property string focusSection: "header"
   property string page: "main"
   property int subscriptionIndex: 0
@@ -285,6 +286,7 @@ Panel {
     if (!vless.nativeCanAct || !profile || profile.missing) return false
     if (nativeView.connected && nativeView.activeId === id)
       return vless.requestNativeAction("disconnect", "", "")
+    if (root.coreComponentMissing) return false
     if (nativeView.connected || nativeView.state === "disconnected")
       return vless.requestNativeAction("connect", id, nativeView.mode)
     return false
@@ -701,6 +703,7 @@ Panel {
         var row = nativeProfiles.itemAt(i)
         if (row) targets = targets.concat(row.focusTargets)
       }
+      if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
       return targets
@@ -1903,7 +1906,7 @@ Panel {
           id: setupPage
           width: Math.max(0, setupFlick.width - root.scrollGutter)
           locale: root.uiLocale
-          panelOpen: root.opened && root.bootstrapRequired
+          panelOpen: root.opened
           onReady: { vless.enterNativeReadOnly(); vless.refresh() }
           onCloseRequested: root.close()
         }
@@ -1963,7 +1966,7 @@ Panel {
                     activeFocusOnTab: true
                     anchors.verticalCenter: parent.verticalCenter
                     checked: root.nativeView.connected
-                    enabled: vless.nativeCanAct && (root.nativeView.connected || (root.nativeView.state === "disconnected" && root.nativeSelectionConnectable))
+                    enabled: vless.nativeCanAct && (root.nativeView.connected || (!root.coreComponentMissing && root.nativeView.state === "disconnected" && root.nativeSelectionConnectable))
                     busy: vless.nativeActionRunning
                     cursorRing: false
                     hasCursor: activeFocus
@@ -2422,7 +2425,7 @@ Panel {
                         elide: Text.ElideRight
                       }
                     }
-                    Button { id: rowConnect; text: root.textFor(nativeRow.connected ? "action.disconnect" : "action.connect"); bordered: true; focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing && (root.nativeView.connected || root.nativeView.state === "disconnected"); onClicked: root.nativeActivateProfile(nativeRow.profile.id) }
+                    Button { id: rowConnect; text: root.textFor(nativeRow.connected ? "action.disconnect" : "action.connect"); bordered: true; focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing && (nativeRow.connected || (!root.coreComponentMissing && (root.nativeView.connected || root.nativeView.state === "disconnected"))); onClicked: root.nativeActivateProfile(nativeRow.profile.id) }
                   }
                   PlainText { Layout.fillWidth: true; visible: nativeRow.isProfile && vless.probeResult(nativeRow.profile.id) !== null; text: nativeRow.isProfile ? root.nativeProbeLabel(nativeRow.profile.id) : ""; textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
                   ColumnLayout {
@@ -2449,6 +2452,16 @@ Panel {
               }
             } // nativeProfilesContent
           } // nativeProfilesFrame
+          RequiredComponents {
+            id: nativeRequiredComponents
+            Layout.fillWidth: true
+            visible: root.page === "main" && setupPage.needsAttention
+            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; terminalOpened: setupPage.terminalOpened
+            onInstallRequested: function(action) { setupPage.install(action) }
+            onCheckRequested: setupPage.check()
+            onTerminalClosed: setupPage.acknowledgeTerminalClosed()
+            onGuideRequested: setupPage.guide()
+          }
         }
       }
 

@@ -1,5 +1,40 @@
 # Marketplace first-run setup checkpoint
 
+## Owner-directed component-block refinement
+
+The initial full setup page at `2aa5ba060c5149cbd143740446c70139f128d952`
+is superseded by a normal panel shell with a bordered **Required components**
+block below Profiles. Only missing OmaVLESS/Mihomo rows are shown; both missing
+use one sequential action. With the app activated, the same shared component
+appears under the real profile list only when needed. The accepted hero, modes,
+profile rows and fixed profile-action dock remain in place.
+
+Skipping/later closes the panel, not a persistent reminder flag. Existing
+onboarding can still be deferred normally. Component presence and activation
+are separate: an installed unactivated app gets **Complete setup**, never a
+reinstallation offer. Unknown facts fail closed. When both programs are present
+and ownership is ready the extra UI disappears. Permissions/TUN/live health are
+not certified by file presence; existing onboarding/Settings retain those checks.
+
+The read-only `components` helper adds exactly two bounded enum fields:
+`status<TAB>present|missing`, optionally followed by one LF. Existing `status`
+callers retain their original output. No binary path, version, private profile
+data or raw error reaches this boundary. QML rejects extra fields/lines.
+
+Fixed-purpose `install-core` handles a missing core after application setup,
+without package reinstallation, store access, service restart or activation.
+It shares the private installation lock and explicit terminal/AUR consent.
+Existing compatible core package plus executable is a no-op; a running or
+unobservable core blocks installation. A provider receipt without an executable
+cannot be reported as successful installation. Connect refuses a known missing
+core, while disconnect remains available even if the executable disappeared.
+
+Refinement checks: **26 focused shell tests, 11 component contracts, 39 main-panel
+tests PASS**; full local Python suite **261 total / 259 PASS / 2 SKIP**, existing
+JS and QML contracts PASS. Installed runtime/crates are unchanged. The initial
+checkpoint's actual published-download blocker below remains in force; this
+refinement does not turn simulated package effects into live acceptance.
+
 ## Gap and chosen user path
 
 The prior clean candidate checks started from an explicitly installed native
@@ -23,7 +58,8 @@ The first-run helper never becomes a VPN runtime or arbitrary command IPC API.
 
 ## Trust and effects
 
-- `setup-runtime.sh status` only returns a fixed enum. Raw native/parser errors
+- `setup-runtime.sh status` only returns a fixed enum; `components` adds the
+  independently observed core-presence enum. Raw native/parser errors
   are not passed to QML. Missing/invalid ownership is not successful activation.
 - `install [en|ru]` requires a non-root real terminal, exact `INSTALL` consent
   and a same-user private runtime-directory lock. No auto-install/retry.
@@ -53,7 +89,7 @@ The first-run helper never becomes a VPN runtime or arbitrary command IPC API.
   deliberate retry requires the human to acknowledge terminal/auth closure.
   A lock left after SIGKILL is a recovery case, never automatically stolen.
 
-## Validation and honest boundaries
+## Initial checkpoint validation and honest boundaries
 
 - Focused shell composition: **19 deterministic tests PASS**, synthetic effects
   only. Covers fresh/existing/invalid ownership, headless refusal, cancellation,

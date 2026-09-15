@@ -11,6 +11,7 @@ ShellRoot {
   id: review
   property string result: "loading"
   property string output: Quickshell.env("OMAVLESS_SETUP_REVIEW_DIR")
+  property int viewportHeight: 576
   FloatingWindow {
     id: window
     title: "OmaVLESS setup review — synthetic"
@@ -21,7 +22,7 @@ ShellRoot {
       id: flick
       anchors.centerIn: parent
       width: Math.min(parent.width - Style.space(24), Style.space(436))
-      height: Math.min(parent.height - Style.space(24), Style.space(576))
+      height: Math.min(parent.height - Style.space(24), Style.space(review.viewportHeight))
       contentWidth: width
       contentHeight: loader.item ? loader.item.implicitHeight : 0
       clip: true
@@ -32,7 +33,7 @@ ShellRoot {
         width: parent.width - Style.space(16)
         source: Quickshell.env("OMAVLESS_SETUP_REVIEW_ENTRY")
         onLoaded: {
-          item.closeRequested.connect(function() { window.visible = false; review.result = "closed" })
+          if (item.closeRequested) item.closeRequested.connect(function() { window.visible = false; review.result = "closed" })
           review.result = "loaded"
         }
       }
@@ -40,11 +41,20 @@ ShellRoot {
   }
   IpcHandler {
     target: "setupReview"
-    function scenario(locale: string, state: string, terminal: bool): string {
+    function surface(kind: string): string {
+      if (["panel", "card"].indexOf(kind) < 0) return "refused"
+      var entry = Quickshell.env("OMAVLESS_SETUP_REVIEW_ENTRY")
+      loader.source = kind === "panel" ? entry : entry.replace(/SetupPage.qml$/, "RequiredComponents.qml")
+      return "loading"
+    }
+    function scenario(locale: string, state: string, core: string, terminal: bool): string {
+      // Do not race the panel's initial real read-only inventory process.
+      if (loader.item && loader.item.busy) return "busy"
       if (!loader.item || ["en", "ru"].indexOf(locale) < 0
-          || ["checking", "ready", "needs_package", "needs_activation", "needs_attention", "release_unavailable"].indexOf(state) < 0) return "refused"
+          || ["checking", "ready", "needs_package", "needs_activation", "needs_attention", "release_unavailable"].indexOf(state) < 0
+          || ["present", "missing", "unknown"].indexOf(core) < 0) return "refused"
       loader.item.locale = locale
-      loader.item.state = state
+      loader.item.facts = {state:state, coreInstalled:core === "unknown" ? null : core === "present"}
       loader.item.terminalOpened = terminal
       flick.contentY = 0
       window.visible = true
@@ -52,7 +62,7 @@ ShellRoot {
     }
     function inspect(): string {
       if (!loader.item) return "loading"
-      return JSON.stringify({state:loader.item.state, height:loader.item.implicitHeight,
+      return JSON.stringify({state:loader.item.facts.state, visible:loader.item.visible, height:loader.item.implicitHeight,
         controls:loader.item.focusTargets.map(function(b) { return {text:b.text, visible:b.visible, enabled:b.enabled} })})
     }
     function capture(slug: string): string {
@@ -66,7 +76,15 @@ ShellRoot {
       flick.contentY = where === "top" ? 0 : Math.max(0, flick.contentHeight - flick.height)
       return "ready"
     }
-    function later(): string { loader.item.focusTargets[4].clicked(); return review.result }
+    function viewport(height: int): string {
+      if ([320, 576].indexOf(height) < 0) return "refused"
+      review.viewportHeight = height
+      return "ready"
+    }
+    function later(): string {
+      if (!loader.item.closeRequested) return "refused"
+      loader.item.focusTargets[loader.item.focusTargets.length-1].clicked(); return review.result
+    }
     function result(): string { return review.result }
     function finish() { Qt.quit() }
   }

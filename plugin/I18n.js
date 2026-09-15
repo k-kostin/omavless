@@ -7,6 +7,16 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "setup.components": {"en":"REQUIRED COMPONENTS","ru":"НЕОБХОДИМЫЕ КОМПОНЕНТЫ"},
+  "setup.app_missing": {"en":"OmaVLESS application — not installed","ru":"Приложение OmaVLESS — не установлено"},
+  "setup.core_missing": {"en":"Mihomo VPN core — not installed","ru":"VPN-ядро Mihomo — не установлено"},
+  "setup.install_all": {"en":"Install required components","ru":"Установить необходимые компоненты"},
+  "setup.install_app": {"en":"Install OmaVLESS","ru":"Установить OmaVLESS"},
+  "setup.install_core": {"en":"Install Mihomo","ru":"Установить Mihomo"},
+  "setup.prepare_title": {"en":"COMPLETE SETUP","ru":"ЗАВЕРШИТЕ НАСТРОЙКУ"},
+  "setup.guide_short": {"en":"Setup help","ru":"Помощь"},
+  "setup.panel_unavailable": {"en":"Finish application setup to manage your VPN. You can return to this panel later.","ru":"Завершите настройку приложения для управления VPN. В эту панель можно вернуться позже."},
+  "setup.profiles_unavailable": {"en":"Profiles are unavailable until the application is ready. Existing data is not changed.","ru":"Профили недоступны, пока приложение не готово. Существующие данные не изменяются."},
   "setup.title": {"en":"Set up your VPN application","ru":"Подготовьте VPN-приложение"},
   "setup.checking": {"en":"Checking the application…","ru":"Проверка приложения…"},
   "setup.ready": {"en":"Application ready","ru":"Приложение готово"},
