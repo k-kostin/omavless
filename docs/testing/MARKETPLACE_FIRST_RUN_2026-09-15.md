@@ -1,5 +1,17 @@
 # Marketplace first-run setup checkpoint
 
+## Installation instruction clarification
+
+The September 15 documentation follow-up distinguishes first installation,
+installed-but-unactivated, already-native update, postponed setup and reopening
+after Quit. It separates Set up later from the wizard's persisted Finish later,
+and initial consent cancellation from failure after partial installation effects.
+The user guide now accepts an explicit dual-source frontend/package pairing
+record, not an assumed equal SHA or a version-only match. These are documentation
+clarifications against existing `SetupPage`, `RequiredComponents`,
+`setup-runtime.sh` and onboarding handlers; no runtime/UI/helper code changed.
+The actual public provisioning gate below remains NOT RUN.
+
 ## Owner-directed component-block refinement
 
 The initial full setup page at `2aa5ba060c5149cbd143740446c70139f128d952`
