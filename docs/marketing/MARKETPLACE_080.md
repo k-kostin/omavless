@@ -55,6 +55,16 @@ The fixture transport replaces only process responses; no profile or subscriptio
 is persisted. The actual installed service is not accessed by the test instance.
 See [reproduction and limits](../../tests/marketplace-visual/README.md).
 
+Owner-requested naming revision: visible labels use ordinary country/city names
+(Netherlands · Amsterdam, Germany · Frankfurt, Finland · Helsinki,
+Sweden · Stockholm, France · Paris) and “My servers”, without a “Demo” prefix.
+These are invented display labels, not actual provider locations or a claim of
+live connectivity. Internal fixture IDs and the disconnected state are unchanged.
+The affected main/expanded views are recaptured from QML, not image-retouched.
+Both revised captures were inspected at native size: country/city labels fit
+without clipping or shifting Connect controls. Fixture/parser/refusal tests and
+QML contracts pass. Settings is unchanged because it contains no profile names.
+
 - [Main panel](images/main-en.png): mode choices, row Connect actions,
   subscription refresh and separate management dock.
 - [Expanded subscription](images/subscription-en.png): demo child profiles and

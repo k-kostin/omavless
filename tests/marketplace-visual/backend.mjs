@@ -12,12 +12,12 @@ export function response(command) {
     case 'status': return envelope({
       schemaVersion:1, scope:'private_ui_metadata', instanceId, transition:null,
       desired, lastKnownActual:'disconnected', healthFresh:false, liveHealth:'unavailable',
-      profiles:[profile('demo-personal','Demo Personal', '', true),
-        profile('demo-backup','Demo Backup'),
-        profile('demo-nl','Demo Netherlands','demo-subscription'),
-        profile('demo-de','Demo Germany','demo-subscription'),
-        profile('demo-fr','Demo France','demo-subscription')],
-      subscriptions:[{id:'demo-subscription', name:'Demo Subscription', updatedAt:0, profileCount:3, staleCount:0}],
+      profiles:[profile('demo-personal','Netherlands · Amsterdam', '', true),
+        profile('demo-backup','Germany · Frankfurt'),
+        profile('demo-nl','Finland · Helsinki','demo-subscription'),
+        profile('demo-de','Sweden · Stockholm','demo-subscription'),
+        profile('demo-fr','France · Paris','demo-subscription')],
+      subscriptions:[{id:'demo-subscription', name:'My servers', updatedAt:0, profileCount:3, staleCount:0}],
       lastProfileId:'', startup:{configured:true, enabled:false, target:'last', profileId:'', mode:'rule'},
       onboardingComplete:true, routing:{storedPreset:'roscomvpn-default', customRuleCount:0}
     });

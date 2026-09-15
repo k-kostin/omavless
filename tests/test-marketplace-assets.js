@@ -20,8 +20,11 @@ const root = path.join(__dirname, '..');
   assert.equal(projected.connected, false);
   assert.equal(projected.activeId, '');
   assert.equal(projected.profiles.length, 5);
-  assert(snapshot.profiles.every(p => p.name.startsWith('Demo ') && p.id.startsWith('demo-')));
-  assert(snapshot.subscriptions.every(s => s.name.startsWith('Demo ') && s.id.startsWith('demo-')));
+  assert.deepEqual(Array.from(snapshot.profiles, p => p.name), [
+    'Netherlands · Amsterdam', 'Germany · Frankfurt', 'Finland · Helsinki',
+    'Sweden · Stockholm', 'France · Paris']);
+  assert(snapshot.profiles.every(p => p.id.startsWith('demo-') && !/demo/i.test(p.name)));
+  assert(snapshot.subscriptions.every(s => s.name === 'My servers' && s.id.startsWith('demo-')));
   assert.equal(snapshot.startup.enabled, false);
   assert(parser.desktopCapabilities(JSON.stringify(response('native-desktop-capabilities'))));
   assert(parser.parseCoreSetupFacts(JSON.stringify(response('native-core-readiness'))));
