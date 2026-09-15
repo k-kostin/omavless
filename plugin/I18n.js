@@ -7,6 +7,21 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "setup.title": {"en":"Set up your VPN application","ru":"Подготовьте VPN-приложение"},
+  "setup.checking": {"en":"Checking the application…","ru":"Проверка приложения…"},
+  "setup.ready": {"en":"Application ready","ru":"Приложение готово"},
+  "setup.needs_package": {"en":"The panel is installed. Install the OmaVLESS application to continue.","ru":"Панель установлена. Для продолжения установите приложение OmaVLESS."},
+  "setup.needs_activation": {"en":"The application is installed. Complete its initial setup to continue.","ru":"Приложение установлено. Завершите его первоначальную настройку."},
+  "setup.needs_attention": {"en":"Application setup needs attention. Check the setup guide; existing data will not be reset.","ru":"Настройка приложения требует внимания. Откройте руководство; существующие данные не будут сброшены."},
+  "setup.release_unavailable": {"en":"The application package for this platform has not been published for this plugin version. Installation is unavailable until the release is ready.","ru":"Пакет приложения для этой платформы ещё не опубликован для данной версии плагина. Установка станет доступна после подготовки релиза."},
+  "setup.explanation": {"en":"Setup opens a terminal for your confirmation, installs the matching application and prepares its service. No VPN connection starts automatically. Your profiles are preserved.","ru":"Настройка откроет терминал для подтверждения, установит подходящее приложение и подготовит службу. VPN автоматически не подключится. Ваши профили сохраняются."},
+  "setup.terminal": {"en":"Finish or cancel setup and all authorization prompts in the terminal, then check again. Before retrying, confirm below that the terminal is closed.","ru":"Завершите или отмените настройку и все запросы авторизации в терминале, затем проверьте снова. Перед повтором подтвердите ниже, что терминал закрыт."},
+  "setup.terminal_closed": {"en":"Setup terminal and prompts are closed","ru":"Терминал установки и запросы закрыты"},
+  "setup.install": {"en":"Install and set up OmaVLESS","ru":"Установить и настроить OmaVLESS"},
+  "setup.prepare": {"en":"Finish application setup","ru":"Завершить настройку приложения"},
+  "setup.check": {"en":"Check again","ru":"Проверить снова"},
+  "setup.guide": {"en":"Setup guide","ru":"Руководство по установке"},
+  "setup.later": {"en":"Set up later","ru":"Настроить позже"},
   "native.probe.dns_failed": {"en":"DNS failed","ru":"Ошибка DNS"},
   "native.batch.subscriptions": {"en":"Subscription update","ru":"Обновление подписок"},
   "subscriptions.refresh_servers": {"en":"Update server list","ru":"Обновить список серверов"},

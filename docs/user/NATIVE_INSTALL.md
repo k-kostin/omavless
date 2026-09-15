@@ -7,6 +7,49 @@ does not establish a public release. The published 0.7.0
 marketplace snapshot remains unchanged. Ordinary `omarchy plugin add` does not
 install the native package or transfer ownership to Rust.
 
+## Guided first run — release preparation
+
+The frontend now has an independent first-run page that works **without** the
+native application. Adding/enabling the plugin opens this page when native
+ownership is not ready; it does not execute an installer automatically.
+Choose **Install and set up OmaVLESS** to open a terminal and confirm the
+installation. The intended published-release path is:
+
+1. Add the plugin through Omarchy's normal marketplace command.
+2. Open the plugin and start guided setup. Type `INSTALL` in its terminal.
+3. The helper downloads the version/architecture-specific OmaVLESS package
+   pinned by SHA-256 in the reviewed frontend. No Rust/Cargo build is performed.
+   If the package dependency Mihomo is absent, a separate `CORE` confirmation
+   offers the documented `omarchy pkg aur add mihomo-bin` route. This uses the
+   AUR, not the official Arch repositories; normal host authorization remains.
+   A preinstalled package providing `mihomo` is respected.
+4. Normal `sudo pacman -U` installs the application. Setup prepares a new empty
+   private store **only when absent**, validates existing data, uses canonical
+   native activation and enables the disconnected user service for future logins.
+5. Return to the panel and choose **Check again**. The existing onboarding then
+   covers core/TUN readiness, routing, helpers and profile import. Setup does not
+   grant TUN capabilities, connect a VPN or silently install optional helpers.
+
+**Not published yet:** `plugin/runtime-release.json` deliberately has no package
+pins while final release artifacts are unpublished. A machine without the
+application sees a clear unavailable-release message and guide, not a working
+Install button. The complete download/install/activation path is a release gate,
+not established by the existing installed-candidate acceptance. Publishing and
+pinning accepted artifacts requires the owner's separate approval.
+
+Set up later closes the panel without saving a false completion. After starting
+setup, finish/cancel it and all authorization dialogs in its terminal. Checking
+status never repeats installation. Before deliberately retrying, confirm
+**Setup terminal and prompts are closed**; never do this while an authorization
+is unresolved. A lock from a killed installer is not cleared automatically.
+Existing active legacy owners, unsafe stores and interrupted migrations require
+the recovery guidance below; this page does not force migration or reset data.
+
+An already activated native installation bypasses provisioning. Updating it
+still uses the reviewed disconnected package-update procedure, not this
+first-install helper. The manual candidate path below remains available before
+public artifacts exist.
+
 The native runtime/CLI does not require Python, pip, a virtual environment or
 Cargo at runtime. Its Omarchy frontend is still QML. The old Python backend is
 preserved separately in a frozen historical archive; remaining Python files in
@@ -154,11 +197,11 @@ enabled state on update, and omits installed `backend.py` and the legacy
 unknown ownership refuses installation before replacing the existing frontend.
 It never starts Python, activates ownership, or downloads/builds a package.
 
-Omarchy's clone-based `plugin add`/`plugin update` does not run this installer or
-install the package. Do not point an unmigrated legacy installation at main:
-complete the package/ownership steps first. If the package is absent or ownership
-is not Rust, the source launcher refuses every action without changing private
-state; adding the plugin alone cannot make the native runtime available.
+Omarchy's clone-based `plugin add`/`plugin update` does not run `install.sh` or
+install the package. The independent first-run page above supplies the explicit
+setup entry point. Until published package pins and fresh-install acceptance
+exist, use the manual candidate path. The backend launcher still refuses absent,
+legacy or unknown native ownership; the setup page does not bypass that guard.
 
 To explicitly enable the runtime for future user sessions after activation:
 

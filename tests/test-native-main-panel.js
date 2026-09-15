@@ -340,6 +340,7 @@ test('native Settings Tab order follows visual action order without hidden Test'
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
   const names=Array.from(new Set(source.slice(from,to).match(/\bnative[A-Z]\w*/g)));
   const c=vm.createContext({page:'settings',vless:{nativeOwner:true},showMainConnectionTest:false,showMainLatencySection:false});
+  c.root=c;c.bootstrapRequired=false;
   for(const name of names)c[name]={focusTarget:name,count:0};
   c.nativeSupportSetting.exportFocusTarget='nativeSupportSave';
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';

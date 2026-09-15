@@ -448,7 +448,7 @@ if command -v qmllint >/dev/null 2>&1; then
   qmllint "$sparkline"
 fi
 
-grep -Fq 'var flick = page === "diagnostics" ? advancedDiagnosticsPage.flickable : vless.nativeOwner ? nativeFlick' "$panel"
+grep -Fq 'var flick = root.bootstrapRequired ? setupFlick : page === "diagnostics" ? advancedDiagnosticsPage.flickable : vless.nativeOwner ? nativeFlick' "$panel"
 grep -Fq 'return vless.startNativeImport("file") ? "ok" : "error: native import unavailable"' "$panel"
 grep -Fq 'if (vless.nativeOwner) return vless.startNativeImport("clipboard") ? "ok" : "error: native import unavailable"' "$panel"
 
