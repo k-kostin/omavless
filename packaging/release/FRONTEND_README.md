@@ -2,12 +2,16 @@
 
 This is an **unpublished candidate**, not a marketplace update. It contains the
 Omarchy QML frontend for the matching Rust package; Python is not included.
-Use the accompanying `release-candidate.json` and `SHA256SUMS` to verify the
-pair's source commit, version, architecture and archive integrity. Checksums
+Use the accompanying `release-candidate.json` (single-source build) or
+`frontend-pair.json` (reviewed unchanged runtime, newer frontend), together with
+`SHA256SUMS`, to verify source identities, version, architecture and archive integrity. Checksums
 detect a changed download; they are not signatures or independent trust proof.
 
 This QML frontend is common to ARM64 and x86_64. Install the native package
-for your architecture from the same reviewed source/version. A `0.8.0` version
+for your architecture from the recorded reviewed runtime source/version. A paired
+frontend can have a newer source commit only when the pairing record verifies
+unchanged runtime/build/package inputs; a matching version alone is insufficient.
+A `0.8.0` version
 label alone does not mean this candidate has been published or accepted on both.
 
 ## Installation

@@ -64,6 +64,54 @@ Do not present unsigned checksums as authenticity or cross-architecture proof.
 Python is required only by this developer assembly tool and reference tests,
 never by either delivered artifact. No new crate or runtime dependency is added.
 
+## Reuse a reviewed package with a newer frontend
+
+A frontend-only correction or bootstrap checksum pin need not rebuild the already
+accepted native package. In particular, a package's hash cannot be embedded in
+the same source commit that the package identifies: finalize the package first,
+then commit its pins in the newer frontend. Keep **both** source identities.
+The single-source assembler above retains its original strict checks.
+
+On the package's architecture, use a clean descendant checkout and an empty,
+current-user-owned absolute directory outside the checkout, under non-writable
+by-others parents (for example a private build-artifacts directory, not `/tmp`):
+
+```sh
+python3 packaging/release/pair-frontend.py /absolute/empty-output /absolute/reviewed/omavless-0.8.0-1-ARCH.pkg.tar.zst FULL_FRONTEND_COMMIT_SHA REVIEWED_PACKAGE_SHA256
+```
+
+This offline developer tool:
+
+- verifies the supplied archive hash before parsing, then reuses the existing
+  bounded package inspector for ownership, paths, payload, architecture, version,
+  embedded ELF hash and source identity;
+- compares committed Git paths, modes and blob IDs between package source and
+  frontend source, requiring ancestry and exact equality outside an explicit
+  frontend/documentation/test/release-tool allowlist;
+- protects all crates, Cargo/toolchain/build configuration, templates, systemd
+  units, Arch packaging, licenses/notices and unknown new paths;
+- checks populated `plugin/runtime-release.json` pins against this exact
+  architecture/package/source; absent or empty pins are recorded as **not ready**
+  for guided public installation, not fabricated;
+- copies the original package bytes and creates the committed native-only
+  frontend archive; neither artifact contains this developer Python tool;
+- writes `frontend-pair.json` and `SHA256SUMS`, retaining runtime and frontend
+  source commits, input-tree digest, ELF/archive hashes and unpublished status.
+
+Review the allowlist when build inputs change. This is not a general compatibility
+detector: API/runtime changes require a new build and their affected acceptance.
+Original build provenance and host evidence remain required; checksums are not
+signatures. Input equivalence does not prove frontend correctness, release asset
+availability, guided download/install/activation or another architecture's behavior.
+Use trusted local artifacts in private directories, not an adversarial same-user
+workspace. A failure may leave partial files in the new output directory; no
+existing archive is overwritten or cleaned up automatically.
+
+The tool never builds, executes the ELF, installs packages, accesses the private
+store, controls services, downloads, creates tags, uploads or publishes. Actual
+published pins, clean guided E2E and owner release/marketplace approval remain
+separate gates even when offline pairing succeeds.
+
 ## Release gates and deliberate stop
 
 ### Explicit stable assembly (offline preparation only)
