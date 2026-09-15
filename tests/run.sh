@@ -7,6 +7,7 @@ python3 -m unittest -v \
   "$here/test_backend_launcher.py" \
   "$here/test_native_launcher_no_python.py" \
   "$here/test_install_picker_policy.py" \
+  "$here/test_marketplace_setup.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
@@ -29,6 +30,7 @@ python3 -m unittest -v \
   "$here/test_vless_canonical_parity.py"
 if command -v node >/dev/null 2>&1; then
   node "$here/test-i18n.js"
+  node "$here/test-marketplace-setup.js"
   node "$here/test-panel-search.js"
   node "$here/test-native-snapshot.js"
   node "$here/test-native-actions.js"

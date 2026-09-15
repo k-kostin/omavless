@@ -81,6 +81,15 @@ Do not merge those obsolete Draft implementations over the integrated result.
 
 ## What users install
 
+**Additional release gate, 2026-09-15:** installed-candidate R6/ARM64 acceptance
+did not cover a fresh marketplace clone with no `/usr/bin/omavless`. The new
+[first-run setup checkpoint](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+adds a runtime-independent setup page and explicit terminal provisioning.
+Published architecture-specific package pins and real clean download → package
+install → activation → onboarding acceptance remain required. Do not tell a new
+agent that only the final x86_64 runtime smoke remains. This does not reopen the
+unchanged R6 migration or publish the marketplace snapshot.
+
 The immutable published marketplace 0.7.0 snapshot remains
 `69fe05b03129a23664fff3f8289821a7b7f80095`.
 Neither a main merge nor the presence of Rust sources installs a native binary,
@@ -101,7 +110,7 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
+2. Close the fresh-marketplace gate above, then follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
    retain completed ARM64 final artifact/version preparation, run the owner's final
    x86_64 Omarchy pass, then obtain publication approval. Offline stable
    assembly is distinct from changing the current RC version or publishing.
