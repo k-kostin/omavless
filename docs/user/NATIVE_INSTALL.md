@@ -9,14 +9,33 @@ install the native package or transfer ownership to Rust.
 
 ## Guided first run — release preparation
 
-The frontend now has an independent first-run page that works **without** the
-native application. Adding/enabling the plugin opens this page when native
-ownership is not ready; it does not execute an installer automatically.
-Choose **Install and set up OmaVLESS** to open a terminal and confirm the
-installation. The intended published-release path is:
+The frontend has a panel shell that works **without** the native application.
+It shows the **Required components** block below the unavailable Profiles area,
+instead of trapping the user in a setup wizard. Adding/enabling or reopening
+the plugin never executes an installer automatically. Missing components stay
+visible even when onboarding is deferred:
+
+- Missing OmaVLESS and Mihomo: both rows and one **Install required components**
+  action, installing dependencies sequentially in one terminal.
+- Missing only OmaVLESS: **Install OmaVLESS**, preserving a compatible packaged core.
+- Missing only Mihomo with an activated app: **Install Mihomo** below the real
+  profile list. The app/store/service are not reinstalled or activated again.
+- Both installed: the missing-components block disappears. An unactivated app
+  instead gets a separate **Complete setup** block, not an install offer.
+- Failed/unknown discovery: guidance and recheck, never an invented missing
+  program or a successful setup claim.
+
+Component presence does not certify permissions, TUN, DNS or live connection
+health. Core setup in the normal onboarding/Settings remains responsible for
+those distinctions. Picker/editor/QR/clipboard tools remain optional helpers.
+When the core is known to be absent, Connect is disabled; Disconnect is not.
+
+The appropriate install button opens a terminal for explicit confirmation.
+The intended published-release path is:
 
 1. Add the plugin through Omarchy's normal marketplace command.
-2. Open the plugin and start guided setup. Type `INSTALL` in its terminal.
+2. Open the plugin and use the required-components action. For application
+   setup, type `INSTALL` in its terminal; core-only setup asks for `CORE`.
 3. The helper downloads the version/architecture-specific OmaVLESS package
    pinned by SHA-256 in the reviewed frontend. No Rust/Cargo build is performed.
    If the package dependency Mihomo is absent, a separate `CORE` confirmation
@@ -37,7 +56,8 @@ Install button. The complete download/install/activation path is a release gate,
 not established by the existing installed-candidate acceptance. Publishing and
 pinning accepted artifacts requires the owner's separate approval.
 
-Set up later closes the panel without saving a false completion. After starting
+Set up later closes the panel without saving a false completion or hiding the
+required-components reminder on reopen. After starting
 setup, finish/cancel it and all authorization dialogs in its terminal. Checking
 status never repeats installation. Before deliberately retrying, confirm
 **Setup terminal and prompts are closed**; never do this while an authorization

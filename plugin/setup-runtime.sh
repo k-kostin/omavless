@@ -16,6 +16,16 @@ package_info() { /usr/bin/pacman -Qp -- "$1" 2>/dev/null; }
 package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1"; }
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
 core_dependency_present() { /usr/bin/pacman -T mihomo >/dev/null 2>&1; }
+core_binary_present() {
+  local core
+  core=$(command -v mihomo) || return 1
+  [[ -f "$core" && -x "$core" ]]
+}
+no_core_process() {
+  local code=0
+  pgrep -x mihomo >/dev/null 2>&1 || code=$?
+  [[ $code == 1 ]]
+}
 install_core_dependency() { omarchy pkg aur add mihomo-bin; }
 reload_units() { /usr/bin/systemctl --user daemon-reload; }
 enable_runtime() { /usr/bin/systemctl --user enable omavless-runtime.service >/dev/null 2>&1; }
@@ -55,6 +65,27 @@ setup_status() {
   fi
 }
 
+# Two fixed fields, no paths, versions, native snapshots or health claims.
+setup_components() {
+  local state core=missing
+  state=$(setup_status)
+  if core_binary_present; then core=present; fi
+  printf '%s\t%s\n' "$state" "$core"
+}
+
+ensure_core_dependency() {
+  if core_dependency_present && core_binary_present; then return 0; fi
+  no_core_process || return 1
+  local answer
+  say 'Mihomo is required. Install mihomo-bin using “omarchy pkg aur add mihomo-bin”? This uses the AUR. Type CORE to accept, Enter to cancel.' \
+      'Требуется Mihomo. Установить mihomo-bin командой «omarchy pkg aur add mihomo-bin»? Используется AUR. Введите CORE для согласия или Enter для отмены.'
+  IFS= read -r answer || return 1
+  [[ "$answer" == CORE ]] || return 1
+  no_core_process || return 1
+  install_core_dependency || return 1
+  core_dependency_present && core_binary_present
+}
+
 confirm() {
   local answer
   say 'Type INSTALL to continue, or press Enter to cancel:' 'Введите INSTALL для продолжения или Enter для отмены:'
@@ -81,15 +112,7 @@ install_package() {
   # Respect an existing provider of the virtual 'mihomo' dependency. The
   # documented Omarchy AUR route is explicit, separate consent, not a hidden
   # download/build of our runtime. Its normal host authentication stays visible.
-  if ! core_dependency_present; then
-    local answer
-    say 'Mihomo is required. Install mihomo-bin using “omarchy pkg aur add mihomo-bin”? This uses the AUR. Type CORE to accept, Enter to cancel.' \
-        'Требуется Mihomo. Установить mihomo-bin командой «omarchy pkg aur add mihomo-bin»? Используется AUR. Введите CORE для согласия или Enter для отмены.'
-    IFS= read -r answer || return 1
-    [[ "$answer" == CORE ]] || return 1
-    install_core_dependency || return 1
-    core_dependency_present || return 1
-  fi
+  ensure_core_dependency || return 1
   # Normal dependency and user confirmation checks. No --nodeps/--overwrite,
   # --noconfirm, package hooks added by this script, or background sudo.
   native_present && return 1
@@ -122,27 +145,34 @@ setup_main() {
   case "${2:-en}" in en|ru) setup_locale=${2:-en} ;; *) return 2 ;; esac
   case "$1" in
     status) [[ $# == 1 ]] || return 2; setup_status; return ;;
-    install) ;;
+    components) [[ $# == 1 ]] || return 2; setup_components; return ;;
+    install|install-core) ;;
     *) return 2 ;;
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
   [[ ! ${OMAVLESS_HOME+x} ]] || return 2
   local state
   state=$(setup_status)
-  if [[ "$state" == ready ]]; then
+  if [[ "$1" == install && "$state" == ready ]]; then
     say 'OmaVLESS is already prepared. No changes made.' 'OmaVLESS уже настроен. Ничего не изменено.'
     return
   fi
-  if [[ "$state" != needs_package && "$state" != needs_activation ]]; then
+  if [[ "$1" == install-core && "$state" != ready && "$state" != needs_activation ]] \
+      || [[ "$1" == install && "$state" != needs_package && "$state" != needs_activation ]]; then
     say 'Setup is unavailable. No changes made. Check the setup guide.' 'Установка недоступна. Ничего не изменено. Откройте руководство.'
     return 1
   fi
-  say 'Set up OmaVLESS' 'Настройка OmaVLESS'
-  say 'Install the matching application if missing, prepare private settings and its user service. No VPN connection will be started.' \
+  if [[ "$1" == install-core ]]; then
+    say 'Install the missing Mihomo core only. Application settings, service and VPN will not be changed.' \
+        'Установить только недостающее ядро Mihomo. Настройки приложения, служба и VPN не изменятся.'
+  else
+    say 'Set up OmaVLESS' 'Настройка OmaVLESS'
+    say 'Install the matching application if missing, prepare private settings and its user service. No VPN connection will be started.' \
       'Установить недостающее приложение, подготовить приватные настройки и пользовательскую службу. VPN подключаться не будет.'
-  say 'Existing profiles are preserved. Existing VPN/startup must be off before migration. Passwords go only to sudo, not this prompt.' \
+    say 'Existing profiles are preserved. Existing VPN/startup must be off before migration. Passwords go only to sudo, not this prompt.' \
       'Существующие профили сохраняются. Перед переносом отключите VPN и автоподключение. Пароль вводите только в sudo, не здесь.'
-  confirm || { say 'Cancelled. No changes made.' 'Отменено. Ничего не изменено.'; return; }
+    confirm || { say 'Cancelled. No changes made.' 'Отменено. Ничего не изменено.'; return; }
+  fi
   # One transaction per user runtime directory. A stale lock after a killed
   # terminal is deliberately not removed automatically on the next attempt.
   local runtime=${XDG_RUNTIME_DIR:-} setup_lock setup_temp
@@ -157,6 +187,12 @@ setup_main() {
     # Recheck after consent and the lock. Never replace a package that appeared
     # while the user was reading the prompt, or activate a now-unknown owner.
     [[ $(setup_status) == "$state" ]] || exit 1
+    if [[ "$1" == install-core ]]; then
+      ensure_core_dependency || exit 1
+      say 'Mihomo is installed. Return to the panel and check again. TUN permission readiness is checked separately.' \
+          'Mihomo установлен. Вернитесь в панель и проверьте снова. Готовность разрешений TUN проверяется отдельно.'
+      exit 0
+    fi
     if [[ "$state" == needs_package ]]; then
       install_package || exit 1
       reload_units || exit 1
@@ -173,7 +209,7 @@ setup_main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   result=0
   setup_main "$@" || result=$?
-  if [[ "${1:-}" == install && -t 0 ]]; then
+  if [[ ( "${1:-}" == install || "${1:-}" == install-core ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true
   fi

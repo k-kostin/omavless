@@ -23,6 +23,13 @@ function context(){
   return c;
 }
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('missing core blocks row/keyboard connect but never blocks disconnect',()=>{
+  const c=context();c.coreComponentMissing=true;
+  assert.equal(c.nativeActivateProfile('local'),false);assert.equal(c.nativeToggleConnection(),false);assert.equal(c.calls.length,0);
+  c.nativeView.connected=true;c.nativeView.activeId='local';c.nativeView.state='connected';
+  c.nativeActivateProfile('local');assert.deepEqual(c.calls.pop(),['disconnect','','']);
+  assert.equal(c.nativeActivateProfile('managed'),false);assert.equal(c.calls.length,0);
+});
 test('selection is not connection; explicit row action alone switches the target',()=>{
   const c=context();Object.assign(c.nativeView,{connected:true,state:'connected',activeId:'managed'});
   c.nativeSelectedProfile='local';assert.equal(presentation.activeProfile(c.nativeView).id,'managed');
