@@ -19,8 +19,23 @@ Actual archive pins now accompany the candidate frontend:
 - ARM64: `454662a76f106af5b2f4ee8ab3ef4626a1641981fd9e6baa0a2ca8d91dc7983d`.
 - x86_64: `57e4599bfeb90e063951a49295ae6154703a0739c3c1accc751b3f1fd4343568`.
 
-Release upload, anonymous download, real guided provisioning and the final PC
-gate must each be recorded when executed; populated pins alone are not PASS.
+The [0.8.0 release](https://github.com/k-kostin/omavless/releases/tag/v0.8.0)
+was published **as a prerelease, not latest**, on September 16 at 11:14:55 UTC.
+Both actual packages, the shared frontend, its pairing record, x86_64 build
+provenance and SHA256SUMS are attached. Anonymous HTTPS download of all six
+assets and all five checksum checks PASS. No GitHub token was used to download.
+
+Frontend source: `9411870c1c3dbf632426a895dfb6bd50c1e24dd5`.
+Frontend archive SHA-256:
+`e3838dc809383fc610d9f837c48e3b210fc9a82f6f3940b3fd90c8d4f42a4808`.
+Offline pairing reports unchanged runtime inputs and matching ARM64 pins;
+its unpublished/download flags describe assembly time, not the later download.
+The x86_64 archive retains independent build evidence from the run above.
+
+Exact frontend candidate checks: **275 Python total / 273 PASS / 2 SKIP**,
+JS/QML contracts PASS, and [CI PASS](https://github.com/k-kostin/omavless/actions/runs/35087890956).
+Package/source input equivalence does not prove guided activation or PC VPN use.
+Real guided provisioning and the final PC gate remain pending until recorded.
 The dated empty-pin findings below remain historical evidence, not the current
 metadata content. #249 remains Draft until its declared installation gates pass.
 

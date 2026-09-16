@@ -1,5 +1,10 @@
 # Omarchy PC: финальный пакет 0.8.0 и новый путь установки
 
+**Superseded September 16:** use
+[the ready-package PC gate](PC_080_RELEASE_GATE_2026-09-16.md).
+The historical plan below predates package publication and merges #250–253;
+do not rebuild Rust or assume empty pins from that older plan.
+
 Продолжи `k-kostin/omavless` на физическом x86-64 Omarchy PC: свежий Git →
 согласованный кандидат → сборка/установка → приёмка → сохранение результатов.
 Выполни все доступные безопасные шаги, не останавливайся после аудита или CI.
