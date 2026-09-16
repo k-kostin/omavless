@@ -11,6 +11,13 @@ subscription refresh, free/open source, no included VPN service. The README
 continues with everyday use and precise protocol limitations, not migration
 history or test counts as selling points.
 
+September 16 editorial pass keeps README product-facing: one short truthful
+unpublished-candidate notice and the installation guide replace the engineering
+release narrative. SHA identities, activation commands, architecture/pairing
+details and historical marketplace facts remain in the user/release/status
+documents; they are not deleted or promoted to release claims. No screenshot,
+runtime, protocol maturity or installation implementation changes in this pass.
+
 Do not advertise TUI, WireGuard/AmneziaWG/`vpn://`, kill switch or unaccepted
 login autoconnect. Advanced VLESS Encryption/REALITY PQ and advanced XHTTP
 combinations retain their experimental evidence limits alongside
