@@ -26,9 +26,11 @@ Trojan/Hysteria2/TUIC. Do not imply all provider combinations were live-tested.
 ## Installation copy — release gate
 
 PR #249 adds guided first-run provisioning and persistent missing-component
-cards. At this checkpoint its real package pins are empty. Current README
-therefore retains the truthful manual package-first instructions and marks the
-guided route as in validation, not generally available.
+cards. September 16: real ARM64/x86_64 pins are committed and the public
+`v0.8.0` prerelease assets pass anonymous-download checksum verification.
+README links the testing release without claiming stable or accepted guided
+installation. See the current first-run evidence and PC gate; the older
+empty-pin state is superseded, not an ongoing asset-publication blocker.
 
 After immutable packages/pins and clean end-to-end acceptance, replace that
 candidate warning with:
