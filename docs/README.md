@@ -12,8 +12,11 @@ are different installation paths; do not mix their recovery commands.
 
 ## Developing and reviewing
 
-Read [AGENTS.md](../AGENTS.md), the [delivery roadmap](../DEVELOPMENT_ROADMAP.md)
-and the [architecture/roadmap index](roadmap/README.md).
+Start with [CONTRIBUTING.md](../CONTRIBUTING.md) and the
+[development documentation map](development/README.md). Agents read
+[AGENTS.md](../AGENTS.md) and its required [detailed guide](development/AGENT_GUIDE.md).
+The [delivery roadmap](../DEVELOPMENT_ROADMAP.md) and
+[architecture/roadmap index](roadmap/README.md) retain their established paths.
 The [current delivery status](roadmap/CURRENT_STATUS.md) separates the accepted
 native application, published marketplace snapshot and remaining follow-ups.
 Native release assembly and owner-controlled publication gates are described
