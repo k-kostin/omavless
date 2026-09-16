@@ -598,6 +598,7 @@ Panel {
 
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
+    if (vless.nativeStatusRefreshing) return
     if (nativeOnboardingPresetPending !== "" && !vless.nativePending) {
       if (onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         onboardingWizard.step = 3
@@ -1516,6 +1517,7 @@ Panel {
       root.syncNativeOnboarding()
     }
     function onNativePendingChanged() { root.syncNativeOnboarding() }
+    function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
         onboardingWizard.dismiss()

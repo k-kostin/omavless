@@ -39,6 +39,55 @@ Real guided provisioning and the final PC gate remain pending until recorded.
 The dated empty-pin findings below remain historical evidence, not the current
 metadata content. #249 remains Draft until its declared installation gates pass.
 
+## Actual ARM64 provisioning, September 16
+
+Starting state: native 0.8.0 installed, startup Off, observed disconnected,
+manualRecoveryRequired=false, Mihomo/TUN/auxiliary counts 0/0/0. Original
+frontend and complete private directories were retained outside Git. A real
+terminal guarded Stop and normal `pacman -R omavless` with human ready/settled
+barriers; no dependency bypass. The existing Mihomo package was retained.
+Private config/state were moved aside under the existing migration lock, not
+edited or replaced with fabricated ownership markers.
+
+Actual `omarchy plugin add` cloned the repository. Because #249 is not yet main,
+the disabled clone was checked out at exact frontend `9411870c...` before
+enabling. A shell-only restart cleared the old same-path QML cache; no core was
+started for UI refresh. This is real candidate provisioning, with that explicit
+checkout substitution, **not yet the unchanged default-main one-command path**.
+
+- Required components showed only the absent OmaVLESS application; the existing
+  Mihomo core was not offered for reinstallation. Installed screenshot reviewed.
+- Set up later closed the panel; reopen preserved the missing-component facts.
+- Actual Install opened the normal terminal. Owner confirmed cancellation before
+  INSTALL with `Cancelled. No changes made`; the app remained absent. The UI
+  required acknowledging terminal closure before permitting the next attempt.
+- Second actual UI install downloaded the pinned public ARM64 archive, passed
+  SHA-256 and normal package checks, installed 0.8.0-1 and performed canonical
+  initialize/activate. No manual activation command or store repair was needed.
+- Runtime enabled/active; installed ELF
+  `12afa0a6ae279d23f1b89426d47fdd478e0ef1987f171a92924b9c925f6f0458`;
+  observed disconnected, recovery=false, zero Mihomo/TUN/auxiliaries;
+  zero profiles/subscriptions, startup configured/Off. No VPN auto-connect.
+- Required components disappeared. All three real onboarding steps rendered;
+  optional routing/import were skipped. Finish later persisted
+  onboardingComplete=true. Normal settled reopen showed the empty main panel.
+
+Fast-reopen finding: reopening before the post-completion status read settled
+could reopen the wizard from cached onboardingComplete=false. The data was
+correct; the automatic QML prompt did not wait for fresh presentation metadata.
+The narrow correction defers automatic onboarding while status is refreshing,
+then reevaluates on read completion. Explicit Settings review is unchanged.
+Regression coverage includes stale incomplete → fresh complete, genuinely
+unfinished fresh data, failed reads and explicit completed-state review.
+Rust/package inputs and prior VPN evidence are unchanged. Corrected frontend
+installed review and final private-state restoration are recorded separately
+when complete. Published first frontend bytes are retained, not overwritten;
+a corrected versioned frontend asset is required before stable promotion.
+
+This gate does not test absent-Mihomo/AUR provisioning, physical x86_64 VPN,
+or cancellation during actual privileged package effects. Those remain distinct
+from the successful initial-consent cancellation and retained-core install.
+
 ## Installation instruction clarification
 
 The September 15 documentation follow-up distinguishes first installation,
