@@ -22,6 +22,25 @@ The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 
+### x86_64 build without a physical Omarchy PC
+
+The `Native x86_64 package` workflow builds accepted runtime source
+`b7fd0a99b8b169f0933e5f43ea4389642015193a` in an official, dated Arch Linux
+base-devel container on an x86_64 runner. Cargo uses the locked dependencies and
+pinned 1.98.0 toolchain. Compilation and the existing strict native packager run
+as an unprivileged disposable build user. It retains the package, build log,
+toolchain/source identity, ELF/payload inspection and checksums as CI artifacts.
+No release token, upload to Releases, installed service, TUN or private fixture
+is used. An actual CLI `--help` invocation proves loader execution, not VPN health.
+
+The workflow runs manually or for changes to its two build files. It does not
+replace the normal Test workflow or make x86_64 installed acceptance pass.
+Its exact path is excluded from runtime input comparison because it builds the
+explicit old source rather than changing the accepted package inputs; other
+unknown CI/build files still fail closed. The generated same-source frontend is
+not the final release frontend: pair the reviewed package with the later setup
+pin commit using the existing tool.
+
 On the matching Arch architecture, first run the normal gates and build the
 reviewed clean commit with the locked toolchain. For example:
 
