@@ -1,36 +1,36 @@
 # OmaVLESS
 
-A compact, terminal-style VPN control panel for the Omarchy bar, powered by
-[Mihomo](https://github.com/MetaCubeX/mihomo).
+OmaVLESS is a VPN app for Omarchy that puts everyday connection controls
+directly in the bar.
 
-Import profiles and subscriptions, choose a connection mode, and manage your
-VPN without leaving the desktop. English and Russian interfaces are available.
+Bring your own compatible VLESS profile or HTTPS subscription, choose
+**Full VPN**, **Routing** or **Direct**, and connect from the panel. Switch
+between profiles or disconnect without leaving the desktop; one VPN connection
+is active at a time.
 
-## Installation — native 0.8.0 candidate
+Expand subscriptions and refresh their server lists beside your profiles.
+Profile management, routing tools, English/Russian language settings and
+privacy-safe support reports stay close at hand in a compact, terminal-style
+interface.
 
-Current source is **0.8.0**, prepared for final acceptance but **not published**:
-the Rust application plus its QML frontend.
-Follow the [native installation guide](docs/user/NATIVE_INSTALL.md) to install
-the reviewed package, prepare or migrate your private store, activate once,
-then install the matching frontend. Python is not required at runtime.
+Free and open source. **OmaVLESS is not a VPN provider:** VPN servers, accounts
+and service subscriptions are not included.
 
-Installing or updating the plugin alone does **not** install the runtime package
-or migrate an existing Python owner. Source `./install.sh` is native-only and
-refuses an absent or unactivated package; there is no Python fallback. Existing
-marketplace users should follow the migration guide before updating to main.
+![OmaVLESS panel, disconnected, showing demonstration profiles and the three connection modes](docs/marketing/images/main-en.png)
 
-This version number is not a release announcement or marketplace update. The published marketplace
-snapshot remains 0.7.0; its legacy source/instructions are preserved separately.
-[Release preparation](packaging/release/README.md) does not publish release assets.
+*Native interface with demonstration data; no live connection is shown.*
 
-The QML plugin is shared across architectures. Only the native runtime package
-differs: `aarch64` for ARM64, `x86_64` for conventional Intel/AMD PCs. Use the
-package matching your system and the frontend from the same reviewed source.
+## Installation
 
-OmaVLESS needs Mihomo and TUN permissions. Desktop helpers provide clipboard,
-file selection, profile editing and QR functions. The installation guides
-explain the dependencies and explicit setup commands; OmaVLESS does not silently
-install packages or grant privileges.
+**The current source is an unpublished 0.8.0 candidate.** Installation currently
+requires the reviewed OmaVLESS application package; adding the plugin alone is
+not enough. Guided installation is not yet available for public use.
+
+Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
+including migration instructions if you already use the marketplace version.
+It covers the matching application package, Mihomo VPN core, TUN permissions
+and optional clipboard, file-picker and QR tools. Package installation and
+permission changes require your confirmation.
 
 ## Everyday use
 
@@ -50,10 +50,13 @@ list. Profile management stays in the separate action bar below the list.
 
 Settings contains language selection, routing tools, diagnostics, subscription
 management and shutdown controls. Changing the UI language does not restart
-the VPN. Login autoconnect is Off by default; the native candidate's optional
-Last/pinned fresh-login validation remains incomplete.
+the VPN. Automatic connection at login is Off by default; see the usage guide
+for its current limitations.
 
 See [controls and everyday use](docs/user/NATIVE_USAGE.md).
+
+[View the expanded subscription](docs/marketing/images/subscription-en.png)
+· [View Settings](docs/marketing/images/settings-en.png)
 
 ## Supported inputs
 
@@ -64,17 +67,15 @@ See [controls and everyday use](docs/user/NATIVE_USAGE.md).
 | Subscriptions | HTTPS raw/base64 lists of supported profile links |
 
 Advanced VLESS Encryption/REALITY PQ and XHTTP combinations retain their
-experimental evidence limits. WireGuard, AmneziaWG and `vpn://` are **not
-product-enabled**; parser work is not a claim of usable VPN support.
+experimental limitations. WireGuard, AmneziaWG and `vpn://` inputs are not
+currently supported by the application.
 
 See [protocol support and limitations](docs/user/PROTOCOLS.md).
 
 ## Privacy and help
 
-Profiles and subscription URLs stay in a private local store. Mihomo control
-uses a private Unix socket, not a TCP external controller. Imports accept
-bounded supported fields, not arbitrary provider-supplied YAML or executable
-configuration.
+Profiles and subscription URLs stay in a private local store. Imports accept
+supported profile links, not arbitrary remote configuration or executable content.
 
 For support, use **Copy report** or **Save report** in Settings. Do not post
 profile files, subscription URLs, private configuration or unredacted screenshots.
@@ -83,9 +84,6 @@ profile files, subscription URLs, private configuration or unredacted screenshot
 - [Security and privacy](docs/user/SECURITY.md)
 - [Native updates, Quit and removal](docs/user/NATIVE_INSTALL.md#updates-close-quit-and-removal)
 - [Release notes](CHANGELOG.md)
-
-The published [marketplace 0.7.0 snapshot](https://omarchyplugins.com/plugin.html?id=kdk.omavless)
-remains commit `69fe05b03129a23664fff3f8289821a7b7f80095`.
 
 ## Credits and license
 
@@ -96,4 +94,4 @@ The interface builds on [Omarchy VPN](https://github.com/jkoestinger/omarchy-vpn
 by Justin Köstinger. Routing data comes from RoscomVPN, MetaCubeX and
 Chocolate4U. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
-[MIT License](LICENSE).
+[MIT License](LICENSE) · [Contributing](docs/README.md#developing-and-reviewing).
