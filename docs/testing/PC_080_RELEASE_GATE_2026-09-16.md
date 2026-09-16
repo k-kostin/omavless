@@ -51,17 +51,31 @@ Release: <https://github.com/k-kostin/omavless/releases/tag/v0.8.0>.
 | Артефакт | SHA-256 |
 | --- | --- |
 | `omavless-0.8.0-1-x86_64.pkg.tar.zst` | `57e4599bfeb90e063951a49295ae6154703a0739c3c1accc751b3f1fd4343568` |
-| `omavless-0.8.0-frontend.tar.xz` | `e3838dc809383fc610d9f837c48e3b210fc9a82f6f3940b3fd90c8d4f42a4808` |
+| `omavless-0.8.0-frontend-r2.tar.xz` | `82088b4bb8682e8e2b9f9c9001e6f9ff3ad943b0268217930ab056dca26c3b8d` |
 
 Runtime source A: `b7fd0a99b8b169f0933e5f43ea4389642015193a`.
-Frontend source B: `9411870c1c3dbf632426a895dfb6bd50c1e24dd5`.
+Frontend source B: `99e842a66241c6d2f3b425f7d73c371d3a653850`.
 x86-64 ELF: `6b99a443c49dacb21d5f668cd33290aefce132cb0edcae7720617eb4f653edd1`.
 
 Скачивать в новую приватную папку вне Git по HTTPS release URLs, не `latest`.
 Проверить байты по этим хешам и SHA256SUMS. Checksums — не подпись третьей
-стороны. Сохранить `frontend-pair.json` и `x86_64-build-provenance.txt`.
+стороны. Для новых frontend-файлов — `SHA256SUMS.frontend-r2` и
+`frontend-pair-r2.json`; для неизменных пакетов — исходный `SHA256SUMS`.
+Сохранить также `x86_64-build-provenance.txt`. Первый frontend без `-r2` оставлен
+как исторический кандидат: не выбирать его вместо исправленной ревизии.
 Pair record инспектирует ARM-пакет и доказывает равенство runtime inputs A/B;
 x86-64 имеет собственную сборочную provenance. Не выдавать ARM-хеш за x86.
+
+Ревизия frontend-r2 исправляет найденную на VM гонку: после Finish later быстрое
+переоткрытие могло показать wizard по старому снимку, хотя native-флаг уже был
+сохранён. Автоматический wizard теперь ждёт завершения чтения status. 20 focused
+onboarding tests, полный локальный набор и CI прошли; установленный исправленный
+frontend проверен. Бинарники runtime и опубликованные package bytes не менялись.
+На ARM реально пройдены отсутствие приложения → UI install → публичное скачивание
+→ pacman → initialize/activate → onboarding, с уже установленным Mihomo. Отмена
+до INSTALL, reopen и восстановление исходных приватных данных также проверены.
+Дополнительный сценарий обоих отсутствующих компонентов — смотреть свежий
+first-run report, не угадывать его итог из этой передачи.
 
 ## Перед установкой
 
