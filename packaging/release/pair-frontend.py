@@ -31,7 +31,7 @@ inspection = module('pair_inspection', ROOT / 'tests/installed_native_package.py
 # These are NOT runtime/build/package inputs in the accepted tree. Fail closed
 # for every other path, including new root files, templates, .cargo, crates,
 # Cargo.lock, toolchain, systemd, Arch packaging and payload licenses/notices.
-FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'DEVELOPMENT_ROADMAP.md',
+FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'DEVELOPMENT_ROADMAP.md',
                             'manifest.json', 'preview.png', 'backend.sh', 'install.sh'))
 FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
 

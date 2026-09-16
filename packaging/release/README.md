@@ -100,6 +100,9 @@ This offline developer tool:
 
 Review the allowlist when build inputs change. This is not a general compatibility
 detector: API/runtime changes require a new build and their affected acceptance.
+The exact root documentation entry `CONTRIBUTING.md` is allowed alongside
+`AGENTS.md`; adding developer navigation must not invalidate an unchanged runtime
+package. This is not a wildcard for new root files: unknown paths still fail closed.
 Original build provenance and host evidence remain required; checksums are not
 signatures. Input equivalence does not prove frontend correctness, release asset
 availability, guided download/install/activation or another architecture's behavior.

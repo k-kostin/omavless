@@ -69,6 +69,7 @@ class FrontendPairTests(unittest.TestCase):
 
     def test_frontend_only_change_keeps_inputs(self):
         self.write('plugin/Panel.qml', 'new UI')
+        self.write('CONTRIBUTING.md', 'developer entry point, not a runtime input')
         self.write('docs/user/INSTALL.md', 'updated instructions')
         new = self.commit()
         self.assertRegex(PAIR.equivalent_inputs(self.repo, self.old, new), r'^[0-9a-f]{64}$')
