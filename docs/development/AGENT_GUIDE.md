@@ -1,0 +1,364 @@
+# Detailed OmaVLESS agent guide
+
+Root `AGENTS.md` is the discovery entry point; this guide retains the detailed
+mandatory instructions for every coding or testing agent working
+on OmaVLESS: browser/cloud agents, Codex Desktop on macOS, Codex CLI inside Try
+Omarchy, future standalone Arch/NixOS agents, and agents running on a bare-metal
+Omarchy PC.
+
+## Mandatory freshness and roadmap reading
+
+Before planning, implementing, gating or merging work:
+
+1. Refresh remote metadata first (`git fetch origin --prune` or the equivalent
+   through connected GitHub tooling).
+2. Compare local `main` and the current branch with their remote refs; do not
+   reason from a stale checkout.
+3. Read the current remote versions of:
+   - `DEVELOPMENT_ROADMAP.md`;
+   - `docs/roadmap/DEVELOPMENT_WORKFLOW.md`;
+   - `docs/roadmap/ACCEPTANCE_ENVIRONMENTS.md`;
+   - `docs/roadmap/RUST_MIGRATION.md` for any backend/runtime/protocol/TUI work;
+   - the relevant feature/protocol roadmap referenced by the delivery ledger.
+
+GitHub is the source of truth. Do not rely on private chat history, an earlier
+agent handoff or a stale checkout as the only record of a decision, test result,
+policy or useful implementation.
+
+## Selected implementation direction
+
+Rust is the selected long-term implementation language for the standalone
+OmaVLESS application runtime, domain/backend logic, semantic CLI and TUI.
+Python is the archived validated reference, not an alternative runtime.
+The [retirement sequence](../roadmap/LEGACY_RETIREMENT.md) removes its old
+implementation from main after native distribution/default-install acceptance;
+ordinary parity tests use independently recorded language-neutral fixtures.
+
+The required end state is:
+
+```text
+Omarchy frontend       QML / Quickshell
+Canonical runtime      Rust
+Domain/profile logic   Rust
+Mihomo adapter/control Rust
+CLI                    Rust
+TUI                    Rust / Ratatui
+Python runtime need    none
+Primary executable     omavless
+External core          Mihomo
+```
+
+Read [`docs/roadmap/RUST_MIGRATION.md`](../roadmap/RUST_MIGRATION.md) before
+changing control protocol code, reference fixtures, profile adapters, subscriptions,
+routing, Mihomo lifecycle/diagnostics, packaging or TUI plans.
+
+### No big-bang rewrite
+
+R0–R6 migrated bounded subsystems against Python plus language-neutral fixtures,
+not a wholesale untested rewrite. The owner-approved post-R6 retirement removes
+the obsolete implementation, not its independent test expectations. Preserve the
+frozen archive and fixture provenance; do not silently regenerate expected
+answers from the Rust candidate or reintroduce a production Python fallback.
+
+Known Python bugs are not compatibility requirements. If parity exposes an
+unsafe or incorrect behavior, fix the explicit contract, add a regression case
+and document the intentional difference from the historical fixture. Do not
+restart development on the frozen archive to implement new Rust features.
+
+### Backend ownership after migration
+
+- QML/presentation-only work stays QML.
+- Security/correctness fixes belong to the current Rust owner, with regression
+  coverage. Historical Python-only tests remain in the archive, not the normal
+  CI suite for a deleted implementation.
+- New pure profile/store/routing logic belongs at the Rust domain boundary.
+- After R2, new protocol adapters are Rust-first. In particular P4
+  WireGuard/AmneziaWG must not grow a large new Python-only parser without an
+  explicit roadmap exception.
+- After R5/T1 runtime cutover, new persistent lifecycle/background behavior
+  belongs only in the Rust runtime.
+- Do not add long-lived Python dependencies for functionality already assigned
+  to Rust unless a concrete blocker is documented in the PR.
+
+### TUI gate
+
+Rust + Ratatui is the selected first full standalone UI. Production TUI
+implementation does **not** begin until R6 proves the normal application/runtime
+path no longer depends on Python. TUI design notes and prototypes may be
+researched earlier, but do not use the TUI as a vehicle for hiding unfinished
+Python-to-Rust migration.
+
+A later GPUI desktop client is optional and must remain a client of the same
+semantic runtime. GPUI is not a dependency of the daemon/CLI/TUI path.
+
+## Current delivery strategy
+
+Native checkpoint, 2026-09-13: R6 is closed under the explicitly revised
+owner scope in [the local closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md).
+Enabled Last/pinned login acceptance remains [AUTO-1](../roadmap/LOGIN_AUTOCONNECT_FOLLOWUP.md),
+not PASS. The installed default/manual path is Rust-only; legacy/reference
+sources and the published marketplace snapshot remain separate. Read
+[current delivery status](../roadmap/CURRENT_STATUS.md) before allocating work.
+Acceptance is not a marketplace release or blanket authorization to start TUI work.
+Interpret older R6-open checkpoint prose through that evidence, not as a reason
+to repeat completed migration work or hide deferred failures.
+
+Two lanes may proceed in parallel:
+
+1. **Plugin completion lane** — finish bounded current plugin/QML work such as
+   localization batches, bug fixes, accessibility/navigation, existing
+   diagnostic presentation and opportunistic V0 fixture validation.
+2. **Native application lane** — maintain the accepted Rust owner and advance
+   separately scoped application/host follow-ups. R0–R6 is not a fresh work
+   queue; the retained migration contract explains the accepted boundaries.
+
+Do not freeze the current plugin merely because Rust work has started. Equally,
+do not expand large Python backend surfaces that are about to be migrated.
+The delivery ledger decides which lane owns each feature.
+
+## Acceptance environments
+
+Evidence is divided into distinct layers:
+
+- **Cloud/static evidence** — CI, deterministic tests, Rust/Python differential
+  tests, code review, static/security checks and documentation/research work.
+- **Try Omarchy ARM64 acceptance evidence** — Omarchy running under Try Omarchy
+  on Apple Silicon. This is an accepted local integration environment for
+  normal plugin, Quickshell, user-systemd, Mihomo/controller, TUN, routing,
+  lifecycle, mode-transition and Rust compatibility-bridge testing.
+- **Bare-metal Omarchy evidence** — an additional independent pass on the
+  physical Omarchy PC, normally useful for confidence but not a default merge
+  prerequisite.
+- **Future standalone Arch/NixOS evidence** — package, service, capability and
+  host-specific acceptance is recorded separately when those host tracks land.
+  Arch evidence never proves NixOS packaging/generation behavior and vice versa.
+
+For ordinary current runtime changes, a green exact-head cloud/static gate plus
+the declared exact-head Try Omarchy integration gate is sufficient to make a
+change eligible for merge to `main`, subject to normal review and explicit
+owner approval.
+
+A bare-metal Omarchy PC pass is recommended secondary verification by default.
+It becomes mandatory only when the change concretely depends on behavior Try
+Omarchy cannot represent reliably, for example:
+
+- physical Wi-Fi/Ethernet or NIC-specific behavior;
+- suspend/resume or real network-transition handling;
+- x86_64-specific behavior;
+- host firewall/kernel/driver behavior sensitive to virtualization;
+- hardware-specific routing/networking edge cases;
+- a defect known to reproduce only on the physical PC.
+
+Do not label a check "bare-metal required" merely because an older roadmap or PR
+said "real Omarchy". Apply the current acceptance policy.
+
+Try Omarchy evidence must identify itself as ARM64/virtualized and must not
+claim untested hardware behavior.
+
+## Rust migration acceptance
+
+Every R-stage PR requires evidence beyond "the Rust tests pass".
+
+At minimum record:
+
+- exact Python reference behavior/fixture source;
+- exact Rust candidate behavior;
+- differential/parity results;
+- intentional differences;
+- credential/privacy review of parity tooling;
+- production path before/after the PR;
+- whether a real host gate is applicable;
+- whether Python code is retained as oracle/rollback or can be removed.
+
+Credential-bearing parity inputs never go in argv or public CI. Private local
+fixtures stay private; shareable results use sanitized IDs/categories.
+
+For OS/network-facing migrations, differential tests are necessary but not
+sufficient: run the normal exact-head host integration gate as well.
+
+## Exact-head discipline
+
+Every runtime or migration acceptance report records the exact tested commit
+SHA. If the candidate changes afterward, repeat checks materially affected by
+the change.
+
+## Git discipline
+
+- `main` is the only long-lived development source of truth.
+- `archive/python-legacy` is a frozen historical snapshot at
+  `aa5873783c019edc303a732e55ea8c85f1f0b090`, not another development line.
+  Preserve it during branch cleanup; never merge new work into it or use it as
+  a mutable CI dependency. See [legacy retirement](../roadmap/LEGACY_RETIREMENT.md).
+- Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
+  `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `rc/<version>` candidates
+  follow the canonical workflow; do not rename active/evidence branches just
+  for cosmetics or commit implementation work directly to `main`.
+- Before creating a branch, inspect open PRs and recently updated remote
+  branches for the same roadmap stage or subsystem. Continue or explicitly
+  supersede existing work instead of creating a second implementation from a
+  stale handoff.
+- One branch has one active writer. A handoff transfers ownership of the exact
+  remote head; two agents must not concurrently rewrite or force-push the same
+  branch. Independent branches may proceed in parallel when their scopes do
+  not overlap.
+- Push the first meaningful checkpoint and open a Draft PR early enough to make
+  active scope visible. Do not create empty commits or ceremonial PRs merely to
+  reserve a name.
+- Fetch again before rebasing, force-pushing, retargeting or merging. If the
+  remote head changed unexpectedly, stop and reconcile its commits before
+  writing. Use `--force-with-lease` only against the exact observed remote head;
+  never use an unguarded force push.
+- Preserve useful work on GitHub before ending an ephemeral/local VM session.
+  Never leave the only copy of a useful commit or test report inside Try
+  Omarchy.
+- After a PR merges or is conclusively superseded, delete its source branch and
+  prune remote-tracking refs. Keep branches for open evidence PRs, including a
+  long-lived Draft such as V0, until that PR is resolved.
+- Before deleting an unmerged branch with no active PR, inspect its unique
+  commits and diff. Delete it only when the work is merged, explicitly closed,
+  reproducibly superseded, or disposable automation with no unique durable
+  result; otherwise preserve it and record its status.
+- Runtime/security/network and migration fixes should include regression tests
+  where practical.
+- Keep credentials, profile URIs, UUIDs, private keys, subscription URLs and
+  reusable secrets out of commits, PRs and shareable diagnostics.
+- Do not weaken OS security policy merely to remove UX friction unless a
+  separately reviewed security design explicitly calls for it.
+- Commit application `Cargo.lock` once the Rust workspace exists. New Rust
+  crates receive the same dependency/security scrutiny as Python/shell
+  dependencies.
+
+## Cross-agent handoff
+
+An agent handing work to another environment should report at minimum:
+
+- repository/branch and exact HEAD SHA;
+- whether the previous writer has stopped and the recipient now owns the
+  branch, or whether work is intentionally read-only;
+- roadmap stage (`P`, `R0`...`R6`, `T1`, `T2`, etc.);
+- what changed and which implementation currently owns the behavior;
+- cloud/static and parity results;
+- Try Omarchy results, if run;
+- bare-metal/Arch/Nix results, if run;
+- remaining required gates versus optional confidence checks;
+- whether Python remains oracle/rollback for the migrated slice;
+- push/PR state.
+
+When an investigation produces findings that future agents need, store a
+credential-safe report or update canonical documentation in Git rather than
+leaving the result only in chat history.
+
+## UI interaction and presentation work
+
+Before changing plugin layout, controls, labels, selection, focus or scrolling,
+read [`skills/omavless-ui-review/SKILL.md`](../../skills/omavless-ui-review/SKILL.md)
+and follow the linked [`UI/UX contract`](../roadmap/UI_UX_CONTRACT.md).
+This repository-local entry applies to every agent environment; it does not
+depend on a personal Codex skill installation or automatic skill discovery.
+
+Check the intended user action and target **before** composing controls. A
+working callback or green source contract is not UX acceptance. Before calling
+an affected screen ready, inspect the installed rendering and relevant state
+transitions; otherwise explicitly record visual/integration evidence pending.
+Preserve owner-approved layout outside the task. UI review does not authorize
+VPN transitions, credential export or publication beyond the current request.
+
+## Localization work
+
+For translation, locale formatting or localized-UI review, read
+[`skills/omavless-localization/SKILL.md`](../../skills/omavless-localization/SKILL.md)
+and [`docs/roadmap/I18N.md`](../roadmap/I18N.md) before changing strings.
+Catalog/contract tests are not visual acceptance: exercise the declared
+screen/state matrix on the exact installed head, protect private fixture data in
+screenshots and repeat affected captures after a fix.
+
+## Historical continuity checkpoint — 2026-09-03
+
+The dated record below preserves earlier remote merge evidence. It is not the
+current installed ownership or remaining-work list: use the local checkpoint
+above and [publication candidate](../testing/R6_PUBLICATION_CANDIDATE_2026-09-13.md)
+for the reconciled native branch. Do not restart R0–R6 from this historical list.
+
+- Published marketplace baseline remains OmaVLESS `0.7.0` at exact reviewed SHA
+  `69fe05b03129a23664fff3f8289821a7b7f80095`.
+- D1 / PR `#27` is merged; its selector-readiness and diagnostics acceptance is
+  preserved in
+  [`docs/testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md`](../testing/TRY_OMARCHY_D1_ACCEPTANCE_2026-08-27.md).
+- V0 / PR `#30` remains Draft at exact tested head
+  `a643db595ad5369b5fea200ebc601b4f0f70f18f`: XHTTP representative evidence
+  passes, while VLESS Encryption/REALITY PQ, Trojan, Hysteria2 and TUIC fixtures
+  remain unavailable. Do not fabricate fixtures or call V0 complete.
+- File-picker onboarding (`#41`), unified top-level subscription import (`#42`),
+  panel-local keyboard navigation (`#43`) and onboarding/startup localization
+  (`#50`) are merged.
+- Arch + NixOS are the two initial standalone host families; Omarchy remains a
+  first-class optional frontend.
+- Rust migration is now active: R0/R1, R2 protocol classification, VLESS
+  authority/public preview and strict query/coarse transport-security metadata
+  parity are merged, as are Vision-flow, packet-encoding, REALITY key/PQ and
+  bounded VLESS Encryption semantics. PR `#72` also merged transport-option
+  parity at accepted head `8f65628f57b8a7caaa801beb6b44a3a7894bbed6`
+  and merge commit `256669d7155766c9d1a0e05fe41a186cbd639458`:
+  34 credential-free cases cover established path normalization,
+  host/service-name/fingerprint presence, ALPN splitting/trimming, alias
+  conflicts and TCP-header validation. PR `#74` then merged the bounded XHTTP
+  `extra` decoder/shape foundation at accepted head
+  `bf8aa50e3b3c1fa67cc9baf0924fe38d2a5da469` and merge commit
+  `a97871703c27c403f8be715889daa82ee755821e`: 62 credential-free cases cover
+  the 12-KiB raw bound, duplicate keys at every depth, depth/value/key/string
+  limits, accepted Python numeric forms and fail-closed surrogate handling.
+  PR `#78` then merged normalized top-level XHTTP option parity at accepted
+  head `50ae48f73448c720c41d89defe7d843ac0ed35ba` and merge commit
+  `fb08101e7d15b5484a1c4d729cf715e171b87161`: 115 credential-free cases
+  cover allowlists, compatibility checks, server-only defaults, bounded
+  headers, Python-compatible scalar/boolean/enum/token handling, session
+  aliases and `xmux`/reuse semantics while stopping exactly at the
+  `downloadSettings` boundary. PR `#80` then merged nested XHTTP
+  `downloadSettings` parity at accepted head
+  `58781daebb728a12d2639a5621d698982cfd03db` and merge commit
+  `f4c9d9eccfd0b76439c66265b700c19847b7f445`: 188 credential-free cases
+  cover the secondary endpoint, network/security/TLS/REALITY, nested transport,
+  headers, defaults, aliases and recursive-download rejection while keeping
+  endpoint, SNI, REALITY key/short ID and header values private. PR `#83` then
+  merged canonical VLESS model, redacted-preview, subscription-identity and
+  semantic Mihomo-rendering parity at accepted head
+  `7b186f79349b7d81101b55945154db44b3e1c8f3` and merge commit
+  `0b2a7d5f147c1c373ae491f1206695532e8c07d7`: all 49 credential-free
+  canonical cases matched on cloud and Try Omarchy ARM64. Python still owns the
+  production path and remains the oracle; no runtime cutover occurred. The R2j
+  consolidation audit then completed in PR `#86` at accepted head
+  `d82bf63bec44b259e67f422f967509d417fad4bc` and merge commit
+  `5ecbd7d13c1fb0ae1fb73bced61b40bd4e1bf184`. It found and fixed the remaining
+  credential-bearing `Debug` surface in the authority preview while preserving
+  all 49 canonical differential cases. The subsequent R2-R4 foundation in PR
+  `#90` completed the remaining adapter/parity boundary and established the
+  Rust domain/store/Mihomo seams; Python remains the installed production owner
+  until R5/T1 cutover.
+- Missing V0 fixtures continue to block maturity claims for the corresponding
+  VLESS/Trojan/Hysteria2/TUIC cases. They no longer globally block P4
+  development: after completed R2, WG/AWG may proceed Rust-first under its own
+  private-fixture, installed-core, security and host acceptance gates. P4 must
+  remain unavailable in the product until those P4-specific gates and the
+  compatibility/runtime bridge are complete.
+- R5 socket registration was accepted in PR `#138` at candidate head
+  `b9be21a9b44c7c0debb816e042bd2469a9e86639` and merge commit
+  `5cc355ca87c4963cdd988a76c04395b7732f5b1a`. PR `#139` then accepted the
+  bounded generation-fenced transition-bootstrap/handoff slice at squash
+  commit `3b22cb987007ab85150f5352016267aa15138905`. PR `#140` then accepted the
+  fixed-purpose production transaction host, exact desired/config staging,
+  fixed two-service control and same-candidate verification at squash commit
+  `5aba03a3eb29b45899cc8927703bacdad788b36f`. It remains unreachable from
+  CLI and IPC and did not execute a cutover.
+- PR `#141` accepted the private, generation-fenced frontend bridge target at
+  squash commit `f23f599b8dc49e30cb3d118b015b1324f82c4ee8`. The selector is
+  authorized by the exact migration lock and marker but does not itself switch
+  an installed client.
+- PR `#142` accepted the fixed semantic CLI checkpoint at tested head
+  `977d38a4cf6274286e8731d315c6b5a327a26b83` and squash commit
+  `006ea7944242d076e1bfa59be85e10be92106df4`: connect/disconnect and profile
+  rename/favorite/delete have exact mappings, no raw method/JSON passthrough,
+  and private rename input stays out of argv. QML/backend launchers are not yet
+  connected to Rust; Python remains the installed owner and R5 is not complete.
+
+Do not restart D1, ceremonially rebase V0 merely because unrelated `main` work
+advanced, or begin production TUI implementation before R6.

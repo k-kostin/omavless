@@ -1,6 +1,6 @@
 # OmaVLESS development workflow
 
-Status: repository workflow policy, updated 2026-08-30.
+Status: repository workflow policy, updated 2026-09-16.
 
 This workflow applies to current plugin work, incremental Python -> Rust
 migration, standalone Arch/NixOS packaging and later TUI work.
@@ -12,13 +12,17 @@ also read `RUST_MIGRATION.md`.
 
 `main` is the only long-lived development source of truth.
 
-Do not maintain permanent `alpha` and `beta` branches. A normal feature branch
+Do not maintain permanent `develop`, `rc`, `alpha` or `beta` branches. A normal feature branch
 + Draft PR already expresses an alpha state. A cloud-ready Draft with local
 gates pending expresses the next maturity state.
 
-A temporary `beta/<scope>` branch is allowed only for a named integration/soak
-assembly when several accepted candidate heads genuinely need combined testing.
-Fixes return to the owning PRs; beta is deleted afterward.
+A temporary `rc/<version>` branch is allowed for a named release/integration
+candidate (for example `rc/0.8.0`). Record its exact constituent heads and pending
+gates; allow only fixes needed for that release, returned to their owning PRs.
+It carries the same documentation and agent rules as main, not a separate
+user-facing tree. It is not a release tag or permission to merge/publish.
+Delete it after the release or recorded supersession. Existing `beta/<scope>`
+scratch work is grandfathered until safely retired, not a new branch convention.
 
 The owner-approved `archive/python-legacy` exception is a frozen full-repository
 snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
@@ -28,27 +32,18 @@ Retain it during cleanup; new work still targets `main`. See the
 
 ## 2. Short-lived branch roles
 
-Use narrow branches such as:
+New task branches use `dev/`, regardless of whether a human or agent writes them:
 
 ```text
-codex/<topic>
-fix/<topic>
-docs/<topic>
+dev/<topic>
+dev/fix/<topic>
+dev/docs/<topic>
 ```
 
-For Rust migration prefer stage/scoped names which make ownership obvious, for
-example:
-
-```text
-codex/rust-workspace-parity
-codex/rust-control-protocol
-codex/rust-vless-adapter
-codex/rust-store-migration
-codex/rust-mihomo-controller
-codex/rust-runtime-cutover
-```
-
-Do not put R0-R6 into one giant branch.
+Use bounded feature names which make ownership obvious. Do not rename existing
+open/evidence branches solely for cosmetics or break their exact-head handoffs.
+The `dev/` prefix is a namespace, not a permanent integration branch. Scoped R6
+is accepted; historical migration branch names are not a new work queue.
 
 ### Concurrent agent ownership
 
@@ -362,6 +357,8 @@ Keep concepts separate:
 
 ```text
 main                 accepted development history
+dev/<topic>          short-lived task branch + PR
+rc/<version>         temporary exact release candidate
 version tag          immutable project release
 marketplace snapshot exact reviewed plugin commit
 native package       exact built/tagged application release
@@ -372,6 +369,12 @@ migration work.
 
 The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.
+
+The root README is a product page, not the development ledger. Keep detailed
+agent instructions discoverable through root AGENTS on every branch; use the
+[documentation and retention policy](../development/README.md) for their
+placement. Repository cleanup must preserve useful roadmaps and evidence, not
+hide them in a separate develop branch or ship them as runtime payload.
 
 ## 17. Normal flow examples
 
