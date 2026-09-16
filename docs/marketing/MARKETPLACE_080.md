@@ -79,12 +79,18 @@ QML contracts pass. Settings is unchanged because it contains no profile names.
 - [Settings](images/settings-en.png): language, routing and subscription entry
   points. This is one scroll position, not a claim the complete Settings fits.
 
+September 16 release preparation selects `main-en.png` as the root `preview.png`,
+replacing the historical UI screenshot with the already reviewed native panel.
+It is an exact byte copy, not a retouch or upscale. The disconnected state and
+invented country/city labels remain explicit. A full-desktop hero is optional,
+not a reason to keep advertising the old interface.
+
 These are panel-only crops, **not a full-desktop hero composition**. At native
 460-pixel width the real monospace text stays readable without scaling or fake
 desktop chrome. Preserve masters; do not upscale or squeeze into 16:9. A wider
 desktop/bar hero remains an owner-choice follow-up, ideally captured at native
 HiDPI on the PC. Compare actual responsive card cropping before selecting the
-single root preview; the current root preview is deliberately unchanged here.
+single root preview. The selected native panel is also linked from README.
 
 There is no installation hero: simulated ready/missing-component facts are not
 evidence of the still-unrun published package setup. Capture that README image
