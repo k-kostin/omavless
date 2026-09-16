@@ -1,5 +1,29 @@
 # Marketplace first-run setup checkpoint
 
+## September 16 release validation in progress
+
+Owner authorized release preparation/publication and the marketplace update in
+this session, with the final x86_64 Omarchy check planned later the same day.
+#250–253 are merged. #249 is rebased onto their main; range-diff retains the
+three setup commits, with only tests/run.sh insertion context changed.
+
+The accepted ARM64 runtime package is retained unchanged. The x86_64 package
+was actually built from the same accepted runtime source
+`b7fd0a99b8b169f0933e5f43ea4389642015193a` on an x86_64 Arch Linux CI runner
+([build run](https://github.com/k-kostin/omavless/actions/runs/35086544726)).
+Build, CLI loader execution, native archive inspection and downloaded checksums
+PASS; this is not physical-PC installation or VPN evidence.
+
+Actual archive pins now accompany the candidate frontend:
+
+- ARM64: `454662a76f106af5b2f4ee8ab3ef4626a1641981fd9e6baa0a2ca8d91dc7983d`.
+- x86_64: `57e4599bfeb90e063951a49295ae6154703a0739c3c1accc751b3f1fd4343568`.
+
+Release upload, anonymous download, real guided provisioning and the final PC
+gate must each be recorded when executed; populated pins alone are not PASS.
+The dated empty-pin findings below remain historical evidence, not the current
+metadata content. #249 remains Draft until its declared installation gates pass.
+
 ## Installation instruction clarification
 
 The September 15 documentation follow-up distinguishes first installation,
