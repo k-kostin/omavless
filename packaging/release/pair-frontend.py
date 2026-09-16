@@ -32,7 +32,8 @@ inspection = module('pair_inspection', ROOT / 'tests/installed_native_package.py
 # for every other path, including new root files, templates, .cargo, crates,
 # Cargo.lock, toolchain, systemd, Arch packaging and payload licenses/notices.
 FRONTEND_FILES = frozenset(('README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'DEVELOPMENT_ROADMAP.md',
-                            'manifest.json', 'preview.png', 'backend.sh', 'install.sh'))
+                            'manifest.json', 'preview.png', 'backend.sh', 'install.sh',
+                            '.github/workflows/native-package.yml'))
 FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
 
 
