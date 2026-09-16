@@ -5,6 +5,10 @@
 Выполни все доступные безопасные шаги, не останавливайся после аудита или CI.
 Этот prompt заменяет передачу от 2026-09-14.
 
+Обновлён 2026-09-16: пользовательский README и структура документации подготовлены
+отдельно от runtime. Нового разрешения на merge/публикацию нет. Файл сохраняет
+путь от 15 сентября, чтобы существующие ссылки не ломались.
+
 ## Полномочия и границы
 
 Не создавай тег/релиз, не загружай release assets и не меняй marketplace без
@@ -28,8 +32,9 @@ findings не становятся PASS автоматически. Не исп�
 | main | `56800b0a1f05eb83f8a761a20772153883c914f1` |
 | Принятый ARM runtime source | `b7fd0a99b8b169f0933e5f43ea4389642015193a` |
 | #249 `fix/marketplace-first-run-setup` | Код/UI: `4e2f17f88b230e4d43e05b738c6cf6f4c6caea43`; docs: `329b77a660a46ef142eee5a907f8824cfb63fc17`; Draft, package pins пусты |
-| #250 `docs/080-marketplace-preparation` | `cf55fcacc56e6fc46598961298f0c9df08c1242e`; ready, CI PASS; текст и безопасные снимки со странами/городами |
-| #251 `fix/release-frontend-pairing` | Код: `789238f82869531a680fc5e5241b66eb7f8e97bc`; отчёт: `cc1470f588671be094bc61bb3196c506ac0c5aea`; ready, CI PASS; этот prompt добавлен следующим docs-only коммитом |
+| #250 `docs/080-marketplace-preparation` | `16f6acbf2948b5f3a4cfcd48fed64e35029b0436`; пользовательский README, текст и безопасные снимки со странами/городами; проверить текущий CI |
+| #251 `fix/release-frontend-pairing` | Код pairing: `789238f82869531a680fc5e5241b66eb7f8e97bc`; узкий allowlist CONTRIBUTING.md: `caff56e66a2ea06d051ce28c9367134ce6dc9b6a`; последующие изменения prompt — docs-only; проверить текущий HEAD/CI |
+| #252 `dev/repository-organization` | `e16cd484aa21e9951f37d92f05516e7bf701b56d`; короткий AGENTS, подробный guide, CONTRIBUTING и dev/rc политика; runtime/UI без изменений |
 | Frozen archive | `archive/python-legacy` → `aa5873783c019edc303a732e55ea8c85f1f0b090`; сохранить без изменений |
 
 Свежие remote HEAD авторитетнее таблицы. VM-агент после передачи прекращает
@@ -37,6 +42,15 @@ findings не становятся PASS автоматически. Не исп�
 Изменённый SHA требует изучить diff, не автоматически повторять все тесты.
 Это один продукт: общий QML frontend и нативные ARM64/x86-64 пакеты, не разные
 плагины. Версию 0.8.0 повторно повышать не нужно.
+
+После #252 корневой AGENTS — обязательная точка входа, а не замена инструкциям:
+прочитай полностью `docs/development/AGENT_GUIDE.md`. Roadmap, архитектура,
+исторические отчёты и skills сохранены. Новая работа — `dev/<topic>`, временная
+релизная интеграция — `rc/<version>`; постоянного develop/rc нет. Существующие
+ветки #249–251 не переименовывать ради косметики. README — для пользователя,
+передачи и инженерные результаты — в соответствующих docs, не в первом экране.
+Локальная уборка старых worktree на VM не является инструкцией удалять что-либо
+на PC: там заново проверь уникальную работу, приватные файлы и активные процессы.
 
 Прочитай полностью актуальные AGENTS, DEVELOPMENT_ROADMAP, CURRENT_STATUS,
 DEVELOPMENT_WORKFLOW, ACCEPTANCE_ENVIRONMENTS, RUST_MIGRATION и:
@@ -53,7 +67,7 @@ DEVELOPMENT_WORKFLOW, ACCEPTANCE_ENVIRONMENTS, RUST_MIGRATION и:
 
 Merged PR повторно не накладывай. Если они ещё open — чистый временный
 integration checkout от свежего main с уникальными изменениями #249 → #250 →
-#251 после проверки диапазонов. Это не разрешение merge или постоянный стек.
+#251 → #252 после проверки диапазонов. Это не разрешение merge или постоянный стек.
 Запиши frontend SHA. Конфликт/fix исправляй в owning PR, не только в scratch.
 
 ## 2. Сохрани принятую VM-приёмку

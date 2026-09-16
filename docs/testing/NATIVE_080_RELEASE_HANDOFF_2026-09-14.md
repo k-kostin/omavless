@@ -1,16 +1,16 @@
 # Native 0.8.0: VM closure and final PC release gates
 
-For the next PC session, use the consolidated
-[September 15 agent prompt](PC_080_ACCEPTANCE_PROMPT_2026-09-15.md).
-It includes the open #249–251 changes and separates installed x86_64 acceptance
-from still-unrun public guided provisioning. This report retains historical VM
-evidence; its older sequence must not hide those newer installation gates.
-
 Owner direction, 2026-09-14: merge technically accepted work here on Try
 Omarchy ARM64, finish applicable local release preparation, then run final
 acceptance on the x86_64 Omarchy PC before marketplace publication. Marketplace
 updates still require separate owner-present approval. This is not a stable tag
 or a claim that every optional feature is complete.
+
+For the next PC session, use the consolidated
+[PC agent prompt, updated September 16](PC_080_ACCEPTANCE_PROMPT_2026-09-15.md).
+It includes the open #249–252 changes and separates installed x86_64 acceptance
+from still-unrun public guided provisioning. This report retains historical VM
+evidence; its older sequence must not hide those newer installation gates.
 
 ## Integrated implementation
 
