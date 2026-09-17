@@ -45,6 +45,10 @@ runtime:  existing accepted Rust OmaVLESS daemon
 
 This replaces earlier roadmap wording which left Python/Textual/Rust open.
 
+For T2 localization, consult the [rust-i18n candidate and bounded trial](I18N.md#rust-client-research-reference-t2)
+before choosing a Rust catalog implementation; the existing QML localization
+contract remains authoritative for shared keys and presentation safety.
+
 The TUI is **not** the mechanism by which the backend becomes Rust. It is built
 only after R6 proves:
 
