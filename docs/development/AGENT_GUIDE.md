@@ -204,6 +204,10 @@ the change.
 - Push the first meaningful checkpoint and open a Draft PR early enough to make
   active scope visible. Do not create empty commits or ceremonial PRs merely to
   reserve a name.
+- Complete agreed documentation-only updates through `main` after their checks,
+  under the owner's [standing documentation merge authorization](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
+  A temporary branch/PR is a review step, not a separate home for the roadmap;
+  do not leave finished agreed documentation in Draft awaiting redundant approval.
 - Fetch again before rebasing, force-pushing, retargeting or merging. If the
   remote head changed unexpectedly, stop and reconcile its commits before
   writing. Use `--force-with-lease` only against the exact observed remote head;

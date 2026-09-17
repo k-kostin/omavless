@@ -71,6 +71,30 @@ compare the observed remote SHA. Reconstructed history may use
 `--force-with-lease` against that exact SHA; unguarded force pushes are not
 allowed.
 
+### Agreed documentation-only updates
+
+Owner-approved rule, 2026-09-17: a request to record or clarify agreed project
+decisions in documentation includes authorization to merge that documentation
+into `main` after verification. Do not ask for a second merge confirmation or
+leave the completed update in Draft merely because a temporary branch was used.
+`main` remains the canonical home for the current roadmap and project guidance.
+
+Use a narrow branch/PR for the diff, checks and history. Verify documentation
+links/discovery, affected tooling and the final diff; require the normal CI on
+the exact final head and resolve any blocking review feedback. Then mark the PR
+ready, merge it, verify the result on remote `main` and clean up its source
+branch. Do not bypass checks or branch protection. Report a concrete blocker
+when this cannot complete.
+
+This standing authorization covers only documentation within the owner's
+agreed scope, including requested roadmap and guide clarifications. It does
+not cover executable code/configuration, CI, dependency or packaging changes,
+release/marketplace publication, or unapproved changes to product priorities,
+security/acceptance policy or runtime ownership. A Markdown extension alone
+does not establish authorization: unresolved decisions and mixed changes keep
+their applicable review/owner gates. An explicit request for a proposal,
+read-only work or no merge overrides this default.
+
 ### Branch cleanup lifecycle
 
 After merge, delete the source branch and prune local remote-tracking refs.

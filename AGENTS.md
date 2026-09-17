@@ -31,6 +31,8 @@ not replaced by this short entry point.
   `rc/<version>`. No permanent develop/rc lane or direct implementation on main.
 - Merge and release/marketplace publication need their own applicable owner
   authorization; a green test or a cleanup task is not that authorization.
+  For agreed documentation-only updates, the owner grants standing merge
+  authorization under the [documentation merge rule](docs/roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
 - README is a product page, not an agent diary. Follow the
   [documentation and retention policy](docs/development/README.md). Preserve
   useful roadmaps, contracts and evidence; keep disposable session files outside Git.
