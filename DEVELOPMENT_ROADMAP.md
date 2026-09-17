@@ -1135,6 +1135,15 @@ GUI must be another semantic client. Prefer a separate GUI binary/package so a
 headless/TUI installation does not pull in a graphics stack solely to run the
 VPN runtime.
 
+The [G1 research contract](docs/roadmap/GUI_RESEARCH.md) compares direct Rust
+`gpui-omarchy` with a Rust GPUI Shell host using JavaScript `omarchy-ui`.
+Both remain candidates, not selected dependencies. The bounded sequence is:
+synthetic native comparison, read-only semantic client, then a separately
+reviewed mutation/package slice if the comparison supports adoption. Record
+release-build, offline-startup, interaction and client-lifetime evidence before
+selection; upstream JIT benchmarks do not establish OmaVLESS performance.
+This refinement does not move G1 ahead of T2 or start GUI implementation.
+
 ## 10. Networking/security tracks after Rust ownership
 
 ### C1 — privacy-aware active connections

@@ -182,6 +182,16 @@ Baseline keyboard behavior:
 Mouse support may be added after keyboard semantics are stable, especially for
 selection/scrolling, but must never be required.
 
+Keep keyboard focus, the selected management target and the runtime's connected
+profile distinct. Moving through a list or a mode group must not change the
+network; an explicit activation targets the visibly identified record. A
+pending command is not verified connection state. Preserve the connected
+identity when its row is filtered or collapsed, and show unavailable/stale
+state after losing runtime freshness. Persistent recovery conditions belong in
+status, not only in expiring notifications. These principles complement the
+[existing product semantics](UI_UX_CONTRACT.md), without copying the plugin's
+specific management-dock layout into every client.
+
 ### Responsive layout
 
 Narrow terminals stack/switch views without hiding critical
@@ -195,6 +205,14 @@ later offer explicit overrides.
 
 Theme integration is presentation-only; runtime behavior never depends on an
 Omarchy theme file.
+
+For the theme adapter, test theme-directory/symlink replacement, missing or
+malformed palettes, light/dark changes and preservation of selection/scroll
+state during reload. Use a complete default palette on invalid input rather
+than partially mixing incompatible themes. Keep file reads bounded and event
+bursts coalesced. The [GPUI research references](GUI_RESEARCH.md#reusable-presentation-ideas)
+provide examples of these behaviors; Ratatui must not acquire GPUI types or
+dependencies to reuse them.
 
 ### Session continuity
 
@@ -382,6 +400,12 @@ or make runtime architecture depend on GPUI lifecycle.
 
 If GPUI later proves unsuitable, replacing the GUI toolkit must not affect
 profile/store/runtime/TUI logic.
+
+The owning [G1 research contract](GUI_RESEARCH.md) defines the comparison between
+direct Rust `gpui-omarchy` and Rust-hosted GPUI Shell / `omarchy-ui`, including
+offline distribution, limited script authority and native acceptance. G1 stays
+behind a stable runtime and TUI. A synthetic WASM showcase is an optional later
+experiment, not a browser connection to the private daemon or a T2 requirement.
 
 ## 17. Acceptance invariants
 
