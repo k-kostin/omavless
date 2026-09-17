@@ -64,6 +64,19 @@ selection and hover must not overlap adjacent controls or move their hit areas.
 The owner-hidden main Test and latency sections remain hidden until explicitly
 requested. Do not restore them as part of general polish.
 
+### Required components (owner direction, 2026-09-15)
+
+Missing OmaVLESS/Mihomo belongs in a bordered **Required components** block
+below Profiles, not an unavoidable onboarding dialog. Show only missing
+programs; use one sequential installer when both are absent. Hide the block
+when neither is missing. Installed-but-unactivated or unknown application state
+has separate setup/recovery guidance, never a reinstall offer. Without a ready
+app, show a truthful unavailable-profile shell; do not invent an empty store or
+working connection controls. Deferring onboarding does not dismiss component
+facts. Presence is not permission/TUN/live-health evidence. A known missing core
+blocks Connect but never prevents Disconnect. Preserve the accepted main and
+Settings layout when the installation is ready.
+
 ## Three independent checks before calling a change ready
 
 1. **Behavior:** does the real handler address the right record/state, honor

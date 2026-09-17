@@ -1,6 +1,13 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; main/status synchronization updated 2026-09-14.
+Status: active delivery ledger; release-gate clarification updated 2026-09-15.
+
+**Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
+installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+adds a first screen independent of the native runtime and explicit guided
+setup. Reviewed published package pins and clean end-to-end setup remain
+release blockers alongside final x86_64 acceptance. This does not reopen R6
+or authorize marketplace publication.
 
 Owner-approved update, 2026-09-13: **R6 native-path retirement is closed
 with explicit deferrals**. Start with [current delivery status](docs/roadmap/CURRENT_STATUS.md)

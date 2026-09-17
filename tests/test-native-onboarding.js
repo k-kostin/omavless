@@ -51,7 +51,26 @@ test('new onboarding guidance has complete safe EN/RU text',()=>{
  }
 });
 test('missing/stale/closed/pending metadata never opens first use over another operation',()=>{
- for(const change of [c=>c.vless.nativeSnapshot=null,c=>c.vless.nativeSnapshotFailed=true,c=>c.opened=false,c=>c.vless.nativePending={},c=>c.vless.nativeImportBusy=true,c=>c.importDialog.visible=true,c=>c.subscriptionPrompt.visible=true]){const c=context();change(c);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible)}
+ for(const change of [c=>c.vless.nativeSnapshot=null,c=>c.vless.nativeSnapshotFailed=true,c=>c.vless.nativeStatusRefreshing=true,c=>c.opened=false,c=>c.vless.nativePending={},c=>c.vless.nativeImportBusy=true,c=>c.importDialog.visible=true,c=>c.subscriptionPrompt.visible=true]){const c=context();change(c);c.syncNativeOnboarding();assert(!c.onboardingWizard.visible)}
+});
+test('quick reopen waits for fresh completion rather than cached unfinished onboarding',()=>{
+ const c=context();c.vless.nativeStatusRefreshing=true;
+ c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ c.vless.nativeSnapshot.onboardingComplete=true;
+ c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ c.vless.nativeStatusRefreshing=false;c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ assert.equal(c.vless.helperReads,undefined);
+ // A genuinely fresh unfinished store still opens once the read settles.
+ c.vless.nativeSnapshot.onboardingComplete=false;c.vless.nativeStatusRefreshing=true;
+ c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ c.vless.nativeStatusRefreshing=false;c.syncNativeOnboarding();assert(c.onboardingWizard.visible);
+ c.dismissOnboarding();c.vless.nativeStatusRefreshing=true;c.vless.nativeSnapshotFailed=true;
+ c.onboardingDismissed=false;c.vless.nativeStatusRefreshing=false;c.syncNativeOnboarding();assert(!c.onboardingWizard.visible);
+ // Explicit Settings review remains available even after completion.
+ c.vless.nativeSnapshotFailed=false;c.vless.nativeSnapshot.onboardingComplete=true;
+ assert(c.openOnboarding(1));assert(c.onboardingWizard.visible);
+ assert(service.includes('readonly property bool nativeStatusRefreshing: statusProcess.running'));
+ assert(panel.includes('function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }'));
 });
 test('preset step advances only after confirmed snapshot, not initial click or rejection',()=>{
  const c=context();c.openOnboarding(2);c.vless.nativePending={};assert(c.chooseOnboardingPreset('china-cn-direct'));assert.equal(c.onboardingWizard.step,2);

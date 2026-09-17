@@ -1,14 +1,27 @@
 # Current delivery status
 
-Updated 2026-09-14. This is the compact current-state entry point; the detailed
+Updated 2026-09-16. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Release progress, September 16:** #250–253 are merged (user-facing content,
+  preserved developer docs, runtime/frontend pairing and x86_64 package build).
+  [v0.8.0](https://github.com/k-kostin/omavless/releases/tag/v0.8.0) is now public
+  as a **prerelease / not latest**, with actual ARM64/x86_64 archives and the
+  reviewed common frontend. Anonymous asset downloads and hashes PASS. #249
+  has real pins and remains Draft for guided installation acceptance, not for
+  unavailable release files. Physical x86_64 acceptance is planned, not PASS.
+  Use the [current first-run report](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+  and [ready-package PC gate](../testing/PC_080_RELEASE_GATE_2026-09-16.md).
+  Owner authorizes advancing release/marketplace after those gates; the old
+  marketplace snapshot remains unchanged until its separate update approval.
+
 - Owner-authorized final `0.8.0` source/package preparation follows the merged
   #244–#247 fixes and offline release tooling. This version preparation is not a
-  tag or publication. Use the [final candidate report](../testing/NATIVE_080_FINAL_CANDIDATE_2026-09-14.md)
+  tag or publication by itself; the actual later prerelease is recorded above.
+  Use the [final candidate report](../testing/NATIVE_080_FINAL_CANDIDATE_2026-09-14.md)
   for actual ARM64 build/update results and outstanding x86_64/owner gates;
   old RC artifacts keep their original identity.
   Final ARM64 source `b7fd0a99b8b169f0933e5f43ea4389642015193a` now has
@@ -81,6 +94,16 @@ Do not merge those obsolete Draft implementations over the integrated result.
 
 ## What users install
 
+**Additional release gate, 2026-09-15:** installed-candidate R6/ARM64 acceptance
+did not cover a fresh marketplace clone with no `/usr/bin/omavless`. The new
+[first-run setup checkpoint](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+adds a runtime-independent setup page and explicit terminal provisioning.
+Published architecture-specific package pins and download checks are now ready;
+real clean package install → activation → onboarding acceptance remains required.
+Do not tell a new
+agent that only the final x86_64 runtime smoke remains. This does not reopen the
+unchanged R6 migration or publish the marketplace snapshot.
+
 The immutable published marketplace 0.7.0 snapshot remains
 `69fe05b03129a23664fff3f8289821a7b7f80095`.
 Neither a main merge nor the presence of Rust sources installs a native binary,
@@ -101,7 +124,7 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
+2. Close the fresh-marketplace gate above, then follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
    retain completed ARM64 final artifact/version preparation, run the owner's final
    x86_64 Omarchy pass, then obtain publication approval. Offline stable
    assembly is distinct from changing the current RC version or publishing.

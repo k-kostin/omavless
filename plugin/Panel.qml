@@ -24,6 +24,14 @@ Panel {
   // owner direction; see docs/roadmap/MAIN_PANEL_DEFERRED_SECTIONS.md.
   readonly property bool showMainConnectionTest: false
   readonly property bool showMainLatencySection: false
+  // First-run provisioning cannot depend on a working backend. The existing
+  // native owner gate remains authoritative; no legacy controls are exposed
+  // when the application is missing or ownership has not been committed.
+  // nativeOwner can also mean a read-only failure surface after launcher exit
+  // 71, including a MISSING binary. Only the independent target probe admits
+  // the normal application, never that presentation flag alone.
+  readonly property bool bootstrapRequired: setupPage.state !== "ready"
+  readonly property bool coreComponentMissing: setupPage.coreMissing
   property string focusSection: "header"
   property string page: "main"
   property int subscriptionIndex: 0
@@ -278,6 +286,7 @@ Panel {
     if (!vless.nativeCanAct || !profile || profile.missing) return false
     if (nativeView.connected && nativeView.activeId === id)
       return vless.requestNativeAction("disconnect", "", "")
+    if (root.coreComponentMissing) return false
     if (nativeView.connected || nativeView.state === "disconnected")
       return vless.requestNativeAction("connect", id, nativeView.mode)
     return false
@@ -589,6 +598,7 @@ Panel {
 
   function syncNativeOnboarding() {
     if (!vless.nativeOwner || !vless.nativeSnapshot || vless.nativeSnapshotFailed || !root.opened) return
+    if (vless.nativeStatusRefreshing) return
     if (nativeOnboardingPresetPending !== "" && !vless.nativePending) {
       if (onboardingWizard.visible && vless.nativeSnapshot.routing.storedPreset === nativeOnboardingPresetPending)
         onboardingWizard.step = 3
@@ -675,6 +685,7 @@ Panel {
   // Keep that event inside an active OmaVLESS page instead of delegating it
   // to Panel.switchPanel(), which moves to a neighboring bar plugin.
   function panelTabTargets() {
+    if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
       var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
@@ -693,6 +704,7 @@ Panel {
         var row = nativeProfiles.itemAt(i)
         if (row) targets = targets.concat(row.focusTargets)
       }
+      if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
       return targets
@@ -733,7 +745,7 @@ Panel {
   }
 
   function scrollPanelControlIntoView(target) {
-    var flick = page === "diagnostics" ? advancedDiagnosticsPage.flickable : vless.nativeOwner ? nativeFlick : page === "subscriptions" ? subscriptionsFlick
+    var flick = root.bootstrapRequired ? setupFlick : page === "diagnostics" ? advancedDiagnosticsPage.flickable : vless.nativeOwner ? nativeFlick : page === "subscriptions" ? subscriptionsFlick
       : (page === "settings" ? settingsFlick : panelFlick)
     if (!flick || !target) return
     // A docked control is already visible. Focusing it must not move the list.
@@ -1505,6 +1517,7 @@ Panel {
       root.syncNativeOnboarding()
     }
     function onNativePendingChanged() { root.syncNativeOnboarding() }
+    function onNativeStatusRefreshingChanged() { root.syncNativeOnboarding() }
     function onNativeOwnerChanged() {
       if (!vless.nativeOwner) {
         onboardingWizard.dismiss()
@@ -1740,7 +1753,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -1756,13 +1769,15 @@ Panel {
         || routingToolsPrompt.visible || profileSearch.activeFocus || nativeSearch.activeFocus
         || root.panelTabFocusActive || advancedDiagnosticsPage.keyboardControlActive
       onMoveRequested: function(dx, dy) {
+        if (root.bootstrapRequired) { root.focusPanelControl(dy < 0 ? -1 : 1); return }
         if (vless.nativeOwner) { root.moveNativeCursor(dy); return }
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dx, dy)
       }
-      onActivateRequested: { if (vless.nativeOwner) root.activateNativeCursor(); else if (root.cursorActive) root.activateCursor() }
+      onActivateRequested: { if (root.bootstrapRequired) root.focusPanelControl(1); else if (vless.nativeOwner) root.activateNativeCursor(); else if (root.cursorActive) root.activateCursor() }
       onCloseRequested: {
-        if (root.page === "subscription") root.openSubscriptions()
+        if (root.bootstrapRequired) root.close()
+        else if (root.page === "subscription") root.openSubscriptions()
         else if (root.page === "subscriptions") root.closeSubscriptions()
         else if (root.page === "diagnostics") root.closeAdvancedDiagnostics()
         else if (root.page === "settings") root.closeSettings()
@@ -1770,6 +1785,7 @@ Panel {
       }
       onTabRequested: function(direction) { root.focusPanelControl(direction) }
       onDeleteRequested: {
+        if (root.bootstrapRequired) return
         if (vless.nativeOwner) return
         if (root.page === "subscriptions") {
           if (root.cursorActive && !vless.probingProfiles)
@@ -1779,6 +1795,7 @@ Panel {
         }
       }
       onTextKey: function(t) {
+        if (root.bootstrapRequired) return
         if (root.page === "diagnostics") {
           if (t === "r" || t === "R") vless.refreshAdvancedDiagnostics()
           else if (t === "/") advancedDiagnosticsPage.resetSearchFocus()
@@ -1878,6 +1895,26 @@ Panel {
       }
 
       Flickable {
+        id: setupFlick
+        anchors.fill: parent
+        visible: root.bootstrapRequired
+        clip: true
+        contentWidth: width
+        contentHeight: setupPage.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+        SetupPage {
+          id: setupPage
+          width: Math.max(0, setupFlick.width - root.scrollGutter)
+          locale: root.uiLocale
+          panelOpen: root.opened
+          onReady: { vless.enterNativeReadOnly(); vless.refresh() }
+          onCloseRequested: root.close()
+        }
+      }
+
+      Flickable {
         id: nativeFlick
         Keys.onPressed: function(event) { root.handleNativeNavigationKey(event) }
         anchors.top: parent.top
@@ -1885,7 +1922,7 @@ Panel {
         anchors.right: parent.right
         anchors.bottom: nativeProfileActions.visible ? nativeProfileActions.top : parent.bottom
         anchors.bottomMargin: nativeProfileActions.visible ? Style.space(12) : 0
-        visible: vless.nativeOwner && root.page !== "diagnostics"
+        visible: !root.bootstrapRequired && vless.nativeOwner && root.page !== "diagnostics"
         clip: true
         contentWidth: width
         contentHeight: nativeColumn.implicitHeight
@@ -1931,7 +1968,7 @@ Panel {
                     activeFocusOnTab: true
                     anchors.verticalCenter: parent.verticalCenter
                     checked: root.nativeView.connected
-                    enabled: vless.nativeCanAct && (root.nativeView.connected || (root.nativeView.state === "disconnected" && root.nativeSelectionConnectable))
+                    enabled: vless.nativeCanAct && (root.nativeView.connected || (!root.coreComponentMissing && root.nativeView.state === "disconnected" && root.nativeSelectionConnectable))
                     busy: vless.nativeActionRunning
                     cursorRing: false
                     hasCursor: activeFocus
@@ -2390,7 +2427,7 @@ Panel {
                         elide: Text.ElideRight
                       }
                     }
-                    Button { id: rowConnect; text: root.textFor(nativeRow.connected ? "action.disconnect" : "action.connect"); bordered: true; focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing && (root.nativeView.connected || root.nativeView.state === "disconnected"); onClicked: root.nativeActivateProfile(nativeRow.profile.id) }
+                    Button { id: rowConnect; text: root.textFor(nativeRow.connected ? "action.disconnect" : "action.connect"); bordered: true; focusable: true; enabled: vless.nativeCanAct && nativeRow.isProfile && !nativeRow.profile.missing && (nativeRow.connected || (!root.coreComponentMissing && (root.nativeView.connected || root.nativeView.state === "disconnected"))); onClicked: root.nativeActivateProfile(nativeRow.profile.id) }
                   }
                   PlainText { Layout.fillWidth: true; visible: nativeRow.isProfile && vless.probeResult(nativeRow.profile.id) !== null; text: nativeRow.isProfile ? root.nativeProbeLabel(nativeRow.profile.id) : ""; textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
                   ColumnLayout {
@@ -2417,6 +2454,16 @@ Panel {
               }
             } // nativeProfilesContent
           } // nativeProfilesFrame
+          RequiredComponents {
+            id: nativeRequiredComponents
+            Layout.fillWidth: true
+            visible: root.page === "main" && setupPage.needsAttention
+            locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; terminalOpened: setupPage.terminalOpened
+            onInstallRequested: function(action) { setupPage.install(action) }
+            onCheckRequested: setupPage.check()
+            onTerminalClosed: setupPage.acknowledgeTerminalClosed()
+            onGuideRequested: setupPage.guide()
+          }
         }
       }
 
@@ -2425,7 +2472,7 @@ Panel {
       BorderSurface {
         id: nativeProfileActions
         Keys.onPressed: function(event) { root.handleNativeNavigationKey(event) }
-        visible: vless.nativeOwner && (root.page === "main" || root.page === "subscription")
+        visible: !root.bootstrapRequired && vless.nativeOwner && (root.page === "main" || root.page === "subscription")
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.rightMargin: root.scrollGutter
@@ -2472,7 +2519,7 @@ Panel {
           ? root.nativeCoreSetupDescription() + "\n" + root.textFor("native.core.tun." + vless.nativeCoreSetupFacts.tunDevice)
             + "\n" + root.textFor("native.core.capabilities." + vless.nativeCoreSetupFacts.fileNetworkCapabilities) : ""
         anchors.fill: parent
-        visible: root.page === "diagnostics"
+        visible: !root.bootstrapRequired && root.page === "diagnostics"
         service: vless
         foreground: root.foreground
         dim: root.dim
@@ -2486,7 +2533,7 @@ Panel {
 
       Flickable {
         id: panelFlick
-        visible: !vless.nativeOwner && root.page === "main"
+        visible: !root.bootstrapRequired && !vless.nativeOwner && root.page === "main"
         anchors.fill: parent
         contentWidth: width
         contentHeight: column.implicitHeight
@@ -3192,7 +3239,7 @@ Panel {
       Flickable {
         id: settingsFlick
         anchors.fill: parent
-        visible: !vless.nativeOwner && root.page === "settings"
+        visible: !root.bootstrapRequired && !vless.nativeOwner && root.page === "settings"
         contentWidth: width
         contentHeight: settingsColumn.implicitHeight
         clip: true
@@ -3537,7 +3584,7 @@ Panel {
       Flickable {
         id: subscriptionsFlick
         anchors.fill: parent
-        visible: !vless.nativeOwner && root.page === "subscriptions"
+        visible: !root.bootstrapRequired && !vless.nativeOwner && root.page === "subscriptions"
         contentWidth: width
         contentHeight: subscriptionsColumn.implicitHeight
         clip: true
