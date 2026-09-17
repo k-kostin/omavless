@@ -32,6 +32,9 @@ must not be confused:
   Rust ownership cutover and rollback contract.
 - [`TUI_APP.md`](TUI_APP.md) — selected Rust + Ratatui full application client,
   UI responsibilities and T2+ delivery phases.
+- [`GUI_RESEARCH.md`](GUI_RESEARCH.md) — G1 candidates, huacnlee/GPUI references,
+  semantic-client boundary, dependency risks and staged evaluation gates;
+  research direction, not GUI implementation or adoption approval.
 - [`PLATFORM.md`](PLATFORM.md) — one application/runtime with initial host
   families Arch and NixOS; Omarchy is first-class integration, not foundation.
 - [`NIX_PORTABILITY.md`](NIX_PORTABILITY.md) — Nix immutable paths,
@@ -210,6 +213,11 @@ owner.
 GPUI is a later GUI research candidate only. A future GUI remains another client
 of the same control API and should preferably be separately packaged so the
 headless/runtime/TUI path does not acquire a graphics stack.
+
+The [G1 research contract](GUI_RESEARCH.md) distinguishes direct Rust components
+from an optional JavaScript presentation layer hosted by Rust GPUI Shell.
+Neither changes the Rust runtime/TUI choice. It also identifies presentation
+ideas reusable in T2 without importing a graphical framework.
 
 ## Host direction
 
