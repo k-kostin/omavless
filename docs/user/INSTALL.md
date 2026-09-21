@@ -1,7 +1,7 @@
 # Install OmaVLESS — native candidate
 
-Use the **0.8.2** candidate pair from
-[GitHub Releases](https://github.com/k-kostin/omavless/releases);
+Use the **0.8.2** candidate pair from the
+[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2);
 stable and marketplace acceptance remain pending.
 Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit

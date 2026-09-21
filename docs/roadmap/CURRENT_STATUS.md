@@ -6,10 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.8.2 preparation, #264:** #263 is merged. New versioned native packages
-  for both architectures passed CI; exact frontend pins are recorded with owner authorization for a
-  GitHub prerelease, not stable promotion or marketplace submission. The
-  installed active connection is not changed by this build/release work.
+- **0.8.2 published as a prerelease:** #263 and #264 are merged. The
+  [public release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
+  identifies `f442714362620c18e1bbaa6415d9e0c2e08c0a8a`; both native packages
+  identify `22e23e64c49b8110088b6be3f063b5e641ba0853`. Final PR CI passed,
+  frontend pairing matched the actual pins and protected runtime inputs, and
+  all six public assets passed anonymous download/checksum verification.
+  0.8.0/0.8.1 remain immutable. This is not stable promotion or marketplace
+  submission; fresh guided provisioning remains a separate gate. The
+  installed active connection was not changed by this build/release work.
   See the [0.8.2 artifact checkpoint](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md).
 
 - **Post-0.8.1 fixes, #263 (merged):** correct Full Quit's installation preflight and
@@ -17,11 +22,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   name-search copy. The runtime fix has attended physical-PC disconnected
   Quit evidence; UI-only follow-up was checked without interrupting the
   owner's active connection. See the [follow-up record](../testing/R5_NATIVE_FULL_QUIT.md#september-21-release-follow-up-263).
-  These fixes are not in the immutable public `v0.8.1` assets. A later release
-  needs a new identity and matching packages/frontend; do not overwrite the
-  old tag or claim fresh guided provisioning passed from this UI review.
+  These fixes are in the new `v0.8.2` candidate, not the immutable public
+  `v0.8.1` assets. Do not overwrite old releases or claim fresh guided
+  provisioning passed from this UI review.
 
-- **0.8.1 published as a prerelease:** retain the already published `v0.8.0`
+- **Historical 0.8.1 prerelease:** retain the already published `v0.8.0`
   prerelease unchanged. #258–260 and #261 are merged; the latter integrates setup and the
   corrected release candidate. Both native packages now pass CI at runtime source
   `98e0b275ae43d6e7d7901b58fab31457b542f878`; setup pins contain their actual
