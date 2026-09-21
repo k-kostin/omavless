@@ -64,7 +64,7 @@ test('finish submits acknowledgement then uses normal pending/recovery surface',
  c.vless.completeOnboarding=()=>true;c.finishOnboarding();assert(!c.onboardingWizard.visible);assert(c.onboardingDismissed);assert.equal(c.vless.nativeSnapshot.onboardingComplete,false);
 });
 test('native completion shares exact pending fence and zero private arguments',()=>{
- const c=vm.createContext({nativeOwner:true,nativeCanAct:true,nativeSnapshot:{instanceId:'instance',revision:7},_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',nativeActionProcess:{},nativeActionCode:'',nativeOutcomeUnknown:false,nativePending:null});
+ const c=vm.createContext({nativeOwner:true,nativeCanAct:true,nativeSnapshot:{instanceId:'instance',revision:7},_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',nativeActionProcess:{},nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeOutcomeUnknown:false,nativePending:null});
  functions(service,c,['requestNativeAction','completeOnboarding']);assert(c.completeOnboarding());assert.equal(c.nativePending.action,'onboarding-complete');assert.equal(c.nativePending.instanceId,'instance');assert.equal(c.nativePending.revision,7);assert.equal(c.nativePending.command.length,6);assert.equal(c.nativePending.input,undefined);
  assert.equal(c.nativePending.command[2],'native-onboarding-complete');c.nativeCanAct=false;assert(!c.completeOnboarding());
  assert.equal(parser.parseActionExit('',{action:'onboarding-complete'},74).code,'invalid_argument');

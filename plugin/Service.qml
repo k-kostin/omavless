@@ -285,7 +285,7 @@ Item {
   }
 
   function nativeBatchPublicError(code) {
-    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_rejected", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
+    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_rejected", "subscription_unavailable", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
       ? "error." + code : "error.capability_unavailable"
   }
 
@@ -522,7 +522,11 @@ Item {
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false
-      nativeSubscriptionCode = "rejected"
+      // Refresh/delete are not editor saves. Keep their failure actionable
+      // without blaming the VPN core or inviting the user to reopen an editor.
+      nativeSubscriptionCode = result.code === "subscription_unavailable" ? "fetchFailed"
+        : nativePending.action === "subscription-refresh" ? "refreshFailed"
+        : nativePending.action === "subscription-delete" ? "deleteFailed" : "rejected"
     }
   }
 
@@ -667,6 +671,10 @@ Item {
     if (!(action === "disconnect" ? nativeCanStop : nativeCanAct)) return false
     if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
+    // A new accepted connection command must not inherit a completed
+    // subscription banner. Keep an open editor's feedback and unresolved
+    // operations intact; admission above still fences all mutations.
+    if (nativeSubscriptionDraft === null) nativeSubscriptionCode = ""
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
     var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
     if (action === "connect") args.push(profileId, mode)
@@ -3794,6 +3802,7 @@ Item {
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
+      var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeRoutingAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
@@ -3806,7 +3815,9 @@ Item {
       } else {
         root.nativeOutcomeUnknown = false
         root.nativePending = null
-        root.nativeActionCode = result.ok ? "" : result.code
+        // Subscription failures have their own contextual banner. Recovery
+        // still belongs to the global state and must never be hidden.
+        root.nativeActionCode = result.ok || (subscriptionAction && result.code !== "manual_recovery_required") ? "" : result.code
       }
       root.nativeObservation = null
       root.refreshAfterChange()

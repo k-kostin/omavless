@@ -38,6 +38,7 @@ mod connection_test;
 pub mod connection_transaction;
 mod controller_permissions;
 pub mod core;
+pub mod core_diagnostics;
 mod core_group;
 mod core_readiness;
 mod core_selector;
@@ -3478,6 +3479,8 @@ mod tests {
         );
         assert_eq!(observed["result"]["scope"], "local_runtime_observation");
         assert_eq!(observed["result"]["availability"], "observed");
+        // No owned capture is distinct from a zero-warning live core.
+        assert!(observed["result"]["coreDiagnostics"].is_null());
         assert_eq!(
             observed["result"]["facts"],
             json!({

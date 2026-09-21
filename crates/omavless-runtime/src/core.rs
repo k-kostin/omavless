@@ -9,6 +9,7 @@ use nix::unistd::{Pid, getpgid};
 use omavless_mihomo::{ErrorKind, ReadOnlyEndpoint, controller_get};
 use std::fmt;
 use std::fs;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -60,6 +61,7 @@ fn executable(path: &Path) -> bool {
 pub struct OwnedCore {
     child: Option<Child>,
     controller_socket: PathBuf,
+    diagnostics: crate::core_diagnostics::Capture,
 }
 
 impl OwnedCore {
@@ -79,21 +81,29 @@ impl OwnedCore {
         {
             return Err(CoreError::InvalidArgument);
         }
+        let (diagnostics, output) =
+            crate::core_diagnostics::Capture::start().map_err(|_| CoreError::SpawnFailed)?;
+        let errors = output.try_clone().map_err(|_| CoreError::SpawnFailed)?;
         let child = Command::new(core)
             .arg("-d")
             .arg(data_directory)
             .arg("-f")
             .arg(config)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::from(OwnedFd::from(output)))
+            .stderr(Stdio::from(OwnedFd::from(errors)))
             .process_group(0)
             .spawn()
             .map_err(|_| CoreError::SpawnFailed)?;
         Ok(Self {
             child: Some(child),
             controller_socket: controller_socket.to_owned(),
+            diagnostics,
         })
+    }
+
+    pub(crate) fn diagnostic_reader(&self) -> crate::core_diagnostics::DiagnosticReader {
+        self.diagnostics.reader()
     }
 
     #[must_use]
@@ -299,6 +309,37 @@ mod tests {
         fs::write(&path, "mode: rule\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         path
+    }
+
+    #[test]
+    fn child_output_is_counted_privately_without_changing_supervision() {
+        let root = root("log-categories");
+        let core_path = script(
+            &root,
+            "printf 'level=warning msg=DNS resolve failed private-token\\n'\nprintf 'level=error msg=TLS handshake error private-token\\n' >&2\nexec sleep 60",
+        );
+        let mut core =
+            OwnedCore::spawn(&core_path, &root, &config(&root), &root.join("unused.sock")).unwrap();
+        let counts = core.diagnostic_reader();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let value = serde_json::to_value(counts.snapshot()).unwrap();
+            if value["dnsErrors"] == 1 && value["tlsErrors"] == 1 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "both output streams must be drained"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+        assert!(core.running().unwrap());
+        assert!(core.stop(Duration::from_secs(5)).is_ok());
+        drop(core);
+        let value = serde_json::to_value(counts.snapshot()).unwrap();
+        assert_eq!(value["finished"], true);
+        assert!(!value.to_string().contains("private-token"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

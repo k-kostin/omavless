@@ -490,6 +490,27 @@ internet access; those verification flags remain false. See
 [`R5_NATIVE_RUNTIME_OBSERVATION.md`](../testing/R5_NATIVE_RUNTIME_OBSERVATION.md).
 This additive method leaves `ui.snapshot` v1 unchanged.
 
+The paired native candidate also returns optional `coreDiagnostics` (null before
+an owned child has been captured). Its fixed scope is
+`latest_owned_core_log_counts`: `dnsErrors`, `tlsErrors`, `timeoutErrors`,
+`connectionErrors`, `otherWarnings`, `oversizedLines` are saturating unsigned
+32-bit counts of classified log lines, not failed connections. `readFailed`
+means collection failed; `finished` means the collector ended, not that VPN
+cleanup succeeded. `incomplete` marks a read failure or a bounded shutdown before
+EOF. Zero counts never prove Internet/DNS health. Older responses
+without this field remain accepted by the paired frontend.
+
+Capture uses an anonymous local socket pair, a nonblocking bounded drain and
+at most 4 KiB per log line. Oversized records are discarded in full; invalid
+UTF-8 is processed as bytes. Only fixed categories/counters leave the collector;
+no log text, URLs, credentials, profile names or hostnames are journaled, stored
+or sent over IPC. Counts survive stopping the latest child, reset on the next
+spawn or runtime restart, and are not a per-profile history. Unknown log formats
+may be unclassified. A bounded final drain can omit trailing data on shutdown.
+Reading these counters performs no network request or lifecycle mutation and
+does not raise any `verification` flag. This is diagnostic evidence, not a
+replacement for an explicit HTTPS test or a reason to mark the plugin red.
+
 ### Private UI metadata read (v1)
 
 `ui.snapshot` takes empty params; fixed CLI `omavless plugin snapshot`. It
@@ -958,6 +979,7 @@ busy
 capability_unavailable
 permission_denied
 core_rejected
+subscription_unavailable
 transition_failed_restored
 manual_recovery_required
 daemon_restarting
@@ -966,6 +988,12 @@ internal_error
 
 `manual_recovery_required` is always hard failure, never silently rendered as
 ordinary disconnected.
+
+`subscription_unavailable` identifies a subscription transport/download failure,
+not a Mihomo lifecycle rejection. It is an additive native error category;
+matching frontend parsers and EN/RU catalogs must ship with the runtime. Raw
+URLs, HTTP bodies and TLS errors remain private. Contextual subscription
+feedback must not masquerade as a new Connect failure or suppress recovery.
 
 Every committed state change increments daemon `revision`. Mutations may carry
 `expectedRevision`; mismatch returns `conflict` before side effects.

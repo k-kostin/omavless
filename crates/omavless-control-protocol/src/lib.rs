@@ -40,6 +40,7 @@ pub enum StableErrorCode {
     CapabilityUnavailable,
     PermissionDenied,
     CoreRejected,
+    SubscriptionUnavailable,
     TransitionFailedRestored,
     ManualRecoveryRequired,
     DaemonRestarting,
@@ -47,7 +48,7 @@ pub enum StableErrorCode {
 }
 
 impl StableErrorCode {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::InvalidRequest,
         Self::UnsupportedVersion,
         Self::UnknownMethod,
@@ -58,6 +59,7 @@ impl StableErrorCode {
         Self::CapabilityUnavailable,
         Self::PermissionDenied,
         Self::CoreRejected,
+        Self::SubscriptionUnavailable,
         Self::TransitionFailedRestored,
         Self::ManualRecoveryRequired,
         Self::DaemonRestarting,
@@ -77,6 +79,7 @@ impl StableErrorCode {
             Self::CapabilityUnavailable => "capability_unavailable",
             Self::PermissionDenied => "permission_denied",
             Self::CoreRejected => "core_rejected",
+            Self::SubscriptionUnavailable => "subscription_unavailable",
             Self::TransitionFailedRestored => "transition_failed_restored",
             Self::ManualRecoveryRequired => "manual_recovery_required",
             Self::DaemonRestarting => "daemon_restarting",
@@ -97,6 +100,7 @@ impl StableErrorCode {
             Self::CapabilityUnavailable => "The requested capability is unavailable",
             Self::PermissionDenied => "The request is not permitted",
             Self::CoreRejected => "The proxy core rejected the operation",
+            Self::SubscriptionUnavailable => "The subscription could not be downloaded",
             Self::TransitionFailedRestored => "The transition failed and prior state was restored",
             Self::ManualRecoveryRequired => "Manual recovery is required",
             Self::DaemonRestarting => "The OmaVLESS runtime is restarting",

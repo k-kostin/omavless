@@ -187,7 +187,7 @@ function parseOperation(raw, job, kind) {
   try {
     var p = envelope(raw)
     if (!p || !job || !number(job.revision, 9007199254740991)) return null
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     function error(value) {
       return object(value, ["code", "message", "retryable"]) && codes.indexOf(value.code) >= 0
         && text(value.message, 512, false) && typeof value.retryable === "boolean"
@@ -385,12 +385,26 @@ function envelope(raw) {
   return p
 }
 
+function parseCoreDiagnostics(value) {
+  var counters = ["dnsErrors", "tlsErrors", "timeoutErrors", "connectionErrors", "otherWarnings", "oversizedLines"]
+  if (!object(value, ["scope", "readFailed", "finished", "incomplete"].concat(counters))
+      || value.scope !== "latest_owned_core_log_counts" || typeof value.readFailed !== "boolean"
+      || typeof value.finished !== "boolean" || typeof value.incomplete !== "boolean"
+      || !counters.every(function(k) { return number(value[k], 4294967295) })) return null
+  var result = {scope:value.scope, readFailed:value.readFailed, finished:value.finished, incomplete:value.incomplete}
+  counters.forEach(function(k) { result[k] = value[k] })
+  return result
+}
+
 function parseObservation(raw) {
   try {
     var p = envelope(raw)
     if (!object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true) return null
     var r = p.result, d = r.desired, f = r.facts
-    if (!object(r, ["schemaVersion", "scope", "availability", "desired", "lastKnownActual", "manualRecoveryRequired", "facts", "verification", "instanceId", "transition"])
+    var fields = ["schemaVersion", "scope", "availability", "desired", "lastKnownActual", "manualRecoveryRequired", "facts", "verification", "instanceId", "transition"]
+    var diagnostics = r.coreDiagnostics === undefined || r.coreDiagnostics === null ? null : parseCoreDiagnostics(r.coreDiagnostics)
+    if (!(object(r, fields) || object(r, fields.concat(["coreDiagnostics"])))
+        || (r.coreDiagnostics !== undefined && r.coreDiagnostics !== null && !diagnostics)
         || r.schemaVersion !== 1 || r.scope !== "local_runtime_observation" || !id(r.instanceId, false) || r.transition !== null
         || ["observed", "unavailable"].indexOf(r.availability) < 0
         || ["disconnected", "starting", "connected", "reconnecting", "stopping", "failed", "manualRecoveryRequired"].indexOf(r.lastKnownActual) < 0
@@ -410,7 +424,7 @@ function parseObservation(raw) {
         || (f.desiredProfileMatchesOwned && (!f.ownedCoreRunning || !d.connected))
         || (f.ownedControllerConfigVerified && (!f.ownedCoreRunning || !f.desiredProfileMatchesOwned))) return null
     return {instanceId:r.instanceId, revision:p.revision, desired:d, lastKnownActual:r.lastKnownActual,
-      manualRecoveryRequired:r.manualRecoveryRequired, facts:f, availability:r.availability}
+      manualRecoveryRequired:r.manualRecoveryRequired, facts:f, availability:r.availability, coreDiagnostics:diagnostics}
   } catch (_) { return null }
 }
 
@@ -575,7 +589,7 @@ function parseAction(raw, pending) {
       return {ok:true, revision:p.revision, code:""}
     }
     var e = p.error
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     if (p.ok !== false || !object(p, ["api", "version", "id", "ok", "revision", "error"])
         || !object(e, ["code", "message", "retryable"]) || codes.indexOf(e.code) < 0
         || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null

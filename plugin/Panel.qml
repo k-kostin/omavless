@@ -2240,7 +2240,7 @@ Panel {
               Button { id: nativeBatchAbandon; visible: vless.nativeBatchAbandonable; text: root.textFor("native.acceptState"); focusable: true; bordered: true; onClicked: vless.abandonNativeBatch() }
             }
           }
-          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== ""; text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "saved" ? root.dim : root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== ""; text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
