@@ -17,7 +17,7 @@ install the native package or transfer ownership to Rust.
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
 | Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
 
-## Guided first run — 0.8.2 candidate
+## Guided first run — release preparation
 
 For the current upstream candidate:
 

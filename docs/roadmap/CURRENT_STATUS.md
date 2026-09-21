@@ -156,9 +156,8 @@ adds a runtime-independent setup page and explicit terminal provisioning.
 Published architecture-specific package pins and download checks are now ready;
 real clean package install → activation → onboarding acceptance subsequently
 passed on x86_64 as recorded in the [fresh VM report](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
-Do not tell a new
-agent that only the final x86_64 runtime smoke remains. This does not reopen the
-unchanged R6 migration or publish the marketplace snapshot.
+This closes that scoped provisioning gate; it does not reopen the unchanged R6
+migration, claim new live-network evidence or publish the marketplace snapshot.
 
 The immutable published marketplace 0.7.0 snapshot remains
 `69fe05b03129a23664fff3f8289821a7b7f80095`.
