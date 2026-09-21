@@ -50,6 +50,31 @@ frontend is not the release frontend because its bootstrap pins were empty.
   change routing or touch private profiles/other VPNs. No private screenshots,
   profiles or logs are included in publication assets.
 
-Public tag/frontend identity and anonymous download verification are recorded
-after publication; use GitHub's actual release state in the meantime. This is
-a prerelease candidate, not stable or marketplace acceptance.
+## Public prerelease verification
+
+[#264](https://github.com/k-kostin/omavless/pull/264) merged at
+`f442714362620c18e1bbaa6415d9e0c2e08c0a8a`; its tree is identical to final
+PR head `4f99aac42da80f39bfe6d059a9dec77060702acd`. The final
+[Test CI](https://github.com/k-kostin/omavless/actions/runs/35620145769) and
+[both package jobs](https://github.com/k-kostin/omavless/actions/runs/35620145781)
+passed. The published packages retain the original build-source identity above;
+the later CI archives are not substituted for the reviewed pinned bytes.
+
+The [v0.8.2 prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
+points to that merge and is explicitly not latest/stable. Offline pairing for
+that exact frontend reports `runtimeInputsEquivalent: true` and
+`bootstrapPins: matched`. Its common frontend SHA-256 is
+`0d17c13cfa71d3e27ef95991d1ed017de5e7601d5b6b98c85deeab424d8caf53`.
+
+All six public assets were fetched anonymously with bounded HTTPS-only redirects.
+Downloaded `SHA256SUMS` matched the retained local record and all five covered
+assets passed verification. The pairing JSON retains its assembly-time
+`publishedDownloadVerified: false`; this subsequent verification does not
+rewrite immutable provenance. Architecture-specific original build evidence
+ships separately as `native-build-evidence.tar.xz`.
+
+The earlier `v0.8.0` and `v0.8.1` tags still identify
+`b7fd0a99b8b169f0933e5f43ea4389642015193a` and
+`20b5e6c4f3ef466207d37306d4a70fe5876162f6`. Neither was moved or overwritten.
+The running PC daemon was not restarted or replaced. This is a prerelease
+candidate, not stable or marketplace acceptance.

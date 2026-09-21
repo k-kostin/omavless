@@ -1,8 +1,9 @@
 # Native 0.8.2 release preparation
 
 Current candidate: **0.8.2**, incorporating #263's Full Quit and UI fixes.
-Check [GitHub Releases](https://github.com/k-kostin/omavless/releases)
-for its publication state; this is not stable or a marketplace update.
+Its [GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
+is published and [public downloads are verified](../../docs/testing/NATIVE_082_ARTIFACTS_2026-09-21.md#public-prerelease-verification).
+This is not stable or a marketplace update.
 Earlier public `v0.8.0` and `v0.8.1` prereleases and their assets remain immutable.
 The [0.8.1 artifact record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md)
 is historical evidence, not proof of a 0.8.2 build.
