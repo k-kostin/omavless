@@ -27,8 +27,8 @@ The historical marketplace snapshot is unchanged.
 
 ### x86_64 build without a physical Omarchy PC
 
-The `Native x86_64 package` workflow builds accepted runtime source
-`b7fd0a99b8b169f0933e5f43ea4389642015193a` in an official, dated Arch Linux
+The `Native x86_64 package` workflow builds its exact checked-out Git HEAD
+in an official, dated Arch Linux
 base-devel container on an x86_64 runner. Cargo uses the locked dependencies and
 pinned 1.98.0 toolchain. Compilation and the existing strict native packager run
 as an unprivileged disposable build user. It retains the package, build log,
@@ -38,9 +38,13 @@ is used. An actual CLI `--help` invocation proves loader execution, not VPN heal
 
 The workflow runs manually or for changes to its two build files. It does not
 replace the normal Test workflow or make x86_64 installed acceptance pass.
-Its exact path is excluded from runtime input comparison because it builds the
-explicit old source rather than changing the accepted package inputs; other
-unknown CI/build files still fail closed. The generated same-source frontend is
+The source must be clean; package version comes from committed Cargo metadata,
+and archive inspection verifies that same source/version. The former workflow
+was pinned to `b7fd0a99b8b169f0933e5f43ea4389642015193a`; it must not be reused
+to claim a build of later fixes. CI artifacts are named by workflow SHA and
+remain unpublished. These two explicitly allowlisted build-tool paths do not
+change runtime input comparison; other unknown CI/build files still fail closed.
+The generated same-source frontend is
 not the final release frontend: pair the reviewed package with the later setup
 pin commit using the existing tool.
 

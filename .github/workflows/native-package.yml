@@ -30,8 +30,7 @@ jobs:
           runuser -u packagebuilder -- bash packaging/release/build-x86_64-ci.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: omavless-0.8.0-x86_64-candidate
+          name: omavless-x86_64-candidate-${{ github.sha }}
           path: /home/packagebuilder/omavless-artifacts/*
           if-no-files-found: error
           retention-days: 30
-
