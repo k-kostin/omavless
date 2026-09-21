@@ -104,6 +104,7 @@ pub mod subscription_transport;
 mod support_diagnostics;
 pub mod traffic;
 pub mod tun_ping;
+mod tun_scope;
 mod ui_snapshot;
 
 pub const SOCKET_NAME: &str = "control.sock";
@@ -2760,6 +2761,7 @@ mod tests {
             visible_mihomo_count: 0,
             owned_auxiliary_mihomo_count: 0,
             visible_tun_count: 0,
+            managed_tun_count: 0,
             owned_controller_config_verified: false,
             desired_profile_matches_owned: false,
         }
@@ -2769,7 +2771,9 @@ mod tests {
     fn full_quit_seals_mutations_only_after_fenced_disconnect_and_fresh_cleanup() {
         let base = temporary_base("full-quit");
         let (mut owner, _, calls) = native_owner_fixture(&base);
-        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let mut facts = fresh_empty_facts();
+        facts.visible_tun_count = 1; // A foreign TUN must survive Full Quit.
+        owner.batch_coordinator().host_mut().fresh_result = Ok(facts);
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server = RuntimeServer::bind_with_owner_factory(paths, move |_| Ok(owner)).unwrap();
         let request = make_request(
@@ -3477,7 +3481,7 @@ mod tests {
         assert_eq!(
             observed["result"]["facts"],
             json!({
-                "ownedCoreRunning":false,"visibleMihomoCount":0,"ownedAuxiliaryMihomoCount":0,"visibleTunCount":0,
+                "ownedCoreRunning":false,"visibleMihomoCount":0,"ownedAuxiliaryMihomoCount":0,"visibleTunCount":0,"managedTunCount":0,
                 "ownedControllerConfigVerified":false,"desiredProfileMatchesOwned":false
             })
         );

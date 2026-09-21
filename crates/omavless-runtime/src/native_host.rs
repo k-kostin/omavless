@@ -13,9 +13,7 @@ use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
-use omavless_mihomo::observation::{
-    processes_named_strict, tun_interface_count, tun_interface_count_strict,
-};
+use omavless_mihomo::observation::{processes_named_strict, tun_interface_count_strict};
 use omavless_mihomo::validate_config;
 use omavless_store::{atomic_replace_private, read_private_utf8};
 use std::env;
@@ -189,6 +187,9 @@ pub struct NativeLifecycleHost {
     active_install_attempted: bool,
     ping_slot: std::sync::Arc<crate::tun_ping::PingSlot>,
     auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
+    // Retained across stop until disappearance is proved. A replacement at
+    // the same configured name cannot silently become our connected device.
+    tun_identity: Option<(String, u64)>,
 }
 
 impl NativeLifecycleHost {
@@ -228,6 +229,7 @@ impl NativeLifecycleHost {
             active_install_attempted: false,
             ping_slot: std::sync::Arc::default(),
             auxiliary: std::sync::Arc::default(),
+            tun_identity: None,
         })
     }
 
@@ -237,14 +239,13 @@ impl NativeLifecycleHost {
     }
 
     /// Startup only, while canonical runtime and migration ownership are held.
-    /// No directory is removed unless the whole host is proven core/TUN-empty.
+    /// No directory is removed unless cores and our configured TUN scope are empty.
     pub(crate) fn cleanup_probe_orphans(&self) -> Result<(), HostStepError> {
         crate::probe_executor::cleanup_orphans(&self.paths.runtime_directory, || {
             self.core.is_none()
                 && processes_named_strict(&self.paths.proc_root, "mihomo")
                     .is_ok_and(|pids| pids.is_empty())
-                && tun_interface_count_strict(&self.paths.sys_class_net)
-                    .is_ok_and(|count| count == 0)
+                && self.managed_tuns().is_ok_and(|count| count == 0)
         })
         .map(|_| ())
         .map_err(|_| HostStepError::Cleanup)
@@ -302,6 +303,61 @@ impl NativeLifecycleHost {
         }
         Ok(u8::try_from(count).unwrap_or(u8::MAX))
     }
+
+    fn configured_devices(
+        &self,
+    ) -> Result<Option<std::collections::BTreeSet<String>>, HostStepError> {
+        let Some(mut devices) =
+            crate::tun_scope::configured_devices(&self.paths.config_directory, self.uid)?
+        else {
+            return Ok(None);
+        };
+        if let Some((name, _)) = &self.tun_identity {
+            devices.insert(name.clone());
+        }
+        Ok(Some(devices))
+    }
+
+    fn managed_tuns(&self) -> Result<u8, HostStepError> {
+        let inventory = crate::tun_scope::inventory(&self.paths.sys_class_net)?;
+        if self.core.is_some()
+            && let Some((name, pinned)) = &self.tun_identity
+            && inventory.contains(name)
+            && crate::tun_scope::device_index(&self.paths.sys_class_net, name)? != *pinned
+        {
+            return Err(HostStepError::Observation);
+        }
+        let count = match self.configured_devices()? {
+            Some(devices) => inventory.intersection(&devices).count(),
+            None => inventory.len(),
+        };
+        u8::try_from(count).map_err(|_| HostStepError::Observation)
+    }
+
+    fn verify_tun(&mut self, pid: u32) -> Result<bool, HostStepError> {
+        let payload = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
+            pid,
+            omavless_mihomo::ReadOnlyEndpoint::Configs,
+            Instant::now() + OBSERVATION_TIMEOUT,
+        )
+        .ok_or(HostStepError::Observation)?;
+        let Some(device) = crate::traffic::controller_device(&payload) else {
+            return Ok(false);
+        };
+        if self
+            .configured_devices()?
+            .is_some_and(|names| !names.contains(device))
+        {
+            return Ok(false);
+        }
+        let index = crate::tun_scope::device_index(&self.paths.sys_class_net, device)?;
+        if let Some((name, pinned)) = &self.tun_identity {
+            return Ok(name == device && *pinned == index);
+        }
+        self.tun_identity = Some((device.to_owned(), index));
+        Ok(true)
+    }
 }
 
 impl LifecycleHost for NativeLifecycleHost {
@@ -333,7 +389,7 @@ impl LifecycleHost for NativeLifecycleHost {
         let facts = self.fresh_observation(desired)?;
         if !facts.owned_core_running
             || facts.visible_mihomo_count != 1 + facts.owned_auxiliary_mihomo_count
-            || facts.visible_tun_count != 1
+            || facts.managed_tun_count != 1
             || !facts.owned_controller_config_verified
             || !facts.desired_profile_matches_owned
         {
@@ -386,7 +442,7 @@ impl LifecycleHost for NativeLifecycleHost {
         let valid = |facts: NativeLocalObservation| {
             facts.owned_core_running
                 && facts.visible_mihomo_count == 1 + facts.owned_auxiliary_mihomo_count
-                && facts.visible_tun_count == 1
+                && facts.managed_tun_count == 1
                 && facts.owned_controller_config_verified
                 && facts.desired_profile_matches_owned
         };
@@ -462,6 +518,12 @@ impl LifecycleHost for NativeLifecycleHost {
                         )
                     })
             });
+        if verified
+            && self.tun_identity.is_some()
+            && !self.verify_tun(pid.ok_or(HostStepError::Observation)?)?
+        {
+            return Err(HostStepError::Observation);
+        }
         let (after_pid, after_running) = match self.core.as_mut() {
             Some(core) => (
                 core.pid(),
@@ -492,6 +554,7 @@ impl LifecycleHost for NativeLifecycleHost {
                 auxiliary.is_some_and(|pid| named.contains(&pid)),
             ),
             visible_tun_count: tun,
+            managed_tun_count: self.managed_tuns()?,
             owned_controller_config_verified: verified,
             desired_profile_matches_owned: profile_matches,
         })
@@ -525,11 +588,16 @@ impl LifecycleHost for NativeLifecycleHost {
             }
             None => (None, false, false),
         };
+        let tun_verified = if own_running && controller_ready {
+            self.verify_tun(own_pid.ok_or(HostStepError::Observation)?)?
+        } else {
+            false
+        };
         Ok(OwnedObservation {
             service_active: own_running,
-            controller_ready,
+            controller_ready: controller_ready && tun_verified,
             core_count: self.visible_core_count(own_pid, own_running)?,
-            tun_count: tun_interface_count(&self.paths.sys_class_net),
+            tun_count: self.managed_tuns()?,
             active_profile_matches: own_running
                 && controller_ready
                 && self.profile_id.as_deref() == Some(desired.profile_id.as_str()),
@@ -603,6 +671,20 @@ impl LifecycleHost for NativeLifecycleHost {
         if self.core.is_some() || self.profile_id.is_none() {
             return Err(HostStepError::Start);
         }
+        // Refuse an existing configured device before the child can touch it.
+        // This is a collision, never permission to delete or adopt a foreign TUN.
+        if self.managed_tuns()? != 0 {
+            return Err(HostStepError::Start);
+        }
+        if let Some(names) = self.configured_devices()? {
+            for name in names {
+                match fs::symlink_metadata(self.paths.sys_class_net.join(name)) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    _ => return Err(HostStepError::Start),
+                }
+            }
+        }
+        self.tun_identity = None;
         self.remove_controller()?;
         let mut core = OwnedCore::spawn(
             &self.paths.core,
@@ -777,6 +859,113 @@ mod tests {
     }
 
     #[test]
+    fn foreign_tun_is_not_our_cleanup_but_configured_collision_still_blocks() {
+        let (root, mut host) = observation_fixture();
+        fs::write(
+            &host.paths.template,
+            b"tun:\n  enable: true\n  device: Meta\n",
+        )
+        .unwrap();
+        fs::set_permissions(&host.paths.template, fs::Permissions::from_mode(0o600)).unwrap();
+        let foreign = host.paths.sys_class_net.join("tailscale0");
+        fs::create_dir(&foreign).unwrap();
+        fs::write(foreign.join("tun_flags"), b"0x1001\n").unwrap();
+        let intent = DesiredState::default();
+        let observed = host.observe(&intent).unwrap();
+        assert_eq!(
+            crate::desired::reconcile(&intent, observed),
+            crate::desired::ReconcileAction::SettledDisconnected
+        );
+        let facts = host.fresh_observation(&intent).unwrap();
+        assert_eq!((facts.visible_tun_count, facts.managed_tun_count), (1, 0));
+        host.cleanup_probe_orphans().unwrap();
+        host.stop_owned().unwrap();
+        assert!(foreign.exists());
+        let managed = host.paths.sys_class_net.join("Meta");
+        fs::create_dir(&managed).unwrap();
+        fs::write(managed.join("tun_flags"), b"0x1001\n").unwrap();
+        assert_eq!(host.observe(&intent).unwrap().tun_count, 1);
+        host.profile_id = Some("synthetic".into());
+        assert!(host.start_prepared().is_err());
+        assert!(managed.exists()); // Never delete a colliding device.
+        host.stop_owned().unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::remove_dir_all(&managed).unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 0);
+        fs::create_dir(&managed).unwrap(); // Even a non-TUN name collision refuses spawn.
+        host.profile_id = Some("synthetic".into());
+        assert!(host.start_prepared().is_err());
+        assert!(foreign.exists());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retained_device_blocks_cleanup_even_after_config_changes() {
+        let (root, mut host) = observation_fixture();
+        fs::write(
+            &host.paths.template,
+            b"tun:\n  enable: true\n  device: NewTun\n",
+        )
+        .unwrap();
+        fs::set_permissions(&host.paths.template, fs::Permissions::from_mode(0o600)).unwrap();
+        let managed = host.paths.sys_class_net.join("OldTun");
+        fs::create_dir(&managed).unwrap();
+        fs::write(managed.join("tun_flags"), b"0x1001\n").unwrap();
+        fs::write(managed.join("ifindex"), b"7\n").unwrap();
+        host.tun_identity = Some(("OldTun".into(), 7));
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::copy(&host.paths.template, &host.paths.active_config).unwrap();
+        fs::write(&host.paths.core, b"#!/bin/sh\nexec /usr/bin/sleep 10\n").unwrap();
+        host.core = Some(
+            OwnedCore::spawn(
+                &host.paths.core,
+                &host.paths.data_directory,
+                &host.paths.active_config,
+                &host.paths.controller_socket,
+            )
+            .unwrap(),
+        );
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::write(managed.join("ifindex"), b"8\n").unwrap();
+        assert!(host.managed_tuns().is_err());
+        host.stop_owned().unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::remove_dir_all(managed).unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 0);
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_and_changed_configs_never_hide_a_tun() {
+        let (root, host) = observation_fixture();
+        let tun = host.paths.sys_class_net.join("foreign");
+        fs::create_dir(&tun).unwrap();
+        fs::write(tun.join("tun_flags"), b"0x1001\n").unwrap();
+        fs::write(&host.paths.template, b"tun: {enable: true, device: Meta}\n").unwrap();
+        fs::set_permissions(&host.paths.template, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::write(
+            &host.paths.template,
+            b"tun:\n  enable: true\n  device: Meta\n",
+        )
+        .unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 0);
+        fs::write(
+            &host.paths.active_config,
+            b"tun:\n  enable: true\n  device: foreign\n",
+        )
+        .unwrap();
+        fs::set_permissions(&host.paths.active_config, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(host.managed_tuns().unwrap(), 1);
+        fs::write(tun.join("tun_flags"), b"invalid\n").unwrap();
+        assert!(host.managed_tuns().is_err());
+        drop(host);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn fresh_observation_empty_has_no_controller_or_vpn_health_claim() {
         let (root, mut host) = observation_fixture();
         let observed = host.fresh_observation(&DesiredState::default()).unwrap();
@@ -787,6 +976,7 @@ mod tests {
                 visible_mihomo_count: 0,
                 owned_auxiliary_mihomo_count: 0,
                 visible_tun_count: 0,
+                managed_tun_count: 0,
                 owned_controller_config_verified: false,
                 desired_profile_matches_owned: false
             }

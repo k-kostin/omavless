@@ -31,7 +31,7 @@ fn clean(observation: &Value) -> bool {
         && observation["result"]["facts"]["ownedCoreRunning"] == false
         && observation["result"]["facts"]["visibleMihomoCount"] == 0
         && observation["result"]["facts"]["ownedAuxiliaryMihomoCount"] == 0
-        && observation["result"]["facts"]["visibleTunCount"] == 0
+        && observation["result"]["facts"]["managedTunCount"] == 0
 }
 
 impl RuntimeServer {
@@ -131,12 +131,12 @@ mod tests {
             "availability":"observed", "desired":{"connected":false},
             "lastKnownActual":"disconnected", "manualRecoveryRequired":false,
             "facts":{"ownedCoreRunning":false,"visibleMihomoCount":0,
-                "ownedAuxiliaryMihomoCount":0,"visibleTunCount":0}}});
+                "ownedAuxiliaryMihomoCount":0,"visibleTunCount":0,"managedTunCount":0}}});
         assert!(clean(&proof));
         for key in [
             "visibleMihomoCount",
             "ownedAuxiliaryMihomoCount",
-            "visibleTunCount",
+            "managedTunCount",
         ] {
             for value in [json!(1), Value::Null] {
                 let mut bad = proof.clone();
@@ -154,5 +154,8 @@ mod tests {
             assert!(!clean(&bad));
         }
         assert!(!clean(&json!({})));
+        let mut foreign = proof.clone();
+        foreign["result"]["facts"]["visibleTunCount"] = json!(2);
+        assert!(clean(&foreign));
     }
 }

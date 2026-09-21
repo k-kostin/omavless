@@ -37,6 +37,7 @@ pub(crate) fn project(
             "visibleMihomoCount":o.visible_mihomo_count,
             "ownedAuxiliaryMihomoCount":o.owned_auxiliary_mihomo_count,
             "visibleTunCount":o.visible_tun_count,
+            "managedTunCount":o.managed_tun_count,
             "ownedControllerConfigVerified":o.owned_controller_config_verified,
             "desiredProfileMatchesOwned":o.desired_profile_matches_owned
         })
@@ -105,6 +106,7 @@ mod tests {
                 visible_mihomo_count: 1,
                 owned_auxiliary_mihomo_count: 0,
                 visible_tun_count: 1,
+                managed_tun_count: 1,
                 owned_controller_config_verified: true,
                 desired_profile_matches_owned: true,
             }),

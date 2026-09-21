@@ -65,4 +65,17 @@ test('active profile is never inferred from selection, name, last-used or unavai
   }
   assert.equal(p.activeProfile(null),null);
 });
+test('foreign TUNs do not become our recovery state or connected device',()=>{
+  const {snapshot:s,observation:o}=fixture();
+  Object.assign(o.facts,{visibleTunCount:2,managedTunCount:1});
+  assert.equal(p.project(s,o,false).state,'connected');
+  o.facts.managedTunCount=0;assert.equal(p.project(s,o,false).state,'unavailable');
+  s.lastKnownActual=o.lastKnownActual='disconnected';s.desired.connected=o.desired.connected=false;
+  Object.assign(o.facts,{ownedCoreRunning:false,visibleMihomoCount:0,managedTunCount:0});
+  assert.equal(p.project(s,o,false).state,'disconnected');
+  for(const invalid of [-1,3,0.5,null,'0']) {
+    o.facts.managedTunCount=invalid; assert.equal(p.project(s,o,false).state,'unavailable');
+  }
+  o.facts.managedTunCount=1;assert.equal(p.project(s,o,false).state,'unavailable');
+});
 console.log('native presentation: '+n+' passed');
