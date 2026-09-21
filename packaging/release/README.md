@@ -1,6 +1,9 @@
 # Native 0.8.1 release preparation
 
-Current final candidate: **0.8.1**, unpublished and pending final distribution gates.
+Current candidate: **0.8.1**, published as a
+[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1),
+not stable or a marketplace update. See the
+[artifact and public-download record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
 The earlier public `v0.8.0` prerelease and its assets remain immutable.
 Use explicit `--stable` for this source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.

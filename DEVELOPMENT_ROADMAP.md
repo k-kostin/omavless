@@ -13,9 +13,12 @@ identities. Main/release finalization is owner-authorized; marketplace submissio
 is expressly withheld until the owner separately requests it.
 
 The owner selected **0.8.1** for the corrected artifacts; the existing 0.8.0
-prerelease is immutable. #258–260 are merged and #261 owns the integrated
-setup/release candidate. The version bump does not transfer historical build or
-host evidence to newly built packages.
+prerelease is immutable. #258–261 are merged. Native packages and their matching
+frontend are now public as a non-stable prerelease with
+[verified anonymous downloads](docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
+Fresh guided provisioning remains the stable-promotion gate. Publication does
+not transfer historical host evidence to newly built packages or authorize
+marketplace submission.
 
 **Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
 installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)

@@ -32,6 +32,27 @@ commit; the release's `frontend-pair.json` records that frontend identity and
 unchanged protected runtime/build/package inputs. The common QML archive serves
 both architectures; runtime build provenance stays architecture-specific.
 
+## Public prerelease verification
+
+[#261](https://github.com/k-kostin/omavless/pull/261) merged at
+`20b5e6c4f3ef466207d37306d4a70fe5876162f6`; its tree is identical to the
+fully green final PR head `26ea8c6d4ad0c61dbec7d429c70a585fb671de49`.
+Main CI passed. The [v0.8.1 prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1)
+points to that merge and is explicitly **not latest/stable**. The old v0.8.0
+tag still points to `b7fd0a99b8b169f0933e5f43ea4389642015193a`.
+
+The final common frontend SHA-256 is
+`4d47554fbc257801f69834f7c64fcdc0ad1bd70ff5d29df07a16165ea63de447`.
+Its offline pairing reports `runtimeInputsEquivalent: true` and
+`bootstrapPins: matched`. All six public assets were fetched anonymously using
+bounded HTTPS-only redirects. The downloaded `SHA256SUMS` matched the retained
+local file, and all five covered artifacts passed verification. The pairing
+JSON preserves its earlier assembly-time `publishedDownloadVerified: false`;
+this subsequent download check does not rewrite that provenance record.
+
+The public packages were not installed on the active PC by this release pass.
+Its read-only observation still reported Connected/Rule without manual recovery.
+
 ## Evidence boundaries
 
 - Local deterministic gates: Rust 978 passed / 11 ignored, 72 suites;

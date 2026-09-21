@@ -1,7 +1,9 @@
 # Install OmaVLESS — native candidate
 
-The prepared source version is **0.8.1**, still pending final release acceptance
-and publication. Use the [native installation and recovery guide](NATIVE_INSTALL.md)
+The **0.8.1** candidate is available as a
+[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1);
+stable and marketplace acceptance remain pending.
+Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit
 activation, frontend installation and updates. Python is not a runtime dependency.
 

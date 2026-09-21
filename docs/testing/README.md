@@ -20,6 +20,9 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [0.8.1 artifacts and public downloads](NATIVE_081_ARTIFACTS_2026-09-21.md):
+  native x86_64/ARM64 builds, exact frontend/runtime pairing, public prerelease
+  checksums and the separate remaining fresh-provisioning gate.
 - [Physical x86-64 PC pre-install checkpoint](PC_080_PREINSTALL_2026-09-21.md):
   verified 0.8.0 package/frontend pair, exact-head local tests, preserved legacy
   state and explicit remaining attended installation/network gates.
