@@ -21,7 +21,7 @@ Item {
   readonly property bool nativeQuitting: nativeQuitPending || nativeQuitProcess.running
   property bool nativeQuitFailed: false
   function quitNativeApplication() {
-    if (!nativeCanAct || nativeEditorRunning || nativeImportBusy) return false
+    if (!nativeCanStop || nativeEditorRunning || nativeImportBusy) return false
     var operation = "quit-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36)
     nativeQuitFailed = false
     // Process.running becomes true asynchronously. Seal UI admission before
@@ -99,6 +99,10 @@ Item {
   readonly property bool nativeCanAct: nativeFactsCurrent && !nativePending && !nativeQuitting
     && nativeSnapshot.lastKnownActual !== "manualRecoveryRequired"
     && !nativeObservation.manualRecoveryRequired
+  /* Cleanup is a fenced request to the native owner, not a UI claim of safety.
+     A broken controller/recovery state must not hide the explicit exit path. */
+  readonly property bool nativeCanStop: nativeOwner && !nativeSnapshotFailed && nativeSnapshot !== null
+    && !nativePending && !nativeQuitting && !nativeActionRunning && !nativeOutcomeUnknown
   property int _nativeOperationSerial: 0
   property bool nativeStartupSettingsVisible: false
   property var nativeStartupCapability: null
@@ -659,7 +663,8 @@ Item {
   }
 
   function requestNativeAction(action, profileId, mode) {
-    if (!nativeCanAct || ["connect", "disconnect", "mode", "onboarding-complete"].indexOf(action) < 0) return false
+    if (["connect", "disconnect", "mode", "onboarding-complete"].indexOf(action) < 0) return false
+    if (!(action === "disconnect" ? nativeCanStop : nativeCanAct)) return false
     if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)

@@ -64,6 +64,18 @@ selection and hover must not overlap adjacent controls or move their hit areas.
 The owner-hidden main Test and latency sections remain hidden until explicitly
 requested. Do not restore them as part of general polish.
 
+### Explicit exit during connection recovery
+
+Recovery/unavailable controller facts block Connect, mode changes and ordinary
+mutations, but must not hide the explicit Disconnect and confirmed Full Quit
+request paths. These require a current parsed native snapshot, no failed snapshot
+read, no pending/running mutation, no unresolved outcome and no concurrent Quit.
+The request retains instance/revision/operation fencing; only the native owner
+can decide whether cleanup is safe. Admission does not turn a recovery warning
+into Disconnected or claim shutdown success. General metadata/ownership recovery
+can still refuse cleanup; the UI must keep that failure visible. No layout,
+confirmation, selection or ordinary panel-close semantics change.
+
 ## Three independent checks before calling a change ready
 
 1. **Behavior:** does the real handler address the right record/state, honor

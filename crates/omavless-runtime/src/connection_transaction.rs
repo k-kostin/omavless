@@ -156,6 +156,7 @@ pub(crate) struct ConnectionTransactionState<H> {
     cutover_paths: CutoverPaths,
     uid: u32,
     blocked: bool,
+    connection_blocked: bool,
 }
 
 impl<H: LifecycleHost> ConnectionTransactionState<H> {
@@ -173,6 +174,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             cutover_paths,
             uid,
             blocked: false,
+            connection_blocked: false,
         }
     }
 
@@ -244,7 +246,17 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
     }
 
     pub(crate) fn blocked(&self) -> bool {
+        self.connection_blocked || self.stop_blocked()
+    }
+
+    // A lifecycle failure can be resolved by explicit, verified owned cleanup.
+    // Store/cutover/preset ambiguity cannot be cleared by a successful stop.
+    pub(crate) fn stop_blocked(&self) -> bool {
         self.blocked || crate::routing_preset::pending(&self.desired_paths)
+    }
+
+    pub(crate) fn block_connection(&mut self) {
+        self.connection_blocked = true;
     }
 
     pub(crate) fn block(&mut self) {
@@ -356,6 +368,10 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         profile_id: String,
         mode: Option<crate::desired::RoutingMode>,
     ) -> Completion {
+        let previous = match self.desired() {
+            Ok(desired) => desired,
+            Err(error) => return Completion::Ordinary(Err(error)),
+        };
         let plan = match prepare_pointer_mutation(
             &self.store_path,
             self.uid,
@@ -378,12 +394,23 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             Err(_) if !lifecycle.changed => {
                 // Never kill a healthy connection merely because its legacy
                 // compatibility pointer could not be repaired.
+                self.block();
                 Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired))
             }
             Err(_) => {
                 let disconnected = self.lifecycle.disconnect().is_ok();
                 let restored = plan.restore_locked(lock, &self.cutover_paths).is_ok();
-                if disconnected && restored {
+                if !restored {
+                    self.block();
+                }
+                let recovered = disconnected
+                    && restored
+                    && (!previous.connected
+                        || self
+                            .lifecycle
+                            .connect(&previous.profile_id, previous.mode)
+                            .is_ok());
+                if recovered {
                     Completion::Ordinary(Err(ConnectionTransactionError::TransitionFailedRestored))
                 } else {
                     Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired))
@@ -408,10 +435,14 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             Err(error) => return Completion::Ordinary(Err(lifecycle_error(error))),
         };
         match plan.commit_locked(lock, &self.cutover_paths) {
-            Ok(write) => Completion::Ordinary(Ok(ConnectionTransactionOutcome {
-                changed: lifecycle.changed || write == PreparedWrite::Changed,
-                pruned: plan.pruned,
-            })),
+            Ok(write) => {
+                let recovered = self.connection_blocked;
+                self.connection_blocked = false;
+                Completion::Ordinary(Ok(ConnectionTransactionOutcome {
+                    changed: recovered || lifecycle.changed || write == PreparedWrite::Changed,
+                    pruned: plan.pruned,
+                }))
+            }
             Err(_) if lifecycle.changed => {
                 // Desired state and host are safely disconnected. Do not
                 // reconnect merely to restore legacy presentation metadata.
@@ -514,7 +545,12 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             _ => return Err(ConnectionOwnerError::Invariant),
         }
 
-        if self.transaction.blocked() {
+        let blocked = if matches!(action, OwnerAction::Disconnect) {
+            self.transaction.stop_blocked()
+        } else {
+            self.transaction.blocked()
+        };
+        if blocked {
             let error = ConnectionTransactionError::ManualRecoveryRequired;
             let cached = self
                 .coordinator
@@ -561,7 +597,7 @@ impl<H: LifecycleHost> OfflineConnectionOwner<H> {
             .as_ref()
             .is_err_and(|error| *error == ConnectionTransactionError::ManualRecoveryRequired)
         {
-            self.transaction.block();
+            self.transaction.block_connection();
         }
         let cached = self.coordinator.finish(token, result)?;
         if cached.error != outcome.as_ref().err().map(|error| error.stable_code()) {
@@ -646,8 +682,11 @@ mod tests {
 
         fn stop_owned(&mut self) -> Result<(), HostStepError> {
             self.observation = empty();
-            if self.sabotage_commit {
+            if self.sabotage_commit
+                && fs::metadata(&self.store_path).unwrap().permissions().mode() & 0o777 == 0o644
+            {
                 fs::set_permissions(&self.store_path, fs::Permissions::from_mode(0o600)).unwrap();
+                self.sabotage_commit = false;
             }
             if self.sabotage_stop {
                 fs::set_permissions(&self.store_path, fs::Permissions::from_mode(0o644)).unwrap();
@@ -902,6 +941,61 @@ mod tests {
         assert_eq!(fs::read(&store_path).unwrap(), before);
         assert!(!read_desired(&desired, uid).unwrap().connected);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_commits_new_pointers_or_restores_old_connection_and_store() {
+        for fail_pointer in [false, true] {
+            let (root, store_path, desired, cutover, uid) =
+                fixture("switch-pointers", true, PROFILE, PROFILE);
+            let mut records = store(PROFILE, PROFILE);
+            records["profiles"][1]["missing"] = json!(false);
+            fs::write(&store_path, serde_json::to_vec(&records).unwrap()).unwrap();
+            let before = fs::read(&store_path).unwrap();
+            let host = FakeHost {
+                observation: healthy(),
+                store_path: store_path.clone(),
+                sabotage_observe: false,
+                sabotage_commit: fail_pointer,
+                sabotage_stop: false,
+                fail_start: false,
+            };
+            let mut owner =
+                OfflineConnectionOwner::new(host, desired.clone(), &store_path, cutover, uid);
+            let (cached, outcome) = applied(
+                owner
+                    .execute(request(
+                        OwnerAction::Connect {
+                            profile_id: MISSING.to_owned(),
+                            mode: None,
+                        },
+                        "switch",
+                        0,
+                    ))
+                    .unwrap(),
+            );
+            if fail_pointer {
+                assert_eq!(
+                    outcome.unwrap_err(),
+                    ConnectionTransactionError::TransitionFailedRestored
+                );
+                assert_eq!(cached.revision, 0);
+                assert!(!owner.transaction.blocked());
+                assert_eq!(owner.actual(), ActualState::Connected);
+                assert_eq!(read_desired(&desired, uid).unwrap().profile_id, PROFILE);
+                assert_eq!(fs::read(&store_path).unwrap(), before);
+            } else {
+                assert!(outcome.unwrap().changed);
+                assert_eq!(cached.revision, 1);
+                assert_eq!(owner.actual(), ActualState::Connected);
+                assert_eq!(read_desired(&desired, uid).unwrap().profile_id, MISSING);
+                let written: Value =
+                    serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+                assert_eq!(written["activeId"], MISSING);
+                assert_eq!(written["lastId"], MISSING);
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

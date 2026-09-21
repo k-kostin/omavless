@@ -206,6 +206,15 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     assert_eq!(running.tun_count, 0);
     assert!(running.active_profile_matches);
     assert!(host.core_pid().is_some());
+    // A no-TUN core must never become a healthy VPN by counting an unrelated
+    // interface in the conservative (unknown-config) inventory.
+    let foreign_tun = root.join("sys-class-net/foreign");
+    fs::create_dir(&foreign_tun).unwrap();
+    fs::write(foreign_tun.join("tun_flags"), "0x1001\n").unwrap();
+    let unrelated = host.observe(&desired).unwrap();
+    assert_eq!(unrelated.tun_count, 1);
+    assert!(!unrelated.controller_ready);
+    fs::remove_dir_all(foreign_tun).unwrap();
     let wrong_mode = DesiredState {
         mode: RoutingMode::Global,
         ..desired.clone()
@@ -358,11 +367,38 @@ fn native_host_stages_validates_owns_observes_commits_and_stops_mihomo() {
     let missing = DesiredState {
         connected: true,
         profile_id: "00000000-0000-4000-8000-000000000099".to_owned(),
-        ..desired
+        ..desired.clone()
     };
     assert!(host.prepare(&missing).is_err());
     host.discard_prepared().unwrap();
     assert_eq!(fs::read(config.join("config.yaml")).unwrap(), committed);
     assert!(!config.join(".config.candidate.yaml").exists());
+
+    // Regression: controller loss must not strand an identity-owned process.
+    // Real Mihomo/Unix controller, synthetic profile, no TUN/listeners/traffic.
+    // This proves cleanup, not connected-TUN reconciliation or internet health.
+    host.prepare(&desired).unwrap();
+    host.start_prepared().unwrap();
+    host.commit_prepared().unwrap();
+    let owned_pid = host.core_pid().unwrap();
+    fs::remove_file(root.join("runtime/mihomo.sock")).unwrap();
+    let state = private_directory(&root, "state");
+    let desired_paths = omavless_runtime::desired::DesiredPaths::below(&state);
+    omavless_runtime::desired::write_desired(&desired_paths, uid, &desired).unwrap();
+    let mut executor =
+        omavless_runtime::lifecycle::LifecycleExecutor::new(host, desired_paths.clone(), uid);
+    let result = executor.disconnect().unwrap();
+    assert_eq!(
+        result.actual,
+        omavless_runtime::lifecycle::ActualState::Disconnected
+    );
+    assert!(executor.host().core_pid().is_none());
+    assert!(!PathBuf::from(format!("/proc/{owned_pid}")).exists());
+    assert!(
+        !omavless_runtime::desired::read_desired(&desired_paths, uid)
+            .unwrap()
+            .connected
+    );
+    drop(executor);
     fs::remove_dir_all(root).unwrap();
 }

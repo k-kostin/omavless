@@ -1170,8 +1170,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if outcome
             .as_ref()
             .is_err_and(|error| error.requires_manual_recovery())
+            && !self.transaction.blocked()
         {
-            self.transaction.block();
+            if matches!(outcome, Err(NativeTransactionError::Connection(_))) {
+                self.transaction.block_connection();
+            } else {
+                self.transaction.block();
+            }
         }
         let result = match outcome {
             Ok(value) if value.changed() => MutationResult::Success,
@@ -1215,11 +1220,19 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
             Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
         };
-        if let Some(outcome) = self.blocked(
-            token,
-            NativeTransactionError::Connection(ConnectionTransactionError::ManualRecoveryRequired),
-        )? {
-            return Ok(outcome);
+        let blocked = if matches!(action, OwnerAction::Disconnect) {
+            self.transaction.stop_blocked()
+        } else {
+            self.transaction.blocked()
+        };
+        if blocked {
+            return self.finish(
+                token,
+                Err(NativeTransactionError::Connection(
+                    ConnectionTransactionError::ManualRecoveryRequired,
+                )),
+                false,
+            );
         }
         let lock = match self.preflight_lock(token, NativeTransactionError::Connection)? {
             LockAdmission::Locked(lock) => lock,
@@ -2550,7 +2563,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_recovery_blocks_every_mutation_family() {
+    fn connection_recovery_blocks_mutations_but_allows_verified_explicit_stop() {
         let (root, store_path, mut owner) = fixture("manual-block");
         applied(owner.execute_connection(connect("connect-1", 0)).unwrap());
         owner.host_mut().fail_stop = true;
@@ -2589,8 +2602,59 @@ mod tests {
         };
         assert_eq!(cached.revision, 1);
         assert_eq!(error.stable_code(), StableErrorCode::ManualRecoveryRequired);
-        assert_eq!(fs::read(store_path).unwrap(), before);
+        assert_eq!(fs::read(&store_path).unwrap(), before);
+        // Refusing an unrelated mutation must not promote a connection-only
+        // recovery latch to an unrecoverable metadata barrier.
+        owner.host_mut().fail_stop = false;
+        let disconnect = OwnerRequest::new(
+            OwnerAction::Disconnect,
+            Some("disconnect-2"),
+            Some(1),
+            MutationDigest::from_semantic_bytes(b"explicit-recovery-stop"),
+        );
+        let (cached, _) = applied(owner.execute_connection(disconnect).unwrap());
+        assert_eq!(cached.revision, 2);
+        assert_eq!(owner.actual(), ActualState::Disconnected);
+        assert!(!owner.transaction.blocked());
+        let written: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        assert_eq!(written["activeId"], "");
+        assert_eq!(written["profiles"].as_array().unwrap().len(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_stop_does_not_bypass_general_recovery_or_ownership_fences() {
+        for general_barrier in [true, false] {
+            let (root, _, mut owner) = support_fixture("stop-fences");
+            owner.transaction.block_connection();
+            if general_barrier {
+                owner.transaction.block();
+            } else {
+                owner.required_ownership.as_mut().unwrap().generation += 1;
+            }
+            let calls = owner.host().calls;
+            let request = OwnerRequest::new(
+                OwnerAction::Disconnect,
+                Some("safe-stop"),
+                Some(0),
+                MutationDigest::from_semantic_bytes(b"safe-stop"),
+            );
+            let result = owner.execute_connection(request);
+            if general_barrier {
+                assert!(matches!(
+                    result,
+                    Ok(NativeOwnerExecution::Applied {
+                        outcome: Err(_),
+                        ..
+                    })
+                ));
+            } else {
+                assert_eq!(result, Err(NativeOwnerError::OwnershipUnavailable));
+            }
+            assert_eq!(owner.host().calls, calls);
+            assert!(owner.transaction.blocked());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

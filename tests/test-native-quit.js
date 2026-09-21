@@ -3,7 +3,7 @@ const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:a
 const service = fs.readFileSync(__dirname + '/../plugin/Service.qml', 'utf8');
 const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 function context() {
-  const c = vm.createContext({nativeCanAct:true,nativeEditorRunning:false,nativeImportBusy:false,
+  const c = vm.createContext({nativeCanAct:true,nativeCanStop:true,nativeEditorRunning:false,nativeImportBusy:false,
     nativeQuitFailed:true,nativeQuitPending:false,nativeQuitProcess:{running:false},_nativeOperationSerial:0,
     nativeSnapshot:{instanceId:'synthetic-instance',revision:7},backendPath:'/synthetic/backend.sh'});
   const start=service.indexOf('  function quitNativeApplication('),end=service.indexOf('\n  }',start)+4;
@@ -18,15 +18,16 @@ test('exit is a fixed fenced command with no store data in argv',()=>{
   assert.match(c.nativeQuitProcess.command[5],/^quit-[a-z0-9]+-1$/);
 });
 test('unsafe or busy UI cannot submit Quit',()=>{
-  for(const [key,value] of [['nativeCanAct',false],['nativeEditorRunning',true],['nativeImportBusy',true]]){
+  for(const [key,value] of [['nativeCanStop',false],['nativeEditorRunning',true],['nativeImportBusy',true]]){
     const c=context();c[key]=value;assert.equal(c.quitNativeApplication(),false);assert.equal(c.nativeQuitProcess.running,false);
   }
 });
 test('asynchronous Process startup is sealed by the actual pending admission bindings',()=>{
   const c=context();c.nativeFactsCurrent=true;c.nativePending=null;
+  c.nativeOwner=true;c.nativeSnapshotFailed=false;c.nativeActionRunning=false;c.nativeOutcomeUnknown=false;
   c.nativeObservation={manualRecoveryRequired:false};
   Object.defineProperty(c.nativeQuitProcess,'running',{get(){return false;},set(_value){}});
-  for(const name of ['nativeQuitting','nativeCanAct']) {
+  for(const name of ['nativeQuitting','nativeCanAct','nativeCanStop']) {
     const match=service.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));
     assert(match);vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',c);
   }
@@ -34,6 +35,14 @@ test('asynchronous Process startup is sealed by the actual pending admission bin
   assert.equal(c.nativeCanAct,false);assert.equal(c.quitNativeApplication(),false);
   assert.equal(c._nativeOperationSerial,1);
   c.nativeQuitPending=false;assert.equal(c.nativeCanAct,true);
+});
+test('explicit confirmed Quit remains available during recovery but not ordinary mutations',()=>{
+  const c=context();c.nativeCanAct=false;
+  c.nativeSnapshot.lastKnownActual='manualRecoveryRequired';
+  assert(c.quitNativeApplication());
+  assert.equal(c.nativeSnapshot.lastKnownActual,'manualRecoveryRequired');
+  assert.match(panel,/id: nativeQuitSetting[\s\S]*?actionEnabled: vless.nativeCanStop/);
+  assert.match(panel,/id: nativeRecoveryDisconnect;[^\n]*enabled: vless.nativeCanStop/);
 });
 test('quit blocks new UI actions and does not kill authorization on short timer',()=>{
   assert.match(service,/nativeCanAct: nativeFactsCurrent && !nativePending && !nativeQuitting/);
