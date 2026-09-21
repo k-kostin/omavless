@@ -12,6 +12,11 @@ finish the applicable distribution gates. Preserve existing immutable release
 identities. Main/release finalization is owner-authorized; marketplace submission
 is expressly withheld until the owner separately requests it.
 
+The owner selected **0.8.1** for the corrected artifacts; the existing 0.8.0
+prerelease is immutable. #258–260 are merged and #261 owns the integrated
+setup/release candidate. The version bump does not transfer historical build or
+host evidence to newly built packages.
+
 **Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
 installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
 adds a first screen independent of the native runtime and explicit guided

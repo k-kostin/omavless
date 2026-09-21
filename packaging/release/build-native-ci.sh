@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Build-only CI: no installed host, private fixture, release token or publishing.
 set -euo pipefail
-[[ $EUID -ne 0 && $(uname -m) == x86_64 ]] || exit 2
+architecture=$(uname -m)
+[[ $EUID -ne 0 && ( $architecture == x86_64 || $architecture == aarch64 ) ]] || exit 2
 checkout=$(git rev-parse --show-toplevel)
 runtime_source=$(git -C "$checkout" rev-parse HEAD)
 [[ $runtime_source =~ ^[0-9a-f]{40}$ ]] || exit 2
@@ -33,7 +34,7 @@ readelf -h "$CARGO_TARGET_DIR/release/omavless" > "$artifacts/elf-header.txt"
 mkdir -m 700 "$build_root/assembled"
 python3 packaging/release/build-candidate.py "$build_root/assembled" \
   "$CARGO_TARGET_DIR/release/omavless" "$runtime_source" --stable
-package="omavless-$product_version-1-x86_64.pkg.tar.zst"
+package="omavless-$product_version-1-$architecture.pkg.tar.zst"
 # Inspector runs on the native architecture; no installation or activation.
 python3 - "$build_root/assembled/$package" "$runtime_source" "$product_version" <<'PY'
 import importlib.util
@@ -45,7 +46,7 @@ spec.loader.exec_module(inspection)
 info = inspection.inspect_archive(pathlib.Path(sys.argv[1]))
 assert info['source'] == sys.argv[2]
 assert info['version'] == sys.argv[3] + '-1'
-print('Native x86_64 package inspection PASS; installed host acceptance NOT RUN')
+print('Native package inspection PASS; installed host acceptance NOT RUN')
 PY
 cp --reflink=never --sparse=never "$build_root/assembled/$package" "$artifacts/$package"
 cp --reflink=never --sparse=never "$build_root/assembled/release-candidate.json" "$artifacts/runtime-build.json"

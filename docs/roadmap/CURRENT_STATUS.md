@@ -6,6 +6,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.8.1 selected by the owner:** retain the already published `v0.8.0`
+  prerelease unchanged. #258–260 are merged; #261 integrates setup and the
+  corrected release candidate. Rebuild native packages for both architectures
+  from the new exact source, then populate setup pins from actual artifacts.
+  Empty 0.8.1 pins intentionally refuse downloads instead of installing the old
+  0.8.0 runtime with a new frontend. Publication/host evidence is not inferred
+  from the version bump. Marketplace submission remains explicitly withheld.
+
 - **Release finalization, September 21:** physical x86-64 found and corrected
   foreign-TUN recovery, connected-profile replacement and misleading subscription
   feedback in #258–260. The combined development candidate is now installed;

@@ -22,9 +22,10 @@ and service subscriptions are not included.
 
 ## Installation
 
-**[0.8.0 is available for final testing](https://github.com/k-kostin/omavless/releases/tag/v0.8.0).**
-ARM64 and x86-64 application packages are provided; this is not yet the stable
-marketplace update. Guided first-run installation is still being validated.
+**0.8.1 is in release preparation.** It includes the physical-PC fixes after
+the earlier [0.8.0 prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.0).
+Do not pair this frontend with the old prerelease package. The marketplace
+update and guided first-run release acceptance are still pending.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
 including migration instructions if you already use the marketplace version.

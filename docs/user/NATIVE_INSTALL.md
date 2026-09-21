@@ -104,7 +104,7 @@ main are developer test/build tools, not source installation or a runtime fallba
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
 
-For the prepared **0.8.0** artifact pair, verify `SHA256SUMS` and the exact
+For the prepared **0.8.1** artifact pair, verify `SHA256SUMS` and the exact
 source/architecture in `release-candidate.json` (single-source assembly) or
 `frontend-pair.json` (a newer frontend paired with an unchanged reviewed runtime)
 before following this guide. A pairing record retains both exact source commits

@@ -1,6 +1,6 @@
 # Install OmaVLESS — native candidate
 
-The prepared source version is **0.8.0**, still pending final release acceptance
+The prepared source version is **0.8.1**, still pending final release acceptance
 and publication. Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit
 activation, frontend installation and updates. Python is not a runtime dependency.

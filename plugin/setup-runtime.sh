@@ -39,7 +39,7 @@ release_fields() {
   # manifest, latest tag, caller URL or executable content is accepted.
   jq -er --arg arch "$arch" '
     select(keys == ["packages", "schemaVersion", "version"] and .schemaVersion == 1)
-    | select(.version == "0.8.0" and (.packages | type) == "object")
+    | select(.version == "0.8.1" and (.packages | type) == "object")
     | select((.packages | keys - ["aarch64", "x86_64"] | length) == 0)
     | .version as $version | .packages[$arch]
     | select(type == "object" and keys == ["sha256", "sourceCommit"])
@@ -183,7 +183,7 @@ setup_main() {
   setup_temp=$(mktemp -d "$runtime/omavless-first-run.XXXXXX") || { rmdir -- "$setup_lock"; return 1; }
   # A subshell keeps the cleanup trap and private download scope local.
   (
-    trap 'rm -f -- "$setup_temp/omavless-0.8.0-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-0.8.0-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT
+    trap 'rm -f -- "$setup_temp/omavless-0.8.1-1-aarch64.pkg.tar.zst" "$setup_temp/omavless-0.8.1-1-x86_64.pkg.tar.zst"; rmdir -- "$setup_temp" "$setup_lock"' EXIT
     # Recheck after consent and the lock. Never replace a package that appeared
     # while the user was reading the prompt, or activate a now-unknown owner.
     [[ $(setup_status) == "$state" ]] || exit 1

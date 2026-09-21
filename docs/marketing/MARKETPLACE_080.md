@@ -1,5 +1,10 @@
 # 0.8.0 marketplace preparation
 
+September 21 continuation: the corrected release is now **0.8.1** in #261.
+The 0.8.0 publication facts below remain historical; do not reuse their package
+hashes or call the new guided path accepted. Existing product copy and sanitized
+screenshots remain applicable. The owner has not authorized marketplace submission.
+
 Owner-approved content direction, 2026-09-15. **Preparation only:** no release,
 marketplace submission, installation classification or publication is implied.
 

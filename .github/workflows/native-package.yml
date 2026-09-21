@@ -1,11 +1,16 @@
-name: Native x86_64 package
+name: Native packages
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - '.github/workflows/native-package.yml'
-      - 'packaging/release/build-x86_64-ci.sh'
+      - 'packaging/release/build-native-ci.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'packaging/arch/**'
+      - 'packaging/systemd/**'
 
 permissions:
   contents: read
@@ -27,10 +32,53 @@ jobs:
         run: |
           useradd --create-home --shell /bin/bash packagebuilder
           chown -R packagebuilder:packagebuilder "$GITHUB_WORKSPACE"
-          runuser -u packagebuilder -- bash packaging/release/build-x86_64-ci.sh
+          runuser -u packagebuilder -- bash packaging/release/build-native-ci.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: omavless-x86_64-candidate-${{ github.sha }}
           path: /home/packagebuilder/omavless-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+  package-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify official Arch Linux ARM build root
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == aarch64 ]]
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --max-time 240 --output rootfs.tar.gz \
+            https://de3.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+          # Official 2026-08-05 rootfs. A newer upstream image fails closed.
+          echo '42a4eeaa038994ffd31fa173256ef2f0ef511358eeb41b9ea1f8626391b9b319  rootfs.tar.gz' | sha256sum --check -
+          docker import rootfs.tar.gz omavless-arm-build:local
+      - name: Build and inspect on native ARM64 in isolated Arch Linux ARM
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --name omavless-arm-build \
+            --volume "$GITHUB_WORKSPACE:/source" --workdir /source \
+            omavless-arm-build:local /bin/bash -euo pipefail -c '
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Syu --noconfirm --needed base-devel git rustup python nodejs libcap
+              useradd --create-home --shell /bin/bash packagebuilder
+              chown -R packagebuilder:packagebuilder /source
+              runuser -u packagebuilder -- bash packaging/release/build-native-ci.sh
+            '
+          docker cp omavless-arm-build:/home/packagebuilder/omavless-artifacts "$RUNNER_TEMP/omavless-arm-artifacts"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/omavless-arm-artifacts"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: omavless-aarch64-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/omavless-arm-artifacts/*
           if-no-files-found: error
           retention-days: 30
