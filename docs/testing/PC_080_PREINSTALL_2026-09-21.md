@@ -1,0 +1,257 @@
+# Physical x86-64 PC: 0.8.0 pre-install checkpoint
+
+**Current verdict: corrected native development package installed and usable;
+final published release assembly and clean guided provisioning remain separate.**
+
+The pre-install sections below are historical. The [final continuation](#corrected-installed-candidate--september-21)
+records the later installed/runtime/UI result without rewriting the earlier
+failures or attributing new fixes to the September 16 release archives.
+
+This is executed artifact/static/read-only host evidence, not installed package,
+guided-install, visual or live VPN acceptance. The supplied September 16 PC
+handoff authorizes local integration and a report PR, not merge, release assets
+or marketplace publication. No such publication was performed.
+
+## Exact identities and scope
+
+- Refreshed `main`: `4b970e129fe9a72241cc9e0c7ac434d7d85bd74a`.
+- Runtime package source A: `b7fd0a99b8b169f0933e5f43ea4389642015193a`.
+- Common frontend r2 source B: `99e842a66241c6d2f3b425f7d73c371d3a653850`.
+- Draft #249 remote head: `0109e9a4b210da135e48ac725ed184d9b8cec34f`;
+  its final checkpoint is documentation after B. Its CI was green when inspected.
+- #250–253 are already merged. They were not replayed. The later #254/#255
+  research/documentation updates do not justify rebuilding the accepted runtime.
+- Draft #30/#135 and frozen `archive/python-legacy` were left unchanged.
+- This writer owns only `dev/080-x86-64-acceptance`; #249 remains untouched.
+
+The actual remote September 16 PC gate supersedes the stale prompt's assertion
+that assets/pins are absent. `v0.8.0` already exists as a **prerelease**; its
+publication does not imply completion of PC or marketplace acceptance.
+
+Tests below ran in a clean detached checkout of B, not against a locally
+modified source tree. The repository's main checkout was fast-forwarded from
+its older state; the owner's untracked handoff file was preserved.
+
+## Downloaded artifacts and offline pairing
+
+Versioned public release downloads were retained outside Git and checked before
+archive parsing. No `curl | shell`, dependency bypass or root install occurred.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `omavless-0.8.0-1-x86_64.pkg.tar.zst` | `57e4599bfeb90e063951a49295ae6154703a0739c3c1accc751b3f1fd4343568` |
+| Embedded x86-64 executable | `6b99a443c49dacb21d5f668cd33290aefce132cb0edcae7720617eb4f653edd1` |
+| `omavless-0.8.0-frontend-r2.tar.xz` | `82088b4bb8682e8e2b9f9c9001e6f9ff3ad943b0268217930ab056dca26c3b8d` |
+
+`pair-frontend.py` successfully assembled an **x86-64** local pair using the
+downloaded package and exact B. Runtime/build/package input equality passed;
+its tree digest is
+`001506e80ea708a735627aa40a4a8d649f4d0c7d108515c4cb111c43e38c762f`.
+Bootstrap pins matched. The regenerated frontend archive is byte-identical to
+the published frontend-r2 archive. No Rust release rebuild was necessary.
+
+The inspector verified architecture, schema-3 build identity, embedded ELF
+digest, exact payload and unit digests, safe member types/modes, and absence of
+unlisted files/install hooks. Package dependencies were inspected independently.
+The retained upstream provenance identifies CI build run `35086544726`, Rust
+1.98.0 and x86_64-unknown-linux-gnu. The PC has the matching glibc 2.44 build.
+
+The published pair JSON describes the earlier ARM assembly. It is not x86
+host evidence. Both assembly JSON records retain their creation-time
+`publishedDownloadVerified: false` field; the actual download/hash checks above
+are separate later evidence, not a silent rewrite of those records.
+
+Private local retention root: `~/.local/share/omavless-acceptance/2026-09-21/`.
+It contains `assets/`, `x86-pair/`, an inspected package extraction and
+`recovery/legacy-before.tar.xz`. These are not submission materials.
+
+## Executed tests on B
+
+| Check | Result |
+| --- | --- |
+| `./tests/run.sh` | PASS: 275 Python cases, 273 passed / 2 skipped; JS and QML contracts passed |
+| `./tests/run-rust.sh` | PASS: formatting, workspace tests, Clippy with warnings denied, R0 parity 2/2 |
+| Rust test summary | 957 passed, 10 ignored across 72 result groups; conditional no-opt-in cases are not live-core evidence |
+| Installed Mihomo validation-effects opt-in | PASS separately: 1 synthetic localhost case, no TUN or private profiles |
+| Installed Mihomo bounded-diagnostics opt-in | PASS separately: 1 Rust case exercising synthetic Unix-controller diagnostics, no TCP controller/TUN/DNS |
+| Manifest JSON and `omarchy plugin validate` | PASS |
+| `qmllint` with installed Omarchy/Qt imports | PASS for all 26 tracked QML files |
+| Installed QML component compilation | PASS: valid fixture passed, invalid fixture refused with exit 1, candidate graph passed; isolated runner did not instantiate the plugin |
+| Shell syntax | PASS for all 17 tracked shell scripts |
+| `git diff --check` | PASS |
+| Source symlinks | None in candidate checkout outside excluded Git/build paths |
+| Recovery archive integrity | XZ integrity and tar readability passed |
+| Report navigation and whitespace | Documentation navigation and `git diff --check` passed |
+
+The two Python skips in the full run were the installed-core opt-in (then run
+separately above) and the root-only refusal case. No blanket installed-core,
+visual, R6 replay or private provider success is inferred from this suite.
+
+## Read-only PC baseline and preflight
+
+- Physical x86-64 Omarchy; native `omavless` package/executable absent.
+- Existing frontend is version 0.7.0, disabled. Mihoro frontend is also disabled.
+- Existing private store is schema 3, with 56 profiles and one subscription.
+  No active profile pointer; legacy startup preference is enabled. Existing
+  profile identifiers/names/endpoints were not exported into this report.
+- Native and legacy OmaVLESS units were absent/inactive. `mihomo.service` was
+  inactive and disabled. V2RayN/Xray were running and were not stopped.
+- An existing local Mihomo v1.19.30 binary has TUN capabilities, but no installed
+  package provides dependency `mihomo`: `pacman -T mihomo` reports it missing.
+  A loose binary is not sufficient for normal `pacman -U` dependency resolution.
+- A private 0600 archive in a 0700 recovery directory preserves the old plugin,
+  configuration, state and shell registration before any migration.
+- The extracted **actual published ELF**, without installation, reported
+  `store-compatibility`: `compatible: true`, recovery `none`.
+- Its read-only `cutover-preflight` reported
+  `blocked_inconsistent_host_state`, legacy marker phase, core count 0 and TUN
+  count 2 at that observation. No activation was attempted.
+- A speculative `--version` check was rejected as an invalid semantic command;
+  identity is established by build metadata/ELF hashes, not a nonexistent CLI flag.
+
+The host also has a Tailscale interface. Code inspection confirms the current
+strict observation counts **all** interfaces with `tun_flags`, and activation
+requires an empty host. Quit also requires `visibleTunCount == 0`. Consequently,
+an unrelated remaining TUN can prevent migration/clean-Quit proof: this is a
+product precondition/coexistence limitation, not merely an overly strict test
+harness and not proof that Tailscale currently redirects the default route.
+Do not silently stop Tailscale, weaken guards or remove its interface to make a
+test pass. Resolve the owner's intended network state before proceeding.
+
+## Remaining attended work
+
+| Gate | PC status |
+| --- | --- |
+| Install actual x86 package and activate native ownership | NOT RUN — dependency absent; legacy startup/host TUN preconditions unresolved |
+| Guided terminal setup and cancellation/partial-effect handling | NOT RUN — requires owner in a real terminal and settled authorization |
+| Matching installed frontend, running ELF/units, preserved data | NOT RUN — old installation intentionally retained |
+| EN/RU main, Settings, import and subscription confirmation | NOT RUN — static checks are not rendered acceptance |
+| Live VLESS Full VPN / Routing, bounded HTTPS/DNS, disconnect/restore | NOT RUN — working V2RayN connection preserved |
+| Startup Off, shell restart neutrality, confirmed Quit/reopen | NOT RUN |
+
+ARM acceptance remains exactly as recorded in #249: existing-core guided
+success and initial cancel/reopen/onboarding evidence, not missing-core/AUR or
+partial-effect-cancel proof. This PC checkpoint adds no ARM claims. AUTO-1,
+missing V0 fixtures and previous DNS/provider findings remain unchanged.
+
+Next: with the owner available, inspect and agree the competing VPN/TUN state;
+use the existing supported legacy control to set startup Off; satisfy the
+Mihomo package dependency through the documented attended path; then follow
+the native installation and activation contracts. Do not initialize over the
+existing store or hand-edit ownership markers. Every authorizing effect needs
+the real-terminal `ready`/`settled` procedure. No current installation or
+network state has been changed by this checkpoint.
+
+Final read-only check: private profile store is byte-identical to its backup;
+native/legacy OmaVLESS services remain absent/inactive, `mihomo.service` remains
+inactive/disabled, and the existing V2RayN/Xray processes remain running.
+
+## Attended continuation — September 21
+
+The owner subsequently authorized completing the PC work. The preceding section
+remains the historical pre-install baseline; the following is the newer state.
+
+- In a real desktop terminal, the owner separately supplied `ready` and
+  `settled` around the core-package and application-package installations.
+  A local wrapper reused `tests/human_authorization.py`; it did not generate
+  acknowledgements, use a pseudo-terminal or read a password. Normal sudo/pacman
+  interaction stayed in the visible terminal.
+- Inspected the AUR `mihomo-bin` PKGBUILD and install script before using the
+  documented `omarchy pkg aur add mihomo-bin` path. Installed
+  `mihomo-bin 1.19.31-1`, satisfying `mihomo`, and `omavless 0.8.0-1` from the
+  already verified local archive. No dependency-check bypass was used.
+- `/usr/bin/omavless` now matches the accepted x86 executable SHA above exactly.
+  Its store-compatibility check passes; ownership still reports `legacy`.
+- Runtime package units are loaded but inactive/disabled. The newly supplied
+  system `mihomo.service` is also inactive/disabled; it was not started.
+- A second attended step used the existing installed legacy backend to turn
+  startup Off, with separate human acknowledgements. Profile/subscription
+  objects still match the recovery archive (56 profiles, one subscription).
+  Only the intended startup preference changed; no private JSON was hand-edited.
+- The next precondition refused because V2RayN's TUN was still present. The
+  wrapper stopped before its Tailscale-stop/activation/frontend steps. Both
+  `singbox_tun` and `tailscale0` remained; no competing service was killed.
+  No authorization was left in flight by this refusal, and no automatic retry
+  or compensating network action occurred.
+
+The package stage is now **installed, bytes verified**. Native activation,
+installed frontend/UI, live network and Quit/recovery acceptance remain pending
+the owner disconnecting V2RayN and attending the remaining terminal effects.
+This manual package path is not relabelled guided marketplace E2E.
+
+### CI failure retained, not hidden by retry
+
+Report commit `eb9bfff4c4e87d42dabd4d6e8f513cdb506e02e7` initially failed CI
+run `35578827409`, attempt 1: test
+`auxiliary_core::tests::chunks_keep_reservation_and_drop_cleans_last_child`
+received `AuxiliaryError::Cleanup` from `stop_chunk`. This is existing runtime
+test code; the report commit does not change it.
+
+On unchanged B, the exact test then passed 50 consecutive local executions,
+and the full runtime library passed twice (638 passed / 6 ignored each).
+One explicitly requested diagnostic rerun of the **same CI head**, attempt 2,
+passed. No assertions, cleanup guards, timeouts or production code were altered.
+The first failure remains evidence of an intermittent cleanup-check failure;
+its cause is not established, and repeat success is not a proof of a fix or
+of live VPN cleanup. Do not silently erase this finding from release review.
+
+## Corrected installed candidate — September 21
+
+The physical PC exposed three issues addressed by #258–260: whole-host TUN
+counting treated an unrelated interface as OmaVLESS recovery state; connected
+profile replacement did not use the existing compensated replacement path;
+and subscription transport failures were presented as proxy-core/editor errors.
+Rust remains the sole native owner. No foreign VPN service/interface, private
+ownership marker or security policy was forcibly altered to obtain a pass.
+
+Installed combined source: `a050087febcd22a8a22a00067e98d9dbd207ba91`.
+
+| Identity | Value |
+| --- | --- |
+| Development package | `omavless-0.0.0.r550.ga050087febcd-1-x86_64.pkg.tar.zst` |
+| Package SHA-256 | `fa9c605398c3a75b8b8626cfd76c4ba9ba5076fbed98c48bbe0d050951e0a72b` |
+| Running ELF SHA-256 | `29b3ff0d24b44449ccf8cab64f84d40ab5ed8648d293333a47b2bb02fdfee742` |
+| Frontend | Matching source files, checked byte-for-byte after installation |
+
+The attended one-shot update separately recorded human `ready`/`settled` for
+Disconnect, runtime Stop, normal pacman package installation, runtime Start,
+frontend installation and Connect to the original profile in Rule mode. Each
+stage passed. Private profile/subscription contents and routing template were
+preserved; only the intended connection pointers could change. Foreign TUN
+identities and V2RayN/Xray/Tailscale process identities were preserved.
+
+Fresh native observation verified the matching desired profile/controller,
+one owned core and one managed TUN, Connected/Rule, startup Off, and no manual
+recovery. The user confirmed usable connectivity. Read-only HTTPS requests to
+`https://example.com/` returned 200. Earlier source-session explicit-proxy
+checks are separate evidence; this post-update HTTPS result alone is not a
+claim that every destination follows the intended routing policy.
+
+### Loaded frontend cache correction
+
+After the paired update, the panel initially displayed State unverified even
+though runtime observation was connected. The installed new JS parser accepted
+the real response while the preceding parser rejected its added diagnostics
+field. Shell IPC reported metadata available but observation unavailable.
+The supported plugin rescan did not resolve that mismatch on this shell build.
+
+A supported graphical-shell restart restored observationAvailable=true and
+Connected/Rule in the actual frontend IPC. The native runtime PID, connection
+generation and connected state stayed unchanged across that restart; another
+HTTPS request returned 200. The owner then confirmed the panel worked. This
+is why file equality and a successful rescan are not sufficient loaded-QML
+acceptance. No VPN/core restart was needed for the cache correction.
+
+### Scope retained
+
+Exact-source CI, 978 passing Rust tests (11 ignored), 249 Python cases (two
+opt-in skips), JS/QML contracts and 16 installed-import QML lint checks passed
+for the diagnostic candidate. These are not clean first-run installation or
+an ARM64 build of the corrected source. The ordinary installed connection and
+UI now work, but the old published 0.8.0 packages do not contain these fixes.
+New final packages, real setup pins and the merged installer need their own
+matching checks. AUTO-1, V0, broader DNS/provider investigation and missing-core
+guided provisioning are not silently promoted to PASS.
+
+The owner authorized main/release finalization after this result. Marketplace
+submission remains expressly withheld until a separate owner instruction.

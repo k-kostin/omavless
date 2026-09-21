@@ -1,9 +1,13 @@
-# Native 0.8.0 release preparation
+# Native 0.8.1 release preparation
 
-Current final candidate: **0.8.0**, unpublished and pending final host gates.
+Current final candidate: **0.8.1**, unpublished and pending final distribution gates.
+The earlier public `v0.8.0` prerelease and its assets remain immutable.
 Use explicit `--stable` for this source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
+The [fresh-marketplace checkpoint](../../docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+is also required: the installed package acceptance alone does not prove that a
+marketplace user can obtain and initialize the application.
 The [ARM64 preparation report](../../docs/testing/NATIVE_080_RC_PREPARATION_2026-09-13.md)
 records the actual built pair, checksums, isolated installer tests and remaining
 installed-release gates. It is not a stable-release acceptance claim.
@@ -22,10 +26,10 @@ The historical marketplace snapshot is unchanged.
 
 ## Offline artifact assembly
 
-### x86_64 build without a physical Omarchy PC
+### Native architecture builds without a personal Omarchy host
 
-The `Native x86_64 package` workflow builds accepted runtime source
-`b7fd0a99b8b169f0933e5f43ea4389642015193a` in an official, dated Arch Linux
+The `Native packages` workflow builds its exact checked-out Git HEAD
+in an official, dated Arch Linux
 base-devel container on an x86_64 runner. Cargo uses the locked dependencies and
 pinned 1.98.0 toolchain. Compilation and the existing strict native packager run
 as an unprivileged disposable build user. It retains the package, build log,
@@ -33,11 +37,27 @@ toolchain/source identity, ELF/payload inspection and checksums as CI artifacts.
 No release token, upload to Releases, installed service, TUN or private fixture
 is used. An actual CLI `--help` invocation proves loader execution, not VPN health.
 
-The workflow runs manually or for changes to its two build files. It does not
-replace the normal Test workflow or make x86_64 installed acceptance pass.
-Its exact path is excluded from runtime input comparison because it builds the
-explicit old source rather than changing the accepted package inputs; other
-unknown CI/build files still fail closed. The generated same-source frontend is
+The ARM64 job uses GitHub's native `ubuntu-24.04-arm` runner and the official
+Arch Linux ARM generic rootfs in a disposable Docker container, not emulation.
+The 2026-08-05 image was downloaded from the official DE3 mirror and verified
+against the build-system signature with fingerprint
+`68B3537F39A313B3E574D06777193F152BDBE6A6`, published on the
+[official downloads page](https://archlinuxarm.org/about/downloads).
+The workflow pins its SHA-256
+`42a4eeaa038994ffd31fa173256ef2f0ef511358eeb41b9ea1f8626391b9b319`;
+an upstream image replacement fails closed and requires a reviewed pin update.
+Distribution dependencies use normal signed pacman repositories. Both jobs run
+the same unprivileged `build-native-ci.sh` and strict native package inspector.
+
+The workflow runs manually or when its build/runtime/package inputs change.
+It does not replace the normal Test workflow or make installed acceptance pass.
+The source must be clean; package version comes from committed Cargo metadata,
+and archive inspection verifies that same source/version. The former workflow
+was pinned to `b7fd0a99b8b169f0933e5f43ea4389642015193a`; it must not be reused
+to claim a build of later fixes. CI artifacts are named by workflow SHA and
+remain unpublished. These two explicitly allowlisted build-tool paths do not
+change runtime input comparison; other unknown CI/build files still fail closed.
+The generated same-source frontend is
 not the final release frontend: pair the reviewed package with the later setup
 pin commit using the existing tool.
 
@@ -57,7 +77,7 @@ python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/pr
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. For current `0.8.0`, it invokes the offline Arch packager with `--stable`;
+mode. For current `0.8.1`, it invokes the offline Arch packager with `--stable`;
 historical RC sources use the no-flag assembler and `--candidate` packager.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
@@ -67,8 +87,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.8.0-1-ARCH.pkg.tar.zst`;
-- `omavless-0.8.0-frontend.tar.xz`;
+- `omavless-0.8.1-1-ARCH.pkg.tar.zst`;
+- `omavless-0.8.1-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
@@ -96,7 +116,7 @@ current-user-owned absolute directory outside the checkout, under non-writable
 by-others parents (for example a private build-artifacts directory, not `/tmp`):
 
 ```sh
-python3 packaging/release/pair-frontend.py /absolute/empty-output /absolute/reviewed/omavless-0.8.0-1-ARCH.pkg.tar.zst FULL_FRONTEND_COMMIT_SHA REVIEWED_PACKAGE_SHA256
+python3 packaging/release/pair-frontend.py /absolute/empty-output /absolute/reviewed/omavless-0.8.1-1-ARCH.pkg.tar.zst FULL_FRONTEND_COMMIT_SHA REVIEWED_PACKAGE_SHA256
 ```
 
 This offline developer tool:
@@ -208,7 +228,7 @@ Historical RC candidate packages use build-identity schema 2: the existing sourc
 architecture and provenance fields plus `productVersion`. The attended package
 checker requires its exact RC-to-Arch version mapping and unchanged payload
 safety checks. Schema 1 development packages retain their SHA-in-version guard.
-Current stable 0.8.0 packages use schema 3, as described above; the RC mapping
+Current stable-format packages use schema 3, as described above; the RC mapping
 does not apply to them.
 None of these identity schemas is a signature or proof that caller-supplied bytes were built
 from the declared source.

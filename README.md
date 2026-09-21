@@ -22,9 +22,10 @@ and service subscriptions are not included.
 
 ## Installation
 
-**The current source is an unpublished 0.8.0 candidate.** Installation currently
-requires the reviewed OmaVLESS application package; adding the plugin alone is
-not enough. Guided installation is not yet available for public use.
+**0.8.1 is a release candidate.** See [GitHub Releases](https://github.com/k-kostin/omavless/releases)
+for the matching application packages and frontend. Do not pair this frontend
+with the older 0.8.0 package. The stable marketplace update and fresh guided
+installation acceptance are still pending.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
 including migration instructions if you already use the marketplace version.

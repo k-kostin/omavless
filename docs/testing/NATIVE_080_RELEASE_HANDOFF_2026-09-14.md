@@ -1,5 +1,11 @@
 # Native 0.8.0: VM closure and final PC release gates
 
+**Added 2026-09-15:** the [marketplace first-run checkpoint](MARKETPLACE_FIRST_RUN_2026-09-15.md)
+is an additional distribution gate. Prior package-first acceptance did not test
+a normal plugin clone without the native application. Preserve the evidence
+below, but do not infer that only x86_64 runtime smoke and publication remain:
+reviewed package pins and clean guided installation must also be accepted.
+
 Owner direction, 2026-09-14: merge technically accepted work here on Try
 Omarchy ARM64, finish applicable local release preparation, then run final
 acceptance on the x86_64 Omarchy PC before marketplace publication. Marketplace

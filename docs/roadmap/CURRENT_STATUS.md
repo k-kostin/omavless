@@ -1,14 +1,50 @@
 # Current delivery status
 
-Updated 2026-09-14. This is the compact current-state entry point; the detailed
+Updated 2026-09-21. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.8.1 selected by the owner:** retain the already published `v0.8.0`
+  prerelease unchanged. #258–260 are merged; #261 integrates setup and the
+  corrected release candidate. Both native packages now pass CI at runtime source
+  `98e0b275ae43d6e7d7901b58fab31457b542f878`; setup pins contain their actual
+  hashes rather than the old 0.8.0 runtime. See the
+  [0.8.1 artifact checkpoint](../testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
+  Publication/host evidence is not inferred
+  from the version bump. Marketplace submission remains explicitly withheld.
+
+- **Release finalization, September 21:** physical x86-64 found and corrected
+  foreign-TUN recovery, connected-profile replacement and misleading subscription
+  feedback in #258–260. The combined development candidate is now installed;
+  attended package/update/reconnect, preserved profiles/foreign VPNs, fresh
+  Connected/Rule and user-confirmed operation are recorded in the
+  [PC continuation](../testing/PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
+  The matching QML required a graphical-shell restart to replace cached JS;
+  this did not restart the native connection. Release integration reconciles
+  #249's setup and #257's historical PC evidence with these fixes. Existing
+  `v0.8.0` prerelease/tag/assets still identify the earlier runtime, not this
+  installed candidate. Final corrected artifacts/pins and guided-install gates
+  remain distinct. The owner authorizes main/release finalization but explicitly
+  withholds marketplace submission until a separate instruction.
+
+- **Historical release progress, September 16:** #250–253 are merged (user-facing content,
+  preserved developer docs, runtime/frontend pairing and x86_64 package build).
+  [v0.8.0](https://github.com/k-kostin/omavless/releases/tag/v0.8.0) is now public
+  as a **prerelease / not latest**, with actual ARM64/x86_64 archives and the
+  reviewed common frontend. Anonymous asset downloads and hashes PASS. #249
+  has real pins and remains Draft for guided installation acceptance, not for
+  unavailable release files. Physical x86_64 acceptance is planned, not PASS.
+  Use the [current first-run report](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+  and [ready-package PC gate](../testing/PC_080_RELEASE_GATE_2026-09-16.md).
+  Owner authorizes advancing release/marketplace after those gates; the old
+  marketplace snapshot remains unchanged until its separate update approval.
+
 - Owner-authorized final `0.8.0` source/package preparation follows the merged
   #244–#247 fixes and offline release tooling. This version preparation is not a
-  tag or publication. Use the [final candidate report](../testing/NATIVE_080_FINAL_CANDIDATE_2026-09-14.md)
+  tag or publication by itself; the actual later prerelease is recorded above.
+  Use the [final candidate report](../testing/NATIVE_080_FINAL_CANDIDATE_2026-09-14.md)
   for actual ARM64 build/update results and outstanding x86_64/owner gates;
   old RC artifacts keep their original identity.
   Final ARM64 source `b7fd0a99b8b169f0933e5f43ea4389642015193a` now has
@@ -81,6 +117,16 @@ Do not merge those obsolete Draft implementations over the integrated result.
 
 ## What users install
 
+**Additional release gate, 2026-09-15:** installed-candidate R6/ARM64 acceptance
+did not cover a fresh marketplace clone with no `/usr/bin/omavless`. The new
+[first-run setup checkpoint](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+adds a runtime-independent setup page and explicit terminal provisioning.
+Published architecture-specific package pins and download checks are now ready;
+real clean package install → activation → onboarding acceptance remains required.
+Do not tell a new
+agent that only the final x86_64 runtime smoke remains. This does not reopen the
+unchanged R6 migration or publish the marketplace snapshot.
+
 The immutable published marketplace 0.7.0 snapshot remains
 `69fe05b03129a23664fff3f8289821a7b7f80095`.
 Neither a main merge nor the presence of Rust sources installs a native binary,
@@ -101,11 +147,13 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
-   retain completed ARM64 final artifact/version preparation, run the owner's final
-   x86_64 Omarchy pass, then obtain publication approval. Offline stable
-   assembly is distinct from changing the current RC version or publishing.
-   Do not change the 0.7.0 marketplace identity without separate approval.
+2. Finalize the corrected runtime/setup release after the recorded PC update:
+   retain the historical ARM64 evidence, build and inspect new matching artifacts,
+   replace setup pins only with real reviewed hashes, and finish affected
+   clean-provisioning checks. The old public prerelease cannot be promoted as
+   though it contained the PC fixes. Resolve the new release identity without
+   moving an existing tag or overwriting published bytes. Marketplace submission
+   and the old 0.7.0 listing remain on hold for the owner's separate instruction.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.

@@ -1,6 +1,6 @@
 # Install OmaVLESS — native candidate
 
-The prepared source version is **0.8.0**, still pending final release acceptance
+The prepared source version is **0.8.1**, still pending final release acceptance
 and publication. Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit
 activation, frontend installation and updates. Python is not a runtime dependency.
@@ -16,6 +16,11 @@ activation, frontend installation and updates. Python is not a runtime dependenc
 
 Dependencies and private ownership are not created by adding the plugin.
 The native path does not use the historical Python/GTK picker fallback.
+The [guided first-run page](NATIVE_INSTALL.md#guided-first-run--release-preparation)
+works before the native package exists and offers explicit setup using the
+architecture-specific 0.8.1 package hashes shipped in the frontend. Check the
+release page for published artifacts. Clean guided-install acceptance remains
+pending; this is not a claim of one-command readiness.
 
 ## Package first, frontend second
 

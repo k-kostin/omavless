@@ -60,7 +60,7 @@ class ReleaseCandidateTests(unittest.TestCase):
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
-        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.8.0')
+        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.8.1')
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         versions = {p['version'] for p in lock['package'] if p['name'].startswith('omavless-')}
         self.assertEqual(versions, {RELEASE.version(ROOT, stable=True)})
@@ -90,7 +90,7 @@ class ReleaseCandidateTests(unittest.TestCase):
                              (ROOT / 'install.sh').read_bytes())
 
     def test_stable_mode_requires_exact_bounded_stable_version(self):
-        for valid in ('0.8.0', '1.2.34'):
+        for valid in ('0.8.0', '0.8.1', '1.2.34'):
             (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{valid}"\n')
             self.assertEqual(RELEASE.version(self.repo, stable=True), valid)
             with self.assertRaises(ValueError):

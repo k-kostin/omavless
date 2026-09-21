@@ -1,6 +1,28 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; main/status synchronization updated 2026-09-14.
+Status: active delivery ledger; release finalization updated 2026-09-21.
+
+**Current release checkpoint:** the corrected combined native candidate has
+passed the attended physical-PC package/update/reconnect and frontend checks;
+see [current status](docs/roadmap/CURRENT_STATUS.md) and the
+[PC continuation](docs/testing/PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
+This does not make the earlier published `v0.8.0` archives current. Integrate
+the accepted fixes with setup, assemble matching corrected artifacts/pins and
+finish the applicable distribution gates. Preserve existing immutable release
+identities. Main/release finalization is owner-authorized; marketplace submission
+is expressly withheld until the owner separately requests it.
+
+The owner selected **0.8.1** for the corrected artifacts; the existing 0.8.0
+prerelease is immutable. #258–260 are merged and #261 owns the integrated
+setup/release candidate. The version bump does not transfer historical build or
+host evidence to newly built packages.
+
+**Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
+installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
+adds a first screen independent of the native runtime and explicit guided
+setup. Reviewed published package pins and clean end-to-end setup remain
+release blockers alongside final x86_64 acceptance. This does not reopen R6
+or authorize marketplace publication.
 
 Owner-approved update, 2026-09-13: **R6 native-path retirement is closed
 with explicit deferrals**. Start with [current delivery status](docs/roadmap/CURRENT_STATUS.md)

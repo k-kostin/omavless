@@ -87,8 +87,8 @@ test('actual Service applyStatus does not replace snapshot on failed parse', () 
 });
 test('native view keeps data plain and hides legacy mutation pages while diagnostics is shared read-only', () => {
   const source=fs.readFileSync(path.join(root,'plugin/Panel.qml'),'utf8');
-  for(const page of ['main','settings','subscriptions']) assert(source.includes('visible: !vless.nativeOwner && root.page === "'+page+'"'));
-  assert(source.includes('visible: root.page === "diagnostics"'));
+  for(const page of ['main','settings','subscriptions']) assert(source.includes('visible: !root.bootstrapRequired && !vless.nativeOwner && root.page === "'+page+'"'));
+  assert(source.includes('visible: !root.bootstrapRequired && root.page === "diagnostics"'));
   const diagnostics=fs.readFileSync(path.join(root,'plugin/AdvancedDiagnostics.qml'),'utf8');
   assert(diagnostics.includes('readonly property bool readOnlyNative: service && service.nativeOwner === true'));
   assert(source.includes('onRefreshProvidersRequested: if (!vless.nativeOwner) vless.refreshRuleProviders()'));

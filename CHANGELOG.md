@@ -2,7 +2,20 @@
 
 All notable changes to OmaVLESS are documented here.
 
-## Unreleased
+## 0.8.1 — release candidate
+
+This candidate includes the fixes accepted on the physical Omarchy PC after
+the immutable `v0.8.0` prerelease. Package publication and marketplace review
+are separate steps; the marketplace update has not been requested.
+
+- Scope recovery checks to OmaVLESS-owned resources instead of treating every
+  foreign TUN interface as a failed OmaVLESS cleanup. Preserve unrelated VPNs.
+- Correct connected-profile replacement and retain explicit recovery state
+  when an owned transition cannot be verified.
+- Integrate guided first-run setup and persistent missing-component cards.
+  Installation remains explicit and does not automatically connect a VPN.
+- Build new architecture-specific packages from the recorded candidate source;
+  never overwrite the earlier `v0.8.0` tag or relabel its packages as fixes.
 
 ### Native diagnostic feedback — candidate, not installed automatically
 
@@ -15,7 +28,10 @@ All notable changes to OmaVLESS are documented here.
   Counts are diagnostic hints, not proof of connectivity; unavailable and
   incomplete capture remain explicit. Runtime ownership and routing are unchanged.
 
-### 0.8.0 final candidate — not yet published
+## 0.8.0 — historical prerelease
+
+The published `v0.8.0` prerelease is retained unchanged. The preparation notes
+below describe its earlier milestones, not current 0.8.1 package acceptance.
 
 - Prepare coherent `0.8.0` Rust workspace, lockfile and frontend versions;
   explicit offline final package assembly does not create a tag or marketplace
