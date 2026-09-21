@@ -322,7 +322,7 @@ var CATALOG = {
   "traffic.native_note": {"en":"Includes direct and VPN traffic through the TUN interface.","ru":"Включает прямой и VPN-трафик через интерфейс TUN."},
   "traffic.native_unavailable": {"en":"TUN traffic counters are unavailable","ru":"Счётчики трафика TUN недоступны"},
   "profiles.title": {"en":"PROFILES","ru":"ПРОФИЛИ"},
-  "profiles.search": {"en":"Search profiles, countries, hosts…  (/)","ru":"Поиск профилей, стран и узлов…  (/)"},
+  "profiles.search": {"en":"Search profiles by name…  (/)","ru":"Поиск профилей по имени…  (/)"},
   "profiles.empty": {"en":"No profiles yet\nImport a link file with + or paste one from the clipboard with v","ru":"Профилей пока нет\nИмпортируйте файл ссылок через + или вставьте ссылку из буфера клавишей v"},
   "profiles.no_match": {"en":"No profiles match “{query}”","ru":"Нет профилей по запросу «{query}»"},
   "profiles.click_connect": {"en":"Click to connect","ru":"Нажмите, чтобы подключить"},

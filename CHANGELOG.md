@@ -2,6 +2,16 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## Unreleased
+
+- Fix Full Quit preflight: query the same four installation properties that
+  its strict validator expects, preserving all ownership and cleanup checks.
+- Restore keyboard navigation immediately after opening a subscription's server
+  list; browsing and selection never change the active connection.
+- Describe profile search accurately as name-based in English and Russian.
+
+These fixes are not included in the immutable published `v0.8.1` prerelease.
+
 ## 0.8.1 — release candidate
 
 This candidate includes the fixes accepted on the physical Omarchy PC after
