@@ -22,7 +22,7 @@ and service subscriptions are not included.
 
 ## Installation
 
-**0.8.1 is a release candidate.** See [GitHub Releases](https://github.com/k-kostin/omavless/releases)
+**0.8.1 is a release candidate.** See the [prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1)
 for the matching application packages and frontend. Do not pair this frontend
 with the older 0.8.0 package. The stable marketplace update and fresh guided
 installation acceptance are still pending.

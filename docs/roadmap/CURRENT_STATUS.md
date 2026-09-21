@@ -6,14 +6,17 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.8.1 selected by the owner:** retain the already published `v0.8.0`
-  prerelease unchanged. #258–260 are merged; #261 integrates setup and the
+- **0.8.1 published as a prerelease:** retain the already published `v0.8.0`
+  prerelease unchanged. #258–260 and #261 are merged; the latter integrates setup and the
   corrected release candidate. Both native packages now pass CI at runtime source
   `98e0b275ae43d6e7d7901b58fab31457b542f878`; setup pins contain their actual
   hashes rather than the old 0.8.0 runtime. See the
   [0.8.1 artifact checkpoint](../testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
-  Publication/host evidence is not inferred
-  from the version bump. Marketplace submission remains explicitly withheld.
+  The public tag/frontend is `20b5e6c4f3ef466207d37306d4a70fe5876162f6`;
+  all six release assets were downloaded anonymously and verified against the
+  retained hashes. #249 and #257 are integrated and their branches are removed.
+  Fresh guided provisioning remains the stable-promotion gate. Host evidence
+  is not inferred from publication. Marketplace submission remains withheld.
 
 - **Release finalization, September 21:** physical x86-64 found and corrected
   foreign-TUN recovery, connected-profile replacement and misleading subscription
