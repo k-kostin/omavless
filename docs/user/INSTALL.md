@@ -17,9 +17,10 @@ activation, frontend installation and updates. Python is not a runtime dependenc
 Dependencies and private ownership are not created by adding the plugin.
 The native path does not use the historical Python/GTK picker fallback.
 The [guided first-run page](NATIVE_INSTALL.md#guided-first-run--release-preparation)
-works before the native package exists and offers explicit setup when reviewed
-published package pins are available. Those pins and clean download/install
-acceptance are still pending; do not advertise one-command readiness yet.
+works before the native package exists and offers explicit setup using the
+architecture-specific 0.8.1 package hashes shipped in the frontend. Check the
+release page for published artifacts. Clean guided-install acceptance remains
+pending; this is not a claim of one-command readiness.
 
 ## Package first, frontend second
 

@@ -8,10 +8,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 - **0.8.1 selected by the owner:** retain the already published `v0.8.0`
   prerelease unchanged. #258–260 are merged; #261 integrates setup and the
-  corrected release candidate. Rebuild native packages for both architectures
-  from the new exact source, then populate setup pins from actual artifacts.
-  Empty 0.8.1 pins intentionally refuse downloads instead of installing the old
-  0.8.0 runtime with a new frontend. Publication/host evidence is not inferred
+  corrected release candidate. Both native packages now pass CI at runtime source
+  `98e0b275ae43d6e7d7901b58fab31457b542f878`; setup pins contain their actual
+  hashes rather than the old 0.8.0 runtime. See the
+  [0.8.1 artifact checkpoint](../testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
+  Publication/host evidence is not inferred
   from the version bump. Marketplace submission remains explicitly withheld.
 
 - **Release finalization, September 21:** physical x86-64 found and corrected

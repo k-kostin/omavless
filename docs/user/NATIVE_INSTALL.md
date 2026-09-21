@@ -59,12 +59,14 @@ The intended published-release path is:
    covers core/TUN readiness, routing, helpers and profile import. Setup does not
    grant TUN capabilities, connect a VPN or silently install optional helpers.
 
-**Not published yet:** `plugin/runtime-release.json` deliberately has no package
-pins while final release artifacts are unpublished. A machine without the
-application sees a clear unavailable-release message and guide, not a working
-Install button. The complete download/install/activation path is a release gate,
-not established by the existing installed-candidate acceptance. Publishing and
-pinning accepted artifacts requires the owner's separate approval.
+**0.8.1 candidate:** `plugin/runtime-release.json` pins the newly built ARM64
+and x86_64 packages, including their exact runtime source and SHA-256. Setup
+does not follow `latest` or fall back to the older 0.8.0 runtime. Confirm the
+matching assets are present on [GitHub Releases](https://github.com/k-kostin/omavless/releases)
+before provisioning. The complete fresh download/install/activation path remains
+a separate stable-release gate; archive/loader checks and the existing connected
+PC acceptance do not establish it. Marketplace submission is not authorized by
+the availability of a GitHub prerelease.
 
 Set up later closes the panel without saving a false completion or hiding the
 required-components reminder on reopen. After starting
