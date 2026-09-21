@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [Physical x86-64 PC pre-install checkpoint](PC_080_PREINSTALL_2026-09-21.md):
+  verified 0.8.0 package/frontend pair, exact-head local tests, preserved legacy
+  state and explicit remaining attended installation/network gates.
+
 | Scope | Entry point |
 | --- | --- |
 | Native-only installation and no hidden fallback | [Native payload](R6_NATIVE_ONLY_FRONTEND.md) |
