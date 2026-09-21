@@ -140,3 +140,52 @@ network state has been changed by this checkpoint.
 Final read-only check: private profile store is byte-identical to its backup;
 native/legacy OmaVLESS services remain absent/inactive, `mihomo.service` remains
 inactive/disabled, and the existing V2RayN/Xray processes remain running.
+
+## Attended continuation — September 21
+
+The owner subsequently authorized completing the PC work. The preceding section
+remains the historical pre-install baseline; the following is the newer state.
+
+- In a real desktop terminal, the owner separately supplied `ready` and
+  `settled` around the core-package and application-package installations.
+  A local wrapper reused `tests/human_authorization.py`; it did not generate
+  acknowledgements, use a pseudo-terminal or read a password. Normal sudo/pacman
+  interaction stayed in the visible terminal.
+- Inspected the AUR `mihomo-bin` PKGBUILD and install script before using the
+  documented `omarchy pkg aur add mihomo-bin` path. Installed
+  `mihomo-bin 1.19.31-1`, satisfying `mihomo`, and `omavless 0.8.0-1` from the
+  already verified local archive. No dependency-check bypass was used.
+- `/usr/bin/omavless` now matches the accepted x86 executable SHA above exactly.
+  Its store-compatibility check passes; ownership still reports `legacy`.
+- Runtime package units are loaded but inactive/disabled. The newly supplied
+  system `mihomo.service` is also inactive/disabled; it was not started.
+- A second attended step used the existing installed legacy backend to turn
+  startup Off, with separate human acknowledgements. Profile/subscription
+  objects still match the recovery archive (56 profiles, one subscription).
+  Only the intended startup preference changed; no private JSON was hand-edited.
+- The next precondition refused because V2RayN's TUN was still present. The
+  wrapper stopped before its Tailscale-stop/activation/frontend steps. Both
+  `singbox_tun` and `tailscale0` remained; no competing service was killed.
+  No authorization was left in flight by this refusal, and no automatic retry
+  or compensating network action occurred.
+
+The package stage is now **installed, bytes verified**. Native activation,
+installed frontend/UI, live network and Quit/recovery acceptance remain pending
+the owner disconnecting V2RayN and attending the remaining terminal effects.
+This manual package path is not relabelled guided marketplace E2E.
+
+### CI failure retained, not hidden by retry
+
+Report commit `eb9bfff4c4e87d42dabd4d6e8f513cdb506e02e7` initially failed CI
+run `35578827409`, attempt 1: test
+`auxiliary_core::tests::chunks_keep_reservation_and_drop_cleans_last_child`
+received `AuxiliaryError::Cleanup` from `stop_chunk`. This is existing runtime
+test code; the report commit does not change it.
+
+On unchanged B, the exact test then passed 50 consecutive local executions,
+and the full runtime library passed twice (638 passed / 6 ignored each).
+One explicitly requested diagnostic rerun of the **same CI head**, attempt 2,
+passed. No assertions, cleanup guards, timeouts or production code were altered.
+The first failure remains evidence of an intermittent cleanup-check failure;
+its cause is not established, and repeat success is not a proof of a fix or
+of live VPN cleanup. Do not silently erase this finding from release review.
