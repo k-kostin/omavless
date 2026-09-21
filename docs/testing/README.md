@@ -20,6 +20,11 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [0.8.2 fresh x86_64 VM installation](NATIVE_082_FRESH_VM_2026-09-21.md):
+  actual plugin-first setup with both application and Mihomo initially absent,
+  onboarding/reopen and exact-source marketplace baseline; no new VPN claim.
+- [0.8.2 artifacts and public downloads](NATIVE_082_ARTIFACTS_2026-09-21.md):
+  immutable native packages and frontend pairing.
 - [0.8.1 artifacts and public downloads](NATIVE_081_ARTIFACTS_2026-09-21.md):
   native x86_64/ARM64 builds, exact frontend/runtime pairing, public prerelease
   checksums and the separate remaining fresh-provisioning gate.

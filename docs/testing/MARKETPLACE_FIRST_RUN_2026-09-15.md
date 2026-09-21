@@ -1,6 +1,16 @@
 # Marketplace first-run setup checkpoint
 
-## September 21 integration status
+## Current checkpoint — September 21, 0.8.2
+
+Corrected public packages/pins are now integrated. The actual initially
+missing-app/missing-core x86_64 guided installation passed in a clean Omarchy
+VM at main `f0e54488cb3e7e558d52aa0f18d3a5c17d355860`; see the
+[fresh 0.8.2 report](NATIVE_082_FRESH_VM_2026-09-21.md) for exact artifacts,
+observed UI/state and unrun boundaries. Earlier empty-pin/pending-core statements
+below preserve their dated history, not the current release-preparation state.
+Stable promotion and marketplace submission have not occurred.
+
+## Historical September 21 integration status, before 0.8.2
 
 Release integration combines this setup frontend with the corrected native
 runtime in #258–260 and the [installed PC evidence](PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).

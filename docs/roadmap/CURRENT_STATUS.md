@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Fresh 0.8.2 x86_64 provisioning passed:** a clean Omarchy 4.0.4 QEMU/KVM
+  guest installed unmodified main, then both absent Mihomo and the pinned
+  native package through the real plugin UI. Activation, disconnected/empty
+  startup Off, onboarding completion and settled reopen passed without manual
+  repair. See [exact identity and limits](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
+  The local marketplace baseline has no findings and expected capability-only
+  review requirements. Stable promotion and an exact-current-HEAD marketplace
+  update request remain separate owner decisions; no submission was made.
+
 - **0.8.2 published as a prerelease:** #263 and #264 are merged. The
   [public release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
   identifies `f442714362620c18e1bbaa6415d9e0c2e08c0a8a`; both native packages
@@ -13,7 +22,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   frontend pairing matched the actual pins and protected runtime inputs, and
   all six public assets passed anonymous download/checksum verification.
   0.8.0/0.8.1 remain immutable. This is not stable promotion or marketplace
-  submission; fresh guided provisioning remains a separate gate. The
+  submission; the later fresh guided gate is recorded above. The
   installed active connection was not changed by this build/release work.
   See the [0.8.2 artifact checkpoint](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md).
 
@@ -145,7 +154,8 @@ did not cover a fresh marketplace clone with no `/usr/bin/omavless`. The new
 [first-run setup checkpoint](../testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
 adds a runtime-independent setup page and explicit terminal provisioning.
 Published architecture-specific package pins and download checks are now ready;
-real clean package install → activation → onboarding acceptance remains required.
+real clean package install → activation → onboarding acceptance subsequently
+passed on x86_64 as recorded in the [fresh VM report](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
 Do not tell a new
 agent that only the final x86_64 runtime smoke remains. This does not reopen the
 unchanged R6 migration or publish the marketplace snapshot.

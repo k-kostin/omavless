@@ -2,7 +2,15 @@
 
 Status: active delivery ledger; release finalization updated 2026-09-21.
 
-**Current release checkpoint:** the corrected combined native candidate has
+**Current release checkpoint:** 0.8.2 is a public prerelease with verified
+native packages and frontend pins. Its clean x86_64 plugin-first installation,
+including initially missing Mihomo, activation and onboarding, now passes in
+an isolated Omarchy VM. See [fresh acceptance and limits](docs/testing/NATIVE_082_FRESH_VM_2026-09-21.md)
+and [current status](docs/roadmap/CURRENT_STATUS.md). Next is owner-controlled
+stable promotion and an exact-current-HEAD marketplace update request after
+final checks. Neither has happened; marketplace submission is still withheld.
+
+**Earlier September 21 checkpoint:** the corrected combined native candidate has
 passed the attended physical-PC package/update/reconnect and frontend checks;
 see [current status](docs/roadmap/CURRENT_STATUS.md) and the
 [PC continuation](docs/testing/PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
@@ -12,7 +20,7 @@ finish the applicable distribution gates. Preserve existing immutable release
 identities. Main/release finalization is owner-authorized; marketplace submission
 is expressly withheld until the owner separately requests it.
 
-The owner selected **0.8.1** for the corrected artifacts; the existing 0.8.0
+The owner initially selected **0.8.1** for the corrected artifacts; the existing 0.8.0
 prerelease is immutable. #258–261 are merged. Native packages and their matching
 frontend are now public as a non-stable prerelease with
 [verified anonymous downloads](docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
@@ -20,11 +28,12 @@ Fresh guided provisioning remains the stable-promotion gate. Publication does
 not transfer historical host evidence to newly built packages or authorize
 marketplace submission.
 
-**Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
+**Fresh-marketplace gate (now covered by the 0.8.2 x86_64 report above):**
+package-first acceptance is not fresh plugin-only
 installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
 adds a first screen independent of the native runtime and explicit guided
-setup. Reviewed published package pins and clean end-to-end setup remain
-release blockers alongside final x86_64 acceptance. This does not reopen R6
+setup. Reviewed published package pins and clean end-to-end setup were distinct
+release blockers, not consequences of package-first acceptance. This does not reopen R6
 or authorize marketplace publication.
 
 Owner-approved update, 2026-09-13: **R6 native-path retirement is closed

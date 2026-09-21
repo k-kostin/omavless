@@ -24,8 +24,8 @@ and service subscriptions are not included.
 
 **0.8.2 is a release candidate.** See the [prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
 for the matching application packages and frontend. Do not pair this frontend
-with older 0.8.0/0.8.1 packages. The stable marketplace update and fresh guided
-installation acceptance are still pending.
+with older 0.8.0/0.8.1 packages. Fresh guided installation has been checked on
+Omarchy x86_64; stable promotion and the marketplace update are still pending.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
 including migration instructions if you already use the marketplace version.
