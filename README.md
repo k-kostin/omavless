@@ -22,9 +22,9 @@ and service subscriptions are not included.
 
 ## Installation
 
-**0.8.1 is a release candidate.** See the [prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1)
+**0.8.2 is a release candidate.** See [GitHub Releases](https://github.com/k-kostin/omavless/releases)
 for the matching application packages and frontend. Do not pair this frontend
-with the older 0.8.0 package. The stable marketplace update and fresh guided
+with older 0.8.0/0.8.1 packages. The stable marketplace update and fresh guided
 installation acceptance are still pending.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),

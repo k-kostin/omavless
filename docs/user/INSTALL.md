@@ -1,7 +1,7 @@
 # Install OmaVLESS — native candidate
 
-The **0.8.1** candidate is available as a
-[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1);
+Use the **0.8.2** candidate pair from
+[GitHub Releases](https://github.com/k-kostin/omavless/releases);
 stable and marketplace acceptance remain pending.
 Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit
@@ -20,7 +20,7 @@ Dependencies and private ownership are not created by adding the plugin.
 The native path does not use the historical Python/GTK picker fallback.
 The [guided first-run page](NATIVE_INSTALL.md#guided-first-run--release-preparation)
 works before the native package exists and offers explicit setup using the
-architecture-specific 0.8.1 package hashes shipped in the frontend. Check the
+architecture-specific 0.8.2 package hashes shipped in the frontend. Check the
 release page for published artifacts. Clean guided-install acceptance remains
 pending; this is not a claim of one-command readiness.
 

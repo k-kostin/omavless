@@ -42,7 +42,7 @@ curl() { printf 'UNEXPECTED_NETWORK_EFFECT' >&2; return 99; }
 
     def pins(self, **updates):
         entry = {"sha256": "a" * 64, "sourceCommit": "b" * 40}
-        data = {"schemaVersion": 1, "version": "0.8.1",
+        data = {"schemaVersion": 1, "version": "0.8.2",
                 "packages": {"aarch64": entry, "x86_64": entry}}
         data.update(updates)
         (self.directory / "runtime-release.json").write_text(json.dumps(data))
@@ -140,7 +140,7 @@ ensure_core_dependency
     def test_committed_pins_use_the_frontend_version_and_supported_architectures(self):
         metadata = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         self.assertEqual(metadata['version'], json.loads((ROOT / 'manifest.json').read_text())['version'])
-        self.assertEqual(metadata['version'], '0.8.1')
+        self.assertEqual(metadata['version'], '0.8.2')
         self.assertLessEqual(set(metadata['packages']), {'aarch64', 'x86_64'})
         self.pins(**metadata)
         for arch in metadata['packages']:

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kdk.omavless",
   "name": "OmaVLESS",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "author": "kdk",
   "license": "MIT",
   "description": "OmaVLESS is a VPN app for Omarchy that puts everyday connection controls directly in the bar. Import your own compatible VLESS profile or HTTPS subscription, choose Full VPN, Routing or Direct, connect to a profile, switch profiles, or disconnect, and refresh subscription server lists. Free and open source; VPN servers and service subscriptions are not included.",

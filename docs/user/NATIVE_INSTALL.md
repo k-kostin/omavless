@@ -59,9 +59,9 @@ The intended published-release path is:
    covers core/TUN readiness, routing, helpers and profile import. Setup does not
    grant TUN capabilities, connect a VPN or silently install optional helpers.
 
-**0.8.1 candidate:** `plugin/runtime-release.json` pins the newly built ARM64
+**0.8.2 candidate:** `plugin/runtime-release.json` pins the newly built ARM64
 and x86_64 packages, including their exact runtime source and SHA-256. Setup
-does not follow `latest` or fall back to the older 0.8.0 runtime. Confirm the
+does not follow `latest` or fall back to older 0.8.0/0.8.1 runtimes. Confirm the
 matching assets are present on [GitHub Releases](https://github.com/k-kostin/omavless/releases)
 before provisioning. The complete fresh download/install/activation path remains
 a separate stable-release gate; archive/loader checks and the existing connected
@@ -106,7 +106,7 @@ main are developer test/build tools, not source installation or a runtime fallba
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
 
-For the prepared **0.8.1** artifact pair, verify `SHA256SUMS` and the exact
+For the prepared **0.8.2** artifact pair, verify `SHA256SUMS` and the exact
 source/architecture in `release-candidate.json` (single-source assembly) or
 `frontend-pair.json` (a newer frontend paired with an unchanged reviewed runtime)
 before following this guide. A pairing record retains both exact source commits

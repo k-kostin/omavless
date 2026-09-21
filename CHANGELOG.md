@@ -2,7 +2,7 @@
 
 All notable changes to OmaVLESS are documented here.
 
-## Unreleased
+## 0.8.2 — release candidate
 
 - Fix Full Quit preflight: query the same four installation properties that
   its strict validator expects, preserving all ownership and cleanup checks.
@@ -11,6 +11,8 @@ All notable changes to OmaVLESS are documented here.
 - Describe profile search accurately as name-based in English and Russian.
 
 These fixes are not included in the immutable published `v0.8.1` prerelease.
+0.8.2 uses new native packages and matching frontend pins; it is not a stable
+marketplace update or a claim of fresh guided-install acceptance.
 
 ## 0.8.1 — release candidate
 

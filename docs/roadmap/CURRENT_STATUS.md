@@ -6,7 +6,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Post-0.8.1 fixes, #263:** correct Full Quit's installation preflight and
+- **0.8.2 preparation, #264:** #263 is merged. New versioned native packages
+  for both architectures passed CI; exact frontend pins are recorded with owner authorization for a
+  GitHub prerelease, not stable promotion or marketplace submission. The
+  installed active connection is not changed by this build/release work.
+  See the [0.8.2 artifact checkpoint](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md).
+
+- **Post-0.8.1 fixes, #263 (merged):** correct Full Quit's installation preflight and
   the installed-review findings for subscription keyboard focus and EN/RU
   name-search copy. The runtime fix has attended physical-PC disconnected
   Quit evidence; UI-only follow-up was checked without interrupting the

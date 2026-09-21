@@ -60,7 +60,7 @@ class ReleaseCandidateTests(unittest.TestCase):
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
-        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.8.1')
+        self.assertEqual(RELEASE.version(ROOT, stable=True), '0.8.2')
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         versions = {p['version'] for p in lock['package'] if p['name'].startswith('omavless-')}
         self.assertEqual(versions, {RELEASE.version(ROOT, stable=True)})
