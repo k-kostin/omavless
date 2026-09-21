@@ -4,6 +4,17 @@ All notable changes to OmaVLESS are documented here.
 
 ## Unreleased
 
+### Native diagnostic feedback — candidate, not installed automatically
+
+- Distinguish subscription download failures from proxy-core rejection. Refresh
+  and removal have contextual EN/RU feedback rather than editor-save errors;
+  a new accepted connection action clears completed stale subscription feedback.
+  Ordinary subscription failures no longer use the main panel's fatal color.
+- Capture bounded DNS/TLS/timeout/connection warning counts from the latest
+  owned core via `runtime observation`, without storing or exporting raw logs.
+  Counts are diagnostic hints, not proof of connectivity; unavailable and
+  incomplete capture remain explicit. Runtime ownership and routing are unchanged.
+
 ### 0.8.0 final candidate — not yet published
 
 - Prepare coherent `0.8.0` Rust workspace, lockfile and frontend versions;

@@ -87,7 +87,7 @@ test('unknown exact retry preserves identity revision bytes; fixed exit74 is kno
     c.finishNativeSubscriptionAction(null,true);c.nativeOutcomeUnknown=true;assert.equal(c.nativeSubscriptionCode,'unknown');
     assert(c.reconcileNativeAction());assert.equal(JSON.stringify(c.nativePending),saved);assert.equal(c.nativeActionProcess.stdinEnabled,true);
     const rejection=parser.parseActionExit('private-token',c.nativePending,74);assert.equal(rejection.ok,false);assert.equal(rejection.code,'invalid_argument');
-    c.finishNativeSubscriptionAction(rejection,false);assert.equal(c.nativeSubscriptionCode,'rejected');assert.equal(c.saved,0);
+    c.finishNativeSubscriptionAction(rejection,false);assert.equal(c.nativeSubscriptionCode,action==='subscription-refresh'?'refreshFailed':action==='subscription-delete'?'deleteFailed':'rejected');assert.equal(c.saved,0);
   }
 });
 test('delete confirmation requires its captured identity and revision',()=>{
@@ -135,5 +135,29 @@ test('actual process completion treats lost reply as pending, local74 as termina
     assert.equal(c.nativeSubscriptionCode,exit===73?'unknown':'rejected');assert(c.nativeSubscriptionDraft);
     assert(!JSON.stringify({code:c.nativeSubscriptionCode,action:c.nativeActionCode}).includes('private-invalid-output'));
   }
+});
+test('refresh transport error is contextual, not a core rejection, and raw response stays private',()=>{
+  const c=context();c.requestNativeSubscriptionAction('subscription-refresh','record','','');
+  c.nativeActionStdout.text=JSON.stringify({api:'omavless.control',version:1,id:'synthetic',ok:false,revision:4,
+    error:{code:'subscription_unavailable',message:url,retryable:false}});
+  c.actionExited(1);
+  assert.equal(c.nativeSubscriptionCode,'fetchFailed');assert.equal(c.nativeActionCode,'');
+  assert.equal(c.nativePending,null);assert.equal(c.nativeOutcomeUnknown,false);assert.equal(c.saved,0);
+  assert(!JSON.stringify({code:c.nativeSubscriptionCode,action:c.nativeActionCode}).includes('private-token'));
+});
+test('refresh and deletion errors never suggest reopening the editor and recovery stays global',()=>{
+  for(const action of ['subscription-refresh','subscription-delete'])for(const code of ['conflict','manual_recovery_required']){
+    const c=context();c.requestNativeSubscriptionAction(action,'record','','',{id:'record',instanceId:'instance',revision:4});
+    c.nativeActionStdout.text=JSON.stringify({api:'omavless.control',version:1,id:'synthetic',ok:false,revision:4,
+      error:{code,message:url,retryable:false}});
+    c.actionExited(1);assert.equal(c.nativeSubscriptionCode,action==='subscription-refresh'?'refreshFailed':'deleteFailed');
+    assert.equal(c.nativeActionCode,code==='manual_recovery_required'?code:'');
+  }
+});
+test('ordinary subscription failure is not styled as a fatal VPN failure on the main page',()=>{
+  const panel=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
+  const line=panel.split('\n').find(line=>line.includes('visible: vless.nativeSubscriptionCode !== ""'));
+  assert(line && line.includes('color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim'));
+  assert(line.includes('wrapMode: Text.Wrap'));
 });
 console.log('native subscriptions: '+count+' passed');

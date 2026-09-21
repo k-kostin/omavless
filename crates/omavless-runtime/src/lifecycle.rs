@@ -74,6 +74,11 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    /// Counts from the most recently spawned owned core only. No health claim,
+    /// log strings, network access or mutation; None means no captured child.
+    fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
+        None
+    }
     /// Bounded, read-only setup/service/file facts; no core execution or probe.
     fn support_facts(&self, _connected: bool) -> Option<HostSupportFacts> {
         None

@@ -181,6 +181,7 @@ pub struct NativeLifecycleHost {
     paths: NativeHostPaths,
     uid: u32,
     core: Option<OwnedCore>,
+    core_diagnostics: Option<crate::core_diagnostics::DiagnosticReader>,
     profile_id: Option<String>,
     readiness: Option<ConfigReadiness>,
     previous_config: Option<Option<Vec<u8>>>,
@@ -223,6 +224,7 @@ impl NativeLifecycleHost {
             paths,
             uid,
             core: None,
+            core_diagnostics: None,
             profile_id: None,
             readiness: None,
             previous_config: None,
@@ -367,6 +369,11 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
+        self.core_diagnostics
+            .as_ref()
+            .map(|reader| reader.snapshot())
+    }
     fn support_facts(&self, connected: bool) -> Option<crate::lifecycle::HostSupportFacts> {
         Some(crate::support_diagnostics::collect_host(
             &self.paths,
@@ -699,6 +706,7 @@ impl LifecycleHost for NativeLifecycleHost {
             &self.paths.controller_socket,
         )
         .map_err(|_| HostStepError::Start)?;
+        self.core_diagnostics = Some(core.diagnostic_reader());
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
         let ready = core.wait_configured(START_TIMEOUT, expected);
         let private_controller = ready.is_ok()

@@ -98,7 +98,7 @@ impl SubscriptionTransactionError {
             Self::NotFound => StableErrorCode::NotFound,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
             Self::Conflict => StableErrorCode::Conflict,
-            Self::Transport => StableErrorCode::CoreRejected,
+            Self::Transport => StableErrorCode::SubscriptionUnavailable,
             Self::Store => StableErrorCode::InternalError,
             Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
         }
@@ -730,11 +730,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             if after != desired {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
-            Ok(crate::runtime_observation::project(
-                &desired,
-                actual,
-                observation,
-            ))
+            let mut result = crate::runtime_observation::project(&desired, actual, observation);
+            result["coreDiagnostics"] = serde_json::json!(owner.host_mut().core_diagnostics());
+            Ok(result)
         })
     }
 
@@ -1936,9 +1934,15 @@ mod tests {
         calls: usize,
         support_observation: Option<crate::lifecycle::NativeLocalObservation>,
         support_read_change: Option<(PathBuf, Vec<u8>)>,
+        diagnostic_reader: Option<crate::core_diagnostics::DiagnosticReader>,
     }
 
     impl LifecycleHost for FakeHost {
+        fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
+            self.diagnostic_reader
+                .as_ref()
+                .map(|reader| reader.snapshot())
+        }
         fn fresh_observation(
             &mut self,
             _desired: &DesiredState,
@@ -2056,6 +2060,7 @@ mod tests {
                 calls: 0,
                 support_observation: None,
                 support_read_change: None,
+                diagnostic_reader: None,
             },
             desired_paths,
             &store_path,
@@ -2081,6 +2086,42 @@ mod tests {
             generation: 2,
         });
         (root, store, owner)
+    }
+
+    #[test]
+    fn observation_captures_only_fixed_core_counts_without_mutating_state() {
+        use std::io::Write;
+        let (root, store, mut owner) = support_fixture("core-log-observation");
+        let before = fs::read(&store).unwrap();
+        let desired = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let (capture, mut output) = crate::core_diagnostics::Capture::start().unwrap();
+        owner.host_mut().diagnostic_reader = Some(capture.reader());
+        output
+            .write_all(b"level=warning msg=DNS resolve failed private-token\n")
+            .unwrap();
+        drop(capture);
+        let report = owner
+            .runtime_observation(&profile_request("runtime.observation", json!({})))
+            .unwrap();
+        assert_eq!(report["availability"], "unavailable");
+        assert_eq!(report["coreDiagnostics"]["dnsErrors"], 1);
+        assert_eq!(report["coreDiagnostics"]["finished"], true);
+        assert!(
+            report["verification"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|v| v == false)
+        );
+        assert!(!report.to_string().contains("private-token"));
+        assert_eq!(owner.host().calls, 0);
+        assert_eq!(owner.revision(), 0);
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            desired
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2890,7 +2931,10 @@ mod tests {
             panic!("transport failure was not returned as a bounded mutation error");
         };
         assert_eq!(cached.revision, 0);
-        assert_eq!(error.stable_code(), StableErrorCode::CoreRejected);
+        assert_eq!(
+            error.stable_code(),
+            StableErrorCode::SubscriptionUnavailable
+        );
         let public = error.to_string();
         assert!(!public.contains("provider.invalid"));
         assert!(!public.contains("private-token"));

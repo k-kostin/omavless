@@ -104,7 +104,7 @@ test('all canonical public error codes retain code and discard raw private messa
   const start=source.indexOf('pub const fn as_str(');
   const body=source.slice(start,source.indexOf('\n    }',start));
   const codes=[...body.matchAll(/=> "([a-z_]+)"/g)].map(m=>m[1]);
-  assert.equal(codes.length,14);
+  assert.equal(codes.length,15);
   for(const code of codes){
     const p={api:'omavless.control',version:1,id:'request',ok:false,revision:4,
       error:{code,message:'https://private.invalid/password?key=private-token',retryable:false}};
@@ -132,7 +132,7 @@ function serviceHarness() {
         {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}]},
     nativeObservation:{instanceId:'instance-one',revision:4,desired:{connected:false,mode:'rule',generation:3},
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
-    nativeActionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
+    nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
     nativeActionProcess:{command:[],running:false},profiles:[{id:'legacy-profile',active:false}]});
   for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct','nativeCanStop']) {
     const match=source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));
@@ -267,5 +267,28 @@ test('profile validation refuses managed rename/delete and malformed or stale in
   const managed=serviceHarness();assert.equal(managed.requestNativeProfileAction('profile-favorite','profile-managed',true),true);
   const stale=serviceHarness();stale.nativeObservation.revision++;
   assert.equal(stale.requestNativeProfileAction('profile-delete','profile-one',null),false);
+});
+test('new accepted connection action clears only completed subscription feedback',()=>{
+  for(const action of ['connect','disconnect','mode']) {
+    const c=serviceHarness();c.nativeSubscriptionCode='fetchFailed';
+    assert(c.requestNativeAction(action,'profile-one','rule'));assert.equal(c.nativeSubscriptionCode,'');
+    const editing=serviceHarness();editing.nativeSubscriptionDraft={token:'editor'};editing.nativeSubscriptionCode='rejected';
+    assert(editing.requestNativeAction(action,'profile-one','rule'));assert.equal(editing.nativeSubscriptionCode,'rejected');
+  }
+  const refused=serviceHarness();refused.nativeSubscriptionCode='fetchFailed';
+  assert(!refused.requestNativeAction('connect','missing','rule'));assert.equal(refused.nativeSubscriptionCode,'fetchFailed');
+});
+test('optional core counters stay bounded and never promote internet verification',()=>{
+  const p=observation();
+  p.result.coreDiagnostics={scope:'latest_owned_core_log_counts',dnsErrors:3,tlsErrors:0,timeoutErrors:1,
+    connectionErrors:0,otherWarnings:0,oversizedLines:0,readFailed:false,finished:false,incomplete:false};
+  const parsed=parser.parseObservation(JSON.stringify(p));assert(parsed);assert.equal(parsed.coreDiagnostics.dnsErrors,3);
+  for(const mutate of [d=>d.dnsErrors=-1,d=>d.tlsErrors=4294967296,d=>d.timeoutErrors=true,
+    d=>d.connectionErrors=0.5,d=>d.scope='other',d=>d.raw='private-token',d=>d.finished='true']) {
+    const bad=JSON.parse(JSON.stringify(p));mutate(bad.result.coreDiagnostics);
+    assert.equal(parser.parseObservation(JSON.stringify(bad)),null);
+  }
+  p.result.coreDiagnostics=null;assert(parser.parseObservation(JSON.stringify(p)));
+  delete p.result.coreDiagnostics;assert(parser.parseObservation(JSON.stringify(p)));
 });
 console.log(`${count} native action/observation tests passed`);
