@@ -1,6 +1,7 @@
 # 0.8.0 marketplace preparation
 
-September 21 continuation: the corrected release is now **0.8.1** in #261.
+September 21 continuation: the corrected candidate is now **0.8.2** in #264,
+including #263's Full Quit/UI follow-up to the immutable 0.8.1 prerelease.
 The 0.8.0 publication facts below remain historical; do not reuse their package
 hashes or call the new guided path accepted. Existing product copy and sanitized
 screenshots remain applicable. The owner has not authorized marketplace submission.

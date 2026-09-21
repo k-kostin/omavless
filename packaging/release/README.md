@@ -1,10 +1,11 @@
-# Native 0.8.1 release preparation
+# Native 0.8.2 release preparation
 
-Current candidate: **0.8.1**, published as a
-[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.1),
-not stable or a marketplace update. See the
-[artifact and public-download record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md).
-The earlier public `v0.8.0` prerelease and its assets remain immutable.
+Current candidate: **0.8.2**, incorporating #263's Full Quit and UI fixes.
+Check [GitHub Releases](https://github.com/k-kostin/omavless/releases)
+for its publication state; this is not stable or a marketplace update.
+Earlier public `v0.8.0` and `v0.8.1` prereleases and their assets remain immutable.
+The [0.8.1 artifact record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md)
+is historical evidence, not proof of a 0.8.2 build.
 Use explicit `--stable` for this source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
@@ -80,7 +81,7 @@ python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/pr
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. For current `0.8.1`, it invokes the offline Arch packager with `--stable`;
+mode. For current `0.8.2`, it invokes the offline Arch packager with `--stable`;
 historical RC sources use the no-flag assembler and `--candidate` packager.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
@@ -90,8 +91,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.8.1-1-ARCH.pkg.tar.zst`;
-- `omavless-0.8.1-frontend.tar.xz`;
+- `omavless-0.8.2-1-ARCH.pkg.tar.zst`;
+- `omavless-0.8.2-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
@@ -119,7 +120,7 @@ current-user-owned absolute directory outside the checkout, under non-writable
 by-others parents (for example a private build-artifacts directory, not `/tmp`):
 
 ```sh
-python3 packaging/release/pair-frontend.py /absolute/empty-output /absolute/reviewed/omavless-0.8.1-1-ARCH.pkg.tar.zst FULL_FRONTEND_COMMIT_SHA REVIEWED_PACKAGE_SHA256
+python3 packaging/release/pair-frontend.py /absolute/empty-output /absolute/reviewed/omavless-0.8.2-1-ARCH.pkg.tar.zst FULL_FRONTEND_COMMIT_SHA REVIEWED_PACKAGE_SHA256
 ```
 
 This offline developer tool:
