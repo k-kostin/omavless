@@ -1,5 +1,38 @@
 # Local R5 full application Quit candidate
 
+## September 21 release follow-up (#263)
+
+The immutable `v0.8.1` prerelease predates the installation-query correction in
+`ff4799600419605fd154da2a5316f68e725f5821`. Full Quit's strict four-field
+installation parser had been given the shared cutover query's nine-field
+response, so it refused a healthy installation before requesting shutdown.
+The correction gives Quit its own fixed four-property query, without relaxing
+duplicate/unknown-field, unit ownership, drop-in or cleanup validation.
+
+The regression failed against the old query and passed after the correction.
+The attended physical x86_64 disconnected Settings → confirmation → Quit test
+verified stopped/disabled runtime, disabled plugin, no immediate respawn and
+preserved private profiles and foreign VPNs. See the exact-head evidence in
+[PR #263](https://github.com/k-kostin/omavless/pull/263).
+The earlier connected-Quit evidence below retains its original source identity;
+it is not a new connected-Quit test of this correction.
+
+The same follow-up fixes two UI findings: name-only search is labelled honestly
+in EN/RU, and opening a subscription transfers keyboard focus after the old
+Open delegate disappears. Tests cover delayed focus, navigation away before
+the callback, missing subscription, selection versus active identity, and both
+catalog strings. The installed PC frontend retains its earlier setup surface;
+only these two UI deltas were applied, not a full release-frontend replacement.
+The actual EN/RU main/subscription views and Open → immediate Down were checked
+with the current tunnel left connected. A shell-only reload was needed for the
+catalog cache; the native daemon PID remained unchanged. System locale selection
+was restored. Captures stay private and outside Git.
+
+This is scoped fix evidence, not clean guided-install acceptance, a complete
+route/DNS test, immutable-release replacement or marketplace publication.
+
+## Historical implementation checkpoint
+
 Owner-directed local work, 2026-09-10. Not merged or published. The current
 marketplace version and V0/#30 implementation/evidence are unchanged.
 

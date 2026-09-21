@@ -9,7 +9,7 @@
 use crate::desired::{DesiredPaths, read_desired_snapshot};
 use crate::production_observation::{
     ProductionOwnershipObserver, RUST_SERVICE, SERVICE_QUERY_TIMEOUT, bounded_fixed_query,
-    cutover_service_installation, service_state_with_timeout,
+    service_state_with_timeout,
 };
 use crate::{OwnerLock, RuntimePaths};
 use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
@@ -29,6 +29,12 @@ const SYSTEMCTL: &str = "/usr/bin/systemctl";
 const OMARCHY: &str = "/usr/bin/omarchy";
 const PLUGIN: &str = "kdk.omavless";
 const UNIT: &str = "/usr/lib/systemd/user/omavless-runtime.service";
+const INSTALLATION_FIELDS: [&str; 4] = [
+    "UnitFileState",
+    "FragmentPath",
+    "DropInPaths",
+    "NeedDaemonReload",
+];
 // Existing provider jobs can take 25 seconds to drain after cancellation.
 // Do not misclassify accepted shutdown as failed while that bounded join runs.
 const STOP_WAIT: Duration = Duration::from_secs(60);
@@ -148,15 +154,9 @@ fn installation(text: &str, require_disabled: bool) -> bool {
 
 fn installation_fields(text: &str) -> Option<[&str; 4]> {
     let mut result = [None; 4];
-    let fields = [
-        "UnitFileState",
-        "FragmentPath",
-        "DropInPaths",
-        "NeedDaemonReload",
-    ];
     for line in text.lines() {
         let (key, value) = line.split_once('=')?;
-        let index = fields.iter().position(|field| *field == key)?;
+        let index = INSTALLATION_FIELDS.iter().position(|field| *field == key)?;
         if result[index].replace(value).is_some() {
             return None;
         }
@@ -165,7 +165,21 @@ fn installation_fields(text: &str) -> Option<[&str; 4]> {
 }
 
 fn installed_unit(require_disabled: bool) -> bool {
-    cutover_service_installation(Path::new(SYSTEMCTL), RUST_SERVICE)
+    installed_unit_with_systemctl(Path::new(SYSTEMCTL), require_disabled)
+}
+
+fn installed_unit_with_systemctl(systemctl: &Path, require_disabled: bool) -> bool {
+    // Quit owns this narrow projection. The cutover query also requests
+    // lifecycle fields for absent legacy units; feeding its expanded response
+    // into this strict four-field parser rejects every healthy installation.
+    // Keep query and parser on the same allowlist, without relaxing overrides,
+    // duplicate/unknown fields or the successful-process requirement.
+    let mut command = Command::new(systemctl);
+    command.args(["--user", "show", RUST_SERVICE, "--no-pager"]);
+    for field in INSTALLATION_FIELDS {
+        command.arg(format!("--property={field}"));
+    }
+    bounded_fixed_query(command, SERVICE_QUERY_TIMEOUT)
         .is_ok_and(|text| installation(&text, require_disabled))
 }
 
@@ -505,6 +519,58 @@ mod tests {
         ] {
             assert!(!installation(&invalid, false));
         }
+    }
+
+    #[test]
+    fn installation_query_and_parser_agree_at_the_process_boundary() {
+        use std::os::unix::fs::PermissionsExt;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omavless-quit-query-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let systemctl = root.join("systemctl");
+        // Like systemctl show, return every requested property. The old test
+        // supplied only four parser fields, concealing the shared cutover
+        // query's additional five fields and its unconditional Quit refusal.
+        for (state, exit) in [("enabled", 0), ("disabled", 0), ("disabled", 1)] {
+            fs::write(
+                &systemctl,
+                format!(
+                    "#!/bin/sh\n\
+                     [ \"$1 $2 $3 $4\" = '--user show omavless-runtime.service --no-pager' ] || exit 90\n\
+                     shift 4\n\
+                     for arg do\n\
+                       case \"$arg\" in\n\
+                         --property=LoadState) printf 'LoadState=loaded\\n' ;;\n\
+                         --property=ActiveState) printf 'ActiveState=active\\n' ;;\n\
+                         --property=MainPID) printf 'MainPID=42\\n' ;;\n\
+                         --property=ExecMainStatus) printf 'ExecMainStatus=0\\n' ;;\n\
+                         --property=Result) printf 'Result=success\\n' ;;\n\
+                         --property=UnitFileState) printf 'UnitFileState={state}\\n' ;;\n\
+                         --property=FragmentPath) printf 'FragmentPath={UNIT}\\n' ;;\n\
+                         --property=DropInPaths) printf 'DropInPaths=\\n' ;;\n\
+                         --property=NeedDaemonReload) printf 'NeedDaemonReload=no\\n' ;;\n\
+                         *) exit 91 ;;\n\
+                       esac\n\
+                     done\n\
+                     exit {exit}\n"
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(installed_unit_with_systemctl(&systemctl, false), exit == 0);
+            assert_eq!(
+                installed_unit_with_systemctl(&systemctl, true),
+                exit == 0 && state == "disabled"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -242,6 +242,12 @@ Panel {
     page = "subscription"
     nativeCursor = -1
     nativeFlick.contentY = 0
+    // Opening the list destroys its focused Open button. Restore keyboard
+    // navigation after delegates settle, without stealing focus on another page.
+    Qt.callLater(function() {
+      if (root.page === "subscription" && root.nativeSubscriptionId === id)
+        keyCatcher.forceActiveFocus()
+    })
     return true
   }
 

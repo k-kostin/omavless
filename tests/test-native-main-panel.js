@@ -11,7 +11,7 @@ function context(){
   const c=vm.createContext({NativePresentation:presentation,subscriptionSortModes:{},profileFilter:'',nativeExpanded:{},nativeSelectedProfile:'local',nativeSubscriptionId:'',pendingSubscriptionDelete:null,
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
-    nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},Qt:{callLater:f=>f()}});
+    nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
   c.root=c;c.calls=calls;
   for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
@@ -23,6 +23,24 @@ function context(){
   return c;
 }
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('subscription navigation restores list focus after the old Open control disappears',()=>{
+  const c=context(),deferred=[];let focused=0;
+  c.Qt.callLater=f=>deferred.push(f);
+  c.keyCatcher.forceActiveFocus=()=>focused++;
+  Object.assign(c.nativeView,{state:'connected',connected:true,activeId:'local'});
+  assert.equal(c.browseNativeSubscription('sub'),true);
+  assert.equal(focused,0);assert.equal(deferred.length,1);
+  deferred.shift()();assert.equal(focused,1);
+  c.scrollPanelControlIntoView=()=>{};
+  c.moveNativeCursor(1);
+  assert.equal(c.nativeSelectedProfile,'managed');
+  assert.equal(c.nativeView.activeId,'local');assert.equal(c.calls.length,0);
+  assert.equal(c.browseNativeSubscription('missing'),false);assert.equal(deferred.length,0);
+  c.browseNativeSubscription('sub');c.page='settings';deferred.shift()();
+  assert.equal(focused,1);
+  c.browseNativeSubscription('sub');c.nativeSubscriptionId='other';deferred.shift()();
+  assert.equal(focused,1);
+});
 test('missing core blocks row/keyboard connect but never blocks disconnect',()=>{
   const c=context();c.coreComponentMissing=true;
   assert.equal(c.nativeActivateProfile('local'),false);assert.equal(c.nativeToggleConnection(),false);assert.equal(c.calls.length,0);

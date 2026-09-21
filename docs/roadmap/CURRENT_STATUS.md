@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Post-0.8.1 fixes, #263:** correct Full Quit's installation preflight and
+  the installed-review findings for subscription keyboard focus and EN/RU
+  name-search copy. The runtime fix has attended physical-PC disconnected
+  Quit evidence; UI-only follow-up was checked without interrupting the
+  owner's active connection. See the [follow-up record](../testing/R5_NATIVE_FULL_QUIT.md#september-21-release-follow-up-263).
+  These fixes are not in the immutable public `v0.8.1` assets. A later release
+  needs a new identity and matching packages/frontend; do not overwrite the
+  old tag or claim fresh guided provisioning passed from this UI review.
+
 - **0.8.1 published as a prerelease:** retain the already published `v0.8.0`
   prerelease unchanged. #258–260 and #261 are merged; the latter integrates setup and the
   corrected release candidate. Both native packages now pass CI at runtime source
