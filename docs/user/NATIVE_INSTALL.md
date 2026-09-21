@@ -11,13 +11,24 @@ install the native package or transfer ownership to Rust.
 
 | Starting point | Route | Do not do |
 | --- | --- | --- |
-| New user, no application/data | Before public packages/pins exist: reviewed package → initialize → activate → matching frontend, as below. After real guided-path acceptance: add plugin → Required components → terminal setup → Check again → onboarding. | Do not advertise the future guided path as available while pins are empty. |
+| New user, no application/data | Add plugin → Required components → terminal setup → Check again/reopen → onboarding. Matching public 0.8.2 packages are pinned; fresh x86_64 provisioning is checked. | Do not pair the current frontend with an older native package or mistake the prerelease for the reviewed marketplace snapshot. |
 | Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
 | Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
 | Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
 
 ## Guided first run — release preparation
+
+For the current upstream candidate:
+
+```sh
+omarchy plugin add https://github.com/k-kostin/omavless --enable
+```
+
+This clones mutable upstream HEAD, not an exact marketplace-verified snapshot.
+Review the source before enabling it. The command does not run `install.sh`,
+install Mihomo/the native application, or invoke their privileged setup.
+Those are separate, explicitly confirmed actions in the panel below.
 
 The frontend has a panel shell that works **without** the native application.
 It shows the **Required components** block below the unavailable Profiles area,
@@ -41,7 +52,7 @@ those distinctions. Picker/editor/QR/clipboard tools remain optional helpers.
 When the core is known to be absent, Connect is disabled; Disconnect is not.
 
 The appropriate install button opens a terminal for explicit confirmation.
-The intended published-release path is:
+The checked candidate path is:
 
 1. Add the plugin through Omarchy's normal marketplace command.
 2. Open the plugin and use the required-components action. For application
@@ -63,10 +74,11 @@ The intended published-release path is:
 and x86_64 packages, including their exact runtime source and SHA-256. Setup
 does not follow `latest` or fall back to older 0.8.0/0.8.1 runtimes. Confirm the
 matching assets are present on [GitHub Releases](https://github.com/k-kostin/omavless/releases)
-before provisioning. The complete fresh download/install/activation path remains
-a separate stable-release gate; archive/loader checks and the existing connected
-PC acceptance do not establish it. Marketplace submission is not authorized by
-the availability of a GitHub prerelease.
+before provisioning. The complete fresh download/install/activation/onboarding
+path, including initially absent Mihomo, passed on a clean Omarchy x86_64 VM;
+see the [scoped acceptance record](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
+This is distinct from live VPN/TUN acceptance and does not silently grant
+permissions. Marketplace submission and stable promotion remain owner-controlled.
 
 Set up later closes the panel without saving a false completion or hiding the
 required-components reminder on reopen. After starting
@@ -95,8 +107,8 @@ force progress. A started terminal is not proof that setup succeeded.
 
 An already activated native installation bypasses provisioning. Updating it
 still uses the reviewed disconnected package-update procedure, not this
-first-install helper. The manual candidate path below remains available before
-public artifacts exist.
+first-install helper. The manual reviewed-package path below remains an
+alternative to the guided setup.
 
 The native runtime/CLI does not require Python, pip, a virtual environment or
 Cargo at runtime. Its Omarchy frontend is still QML. The old Python backend is

@@ -21,10 +21,24 @@ The native path does not use the historical Python/GTK picker fallback.
 The [guided first-run page](NATIVE_INSTALL.md#guided-first-run--release-preparation)
 works before the native package exists and offers explicit setup using the
 architecture-specific 0.8.2 package hashes shipped in the frontend. Check the
-release page for published artifacts. Clean guided-install acceptance remains
-pending; this is not a claim of one-command readiness.
+release page for published artifacts. The complete fresh guided path has passed
+on Omarchy x86_64, including initially absent Mihomo. Adding the plugin alone
+still does not install the application/core or grant TUN permissions.
 
-## Package first, frontend second
+## New users: guided installation
+
+```sh
+omarchy plugin add https://github.com/k-kostin/omavless --enable
+```
+
+Review the upstream code before enabling it; this command follows mutable HEAD,
+not the marketplace's exact verified snapshot. Open the panel and choose
+**Install required components**, attend its terminal confirmation and normal
+OS prompts, then reopen/check again and follow onboarding. See the
+[detailed sequence](NATIVE_INSTALL.md#guided-first-run--release-preparation).
+The release remains a prerelease pending owner-controlled promotion.
+
+## Manual package-first installation and existing-user migration
 
 Follow [the native guide](NATIVE_INSTALL.md) before adding/updating source code.
 From its reviewed matching checkout or extracted frontend, use:

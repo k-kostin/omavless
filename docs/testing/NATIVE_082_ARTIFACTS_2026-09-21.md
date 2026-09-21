@@ -1,5 +1,10 @@
 # 0.8.2 native artifact checkpoint — September 21, 2026
 
+Later evidence: [fresh x86_64 guided installation](NATIVE_082_FRESH_VM_2026-09-21.md)
+passed against these immutable package bytes and unchanged product inputs.
+Pending-gate statements below describe artifact-publication time. Stable
+promotion and marketplace publication remain separate owner decisions.
+
 The owner authorized merging #263 and a new GitHub prerelease, preserving the
 published 0.8.0 and 0.8.1 tags/assets. Marketplace submission remains separately
 withheld. #263 merged at `2e8721a4c594ac2f0a1a9a2a0a4298fe1eef05a4`.
