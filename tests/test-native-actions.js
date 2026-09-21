@@ -134,7 +134,7 @@ function serviceHarness() {
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
     nativeActionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
     nativeActionProcess:{command:[],running:false},profiles:[{id:'legacy-profile',active:false}]});
-  for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct']) {
+  for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct','nativeCanStop']) {
     const match=source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));
     assert(match,name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',context);
@@ -188,6 +188,25 @@ test('actual Service unknown-outcome retry preserves the entire original command
   assert.equal(JSON.stringify(c.nativeActionProcess.command),commandBefore);
   assert.equal(c._nativeOperationSerial,1);
 });
+test('recovery and missing controller observations retain only the explicit stop request', () => {
+  for(const observation of [null, {availability:'unavailable'}, {manualRecoveryRequired:true}]) {
+    const c=serviceHarness();
+    c.nativeSnapshot.lastKnownActual='manualRecoveryRequired';c.nativeObservation=observation;
+    assert.equal(c.requestNativeAction('connect','profile-one','rule'),false);
+    assert.equal(c.requestNativeAction('mode','','global'),false);
+    assert.equal(c.requestNativeAction('disconnect','',''),true);
+    assert.equal(c.nativeSnapshot.lastKnownActual,'manualRecoveryRequired');
+    assert.equal(c.requestNativeAction('disconnect','',''),false);
+  }
+});
+test('stop still requires snapshot authority and settled mutation outcome', () => {
+  for(const mutate of [c=>c.nativeOwner=false,c=>c.nativeSnapshotFailed=true,c=>c.nativeSnapshot=null,
+    c=>c.nativePending={},c=>c.nativeQuitting=true,c=>c.nativeActionProcess.running=true,c=>c.nativeOutcomeUnknown=true]) {
+    const c=serviceHarness();mutate(c);
+    assert.equal(c.requestNativeAction('disconnect','',''),false);
+    assert.equal(c.nativeActionProcess.command.length,0);
+  }
+});
 test('same revision and instance never hide a cached manual-recovery mismatch', () => {
   const c=serviceHarness();
   c.nativeSnapshot.lastKnownActual='manualRecoveryRequired';
@@ -197,8 +216,9 @@ test('same revision and instance never hide a cached manual-recovery mismatch', 
   // Even contradictory cached boolean input cannot override snapshot refusal.
   assert.equal(c.nativeFactsCurrent,true);
   assert.equal(c.nativeCanAct,false);
-  assert.equal(c.requestNativeAction('disconnect','',''),false);
-  assert.equal(c.nativePending,null);
+  assert.equal(c.requestNativeAction('mode','','global'),false);
+  assert.equal(c.requestNativeAction('disconnect','',''),true);
+  assert.equal(c.nativePending.action,'disconnect');
 });
 test('actual Service acknowledgement requires reviewed coherent facts and no running action', () => {
   const c=serviceHarness();c.requestNativeAction('connect','profile-one','global');

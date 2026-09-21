@@ -327,7 +327,7 @@ impl Host for InstalledHost {
         }
         ProductionOwnershipObserver::current()
             .map_err(|_| error)?
-            .verify_empty()
+            .verify_native_empty()
             .map_err(|_| error)
     }
 

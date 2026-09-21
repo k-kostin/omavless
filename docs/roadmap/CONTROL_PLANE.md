@@ -674,6 +674,13 @@ The v1 connection mutation parameters are exact objects:
   by the private store; URIs and arbitrary remote text are never accepted here;
 - unknown method-specific fields are rejected before queueing.
 
+Connecting a different profile while the current owned connection is verified
+healthy uses the same compensated replacement as a connected mode change.
+An identical profile/mode request is a no-op. Candidate failure restores the
+previous profile/mode at a later desired generation or reports manual recovery;
+compatibility-pointer commit failure must restore the previous connection as
+well as the store before reporting `transition_failed_restored`.
+
 The v1 routing-mode mutation is `routing.set_mode` with required `mode` and
 optional `operationId` / `expectedRevision`. It uses the same three exact mode
 values and the same replay/revision rules. While disconnected it changes only
@@ -1034,6 +1041,12 @@ and authorization-rejection gates remain pending. See the
 - **Close panel** — UI only.
 - **Close TUI/terminal** — client only.
 - **Disconnect** — persist desired disconnected and stop/verify owned core.
+  Explicit cleanup may use a retained, identity-verified owned process handle
+  even when controller readiness or profile matching is unavailable. It never
+  selects a PID/interface from a foreign inventory. Success still requires a
+  fresh empty-owned-state proof and committed compatibility pointers. Only a
+  connection-failure latch can be cleared this way; store/cutover/pending-preset
+  barriers, migration locks and instance/revision fences remain mandatory.
 - **Close UI** — close selected UI only, including ordinary client exit.
 - **Quit OmaVLESS / Turn off OmaVLESS** — explicitly confirmed full shutdown
   from Settings: disconnect and verify owned core/TUN cleanup, stop the native
@@ -1063,6 +1076,10 @@ close, shell reload, terminal exit and lost clients must not invoke Full Quit.
 3. Verify owned primary and auxiliary Mihomo children, TUN and live controller
    cleanup. Unknown facts, foreign ownership, failed authentication, denied
    authorization and `manual_recovery_required` are not successful shutdown.
+   Both runtime and final CLI verification use the native configured/retained
+   TUN scope: an unrelated Tailscale interface is not our cleanup target. Unknown
+   configuration retains conservative whole-inventory checks; configured-name
+   collisions and retained interface-identity changes are not ignored.
 4. Stop and verify the fixed native runtime through the bounded host integration.
    Verify that its service/login integration cannot immediately respawn or
    reconnect as a side effect of this action. Do not delete package-owned units,

@@ -342,6 +342,12 @@ impl NativeLifecycleHost {
             Instant::now() + OBSERVATION_TIMEOUT,
         )
         .ok_or(HostStepError::Observation)?;
+        // A verified no-TUN core can have a ready controller. Keep its TUN
+        // count zero: lifecycle adoption still requires one verified device.
+        // Never use a disabled core to adopt a retained/foreign interface.
+        if payload["tun"]["enable"] == false {
+            return Ok(self.tun_identity.is_none() && self.managed_tuns()? == 0);
+        }
         let Some(device) = crate::traffic::controller_device(&payload) else {
             return Ok(false);
         };

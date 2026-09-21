@@ -2015,7 +2015,7 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.textFor("native.importError." + vless.nativeImportCode) : ""; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          Button { id: nativeRecoveryDisconnect; visible: root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanAct; onClicked: vless.requestNativeAction("disconnect", "", "") }
+          Button { id: nativeRecoveryDisconnect; visible: root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           // Primary connection controls stay on the main page, like the
           // reference frontend. Settings reuses this same action surface.
@@ -2219,7 +2219,7 @@ Panel {
             title: root.textFor("native.quit.title")
             description: root.textFor(vless.nativeQuitFailed ? "native.quit.failed" : "native.quit.description")
             actionText: root.textFor(vless.nativeQuitting ? "native.quit.running" : "native.quit.action")
-            actionEnabled: vless.nativeCanAct && !vless.nativeEditorRunning && !vless.nativeImportBusy
+            actionEnabled: vless.nativeCanStop && !vless.nativeEditorRunning && !vless.nativeImportBusy
             onAction: root.quitConfirmation = true
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }

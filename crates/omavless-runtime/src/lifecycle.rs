@@ -164,8 +164,6 @@ impl std::error::Error for LifecycleError {}
 #[derive(Clone, Copy)]
 enum DisconnectPhase {
     ReadIntent,
-    ObserveBefore,
-    ClassifyBefore,
     WriteIntent,
     StopOwned,
     DiscardPrepared,
@@ -176,8 +174,6 @@ impl DisconnectPhase {
     const fn code(self) -> &'static str {
         match self {
             Self::ReadIntent => "read_intent",
-            Self::ObserveBefore => "observe_before",
-            Self::ClassifyBefore => "classify_before",
             Self::WriteIntent => "write_intent",
             Self::StopOwned => "stop_owned",
             Self::DiscardPrepared => "discard_prepared",
@@ -445,6 +441,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
                 return Ok(self.outcome(&current, false));
             }
             ReconcileAction::SettledDisconnected => {}
+            ReconcileAction::AdoptConnected => return self.replace_connected(&current, target),
             _ => {
                 self.actual = ActualState::ManualRecoveryRequired;
                 return Err(LifecycleError::ManualRecoveryRequired);
@@ -525,21 +522,18 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
 
     pub fn disconnect(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
         let current = disconnect_step(self.read(), DisconnectPhase::ReadIntent)?;
-        let observed = disconnect_step(
-            self.observe_or_manual(&current),
-            DisconnectPhase::ObserveBefore,
-        )?;
-        let action = reconcile(&current, observed);
-        if action == ReconcileAction::SettledDisconnected {
+        // An unavailable controller or mismatched desired profile must not
+        // prevent explicit shutdown of the process handle we already own.
+        // This is not adoption/reconciliation: stop_owned may only act on
+        // retained, identity-verified children, never inventory-selected PIDs.
+        let action = self
+            .host
+            .observe(&current)
+            .ok()
+            .map(|facts| reconcile(&current, facts));
+        if action == Some(ReconcileAction::SettledDisconnected) {
             self.actual = ActualState::Disconnected;
             return Ok(self.outcome(&current, false));
-        }
-        if action == ReconcileAction::ManualRecoveryRequired {
-            self.actual = ActualState::ManualRecoveryRequired;
-            return disconnect_step(
-                Err(LifecycleError::ManualRecoveryRequired),
-                DisconnectPhase::ClassifyBefore,
-            );
         }
 
         let disconnected = DesiredState {
@@ -552,7 +546,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         // failure must not silently restore desired connected state.
         disconnect_step(self.write(&disconnected), DisconnectPhase::WriteIntent)?;
         self.actual = ActualState::Stopping;
-        if action != ReconcileAction::RecoverConnected && self.host.stop_owned().is_err() {
+        if self.host.stop_owned().is_err() {
             self.actual = ActualState::ManualRecoveryRequired;
             return disconnect_step(
                 Err(LifecycleError::ManualRecoveryRequired),
@@ -752,8 +746,6 @@ mod tests {
         let mut codes = std::collections::BTreeSet::new();
         for phase in [
             DisconnectPhase::ReadIntent,
-            DisconnectPhase::ObserveBefore,
-            DisconnectPhase::ClassifyBefore,
             DisconnectPhase::WriteIntent,
             DisconnectPhase::StopOwned,
             DisconnectPhase::DiscardPrepared,
@@ -779,6 +771,7 @@ mod tests {
         calls: Vec<&'static str>,
         observation: OwnedObservation,
         fail_prepare: bool,
+        fail_observe_once: bool,
         fail_start: bool,
         remaining_start_failures: usize,
         fail_commit: bool,
@@ -796,6 +789,7 @@ mod tests {
                 calls: Vec::new(),
                 observation: empty(),
                 fail_prepare: false,
+                fail_observe_once: false,
                 fail_start: false,
                 remaining_start_failures: 0,
                 fail_commit: false,
@@ -812,6 +806,9 @@ mod tests {
     impl LifecycleHost for FakeHost {
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
             self.calls.push("observe");
+            if std::mem::take(&mut self.fail_observe_once) {
+                return Err(HostStepError::Observation);
+            }
             Ok(self.observation)
         }
 
@@ -946,6 +943,105 @@ mod tests {
         let outcome = executor.connect_requested("opaque-id", None).unwrap();
         assert_eq!(outcome.generation, 4);
         assert_eq!(desired(&executor).mode, RoutingMode::Direct);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn connected_profile_switch_replaces_core_and_repeat_is_noop() {
+        let (root, mut executor) = executor("switch", FakeHost::default());
+        executor.connect("profile-a", RoutingMode::Rule).unwrap();
+        executor.host_mut().calls.clear();
+        let switched = executor.connect_requested("profile-b", None).unwrap();
+        assert_eq!(switched.actual, ActualState::Connected);
+        assert_eq!(desired(&executor).profile_id, "profile-b");
+        assert_eq!(desired(&executor).mode, RoutingMode::Rule);
+        assert_eq!(switched.generation, 2);
+        assert_eq!(
+            executor.host().calls,
+            ["observe", "stop", "prepare", "start", "observe", "commit"]
+        );
+        executor.host_mut().calls.clear();
+        assert!(
+            !executor
+                .connect_requested("profile-b", None)
+                .unwrap()
+                .changed
+        );
+        assert_eq!(executor.host().calls, ["observe"]);
+        let changed = executor.connect("profile-b", RoutingMode::Global).unwrap();
+        assert_eq!(changed.generation, 3);
+        assert_eq!(desired(&executor).mode, RoutingMode::Global);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_switch_restores_old_profile_or_requires_explicit_cleanup() {
+        for failures in [1, 2] {
+            let (root, mut executor) = executor("switch-failure", FakeHost::default());
+            executor.connect("profile-a", RoutingMode::Rule).unwrap();
+            executor.host_mut().remaining_start_failures = failures;
+            let result = executor.connect("profile-b", RoutingMode::Global);
+            assert_eq!(desired(&executor).profile_id, "profile-a");
+            assert_eq!(desired(&executor).mode, RoutingMode::Rule);
+            assert_eq!(desired(&executor).generation, 3);
+            if failures == 1 {
+                assert_eq!(result, Err(LifecycleError::TransitionFailedRestored));
+                assert_eq!(executor.actual(), ActualState::Connected);
+            } else {
+                assert_eq!(result, Err(LifecycleError::ManualRecoveryRequired));
+                assert_eq!(executor.actual(), ActualState::ManualRecoveryRequired);
+                assert_eq!(
+                    executor.disconnect().unwrap().actual,
+                    ActualState::Disconnected
+                );
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn explicit_stop_cleans_owned_handle_despite_unavailable_or_mismatched_observation() {
+        for unavailable in [true, false] {
+            let (root, mut executor) = executor("recovery-stop", FakeHost::default());
+            executor.connect("profile-a", RoutingMode::Rule).unwrap();
+            executor.host_mut().calls.clear();
+            executor.host_mut().fail_observe_once = unavailable;
+            executor.host_mut().observation.active_profile_matches = false;
+            executor.host_mut().desired_probe = Some((executor.paths.clone(), executor.uid));
+            assert_eq!(
+                executor.disconnect().unwrap().actual,
+                ActualState::Disconnected
+            );
+            assert!(executor.host().disconnected_intent_seen_at_stop);
+            assert_eq!(
+                executor.host().calls,
+                ["observe", "stop", "discard", "observe"]
+            );
+            assert!(!desired(&executor).connected);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn explicit_stop_never_claims_cleanup_when_inventory_remains() {
+        let (root, mut executor) = executor(
+            "unclean-stop",
+            FakeHost {
+                observation: OwnedObservation {
+                    tun_count: 1,
+                    ..empty()
+                },
+                leave_running_after_stop: true,
+                ..FakeHost::default()
+            },
+        );
+        assert_eq!(
+            executor.disconnect(),
+            Err(LifecycleError::ManualRecoveryRequired)
+        );
+        assert_eq!(executor.actual(), ActualState::ManualRecoveryRequired);
+        assert!(!desired(&executor).connected);
+        assert!(!executor.host().calls.contains(&"start"));
         fs::remove_dir_all(root).unwrap();
     }
 
