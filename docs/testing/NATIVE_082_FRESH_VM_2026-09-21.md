@@ -63,6 +63,13 @@ This was not a persistent recovery state or a successful-connect claim.
 - Manifest JSON, installed Omarchy plugin validation, all plugin QML files
   linted with installed Omarchy imports, tracked shell syntax and whitespace
   checks passed. No tracked symlinks were present.
+- The guest's Qt 6.11.2 linter also exited 0 for all plugin QML, using a
+  temporary import root mapping `qs` to the installed Omarchy shell. It emitted
+  static-analysis warnings (including dynamic `Style.font` members and
+  unqualified accesses); this is not a warning-free Qt 6 claim. An initial
+  invocation without that `qs` mapping could not resolve Omarchy imports and
+  was stopped, then replaced by the correctly mapped check. Installed rendered
+  UI evidence above is separate from these static diagnostics.
 - The first Rust suite failed the two-second owned-child graceful-stop test
   with `StopFailed`. The isolated test and a subsequent complete unchanged
   `tests/run-rust.sh` both passed (979 tests passed, 11 opt-in tests ignored
