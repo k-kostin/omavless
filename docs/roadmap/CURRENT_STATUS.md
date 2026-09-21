@@ -1,12 +1,26 @@
 # Current delivery status
 
-Updated 2026-09-16. This is the compact current-state entry point; the detailed
+Updated 2026-09-21. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Release progress, September 16:** #250–253 are merged (user-facing content,
+- **Release finalization, September 21:** physical x86-64 found and corrected
+  foreign-TUN recovery, connected-profile replacement and misleading subscription
+  feedback in #258–260. The combined development candidate is now installed;
+  attended package/update/reconnect, preserved profiles/foreign VPNs, fresh
+  Connected/Rule and user-confirmed operation are recorded in the
+  [PC continuation](../testing/PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
+  The matching QML required a graphical-shell restart to replace cached JS;
+  this did not restart the native connection. Release integration reconciles
+  #249's setup and #257's historical PC evidence with these fixes. Existing
+  `v0.8.0` prerelease/tag/assets still identify the earlier runtime, not this
+  installed candidate. Final corrected artifacts/pins and guided-install gates
+  remain distinct. The owner authorizes main/release finalization but explicitly
+  withholds marketplace submission until a separate instruction.
+
+- **Historical release progress, September 16:** #250–253 are merged (user-facing content,
   preserved developer docs, runtime/frontend pairing and x86_64 package build).
   [v0.8.0](https://github.com/k-kostin/omavless/releases/tag/v0.8.0) is now public
   as a **prerelease / not latest**, with actual ARM64/x86_64 archives and the

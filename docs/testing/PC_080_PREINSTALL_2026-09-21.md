@@ -1,6 +1,11 @@
 # Physical x86-64 PC: 0.8.0 pre-install checkpoint
 
-**Verdict: 0.8.0 ACCEPTANCE INCOMPLETE — REAL GATES REMAIN.**
+**Current verdict: corrected native development package installed and usable;
+final published release assembly and clean guided provisioning remain separate.**
+
+The pre-install sections below are historical. The [final continuation](#corrected-installed-candidate--september-21)
+records the later installed/runtime/UI result without rewriting the earlier
+failures or attributing new fixes to the September 16 release archives.
 
 This is executed artifact/static/read-only host evidence, not installed package,
 guided-install, visual or live VPN acceptance. The supplied September 16 PC
@@ -189,3 +194,64 @@ passed. No assertions, cleanup guards, timeouts or production code were altered.
 The first failure remains evidence of an intermittent cleanup-check failure;
 its cause is not established, and repeat success is not a proof of a fix or
 of live VPN cleanup. Do not silently erase this finding from release review.
+
+## Corrected installed candidate — September 21
+
+The physical PC exposed three issues addressed by #258–260: whole-host TUN
+counting treated an unrelated interface as OmaVLESS recovery state; connected
+profile replacement did not use the existing compensated replacement path;
+and subscription transport failures were presented as proxy-core/editor errors.
+Rust remains the sole native owner. No foreign VPN service/interface, private
+ownership marker or security policy was forcibly altered to obtain a pass.
+
+Installed combined source: `a050087febcd22a8a22a00067e98d9dbd207ba91`.
+
+| Identity | Value |
+| --- | --- |
+| Development package | `omavless-0.0.0.r550.ga050087febcd-1-x86_64.pkg.tar.zst` |
+| Package SHA-256 | `fa9c605398c3a75b8b8626cfd76c4ba9ba5076fbed98c48bbe0d050951e0a72b` |
+| Running ELF SHA-256 | `29b3ff0d24b44449ccf8cab64f84d40ab5ed8648d293333a47b2bb02fdfee742` |
+| Frontend | Matching source files, checked byte-for-byte after installation |
+
+The attended one-shot update separately recorded human `ready`/`settled` for
+Disconnect, runtime Stop, normal pacman package installation, runtime Start,
+frontend installation and Connect to the original profile in Rule mode. Each
+stage passed. Private profile/subscription contents and routing template were
+preserved; only the intended connection pointers could change. Foreign TUN
+identities and V2RayN/Xray/Tailscale process identities were preserved.
+
+Fresh native observation verified the matching desired profile/controller,
+one owned core and one managed TUN, Connected/Rule, startup Off, and no manual
+recovery. The user confirmed usable connectivity. Read-only HTTPS requests to
+`https://example.com/` returned 200. Earlier source-session explicit-proxy
+checks are separate evidence; this post-update HTTPS result alone is not a
+claim that every destination follows the intended routing policy.
+
+### Loaded frontend cache correction
+
+After the paired update, the panel initially displayed State unverified even
+though runtime observation was connected. The installed new JS parser accepted
+the real response while the preceding parser rejected its added diagnostics
+field. Shell IPC reported metadata available but observation unavailable.
+The supported plugin rescan did not resolve that mismatch on this shell build.
+
+A supported graphical-shell restart restored observationAvailable=true and
+Connected/Rule in the actual frontend IPC. The native runtime PID, connection
+generation and connected state stayed unchanged across that restart; another
+HTTPS request returned 200. The owner then confirmed the panel worked. This
+is why file equality and a successful rescan are not sufficient loaded-QML
+acceptance. No VPN/core restart was needed for the cache correction.
+
+### Scope retained
+
+Exact-source CI, 978 passing Rust tests (11 ignored), 249 Python cases (two
+opt-in skips), JS/QML contracts and 16 installed-import QML lint checks passed
+for the diagnostic candidate. These are not clean first-run installation or
+an ARM64 build of the corrected source. The ordinary installed connection and
+UI now work, but the old published 0.8.0 packages do not contain these fixes.
+New final packages, real setup pins and the merged installer need their own
+matching checks. AUTO-1, V0, broader DNS/provider investigation and missing-core
+guided provisioning are not silently promoted to PASS.
+
+The owner authorized main/release finalization after this result. Marketplace
+submission remains expressly withheld until a separate owner instruction.

@@ -283,6 +283,15 @@ Replacing the on-disk executable does not upgrade an already running daemon.
 Support facts also do not prove working DNS, route restoration, internet access
 or successful login activation; those need their own observed checks.
 
+If a paired frontend update still shows **State unverified**, first compare the
+fresh `omavless runtime observation` with the panel. Do not repeatedly toggle
+the VPN or reset private state. A running Quickshell may retain an old JavaScript
+parser even after plugin rescan. When the native runtime is healthy but the
+panel cannot read its observation, a deliberate `omarchy restart shell` reloads
+the graphical frontend; the separate native runtime and tunnel are not restarted
+by that command. The bar/panels briefly disappear. Do not use this as a remedy
+for actual runtime recovery or an unresolved authorization request.
+
 ## Updates, close, Quit and removal
 
 Closing the panel or a terminal is not Disconnect. Settings' confirmed
