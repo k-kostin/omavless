@@ -71,7 +71,10 @@ jobs:
             omavless-arm-build:local /bin/bash -euo pipefail -c '
               pacman-key --init
               pacman-key --populate archlinuxarm
-              pacman -Syu --noconfirm --needed base-devel git rustup python nodejs libcap
+              # The disposable Docker runner cannot apply pacman Landlock.
+              # Only its downloader sandbox is disabled; package signatures
+              # remain mandatory, and the compiler/packager still run unprivileged.
+              pacman -Syu --disable-sandbox --noconfirm --needed base-devel git rustup python nodejs libcap
               useradd --create-home --shell /bin/bash packagebuilder
               chown -R packagebuilder:packagebuilder /source
               runuser -u packagebuilder -- bash packaging/release/build-native-ci.sh
