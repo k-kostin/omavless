@@ -1,6 +1,16 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; release-gate clarification updated 2026-09-15.
+Status: active delivery ledger; release finalization updated 2026-09-21.
+
+**Current release checkpoint:** the corrected combined native candidate has
+passed the attended physical-PC package/update/reconnect and frontend checks;
+see [current status](docs/roadmap/CURRENT_STATUS.md) and the
+[PC continuation](docs/testing/PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
+This does not make the earlier published `v0.8.0` archives current. Integrate
+the accepted fixes with setup, assemble matching corrected artifacts/pins and
+finish the applicable distribution gates. Preserve existing immutable release
+identities. Main/release finalization is owner-authorized; marketplace submission
+is expressly withheld until the owner separately requests it.
 
 **Fresh-marketplace gate:** package-first acceptance is not fresh plugin-only
 installation. The [bootstrap checkpoint](docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)

@@ -138,11 +138,13 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Close the fresh-marketplace gate above, then follow the [VM-to-x86_64 release checklist](../testing/NATIVE_080_RELEASE_HANDOFF_2026-09-14.md):
-   retain completed ARM64 final artifact/version preparation, run the owner's final
-   x86_64 Omarchy pass, then obtain publication approval. Offline stable
-   assembly is distinct from changing the current RC version or publishing.
-   Do not change the 0.7.0 marketplace identity without separate approval.
+2. Finalize the corrected runtime/setup release after the recorded PC update:
+   retain the historical ARM64 evidence, build and inspect new matching artifacts,
+   replace setup pins only with real reviewed hashes, and finish affected
+   clean-provisioning checks. The old public prerelease cannot be promoted as
+   though it contained the PC fixes. Resolve the new release identity without
+   moving an existing tag or overwriting published bytes. Marketplace submission
+   and the old 0.7.0 listing remain on hold for the owner's separate instruction.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.

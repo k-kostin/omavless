@@ -1,5 +1,17 @@
 # Marketplace first-run setup checkpoint
 
+## September 21 integration status
+
+Release integration combines this setup frontend with the corrected native
+runtime in #258–260 and the [installed PC evidence](PC_080_PREINSTALL_2026-09-21.md#corrected-installed-candidate--september-21).
+The successful older ARM64 clean setup below remains scoped to its exact
+package/frontend. Current metadata still pins the September 16 package bytes;
+those are not the later installed PC runtime. Corrected final packages and pins
+must be reconciled before release. Missing-core provisioning and other explicitly
+unrun scenarios remain unrun. The latest owner instruction permits main/release
+finalization but **not marketplace submission**; it supersedes earlier publication
+permission stated in the historical checkpoint below.
+
 ## September 16 release validation in progress
 
 Owner authorized release preparation/publication and the marketplace update in
