@@ -499,6 +499,16 @@ impl ProductionOwnershipObserver {
     /// view. This is not an atomic reservation, namespace-completeness proof,
     /// login trigger or permission to start a core. No private config is read.
     pub fn verify_empty(&self) -> Result<(), ProductionObservationError> {
+        self.verify_empty_scoped(false)
+    }
+
+    /// Native login checks its own configured devices, not unrelated VPNs.
+    /// The one-time ownership cutover retains its stricter whole-host gate.
+    pub(crate) fn verify_native_empty(&self) -> Result<(), ProductionObservationError> {
+        self.verify_empty_scoped(true)
+    }
+
+    fn verify_empty_scoped(&self, native: bool) -> Result<(), ProductionObservationError> {
         for _ in 0..2 {
             if !private_runtime_directory(&self.paths.runtime_base, self.uid)
                 || fs::canonicalize(&self.paths.runtime_base).ok().as_deref()
@@ -525,8 +535,16 @@ impl ProductionOwnershipObserver {
             }
             let cores = processes_named_strict(&self.paths.proc_root, "mihomo")
                 .map_err(|_| ProductionObservationError::IncompleteInventory)?;
-            let tun = tun_interface_count_strict(&self.paths.sys_class_net)
-                .map_err(|_| ProductionObservationError::IncompleteInventory)?;
+            let tun = if native {
+                let devices =
+                    crate::tun_scope::configured_devices(&self.paths.config_directory, self.uid)
+                        .map_err(|_| ProductionObservationError::PrivateState)?;
+                crate::tun_scope::count_scoped(&self.paths.sys_class_net, devices.as_ref())
+                    .map_err(|_| ProductionObservationError::IncompleteInventory)?
+            } else {
+                tun_interface_count_strict(&self.paths.sys_class_net)
+                    .map_err(|_| ProductionObservationError::IncompleteInventory)?
+            };
             if !cores.is_empty() || tun != 0 {
                 return Err(ProductionObservationError::HostNotEmpty);
             }

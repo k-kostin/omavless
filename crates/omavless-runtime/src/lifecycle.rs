@@ -61,6 +61,10 @@ pub struct NativeLocalObservation {
     pub owned_auxiliary_mihomo_count: u8,
     /// Visible TUN interfaces only; no interface is attributed to this core.
     pub visible_tun_count: u8,
+    /// Configured/retained device names relevant to our collision and cleanup
+    /// boundary. Falls back to the whole visible inventory for unknown config.
+    /// This is not proof of ownership or of routes/DNS protection.
+    pub managed_tun_count: u8,
     /// True only after PID-authenticated read-only configuration verification.
     /// False includes unavailable/unverified, not necessarily bad configuration.
     pub owned_controller_config_verified: bool,

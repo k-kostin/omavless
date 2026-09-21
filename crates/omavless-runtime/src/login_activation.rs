@@ -259,7 +259,7 @@ impl LoginReadiness for Host {
             return Err(LoginHostError);
         }
         ProductionOwnershipObserver::current()
-            .and_then(|observer| observer.verify_empty())
+            .and_then(|observer| observer.verify_native_empty())
             .map_err(|_| LoginHostError)
     }
     fn validate_candidate(

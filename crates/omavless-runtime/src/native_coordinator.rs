@@ -2096,6 +2096,7 @@ mod tests {
             visible_mihomo_count: 1,
             owned_auxiliary_mihomo_count: 0,
             visible_tun_count: 1,
+            managed_tun_count: 1,
             owned_controller_config_verified: false,
             desired_profile_matches_owned: false,
         });

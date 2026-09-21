@@ -35,6 +35,32 @@ observations, not an atomic kernel snapshot or a guarantee of continued health.
 
 ## Explicitly unverified
 
+### Native configured-device scope
+
+Native observations additionally expose `managedTunCount`, bounded by
+`visibleTunCount`. It counts interfaces whose names occur in the private active,
+candidate or template TUN configuration (plus the device retained across an
+owned stop). The whole-host visible inventory is never reduced or relabelled.
+This is a conservative collision/cleanup scope, **not** ownership evidence.
+Unsupported/ambiguous YAML retains the whole-host count. The bounded recognizer
+accepts explicit block TUN configuration, rejects aliases/merges, duplicate
+keys and ambiguous scalar spellings, and never emits private config text.
+
+Native lifecycle, login preparation and Full Quit use this scoped count. An
+unrelated TUN no longer creates manual recovery by itself. A configured-name
+collision is refused before core launch, even if the existing interface is not
+a TUN. Live verification also checks the exact owned PID's private controller
+device and pins its kernel interface index; a replaced device cannot silently
+be adopted. Stop never deletes an arbitrary interface, and a retained device
+must disappear before cleanup succeeds. The one-time legacy ownership cutover
+keeps its stricter whole-host admission; this correction does not bypass it.
+
+The matching frontend understands both the older conservative observation and
+the extended scope. Unknown/malformed counts, incomplete inventories, genuine
+recovery state and unverified owned controllers remain unavailable/blocked.
+Foreign tunnels may still conflict in routing; their absence from the managed
+count is not proof of compatible routes, DNS or Internet egress.
+
 The `verification` object always reports false for service ownership, TUN
 ownership, routes, DNS and internet. A visible TUN might belong to another VPN;
 a named process count might include an unrelated core or omit a renamed child.

@@ -69,6 +69,14 @@ test('optional attributed auxiliary count is bounded and never hides visible pro
   p.result.facts.ownedAuxiliaryMihomoCount=1; p.result.facts.visibleMihomoCount=0;
   assert.equal(parseObservation(p),null);
 });
+test('managed TUN scope is optional bounded data, never a replacement for visible inventory', () => {
+  const p=observation(); Object.assign(p.result.facts,{ownedAuxiliaryMihomoCount:0,visibleTunCount:2,managedTunCount:1});
+  assert.equal(parseObservation(p).facts.managedTunCount,1);
+  assert.equal(parseObservation(p).facts.visibleTunCount,2);
+  for(const invalid of [-1,3,0.5,'1',null]) {
+    p.result.facts.managedTunCount=invalid; assert.equal(parseObservation(p),null);
+  }
+});
 test('metadata/observation join requires exact instance revision intent and generation', () => {
   const r=parseObservation(observation());
   const snapshot={instanceId:r.instanceId,revision:r.revision,lastKnownActual:r.lastKnownActual,desired:{...r.desired,profileId:'synthetic-profile'}};

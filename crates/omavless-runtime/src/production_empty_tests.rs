@@ -73,6 +73,27 @@ fn disconnected_native_fixture(native: &str, legacy: &str) -> Fixture {
 
 const ACTIVE_NATIVE: &str =
     "ActiveState=active\\nMainPID=42\\nExecMainStatus=0\\nResult=success\\n";
+
+#[test]
+fn native_login_scopes_foreign_tuns_but_cutover_stays_strict() {
+    let f = Fixture::empty();
+    fs::create_dir_all(&f.paths.config_directory).unwrap();
+    let template = f.paths.config_directory.join("route-template.yaml");
+    fs::write(&template, b"tun:\n  enable: true\n  device: Meta\n").unwrap();
+    fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::create_dir(f.paths.sys_class_net.join("tailscale0")).unwrap();
+    fs::write(
+        f.paths.sys_class_net.join("tailscale0/tun_flags"),
+        b"0x1001\n",
+    )
+    .unwrap();
+    let observer = f.observer();
+    assert!(observer.verify_native_empty().is_ok());
+    assert!(observer.verify_empty().is_err());
+    fs::create_dir(f.paths.sys_class_net.join("Meta")).unwrap();
+    fs::write(f.paths.sys_class_net.join("Meta/tun_flags"), b"0x1001\n").unwrap();
+    assert!(observer.verify_native_empty().is_err());
+}
 const INACTIVE_LEGACY: &str =
     "ActiveState=inactive\\nMainPID=0\\nExecMainStatus=0\\nResult=success\\n";
 

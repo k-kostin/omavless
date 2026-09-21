@@ -22,16 +22,22 @@ function project(snapshot, observation, failed) {
   var auxiliary = facts.ownedAuxiliaryMihomoCount === undefined ? 0 : facts.ownedAuxiliaryMihomoCount
   if ([0, 1].indexOf(auxiliary) < 0 || auxiliary > facts.visibleMihomoCount) return result
   var tunnelCores = facts.visibleMihomoCount - auxiliary
+  // New runtimes retain whole-host facts but scope lifecycle to configured
+  // device names. Old runtime responses keep their conservative total check.
+  var tunnelCount = facts.managedTunCount === undefined ? facts.visibleTunCount : facts.managedTunCount
+  if (typeof tunnelCount !== "number" || !isFinite(tunnelCount)
+      || Math.floor(tunnelCount) !== tunnelCount || tunnelCount < 0
+      || tunnelCount > facts.visibleTunCount) return result
   result.state = snapshot.lastKnownActual
   if (result.state === "connected") {
     result.connected = snapshot.desired.connected && facts.ownedCoreRunning
       && facts.desiredProfileMatchesOwned && facts.ownedControllerConfigVerified
-      && tunnelCores === 1 && facts.visibleTunCount === 1
+      && tunnelCores === 1 && tunnelCount === 1
     if (result.connected) result.activeId = snapshot.desired.profileId
     else result.state = "unavailable"
   } else if (result.state === "disconnected"
       && (snapshot.desired.connected || facts.ownedCoreRunning
-          || tunnelCores !== 0 || facts.visibleTunCount !== 0)) {
+          || tunnelCores !== 0 || tunnelCount !== 0)) {
     result.state = "unavailable"
   }
   return result
