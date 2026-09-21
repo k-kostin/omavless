@@ -88,6 +88,9 @@ Item {
   }
   property var nativeSnapshot: null
   property bool nativeSnapshotFailed: false
+  // Automatic first-use presentation must wait for the read requested on open,
+  // especially just after an acknowledgement changed persistent completion.
+  readonly property bool nativeStatusRefreshing: statusProcess.running
   property var nativeObservation: null
   property var nativePending: null
   property string nativeActionCode: ""

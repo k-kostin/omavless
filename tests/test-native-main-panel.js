@@ -23,6 +23,13 @@ function context(){
   return c;
 }
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('missing core blocks row/keyboard connect but never blocks disconnect',()=>{
+  const c=context();c.coreComponentMissing=true;
+  assert.equal(c.nativeActivateProfile('local'),false);assert.equal(c.nativeToggleConnection(),false);assert.equal(c.calls.length,0);
+  c.nativeView.connected=true;c.nativeView.activeId='local';c.nativeView.state='connected';
+  c.nativeActivateProfile('local');assert.deepEqual(c.calls.pop(),['disconnect','','']);
+  assert.equal(c.nativeActivateProfile('managed'),false);assert.equal(c.calls.length,0);
+});
 test('selection is not connection; explicit row action alone switches the target',()=>{
   const c=context();Object.assign(c.nativeView,{connected:true,state:'connected',activeId:'managed'});
   c.nativeSelectedProfile='local';assert.equal(presentation.activeProfile(c.nativeView).id,'managed');
@@ -340,6 +347,7 @@ test('native Settings Tab order follows visual action order without hidden Test'
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
   const names=Array.from(new Set(source.slice(from,to).match(/\bnative[A-Z]\w*/g)));
   const c=vm.createContext({page:'settings',vless:{nativeOwner:true},showMainConnectionTest:false,showMainLatencySection:false});
+  c.root=c;c.bootstrapRequired=false;
   for(const name of names)c[name]={focusTarget:name,count:0};
   c.nativeSupportSetting.exportFocusTarget='nativeSupportSave';
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';

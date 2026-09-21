@@ -26,9 +26,11 @@ Trojan/Hysteria2/TUIC. Do not imply all provider combinations were live-tested.
 ## Installation copy — release gate
 
 PR #249 adds guided first-run provisioning and persistent missing-component
-cards. At this checkpoint its real package pins are empty. Current README
-therefore retains the truthful manual package-first instructions and marks the
-guided route as in validation, not generally available.
+cards. September 16: real ARM64/x86_64 pins are committed and the public
+`v0.8.0` prerelease assets pass anonymous-download checksum verification.
+README links the testing release without claiming stable or accepted guided
+installation. See the current first-run evidence and PC gate; the older
+empty-pin state is superseded, not an ongoing asset-publication blocker.
 
 After immutable packages/pins and clean end-to-end acceptance, replace that
 candidate warning with:
@@ -79,12 +81,18 @@ QML contracts pass. Settings is unchanged because it contains no profile names.
 - [Settings](images/settings-en.png): language, routing and subscription entry
   points. This is one scroll position, not a claim the complete Settings fits.
 
+September 16 release preparation selects `main-en.png` as the root `preview.png`,
+replacing the historical UI screenshot with the already reviewed native panel.
+It is an exact byte copy, not a retouch or upscale. The disconnected state and
+invented country/city labels remain explicit. A full-desktop hero is optional,
+not a reason to keep advertising the old interface.
+
 These are panel-only crops, **not a full-desktop hero composition**. At native
 460-pixel width the real monospace text stays readable without scaling or fake
 desktop chrome. Preserve masters; do not upscale or squeeze into 16:9. A wider
 desktop/bar hero remains an owner-choice follow-up, ideally captured at native
 HiDPI on the PC. Compare actual responsive card cropping before selecting the
-single root preview; the current root preview is deliberately unchanged here.
+single root preview. The selected native panel is also linked from README.
 
 There is no installation hero: simulated ready/missing-component facts are not
 evidence of the still-unrun published package setup. Capture that README image
