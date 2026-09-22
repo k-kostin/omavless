@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 use crate::{
+    actions::{self, Command, Kind, Outcome, Request},
     i18n::Locale,
-    model::{ReadError, Snapshot, Status},
+    model::{Actual, Mode, ReadError, Snapshot, Status},
 };
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::{Duration, Instant};
@@ -18,12 +19,26 @@ pub struct App {
     pub help: bool,
     pub locale: Locale,
     accepted: Option<(String, u64)>,
+    pub actions_enabled: bool,
+    pub viewport_ready: bool,
+    pub confirmation: Option<Confirmation>,
+    pub pending: Option<Request>,
+    pub running: bool,
+    pub unknown: bool,
+    pub notice: &'static str,
+    minimum_sample: Option<Instant>,
+}
+pub enum Confirmation {
+    New(Command),
+    Retry,
+    Acknowledge { instance: String, revision: u64 },
 }
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
     None,
     Refresh,
     Close,
+    Submit,
 }
 
 impl App {
@@ -38,9 +53,21 @@ impl App {
             help: false,
             locale,
             accepted: None,
+            actions_enabled: false,
+            viewport_ready: true,
+            confirmation: None,
+            pending: None,
+            running: false,
+            unknown: false,
+            notice: "",
+            minimum_sample: None,
         }
     }
     pub fn accept(&mut self, mut result: Result<Snapshot, ReadError>, started: Instant) {
+        // A pre-command read cannot certify a post-command outcome.
+        if self.minimum_sample.is_some_and(|minimum| started < minimum) {
+            return;
+        }
         if let (Some((instance, revision)), Ok(next)) = (&self.accepted, &result)
             && *instance == next.metadata.instance_id
             && next.revision < *revision
@@ -65,6 +92,9 @@ impl App {
                 self.snapshot = Some(next);
                 self.sampled_at = Some(started);
                 self.error = None;
+                if self.notice == "tui.action_applied" {
+                    self.notice = "tui.action_complete";
+                }
             }
             Err(error) => {
                 self.snapshot = None;
@@ -79,7 +109,7 @@ impl App {
             .is_some_and(|then| now.saturating_duration_since(then) < FRESH_FOR)
     }
     pub fn status(&self, now: Instant) -> Status {
-        if self.fresh(now) {
+        if self.fresh(now) && !self.running {
             self.snapshot
                 .as_ref()
                 .map_or(Status::Unverified, Snapshot::status)
@@ -104,11 +134,43 @@ impl App {
         })
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
+        self.key_at(key, Instant::now())
+    }
+    pub fn key_at(&mut self, key: KeyEvent, now: Instant) -> Action {
         if key.kind == KeyEventKind::Release {
             return Action::None;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Action::Close;
+        }
+        if self.actions_enabled && !self.viewport_ready {
+            if key.code == KeyCode::Char('q') {
+                return Action::Close;
+            }
+            if key.code == KeyCode::Esc {
+                self.confirmation = None;
+            }
+            return Action::None;
+        }
+        if self.confirmation.is_some() {
+            match key.code {
+                KeyCode::Esc => self.confirmation = None,
+                KeyCode::Char('q') => return Action::Close,
+                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                    // Held keys must not both open and confirm a network action.
+                    let operation = if matches!(self.confirmation, Some(Confirmation::New(_))) {
+                        actions::operation_id()
+                    } else {
+                        Some(String::new())
+                    };
+                    if let Some(operation) = operation {
+                        return self.confirm(now, operation);
+                    }
+                    self.notice = "tui.action_rejected";
+                }
+                _ => {}
+            }
+            return Action::None;
         }
         if self.help {
             if key.code == KeyCode::Char('q') {
@@ -140,6 +202,32 @@ impl App {
                 _ => {}
             }
             return Action::None;
+        }
+        if self.actions_enabled
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            match key.code {
+                KeyCode::Char('c') => self.prepare(Kind::Connect, None, now),
+                KeyCode::Char('d') => self.prepare(Kind::Disconnect, None, now),
+                KeyCode::Char('1') => self.prepare(Kind::Mode, Some(Mode::Global), now),
+                KeyCode::Char('2') => self.prepare(Kind::Mode, Some(Mode::Rule), now),
+                KeyCode::Char('3') => self.prepare(Kind::Mode, Some(Mode::Direct), now),
+                KeyCode::Char('u') if self.unknown && !self.running => {
+                    self.confirmation = Some(Confirmation::Retry)
+                }
+                KeyCode::Char('a') if self.can_acknowledge(now) => {
+                    if let Some(s) = &self.snapshot {
+                        self.confirmation = Some(Confirmation::Acknowledge {
+                            instance: s.metadata.instance_id.clone(),
+                            revision: s.revision,
+                        });
+                    }
+                }
+                _ => {}
+            }
         }
         match key.code {
             KeyCode::Char('q') => return Action::Close,
@@ -177,5 +265,150 @@ impl App {
             _ => {}
         }
         Action::None
+    }
+
+    fn eligible(&self, kind: Kind, now: Instant) -> bool {
+        self.actions_enabled
+            && self.viewport_ready
+            && self.pending.is_none()
+            && self.fresh(now)
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.actions_available
+                    && !matches!(
+                        s.metadata.last_known_actual,
+                        Actual::Starting | Actual::Stopping | Actual::Reconnecting
+                    )
+                    && (kind == Kind::Disconnect
+                        || matches!(s.status(), Status::Connected | Status::Disconnected))
+            })
+    }
+
+    fn can_acknowledge(&self, now: Instant) -> bool {
+        self.unknown
+            && !self.running
+            && self.fresh(now)
+            && self.viewport_ready
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.observation.facts.is_some()
+                    && !matches!(
+                        s.metadata.last_known_actual,
+                        Actual::Starting | Actual::Stopping | Actual::Reconnecting
+                    )
+            })
+    }
+
+    pub fn prepare(&mut self, kind: Kind, mode: Option<Mode>, now: Instant) {
+        if !self.eligible(kind, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        // Disconnect and mode always target the runtime's current session, never selection.
+        let id = if kind == Kind::Connect {
+            self.selected.as_deref().unwrap_or("")
+        } else {
+            &s.metadata.desired.profile_id
+        };
+        let profile = s.metadata.profiles.iter().find(|p| p.id == id);
+        if kind == Kind::Connect && profile.is_none_or(|p| p.missing) {
+            self.notice = "tui.select_available";
+            return;
+        }
+        self.confirmation = Some(Confirmation::New(Command {
+            instance: s.metadata.instance_id.clone(),
+            revision: s.revision,
+            kind,
+            profile: id.into(),
+            name: profile.map_or_else(String::new, |p| p.name.clone()),
+            source: profile
+                .and_then(|p| p.subscription_id.as_ref())
+                .and_then(|id| s.metadata.subscriptions.iter().find(|sub| sub.id == *id))
+                .map(|sub| sub.name.clone()),
+            was_connected: s.metadata.desired.connected,
+            mode: mode.unwrap_or(s.metadata.desired.mode),
+        }));
+        self.notice = "";
+    }
+
+    /// Explicit confirmation only; callers must never automate host authorization.
+    pub fn confirm(&mut self, now: Instant, operation: String) -> Action {
+        if !self.actions_enabled || !self.viewport_ready {
+            return Action::None;
+        }
+        let Some(confirmation) = self.confirmation.take() else {
+            return Action::None;
+        };
+        match confirmation {
+            Confirmation::New(command) => {
+                if !self.eligible(command.kind, now)
+                    || !self.snapshot.as_ref().is_some_and(|s| {
+                        s.metadata.instance_id == command.instance
+                            && s.revision == command.revision
+                            && (command.kind != Kind::Connect
+                                || s.metadata.profiles.iter().any(|p| {
+                                    p.id == command.profile && p.name == command.name && !p.missing
+                                }))
+                    })
+                {
+                    self.notice = "tui.action_changed";
+                    return Action::None;
+                }
+                self.pending = Request::new(command, operation);
+                if self.pending.is_none() {
+                    self.notice = "tui.action_rejected";
+                    return Action::None;
+                }
+            }
+            Confirmation::Retry => {
+                if !self.unknown || self.running || self.pending.is_none() {
+                    return Action::None;
+                }
+                // Retain every byte of the original request, including its old fences.
+            }
+            Confirmation::Acknowledge { instance, revision } => {
+                if self.can_acknowledge(now)
+                    && self.snapshot.as_ref().is_some_and(|s| {
+                        s.metadata.instance_id == instance && s.revision == revision
+                    })
+                {
+                    self.pending = None;
+                    self.unknown = false;
+                    self.notice = "tui.action_acknowledged";
+                } else {
+                    self.notice = "tui.action_changed";
+                }
+                return Action::None;
+            }
+        }
+        self.running = true;
+        self.notice = "tui.action_pending";
+        self.sampled_at = None;
+        self.minimum_sample = Some(now);
+        Action::Submit
+    }
+
+    pub fn finish(&mut self, mut outcome: Outcome, now: Instant) {
+        if !self.running || self.pending.is_none() {
+            return;
+        }
+        // A rejection of an exact retry (e.g. restarted daemon/evicted receipt)
+        // does not prove whether the original request was applied.
+        if self.unknown && matches!(outcome, Outcome::Rejected(_)) {
+            outcome = Outcome::Unknown;
+        }
+        self.running = false;
+        self.sampled_at = None;
+        self.minimum_sample = Some(now);
+        self.unknown = outcome == Outcome::Unknown;
+        self.notice = match outcome {
+            Outcome::Applied => "tui.action_applied",
+            Outcome::Rejected(key) => key,
+            Outcome::Unknown => "tui.action_unknown",
+        };
+        if !self.unknown {
+            self.pending = None;
+        }
     }
 }

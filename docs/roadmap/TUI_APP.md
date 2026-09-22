@@ -3,6 +3,9 @@
 Status: R6 prerequisite satisfied; an opt-in T2a read-only client checkpoint is
 under development, not the packaged T2 MVP. Updated 2026-09-22.
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
+The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
+adds explicit connection/mode confirmations; installed acceptance is a separate
+gate and neither checkpoint completes the MVP.
 
 Implementation/migration authority:
 [`RUST_MIGRATION.md`](RUST_MIGRATION.md).

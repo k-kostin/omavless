@@ -9,4 +9,4 @@ for (const [key,entry] of Object.entries(catalog)) {
     if (!key.startsWith("tui.")) assert.strictEqual(entry[locale],qml.translate(key,locale),`${key}:${locale}`);
   }
 }
-console.log("TUI catalog: 30 bounded EN/RU keys; shared QML keys match");
+console.log(`TUI catalog: ${Object.keys(catalog).length} bounded EN/RU keys; shared QML keys match`);

@@ -6,6 +6,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **T2b action candidate:** `dev/t2-connection-actions` adds confirmed
+  Connect/Disconnect/mode requests through the existing runtime, retaining exact
+  requests on unknown outcomes. It depends on the T2a branch; neither is a main
+  update or packaged MVP. See [scope and gates](../development/T2_CONNECTION_ACTIONS.md).
+
 - **T2a development checkpoint:** `dev/t2-readonly-client` adds an opt-in
   read-only terminal client using the existing Rust runtime. Main/installed
   0.8.2 remain unchanged while marketplace review targets the submitted SHA.

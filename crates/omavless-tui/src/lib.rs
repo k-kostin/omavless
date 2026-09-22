@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! Opt-in read-only TUI; no store, service, core, network or mutation ownership.
+//! Opt-in TUI client; no store, service, core or network ownership.
+pub mod actions;
 pub mod app;
 pub mod client;
 pub mod i18n;
@@ -24,7 +25,26 @@ use std::{
 
 /// Never reports rejected IPC data, private names, terminal escapes or paths.
 pub fn run(
+    read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
+) -> Result<(), &'static str> {
+    run_client(
+        read,
+        None::<fn(&actions::Request) -> Result<Value, ReadError>>,
+    )
+}
+
+/// The adapter must use the existing instance/revision-fenced plugin.action
+/// transport with its 120-second deadline. This client never starts a runtime.
+pub fn run_actions(
+    read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
+    mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
+) -> Result<(), &'static str> {
+    run_client(read, Some(mutate))
+}
+
+fn run_client(
     mut read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
+    mutate: Option<impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static>,
 ) -> Result<(), &'static str> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
@@ -91,10 +111,30 @@ pub fn run(
         })
         .map_err(|_| "Could not start terminal input")?;
     let mut app = App::new(i18n::Locale::current());
+    app.actions_enabled = mutate.is_some();
+    let (submit, submissions) = mpsc::sync_channel::<actions::Request>(1);
+    let (finished, finishes) = mpsc::sync_channel(1);
+    if let Some(mut mutate) = mutate {
+        thread::Builder::new()
+            .name("tui-action".into())
+            .spawn(move || {
+                while let Ok(request) = submissions.recv() {
+                    let outcome = request.outcome(mutate(&request));
+                    if finished.send(outcome).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "Could not start terminal action client")?;
+    }
     let mut due = Instant::now();
     let mut pending = false;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        if let Ok(outcome) = finishes.try_recv() {
+            app.finish(outcome, now);
+            due = now;
+        }
         if let Ok((started, result)) = receive.try_recv() {
             app.accept(result, started);
             pending = false;
@@ -104,13 +144,23 @@ pub fn run(
             pending = true;
         }
         terminal
-            .draw(|f| view::draw(f, &app, now))
+            .draw(|f| {
+                app.viewport_ready = f.area().width >= 70 && f.area().height >= 24;
+                view::draw(f, &app, now);
+            })
             .map_err(|_| "Could not draw OmaVLESS terminal")?;
         match keys.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(Event::Key(key))) => match app.key(key) {
+            Ok(Ok(Event::Key(key))) => match app.key_at(key, now) {
                 Action::Close => break,
                 Action::Refresh => due = Instant::now(),
                 Action::None => {}
+                Action::Submit => {
+                    if let Some(request) = app.pending.clone()
+                        && submit.try_send(request).is_err()
+                    {
+                        app.finish(actions::Outcome::Unknown, now);
+                    }
+                }
             },
             Ok(Ok(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Ok(Err(message)) => return Err(message),

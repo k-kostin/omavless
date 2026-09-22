@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 use crate::{
-    app::App,
+    app::{App, Confirmation},
     model::{Mode, ReadError, Status, display},
 };
 use ratatui::{
@@ -15,7 +15,9 @@ use std::time::Instant;
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     let tr = |key| app.locale.text(key);
     let status = app.status(now);
-    let status_text = if let Some(e) = app.error {
+    let status_text = if app.running {
+        tr("tui.action_pending")
+    } else if let Some(e) = app.error {
         tr(match e {
             ReadError::Unavailable => "tui.unavailable",
             ReadError::Invalid => "tui.invalid",
@@ -33,13 +35,23 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         })
     };
     let area = frame.area();
-    if area.width < 50 || area.height < 14 {
+    if area.width < if app.actions_enabled { 70 } else { 50 }
+        || area.height < if app.actions_enabled { 24 } else { 14 }
+    {
         frame.render_widget(
             Paragraph::new(format!(
                 "OmaVLESS\n{status_text}\n{}\n{}",
-                tr("tui.resize"),
-                tr(if app.searching {
+                tr(if app.actions_enabled {
+                    "tui.action_resize"
+                } else {
+                    "tui.resize"
+                }),
+                tr(if app.searching && app.actions_enabled {
+                    "tui.action_search_exit"
+                } else if app.searching {
                     "tui.search_exit_hint"
+                } else if app.actions_enabled {
+                    "tui.action_close_hint"
                 } else {
                     "tui.close_hint"
                 })
@@ -52,7 +64,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     let sections = Layout::vertical([
         Constraint::Length(5),
         Constraint::Min(3),
-        Constraint::Length(5),
+        Constraint::Length(if app.actions_enabled { 8 } else { 5 }),
     ])
     .split(area);
     let active = app
@@ -91,18 +103,74 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         Line::from(tr("tui.health")),
     ];
     frame.render_widget(
-        Paragraph::new(header).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" OmaVLESS · {} ", tr("tui.readonly"))),
-        ),
+        Paragraph::new(header).block(Block::default().borders(Borders::ALL).title(format!(
+            " OmaVLESS · {} ",
+            tr(if app.actions_enabled {
+                "tui.controls"
+            } else {
+                "tui.readonly"
+            })
+        ))),
         sections[0],
     );
-    if app.help {
+    if let Some(confirmation) = &app.confirmation {
+        let command = match confirmation {
+            Confirmation::New(command) => Some(command),
+            Confirmation::Retry => app.pending.as_ref().map(|r| &r.command),
+            Confirmation::Acknowledge { .. } => None,
+        };
+        let mut lines = Vec::new();
+        if let Some(command) = command {
+            lines.push(Line::from(tr(command.kind.key())));
+            lines.push(Line::from(format!(
+                "{}: {}",
+                tr("tui.target"),
+                if command.name.is_empty() {
+                    tr("tui.current_session").into()
+                } else {
+                    display(&command.name, 80)
+                }
+            )));
+            if command.kind != crate::actions::Kind::Disconnect {
+                lines.push(Line::from(tr(command.mode.key())));
+            }
+            if !command.name.is_empty() {
+                lines.push(Line::from(format!(
+                    "{}: {}",
+                    tr("tui.source"),
+                    command
+                        .source
+                        .as_ref()
+                        .map(|s| display(s, 80))
+                        .unwrap_or_else(|| tr("tui.local").into())
+                )));
+            }
+            if command.kind == crate::actions::Kind::Mode && !command.was_connected {
+                lines.push(Line::from(tr("tui.saved_mode_only")));
+            }
+        }
+        lines.push(Line::from(tr(match confirmation {
+            Confirmation::New(_) => "tui.confirm_network",
+            Confirmation::Retry => "tui.confirm_retry",
+            Confirmation::Acknowledge { .. } => "tui.confirm_ack",
+        })));
         frame.render_widget(
-            Paragraph::new(tr("tui.help"))
-                .block(Block::default().borders(Borders::ALL).title(" ? "))
-                .wrap(Wrap { trim: false }),
+            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tr("tui.confirm")),
+            ),
+            sections[1],
+        );
+    } else if app.help {
+        frame.render_widget(
+            Paragraph::new(tr(if app.actions_enabled {
+                "tui.action_help"
+            } else {
+                "tui.help"
+            }))
+            .block(Block::default().borders(Borders::ALL).title(" ? "))
+            .wrap(Wrap { trim: false }),
             sections[1],
         );
     } else {
@@ -197,21 +265,47 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         })
         .map(|p| display(&p.name, 80))
         .unwrap_or_else(|| tr("tui.none").into());
-    let footer = vec![
+    let mut footer = vec![
         Line::from(format!(
             "{}: {}{}",
             tr("tui.search"),
             display(&app.query, 80),
             if app.searching { "▏" } else { "" }
         )),
-        Line::from(format!("{}: {selected}", tr("tui.selected"))),
+        Line::from(format!(
+            "{}: {selected}",
+            tr(if app.actions_enabled {
+                "tui.action_selected"
+            } else {
+                "tui.selected"
+            })
+        )),
         Line::from(tr("tui.keys")),
-        Line::from(tr(if app.searching {
-            "tui.search_exit_hint"
-        } else {
-            "tui.close_hint"
-        })),
     ];
+    if app.actions_enabled {
+        footer.push(Line::from(tr("tui.action_keys")));
+        footer.push(Line::from(tr(if app.confirmation.is_some() {
+            "tui.confirm_keys"
+        } else if app.notice.is_empty() {
+            "tui.confirm_required"
+        } else {
+            app.notice
+        })));
+        footer.push(Line::from(tr(if app.unknown {
+            "tui.unknown_keys"
+        } else {
+            "tui.auth_hint"
+        })));
+    }
+    footer.push(Line::from(tr(if app.searching && app.actions_enabled {
+        "tui.action_search_exit"
+    } else if app.searching {
+        "tui.search_exit_hint"
+    } else if app.actions_enabled {
+        "tui.action_close_hint"
+    } else {
+        "tui.close_hint"
+    })));
     // Fixed rows: long private names/search must never push the exit hint away.
     frame.render_widget(Paragraph::new(footer), sections[2]);
 }

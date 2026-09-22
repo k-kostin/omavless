@@ -62,10 +62,17 @@ fn run() -> Result<(), CliError> {
     #[cfg(feature = "tui")]
     if arguments == ["tui"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
-        return omavless_tui::run(move |request| {
-            call(&paths, request.method(), request.params())
-                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
-        })
+        let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run_actions(
+            move |request| {
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+        )
         .map_err(CliError::Terminal);
     }
     if arguments

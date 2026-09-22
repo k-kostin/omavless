@@ -63,5 +63,7 @@ pub fn load(
     }
     let meta = success(read(Read::Snapshot)?)?;
     let observed = success(read(Read::Observation)?)?;
-    Snapshot::parse(&meta, &observed, instance)
+    let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
+    snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
+    Ok(snapshot)
 }

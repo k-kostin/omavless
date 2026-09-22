@@ -99,6 +99,7 @@ pub struct Observation {
 
 #[derive(Clone)]
 pub struct Snapshot {
+    pub actions_available: bool,
     pub revision: u64,
     pub metadata: Metadata,
     pub observation: Observation,
@@ -215,6 +216,7 @@ impl Snapshot {
             _ => return Err(ReadError::Invalid),
         }
         Ok(Self {
+            actions_available: false,
             revision,
             metadata,
             observation,
