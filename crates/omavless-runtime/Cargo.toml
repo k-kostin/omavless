@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+tui = ["dep:omavless-tui"]
+
 [dependencies]
 base64 = "0.22"
 nix = { version = "0.30", features = ["fs", "process", "signal", "socket", "user"] }
@@ -15,6 +19,7 @@ omavless-domain = { path = "../omavless-domain" }
 omavless-mihomo = { path = "../omavless-mihomo" }
 omavless-profile = { path = "../omavless-profile" }
 omavless-store = { path = "../omavless-store" }
+omavless-tui = { path = "../omavless-tui", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

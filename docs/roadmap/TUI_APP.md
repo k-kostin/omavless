@@ -1,7 +1,8 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: product/UX contract selected for a Rust + Ratatui TUI; implementation is
-gated on R6 Python-runtime retirement. Updated 2026-08-30.
+Status: R6 prerequisite satisfied; an opt-in T2a read-only client checkpoint is
+under development, not the packaged T2 MVP. Updated 2026-09-22.
+See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 
 Implementation/migration authority:
 [`RUST_MIGRATION.md`](RUST_MIGRATION.md).

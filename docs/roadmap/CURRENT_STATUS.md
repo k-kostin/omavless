@@ -6,6 +6,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **T2a development checkpoint:** `dev/t2-readonly-client` adds an opt-in
+  read-only terminal client using the existing Rust runtime. Main/installed
+  0.8.2 remain unchanged while marketplace review targets the submitted SHA.
+  Status, profile/source browsing, name search and safe close are this slice;
+  mutations, packaging and Open app are not. See the
+  [development boundary](../development/T2_READONLY_CLIENT.md).
+
 - **September 22 stable release:** the owner authorized completing publication
   after the preparation checkpoint. `v0.8.2` is now stable/latest on GitHub;
   its tag and all six asset identities/digests are unchanged. README and

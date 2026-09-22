@@ -35,6 +35,8 @@ fn read_semantic_input(maximum_bytes: usize) -> Result<String, String> {
 }
 
 enum CliError {
+    #[cfg(feature = "tui")]
+    Terminal(&'static str),
     Message(String),
     DesktopCancelled,
     ActionOutcomeUnknown,
@@ -57,6 +59,15 @@ impl From<&str> for CliError {
 
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "tui")]
+    if arguments == ["tui"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
+    }
     if arguments
         .first()
         .is_some_and(|arg| arg == "login-condition" || arg == "login-prepare")
@@ -77,6 +88,10 @@ fn run() -> Result<(), CliError> {
             .map_err(|error| CliError::LoginFailure(error.to_string()));
     }
     if arguments == ["-h"] || arguments == ["--help"] {
+        #[cfg(feature = "tui")]
+        println!(
+            "  tui                             read-only terminal preview; close leaves VPN unchanged"
+        );
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
@@ -506,6 +521,12 @@ fn run() -> Result<(), CliError> {
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
+        #[cfg(feature = "tui")]
+        Err(CliError::Terminal(message)) => {
+            // The terminal may have been physically closed, including stderr.
+            let _ = writeln!(io::stderr(), "{message}");
+            ExitCode::from(2)
+        }
         Err(CliError::DesktopCancelled) => ExitCode::from(3),
         Err(CliError::LoginSkip) => ExitCode::from(1),
         Err(CliError::LoginFailure(message)) => {
