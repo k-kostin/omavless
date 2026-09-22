@@ -1,14 +1,19 @@
 # OmaVLESS development delivery roadmap
 
-Status: active delivery ledger; release finalization updated 2026-09-21.
+Status: active delivery ledger; stable release updated 2026-09-22.
 
-**Current release checkpoint:** 0.8.2 is a public prerelease with verified
-native packages and frontend pins. Its clean x86_64 plugin-first installation,
+**Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
+promoted from the reviewed prerelease without changing its tag or asset bytes.
+It has verified native packages and frontend pins. Its clean x86_64 plugin-first installation,
 including initially missing Mihomo, activation and onboarding, now passes in
 an isolated Omarchy VM. See [fresh acceptance and limits](docs/testing/NATIVE_082_FRESH_VM_2026-09-21.md)
-and [current status](docs/roadmap/CURRENT_STATUS.md). Next is owner-controlled
-stable promotion and an exact-current-HEAD marketplace update request after
-final checks. Neither has happened; marketplace submission is still withheld.
+and [current status](docs/roadmap/CURRENT_STATUS.md). The owner authorized
+release finalization and the exact-current-HEAD marketplace update request.
+Main/documentation cleanup and exact-commit checks precede submission; maintainer
+approval and deployed marketplace publication are not implied by GitHub release.
+
+The dated release-preparation narrative below preserves earlier states and
+authority boundaries. It is not a renewed hold on the now-authorized publication.
 
 **Earlier September 21 checkpoint:** the corrected combined native candidate has
 passed the attended physical-PC package/update/reconnect and frontend checks;

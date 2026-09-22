@@ -1,25 +1,31 @@
-# Native Rust candidate: local installation and recovery
+# OmaVLESS installation, updates and recovery
 
-This guide is for an explicitly reviewed **native candidate** on
-Arch/Omarchy. It is not a marketplace release, automatic migration, AUR package
-announcement. Its scoped [local R6 acceptance](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
-does not establish a public release. The published 0.7.0
-marketplace snapshot remains unchanged. Ordinary `omarchy plugin add` does not
-install the native package or transfer ownership to Rust.
+This guide covers the **0.8.2 native release** on Arch/Omarchy. New users can
+install the plugin and follow its guided first-run setup. Existing native and
+legacy users have separate update/migration routes below; do not reset an
+existing store or repeat activation.
+
+The GitHub release is stable; the marketplace's older 0.7.0 snapshot remains
+separate until its update is approved. Ordinary `omarchy plugin add` installs
+the frontend, not the native package or its ownership. The panel offers those
+steps explicitly, with normal user/OS confirmation. OmaVLESS itself is delivered
+as a reviewed release package, not an AUR package announcement.
 
 ## Choose your installation route
 
 | Starting point | Route | Do not do |
 | --- | --- | --- |
-| New user, no application/data | Add plugin → Required components → terminal setup → Check again/reopen → onboarding. Matching public 0.8.2 packages are pinned; fresh x86_64 provisioning is checked. | Do not pair the current frontend with an older native package or mistake the prerelease for the reviewed marketplace snapshot. |
+| New user, no application/data | Add plugin → Required components → terminal setup → Check again/reopen → onboarding. Matching public 0.8.2 packages are pinned; fresh x86_64 provisioning is checked. | Do not pair the current frontend with an older native package or confuse upstream main with the reviewed marketplace snapshot. |
 | Application installed, not activated | **Complete setup** validates/prepares data and activates once; install a missing core first if requested. Existing legacy data requires the migration preconditions below. | Do not reinstall the app or reset a store merely because activation is incomplete. |
 | Already activated native installation | Keep private data and ownership; use the disconnected package-update route only when the runtime package changes. A reviewed compatible frontend-only update does not need package replacement. | Do not initialize or activate again, or treat first-run setup as an updater. |
 | Setup postponed | Reopen the panel; missing components remain visible. Finish in the existing terminal before acknowledging its closure and deliberately retrying. | Do not mark OS authorization complete just because the terminal launched or the panel closed. |
 | Previously used confirmed Quit | Inspect the preserved native ownership and follow the explicit reopen procedure below. | First-run setup deliberately does not restart/re-enable an already activated app after Quit. |
 
-## Guided first run — release preparation
+<a id="guided-first-run--release-preparation"></a>
 
-For the current upstream candidate:
+## Guided first run
+
+For the current upstream release:
 
 ```sh
 omarchy plugin add https://github.com/k-kostin/omavless --enable
@@ -52,7 +58,7 @@ those distinctions. Picker/editor/QR/clipboard tools remain optional helpers.
 When the core is known to be absent, Connect is disabled; Disconnect is not.
 
 The appropriate install button opens a terminal for explicit confirmation.
-The checked candidate path is:
+The checked setup path is:
 
 1. Add the plugin through Omarchy's normal marketplace command.
 2. Open the plugin and use the required-components action. For application
@@ -70,7 +76,7 @@ The checked candidate path is:
    covers core/TUN readiness, routing, helpers and profile import. Setup does not
    grant TUN capabilities, connect a VPN or silently install optional helpers.
 
-**0.8.2 candidate:** `plugin/runtime-release.json` pins the newly built ARM64
+**0.8.2 release:** `plugin/runtime-release.json` pins the reviewed ARM64
 and x86_64 packages, including their exact runtime source and SHA-256. Setup
 does not follow `latest` or fall back to older 0.8.0/0.8.1 runtimes. Confirm the
 matching assets are present on [GitHub Releases](https://github.com/k-kostin/omavless/releases)
@@ -78,7 +84,7 @@ before provisioning. The complete fresh download/install/activation/onboarding
 path, including initially absent Mihomo, passed on a clean Omarchy x86_64 VM;
 see the [scoped acceptance record](../testing/NATIVE_082_FRESH_VM_2026-09-21.md).
 This is distinct from live VPN/TUN acceptance and does not silently grant
-permissions. Marketplace submission and stable promotion remain owner-controlled.
+permissions. Stable promotion does not itself change the marketplace snapshot.
 
 Set up later closes the panel without saving a false completion or hiding the
 required-components reminder on reopen. After starting
@@ -118,7 +124,7 @@ main are developer test/build tools, not source installation or a runtime fallba
 Already installed? See [native everyday use](NATIVE_USAGE.md) for connection
 selection, subscription refresh, language, diagnostics and Quit.
 
-For the prepared **0.8.2** artifact pair, verify `SHA256SUMS` and the exact
+For the published **0.8.2** artifact pair, verify `SHA256SUMS` and the exact
 source/architecture in `release-candidate.json` (single-source assembly) or
 `frontend-pair.json` (a newer frontend paired with an unchanged reviewed runtime)
 before following this guide. A pairing record retains both exact source commits
@@ -127,7 +133,7 @@ not compatibility proof. Preserve the original package build/acceptance evidence
 An unpublished artifact is not a public release; marketplace publication remains
 owner-controlled. Both source and assembled frontend carry the same version;
 the historical marketplace snapshot remains 0.7.0. Earlier `0.8.0-rc.1`
-archives retain their original version and hashes, not the final candidate's.
+archives retain their original version and hashes, not the current release's.
 
 Use the runtime package for your processor (`aarch64` or `x86_64`). The QML
 frontend and supported features are common to both; use the reviewed artifact
@@ -244,11 +250,11 @@ activation is not recovery. A refused or interrupted transition must follow the
 [activation/recovery contract](../testing/R5_DISCONNECTED_ACTIVATION.md); there
 is no supported force-activation or marker-deletion shortcut.
 
-From the extracted **candidate frontend archive**, run `./install.sh` without
+From the extracted **matching frontend archive**, run `./install.sh` without
 arguments: its entry point always selects native-only installation. It requires
 the already activated owner and cannot install the legacy payload.
 
-Alternatively, from the reviewed **full source checkout** matching the candidate:
+Alternatively, from the reviewed **full source checkout** matching the release:
 
 ```sh
 ./install.sh
@@ -279,13 +285,17 @@ preferences and enabling a user unit are distinct actions; neither alone proves
 that an actual fresh-login autoconnect passed. Do not manually run
 `login-prepare` or modify its receipt to simulate a login.
 
-**Current native candidate:** VPN autoconnect is Off by default. Last/pinned
+**Current native release:** VPN autoconnect is Off by default. Last/pinned
 autoconnect is optional and its connected fresh-login validation is incomplete;
 leave it Off unless deliberately testing that feature. Saving Off does not
 disconnect a currently running VPN. Existing user preferences are not silently
 reset by this documentation or by declaring the migration complete.
 
-## Verify the installed candidate
+<a id="verify-the-installed-candidate"></a>
+
+## Verify the installation
+
+The checks below apply equally to a stable release and a development candidate.
 
 Use `omavless plugin target`, `omavless status`, `omavless runtime observation`
 and `systemctl --user status omavless-runtime.service` locally. The native user
@@ -359,8 +369,8 @@ not an ownership rollback to the legacy Python runtime.
 
 ## Acceptance boundary
 
-This guide describes the available local installation path, not a completed
-release. The [local R6 closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
+The stable release retains scoped acceptance rather than claiming every host or
+optional feature is validated. The [local R6 closure](../testing/R6_LOCAL_CLOSURE_2026-09-13.md)
 records the accepted native Python-unavailable path and exact candidate identities.
 Enabled fresh-login Last/pinned validation and network/DNS limitations remain
 explicit follow-ups, not passing evidence.
@@ -370,6 +380,6 @@ an opened file dialog and archive inspection cannot substitute for host gates.
 
 Try Omarchy ARM64 evidence does not claim bare-metal or NixOS acceptance. V0's
 missing protocol fixtures remain a separate maturity gap. Neither this guide
-nor local candidate installation authorizes publication. Local native migration
+nor a local installation changes the marketplace snapshot. Local native migration
 closure is not a marketplace upgrade or a promise that every optional feature
 and every host environment is fully validated.

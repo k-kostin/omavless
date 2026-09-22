@@ -1,8 +1,8 @@
-# Install OmaVLESS — native candidate
+# Install OmaVLESS
 
-Use the **0.8.2** candidate pair from the
-[GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2);
-stable and marketplace acceptance remain pending.
+Use the matching **0.8.2** application and frontend from the
+[GitHub release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2).
+Marketplace snapshot approval is separate from this stable upstream release.
 Use the [native installation and recovery guide](NATIVE_INSTALL.md)
 for package installation, first-user setup or legacy migration, explicit
 activation, frontend installation and updates. Python is not a runtime dependency.
@@ -36,7 +36,7 @@ not the marketplace's exact verified snapshot. Open the panel and choose
 **Install required components**, attend its terminal confirmation and normal
 OS prompts, then reopen/check again and follow onboarding. See the
 [detailed sequence](NATIVE_INSTALL.md#guided-first-run--release-preparation).
-The release remains a prerelease pending owner-controlled promotion.
+Existing 0.7.0 users should follow the migration route below before updating.
 
 ## Manual package-first installation and existing-user migration
 

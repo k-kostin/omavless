@@ -22,16 +22,30 @@ and service subscriptions are not included.
 
 ## Installation
 
-**0.8.2 is a release candidate.** See the [prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
-for the matching application packages and frontend. Do not pair this frontend
-with older 0.8.0/0.8.1 packages. Fresh guided installation has been checked on
-Omarchy x86_64; stable promotion and the marketplace update are still pending.
+**OmaVLESS 0.8.2 is available.** New users: add the plugin, then open its panel.
+Already using 0.7.0? Follow the [migration guide](docs/user/NATIVE_INSTALL.md#existing-legacypython-installation)
+before updating.
+
+```sh
+omarchy plugin add https://github.com/k-kostin/omavless --enable
+```
+
+If the application or Mihomo is missing, **Required components** offers guided
+installation. Confirm the steps in its terminal, return to the panel and follow
+onboarding. You can finish setup later; it never connects a VPN automatically.
+
+This command follows upstream main. The marketplace's reviewed snapshot is
+updated separately; its older 0.7.0 listing is not the native release.
 
 Follow the [installation and upgrade guide](docs/user/NATIVE_INSTALL.md),
-including migration instructions if you already use the marketplace version.
+including migration instructions **before updating an existing 0.7.0 installation**.
 It covers the matching application package, Mihomo VPN core, TUN permissions
 and optional clipboard, file-picker and QR tools. Package installation and
 permission changes require your confirmation.
+
+For manual downloads, use the matching **0.8.2** application and frontend from
+[GitHub Releases](https://github.com/k-kostin/omavless/releases/tag/v0.8.2).
+Do not pair this frontend with older 0.8.0/0.8.1 packages.
 
 ## Everyday use
 
