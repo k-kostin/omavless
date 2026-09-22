@@ -221,6 +221,12 @@ replay, not a supported fallback or second native lifecycle owner.
    task on the existing Rust owner. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
+Additional triage backlog: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
+for scoped DNS authorization (#270), network-setup diagnostics/compatibility
+(#271), and ICMP/HTTPS result semantics (#272). Their next action is analysis
+and scope selection, not immediate implementation or a change to the priority
+order above. Existing native readiness checks remain accepted.
+
 Historical acceptance reports retain their original heads and outcomes. Their
 old "Python still owns production", "R5 incomplete" or "publication withheld"
 sentences describe those earlier checkpoints, not the current native state.
