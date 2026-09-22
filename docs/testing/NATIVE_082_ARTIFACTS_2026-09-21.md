@@ -83,3 +83,53 @@ The earlier `v0.8.0` and `v0.8.1` tags still identify
 `20b5e6c4f3ef466207d37306d4a70fe5876162f6`. Neither was moved or overwritten.
 The running PC daemon was not restarted or replaced. This is a prerelease
 candidate, not stable or marketplace acceptance.
+
+## September 22: installed ARM64 update after the paused clean test
+
+The owner requested updating the existing Try Omarchy ARM64 VM before preparing
+the marketplace request. Its September 16 clean-install test had retained the
+original private data but paused before restoration. Read-only inspection found
+the same boot, stopped native/login units, no core/TUN and intact private backups.
+This was an existing native installation, not a reason to initialize/activate
+again or repeat a destructive fresh-install test.
+
+- Downloaded the actual public ARM64 package, common frontend and pairing record
+  anonymously over bounded HTTPS; all hashes matched the published records above.
+  The strict package inspector verified architecture, exact payload, unit/ELF
+  digests and runtime source `22e23e64c49b8110088b6be3f063b5e641ba0853`.
+  The shared public pairing record describes its x86 assembly; ARM identity was
+  independently checked against the inspected ARM package, not inferred from it.
+- In one attended terminal, each effect used the established human
+  `ready`/`settled` barrier. The complete original private state was restored and
+  byte-compared while stopped, with both original and temporary test data
+  retained outside Git. No marker, profile or login receipt was hand-edited.
+- Normal `pacman -U` updated OmaVLESS 0.8.0-1 to **0.8.2-1**. Existing
+  `mihomo-bin 1.19.31-1` was retained; the owner's pre-test network-capability
+  policy was explicitly restored to that inspected packaged core with normal
+  sudo confirmation. This was an attended administrator step, not a new
+  automatic privilege feature of the plugin or installer.
+- Runtime start verified the actual running ARM ELF
+  `62874def77df9e4f099baf74c57420a7ab1dab7b83935676828f6d445a5f357f`,
+  original profile-store byte equality, startup Off, observed disconnected,
+  no recovery and one native owner / zero cores / zero TUNs.
+- The native-only frontend installer used main
+  `6b1baa13aa8a9d3f32dfa50fdb91bdce84f7fb65`. All 29 checked runtime-relevant
+  frontend/template files matched. Plugin validation and enablement passed.
+  Old loaded QML initially could not parse the fresh observation; a supported
+  shell-only restart restored metadata/observation availability and Disconnected.
+  The native daemon PID remained unchanged. A rescan/file match alone was not
+  counted as loaded-frontend acceptance.
+- Later read-only inspection observed Connected/Rule with matching desired
+  profile/controller, one owned core, one managed TUN, zero auxiliary cores and
+  no recovery. The updater did not initiate Connect; the now-active session was
+  left untouched. A bounded public HTTPS request returned 200. This is ordinary
+  Routing connectivity, not proof that every destination traverses proxy egress
+  or that earlier DNS/provider findings are resolved.
+- Native control and Mihomo Unix sockets were 0600 inside a 0700 user directory.
+  The generated config had a Unix controller and no TCP-controller setting;
+  no attributable Mihomo TCP listener was observed. No private profile names,
+  addresses, URLs or raw logs are included here.
+
+This adds actual **0.8.2 ARM64 package-update** evidence. It does not relabel
+the earlier ARM clean-install test as a fresh 0.8.2 pass, replace the independent
+x86_64 clean setup report, close AUTO-1/V0 or authorize marketplace publication.

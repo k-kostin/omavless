@@ -263,8 +263,9 @@ It never starts Python, activates ownership, or downloads/builds a package.
 
 Omarchy's clone-based `plugin add`/`plugin update` does not run `install.sh` or
 install the package. The independent first-run page above supplies the explicit
-setup entry point. Until published package pins and fresh-install acceptance
-exist, use the manual candidate path. The backend launcher still refuses absent,
+setup entry point, with published 0.8.2 pins and scoped fresh x86_64 acceptance.
+Existing native owners still use the disconnected update path; do not invoke
+first-user initialization again. The backend launcher still refuses absent,
 legacy or unknown native ownership; the setup page does not bypass that guard.
 
 To explicitly enable the runtime for future user sessions after activation:
