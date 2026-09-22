@@ -1,10 +1,13 @@
-# 0.8.0 marketplace preparation
+# Native marketplace update preparation (0.8.2)
 
-September 21 continuation: the corrected candidate is now **0.8.2** in #264,
-including #263's Full Quit/UI follow-up to the immutable 0.8.1 prerelease.
-The 0.8.0 publication facts below remain historical; do not reuse their package
-hashes or call the new guided path accepted. Existing product copy and sanitized
-screenshots remain applicable. The owner has not authorized marketplace submission.
+Updated September 22. The established filename is retained for external links.
+The current candidate is **0.8.2**, with published, inspected ARM64/x86_64
+packages and matching frontend pins. The
+[clean x86_64 guided setup](../testing/NATIVE_082_FRESH_VM_2026-09-21.md) passed;
+the [artifact record](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md) identifies
+the immutable bytes. Do not reuse 0.8.0/0.8.1 hashes or reopen unchanged R6 gates.
+GitHub still marks 0.8.2 prerelease. Stable promotion and submission remain
+separate owner decisions; this preparation does neither.
 
 Owner-approved content direction, 2026-09-15. **Preparation only:** no release,
 marketplace submission, installation classification or publication is implied.
@@ -38,8 +41,9 @@ README links the testing release without claiming stable or accepted guided
 installation. See the current first-run evidence and PC gate; the older
 empty-pin state is superseded, not an ongoing asset-publication blocker.
 
-After immutable packages/pins and clean end-to-end acceptance, replace that
-candidate warning with:
+The earlier empty-pin/clean-setup blockers are now superseded by the 0.8.2
+evidence above. Keep the short prerelease notice until actual stable promotion;
+the supported guided-install explanation is:
 
 > Install the plugin through Omarchy, then open its panel. Required components
 > shows any missing OmaVLESS application or Mihomo core. Start setup from the
@@ -65,7 +69,8 @@ path is accepted. No new marketplace ID or second repository is needed.
 Selected PNGs are real renders of unmodified product QML, native 1x screen
 scale on the 1920x1080 ARM64 Try Omarchy guest, using a network-isolated test
 instance and credential-free demo metadata. They show **Disconnected**, never
-a fabricated working VPN. Source plugin: `4e2f17f88b230e4d43e05b738c6cf6f4c6caea43`.
+a fabricated working VPN. September 22 recapture source:
+`6b1baa13aa8a9d3f32dfa50fdb91bdce84f7fb65` (0.8.2 product code).
 The fixture transport replaces only process responses; no profile or subscription
 is persisted. The actual installed service is not accessed by the test instance.
 See [reproduction and limits](../../tests/marketplace-visual/README.md).
@@ -76,6 +81,8 @@ Sweden · Stockholm, France · Paris) and “My servers”, without a “Demo”
 These are invented display labels, not actual provider locations or a claim of
 live connectivity. Internal fixture IDs and the disconnected state are unchanged.
 The affected main/expanded views are recaptured from QML, not image-retouched.
+The current captures include #263's corrected name-only search hint; they do
+not retain the older hint advertising country/host search.
 Both revised captures were inspected at native size: country/city labels fit
 without clipping or shifting Connect controls. Fixture/parser/refusal tests and
 QML contracts pass. Settings is unchanged because it contains no profile names.
@@ -97,24 +104,67 @@ These are panel-only crops, **not a full-desktop hero composition**. At native
 460-pixel width the real monospace text stays readable without scaling or fake
 desktop chrome. Preserve masters; do not upscale or squeeze into 16:9. A wider
 desktop/bar hero remains an owner-choice follow-up, ideally captured at native
-HiDPI on the PC. Compare actual responsive card cropping before selecting the
-single root preview. The selected native panel is also linked from README.
+HiDPI on the PC. The selected native panel is also linked from README.
+
+September 22 local browser review used the current marketplace stylesheet
+(`8c806312b129ebac0849a24b16d08cddba7f82b1`), 280/360-pixel card containers
+with the actual 175-pixel preview height, and the 860-pixel detail width.
+Cards retain the recognizable main controls/profile-list portion while clipping
+lower content; they are not full-panel reproductions. The detail view shows the
+whole panel. The 460-pixel native master is deliberately not upscaled on disk;
+the wider detail view is therefore softer than a future real HiDPI capture.
+This is an explicit quality limit, not a reason to invent pixels or Connected.
+The local CSS review is not evidence of an already deployed marketplace page.
 
 There is no installation hero: simulated ready/missing-component facts are not
-evidence of the still-unrun published package setup. Capture that README image
-only after the real path is accepted. Do not expose or retouch real credentials.
+installation evidence. Actual clean setup is recorded separately; an additional
+onboarding image is optional, not a publication blocker. Do not expose or
+retouch real credentials.
+
+## Existing-listing update procedure
+
+The existing registry entry is `kdk.omavless`, repository
+`https://github.com/k-kostin/omavless`, category System, tags bar/quickshell/security.
+Its recorded snapshot remains `69fe05b03129a23664fff3f8289821a7b7f80095`.
+There is no explicit manual-installation override in the inspected registry.
+Use **Verify and publish a newer upstream commit**, not a duplicate Plugin
+submission, old-snapshot verification, or standard-installation override removal.
+
+Read the current upstream `SUBMISSION.md`, `SECURITY.md`, `VERIFICATION.md` and
+`verify-plugin.yml` before submission. The September 22 official local validator
+passed compatibility and the exact configured plugin set at main `6b1baa1…`.
+The complete security baseline had no findings and required review of
+`installer`, `package-manager`, `service-management`, `privilege`. This is local
+preparation, not a marketplace bot report, maintainer approval or security audit.
+After this documentation/image update merges, rerun those checks on the final
+exact main SHA and bind the external issue draft to that SHA; do not promote
+an untested new head mechanically.
+
+Keep the issue title `[Verify]: OmaVLESS 0.8.2 native update` and the current
+form's headings/acknowledgment unchanged. The owner must approve submission
+before the issue is created. Inspect bot reports on that one issue; do not
+apply maintainer labels or equate issue creation with published registry/deployment.
+Document the explicit package consent, AUR Mihomo route, separate TUN permission
+step, native user service and private-data-preserving updates for reviewers.
 
 ## Publication checklist
 
 - [x] Agree benefit-first product description and own-access disclaimer.
 - [x] Remove unsupported autoconnect promotion from widget metadata.
 - [x] Prepare native, credential-free disconnected UI screenshots.
-- [ ] Publish reviewed architecture packages only with owner authorization.
-- [ ] Pin and verify the real guided first-run install path on ARM64/x86_64.
-- [ ] Confirm final release package/frontend pairing and exact source records.
-- [ ] Replace candidate installation prose only after those gates pass.
-- [ ] Choose root preview and verify the actual Marketplace card/detail crop.
-- [ ] Confirm existing listing identity and installation classification.
-- [ ] Owner approves release and, separately, marketplace submission/update.
+- [x] Publish reviewed 0.8.2 architecture packages as an authorized prerelease.
+- [x] Pin real packages; record clean x86_64 first-run setup and its limits.
+- [x] Confirm final release package/frontend pairing and exact source records.
+- [x] Align guided-install prose with accepted setup; retain prerelease notice.
+- [x] Recapture current product QML and inspect local marketplace CSS crops.
+- [x] Confirm existing listing identity and absence of a manual override.
+- [ ] Rerun official checks on final post-preparation main; bind the issue draft.
+- [ ] Owner authorizes stable promotion and, separately, marketplace submission.
+- [ ] Marketplace maintainer approves exact reviewed snapshot; deployment verified.
+
+The scoped x86_64 clean gate does not claim a fresh ARM64 0.8.2 installation,
+live connectivity, enabled autoconnect or every interrupted privileged effect.
+An existing ARM64 installation update is separate evidence, not a clean-install
+substitute. Do not demand another destructive reset merely to change this label.
 
 Do not close R6 again, change its accepted scope, or relabel AUTO-1/DNS/V0 gaps.

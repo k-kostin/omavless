@@ -1,10 +1,20 @@
 # Current delivery status
 
-Updated 2026-09-21. This is the compact current-state entry point; the detailed
+Updated 2026-09-22. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **September 22 ARM64 update and marketplace preparation:** the paused Try
+  Omarchy guest's original private state was restored, then the actual public
+  0.8.2 ARM package and matching frontend were installed with attended
+  authorization. Running identity, startup Off, initial disconnected cleanup
+  and subsequently observed connected Routing state are recorded in the
+  [ARM update section](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md#september-22-installed-arm64-update-after-the-paused-clean-test).
+  Current product screenshots and publication-preparation statuses were refreshed.
+  No runtime implementation, immutable release asset or marketplace listing was
+  changed by this preparation. Stable promotion/submission remain owner-controlled.
 
 - **Fresh 0.8.2 x86_64 provisioning passed:** a clean Omarchy 4.0.4 QEMU/KVM
   guest installed unmodified main, then both absent Mihomo and the pinned
@@ -179,13 +189,14 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Finalize the corrected runtime/setup release after the recorded PC update:
-   retain the historical ARM64 evidence, build and inspect new matching artifacts,
-   replace setup pins only with real reviewed hashes, and finish affected
-   clean-provisioning checks. The old public prerelease cannot be promoted as
-   though it contained the PC fixes. Resolve the new release identity without
-   moving an existing tag or overwriting published bytes. Marketplace submission
-   and the old 0.7.0 listing remain on hold for the owner's separate instruction.
+2. Prepare the exact-current-main marketplace update using the already published
+   0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not rebuild
+   them or repeat R6 merely because documentation/images change. Follow the
+   [publication preparation](../marketing/MARKETPLACE_080.md), rerun official
+   compatibility/security checks on the final exact commit, and retain the
+   existing listing while review is pending. Stable promotion and marketplace
+   submission remain separate owner decisions; neither follows automatically
+   from a green local baseline. Preserve older tags/assets unchanged.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
