@@ -15,6 +15,7 @@ pub struct App {
     pub error: Option<ReadError>,
     pub selected: Option<String>,
     pub query: String,
+    pub favorites_only: bool,
     pub searching: bool,
     pub help: bool,
     pub locale: Locale,
@@ -49,6 +50,7 @@ impl App {
             error: None,
             selected: None,
             query: String::new(),
+            favorites_only: false,
             searching: false,
             help: false,
             locale,
@@ -127,19 +129,8 @@ impl App {
         }
     }
     pub fn visible(&self) -> Vec<usize> {
-        let query = self.query.to_lowercase();
         self.snapshot.as_ref().map_or_else(Vec::new, |s| {
-            s.metadata
-                .profiles
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| {
-                    crate::model::display(&p.name, 80)
-                        .to_lowercase()
-                        .contains(&query)
-                })
-                .map(|(i, _)| i)
-                .collect()
+            crate::browsing::visible(s, &self.query, self.favorites_only)
         })
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
@@ -243,8 +234,18 @@ impl App {
             KeyCode::Char('r') => return Action::Refresh,
             KeyCode::Char('?') => self.help = true,
             KeyCode::Char('/') => self.searching = true,
+            KeyCode::Char('f')
+                if key.kind == KeyEventKind::Press
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.favorites_only = !self.favorites_only;
+                self.selected = None;
+            }
             KeyCode::Esc => {
                 self.query.clear();
+                self.favorites_only = false;
                 self.selected = None;
             }
             KeyCode::Down

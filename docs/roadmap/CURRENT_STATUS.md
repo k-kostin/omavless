@@ -6,6 +6,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **T2c browsing candidate:** the dependent `dev/t2-grouped-browsing` branch
+  adds subscription grouping, local favorites filtering and subscription-name
+  search. Local suites, EN/RU terminal review and no-effect installed-runtime
+  checks passed; no default package or main update. See
+  [scope and evidence](../development/T2_GROUPED_BROWSING.md).
+
 - **T2b action candidate:** `dev/t2-connection-actions` adds confirmed
   Connect/Disconnect/mode requests through the existing runtime, retaining exact
   requests on unknown outcomes. It depends on the T2a branch; neither is a main

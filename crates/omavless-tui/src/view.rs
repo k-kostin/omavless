@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 use crate::{
     app::{App, Confirmation},
+    browsing,
     model::{Mode, ReadError, Status, display},
 };
 use ratatui::{
@@ -175,17 +176,26 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         );
     } else {
         let visible = app.visible();
+        let entries = app
+            .snapshot
+            .as_ref()
+            .map_or_else(Vec::new, |s| browsing::rows(s, &visible));
         let rows: Vec<Row> = app.snapshot.as_ref().map_or_else(Vec::new, |s| {
-            visible
+            entries
                 .iter()
-                .map(|i| {
+                .map(|entry| {
+                    let browsing::Row::Profile(i) = entry else {
+                        let browsing::Row::Group { name, count } = entry else {
+                            unreachable!()
+                        };
+                        let name = name
+                            .as_ref()
+                            .map(|n| display(n, 80))
+                            .unwrap_or_else(|| tr("tui.local_profiles").into());
+                        return Row::new(vec![format!("{name} ({count})"), String::new()])
+                            .style(Style::default().add_modifier(Modifier::BOLD));
+                    };
                     let p = &s.metadata.profiles[*i];
-                    let source = p
-                        .subscription_id
-                        .as_ref()
-                        .and_then(|id| s.metadata.subscriptions.iter().find(|sub| &sub.id == id))
-                        .map(|sub| display(&sub.name, 80))
-                        .unwrap_or_else(|| tr("tui.local").into());
                     let badge =
                         if status == Status::Connected && p.id == s.metadata.desired.profile_id {
                             tr("status.connected")
@@ -196,11 +206,10 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                         };
                     Row::new(vec![
                         format!(
-                            "{}{}",
+                            "  {}{}",
                             if p.favorite { "* " } else { "" },
                             display(&p.name, 80)
                         ),
-                        source,
                         badge.into(),
                     ])
                 })
@@ -211,10 +220,19 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         } else {
             "—".into()
         };
-        let title = format!(" {} ({count}) ", tr("tui.profiles"));
+        let title = format!(
+            " {} ({count}) ",
+            tr(if app.favorites_only {
+                "tui.favorites"
+            } else {
+                "tui.profiles"
+            })
+        );
         if rows.is_empty() {
             let key = if app.snapshot.is_none() {
                 "tui.unavailable"
+            } else if app.favorites_only {
+                "tui.no_favorites"
             } else if app.query.is_empty() {
                 "tui.empty"
             } else {
@@ -228,20 +246,19 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             );
         } else {
             let selected = app.snapshot.as_ref().and_then(|s| {
-                visible
-                    .iter()
-                    .position(|i| app.selected.as_ref() == Some(&s.metadata.profiles[*i].id))
+                entries.iter().position(|row| match row {
+                    browsing::Row::Profile(i) => {
+                        app.selected.as_ref() == Some(&s.metadata.profiles[*i].id)
+                    }
+                    browsing::Row::Group { .. } => false,
+                })
             });
             let table = Table::new(
                 rows,
-                [
-                    Constraint::Percentage(50),
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(25),
-                ],
+                [Constraint::Percentage(75), Constraint::Percentage(25)],
             )
             .header(
-                Row::new(vec![tr("tui.profiles"), tr("tui.source"), ""])
+                Row::new(vec![tr("tui.profiles"), ""])
                     .style(Style::default().add_modifier(Modifier::BOLD)),
             )
             .block(Block::default().borders(Borders::ALL).title(title))

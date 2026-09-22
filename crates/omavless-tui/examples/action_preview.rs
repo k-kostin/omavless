@@ -20,6 +20,16 @@ fn main() {
                     .unwrap()
                     .push(json!("plugin.action"));
             }
+            if r == Read::Snapshot && read_scenario == "groups" {
+                let profiles = v["result"]["profiles"]
+                    .as_array_mut()
+                    .expect("trusted fixture");
+                for i in 0..24 {
+                    profiles.push(json!({"id":format!("fixture-group-node-{i}"),
+                        "name":format!("Fixture region {:02}",i+1),"protocol":"vless",
+                        "subscriptionId":"fixture-sub","missing":false,"favorite":i%3==0}));
+                }
+            }
             if read_scenario == "recovery" {
                 if matches!(r, Read::Snapshot | Read::Observation) {
                     v["result"]["lastKnownActual"] = json!("manualRecoveryRequired");

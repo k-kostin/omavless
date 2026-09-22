@@ -2,6 +2,7 @@
 //! Opt-in TUI client; no store, service, core or network ownership.
 pub mod actions;
 pub mod app;
+pub mod browsing;
 pub mod client;
 pub mod i18n;
 pub mod model;

@@ -6,6 +6,8 @@ See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
 adds explicit connection/mode confirmations; installed acceptance is a separate
 gate and neither checkpoint completes the MVP.
+The subsequent [T2c browsing slice](../development/T2_GROUPED_BROWSING.md) groups
+subscriptions and adds a local favorites filter; management remains separate.
 
 Implementation/migration authority:
 [`RUST_MIGRATION.md`](RUST_MIGRATION.md).
