@@ -7,7 +7,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
     widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap},
 };
@@ -36,6 +36,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         })
     };
     let area = frame.area();
+    frame.render_widget(Block::default().style(app.palette.normal()), area);
     if area.width < if app.actions_enabled { 70 } else { 50 }
         || area.height < if app.actions_enabled { 24 } else { 14 }
     {
@@ -279,7 +280,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                     .style(Style::default().add_modifier(Modifier::BOLD)),
             )
             .block(Block::default().borders(Borders::ALL).title(title))
-            .row_highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan))
+            .row_highlight_style(app.palette.selected())
             .highlight_symbol("> ");
             frame.render_stateful_widget(
                 table,

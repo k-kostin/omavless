@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
     pub traffic_rates: Option<(u64, u64)>,
     pub inspection_scroll: u16,
@@ -48,6 +49,7 @@ pub enum Action {
 impl App {
     pub fn new(locale: Locale) -> Self {
         Self {
+            palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
             traffic_rates: None,
             inspection_scroll: 0,
