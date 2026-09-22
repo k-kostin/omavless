@@ -15,11 +15,12 @@ Runtime/API authority: [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 Host authority: [`PLATFORM.md`](PLATFORM.md).
 
 Current implementation checkpoint, 2026-09-22: R6's native prerequisite is
-satisfied. Opt-in T2a–c (read-only status, explicit connection/mode controls,
-grouped browsing/favorites) are integrated in the next
+satisfied. Opt-in T2a–e (read-only status, explicit connection/mode controls,
+grouped browsing/favorites, traffic/details/diagnostics and theme following) are integrated in the next
 [RC candidate](../development/RC_090.md), not published main/default packages.
 The remaining MVP below is still a delivery checklist, not a shipped feature
 claim. Historical pre-R6 wording does not reopen accepted migration gates.
+See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
 
 ## 1. Product shape
 

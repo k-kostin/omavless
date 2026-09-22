@@ -62,3 +62,8 @@ is added. There is no automatic network probe.
 T2 still requires subscription refresh/probes, remaining details/activity,
 theme following, launch/focus/default packaging and combined host acceptance.
 Main/release/marketplace updates remain owner-controlled.
+
+Later same-day checkpoint: the active-runtime gate above passed on the combined
+T2d/e client; see [exact evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
+Theme following is now separately implemented in T2e. The initial inactive-host
+observation remains historical evidence, not the current gate status.
