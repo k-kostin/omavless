@@ -312,3 +312,20 @@ fn tiny_terminal_cannot_confirm_invisible_action() {
     assert!(app.pending.is_none());
     assert_eq!(key(&mut app, KeyCode::Char('q'), now), Action::Close);
 }
+
+#[test]
+fn background_refresh_cannot_keep_an_action_target_hidden_by_search() {
+    let (mut app, now) = app();
+    app.query = "Frankfurt".into();
+    app.selected = Some("fixture-b".into());
+    let mut updated = app.snapshot.clone().unwrap();
+    updated.revision += 1;
+    updated.metadata.profiles[1].name = "Changed by another client".into();
+    app.accept(Ok(updated), now);
+    assert!(app.selected.is_none());
+    // Also defend against a stale cursor independently of refresh maintenance.
+    app.selected = Some("fixture-b".into());
+    app.prepare(Kind::Connect, None, now);
+    assert!(app.confirmation.is_none());
+    assert!(app.pending.is_none());
+}

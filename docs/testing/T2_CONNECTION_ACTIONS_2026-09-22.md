@@ -93,3 +93,13 @@ concurrent plugin/TUI mutation acceptance, durable cross-client receipts, AUTO-1
 V0 completion or DNS/provider follow-up closure. CI is recorded on the PR rather
 than frozen here as a promise. No merge/release/marketplace action is authorized
 by this acceptance report.
+
+## Post-acceptance hidden-target guard
+
+While preparing the next browsing slice, a deterministic case demonstrated that
+an externally renamed profile could disappear from search after refresh while
+remaining selected. The follow-up clears invisible selection and rejects hidden
+Connect targets both when opening and confirming the action. Focused TUI tests
+increase to **27**. This is a narrow admission correction, not a change to wire
+commands, runtime lifecycle or the accepted successful network sequence; the
+live evidence above retains its original exact head rather than being relabelled.

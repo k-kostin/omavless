@@ -90,6 +90,15 @@ impl App {
                 }
                 self.accepted = Some((next.metadata.instance_id.clone(), next.revision));
                 self.snapshot = Some(next);
+                if self.selected.as_ref().is_some_and(|id| {
+                    !self.visible().iter().any(|i| {
+                        self.snapshot
+                            .as_ref()
+                            .is_some_and(|s| s.metadata.profiles[*i].id == *id)
+                    })
+                }) {
+                    self.selected = None;
+                }
                 self.sampled_at = Some(started);
                 self.error = None;
                 if self.notice == "tui.action_applied" {
@@ -312,7 +321,13 @@ impl App {
             &s.metadata.desired.profile_id
         };
         let profile = s.metadata.profiles.iter().find(|p| p.id == id);
-        if kind == Kind::Connect && profile.is_none_or(|p| p.missing) {
+        if kind == Kind::Connect
+            && (profile.is_none_or(|p| p.missing)
+                || !self
+                    .visible()
+                    .iter()
+                    .any(|i| s.metadata.profiles[*i].id == id))
+        {
             self.notice = "tui.select_available";
             return;
         }
@@ -347,9 +362,16 @@ impl App {
                         s.metadata.instance_id == command.instance
                             && s.revision == command.revision
                             && (command.kind != Kind::Connect
-                                || s.metadata.profiles.iter().any(|p| {
-                                    p.id == command.profile && p.name == command.name && !p.missing
-                                }))
+                                || (self.selected.as_ref() == Some(&command.profile)
+                                    && self
+                                        .visible()
+                                        .iter()
+                                        .any(|i| s.metadata.profiles[*i].id == command.profile)
+                                    && s.metadata.profiles.iter().any(|p| {
+                                        p.id == command.profile
+                                            && p.name == command.name
+                                            && !p.missing
+                                    })))
                     })
                 {
                     self.notice = "tui.action_changed";
