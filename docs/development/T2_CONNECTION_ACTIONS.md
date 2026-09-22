@@ -83,8 +83,10 @@ runtime/client work. Do not blindly resubmit after reopening a client.
 - `action_preview` is an isolated, explicitly synthetic developer example.
   It never opens the private socket/store; screenshots are not VPN evidence.
 - Real host transitions require the attended
-  [authorization gate](../testing/HOST_AUTHORIZATION_ACCEPTANCE.md). They remain
-  pending until a separate exact-candidate report records them.
+  [authorization gate](../testing/HOST_AUTHORIZATION_ACCEPTANCE.md). The bounded
+  ARM64 disconnect/reconnect/Full-VPN/restore sequence passed; see the
+  [exact-candidate report](../testing/T2_CONNECTION_ACTIONS_2026-09-22.md) for
+  evidence, test-tool findings and unrun gates.
 
 Run `bash tests/run-rust.sh` and `bash tests/run.sh`. The default runtime still
 excludes Ratatui; build the candidate with `cargo build --locked -p
