@@ -1,4 +1,8 @@
 {
+  "tui.refresh_subscription":{"en":"Refresh selected profile's subscription","ru":"Обновить подписку выбранного профиля"},
+  "tui.select_subscription_profile":{"en":"Select a profile belonging to the subscription you want to refresh.","ru":"Выберите профиль из подписки, которую хотите обновить."},
+  "tui.confirm_subscription_refresh":{"en":"Fetch a new server list for the subscription shown above. Existing runtime validation and reconciliation apply; this is not Connect or a health test.","ru":"Загрузить новый список серверов указанной выше подписки. Служба проверит и применит изменения. Это не подключение и не проверка связи."},
+  "tui.subscription_keys":{"en":"s: refresh selected profile's subscription (confirmation required)","ru":"s: обновить подписку выбранного профиля (с подтверждением)"},
   "tui.traffic":{"en":"Traffic","ru":"Трафик"},
   "tui.details":{"en":"Selected profile details","ru":"Сведения о выбранном профиле"},
   "tui.diagnostics":{"en":"Runtime diagnostics","ru":"Диагностика службы"},
@@ -90,7 +94,7 @@
   "tui.select_available":{"en":"Select an available profile first","ru":"Сначала выберите доступный профиль"},
   "tui.action_acknowledged":{"en":"Current state acknowledged; previous outcome remains unknown","ru":"Текущее состояние принято; прошлый результат остаётся неизвестным"},
   "tui.action_close_hint":{"en":"q: close UI — does not cancel commands or disconnect VPN","ru":"q: выйти — без отмены команд и отключения VPN"},
-  "tui.action_help":{"en":"Arrows select; c: connect, d: disconnect current session, 1/2/3: mode. Enter confirms in the action view. f: favorites; Esc: clear filters. u: exact retry; a: review current state. q closes UI only.","ru":"Стрелки: выбор; c: подключить, d: отключить сессию, 1/2/3: режим. Enter: подтвердить в окне действия. f: избранное; Esc: сброс фильтров. u: точный повтор; a: принять состояние. q: закрыть интерфейс."},
+  "tui.action_help":{"en":"Arrows: select; c/d: connect/disconnect; 1/2/3: mode; s: refresh subscription; r: reload UI; f: favorites. Enter: confirm; Esc: back; u: exact retry; a: review state; q: close UI, keep VPN.","ru":"Стрелки: выбор; c/d: подключить/отключить; 1/2/3: режим; s: обновить подписку; r: перечитать UI; f: избранное. Enter: подтвердить; Esc: назад; u: повтор; a: принять состояние; q: выйти без отключения."},
   "tui.action_selected":{"en":"Selected, not necessarily connected","ru":"Выбран, не обязательно подключён"},
   "tui.action_search_exit":{"en":"Esc, then q: close UI only; commands are not cancelled","ru":"Esc, затем q: выйти; команды не отменяются"},
   "tui.action_resize":{"en":"Enlarge terminal (at least 70 x 24); actions disabled","ru":"Увеличьте терминал (не менее 70 x 24); действия отключены"}

@@ -23,10 +23,12 @@ fn tui_commands_conform_to_canonical_mutation_parser() {
     };
     use std::time::Instant;
     const PROFILE: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const SUBSCRIPTION: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     for (kind, method) in [
         (Kind::Connect, "connection.connect"),
         (Kind::Disconnect, "connection.disconnect"),
         (Kind::Mode, "routing.set_mode"),
+        (Kind::RefreshSubscription, "subscriptions.refresh"),
     ] {
         let now = Instant::now();
         let mut app = App::new(Locale::En);
@@ -43,6 +45,9 @@ fn tui_commands_conform_to_canonical_mutation_parser() {
                 if r == Read::Snapshot {
                     v["result"]["desired"]["profileId"] = json!(PROFILE);
                     v["result"]["profiles"][0]["id"] = json!(PROFILE);
+                    v["result"]["profiles"][0]["subscriptionId"] = json!(SUBSCRIPTION);
+                    v["result"]["profiles"][1]["subscriptionId"] = json!(SUBSCRIPTION);
+                    v["result"]["subscriptions"][0]["id"] = json!(SUBSCRIPTION);
                 }
                 Ok(v)
             }),

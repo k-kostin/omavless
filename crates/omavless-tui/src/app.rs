@@ -257,6 +257,7 @@ impl App {
             match key.code {
                 KeyCode::Char('c') => self.prepare(Kind::Connect, None, now),
                 KeyCode::Char('d') => self.prepare(Kind::Disconnect, None, now),
+                KeyCode::Char('s') => self.prepare(Kind::RefreshSubscription, None, now),
                 KeyCode::Char('1') => self.prepare(Kind::Mode, Some(Mode::Global), now),
                 KeyCode::Char('2') => self.prepare(Kind::Mode, Some(Mode::Rule), now),
                 KeyCode::Char('3') => self.prepare(Kind::Mode, Some(Mode::Direct), now),
@@ -361,14 +362,14 @@ impl App {
             return;
         };
         // Disconnect and mode always target the runtime's current session, never selection.
-        let id = if kind == Kind::Connect {
+        let id = if matches!(kind, Kind::Connect | Kind::RefreshSubscription) {
             self.selected.as_deref().unwrap_or("")
         } else {
             &s.metadata.desired.profile_id
         };
         let profile = s.metadata.profiles.iter().find(|p| p.id == id);
-        if kind == Kind::Connect
-            && (profile.is_none_or(|p| p.missing)
+        if matches!(kind, Kind::Connect | Kind::RefreshSubscription)
+            && (profile.is_none_or(|p| p.missing && kind == Kind::Connect)
                 || !self
                     .visible()
                     .iter()
@@ -377,11 +378,19 @@ impl App {
             self.notice = "tui.select_available";
             return;
         }
+        let subscription = profile
+            .and_then(|p| p.subscription_id.as_ref())
+            .and_then(|id| s.metadata.subscriptions.iter().find(|sub| sub.id == *id));
+        if kind == Kind::RefreshSubscription && subscription.is_none() {
+            self.notice = "tui.select_subscription_profile";
+            return;
+        }
         self.confirmation = Some(Confirmation::New(Command {
             instance: s.metadata.instance_id.clone(),
             revision: s.revision,
             kind,
             profile: id.into(),
+            subscription: subscription.map(|sub| sub.id.clone()),
             name: profile.map_or_else(String::new, |p| p.name.clone()),
             source: profile
                 .and_then(|p| p.subscription_id.as_ref())
@@ -407,7 +416,7 @@ impl App {
                     || !self.snapshot.as_ref().is_some_and(|s| {
                         s.metadata.instance_id == command.instance
                             && s.revision == command.revision
-                            && (command.kind != Kind::Connect
+                            && (!matches!(command.kind, Kind::Connect | Kind::RefreshSubscription)
                                 || (self.selected.as_ref() == Some(&command.profile)
                                     && self
                                         .visible()
@@ -416,8 +425,16 @@ impl App {
                                     && s.metadata.profiles.iter().any(|p| {
                                         p.id == command.profile
                                             && p.name == command.name
-                                            && !p.missing
+                                            && (!p.missing
+                                                || command.kind == Kind::RefreshSubscription)
+                                            && (command.kind != Kind::RefreshSubscription
+                                                || p.subscription_id == command.subscription)
                                     })))
+                            && (command.kind != Kind::RefreshSubscription
+                                || s.metadata.subscriptions.iter().any(|sub| {
+                                    Some(&sub.id) == command.subscription.as_ref()
+                                        && Some(&sub.name) == command.source.as_ref()
+                                }))
                     })
                 {
                     self.notice = "tui.action_changed";

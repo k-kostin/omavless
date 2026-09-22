@@ -10,6 +10,7 @@ pub enum Kind {
     Connect,
     Disconnect,
     Mode,
+    RefreshSubscription,
 }
 impl Kind {
     pub fn wire(self) -> &'static str {
@@ -17,6 +18,7 @@ impl Kind {
             Self::Connect => "connect",
             Self::Disconnect => "disconnect",
             Self::Mode => "mode",
+            Self::RefreshSubscription => "subscription-refresh",
         }
     }
     pub fn key(self) -> &'static str {
@@ -24,6 +26,7 @@ impl Kind {
             Self::Connect => "tui.connect",
             Self::Disconnect => "tui.disconnect",
             Self::Mode => "tui.set_mode",
+            Self::RefreshSubscription => "tui.refresh_subscription",
         }
     }
 }
@@ -50,6 +53,7 @@ pub struct Command {
     pub(crate) revision: u64,
     pub kind: Kind,
     pub(crate) profile: String,
+    pub(crate) subscription: Option<String>,
     pub name: String,
     pub source: Option<String>,
     pub was_connected: bool,
@@ -78,8 +82,11 @@ impl Request {
         if c.kind == Kind::Connect {
             p["profileId"] = json!(c.profile);
         }
-        if c.kind != Kind::Disconnect {
+        if matches!(c.kind, Kind::Connect | Kind::Mode) {
             p["mode"] = json!(c.mode.wire());
+        }
+        if c.kind == Kind::RefreshSubscription {
+            p["subscriptionId"] = json!(c.subscription);
         }
         p
     }
