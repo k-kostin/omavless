@@ -337,6 +337,29 @@ Rust runtime so they are not immediately rewritten.
 The practical next sessions may therefore be heavily Rust-focused without
 abandoning the plugin.
 
+### Native follow-up triage — review and scope the issues
+
+State: **owner-requested triage queue, 2026-09-22; implementation not selected**.
+
+Review these three issues against current native main and record an
+implement/defer/reject decision with a bounded scope and applicable gates.
+They adapt observations from the JaguarKovalev legacy fork to the Rust-owned
+0.8.2 baseline; fork reports are not native host acceptance. This queue does
+not change release priorities, expand the read-only T2a work in #269, reopen
+R6 or close AUTO-1/V0/network follow-ups.
+
+| Issue to review | Existing track | Expected triage output |
+| --- | --- | --- |
+| [#270 — scoped DNS authorization without repeated password prompts](https://github.com/k-kostin/omavless/issues/270) | T4 DNS/host authorization; coordinate with K0 security boundary and AUTO-1 | Compare interface-scoped policy and a fixed-purpose system helper; define caller/TUN ownership, provisioning, revocation and cleanup. No account-wide passwordless rule or helper adoption is approved by this entry. |
+| [#271 — native TUN/firewall setup diagnostics and routing compatibility](https://github.com/k-kostin/omavless/issues/271) | D1/native diagnostics; T3 observability direction | Reproduce applicable failures, identify bounded diagnostic gaps and separately decide whether an auto-redirect experiment is warranted. Preserve LAN exclusions and routing defaults pending evidence. |
+| [#272 — distinguish tunnel state, ICMP and HTTPS results](https://github.com/k-kostin/omavless/issues/272) | D1/T3 diagnostics; P-U1 presentation | Audit existing labels/probe policy and assess a separately attributed HTTPS mode only if needed. Existing current-route HTTPS is not TUN-egress proof; retain native ICMP ownership and stale-result safeguards. |
+
+Full VPN selector readiness and owned-TUN verification are already implemented
+in Rust. Reuse their accepted contracts and tests rather than importing the
+fork's Python shim or treating these as missing native features. Small
+diagnostic/presentation follow-ups need their own scope; this queue does not
+start the full T3 workspace or the K1 kill switch.
+
 ### P-I1 — finish remaining plugin localization/surface batches
 
 State: **active independent plugin work**.
