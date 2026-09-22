@@ -2,6 +2,13 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**Development candidate, not a main update:** the next `rc/0.9.0` includes
+checked T2a–c and reconciled workflow/triage documentation. Its
+[constituent ledger](docs/development/RC_090.md) records exact source PRs and
+excluded work. T2 remains incomplete; version tags/assets and installed stable
+0.8.2 are unchanged. Main remains frozen at the submitted marketplace SHA until
+another explicit owner instruction, including for documentation-only changes.
+
 **Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
 promoted from the reviewed prerelease without changing its tag or asset bytes.
 It has verified native packages and frontend pins. Its clean x86_64 plugin-first installation,

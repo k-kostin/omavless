@@ -6,6 +6,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–c (#269/#274/#275),
+  the release-snapshot workflow (#276), and #270–272 triage docs (#273).
+  See the [exact constituent ledger and release checklist](../development/RC_090.md).
+  The name is a planning label; package version/assets, installed 0.8.2 and
+  stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
+  Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
+  targets that stable SHA and awaits external review, not RC verification.
+  T2d (#277) and the remaining MVP are separate work, not implicitly accepted.
+
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including
   for docs-only work. The former automatic documentation merge permission is
@@ -236,8 +245,8 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Submit the owner-authorized exact-current-main marketplace update using the published
-   0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not rebuild
+2. Follow the submitted exact-main marketplace update #8093 using the published
+   0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not resubmit or rebuild
    them or repeat R6 merely because documentation/images change. Follow the
    [publication preparation](../marketing/MARKETPLACE_080.md), rerun official
    compatibility/security checks on the final exact commit, and retain the
@@ -247,8 +256,8 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Scope a small T2 client checkpoint or another explicitly selected roadmap
-   task on the existing Rust owner. Preserve accepted UI unless the task
+4. Continue the remaining T2 client scope on the existing Rust owner; preserve
+   completed checkpoints and accompanying docs in the named RC. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
 Additional triage backlog: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
