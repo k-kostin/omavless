@@ -99,6 +99,9 @@ pub struct Observation {
 
 #[derive(Clone)]
 pub struct Snapshot {
+    pub traffic: Option<crate::inspection::Traffic>,
+    pub diagnostics: Option<crate::inspection::Diagnostics>,
+    pub inspection_available: (bool, bool),
     pub actions_available: bool,
     pub revision: u64,
     pub metadata: Metadata,
@@ -216,6 +219,9 @@ impl Snapshot {
             _ => return Err(ReadError::Invalid),
         }
         Ok(Self {
+            traffic: None,
+            diagnostics: None,
+            inspection_available: (false, false),
             actions_available: false,
             revision,
             metadata,

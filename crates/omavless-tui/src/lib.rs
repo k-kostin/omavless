@@ -5,7 +5,9 @@ pub mod app;
 pub mod browsing;
 pub mod client;
 pub mod i18n;
+pub mod inspection;
 pub mod model;
+pub mod theme;
 pub mod view;
 
 use app::{Action, App};
@@ -83,14 +85,17 @@ fn run_client(
                 .map_err(|_| "Could not initialize terminal signal handling")?,
         );
     }
-    let (request, requests) = mpsc::sync_channel::<()>(1);
+    let (request, requests) = mpsc::sync_channel::<inspection::Page>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while requests.recv().is_ok() {
+            while let Ok(page) = requests.recv() {
                 let started = Instant::now();
-                if results.send((started, client::load(&mut read))).is_err() {
+                if results
+                    .send((started, page, client::load_page(&mut read, page)))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -112,6 +117,24 @@ fn run_client(
         })
         .map_err(|_| "Could not start terminal input")?;
     let mut app = App::new(i18n::Locale::current());
+    // Theme sampling is independent of IPC (which can block). A capacity-one
+    // channel coalesces filesystem changes; no watcher/path/log surface added.
+    let (palettes, palette_updates) = mpsc::sync_channel(1);
+    thread::Builder::new()
+        .name("tui-theme".into())
+        .spawn(move || {
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+            loop {
+                let palette = home
+                    .as_ref()
+                    .map_or_else(theme::Palette::default, |p| theme::load(p));
+                match palettes.try_send(palette) {
+                    Err(mpsc::TrySendError::Disconnected(_)) => break,
+                    _ => thread::sleep(Duration::from_secs(2)),
+                }
+            }
+        })
+        .map_err(|_| "Could not start terminal theme reader")?;
     app.actions_enabled = mutate.is_some();
     let (submit, submissions) = mpsc::sync_channel::<actions::Request>(1);
     let (finished, finishes) = mpsc::sync_channel(1);
@@ -132,16 +155,23 @@ fn run_client(
     let mut pending = false;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        if let Ok(palette) = palette_updates.try_recv() {
+            app.palette = palette;
+        }
         if let Ok(outcome) = finishes.try_recv() {
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, result)) = receive.try_recv() {
+        if let Ok((started, page, result)) = receive.try_recv() {
             app.accept(result, started);
             pending = false;
-            due = now + Duration::from_secs(3);
+            due = if page == app.page {
+                now + Duration::from_secs(3)
+            } else {
+                now
+            };
         }
-        if !pending && now >= due && request.try_send(()).is_ok() {
+        if !pending && now >= due && request.try_send(app.page).is_ok() {
             pending = true;
         }
         terminal

@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    pub palette: crate::theme::Palette,
+    pub page: crate::inspection::Page,
+    pub traffic_rates: Option<(u64, u64)>,
+    pub inspection_scroll: u16,
     pub snapshot: Option<Snapshot>,
     pub sampled_at: Option<Instant>,
     pub error: Option<ReadError>,
@@ -45,6 +49,10 @@ pub enum Action {
 impl App {
     pub fn new(locale: Locale) -> Self {
         Self {
+            palette: crate::theme::Palette::default(),
+            page: crate::inspection::Page::Profiles,
+            traffic_rates: None,
+            inspection_scroll: 0,
             snapshot: None,
             sampled_at: None,
             error: None,
@@ -78,6 +86,15 @@ impl App {
         }
         match result {
             Ok(next) => {
+                self.traffic_rates = self
+                    .snapshot
+                    .as_ref()
+                    .filter(|old| {
+                        self.fresh(started)
+                            && old.metadata.instance_id == next.metadata.instance_id
+                            && old.revision == next.revision
+                    })
+                    .and_then(|old| next.traffic.as_ref()?.rates(old.traffic.as_ref()?));
                 let changed = self
                     .accepted
                     .as_ref()
@@ -108,6 +125,7 @@ impl App {
                 }
             }
             Err(error) => {
+                self.traffic_rates = None;
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -198,6 +216,33 @@ impl App {
                     self.query
                         .push_str(&crate::model::display(&c.to_string(), 1));
                     self.selected = None;
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
+            self.page = self
+                .page
+                .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
+            self.inspection_scroll = 0;
+            return Action::Refresh;
+        }
+        if self.page != crate::inspection::Page::Profiles {
+            match key.code {
+                KeyCode::Char('q') => return Action::Close,
+                KeyCode::Char('r') => return Action::Refresh,
+                KeyCode::Char('?') => self.help = true,
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.inspection_scroll = (self.inspection_scroll + 1).min(24)
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.inspection_scroll = self.inspection_scroll.saturating_sub(1)
+                }
+                KeyCode::Home => self.inspection_scroll = 0,
+                KeyCode::Esc => {
+                    self.page = crate::inspection::Page::Profiles;
+                    return Action::Refresh;
                 }
                 _ => {}
             }

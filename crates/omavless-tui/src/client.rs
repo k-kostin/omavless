@@ -9,6 +9,8 @@ pub enum Read {
     Capabilities,
     Snapshot,
     Observation,
+    Traffic,
+    Diagnostics,
 }
 
 impl Read {
@@ -18,6 +20,8 @@ impl Read {
             Self::Capabilities => "capabilities.get",
             Self::Snapshot => "ui.snapshot",
             Self::Observation => "runtime.observation",
+            Self::Traffic => "runtime.traffic",
+            Self::Diagnostics => "diagnostics.summary",
         }
     }
     pub fn params(self) -> Value {
@@ -32,6 +36,14 @@ impl Read {
 pub fn load(
     read: &mut impl FnMut(Read) -> Result<Value, ReadError>,
 ) -> Result<Snapshot, ReadError> {
+    load_page(read, crate::inspection::Page::Profiles)
+}
+
+pub fn load_page(
+    read: &mut impl FnMut(Read) -> Result<Value, ReadError>,
+    page: crate::inspection::Page,
+) -> Result<Snapshot, ReadError> {
+    use crate::inspection::{Diagnostics, Page, Traffic};
     fn success(value: Value) -> Result<Value, ReadError> {
         // Production transport already validates bounded framing, envelope and ID.
         // Do not forward remote error strings to either the terminal or stderr.
@@ -62,8 +74,32 @@ pub fn load(
         return Err(ReadError::Incompatible);
     }
     let meta = success(read(Read::Snapshot)?)?;
+    let method = match page {
+        Page::Traffic if methods.iter().any(|m| m == "runtime.traffic") => Some(Read::Traffic),
+        Page::Diagnostics if methods.iter().any(|m| m == "diagnostics.summary") => {
+            Some(Read::Diagnostics)
+        }
+        _ => None,
+    };
+    // Extra reads are bracketed by metadata and observation from the same owner.
+    // Failure means unavailable, never zero; unrelated connection facts survive.
+    let extra = method.and_then(|m| read(m).ok());
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
+    snapshot.inspection_available = (
+        methods.iter().any(|m| m == "runtime.traffic"),
+        methods.iter().any(|m| m == "diagnostics.summary"),
+    );
+    if let Some(value) = extra {
+        if value["ok"] == true && value["revision"].as_u64() != Some(snapshot.revision) {
+            return Err(ReadError::Changed);
+        }
+        if method == Some(Read::Traffic) {
+            snapshot.traffic = Traffic::parse(&value);
+        } else {
+            snapshot.diagnostics = Diagnostics::parse(&value);
+        }
+    }
     Ok(snapshot)
 }
