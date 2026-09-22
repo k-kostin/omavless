@@ -7,6 +7,62 @@ use crate::mutation_protocol::{MutationProtocolError, exact_fields, parse_owner_
 use serde_json::{Value, json};
 use std::ffi::OsString;
 
+#[cfg(all(test, feature = "tui"))]
+#[path = "../../omavless-tui/tests/support/mod.rs"]
+mod tui_test_support;
+
+#[cfg(all(test, feature = "tui"))]
+#[test]
+fn tui_commands_conform_to_canonical_mutation_parser() {
+    use omavless_tui::{
+        actions::Kind,
+        app::{Action, App},
+        client::{Read, load},
+        i18n::Locale,
+        model::Mode,
+    };
+    use std::time::Instant;
+    const PROFILE: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    for (kind, method) in [
+        (Kind::Connect, "connection.connect"),
+        (Kind::Disconnect, "connection.disconnect"),
+        (Kind::Mode, "routing.set_mode"),
+    ] {
+        let now = Instant::now();
+        let mut app = App::new(Locale::En);
+        app.actions_enabled = true;
+        app.accept(
+            load(&mut |r| {
+                let mut v = tui_test_support::response(r);
+                if r == Read::Capabilities {
+                    v["result"]["methods"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!("plugin.action"));
+                }
+                if r == Read::Snapshot {
+                    v["result"]["desired"]["profileId"] = json!(PROFILE);
+                    v["result"]["profiles"][0]["id"] = json!(PROFILE);
+                }
+                Ok(v)
+            }),
+            now,
+        );
+        app.selected = Some(PROFILE.into());
+        app.prepare(kind, Some(Mode::Global), now);
+        assert_eq!(
+            app.confirm(now, "tui-synthetic-operation".into()),
+            Action::Submit
+        );
+        let params = app.pending.as_ref().unwrap().params();
+        let request = crate::make_request("tui-test", "plugin.action", params).unwrap();
+        let parsed = parse(&request).unwrap_or_else(|_| panic!("TUI request rejected"));
+        assert_eq!(parsed.canonical["method"], method);
+        assert_eq!(parsed.instance, "fixture-runtime");
+        assert_eq!(parsed.operation, "tui-synthetic-operation");
+    }
+}
+
 pub(crate) struct Action {
     pub instance: String,
     pub operation: String,

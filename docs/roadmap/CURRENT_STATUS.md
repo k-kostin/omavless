@@ -16,6 +16,26 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [release checklist](DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
   This policy candidate does not itself update main or the marketplace request.
 
+- **T2c browsing candidate:** the dependent `dev/t2-grouped-browsing` branch
+  adds subscription grouping, local favorites filtering and subscription-name
+  search. Local suites, EN/RU terminal review and no-effect installed-runtime
+  checks passed; no default package or main update. See
+  [scope and evidence](../development/T2_GROUPED_BROWSING.md).
+
+- **T2b action candidate:** `dev/t2-connection-actions` adds confirmed
+  Connect/Disconnect/mode requests through the existing runtime, retaining exact
+  requests on unknown outcomes. It depends on the T2a branch; neither is a main
+  update or packaged MVP. Local automated/EN-RU rendering and attended ARM64
+  connection/mode gates passed on the [recorded candidate](../testing/T2_CONNECTION_ACTIONS_2026-09-22.md).
+  See [scope and gates](../development/T2_CONNECTION_ACTIONS.md).
+
+- **T2a development checkpoint:** `dev/t2-readonly-client` adds an opt-in
+  read-only terminal client using the existing Rust runtime. Main/installed
+  0.8.2 remain unchanged while marketplace review targets the submitted SHA.
+  Status, profile/source browsing, name search and safe close are this slice;
+  mutations, packaging and Open app are not. See the
+  [development boundary](../development/T2_READONLY_CLIENT.md).
+
 - **September 22 stable release:** the owner authorized completing publication
   after the preparation checkpoint. `v0.8.2` is now stable/latest on GitHub;
   its tag and all six asset identities/digests are unchanged. README and

@@ -1118,7 +1118,14 @@ native R6 closure.
 
 ### T2 — Rust + Ratatui TUI MVP
 
-State: **planned; native R6 prerequisite satisfied, separate client scope required**.
+State: **native R6 prerequisite satisfied; opt-in T2a read-only client checkpoint
+under development, full MVP pending**. The [bounded client scope](docs/development/T2_READONLY_CLIENT.md)
+adds no mutations, plugin launcher, default package feature or new runtime owner.
+The dependent [T2b candidate](docs/development/T2_CONNECTION_ACTIONS.md) adds
+confirmed connection/mode commands through the existing owner. Both checkpoints
+remain opt-in development work; no main/release promotion is implied.
+[T2c browsing](docs/development/T2_GROUPED_BROWSING.md) adds grouped subscription
+profiles and a local favorites filter on top, without additional runtime methods.
 
 The first full application UI is Rust + Ratatui, using a reviewed terminal
 backend such as Crossterm. It is a client of the already accepted Rust runtime;
