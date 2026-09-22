@@ -5,6 +5,7 @@ pub mod app;
 pub mod browsing;
 pub mod client;
 pub mod i18n;
+pub mod inspection;
 pub mod model;
 pub mod view;
 
@@ -83,14 +84,17 @@ fn run_client(
                 .map_err(|_| "Could not initialize terminal signal handling")?,
         );
     }
-    let (request, requests) = mpsc::sync_channel::<()>(1);
+    let (request, requests) = mpsc::sync_channel::<inspection::Page>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while requests.recv().is_ok() {
+            while let Ok(page) = requests.recv() {
                 let started = Instant::now();
-                if results.send((started, client::load(&mut read))).is_err() {
+                if results
+                    .send((started, page, client::load_page(&mut read, page)))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -136,12 +140,16 @@ fn run_client(
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, result)) = receive.try_recv() {
+        if let Ok((started, page, result)) = receive.try_recv() {
             app.accept(result, started);
             pending = false;
-            due = now + Duration::from_secs(3);
+            due = if page == app.page {
+                now + Duration::from_secs(3)
+            } else {
+                now
+            };
         }
-        if !pending && now >= due && request.try_send(()).is_ok() {
+        if !pending && now >= due && request.try_send(app.page).is_ok() {
             pending = true;
         }
         terminal

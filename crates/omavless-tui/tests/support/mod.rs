@@ -9,7 +9,7 @@ pub fn response(request: Read) -> Value {
             json!({"instanceId":"fixture-runtime", "version":1, "runtimeOwnership":true})
         }
         Read::Capabilities => {
-            json!({"runtimeOwnership":true,"methods":["ui.snapshot","runtime.observation"]})
+            json!({"runtimeOwnership":true,"methods":["ui.snapshot","runtime.observation","runtime.traffic","diagnostics.summary"]})
         }
         Read::Snapshot => json!({
             "schemaVersion":1,"scope":"private_ui_metadata","instanceId":"fixture-runtime",
@@ -20,6 +20,11 @@ pub fn response(request: Read) -> Value {
                 {"id":"fixture-b","name":"Fixture Frankfurt","protocol":"vless","subscriptionId":"fixture-sub","missing":false,"favorite":false}
             ],"subscriptions":[{"id":"fixture-sub","name":"Fixture subscription"}]
         }),
+        Read::Traffic => {
+            json!({"schemaVersion":1,"scope":"controller_attributed_tun_counters","availability":"observed",
+            "sample":{"identity":"a".repeat(64),"rxBytes":4096,"txBytes":8192,"sampledAtMs":1000}})
+        }
+        Read::Diagnostics => json!({"version":1,"rules":{"total":42},"providers":{"total":2}}),
         Read::Observation => json!({
             "schemaVersion":1,"scope":"local_runtime_observation","instanceId":"fixture-runtime",
             "transition":null,"availability":"observed",

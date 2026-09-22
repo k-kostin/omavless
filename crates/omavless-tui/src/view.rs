@@ -174,6 +174,23 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             .wrap(Wrap { trim: false }),
             sections[1],
         );
+    } else if app.page != crate::inspection::Page::Profiles {
+        let lines = inspection_lines(app, now);
+        // Even at a large viewport/key-repeat, never scroll past all content.
+        let scroll = app
+            .inspection_scroll
+            .min(lines.len().saturating_sub(1) as u16);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .scroll((scroll, 0))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(tr(app.page.key())),
+                ),
+            sections[1],
+        );
     } else {
         let visible = app.visible();
         let entries = app
@@ -314,6 +331,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             "tui.auth_hint"
         })));
     }
+    footer.push(Line::from(tr("tui.page_keys")));
     footer.push(Line::from(tr(if app.searching && app.actions_enabled {
         "tui.action_search_exit"
     } else if app.searching {
@@ -324,5 +342,152 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         "tui.close_hint"
     })));
     // Fixed rows: long private names/search must never push the exit hint away.
+    if app.page != crate::inspection::Page::Profiles && app.confirmation.is_none() {
+        footer = vec![
+            Line::from(tr("tui.page_keys")),
+            Line::from(tr("tui.inspection_keys")),
+            Line::from(tr(if app.notice.is_empty() {
+                "tui.readonly"
+            } else {
+                app.notice
+            })),
+            Line::from(tr(if app.actions_enabled {
+                "tui.action_close_hint"
+            } else {
+                "tui.close_hint"
+            })),
+        ];
+    }
     frame.render_widget(Paragraph::new(footer), sections[2]);
+}
+
+fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
+    use crate::inspection::{Page, bytes};
+    let tr = |key| app.locale.text(key);
+    let field = |key, value: String| Line::from(format!("{}: {value}", tr(key)));
+    let Some(s) = app
+        .snapshot
+        .as_ref()
+        .filter(|_| app.fresh(now) && !app.running)
+    else {
+        return vec![Line::from(tr("tui.stale"))];
+    };
+    let unknown = || tr("tui.metric_unavailable").to_owned();
+    let boolean = |value: bool| tr(if value { "tui.yes" } else { "tui.no" }).to_owned();
+    match app.page {
+        Page::Traffic => vec![
+            field(
+                "tui.upload_rate",
+                app.traffic_rates
+                    .map(|(u, _)| format!("{}/s", bytes(u)))
+                    .unwrap_or_else(unknown),
+            ),
+            field(
+                "tui.download_rate",
+                app.traffic_rates
+                    .map(|(_, d)| format!("{}/s", bytes(d)))
+                    .unwrap_or_else(unknown),
+            ),
+            field(
+                "tui.upload_total",
+                s.traffic
+                    .as_ref()
+                    .map(|t| bytes(t.upload))
+                    .unwrap_or_else(unknown),
+            ),
+            field(
+                "tui.download_total",
+                s.traffic
+                    .as_ref()
+                    .map(|t| bytes(t.download))
+                    .unwrap_or_else(unknown),
+            ),
+            Line::from(tr("tui.traffic_scope")),
+            Line::from(tr("tui.traffic_reset")),
+            Line::from(tr("tui.connections_deferred")),
+        ],
+        Page::Details => {
+            let p = s
+                .metadata
+                .profiles
+                .iter()
+                .find(|p| app.selected.as_ref() == Some(&p.id));
+            let Some(p) = p else {
+                return vec![Line::from(tr("tui.select_details"))];
+            };
+            vec![
+                field("tui.action_selected", display(&p.name, 80)),
+                field(
+                    "tui.source",
+                    p.subscription_id
+                        .as_ref()
+                        .and_then(|id| s.metadata.subscriptions.iter().find(|sub| sub.id == *id))
+                        .map(|sub| display(&sub.name, 80))
+                        .unwrap_or_else(|| tr("tui.local").into()),
+                ),
+                field("tui.favorite", boolean(p.favorite)),
+                field("tui.feed_available", boolean(!p.missing)),
+                field(
+                    "tui.is_connected",
+                    if matches!(s.status(), Status::Unverified | Status::Recovery) {
+                        unknown()
+                    } else {
+                        boolean(
+                            s.status() == Status::Connected
+                                && s.metadata.desired.profile_id == p.id,
+                        )
+                    },
+                ),
+                Line::from(tr("tui.details_privacy")),
+                Line::from(tr("tui.health")),
+            ]
+        }
+        Page::Diagnostics => {
+            let facts = s.observation.facts.as_ref();
+            vec![
+                field("tui.core", "Mihomo".into()),
+                field(
+                    "tui.core_running",
+                    facts
+                        .map(|f| boolean(f.owned_core_running))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.controller",
+                    facts
+                        .map(|f| boolean(f.owned_controller_config_verified))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_count",
+                    facts
+                        .map(|f| f.visible_mihomo_count.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.tun_count",
+                    facts
+                        .map(|f| f.managed_tun_count.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.rules_count",
+                    s.diagnostics
+                        .as_ref()
+                        .map(|d| d.rules.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.providers_count",
+                    s.diagnostics
+                        .as_ref()
+                        .map(|d| d.providers.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.health")),
+                Line::from(tr("tui.no_killswitch")),
+            ]
+        }
+        Page::Profiles => Vec::new(),
+    }
 }
