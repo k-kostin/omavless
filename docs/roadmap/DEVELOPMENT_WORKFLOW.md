@@ -1,6 +1,6 @@
 # OmaVLESS development workflow
 
-Status: repository workflow policy, updated 2026-09-16.
+Status: repository workflow policy, updated 2026-09-22.
 
 This workflow applies to current plugin work, incremental Python -> Rust
 migration, standalone Arch/NixOS packaging and later TUI work.
@@ -10,7 +10,11 @@ also read `RUST_MIGRATION.md`.
 
 ## 1. One long-lived branch
 
-`main` is the only long-lived development source of truth.
+`main` is the only long-lived release source of truth. It preserves the stable
+product snapshot, including README, roadmap and agent documentation. Do not
+advance it between owner-authorized updates, even for documentation-only work.
+Day-to-day development continues in task branches and versioned candidates;
+issues and PRs provide the live operational status without changing release SHA.
 
 Do not maintain permanent `develop`, `rc`, `alpha` or `beta` branches. A normal feature branch
 + Draft PR already expresses an alpha state. A cloud-ready Draft with local
@@ -18,7 +22,9 @@ gates pending expresses the next maturity state.
 
 A temporary `rc/<version>` branch is allowed for a named release/integration
 candidate (for example `rc/0.8.0`). Record its exact constituent heads and pending
-gates; allow only fixes needed for that release, returned to their owning PRs.
+gates. Assemble completed, independently checked roadmap checkpoints there,
+including their docs; do not collect every intermediate edit. During final
+acceptance, allow only fixes needed for that release, returned to owning PRs.
 It carries the same documentation and agent rules as main, not a separate
 user-facing tree. It is not a release tag or permission to merge/publish.
 Delete it after the release or recorded supersession. Existing `beta/<scope>`
@@ -73,31 +79,28 @@ allowed.
 
 ### Agreed documentation-only updates
 
-Owner-approved rule, 2026-09-17: a request to record or clarify agreed project
-decisions in documentation includes authorization to merge that documentation
-into `main` after verification. Do not ask for a second merge confirmation or
-leave the completed update in Draft merely because a temporary branch was used.
-`main` remains the canonical home for the current roadmap and project guidance.
+Owner-approved replacement, 2026-09-22: the September 17 standing authorization
+to merge agreed documentation automatically is **revoked**. A request to record
+a decision authorizes preparing/checking/pushing its documentation PR, not
+updating `main`. Main merges, including docs-only merges, require the owner's
+explicit instruction to update main. Release/tag/assets and marketplace changes
+retain their separate applicable authorization.
 
-Use a narrow branch/PR for the diff, checks and history. Verify documentation
-links/discovery, affected tooling and the final diff; require the normal CI on
-the exact final head and resolve any blocking review feedback. Then mark the PR
-ready, merge it, verify the result on remote `main` and clean up its source
-branch. Do not bypass checks or branch protection. Report a concrete blocker
-when this cannot complete.
+Use narrow `dev/docs/*` PRs; run documentation/navigation checks and normal CI.
+Mark checked work ready when appropriate, but keep it outside main until the
+authorized update. Readiness and integration into RC do not mean publication.
+Preserve canonical paths on every branch: main documents its released snapshot,
+the candidate documents the intended next snapshot, and issues/PRs expose the
+current queue. Do not put roadmap/agent rules exclusively in a separate branch.
 
-This standing authorization covers only documentation within the owner's
-agreed scope, including requested roadmap and guide clarifications. It does
-not cover executable code/configuration, CI, dependency or packaging changes,
-release/marketplace publication, or unapproved changes to product priorities,
-security/acceptance policy or runtime ownership. A Markdown extension alone
-does not establish authorization: unresolved decisions and mixed changes keep
-their applicable review/owner gates. An explicit request for a proposal,
-read-only work or no merge overrides this default.
+Every proposed main update must complete the [release reconciliation checklist](#release-reconciliation-checklist).
+There is no docs-only exception for bypassing that checklist or the main hold.
 
 ### Branch cleanup lifecycle
 
-After merge, delete the source branch and prune local remote-tracking refs.
+After inclusion in an authorized main update, delete the source branch and
+prune local remote-tracking refs. RC integration alone is not grounds to delete
+the only independently reviewable source/evidence branch.
 After closing a superseded PR, delete its branch once its unique commits have
 been classified. Temporary integration, recovery and CI-automation branches
 must be removed when their durable result is merged or recorded elsewhere.
@@ -171,6 +174,13 @@ acceptance. Keep unchecked list visible.
 
 Exact merge candidate passed declared cloud/parity/local gates, diff was
 re-reviewed after any rebase/fix and owner approval is given.
+
+### RC-integrated / not released
+
+A completed checkpoint is included at recorded exact heads in `rc/<version>`.
+Its source PRs remain discoverable; remaining stage/release gates are explicit.
+This does not make it merged into main, finish its whole roadmap stage, or
+authorize a tag, package publication or marketplace request.
 
 ### Merged
 
@@ -380,7 +390,7 @@ materially affected checks.
 Keep concepts separate:
 
 ```text
-main                 accepted development history
+main                 stable owner-approved release snapshot, docs included
 dev/<topic>          short-lived task branch + PR
 rc/<version>         temporary exact release candidate
 version tag          immutable project release
@@ -388,8 +398,43 @@ marketplace snapshot exact reviewed plugin commit
 native package       exact built/tagged application release
 ```
 
-Current marketplace 0.7.0 remains its reviewed SHA even as `main` adds Rust
-migration work.
+Marketplace verification covers an exact commit, not all future commits with
+unchanged runtime bytes. The current catalog implementation compares observed
+upstream SHA with the verified SHA: a difference produces `update-unverified`
+while retaining `verificationSnapshotStatus: verified` for the old snapshot.
+There is no Markdown-only exemption. A pending exact-commit request is not
+invalidated by another commit, but does not cover that new commit. See the
+[marketplace projection](https://github.com/omacom/omarchy-plugin-marketplace/blob/main/scripts/catalog-verification.mjs)
+(checked 2026-09-22). Consult actual request/registry state, not historical
+release prose, before claiming verification or publication.
+
+Keep main unchanged while preparing the next candidate. Batch applicable docs
+and code into the owner-authorized update, then submit the final exact SHA only
+when marketplace submission is separately authorized. A serious documentation
+or security correction may justify an earlier owner-authorized update; never
+hide a necessary fix merely to retain a badge.
+
+### Release reconciliation checklist
+
+The RC PR body must record these items before proposing an update to main:
+
+- Starting main SHA and all included source PR/head identities; no silent
+  overwrite of another agent's work. List excluded/deferred PRs and reasons.
+- Reconcile `DEVELOPMENT_ROADMAP.md`, `docs/roadmap/CURRENT_STATUS.md`, affected
+  feature contracts, agent rules and user guides with the actual candidate.
+  Explicitly review pending `dev/docs/*` PRs and accepted issue decisions.
+- Preserve historical exact-head evidence and failed/unrun gates. Label new
+  work RC-integrated, not released/complete, until the applicable event occurs.
+- Record resolved doc conflicts and remaining decisions; do not cherry-pick
+  implementation while forgetting its acceptance or roadmap changes.
+- Run combined checks; repeat host gates only where integration materially
+  changes tested behavior. Record the exact RC head and remaining release gates.
+- Obtain explicit owner authorization for the main update. Afterwards fetch,
+  verify remote main, reconcile source PRs/issues and clean up only safely
+  included branches. Retain independent evidence PRs and the Python archive.
+- Keep tag/assets and marketplace authorization separate. When authorized,
+  submit the final main SHA and record the actual request/outcome in its PR or
+  issue without another ceremonial main commit that immediately changes SHA.
 
 The marketplace plugin never silently builds Cargo sources or installs the
 standalone package.
@@ -405,7 +450,8 @@ hide them in a separate develop branch or ship them as runtime payload.
 Plugin/UI feature:
 
 ```text
-main -> feature branch -> Draft -> cloud/visual gate -> merge
+main -> dev/<topic> PR -> declared gates -> rc/<version> + reconciled docs
+     -> combined gates -> explicit owner main authorization -> main
 ```
 
 Rust migration slice:

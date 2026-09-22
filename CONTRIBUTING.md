@@ -35,6 +35,11 @@ exact-head gates, affected rechecks, merge approval and cleanup. Existing open
 branches need not be renamed for cosmetics. Published releases use immutable
 version tags and an exact reviewed marketplace snapshot.
 
+Main is the stable release snapshot, documentation included. Docs-only PRs do
+not have automatic merge permission. Keep daily status in issues/PRs, include
+the next roadmap/docs revision in the named RC, and complete the workflow's
+release reconciliation checklist before an explicitly owner-authorized main update.
+
 ## Checks
 
 ```sh

@@ -6,6 +6,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **September 22 release-snapshot workflow:** main stays at the owner-approved
+  release snapshot until another explicit main-update instruction, including
+  for docs-only work. The former automatic documentation merge permission is
+  revoked. Daily decisions/status remain visible in issues and `dev/*` PRs;
+  completed checkpoints and their docs may join a named `rc/<version>`.
+  Every proposed main update must reconcile roadmap/current status/contracts
+  and pending documentation PRs through the
+  [release checklist](DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
+  This policy candidate does not itself update main or the marketplace request.
+
 - **September 22 stable release:** the owner authorized completing publication
   after the preparation checkpoint. `v0.8.2` is now stable/latest on GitHub;
   its tag and all six asset identities/digests are unchanged. README and
