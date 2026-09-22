@@ -1,16 +1,18 @@
 # Native marketplace update preparation (0.8.2)
 
 Updated September 22. The established filename is retained for external links.
-The current candidate is **0.8.2**, with published, inspected ARM64/x86_64
+The current stable release is **0.8.2**, with published, inspected ARM64/x86_64
 packages and matching frontend pins. The
 [clean x86_64 guided setup](../testing/NATIVE_082_FRESH_VM_2026-09-21.md) passed;
 the [artifact record](../testing/NATIVE_082_ARTIFACTS_2026-09-21.md) identifies
 the immutable bytes. Do not reuse 0.8.0/0.8.1 hashes or reopen unchanged R6 gates.
-GitHub still marks 0.8.2 prerelease. Stable promotion and submission remain
-separate owner decisions; this preparation does neither.
+September 22: the owner authorized finishing release and marketplace submission.
+GitHub now marks 0.8.2 stable/latest with unchanged tag/assets. Submit the final
+reviewed main after the documentation cleanup and exact-SHA checks; marketplace
+maintainer approval and deployment are not implied by the stable release.
 
-Owner-approved content direction, 2026-09-15. **Preparation only:** no release,
-marketplace submission, installation classification or publication is implied.
+The September 15–16 preparation notes below preserve content decisions and
+their historical limits; current publication status above supersedes old holds.
 
 ## Product story
 
@@ -42,8 +44,8 @@ installation. See the current first-run evidence and PC gate; the older
 empty-pin state is superseded, not an ongoing asset-publication blocker.
 
 The earlier empty-pin/clean-setup blockers are now superseded by the 0.8.2
-evidence above. Keep the short prerelease notice until actual stable promotion;
-the supported guided-install explanation is:
+evidence above. Stable promotion now replaces the old candidate notice with
+the supported guided-install explanation:
 
 > Install the plugin through Omarchy, then open its panel. Required components
 > shows any missing OmaVLESS application or Mihomo core. Start setup from the
@@ -141,8 +143,8 @@ exact main SHA and bind the external issue draft to that SHA; do not promote
 an untested new head mechanically.
 
 Keep the issue title `[Verify]: OmaVLESS 0.8.2 native update` and the current
-form's headings/acknowledgment unchanged. The owner must approve submission
-before the issue is created. Inspect bot reports on that one issue; do not
+form's headings/acknowledgment unchanged. Submission is now owner-authorized.
+Inspect bot reports on that one issue; do not
 apply maintainer labels or equate issue creation with published registry/deployment.
 Document the explicit package consent, AUR Mihomo route, separate TUN permission
 step, native user service and private-data-preserving updates for reviewers.
@@ -155,11 +157,12 @@ step, native user service and private-data-preserving updates for reviewers.
 - [x] Publish reviewed 0.8.2 architecture packages as an authorized prerelease.
 - [x] Pin real packages; record clean x86_64 first-run setup and its limits.
 - [x] Confirm final release package/frontend pairing and exact source records.
-- [x] Align guided-install prose with accepted setup; retain prerelease notice.
+- [x] Align guided-install prose with accepted setup and actual stable release.
 - [x] Recapture current product QML and inspect local marketplace CSS crops.
 - [x] Confirm existing listing identity and absence of a manual override.
-- [ ] Rerun official checks on final post-preparation main; bind the issue draft.
-- [ ] Owner authorizes stable promotion and, separately, marketplace submission.
+- [x] Post-preparation main `6bfc864…` passed official local checks; draft bound.
+- [x] Owner authorizes stable promotion and marketplace submission; release promoted.
+- [ ] Repeat exact-SHA checks after stable-docs merge and submit that one update.
 - [ ] Marketplace maintainer approves exact reviewed snapshot; deployment verified.
 
 The scoped x86_64 clean gate does not claim a fresh ARM64 0.8.2 installation,

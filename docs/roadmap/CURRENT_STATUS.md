@@ -6,6 +6,21 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **September 22 stable release:** the owner authorized completing publication
+  after the preparation checkpoint. `v0.8.2` is now stable/latest on GitHub;
+  its tag and all six asset identities/digests are unchanged. README and
+  installation guidance describe the actual guided path rather than an
+  unpublished candidate. Marketplace submission targets the final reviewed
+  main SHA after this documentation update; approval/deployment remain external
+  steps. Do not confuse a submitted request or stable release with a changed
+  marketplace snapshot. Seven fully merged remote source branches (#250–253,
+  #263–265) were removed after exact-head/reachability checks. Preserve the
+  Python archive and open #30/#135 evidence branches.
+
+The dated preparation checkpoints below retain their original outcomes and
+publication boundaries; the current release decision above supersedes their
+older "withheld"/prerelease status, not their acceptance limits.
+
 - **September 22 ARM64 update and marketplace preparation:** the paused Try
   Omarchy guest's original private state was restored, then the actual public
   0.8.2 ARM package and matching frontend were installed with attended
@@ -175,9 +190,11 @@ Neither a main merge nor the presence of Rust sources installs a native binary,
 runs Cargo, grants capabilities, changes an ownership marker or enables VPN
 startup on a user's machine.
 
-The [native guide](../user/NATIVE_INSTALL.md) is the supported reviewed-candidate
-path: install the package, explicitly activate once, then install its matching
-frontend with `./install.sh`. The source/default installer is now native-only;
+The [native guide](../user/NATIVE_INSTALL.md) documents the stable guided path:
+add the plugin, explicitly install any missing components in its setup terminal,
+complete activation once and follow onboarding. Manual package-first installation
+and existing-user migration/update remain separate routes. `./install.sh` installs
+an already activated application's matching frontend. It is native-only;
 `--native-only` is an alias. The launcher refuses absent/legacy/unknown native
 ownership without Python. Omarchy's clone-based installation does not install
 the package or run this installer. The old Python implementation is archived;
@@ -189,14 +206,14 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Prepare the exact-current-main marketplace update using the already published
+2. Submit the owner-authorized exact-current-main marketplace update using the published
    0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not rebuild
    them or repeat R6 merely because documentation/images change. Follow the
    [publication preparation](../marketing/MARKETPLACE_080.md), rerun official
    compatibility/security checks on the final exact commit, and retain the
-   existing listing while review is pending. Stable promotion and marketplace
-   submission remain separate owner decisions; neither follows automatically
-   from a green local baseline. Preserve older tags/assets unchanged.
+   existing listing while review is pending. Stable promotion is complete;
+   record the actual request and bot/reviewer outcome in the release PR rather
+   than inventing approval. Preserve older tags/assets unchanged.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
