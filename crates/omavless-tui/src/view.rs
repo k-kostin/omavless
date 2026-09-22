@@ -133,7 +133,10 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                     display(&command.name, 80)
                 }
             )));
-            if command.kind != crate::actions::Kind::Disconnect {
+            if matches!(
+                command.kind,
+                crate::actions::Kind::Connect | crate::actions::Kind::Mode
+            ) {
                 lines.push(Line::from(tr(command.mode.key())));
             }
             if !command.name.is_empty() {
@@ -152,6 +155,11 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             }
         }
         lines.push(Line::from(tr(match confirmation {
+            Confirmation::New(command)
+                if command.kind == crate::actions::Kind::RefreshSubscription =>
+            {
+                "tui.confirm_subscription_refresh"
+            }
             Confirmation::New(_) => "tui.confirm_network",
             Confirmation::Retry => "tui.confirm_retry",
             Confirmation::Acknowledge { .. } => "tui.confirm_ack",
@@ -328,8 +336,10 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         })));
         footer.push(Line::from(tr(if app.unknown {
             "tui.unknown_keys"
-        } else {
+        } else if app.confirmation.is_some() || app.running {
             "tui.auth_hint"
+        } else {
+            "tui.subscription_keys"
         })));
     }
     footer.push(Line::from(tr("tui.page_keys")));
