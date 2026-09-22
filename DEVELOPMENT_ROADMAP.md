@@ -110,9 +110,14 @@ Where older wording says Arch/AUR is the only future host,
 
 ### One source of truth
 
-`main` is the only long-lived development source of truth. Runtime/network/
-security/migration changes merge only after their declared exact-head gates.
-Documentation-only changes do not invent a live VPN test.
+`main` is the stable owner-approved release snapshot, including documentation.
+Daily work and roadmap updates live in `dev/*` PRs and named `rc/<version>`
+candidates; issues/PRs carry live status. No automatic docs-only main merges:
+the September 22 decision supersedes the former standing permission. Every
+authorized main update includes the applicable roadmap/docs reconciliation;
+see the [release checklist](docs/roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
+Runtime/network/security/migration changes retain their exact-head gates.
+Documentation-only changes do not invent a live VPN test or permission to publish.
 
 The published marketplace 0.7.0 snapshot remains exact reviewed commit
 `69fe05b03129a23664fff3f8289821a7b7f80095`. Moving `main` is not automatically
