@@ -6,7 +6,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–e (#269/#274/#275/#277/#279),
+- **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
   the release-snapshot workflow (#276), and #270–272 triage docs (#273).
   See the [exact constituent ledger and release checklist](../development/RC_090.md).
   The name is a planning label; package version/assets, installed 0.8.2 and
@@ -15,8 +15,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   targets that stable SHA and awaits external review, not RC verification.
   T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
   live traffic, details, diagnostics and theme presentation; closing the client
-  preserved the tunnel. Subscription refresh, probes and the remaining MVP
-  remain separate work, not implicitly accepted.
+  preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
+  without changing the active profile/mode. Empty-feed/refresh-all/last-success
+  UX, probes and the remaining MVP stay separate work, not implicitly accepted.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including

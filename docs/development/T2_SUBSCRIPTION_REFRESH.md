@@ -40,6 +40,10 @@ inspected in both languages. Live provider refresh is a separate attended gate,
 not inferred from synthetic callback success. Record exact live evidence in the
 candidate PR/RC ledger after execution.
 
+Later same-day result: [attended ARM64 refresh passed](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
+at the recorded exact candidate after a safely stopped mistyped acknowledgement.
+The earlier pending statement is preserved as the original gate boundary.
+
 This slice does not add refresh-all, scheduling, subscription editing, an empty
 subscription selector or persistent last-success presentation. Empty feeds have
 no selectable node and remain managed through the existing plugin. Those

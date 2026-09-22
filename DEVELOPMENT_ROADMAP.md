@@ -3,7 +3,7 @@
 Status: active delivery ledger; stable release updated 2026-09-22.
 
 **Development candidate, not a main update:** the next `rc/0.9.0` includes
-checked T2a–e and reconciled workflow/triage documentation. Its
+checked T2a–f and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
 excluded work. T2 remains incomplete; version tags/assets and installed stable
 0.8.2 are unchanged. Main remains frozen at the submitted marketplace SHA until
