@@ -374,6 +374,11 @@ leaves a connected claim with DNS unconfigured. DNS/security remains a real
 implementation blocker, not a password-entry checkbox. Stable promotion and
 main still require separate owner authorization.
 
+September 25 preparation adds an [offline Rust DNS transaction/framing model](docs/development/DNS_TRANSACTION_FOUNDATION.md)
+and an isolated-kernel TUN-reuse probe without changing the installed runtime.
+This advances DNS-1 conformance, not prompt elimination: core DNS-off integration
+and real managed-link authority remain prerequisites for #270 host acceptance.
+
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
 They adapt observations from the JaguarKovalev legacy fork to the Rust-owned

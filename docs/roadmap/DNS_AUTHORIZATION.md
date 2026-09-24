@@ -190,6 +190,16 @@ select this gated broker direction. #270/RC host closure remains open until the
 unresolved ownership mechanism and applicable acceptance are explicitly resolved.
 No installed policy, prompt elimination or DNS-cancellation fix is claimed here.
 
+September 25 no-authorization preparation: the separate
+[offline Rust transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
+executes the failure/cancellation/readback contract without any production
+dependency or host writer. An isolated unprivileged user+network namespace
+experiment demonstrates same-name/index TUN reuse while the old FD is open;
+the old FD detects detachment but does not make a resolved write atomic.
+The existing core's FD path also retains teardown DNS calls. These concrete
+results narrow DNS-0; they do not close its lease/ownership prerequisites or
+turn DNS-1 preparation into installed prompt-free support.
+
 ## Next-session boundary
 
 Offline work can validate the fixed protocol/failure model and review the core

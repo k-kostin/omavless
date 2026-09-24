@@ -6,6 +6,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **DNS offline preparation, not a host fix:** the
+  [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
+  adds an effect-free failure/cancellation model, strict draft broker requests
+  and isolated TUN-reuse evidence. No runtime dependency, policy, helper service
+  or installed binary changes. #270/#132 stay open; core DNS ownership and
+  secure lease integration remain prerequisites before attended installation.
+
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
   combined tests passed; the common frontend matches both build records. See

@@ -767,6 +767,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "omavless-dns-transaction"
+version = "0.9.0-rc.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "omavless-domain"
 version = "0.9.0-rc.1"
 dependencies = [
