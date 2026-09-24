@@ -355,6 +355,16 @@ Do not close these gates merely by recording a plan. Implement justified fixes
 and retain applicable installed/security evidence. V0 unavailable families remain
 explicitly unvalidated; native harness acceptance does not invent credentials.
 
+September 24 outcomes: #272/#286 and #271/#287 are accepted in RC and their
+issues closed. Native #289 corrects unconfirmed-mode presentation; Python #135
+is closed as superseded, while #132's actual DNS cancellation gate remains open.
+Native #290 adapts V0 and passes the available XHTTP representative with cleanup
+and original Routing restoration; original #30 remains Draft for broader fixture
+coverage. #288 records the gated #270 DNS design, not installed policy or a
+passwordless implementation. These are concrete checkpoints, not blanket RC
+readiness. Versioned packaging and the remaining host/security decision stay
+explicit in the linked RC ledger.
+
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
 They adapt observations from the JaguarKovalev legacy fork to the Rust-owned
@@ -402,8 +412,9 @@ The [2026-09-04 audit](docs/testing/CLOUD_UI_ROADMAP_AUDIT_2026-09-04.md)
 records the earlier hidden-search-filter, control/gutter and modal/focus risks.
 It is a historical audit, not a request to recreate the now accepted UI.
 #238 integrates the corrected native layout and evidence; #240 adds the
-requested subscription server-list refresh without redesign. Keep #135's
-mode-confirmation fix and its acceptance gates separate.
+requested subscription server-list refresh without redesign. Native #289 adds
+confirmed-mode presentation without layout changes. It supersedes old Python
+#135, but does not close #132's asynchronous DNS authorization/rollback gate.
 
 This plugin lane is independent of R5. Exit requires exact-head English/Russian
 review of pointer/keyboard/disabled states, scrolling and constrained-height
@@ -421,7 +432,11 @@ State: **partially live-validated; fixture constrained**.
 - Do not ceremonially rebase solely because unrelated `main` docs/Rust work
   advances. Rebase only when the harness/runtime relationship materially needs
   it or remaining evidence becomes available.
-- V0 continues in parallel with R0-R2.
+- The native successor #290 uses Rust-owned IPC and canonical classification;
+  available XHTTP `stream-one` passed Full VPN/TUN/HTTPS and original-state
+  restoration on September 24. See the [native report](docs/testing/NATIVE_LIVE_PROTOCOL_VALIDATION.md).
+  This is not a relabelled Python PASS or broader protocol maturity. V0 continues
+  alongside independent native development; R0–R6 are already complete.
 
 ### R0 — Rust workspace and differential infrastructure
 
