@@ -44,6 +44,13 @@ These source facts explain a missing completion signal; they do not prove the
 cause of a particular provider/network outage. Current exact-candidate prompt
 and cancellation observations remain separate attended gates.
 
+The [attended RC package test](../testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md)
+now reproduces the completion defect: after explicitly cancelled OS requests,
+the runtime still reports Connected / Full VPN while all three resolved
+properties remain absent. Accepted authorization applies them, but only after
+the connect reply. This is a confirmed #132 defect, not a provider inference or
+a completed #270 fix. Deliberately delayed authorization remains untested.
+
 ### Three distinct waits; no user-speed requirement
 
 The acceptance terminal's pre-action `ready` and post-action `settled` waits

@@ -4,6 +4,11 @@ September 24, RC development only. No installed update, host authorization,
 service/VPN effect, main update, tag, public asset, download pin or marketplace
 change was performed in this unattended preparation.
 
+Subsequent attended work is recorded separately in the
+[installed pair and DNS report](RC_090_DNS_AUTHORIZATION_2026-09-24.md).
+The local ARM64 pair is now installed; the historical preparation-only claims
+below describe this earlier checkpoint, not the final VM state.
+
 ## Source and artifacts
 
 Reviewed source: `5b5ed848e2464d1c4594788a490299dd8d17ee8c` (PR #292).
