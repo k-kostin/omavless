@@ -1,13 +1,18 @@
-# Native 0.8.2 release preparation
+# Native release and RC preparation
 
-Current candidate: **0.8.2**, incorporating #263's Full Quit and UI fixes.
-Its [GitHub prerelease](https://github.com/k-kostin/omavless/releases/tag/v0.8.2)
-is published and [public downloads are verified](../../docs/testing/NATIVE_082_ARTIFACTS_2026-09-21.md#public-prerelease-verification).
-This is not stable or a marketplace update.
+Current development candidate: **0.9.0-rc.1**, unpublished and uninstalled.
+Use the default RC assembler (no `--stable` flag). This is preparation, not RC
+acceptance: DNS/#132 and exact-package installed gates remain open.
+
+Public **0.8.2** is stable and immutable; its
+[release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2) and
+[verified downloads](../../docs/testing/NATIVE_082_ARTIFACTS_2026-09-21.md#public-prerelease-verification)
+are not replaced by this branch. The stable main/marketplace submission stays
+on its separately approved snapshot.
 Earlier public `v0.8.0` and `v0.8.1` prereleases and their assets remain immutable.
 The [0.8.1 artifact record](../../docs/testing/NATIVE_081_ARTIFACTS_2026-09-21.md)
 is historical evidence, not proof of a 0.8.2 build.
-Use explicit `--stable` for this source. This directory does not publish a GitHub
+Use explicit `--stable` only for a stable-version source. This directory does not publish a GitHub
 release/tag, upload an artifact, update marketplace metadata or install software.
 Marketplace changes require the owner present and explicit approval.
 The [fresh-marketplace checkpoint](../../docs/testing/MARKETPLACE_FIRST_RUN_2026-09-15.md)
@@ -81,12 +86,15 @@ Cargo may obtain locked build dependencies if they are not already cached; use
 Then create an empty absolute output directory **outside the checkout**, and run:
 
 ```sh
-python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/prebuilt/omavless FULL_SOURCE_COMMIT_SHA --stable
+python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/prebuilt/omavless FULL_SOURCE_COMMIT_SHA
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. For current `0.8.2`, it invokes the offline Arch packager with `--stable`;
-historical RC sources use the no-flag assembler and `--candidate` packager.
+mode. Current `0.9.0-rc.1` uses the no-flag assembler and `--candidate` packager;
+stable sources require explicit `--stable`. The CI version projection recognizes
+only these two bounded forms and preserves Arch RC ordering; it never promotes
+an RC into stable. Empty RC bootstrap pins block public provisioning, rather
+than falling back to 0.8.2 or inventing unpublished asset hashes.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
 No private/untracked file, backend.py, test, agent skill or legacy uninstall
@@ -95,8 +103,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.8.2-1-ARCH.pkg.tar.zst`;
-- `omavless-0.8.2-frontend.tar.xz`;
+- `omavless-0.9.0rc1-1-ARCH.pkg.tar.zst`;
+- `omavless-0.9.0-rc.1-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
