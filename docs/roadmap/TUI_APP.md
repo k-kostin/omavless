@@ -1,7 +1,7 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: R6 prerequisite satisfied; an opt-in T2a read-only client checkpoint is
-under development, not the packaged T2 MVP. Updated 2026-09-22.
+Status: R6 prerequisite satisfied; opt-in T2 client checkpoints are integrated
+in RC, not the packaged T2 MVP. Updated 2026-09-24.
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
 adds explicit connection/mode confirmations; installed acceptance is a separate
@@ -14,7 +14,7 @@ Implementation/migration authority:
 Runtime/API authority: [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 Host authority: [`PLATFORM.md`](PLATFORM.md).
 
-Current implementation checkpoint, 2026-09-22: R6's native prerequisite is
+Current implementation checkpoint, 2026-09-24: R6's native prerequisite is
 satisfied. Opt-in T2a–f (read-only status, explicit connection/mode controls,
 grouped browsing/favorites, traffic/details/diagnostics, theme following and
 confirmed single-subscription refresh) are integrated in the next
@@ -23,7 +23,7 @@ The remaining MVP below is still a delivery checklist, not a shipped feature
 claim. Historical pre-R6 wording does not reopen accepted migration gates.
 See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
 
-The next read-only checkpoint adds a Subscriptions page from the existing
+The integrated read-only checkpoint #281 adds a Subscriptions page from the existing
 `ui.snapshot`: all subscriptions (including empty ones), saved-profile/missing
 counts and saved-list age. It sends no provider request; `r` reloads local
 metadata only. Zero/missing/future timestamps are unavailable, not successful

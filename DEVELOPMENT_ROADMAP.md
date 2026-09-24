@@ -1148,8 +1148,8 @@ native R6 closure.
 
 ### T2 — Rust + Ratatui TUI MVP
 
-State: **native R6 prerequisite satisfied; opt-in T2a read-only client checkpoint
-under development, full MVP pending**. The [bounded client scope](docs/development/T2_READONLY_CLIENT.md)
+State: **native R6 prerequisite satisfied; opt-in T2 checkpoints integrated in
+rc/0.9.0, full MVP pending**. The [initial bounded client scope](docs/development/T2_READONLY_CLIENT.md)
 adds no mutations, plugin launcher, default package feature or new runtime owner.
 The dependent [T2b candidate](docs/development/T2_CONNECTION_ACTIONS.md) adds
 confirmed connection/mode commands through the existing owner. Both checkpoints
