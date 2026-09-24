@@ -367,8 +367,12 @@ explicit in the linked RC ledger.
 
 The unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) now has both native
 architecture builds and offline artifact/identity checks. Its [package record](docs/testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md)
-separates completed preparation from the remaining attended update/restoration,
-DNS/security decision, stable promotion and owner-authorized main update.
+separates artifact preparation from public release. The local ARM64 package and
+common frontend subsequently passed [attended replacement/restoration](docs/testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md).
+That installed head also reproduced #132: cancelling resolved authorization
+leaves a connected claim with DNS unconfigured. DNS/security remains a real
+implementation blocker, not a password-entry checkbox. Stable promotion and
+main still require separate owner authorization.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
