@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Presentation of validated native metadata. No mutation or lifecycle ownership.
-function project(snapshot, observation, failed) {
+function project(snapshot, observation, failed, pending, outcomeUnknown) {
   var result = {state:"unavailable", connected:false, activeId:"", mode:"rule",
-    profiles:[], subscriptions:[], lastProfileId:""}
+    modeConfirmed:false, profiles:[], subscriptions:[], lastProfileId:""}
   if (!snapshot) return result
   result.profiles = snapshot.profiles.slice(0, 256)
   result.subscriptions = snapshot.subscriptions.slice(0, 64)
@@ -40,6 +40,12 @@ function project(snapshot, observation, failed) {
           || tunnelCores !== 0 || tunnelCount !== 0)) {
     result.state = "unavailable"
   }
+  // Desired mode remains available for an explicit future action, but must not
+  // look applied during a mutation, recovery, stale read or unknown outcome.
+  // Confirmation is local ownership/configuration evidence, NOT DNS/route or
+  // internet verification; disconnected confirmation is a saved preference.
+  result.modeConfirmed = !pending && outcomeUnknown !== true
+    && ((result.state === "connected" && result.connected) || result.state === "disconnected")
   return result
 }
 

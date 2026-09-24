@@ -332,7 +332,7 @@ test('main has immediate equal-width mode actions before traffic and profiles',(
   for(const [id,mode] of [['nativeGlobal','global'],['nativeRule','rule'],['nativeDirect','direct']]) {
     const line=modes.split('\n').find(s=>s.includes('id: '+id+';'));
     assert(line);assert(line.includes('Layout.preferredWidth: 1'));assert(line.includes('focusable: true'));
-    assert(line.includes('foreground: root.nativeView.mode === "'+mode+'" ? Color.accent : root.foreground'));
+    assert(line.includes('foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "'+mode+'" ? Color.accent : root.foreground'));
     assert(line.includes('enabled: vless.nativeCanAct && root.nativeView.mode !== "'+mode+'"'));
     assert(line.includes('onClicked: vless.requestNativeAction("mode", "", "'+mode+'")'));
   }
