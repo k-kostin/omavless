@@ -153,3 +153,35 @@ Harness `151982b` against runtime implementation
 The follow-up captures bounded pre-restoration hints instead of losing the
 failed child's diagnostic context. A new diagnostic attempt is separate evidence,
 not a rewrite of the failed attempt above. RC/V0 completion is not claimed.
+
+## Installed successor acceptance — September 24
+
+Harness `36a96a0eafd8cb72949a754dac42256f9273e233`, unchanged runtime/package
+and binary identity above, Mihomo Meta `v1.19.31 linux arm64` (`with_gvisor`):
+
+| Public case | Native config / Full VPN / TUN | HTTPS through TUN | Unix-only controller / PID-attributed no TCP controller | Cleanup / original restoration | Privacy |
+| --- | --- | --- | --- | --- | --- |
+| VLESS XHTTP `stream-one` | PASS | PASS | PASS | PASS | PASS |
+
+The connect operation took 140 ms excluding human waits. The test verified one
+owned runtime/core/TUN, no auxiliary core, controller responsiveness, TUN counter
+increase, successful fixed HTTPS probe, disconnect and original
+profile/Routing/last-profile restoration. Startup remains Off. Private cases and
+results stayed outside Git as current-user-owned regular 0600 files in a 0700
+directory. Result schema/field projection and absence of private record IDs were
+audited before reporting; no result file or private fixture is committed.
+
+The original failed attempt remains a real `transition_failed_restored` outcome.
+The human clarified that their delay was **before `ready`**, where the harness
+has not yet dispatched the action and imposes no acknowledgement timeout. That
+delay does not explain the failure. Do not blame slow password entry or assert a
+root cause from this successful repeat. Unexpected admission failure remains a
+separate runtime investigation if reproduced; no production workaround was added.
+
+Focused tests: 24 PASS. Full developer suite: 300 tests, two expected skips;
+QML contracts PASS. Exact implementation CI PASS. This accepts the **native
+harness and available representative**, not full experimental-protocol maturity
+or public 0.9.0 readiness. Encryption/PQ, Trojan, Hysteria2, TUIC and a safe
+UDP-restricted network fixture remain unavailable. Original PR #30 remains
+Draft at its historical tested head, with this successor linked rather than
+rewriting its implementation or relabelling old evidence.
