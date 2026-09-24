@@ -365,6 +365,11 @@ passwordless implementation. These are concrete checkpoints, not blanket RC
 readiness. Versioned packaging and the remaining host/security decision stay
 explicit in the linked RC ledger.
 
+The unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) now has both native
+architecture builds and offline artifact/identity checks. Its [package record](docs/testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md)
+separates completed preparation from the remaining attended update/restoration,
+DNS/security decision, stable promotion and owner-authorized main update.
+
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
 They adapt observations from the JaguarKovalev legacy fork to the Rust-owned
