@@ -116,6 +116,12 @@ Public result construction contains only fixed case/protocol/mode enums,
 booleans, bounded codes, package hash and generic probe hostname. It excludes
 profile IDs/names, endpoints, URI, credential hints, provider data, controller
 paths/secrets and raw errors. Unknown exceptions use fixed fallback text.
+On a definitive failed transaction, capture only boolean setup-warning hints
+through the optional `diagnostics.setup` reader before restoring the original
+core (which replaces the latest-child diagnostic capture). Missing/older/malformed
+diagnostics produce `setupHintsAvailable: false`. These hints are not a cause
+diagnosis. `connectMs` excludes human acknowledgement waits and is capped at
+130 seconds; it cannot distinguish OS prompt completion from core readiness.
 Inspect the private result before sharing the redacted matrix. Never commit
 private files or publish raw diagnostic/config/export/preview output.
 
@@ -124,3 +130,26 @@ requires installed live evidence; deterministic tests alone do not close #30.
 Historical accepted XHTTP evidence is neither invalidated nor relabelled as
 new native evidence. Other experimental families remain fixture-blocked until
 real imported fixtures and the required representative coverage exist.
+
+## First installed native attempt — September 24
+
+Harness `151982b` against runtime implementation
+`50c9f35d521822e638b2034333aa94744fc67eb1`, ARM64 package
+`0.0.0.r634.g50c9f35d5218-1`, binary SHA-256
+`f78a6bf503615d08b91ac65fe948c31e8511406716f6f3d730329fd77fa8758c`:
+
+- Private inventory: 23 VLESS XHTTP records; no Encryption/PQ, Trojan,
+  Hysteria2 or TUIC v5 fixture. One representative `stream-one` case.
+- Full VPN connect returned `transition_failed_restored`; HTTPS, TUN-use and
+  PID-attributed TCP checks were **not reached**, not protocol failures.
+- Human confirmed all system authorizations accepted and windows closed.
+- Attended cleanup and original profile/Routing/last-profile restoration passed;
+  one owned core/TUN, zero auxiliary core, no manual recovery. Result privacy
+  allowlist and private file permissions passed. No private result is committed.
+- Classification: native transition/admission failure; precise root cause not
+  captured. Do not infer a provider incompatibility or cancelled password.
+  The prior historical XHTTP PASS remains evidence of its original head only.
+
+The follow-up captures bounded pre-restoration hints instead of losing the
+failed child's diagnostic context. A new diagnostic attempt is separate evidence,
+not a rewrite of the failed attempt above. RC/V0 completion is not claimed.

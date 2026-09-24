@@ -189,7 +189,7 @@ class Native:
             require(hashlib.file_digest(stream,'sha256').hexdigest()==self.binary_hash,'binary_changed')
 
     def read(self, method, params=None):
-        require(method in {'ui.snapshot','runtime.observation','profiles.export','imports.classify','plugin.action'},
+        require(method in {'ui.snapshot','runtime.observation','profiles.export','imports.classify','plugin.action','diagnostics.setup'},
             'method_not_allowed')
         self.check_binary()
         path=self.runtime / 'omavless/control.sock'
@@ -220,6 +220,22 @@ class Native:
 
     def snapshot(self): return self.read('ui.snapshot')['result']
     def observation(self): return self.read('runtime.observation')['result']
+
+    def failure_evidence(self):
+        # Capture the failed child's bounded hints BEFORE restoration replaces
+        # the latest-owned-core reader. Never copy a controller/log payload.
+        try:
+            result=self.read('diagnostics.setup')['result']
+            counts=result.get('counts')
+            require(result.get('schemaVersion')==1 and result.get('availability')=='observed'
+                and isinstance(counts,dict) and all(type(counts.get(k)) is int and 0<=counts[k]<=2**64-1
+                    for k in ('tunSetup','firewallSetup','setupPermission')),'hints_unavailable')
+            return {'setupHintsAvailable':True,
+                'tunSetupWarning':counts['tunSetup']>0,
+                'firewallSetupWarning':counts['firewallSetup']>0,
+                'setupPermissionWarning':counts['setupPermission']>0}
+        except Exception:
+            return {'setupHintsAvailable':False}
 
     def action(self, name, extra=None):
         require(name in {'connect','disconnect','mode'},'action_not_allowed')
@@ -328,7 +344,11 @@ def run_cases(host,cases,authorization):
                 row['xhttpMode']=xhttp
                 host.clean();baseline=gate.tcp_listeners()
                 attempted=True;touched=True
-                authorization.step('connect',lambda:host.action('connect',{'profileId':record,'mode':'global'}))
+                def connect():
+                    started=time.monotonic()
+                    try:return host.action('connect',{'profileId':record,'mode':'global'})
+                    finally:row['connectMs']=min(130000,max(0,round((time.monotonic()-started)*1000)))
+                authorization.step('connect',connect)
                 connect_returned=True
                 row.update(host.evidence(record,authorization,baseline))
                 row['state']='PASS' if row['https'] and row['tunUsedDuringProbe'] else 'FAIL'
@@ -339,6 +359,8 @@ def run_cases(host,cases,authorization):
                     blocked=True
                 if str(error) in {'manual_recovery_required','runtime_changed','daemon_restarting'}:
                     blocked=True
+                if attempted and not blocked and not authorization.blocked:
+                    row.update(host.failure_evidence())
             except auth.AuthorizationUnsettled:
                 blocked=True;row['errorCode']='human_authorization_unsettled'
             except BaseException:

@@ -33,6 +33,7 @@ class Host:
     def snapshot(self):return {'desired':dict(self.desired),'lastProfileId':self.last}
     def settled(self,desired):v0.require(self.desired==desired,'restore_mismatch')
     def clean(self):v0.require(not self.desired['connected'],'manual_recovery_required')
+    def failure_evidence(self):return {'setupHintsAvailable':False}
     def fixture(self,record):
         if self.unavailable:raise v0.Refused('fixture_unavailable')
         return ['vless-xhttp'],'packet-up'
@@ -166,6 +167,16 @@ class Cases(unittest.TestCase):
         source=(Path(__file__).parents[1]/'crates/omavless-control-protocol/src/lib.rs').read_text()
         block=source.split('pub const fn as_str(self)')[1].split('pub const fn message(self)')[0]
         self.assertEqual(v0.PUBLIC_ERRORS,set(v0.re.findall(r'Self::\w+ => "([a-z_]+)"',block)))
+    def test_failed_core_hints_are_boolean_only_and_malformed_safe(self):
+        host=object.__new__(v0.Native)
+        value={'schemaVersion':1,'availability':'observed','counts':{
+            'tunSetup':2,'firewallSetup':0,'setupPermission':1,'private':'private key'},'raw':'private endpoint'}
+        host.read=lambda _:dict(result=value)
+        self.assertEqual(host.failure_evidence(),{'setupHintsAvailable':True,'tunSetupWarning':True,
+            'firewallSetupWarning':False,'setupPermissionWarning':True})
+        for counts in (None,{}, {'tunSetup':True,'firewallSetup':0,'setupPermission':0}):
+            value['counts']=counts
+            self.assertEqual(host.failure_evidence(),{'setupHintsAvailable':False})
     def test_manual_recovery_definitive_error_stops_other_effects(self):
         host=Host();host.connect_failure=v0.Refused('manual_recovery_required')
         result,host,_=self.run_case(host)
