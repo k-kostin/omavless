@@ -21,6 +21,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   empty subscriptions, saved/missing profile counts and saved-list age through
   the existing snapshot. Empty-feed refresh, refresh-all, attempt history,
   probes and the remaining MVP stay separate work, not implicitly accepted.
+  A following TUI-only checkpoint adds a 32-event in-memory session history,
+  without private targets/raw logs, persistence or new runtime methods.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including

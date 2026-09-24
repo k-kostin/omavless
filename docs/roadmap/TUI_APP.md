@@ -32,6 +32,15 @@ bound. Empty-feed refresh, refresh-all and last-attempt/error history remain
 separate mutation/operation work. No installed package or runtime changes.
 See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
 
+The subsequent session-activity client checkpoint keeps up to 32 typed events
+in memory: local observations/read failures, owner-instance changes, confirmed
+command submission and bounded outcomes. Repeated identical polling is deduplicated;
+timestamps are monotonic elapsed time since opening, newest first. No names,
+IDs, endpoints, raw errors or daemon logs enter the history. It survives a stale
+or unavailable runtime within the current window, while the header remains the
+authority for current freshness. Closing the TUI discards history and leaves
+the runtime alone. This is not persistent logging or new daemon event streaming.
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with

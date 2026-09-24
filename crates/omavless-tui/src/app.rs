@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 use crate::{
     actions::{self, Command, Kind, Outcome, Request},
+    activity::{Activity, Event},
     i18n::Locale,
     model::{Actual, Mode, ReadError, Snapshot, Status},
 };
@@ -10,6 +11,7 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    pub activity: Activity,
     pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
     pub traffic_rates: Option<(u64, u64)>,
@@ -49,6 +51,7 @@ pub enum Action {
 impl App {
     pub fn new(locale: Locale) -> Self {
         Self {
+            activity: Activity::default(),
             palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
             traffic_rates: None,
@@ -86,6 +89,29 @@ impl App {
         }
         match result {
             Ok(next) => {
+                if self
+                    .accepted
+                    .as_ref()
+                    .is_some_and(|(id, _)| *id != next.metadata.instance_id)
+                {
+                    self.activity.record(Event::RuntimeChanged, started);
+                }
+                if self
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|old| old.status() != next.status())
+                {
+                    self.activity
+                        .record(Event::Observed(next.status()), started);
+                }
+                if self
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|old| old.metadata.desired.mode != next.metadata.desired.mode)
+                {
+                    self.activity
+                        .record(Event::ModeObserved(next.metadata.desired.mode), started);
+                }
                 self.traffic_rates = self
                     .snapshot
                     .as_ref()
@@ -125,6 +151,9 @@ impl App {
                 }
             }
             Err(error) => {
+                if self.error != Some(error) {
+                    self.activity.record(Event::ReadFailed(error), started);
+                }
                 self.traffic_rates = None;
                 self.snapshot = None;
                 self.sampled_at = None;
@@ -462,6 +491,7 @@ impl App {
                     self.pending = None;
                     self.unknown = false;
                     self.notice = "tui.action_acknowledged";
+                    self.activity.record(Event::Acknowledged, now);
                 } else {
                     self.notice = "tui.action_changed";
                 }
@@ -469,6 +499,12 @@ impl App {
             }
         }
         self.running = true;
+        if self.unknown {
+            self.activity.record(Event::Retried, now);
+        } else if let Some(request) = &self.pending {
+            self.activity
+                .record(Event::Submitted(request.command.kind), now);
+        }
         self.notice = "tui.action_pending";
         self.sampled_at = None;
         self.minimum_sample = Some(now);
@@ -488,6 +524,14 @@ impl App {
         self.sampled_at = None;
         self.minimum_sample = Some(now);
         self.unknown = outcome == Outcome::Unknown;
+        self.activity.record(
+            match outcome {
+                Outcome::Applied => Event::Applied,
+                Outcome::Rejected(_) => Event::Rejected,
+                Outcome::Unknown => Event::Unknown,
+            },
+            now,
+        );
         self.notice = match outcome {
             Outcome::Applied => "tui.action_applied",
             Outcome::Rejected(key) => key,
