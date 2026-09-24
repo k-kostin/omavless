@@ -10,8 +10,19 @@ history. GitHub's actual main/PR state is authoritative for publication.
   does not make 0.9.0 ready. Work through #272, #271, #270, the native disposition
   of #135/#132 and Rust adaptation of #30 before proposing main promotion.
   See [mandatory gates](../development/RC_090.md#additional-mandatory-owner-gates--september-24).
-  The [#272 candidate](../development/PROBE_SEMANTICS.md) corrects actual probe
-  presentation; installed review is separate from deterministic tests.
+  #272/#286 is accepted in RC with installed EN/RU
+  [probe presentation](../development/PROBE_SEMANTICS.md).
+  #271/#287 is accepted in RC with installed bounded
+  [setup diagnostics](../development/SETUP_DIAGNOSTICS.md).
+  Native [mode confirmation](../development/NATIVE_MODE_CONFIRMATION.md), #289,
+  supersedes the now-closed Python PR #135; DNS cancellation issue #132 remains.
+  The native #30 successor [#290](../testing/NATIVE_LIVE_PROTOCOL_VALIDATION.md)
+  passed available XHTTP `stream-one` Full VPN/TUN/HTTPS, private controller and
+  original-state restoration. The original Draft #30 and historical evidence stay
+  unchanged; its body links the native successor. A preceding admission refusal
+  remains unexplained; a delay before `ready` is not its cause.
+  DNS contract #288 remains a gated proposal, not installed/prompt-free behavior.
+  #270/#132 and exact versioned-package host gates are not closed by T2 or V0.
   Missing V0 fixtures remain gaps, not a protocol-maturity promotion.
 
 - **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
