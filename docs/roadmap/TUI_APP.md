@@ -1,7 +1,7 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: R6 prerequisite satisfied; opt-in T2 client checkpoints are integrated
-in RC, not the packaged T2 MVP. Updated 2026-09-24.
+Status: bounded T2 MVP accepted for RC, not a published stable package.
+Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
 adds explicit connection/mode confirmations; installed acceptance is a separate
@@ -17,16 +17,16 @@ Host authority: [`PLATFORM.md`](PLATFORM.md).
 Current implementation checkpoint, 2026-09-24: R6's native prerequisite is
 satisfied. The [T2 MVP completion candidate](../development/T2_MVP.md) now adds
 empty-feed/refresh-all operation UX, selected/all profile checks, count-only
-connections, richer saved profile categories, default TUI builds and Settings
-Open app. Its combined installed/package/launch and live-operation gates are
-still pending; this is not T2-complete or a released package claim. Stable main
+connections, richer saved profile categories, default TUI builds and main-footer
+Open app below Profile actions. Its bounded MVP acceptance is complete;
+release package/pairing and publication remain separate. Stable main
 and immutable 0.8.2 assets/pins remain unchanged.
 
 Earlier opt-in T2a–f (read-only status, explicit connection/mode controls,
 grouped browsing/favorites, traffic/details/diagnostics, theme following and
 confirmed single-subscription refresh) are integrated in the next
 [RC candidate](../development/RC_090.md), not published main/default packages.
-The remaining MVP below is still a delivery checklist, not a shipped feature
+The MVP below defines the accepted development scope, not a shipped 0.9.0
 claim. Historical pre-R6 wording does not reopen accepted migration gates.
 See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
 
@@ -37,7 +37,7 @@ metadata only. Zero/missing/future timestamps are unavailable, not successful
 refresh evidence. EN/RU and wrapped scrolling cover the full 64-subscription
 bound. Empty-feed refresh, refresh-all and session attempt context were separate
 mutation/operation work at this checkpoint; they are implemented in the newer
-candidate above, with their own pending acceptance. No installed package or
+candidate above, with their own recorded acceptance. No installed package or
 runtime changes were implied by the original read-only checkpoint.
 See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
 

@@ -8,7 +8,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 - **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
   the read-only subscription overview (#281), local session activity (#282),
-  session-local language/theme settings (#283),
+  session-local language/theme settings (#283), the accepted T2 MVP (#284),
   the release-snapshot workflow (#276), and #270–272 triage docs (#273).
   See the [exact constituent ledger and release checklist](../development/RC_090.md).
   The name is a planning label; released package version/assets and
@@ -20,14 +20,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
   without changing the active profile/mode. The integrated read-only overview shows
   empty subscriptions, saved/missing profile counts and saved-list age through
-  the existing snapshot. Empty-feed refresh, refresh-all, attempt history,
-  probes and the remaining MVP stay separate work, not implicitly accepted.
+  the existing snapshot. The original read-only scope did not implicitly accept
+  mutations; empty-feed refresh, refresh-all, attempt history and probes now
+  have separate combined evidence in #284.
   The integrated TUI-only checkpoint #282 adds a 32-event in-memory session history,
   without private targets/raw logs, persistence or new runtime methods.
   The integrated session-settings slice #283 adds immediate window-local language/theme
   choices, including offline use; installed package/plugin settings stay unchanged.
 
-- **T2 MVP completion candidate #284:** `dev/t2-mvp-completion` targets RC and
+- **T2 MVP accepted for RC, #284:** `dev/t2-mvp-completion` targets RC and
   implements the remaining operations, selected/all profile HTTPS checks,
   count-only connections, allowlisted details, default package feature and
   main-panel Open app below Profile actions (not Settings).
@@ -39,9 +40,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
   lifecycle, refresh, read-side and close checks passed; connected profile-check
   jobs completed but their observed measurements were negative. The frontend
   follow-up moves Open app to the main footer and fixes first-window launch;
-  launch/focus/close passed without changing the tunnel. Remaining combined
-  gates are explicit in the [candidate contract](../development/T2_MVP.md);
-  do not call T2 complete yet.
+  launch/focus/close passed without changing the tunnel. The final combined pass
+  confirmed cross-client stale-command rejection, cancellation, same-client
+  runtime restart, original connection restoration and a positive profile HTTPS
+  measurement with the main tunnel disconnected. Private Unix-only controller
+  and PID-attributed absence of a TCP controller passed. EN/RU rendering and
+  both-architecture package CI passed on implementation head
+  `4e9960f1badf13f4426a4f49a4a7447d604d48f0`.
+  See [combined acceptance and limits](../testing/T2_MVP_2026-09-24.md).
+  **The bounded T2 MVP is complete as a development checkpoint**, not published
+  0.9.0; AUTO-1, DNS/provider follow-ups and other host/protocol gates stay separate.
   This replaces only the VM's test installation, not any public 0.8.2 artifact,
   stable-main snapshot or marketplace submission.
 
@@ -55,20 +63,20 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [release checklist](DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
   This policy candidate does not itself update main or the marketplace request.
 
-- **T2c browsing candidate:** the dependent `dev/t2-grouped-browsing` branch
+- **Historical constituent T2c:** the dependent `dev/t2-grouped-browsing` branch
   adds subscription grouping, local favorites filtering and subscription-name
   search. Local suites, EN/RU terminal review and no-effect installed-runtime
   checks passed; no default package or main update. See
   [scope and evidence](../development/T2_GROUPED_BROWSING.md).
 
-- **T2b action candidate:** `dev/t2-connection-actions` adds confirmed
+- **Historical constituent T2b:** `dev/t2-connection-actions` adds confirmed
   Connect/Disconnect/mode requests through the existing runtime, retaining exact
   requests on unknown outcomes. It depends on the T2a branch; neither is a main
   update or packaged MVP. Local automated/EN-RU rendering and attended ARM64
   connection/mode gates passed on the [recorded candidate](../testing/T2_CONNECTION_ACTIONS_2026-09-22.md).
   See [scope and gates](../development/T2_CONNECTION_ACTIONS.md).
 
-- **T2a development checkpoint:** `dev/t2-readonly-client` adds an opt-in
+- **Historical constituent T2a:** `dev/t2-readonly-client` adds an opt-in
   read-only terminal client using the existing Rust runtime. Main/installed
   0.8.2 remain unchanged while marketplace review targets the submitted SHA.
   Status, profile/source browsing, name search and safe close are this slice;
@@ -286,8 +294,9 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Continue the remaining T2 client scope on the existing Rust owner; preserve
-   completed checkpoints and accompanying docs in the named RC. Preserve accepted UI unless the task
+4. Prepare the 0.9.0 RC release/package/pairing checks from the accepted T2
+   checkpoint, reconciling constituent PRs and docs before any main proposal.
+   Do not silently bump/publish packages or main. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
 Additional triage backlog: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)

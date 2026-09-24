@@ -1,9 +1,9 @@
 # T2 MVP completion candidate
 
-Status: development candidate on `dev/t2-mvp-completion`, based on the accepted
-checkpoints in [rc/0.9.0](RC_090.md). This is not a main update, release, or a
-completed installed-acceptance claim. Record the final tested source, package,
-frontend and remaining gates in the owning PR before marking T2 complete.
+Status: bounded T2 MVP accepted for [rc/0.9.0](RC_090.md), not a main update or
+release. The [combined installed acceptance](../testing/T2_MVP_2026-09-24.md)
+records exact runtime/frontend identities, observed results and remaining
+independent host/release gates. Final integration head/CI belong in PR #284.
 
 ## Product boundary
 
@@ -161,7 +161,7 @@ and exact CI head belong in the PR, without a diary of individual prompts.
 Deterministic tests cover client target/revision fences, missing capabilities,
 job start/poll/cancel/unknown results, probe bounds/privacy and count-only
 controller projection. They do not substitute for the following combined
-installed gates (the progress below is not blanket completion):
+installed gates (the final evidence is linked above):
 
 1. Exact candidate package/frontend identity, feature discovery and Open app
    launch/focus, including old-package unavailable and daemon-down behavior.
@@ -197,10 +197,13 @@ store or VPN is used by that test. Focused UI tests cover footer placement,
 Tab order, unavailable packages and panel-height accounting. Temporary local
 inspection hooks are not shipped.
 
-Still reconcile the final exact-head UI matrix, live cancellation/conflicting
-requests and restart/stale-client evidence with the unchanged earlier slices
-before declaring T2 complete. Positive probe evidence remains distinct from
-the connected-network negative measurements and DNS/provider follow-ups.
+The final combined pass additionally confirmed stale cross-client command
+rejection, cancellation during resolution, same-client runtime restart,
+restoration and a positive disconnected-state HTTPS profile measurement.
+The EN/RU visual matrix and exact-head CI passed. Positive probe evidence remains
+distinct from the connected-network negative measurements and DNS/provider
+follow-ups; see the acceptance report for precise bounds rather than treating
+every completed job as a successful connection test.
 
 Preserve earlier accepted checkpoint evidence where unchanged. T2 completion
 does not close AUTO-1, DNS/provider follow-ups, V0 or NixOS host acceptance, and
