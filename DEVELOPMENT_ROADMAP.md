@@ -1165,6 +1165,17 @@ logs or persistence; current health stays separate from historical events.
 Session Settings adds in-window language/theme overrides and reset, with no
 runtime mutations or persistence. Startup/environment defaults remain intact.
 
+[PR #284](https://github.com/k-kostin/omavless/pull/284), targeting RC rather
+than main, implements the remaining [MVP operations and package boundary](docs/development/T2_MVP.md):
+selected/all profile checks, direct empty-feed and batch refresh, attempt state,
+allowlisted profile categories, active-connection count, default TUI packaging
+and Open app. Exact source `02a5a13b807aab8d984f37cc49e20eab71374942`
+passed 1,098 Rust tests (11 ignored), both package CI architectures and the
+attended ARM64 package update with matching frontend. Combined installed
+connection/job/launch acceptance is still pending; this is **not T2 closure**
+or permission to update main. The VM now uses a local developer package;
+published 0.8.2 packages and release metadata remain unchanged.
+
 The first full application UI is Rust + Ratatui, using a reviewed terminal
 backend such as Crossterm. It is a client of the already accepted Rust runtime;
 it does not call Python or start Mihomo directly.

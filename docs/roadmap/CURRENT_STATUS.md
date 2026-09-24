@@ -11,7 +11,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   session-local language/theme settings (#283),
   the release-snapshot workflow (#276), and #270–272 triage docs (#273).
   See the [exact constituent ledger and release checklist](../development/RC_090.md).
-  The name is a planning label; package version/assets, installed 0.8.2 and
+  The name is a planning label; released package version/assets and
   stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
   Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
   targets that stable SHA and awaits external review, not RC verification.
@@ -26,6 +26,19 @@ history. GitHub's actual main/PR state is authoritative for publication.
   without private targets/raw logs, persistence or new runtime methods.
   The integrated session-settings slice #283 adds immediate window-local language/theme
   choices, including offline use; installed package/plugin settings stay unchanged.
+
+- **T2 MVP completion candidate #284:** `dev/t2-mvp-completion` targets RC and
+  implements the remaining operations, selected/all profile HTTPS checks,
+  count-only connections, allowlisted details, default package feature and
+  Settings Open app. Source `02a5a13b807aab8d984f37cc49e20eab71374942`
+  passed 1,098 Rust tests / 11 ignored, developer/QML gates and test/x86_64/ARM64
+  CI. The exact ARM64 developer package and matching frontend are installed in
+  Try Omarchy; private data, disabled service enablement and startup Off were
+  preserved. Stable restoration artifacts are retained outside Git. Combined
+  installed lifecycle/jobs/launch acceptance remains pending; do not call T2
+  complete. See the [candidate contract](../development/T2_MVP.md).
+  This replaces only the VM's test installation, not any public 0.8.2 artifact,
+  stable-main snapshot or marketplace submission.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including

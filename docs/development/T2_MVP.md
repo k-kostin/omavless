@@ -135,6 +135,22 @@ login behavior for the test.
 
 ## Completion gates
 
+Candidate source: `02a5a13b807aab8d984f37cc49e20eab71374942`, [PR #284](https://github.com/k-kostin/omavless/pull/284).
+Local gates passed: 1,098 Rust tests / 11 ignored, strict workspace/all-target
+clippy, formatting, developer suite 276 tests / 2 skips, QML contracts, ten PTY
+cases, 183 EN/RU keys, plugin/manifest/shell/docs checks and a headless-feature
+build. Source test and both architecture package CI jobs passed.
+
+The attended ARM64 package switch passed using developer version
+`0.0.0.r626.g02a5a13b807a-1`. Installed/running binary SHA-256:
+`7b95a4131e892c808efb571015622b2ac74adf1453c1e10731149a18887527f7`.
+Private store bytes, existing disabled service enablement and startup Off were
+preserved. Matching frontend runtime files were compared byte-for-byte, and
+the plugin is enabled. The previous stable package/frontend are retained
+locally for an explicit attended restoration; no automatic rollback occurs.
+Installation alone does not establish the combined gates below. Final results
+and exact CI head belong in the PR, without a diary of individual prompts.
+
 Deterministic tests cover client target/revision fences, missing capabilities,
 job start/poll/cancel/unknown results, probe bounds/privacy and count-only
 controller projection. They do not substitute for the following combined
