@@ -713,6 +713,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<Value, NativeOwnerError> {
         crate::runtime_observation::validate(request)?;
         self.with_owned_read(|owner| {
+            if request["method"] == "diagnostics.setup" {
+                return Ok(crate::core_diagnostics::CoreDiagnostics::setup_projection(
+                    owner.host_mut().core_diagnostics(),
+                ));
+            }
             let desired = crate::desired::read_desired_snapshot(
                 owner.transaction.desired_paths(),
                 owner.transaction.uid(),
@@ -760,6 +765,33 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             Ok(crate::traffic::project(sample))
+        })
+    }
+
+    pub(crate) fn connections(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::connections_summary::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let count = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_count(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connections_summary::project(count))
         })
     }
 
@@ -3038,6 +3070,56 @@ mod tests {
             reachable: true,
             latency_ms: 12,
         }]
+    }
+
+    #[test]
+    fn profile_probe_owner_selects_exact_single_or_all_sources_without_store_effects() {
+        for selected in [None, Some(PROFILE), Some(SUBSCRIPTION_PROFILE)] {
+            let (root, path, mut owner) = probe_owner_fixture("profile-probe-owner");
+            let before = fs::read(&path).unwrap();
+            let revision = owner.revision();
+            let mut request = batch_request("profiles.probe", "profiles");
+            request["params"]["expectedRevision"] = json!(revision);
+            if let Some(id) = selected {
+                request["params"]["profileId"] = json!(id);
+            }
+            let job = owner.start_subscription_probe(&request).unwrap().unwrap();
+            let ids: Vec<_> = job.profiles().iter().map(|p| p.0.as_str()).collect();
+            if let Some(id) = selected {
+                assert_eq!(ids, vec![id]);
+            } else {
+                assert_eq!(ids, vec![PROFILE, SUBSCRIPTION_PROFILE]);
+            }
+            let rows = vec![probe_rows()[0]; ids.len()];
+            owner.complete_subscription_probe(job, Ok(rows)).unwrap();
+            assert_eq!(owner.revision(), revision);
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(owner.start_subscription_probe(&request).unwrap().is_none());
+            let result = owner
+                .subscription_probe_results(&batch_request("profiles.probe_results", "profiles"))
+                .unwrap();
+            assert_eq!(result["profileId"], json!(selected));
+            assert_eq!(
+                result["results"].as_array().unwrap().len(),
+                if selected.is_some() { 1 } else { 2 }
+            );
+            let mut changed = request;
+            changed["params"]["profileId"] = json!(if selected == Some(PROFILE) {
+                SUBSCRIPTION_PROFILE
+            } else {
+                PROFILE
+            });
+            assert!(owner.start_subscription_probe(&changed).is_err());
+            assert!(
+                owner
+                    .subscription_probe_results(&batch_request(
+                        "subscriptions.probe_results",
+                        "profiles"
+                    ))
+                    .is_err()
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

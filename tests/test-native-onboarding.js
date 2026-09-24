@@ -152,8 +152,10 @@ test('first-use wizard has its own bounded height rather than the empty inventor
  for(const visible of [false,true]) {
   const c=vm.createContext({panel:{fittedContentHeight:(h,max)=>Math.min(h,max)},
    Style:{space:n=>n},onboardingWizard:{visible},root:{page:'main'},vless:{nativeOwner:true},
-   nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false}});
+   nativeColumn:{implicitHeight:280},nativeProfileActions:{visible:false},nativeAppFooter:{visible:false}});
   assert.equal(vm.runInContext(expression,c),visible?600:280);
+  c.nativeProfileActions={visible:true,height:70};c.nativeAppFooter={visible:true,height:36};
+  assert.equal(vm.runInContext(expression,c),visible?600:410);
  }
 });
 test('wizard buttons share native keyboard activation without changing callbacks',()=>{

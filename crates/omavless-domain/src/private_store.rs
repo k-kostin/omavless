@@ -1103,6 +1103,28 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
 }
 
 impl PrivateStore {
+    /// Canonical private profile probe snapshot. Missing records are never
+    /// executed, and selecting a removed/missing ID cannot fall back to all.
+    pub fn into_profile_probe_profiles(
+        self,
+        profile_id: Option<&str>,
+    ) -> Result<Vec<(String, omavless_profile::canonical::CanonicalProfile)>, PrivateStoreError>
+    {
+        if profile_id.is_some_and(|id| {
+            !self
+                .profiles
+                .iter()
+                .any(|item| item.id == id && !item.missing)
+        }) {
+            return Err(PrivateStoreError::ProfileNotFound);
+        }
+        Ok(self
+            .profiles
+            .into_iter()
+            .filter(|item| !item.missing && profile_id.is_none_or(|id| item.id == id))
+            .map(|item| (item.id, item.canonical))
+            .collect())
+    }
     /// Move only current members of an existing subscription into a private
     /// worker snapshot. No display names, URLs or missing records are released.
     pub fn into_subscription_probe_profiles(
@@ -2360,6 +2382,41 @@ mod tests {
                 .into_subscription_probe_profiles(SUBSCRIPTION_ID)
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn profile_probe_snapshot_selects_one_all_and_never_missing_fallback() {
+        let input = store(PRIVATE_URI, "vless");
+        for selected in [None, Some(PROFILE_ID)] {
+            let profiles = parse_private_store(&input)
+                .unwrap()
+                .into_profile_probe_profiles(selected)
+                .unwrap();
+            assert_eq!(profiles.len(), 1);
+            assert_eq!(profiles[0].0, PROFILE_ID);
+        }
+        assert!(
+            parse_private_store(&input)
+                .unwrap()
+                .into_profile_probe_profiles(Some("00000000-0000-0000-0000-000000000002"))
+                .is_err()
+        );
+        let mut missing: Value = serde_json::from_str(&input).unwrap();
+        missing["profiles"][0]["missing"] = json!(true);
+        let input = missing.to_string();
+        assert!(
+            parse_private_store(&input)
+                .unwrap()
+                .into_profile_probe_profiles(None)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            parse_private_store(&input)
+                .unwrap()
+                .into_profile_probe_profiles(Some(PROFILE_ID))
+                .is_err()
         );
     }
 

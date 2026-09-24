@@ -7,11 +7,12 @@ members = [
   "crates/omavless-profile",
   "crates/omavless-runtime",
   "crates/omavless-store",
+  "crates/omavless-tui",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.8.2"
+version = "0.9.0-rc.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"

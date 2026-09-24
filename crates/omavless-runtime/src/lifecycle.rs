@@ -102,6 +102,9 @@ pub trait LifecycleHost {
     ) -> Result<crate::traffic::TrafficCounters, HostStepError> {
         Err(HostStepError::Observation)
     }
+    fn active_connection_count(&mut self, _desired: &DesiredState) -> Result<u32, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.
     /// Existing hosts remain unsupported until they explicitly implement it.
     fn fresh_observation(

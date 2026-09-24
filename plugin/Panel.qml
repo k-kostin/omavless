@@ -170,7 +170,7 @@ Panel {
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
   property var nativeExpanded: ({})
-  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed)
+  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed, vless.nativePending, vless.nativeOutcomeUnknown)
   readonly property var nativeActiveProfile: NativePresentation.activeProfile(nativeView)
   readonly property var nativeActionProfile: nativeView.profiles.find(function(p) { return p.id === root.nativeSelectedProfile }) || null
   readonly property bool nativeSelectionConnectable: nativeView.profiles.some(function(p) { return p.id === (root.nativeSelectedProfile || nativeView.lastProfileId) && !p.missing })
@@ -218,8 +218,8 @@ Panel {
   function nativeProbeLabel(profileId) {
     var result = vless.probeResult(profileId)
     if (result === null) return ""
-    return result.reachable ? textFor("native.ping.milliseconds", {ms:result.latencyMs})
-      : textFor(result.resolved ? "routing.source.unavailable" : "native.probe.dns_failed")
+    return result.reachable ? textFor("native.probe.https_delay", {ms:result.latencyMs})
+      : textFor(result.resolved ? "native.probe.https_failed" : "native.probe.dns_failed")
   }
 
   function sortNativeProbeResults() {
@@ -713,6 +713,7 @@ Panel {
       if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
+      if (page === "main") targets = targets.concat([nativeOpenAppButton, nativeAppRefresh])
       return targets
     }
     if (page === "subscriptions") return [
@@ -1759,7 +1760,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -2067,9 +2068,9 @@ Panel {
             visible: root.page === "main" || root.page === "settings"
             Layout.fillWidth: true
             spacing: Style.space(6)
-            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.mode === "global" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
-            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.mode === "rule" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
-            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
+            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "global" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
+            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "rule" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
+            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.modeHelp"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow {
@@ -2308,12 +2309,13 @@ Panel {
             visible: root.page === "subscription" && root.nativeSubscription !== null
             Layout.fillWidth: true
             spacing: Style.space(8)
-            Button { id: nativeSubscriptionTest; text: root.textFor("action.test"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && !vless.nativeBatchRequestRunning && root.nativeSubscription !== null && root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && !p.missing }); onClicked: vless.startNativeBatch("probe", root.nativeSubscriptionId) }
-            Button { id: nativeSubscriptionSort; text: root.textFor("profiles.sort_ping") + (root.subscriptionSortMode(root.nativeSubscriptionId) === "pingDesc" ? " ↓" : " ↑"); focusable: true; bordered: true; enabled: root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && vless.probeResult(p.id) !== null }); onClicked: root.sortNativeProbeResults() }
+            Button { id: nativeSubscriptionTest; text: root.textFor("native.probe.test"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && !vless.nativeBatchRequestRunning && root.nativeSubscription !== null && root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && !p.missing }); onClicked: vless.startNativeBatch("probe", root.nativeSubscriptionId) }
+            Button { id: nativeSubscriptionSort; text: root.textFor("native.probe.sort") + (root.subscriptionSortMode(root.nativeSubscriptionId) === "pingDesc" ? " ↓" : " ↑"); focusable: true; bordered: true; enabled: root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && vless.probeResult(p.id) !== null }); onClicked: root.sortNativeProbeResults() }
             Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", root.nativeSubscriptionId, "", "") }
             Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(root.nativeSubscription) }
             Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: root.requestNativeSubscriptionDelete(root.nativeSubscription) }
           }
+          PlainText { Layout.fillWidth: true; visible: root.page === "subscription" && root.nativeSubscription !== null; text: root.textFor("native.probe.scope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           RowLayout {
             visible: root.page === "main"
             Layout.fillWidth: true
@@ -2482,7 +2484,8 @@ Panel {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.rightMargin: root.scrollGutter
-        anchors.bottom: parent.bottom
+        anchors.bottom: nativeAppFooter.visible ? nativeAppFooter.top : parent.bottom
+        anchors.bottomMargin: nativeAppFooter.visible ? Style.space(12) : 0
         height: nativeProfileActionsContent.implicitHeight + Style.space(20)
         color: "transparent"
         radius: 0
@@ -2515,6 +2518,55 @@ Panel {
             Item { Layout.fillWidth: true }
             OmaNavigationButton { id: rowDelete; iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: nativeProfileActions.canAct && !nativeProfileActions.record.managed; onClicked: root.requestDelete(nativeProfileActions.record) }
           }
+        }
+      }
+
+      // Global navigation, not an action on the selected profile. Keep it
+      // below the fixed management dock and outside profile-list scrolling.
+      ColumnLayout {
+        id: nativeAppFooter
+        visible: !root.bootstrapRequired && vless.nativeOwner && root.page === "main"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.rightMargin: root.scrollGutter
+        anchors.bottom: parent.bottom
+        spacing: Style.space(6)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+          Button {
+            id: nativeOpenAppButton
+            Layout.fillWidth: true
+            text: root.textFor("native.app.open")
+            tooltipText: root.textFor("native.app.scope")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: { if (vless.openNativeApp()) root.close() }
+          }
+          Button {
+            id: nativeAppRefresh
+            visible: !vless.nativeAppAvailable && !vless.nativeAppChecking
+            text: root.textFor("common.refresh")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: vless.refreshNativeAppAvailability()
+          }
+        }
+        PlainText {
+          Layout.fillWidth: true
+          visible: vless.nativeAppLaunchFailed || !vless.nativeAppAvailable
+          text: root.textFor(vless.nativeAppLaunchFailed ? "native.app.failed"
+            : vless.nativeAppChecking ? "common.loading" : "native.app.unavailable")
+          color: vless.nativeAppLaunchFailed ? root.urgent : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
       }
 

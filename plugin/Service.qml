@@ -944,6 +944,7 @@ Item {
   property int statusFailureCount: 0
   property bool panelVisible: false
   onPanelVisibleChanged: {
+    if (panelVisible) refreshNativeAppAvailability()
     if (!panelVisible) {
       clearNativeTest()
       _nativeDesktopGeneration++
@@ -1357,7 +1358,12 @@ Item {
   function finishNativePing(context, code, output) {
     if (!nativePingCurrent(context)) return
     var result = code === 0 ? NativeSnapshot.parsePing(output, context) : null
-    if (!result || !result.available) { nativePingStatus = "unavailable"; return }
+    if (!result || !result.available) {
+      // Unavailable is not packet loss; do not revive an older successful
+      // window while the next request is pending.
+      nativePingSamples = []; _nativePingReceivedAt = 0
+      nativePingStatus = "unavailable"; return
+    }
     var next = nativePingSamples.slice()
     next.push(result.value)
     while (next.length > 10) next.shift()
@@ -2977,6 +2983,75 @@ Item {
   }
 
   property string nativeSupportStatus: ""
+  // The packaged client advertises its own feature without touching the daemon.
+  // Old runtime packages must not gain a non-working Open app action merely
+  // because this frontend was updated. Closing this client never stops VPN.
+  property bool nativeAppAvailable: false
+  property bool nativeAppChecking: false
+  property bool nativeAppOpening: false
+  property bool nativeAppLaunchFailed: false
+
+  function refreshNativeAppAvailability() {
+    if (!panelVisible || nativeAppChecking) return false
+    nativeAppAvailable = false
+    nativeAppChecking = true
+    nativeAppCheck.timedOut = false
+    nativeAppCheck.running = true
+    return true
+  }
+
+  function finishNativeAppAvailability(code, output) {
+    nativeAppChecking = false
+    nativeAppAvailable = code === 0 && typeof output === "string"
+      && output.length <= 64 && output.trim() === "omavless.tui.v1"
+    return nativeAppAvailable
+  }
+
+  function openNativeApp() {
+    if (!panelVisible || !nativeAppAvailable || nativeAppChecking || nativeAppOpening) return false
+    nativeAppOpening = true
+    nativeAppLaunchFailed = false
+    nativeAppLauncher.timedOut = false
+    nativeAppLauncher.running = true
+    return true
+  }
+
+  Process {
+    id: nativeAppCheck
+    command: ["omavless", "tui", "--available"]
+    property bool timedOut: false
+    stdout: StdioCollector { id: nativeAppCheckOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    property Timer timeout: Timer { interval: 3000; running: root.nativeAppChecking; onTriggered: { nativeAppCheck.timedOut = true; nativeAppCheck.running = false; root.finishNativeAppAvailability(-1, "") } }
+    onExited: function(code) { root.finishNativeAppAvailability(timedOut ? -1 : code, nativeAppCheckOutput.text) }
+  }
+
+  Process {
+    id: nativeAppLauncher
+    property bool timedOut: false
+    // The adapter detaches its terminal before returning. Do not let that
+    // terminal inherit Process pipes, which close when the adapter exits.
+    // This command is entirely literal: never interpolate private/user data.
+    command: ["bash", "-c", "exec omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui </dev/null >/dev/null 2>&1"]
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    property Timer timeout: Timer {
+      interval: 20000
+      running: root.nativeAppOpening && !nativeAppLaunchCooldown.running
+      onTriggered: {
+        nativeAppLauncher.timedOut = true
+        nativeAppLauncher.running = false
+        root.nativeAppLaunchFailed = true
+        nativeAppLaunchCooldown.restart()
+      }
+    }
+    onExited: function(code) {
+      root.nativeAppLaunchFailed = timedOut || code !== 0
+      nativeAppLaunchCooldown.restart()
+    }
+  }
+  Timer { id: nativeAppLaunchCooldown; interval: 1500; onTriggered: root.nativeAppOpening = false }
+
   property var nativeDesktopCapabilities: null
   property bool nativeDesktopLoading: false
   property int _nativeDesktopGeneration: 0

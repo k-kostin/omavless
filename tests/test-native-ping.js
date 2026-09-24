@@ -49,7 +49,8 @@ test('only observed reply/loss enters history, bounded to ten',()=>{
  const c=context();for(let n=0;n<12;n++)c.finishNativePing(fence,0,frame('reply',n));
  assert.equal(c.nativePingSamples.length,10);assert.equal(c.nativePingSamples[0],2);
  c.finishNativePing(fence,0,frame('loss',null));assert.equal(c.nativePingSamples.at(-1),-1);
- c.finishNativePing(fence,0,frame('unavailable'));assert.equal(c.nativePingSamples.length,10);assert.equal(c.nativePingStatus,'unavailable');
+ c.finishNativePing(fence,0,frame('unavailable'));assert.equal(c.nativePingSamples.length,0);assert.equal(c.nativePingStatus,'unavailable');
+ assert.equal(c._nativePingReceivedAt,0);c.sampleNativePing();assert.equal(c.nativePingStatus,'loading');
  c.finishNativePing(fence,1,'private raw error');assert.equal(c.nativePingStatus,'unavailable');
 });
 test('one fixed request, target never placed in argv',()=>{

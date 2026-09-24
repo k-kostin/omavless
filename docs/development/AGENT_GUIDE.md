@@ -184,7 +184,8 @@ the change.
 
 ## Git discipline
 
-- `main` is the only long-lived development source of truth.
+- `main` is the only long-lived release source of truth: a stable snapshot,
+  including documentation, not the daily development integration branch.
 - `archive/python-legacy` is a frozen historical snapshot at
   `aa5873783c019edc303a732e55ea8c85f1f0b090`, not another development line.
   Preserve it during branch cleanup; never merge new work into it or use it as
@@ -204,10 +205,13 @@ the change.
 - Push the first meaningful checkpoint and open a Draft PR early enough to make
   active scope visible. Do not create empty commits or ceremonial PRs merely to
   reserve a name.
-- Complete agreed documentation-only updates through `main` after their checks,
-  under the owner's [standing documentation merge authorization](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
-  A temporary branch/PR is a review step, not a separate home for the roadmap;
-  do not leave finished agreed documentation in Draft awaiting redundant approval.
+- Prepare agreed documentation-only updates in reviewed `dev/docs/*` PRs;
+  readiness is not authorization to update `main`. The former automatic docs
+  merge permission is revoked by the [2026-09-22 workflow decision](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
+  Current issues/PRs carry ongoing status; a named RC carries the next roadmap
+  revision. Before an owner-authorized main update, reconcile and include all
+  applicable roadmap, current-status, feature-contract and agent-rule changes.
+  Do not leave accepted decisions stranded in a branch after publishing code.
 - Fetch again before rebasing, force-pushing, retargeting or merging. If the
   remote head changed unexpectedly, stop and reconcile its commits before
   writing. Use `--force-with-lease` only against the exact observed remote head;
@@ -215,9 +219,14 @@ the change.
 - Preserve useful work on GitHub before ending an ephemeral/local VM session.
   Never leave the only copy of a useful commit or test report inside Try
   Omarchy.
-- After a PR merges or is conclusively superseded, delete its source branch and
-  prune remote-tracking refs. Keep branches for open evidence PRs, including a
-  long-lived Draft such as V0, until that PR is resolved.
+- After inclusion in an authorized main update, delete the source branch and
+  prune remote-tracking refs. An RC-only merge or closure of a duplicate source
+  PR does not by itself authorize deleting the independently reviewable evidence
+  branch: classify it as intentionally retained until main inclusion/cleanup.
+  Other conclusively superseded branches follow the canonical
+  [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle).
+  Keep branches for open evidence PRs, including a long-lived Draft such as V0,
+  until that PR is resolved.
 - Before deleting an unmerged branch with no active PR, inspect its unique
   commits and diff. Delete it only when the work is merged, explicitly closed,
   reproducibly superseded, or disposable automation with no unique durable

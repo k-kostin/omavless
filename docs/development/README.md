@@ -7,6 +7,13 @@ small discoverable instruction entry point. It requires the complete
 historical continuity notes. These instructions travel with the code on every
 branch; they are not hidden only in a permanent develop/rc branch.
 
+Main's documentation belongs to its stable release snapshot. Current issues
+and PRs carry day-to-day status; checked `dev/docs/*` changes join the next named
+RC. Before any owner-authorized main update, apply the mandatory
+[release reconciliation checklist](../roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist)
+so roadmap, contracts, evidence and agent guidance are not left behind. Even
+documentation-only main updates require explicit owner authorization.
+
 ## Canonical map — retain useful work
 
 - [Delivery ledger](../../DEVELOPMENT_ROADMAP.md) and
@@ -64,6 +71,10 @@ remain outside Git. Preserve attribution and useful limitations during editing.
 Do not purge existing reports to meet a file-count target. Separate current
 navigation from historical evidence with indexes. If later archival is useful,
 preserve content and provenance and explicitly update discovery links.
+
+Record final verified outcomes, substantive failures, decisions and remaining
+limits—not every typo, cancelled prompt or routine retry. Keep such transient
+details only when they explain a real defect, security concern or evidence gap.
 
 ## Local cleanup safety
 

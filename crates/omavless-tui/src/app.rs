@@ -1,0 +1,780 @@
+// SPDX-License-Identifier: MIT
+use crate::{
+    actions::{self, Command, Kind, Outcome, Request},
+    activity::{Activity, Event},
+    i18n::Locale,
+    model::{Actual, Mode, ReadError, Snapshot, Status},
+};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use std::time::{Duration, Instant};
+
+pub const FRESH_FOR: Duration = Duration::from_secs(6);
+
+pub struct App {
+    pub jobs_enabled: bool,
+    pub job: Option<crate::job_ui::Session>,
+    pub settings: crate::settings::Settings,
+    pub activity: Activity,
+    pub palette: crate::theme::Palette,
+    pub page: crate::inspection::Page,
+    pub traffic_rates: Option<(u64, u64)>,
+    pub inspection_scroll: u16,
+    pub snapshot: Option<Snapshot>,
+    pub sampled_at: Option<Instant>,
+    pub error: Option<ReadError>,
+    pub selected: Option<String>,
+    pub selected_subscription: Option<String>,
+    pub subscription_selection_moved: bool,
+    /// Latest attempt per subscription in this window, not persisted/provider history.
+    pub subscription_attempts: std::collections::BTreeMap<String, &'static str>,
+    pub query: String,
+    pub favorites_only: bool,
+    pub searching: bool,
+    pub help: bool,
+    pub locale: Locale,
+    accepted: Option<(String, u64)>,
+    pub actions_enabled: bool,
+    pub viewport_ready: bool,
+    pub confirmation: Option<Confirmation>,
+    pub pending: Option<Request>,
+    pub running: bool,
+    pub unknown: bool,
+    pub notice: &'static str,
+    minimum_sample: Option<Instant>,
+}
+pub enum Confirmation {
+    Job(crate::job_ui::Intent),
+    CancelJob,
+    New(Command),
+    Retry,
+    Acknowledge { instance: String, revision: u64 },
+}
+#[derive(PartialEq, Eq, Debug)]
+pub enum Action {
+    StartJob,
+    PollJob,
+    CancelJob,
+    None,
+    Refresh,
+    Close,
+    Submit,
+}
+
+impl App {
+    pub fn new(locale: Locale) -> Self {
+        Self {
+            jobs_enabled: false,
+            job: None,
+            settings: crate::settings::Settings::new(locale),
+            activity: Activity::default(),
+            palette: crate::theme::Palette::default(),
+            page: crate::inspection::Page::Profiles,
+            traffic_rates: None,
+            inspection_scroll: 0,
+            snapshot: None,
+            sampled_at: None,
+            error: None,
+            selected: None,
+            selected_subscription: None,
+            subscription_selection_moved: false,
+            subscription_attempts: std::collections::BTreeMap::new(),
+            query: String::new(),
+            favorites_only: false,
+            searching: false,
+            help: false,
+            locale,
+            accepted: None,
+            actions_enabled: false,
+            viewport_ready: true,
+            confirmation: None,
+            pending: None,
+            running: false,
+            unknown: false,
+            notice: "",
+            minimum_sample: None,
+        }
+    }
+    pub fn accept(&mut self, mut result: Result<Snapshot, ReadError>, started: Instant) {
+        // A pre-command read cannot certify a post-command outcome.
+        if self.minimum_sample.is_some_and(|minimum| started < minimum) {
+            return;
+        }
+        if let (Some((instance, revision)), Ok(next)) = (&self.accepted, &result)
+            && *instance == next.metadata.instance_id
+            && next.revision < *revision
+        {
+            result = Err(ReadError::Changed);
+        }
+        match result {
+            Ok(next) => {
+                if self
+                    .accepted
+                    .as_ref()
+                    .is_some_and(|(id, _)| *id != next.metadata.instance_id)
+                {
+                    self.activity.record(Event::RuntimeChanged, started);
+                }
+                if self
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|old| old.status() != next.status())
+                {
+                    self.activity
+                        .record(Event::Observed(next.status()), started);
+                }
+                if self
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|old| old.metadata.desired.mode != next.metadata.desired.mode)
+                {
+                    self.activity
+                        .record(Event::ModeObserved(next.metadata.desired.mode), started);
+                }
+                self.traffic_rates = self
+                    .snapshot
+                    .as_ref()
+                    .filter(|old| {
+                        self.fresh(started)
+                            && old.metadata.instance_id == next.metadata.instance_id
+                            && old.revision == next.revision
+                    })
+                    .and_then(|old| next.traffic.as_ref()?.rates(old.traffic.as_ref()?));
+                let changed = self
+                    .accepted
+                    .as_ref()
+                    .is_none_or(|(id, _)| *id != next.metadata.instance_id);
+                if changed {
+                    self.selected_subscription = None;
+                    self.subscription_attempts.clear();
+                }
+                if self
+                    .selected_subscription
+                    .as_ref()
+                    .is_some_and(|id| !next.metadata.subscriptions.iter().any(|s| s.id == *id))
+                {
+                    self.selected_subscription = None;
+                }
+                self.subscription_attempts
+                    .retain(|id, _| next.metadata.subscriptions.iter().any(|s| s.id == *id));
+                if changed
+                    || self
+                        .selected
+                        .as_ref()
+                        .is_some_and(|id| !next.metadata.profiles.iter().any(|p| p.id == *id))
+                {
+                    self.selected = None;
+                }
+                self.accepted = Some((next.metadata.instance_id.clone(), next.revision));
+                self.snapshot = Some(next);
+                if self.selected.as_ref().is_some_and(|id| {
+                    !self.visible().iter().any(|i| {
+                        self.snapshot
+                            .as_ref()
+                            .is_some_and(|s| s.metadata.profiles[*i].id == *id)
+                    })
+                }) {
+                    self.selected = None;
+                }
+                self.sampled_at = Some(started);
+                self.error = None;
+                if self.notice == "tui.action_applied" {
+                    self.notice = "tui.action_complete";
+                }
+            }
+            Err(error) => {
+                if self.error != Some(error) {
+                    self.activity.record(Event::ReadFailed(error), started);
+                }
+                self.traffic_rates = None;
+                self.snapshot = None;
+                self.sampled_at = None;
+                self.selected = None;
+                self.selected_subscription = None;
+                self.error = Some(error);
+            }
+        }
+    }
+    pub fn fresh(&self, now: Instant) -> bool {
+        self.sampled_at
+            .is_some_and(|then| now.saturating_duration_since(then) < FRESH_FOR)
+    }
+    pub fn status(&self, now: Instant) -> Status {
+        if self.fresh(now) && !self.running {
+            self.snapshot
+                .as_ref()
+                .map_or(Status::Unverified, Snapshot::status)
+        } else {
+            Status::Unverified
+        }
+    }
+    pub fn visible(&self) -> Vec<usize> {
+        self.snapshot.as_ref().map_or_else(Vec::new, |s| {
+            crate::browsing::visible(s, &self.query, self.favorites_only)
+        })
+    }
+    pub fn update_palette(&mut self, palette: crate::theme::Palette) {
+        self.settings.update_palette(palette);
+        self.palette = self.settings.palette();
+    }
+    pub fn key(&mut self, key: KeyEvent) -> Action {
+        self.key_at(key, Instant::now())
+    }
+    pub fn key_at(&mut self, key: KeyEvent, now: Instant) -> Action {
+        if key.kind == KeyEventKind::Release {
+            return Action::None;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            return Action::Close;
+        }
+        if self.actions_enabled && !self.viewport_ready {
+            if key.code == KeyCode::Char('q') {
+                return Action::Close;
+            }
+            if key.code == KeyCode::Esc {
+                self.confirmation = None;
+            }
+            return Action::None;
+        }
+        if self.confirmation.is_some() {
+            match key.code {
+                KeyCode::Esc => self.confirmation = None,
+                KeyCode::Char('q') => return Action::Close,
+                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                    // Held keys must not both open and confirm a network action.
+                    let operation = if matches!(
+                        self.confirmation,
+                        Some(Confirmation::New(_) | Confirmation::Job(_))
+                    ) {
+                        actions::operation_id()
+                    } else {
+                        Some(String::new())
+                    };
+                    if let Some(operation) = operation {
+                        return self.confirm(now, operation);
+                    }
+                    self.notice = "tui.action_rejected";
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
+        if self.help {
+            if key.code == KeyCode::Char('q') {
+                return Action::Close;
+            }
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                self.help = false;
+            }
+            return Action::None;
+        }
+        if self.searching {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => self.searching = false,
+                KeyCode::Backspace => {
+                    self.query.pop();
+                    self.selected = None;
+                }
+                KeyCode::Char(c)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && !c.is_control()
+                        && self.query.chars().count() < 80 =>
+                {
+                    self.query
+                        .push_str(&crate::model::display(&c.to_string(), 1));
+                    self.selected = None;
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
+        // Local presentation controls never submit a command or clear a
+        // pending/unknown outcome. Modal/search handlers above retain priority.
+        if key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if key.code == KeyCode::Char(',') {
+                self.page = crate::inspection::Page::Settings;
+                self.inspection_scroll = 0;
+                return Action::None;
+            }
+            if self.page == crate::inspection::Page::Settings
+                && matches!(key.code, KeyCode::Char('l' | 't' | '0'))
+            {
+                match key.code {
+                    KeyCode::Char('l') => self.settings.next_language(),
+                    KeyCode::Char('t') => self.settings.next_theme(),
+                    KeyCode::Char('0') => self.settings.reset(),
+                    _ => {}
+                }
+                self.locale = self.settings.locale();
+                self.palette = self.settings.palette();
+                return Action::None;
+            }
+        }
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
+            self.page = self
+                .page
+                .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
+            self.inspection_scroll = 0;
+            return Action::Refresh;
+        }
+        if self.page != crate::inspection::Page::Profiles {
+            if self.page == crate::inspection::Page::Jobs
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('g')
+                        if self
+                            .job
+                            .as_ref()
+                            .is_some_and(|j| !j.in_flight && !j.finished) =>
+                    {
+                        return Action::PollJob;
+                    }
+                    KeyCode::Char('x')
+                        if self.job.as_ref().is_some_and(|j| {
+                            !j.in_flight
+                                && !j.finished
+                                && j.tracker.progress.is_some_and(|p| p.cancellable)
+                        }) =>
+                    {
+                        self.confirmation = Some(Confirmation::CancelJob)
+                    }
+                    _ => {}
+                }
+            }
+            if self.page == crate::inspection::Page::Subscriptions
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('n' | 'p') => {
+                        if let Some(s) = &self.snapshot {
+                            let rows = &s.metadata.subscriptions;
+                            if !rows.is_empty() {
+                                let old = rows.iter().position(|s| {
+                                    Some(&s.id) == self.selected_subscription.as_ref()
+                                });
+                                let next = if key.code == KeyCode::Char('p') {
+                                    old.unwrap_or(0).saturating_sub(1)
+                                } else {
+                                    old.map_or(0, |i| (i + 1).min(rows.len() - 1))
+                                };
+                                self.selected_subscription = Some(rows[next].id.clone());
+                                self.subscription_selection_moved = true;
+                            }
+                        }
+                    }
+                    KeyCode::Char('s') => self.prepare_subscription(now),
+                    KeyCode::Char('S') => {
+                        self.prepare_job(crate::jobs::Kind::RefreshAll, None, now)
+                    }
+                    _ => {}
+                }
+            }
+            match key.code {
+                KeyCode::Char('q') => return Action::Close,
+                KeyCode::Char('r') => return Action::Refresh,
+                KeyCode::Char('?') => self.help = true,
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.inspection_scroll = self.inspection_scroll.saturating_add(1)
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.inspection_scroll = self.inspection_scroll.saturating_sub(1)
+                }
+                KeyCode::Home => self.inspection_scroll = 0,
+                KeyCode::End => self.inspection_scroll = u16::MAX,
+                KeyCode::Esc => {
+                    self.page = crate::inspection::Page::Profiles;
+                    return Action::Refresh;
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
+        if self.actions_enabled
+            && key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            match key.code {
+                KeyCode::Char('c') => self.prepare(Kind::Connect, None, now),
+                KeyCode::Char('d') => self.prepare(Kind::Disconnect, None, now),
+                KeyCode::Char('s') => self.prepare(Kind::RefreshSubscription, None, now),
+                KeyCode::Char('t') => {
+                    if self.selected.is_some() {
+                        self.prepare_job(
+                            crate::jobs::Kind::ProfileProbe,
+                            self.selected.clone(),
+                            now,
+                        );
+                    } else {
+                        self.notice = "tui.select_available";
+                    }
+                }
+                KeyCode::Char('T') => self.prepare_job(crate::jobs::Kind::ProfileProbe, None, now),
+                KeyCode::Char('1') => self.prepare(Kind::Mode, Some(Mode::Global), now),
+                KeyCode::Char('2') => self.prepare(Kind::Mode, Some(Mode::Rule), now),
+                KeyCode::Char('3') => self.prepare(Kind::Mode, Some(Mode::Direct), now),
+                KeyCode::Char('u') if self.unknown && !self.running => {
+                    self.confirmation = Some(Confirmation::Retry)
+                }
+                KeyCode::Char('a') if self.can_acknowledge(now) => {
+                    if let Some(s) = &self.snapshot {
+                        self.confirmation = Some(Confirmation::Acknowledge {
+                            instance: s.metadata.instance_id.clone(),
+                            revision: s.revision,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        match key.code {
+            KeyCode::Char('q') => return Action::Close,
+            KeyCode::Char('r') => return Action::Refresh,
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Char('/') => self.searching = true,
+            KeyCode::Char('f')
+                if key.kind == KeyEventKind::Press
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.favorites_only = !self.favorites_only;
+                self.selected = None;
+            }
+            KeyCode::Esc => {
+                self.query.clear();
+                self.favorites_only = false;
+                self.selected = None;
+            }
+            KeyCode::Down
+            | KeyCode::Up
+            | KeyCode::Char('j' | 'k' | 'G')
+            | KeyCode::Home
+            | KeyCode::End => {
+                let rows = self.visible();
+                let Some(s) = &self.snapshot else {
+                    return Action::None;
+                };
+                if rows.is_empty() {
+                    self.selected = None;
+                    return Action::None;
+                }
+                let old = rows
+                    .iter()
+                    .position(|i| self.selected.as_ref() == Some(&s.metadata.profiles[*i].id));
+                let next = match key.code {
+                    KeyCode::Home => 0,
+                    KeyCode::End | KeyCode::Char('G') => rows.len() - 1,
+                    KeyCode::Up | KeyCode::Char('k') => old.unwrap_or(0).saturating_sub(1),
+                    _ => old.map_or(0, |i| (i + 1).min(rows.len() - 1)),
+                };
+                self.selected = Some(s.metadata.profiles[rows[next]].id.clone());
+            }
+            _ => {}
+        }
+        Action::None
+    }
+
+    fn eligible(&self, kind: Kind, now: Instant) -> bool {
+        self.actions_enabled
+            && self.viewport_ready
+            && self.pending.is_none()
+            && (kind == Kind::Disconnect || !self.job.as_ref().is_some_and(|j| j.blocks_actions()))
+            && self.fresh(now)
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.actions_available
+                    && !matches!(
+                        s.metadata.last_known_actual,
+                        Actual::Starting | Actual::Stopping | Actual::Reconnecting
+                    )
+                    && (kind == Kind::Disconnect
+                        || matches!(s.status(), Status::Connected | Status::Disconnected))
+            })
+    }
+
+    fn can_acknowledge(&self, now: Instant) -> bool {
+        self.unknown
+            && !self.running
+            && self.fresh(now)
+            && self.viewport_ready
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.observation.facts.is_some()
+                    && !matches!(
+                        s.metadata.last_known_actual,
+                        Actual::Starting | Actual::Stopping | Actual::Reconnecting
+                    )
+            })
+    }
+
+    pub fn prepare(&mut self, kind: Kind, mode: Option<Mode>, now: Instant) {
+        if !self.eligible(kind, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        // Disconnect and mode always target the runtime's current session, never selection.
+        let id = if matches!(kind, Kind::Connect | Kind::RefreshSubscription) {
+            self.selected.as_deref().unwrap_or("")
+        } else {
+            &s.metadata.desired.profile_id
+        };
+        let profile = s.metadata.profiles.iter().find(|p| p.id == id);
+        if matches!(kind, Kind::Connect | Kind::RefreshSubscription)
+            && (profile.is_none_or(|p| p.missing && kind == Kind::Connect)
+                || !self
+                    .visible()
+                    .iter()
+                    .any(|i| s.metadata.profiles[*i].id == id))
+        {
+            self.notice = "tui.select_available";
+            return;
+        }
+        let subscription = profile
+            .and_then(|p| p.subscription_id.as_ref())
+            .and_then(|id| s.metadata.subscriptions.iter().find(|sub| sub.id == *id));
+        if kind == Kind::RefreshSubscription && subscription.is_none() {
+            self.notice = "tui.select_subscription_profile";
+            return;
+        }
+        self.confirmation = Some(Confirmation::New(Command {
+            instance: s.metadata.instance_id.clone(),
+            revision: s.revision,
+            kind,
+            profile: id.into(),
+            subscription: subscription.map(|sub| sub.id.clone()),
+            name: profile.map_or_else(String::new, |p| p.name.clone()),
+            source: profile
+                .and_then(|p| p.subscription_id.as_ref())
+                .and_then(|id| s.metadata.subscriptions.iter().find(|sub| sub.id == *id))
+                .map(|sub| sub.name.clone()),
+            was_connected: s.metadata.desired.connected,
+            mode: mode.unwrap_or(s.metadata.desired.mode),
+        }));
+        self.notice = "";
+    }
+
+    fn prepare_subscription(&mut self, now: Instant) {
+        if !self.eligible(Kind::RefreshSubscription, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        let Some(sub) = s
+            .metadata
+            .subscriptions
+            .iter()
+            .find(|sub| Some(&sub.id) == self.selected_subscription.as_ref())
+        else {
+            self.notice = "tui.select_subscription";
+            return;
+        };
+        self.confirmation = Some(Confirmation::New(Command {
+            instance: s.metadata.instance_id.clone(),
+            revision: s.revision,
+            kind: Kind::RefreshSubscription,
+            profile: String::new(),
+            subscription: Some(sub.id.clone()),
+            name: sub.name.clone(),
+            source: Some(sub.name.clone()),
+            was_connected: s.metadata.desired.connected,
+            mode: s.metadata.desired.mode,
+        }));
+        self.notice = "";
+    }
+
+    pub fn prepare_job(&mut self, kind: crate::jobs::Kind, target: Option<String>, now: Instant) {
+        if !self.jobs_enabled || !self.eligible(Kind::RefreshSubscription, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        if target.as_ref().is_some_and(|id| {
+            !self
+                .visible()
+                .iter()
+                .any(|i| s.metadata.profiles[*i].id == *id)
+        }) {
+            self.notice = "tui.select_available";
+            return;
+        }
+        if let Some(intent) = crate::job_ui::Intent::new(s, kind, target) {
+            self.confirmation = Some(Confirmation::Job(intent));
+            self.notice = "";
+        } else {
+            self.notice = "tui.job_unsupported";
+        }
+    }
+
+    /// Explicit confirmation only; callers must never automate host authorization.
+    pub fn confirm(&mut self, now: Instant, operation: String) -> Action {
+        if !self.actions_enabled || !self.viewport_ready {
+            return Action::None;
+        }
+        let Some(confirmation) = self.confirmation.take() else {
+            return Action::None;
+        };
+        match confirmation {
+            Confirmation::Job(intent) => {
+                if !self.jobs_enabled
+                    || !self.eligible(Kind::RefreshSubscription, now)
+                    || !self.snapshot.as_ref().is_some_and(|s| intent.matches(s))
+                    || (intent.target.is_some() && intent.target != self.selected)
+                {
+                    self.notice = "tui.action_changed";
+                    return Action::None;
+                }
+                let Some(request) = intent.request(operation) else {
+                    self.notice = "tui.action_rejected";
+                    return Action::None;
+                };
+                self.job = Some(crate::job_ui::Session::new(intent, request, now));
+                self.page = crate::inspection::Page::Jobs;
+                self.inspection_scroll = 0;
+                return Action::StartJob;
+            }
+            Confirmation::CancelJob => {
+                if self
+                    .job
+                    .as_ref()
+                    .is_some_and(|j| !j.in_flight && !j.finished)
+                {
+                    return Action::CancelJob;
+                }
+                return Action::None;
+            }
+            Confirmation::New(command) => {
+                if !self.eligible(command.kind, now)
+                    || !self.snapshot.as_ref().is_some_and(|s| {
+                        s.metadata.instance_id == command.instance
+                            && s.revision == command.revision
+                            && (!matches!(command.kind, Kind::Connect | Kind::RefreshSubscription)
+                                || (command.kind == Kind::RefreshSubscription
+                                    && command.profile.is_empty()
+                                    && self.page == crate::inspection::Page::Subscriptions
+                                    && self.selected_subscription == command.subscription)
+                                || (self.selected.as_ref() == Some(&command.profile)
+                                    && self
+                                        .visible()
+                                        .iter()
+                                        .any(|i| s.metadata.profiles[*i].id == command.profile)
+                                    && s.metadata.profiles.iter().any(|p| {
+                                        p.id == command.profile
+                                            && p.name == command.name
+                                            && (!p.missing
+                                                || command.kind == Kind::RefreshSubscription)
+                                            && (command.kind != Kind::RefreshSubscription
+                                                || p.subscription_id == command.subscription)
+                                    })))
+                            && (command.kind != Kind::RefreshSubscription
+                                || s.metadata.subscriptions.iter().any(|sub| {
+                                    Some(&sub.id) == command.subscription.as_ref()
+                                        && Some(&sub.name) == command.source.as_ref()
+                                }))
+                    })
+                {
+                    self.notice = "tui.action_changed";
+                    return Action::None;
+                }
+                self.pending = Request::new(command, operation);
+                if self.pending.is_none() {
+                    self.notice = "tui.action_rejected";
+                    return Action::None;
+                }
+            }
+            Confirmation::Retry => {
+                if !self.unknown || self.running || self.pending.is_none() {
+                    return Action::None;
+                }
+                // Retain every byte of the original request, including its old fences.
+            }
+            Confirmation::Acknowledge { instance, revision } => {
+                if self.can_acknowledge(now)
+                    && self.snapshot.as_ref().is_some_and(|s| {
+                        s.metadata.instance_id == instance && s.revision == revision
+                    })
+                {
+                    self.pending = None;
+                    self.unknown = false;
+                    self.notice = "tui.action_acknowledged";
+                    self.activity.record(Event::Acknowledged, now);
+                } else {
+                    self.notice = "tui.action_changed";
+                }
+                return Action::None;
+            }
+        }
+        self.running = true;
+        if self.unknown {
+            self.activity.record(Event::Retried, now);
+        } else if let Some(request) = &self.pending {
+            self.activity
+                .record(Event::Submitted(request.command.kind), now);
+            if request.command.kind == Kind::RefreshSubscription
+                && let Some(sub) = &request.command.subscription
+            {
+                self.subscription_attempts
+                    .insert(sub.clone(), "tui.action_pending");
+            }
+        }
+        self.notice = "tui.action_pending";
+        self.sampled_at = None;
+        self.minimum_sample = Some(now);
+        Action::Submit
+    }
+
+    pub fn finish(&mut self, mut outcome: Outcome, now: Instant) {
+        if !self.running || self.pending.is_none() {
+            return;
+        }
+        // A rejection of an exact retry (e.g. restarted daemon/evicted receipt)
+        // does not prove whether the original request was applied.
+        if self.unknown && matches!(outcome, Outcome::Rejected(_)) {
+            outcome = Outcome::Unknown;
+        }
+        self.running = false;
+        self.sampled_at = None;
+        self.minimum_sample = Some(now);
+        self.unknown = outcome == Outcome::Unknown;
+        self.activity.record(
+            match outcome {
+                Outcome::Applied => Event::Applied,
+                Outcome::Rejected(_) => Event::Rejected,
+                Outcome::Unknown => Event::Unknown,
+            },
+            now,
+        );
+        self.notice = match outcome {
+            Outcome::Applied => "tui.action_applied",
+            Outcome::Rejected(key) => key,
+            Outcome::Unknown => "tui.action_unknown",
+        };
+        if let Some(request) = &self.pending
+            && request.command.kind == Kind::RefreshSubscription
+            && let Some(sub) = &request.command.subscription
+        {
+            self.subscription_attempts.insert(sub.clone(), self.notice);
+        }
+        if !self.unknown {
+            self.pending = None;
+        }
+    }
+}

@@ -35,4 +35,18 @@ for (const section of ['Mandatory freshness', 'Acceptance environments',
 const workflow = fs.readFileSync(path.join(root, 'docs/roadmap/DEVELOPMENT_WORKFLOW.md'), 'utf8');
 assert(workflow.includes('dev/<topic>') && workflow.includes('rc/<version>'));
 assert(workflow.includes('archive/python-legacy'));
+assert(workflow.includes('### Release reconciliation checklist'));
+assert(workflow.includes('**revoked**'), 'old automatic docs merge permission must be explicitly superseded');
+assert(entry.includes('former standing authorization\n  is revoked'));
+assert(guide.includes('readiness is not authorization to update `main`'));
+for (const stale of ['owner grants standing merge', 'standing documentation merge authorization',
+  'includes authorization to merge that documentation', 'merge it, verify the result on remote `main`']) {
+  assert(![entry, guide, workflow].some(text => text.includes(stale)),
+    'do not restore automatic documentation merge permission: ' + stale);
+}
+for (const file of ['CONTRIBUTING.md', 'docs/development/README.md', 'DEVELOPMENT_ROADMAP.md',
+  'docs/roadmap/CURRENT_STATUS.md']) {
+  assert(fs.readFileSync(path.join(root, file), 'utf8').includes('reconciliation'),
+    'release documentation reconciliation must remain discoverable: ' + file);
+}
 console.log('documentation navigation: ' + links + ' local links, agent discovery and retained policy PASS');
