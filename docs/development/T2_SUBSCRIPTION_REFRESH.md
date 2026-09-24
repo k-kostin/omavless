@@ -34,15 +34,9 @@ feature-enabled canonical runtime parser test now admits the real subscription
 refresh envelope as well as connection/mode actions; no production runtime
 implementation was changed.
 
-Full local Rust validation and developer/QML checks are required before the
-candidate is considered checked. Real Foot synthetic confirmation screens were
-inspected in both languages. Live provider refresh is a separate attended gate,
-not inferred from synthetic callback success. Record exact live evidence in the
-candidate PR/RC ledger after execution.
-
-Later same-day result: [attended ARM64 refresh passed](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
-at the recorded exact candidate after a safely stopped mistyped acknowledgement.
-The earlier pending statement is preserved as the original gate boundary.
+Full local Rust/developer/QML checks and real Foot synthetic EN/RU confirmation
+review passed. [Attended ARM64 provider refresh also passed](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
+at the recorded exact candidate; live success is not inferred from synthetic callbacks.
 
 This slice does not add refresh-all, scheduling, subscription editing, an empty
 subscription selector or persistent last-success presentation. Empty feeds have

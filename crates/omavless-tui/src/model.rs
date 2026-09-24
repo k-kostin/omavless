@@ -53,9 +53,14 @@ pub struct Profile {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Subscription {
     pub id: String,
     pub name: String,
+    // Older/synthetic snapshots may omit this optional display fact. Zero is
+    // not evidence that a refresh has happened; never infer provider health.
+    #[serde(default)]
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]

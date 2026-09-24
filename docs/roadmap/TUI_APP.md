@@ -23,6 +23,15 @@ The remaining MVP below is still a delivery checklist, not a shipped feature
 claim. Historical pre-R6 wording does not reopen accepted migration gates.
 See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
 
+The next read-only checkpoint adds a Subscriptions page from the existing
+`ui.snapshot`: all subscriptions (including empty ones), saved-profile/missing
+counts and saved-list age. It sends no provider request; `r` reloads local
+metadata only. Zero/missing/future timestamps are unavailable, not successful
+refresh evidence. EN/RU and wrapped scrolling cover the full 64-subscription
+bound. Empty-feed refresh, refresh-all and last-attempt/error history remain
+separate mutation/operation work. No installed package or runtime changes.
+See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with

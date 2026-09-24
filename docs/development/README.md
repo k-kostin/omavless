@@ -72,6 +72,10 @@ Do not purge existing reports to meet a file-count target. Separate current
 navigation from historical evidence with indexes. If later archival is useful,
 preserve content and provenance and explicitly update discovery links.
 
+Record final verified outcomes, substantive failures, decisions and remaining
+limits—not every typo, cancelled prompt or routine retry. Keep such transient
+details only when they explain a real defect, security concern or evidence gap.
+
 ## Local cleanup safety
 
 Remote cleanup and local worktree cleanup are distinct. An old checkout may

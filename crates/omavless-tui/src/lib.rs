@@ -177,6 +177,7 @@ fn run_client(
         terminal
             .draw(|f| {
                 app.viewport_ready = f.area().width >= 70 && f.area().height >= 24;
+                view::clamp_scroll(&mut app, f.area().width, f.area().height, now);
                 view::draw(f, &app, now);
             })
             .map_err(|_| "Could not draw OmaVLESS terminal")?;
