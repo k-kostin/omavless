@@ -7,7 +7,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
 ## Main and open work
 
 - **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
-  the read-only subscription overview (#281),
+  the read-only subscription overview (#281), local session activity (#282),
   the release-snapshot workflow (#276), and #270–272 triage docs (#273).
   See the [exact constituent ledger and release checklist](../development/RC_090.md).
   The name is a planning label; package version/assets, installed 0.8.2 and
@@ -21,7 +21,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   empty subscriptions, saved/missing profile counts and saved-list age through
   the existing snapshot. Empty-feed refresh, refresh-all, attempt history,
   probes and the remaining MVP stay separate work, not implicitly accepted.
-  A following TUI-only checkpoint adds a 32-event in-memory session history,
+  The integrated TUI-only checkpoint #282 adds a 32-event in-memory session history,
   without private targets/raw logs, persistence or new runtime methods.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved

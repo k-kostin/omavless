@@ -32,7 +32,7 @@ bound. Empty-feed refresh, refresh-all and last-attempt/error history remain
 separate mutation/operation work. No installed package or runtime changes.
 See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
 
-The subsequent session-activity client checkpoint keeps up to 32 typed events
+The integrated session-activity client checkpoint #282 keeps up to 32 typed events
 in memory: local observations/read failures, owner-instance changes, confirmed
 command submission and bounded outcomes. Repeated identical polling is deduplicated;
 timestamps are monotonic elapsed time since opening, newest first. No names,
