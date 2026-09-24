@@ -110,7 +110,10 @@ to contain the TUI. `omavless tui --available` reports the fixed local token
 `omavless.tui.v1` without accessing private state, contacting the runtime or
 starting a service. This detects the installed binary, not the frontend version.
 
-Settings offers Open app only after that feature check. The supported fixed
+The main panel offers Open app below the fixed Profile actions dock, outside
+list scrolling and independent of profile selection. It is not in Settings.
+The button is enabled only after that feature check; missing packages retain
+bounded update guidance and a Refresh action. The supported fixed
 Omarchy adapter is:
 
 ```text
@@ -118,7 +121,11 @@ omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui
 ```
 
 All arguments are literals because the upstream adapter constructs a shell
-command. No profile, subscription, path or user text is interpolated. Reopening
+command. A fixed shell wrapper redirects stdin/stdout/stderr to `/dev/null`:
+the detached terminal must not inherit short-lived Quickshell capture pipes.
+The launcher exit reports dispatch only, not proof that a window is healthy;
+actual launch/focus is a separate installed check. No profile, subscription,
+path or user text is interpolated. Reopening
 focuses the existing app window where supported by Omarchy. With a stopped or
 incompatible daemon the TUI opens its unavailable/remediation state; this
 candidate does not implicitly start the service. Missing/older application
@@ -154,7 +161,7 @@ and exact CI head belong in the PR, without a diary of individual prompts.
 Deterministic tests cover client target/revision fences, missing capabilities,
 job start/poll/cancel/unknown results, probe bounds/privacy and count-only
 controller projection. They do not substitute for the following combined
-installed gates, which remain pending for this candidate:
+installed gates (the progress below is not blanket completion):
 
 1. Exact candidate package/frontend identity, feature discovery and Open app
    launch/focus, including old-package unavailable and daemon-down behavior.
@@ -169,6 +176,31 @@ installed gates, which remain pending for this candidate:
    and stale-client behavior; private Unix controller, no TCP controller.
 6. Exact-head local suites/CI and an explicit sanitized result matrix. OS effects
    follow [human authorization](../testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
+
+### September 24 installed progress
+
+The runtime checks below used the exact developer binary identified above.
+The frontend-only follow-up is recorded by its source commit in PR #284; it
+does not replace the installed binary or change runtime ownership.
+
+| Check | Observed result |
+| --- | --- |
+| TUI Connect, Full VPN, restore Routing, Disconnect, reconnect | PASS; applied replies, single owned core/TUN, all four connected-state public HTTPS checks passed; original profile/mode restored |
+| Selected subscription and refresh-all | PASS; saved update timestamp advanced, counts and active runtime state preserved |
+| Selected/all profile HTTPS jobs | Jobs completed and auxiliary core cleaned up without changing the primary tunnel. Observed selected result failed/timed out; visible batch rows included DNS failures/timeouts. Job completion is not positive latency evidence or proof all rows failed. |
+| Traffic/counts, allowlisted Details, diagnostics, EN/RU/session theme, client close | Eleven installed read-side checks passed; closing the client preserved owner/profile/mode/core/TUN |
+| Open app | Main footer below Profile actions, independent of selection; first launch and repeated focus of the same app window passed. Fixed a launch-path defect where a detached terminal inherited closed launcher pipes. |
+
+The launch regression also has a deterministic fixture whose detached child
+writes after the parent exits and its capture pipes close. No desktop, private
+store or VPN is used by that test. Focused UI tests cover footer placement,
+Tab order, unavailable packages and panel-height accounting. Temporary local
+inspection hooks are not shipped.
+
+Still reconcile the final exact-head UI matrix, live cancellation/conflicting
+requests and restart/stale-client evidence with the unchanged earlier slices
+before declaring T2 complete. Positive probe evidence remains distinct from
+the connected-network negative measurements and DNS/provider follow-ups.
 
 Preserve earlier accepted checkpoint evidence where unchanged. T2 completion
 does not close AUTO-1, DNS/provider follow-ups, V0 or NixOS host acceptance, and

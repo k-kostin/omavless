@@ -297,7 +297,9 @@ socket use is impractical, but both paths hit the same Rust runtime.
 
 ## 9. Launch and Omarchy integration
 
-The T2 completion candidate exposes `Open app` in plugin Settings only when the
+The T2 completion candidate places `Open app` on the main panel below Profile
+actions, outside list scrolling (owner direction, 2026-09-24), not in Settings.
+It enables the button only when the
 installed executable answers the fixed local `omavless tui --available` probe
 with `omavless.tui.v1`. Older/absent packages receive update guidance instead of
 a broken action. The probe has no daemon/private-store effects. Normal candidate

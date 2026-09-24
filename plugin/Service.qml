@@ -3024,9 +3024,10 @@ Item {
   Process {
     id: nativeAppLauncher
     property bool timedOut: false
-    // All arguments are literals: the upstream launcher builds a shell command.
-    // Never add a profile, subscription, user path or other dynamic argument.
-    command: ["omarchy", "launch", "or", "focus", "tui", "--app-id=org.omarchy.omavless", "omavless", "tui"]
+    // The adapter detaches its terminal before returning. Do not let that
+    // terminal inherit Process pipes, which close when the adapter exits.
+    // This command is entirely literal: never interpolate private/user data.
+    command: ["bash", "-c", "exec omarchy launch or focus tui --app-id=org.omarchy.omavless omavless tui </dev/null >/dev/null 2>&1"]
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     property Timer timeout: Timer {

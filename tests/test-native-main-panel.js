@@ -75,7 +75,7 @@ test('one fixed dock uses the explicit selected profile, never the active fallba
   assert(!source.includes('nativeHeaderQrRecord'));
   assert(source.includes('onClicked: vless.showQr(nativeProfileActions.record)'));
   const dock=source.slice(source.indexOf('id: nativeProfileActions\n'),source.indexOf('AdvancedDiagnostics {'));
-  assert(dock.includes('anchors.bottom: parent.bottom'));
+  assert(dock.includes('anchors.bottom: nativeAppFooter.visible ? nativeAppFooter.top : parent.bottom'));
   assert(dock.includes('record !== null'));
   assert(dock.includes('native.profile.chooseActions'));
   assert(dock.includes('textFormat: Text.PlainText'));
@@ -371,7 +371,8 @@ test('native Settings Tab order follows visual action order without hidden Test'
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';
   vm.runInContext(source.slice(from,to),c);
   const result=Array.from(c.panelTabTargets());
-  assert.deepEqual(result.slice(0,24),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeOpenAppRow','nativeQuitSetting']);
+  assert.deepEqual(result.slice(0,23),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
+  assert(!result.includes(c.nativeOpenAppButton));
   assert(!result.includes(c.nativeTestButton));
 });
 test('native text uses explicit theme font roles rather than the oversized default',()=>{

@@ -30,13 +30,18 @@ history. GitHub's actual main/PR state is authoritative for publication.
 - **T2 MVP completion candidate #284:** `dev/t2-mvp-completion` targets RC and
   implements the remaining operations, selected/all profile HTTPS checks,
   count-only connections, allowlisted details, default package feature and
-  Settings Open app. Source `02a5a13b807aab8d984f37cc49e20eab71374942`
+  main-panel Open app below Profile actions (not Settings).
+  Source `02a5a13b807aab8d984f37cc49e20eab71374942`
   passed 1,098 Rust tests / 11 ignored, developer/QML gates and test/x86_64/ARM64
   CI. The exact ARM64 developer package and matching frontend are installed in
   Try Omarchy; private data, disabled service enablement and startup Off were
-  preserved. Stable restoration artifacts are retained outside Git. Combined
-  installed lifecycle/jobs/launch acceptance remains pending; do not call T2
-  complete. See the [candidate contract](../development/T2_MVP.md).
+  preserved. Stable restoration artifacts are retained outside Git. Installed
+  lifecycle, refresh, read-side and close checks passed; connected profile-check
+  jobs completed but their observed measurements were negative. The frontend
+  follow-up moves Open app to the main footer and fixes first-window launch;
+  launch/focus/close passed without changing the tunnel. Remaining combined
+  gates are explicit in the [candidate contract](../development/T2_MVP.md);
+  do not call T2 complete yet.
   This replaces only the VM's test installation, not any public 0.8.2 artifact,
   stable-main snapshot or marketplace submission.
 

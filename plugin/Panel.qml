@@ -694,7 +694,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeOpenAppRow.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -713,6 +713,7 @@ Panel {
       if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
+      if (page === "main") targets = targets.concat([nativeOpenAppButton, nativeAppRefresh])
       return targets
     }
     if (page === "subscriptions") return [
@@ -1759,7 +1760,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -2256,18 +2257,6 @@ Panel {
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.application"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow {
-            id: nativeOpenAppRow
-            Layout.fillWidth: true
-            visible: root.page === "settings"
-            title: root.textFor("native.app.title")
-            description: root.textFor(vless.nativeAppLaunchFailed ? "native.app.failed"
-              : vless.nativeAppChecking ? "common.loading"
-              : vless.nativeAppAvailable ? "native.app.scope" : "native.app.unavailable")
-            actionText: root.textFor(vless.nativeAppAvailable ? "native.app.open" : "common.refresh")
-            actionEnabled: !vless.nativeAppChecking && !vless.nativeAppOpening
-            onAction: { if (vless.nativeAppAvailable) vless.openNativeApp(); else vless.refreshNativeAppAvailability() }
-          }
-          SettingsActionRow {
             id: nativeQuitSetting
             Layout.fillWidth: true
             visible: root.page === "settings"
@@ -2494,7 +2483,8 @@ Panel {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.rightMargin: root.scrollGutter
-        anchors.bottom: parent.bottom
+        anchors.bottom: nativeAppFooter.visible ? nativeAppFooter.top : parent.bottom
+        anchors.bottomMargin: nativeAppFooter.visible ? Style.space(12) : 0
         height: nativeProfileActionsContent.implicitHeight + Style.space(20)
         color: "transparent"
         radius: 0
@@ -2527,6 +2517,55 @@ Panel {
             Item { Layout.fillWidth: true }
             OmaNavigationButton { id: rowDelete; iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: nativeProfileActions.canAct && !nativeProfileActions.record.managed; onClicked: root.requestDelete(nativeProfileActions.record) }
           }
+        }
+      }
+
+      // Global navigation, not an action on the selected profile. Keep it
+      // below the fixed management dock and outside profile-list scrolling.
+      ColumnLayout {
+        id: nativeAppFooter
+        visible: !root.bootstrapRequired && vless.nativeOwner && root.page === "main"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.rightMargin: root.scrollGutter
+        anchors.bottom: parent.bottom
+        spacing: Style.space(6)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+          Button {
+            id: nativeOpenAppButton
+            Layout.fillWidth: true
+            text: root.textFor("native.app.open")
+            tooltipText: root.textFor("native.app.scope")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: { if (vless.openNativeApp()) root.close() }
+          }
+          Button {
+            id: nativeAppRefresh
+            visible: !vless.nativeAppAvailable && !vless.nativeAppChecking
+            text: root.textFor("common.refresh")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: vless.refreshNativeAppAvailability()
+          }
+        }
+        PlainText {
+          Layout.fillWidth: true
+          visible: vless.nativeAppLaunchFailed || !vless.nativeAppAvailable
+          text: root.textFor(vless.nativeAppLaunchFailed ? "native.app.failed"
+            : vless.nativeAppChecking ? "common.loading" : "native.app.unavailable")
+          color: vless.nativeAppLaunchFailed ? root.urgent : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
       }
 

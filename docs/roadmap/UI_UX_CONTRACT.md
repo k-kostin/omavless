@@ -42,6 +42,7 @@ of appearance establishes untested runtime or network health.
 | Profile name | Selects the target for management. Selection alone does not connect, disconnect or change mode. Its styling is not evidence of a tunnel. |
 | Row connection action | Connect/Disconnect is directly opposite the corresponding profile name, visible without first selecting that profile. It acts on that row, not another selected or last-used record. |
 | Management actions | Favorite, rename, edit, QR, export, details and delete occupy one separate fixed dock outside list scrolling. The dock explicitly identifies its selected target. Changing selection does not rearrange its buttons. |
+| Open app | Global navigation below the Profile actions dock on the main panel, outside list scrolling; not in Settings and not tied to the selected profile. Opens the TUI or focuses its existing window. Closing that window does not disconnect VPN. |
 | No valid selection | Show an instruction to select a profile and disable management actions. Removed/stale records never fall back to an unrelated profile. |
 | Managed profiles | Retain existing edit/rename/delete restrictions and confirmation semantics. Disabled controls stay in their normal positions. |
 | Subscription arrow | Means expand/collapse an actual child list. A leaf profile, inside or outside a subscription, has no expansion arrow. |

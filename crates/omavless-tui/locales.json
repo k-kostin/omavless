@@ -69,7 +69,7 @@
   "tui.age_minutes":{"en":"{count} min ago","ru":"{count} мин назад"},
   "tui.age_hours":{"en":"{count} h ago","ru":"{count} ч назад"},
   "tui.age_days":{"en":"{count} d ago","ru":"{count} дн. назад"},
-  "tui.refresh_subscription":{"en":"Refresh selected profile's subscription","ru":"Обновить подписку выбранного профиля"},
+  "tui.refresh_subscription":{"en":"Refresh subscription","ru":"Обновить подписку"},
   "tui.select_subscription_profile":{"en":"Select a profile belonging to the subscription you want to refresh.","ru":"Выберите профиль из подписки, которую хотите обновить."},
   "tui.confirm_subscription_refresh":{"en":"Fetch a new server list for the subscription shown above. Existing runtime validation and reconciliation apply; this is not Connect or a health test.","ru":"Загрузить новый список серверов указанной выше подписки. Служба проверит и применит изменения. Это не подключение и не проверка связи."},
   "tui.subscription_keys":{"en":"s: refresh selected profile's subscription (confirmation required)","ru":"s: обновить подписку выбранного профиля (с подтверждением)"},
