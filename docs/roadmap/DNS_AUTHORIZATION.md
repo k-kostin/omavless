@@ -76,6 +76,14 @@ or privileged policy changes are justified by this finding.
 
 ## Alternatives and decision
 
+Owner clarification, September 25: target one explicit helper enrollment and
+no recurring DNS prompts. A single scoped authorization per transition is an
+acceptable fallback, not the preferred result. The
+[reference comparison and real-core namespace experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
+separate broad permission grants, avoiding needless TUN restarts and grouping
+effects behind one authorization. The installed Omarchy DNS Provider command
+changes global/physical-link settings and is not our VPN helper API.
+
 | Approach | Decision | Reason |
 | --- | --- | --- |
 | Four resolved actions allowed for the account | Reject | Any same-user program gains those effects on unrelated links. |
@@ -89,8 +97,10 @@ Do not silently install an experimental wrapper/core fork merely to complete
 this issue. First obtain an explicit, version-tested way for Mihomo to relinquish
 resolved management while retaining TUN routing and packet DNS handling. Options
 are an upstream-supported configuration capability or a separately reviewed core
-adapter/package. Without that prerequisite, prompt-free implementation is blocked,
-not solved by a polkit snippet. A separately owned root core service is another
+adapter/package. Without that prerequisite, the selected exclusive-writer broker
+integration is blocked; this is not a claim that all prompt-reduction approaches
+require transferring DNS ownership. A broad polkit grant can suppress prompts
+but does not meet this contract. A separately owned root core service is another
 architecture, not a small exception to the current user-service model.
 
 ## Preferred host contract
@@ -141,6 +151,12 @@ and successful DNS setup is not fail-closed egress protection.
 - Partial failure: restore only the captured settings on the *same* managed link,
   verify readback, then report restored failure. If ownership changed or cleanup
   cannot be proved, report manual recovery; never overwrite another manager.
+- Snapshot capture must establish original configuration semantics, not just
+  effective values. Resolved's `DefaultRoute` boolean hides automatic versus
+  explicit policy, and whole-link revert resets more than the three DNS fields.
+  Refuse an ambiguous baseline before writes; initial broker-owned pristine-link
+  scope and exact restoration need their own proof. See the
+  [source-backed constraint](../development/DNS_AUTHORIZATION_RESEARCH.md#snapshot-restoration-is-not-just-three-effective-properties).
 - Disconnect: release/verify managed-link DNS while identity still exists, then
   destroy the owned tunnel. Link disappearance is a distinct verified outcome;
   never run a delayed revert against a reused name/index.

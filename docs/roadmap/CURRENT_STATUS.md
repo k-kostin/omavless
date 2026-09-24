@@ -12,6 +12,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   and isolated TUN-reuse evidence. No runtime dependency, policy, helper service
   or installed binary changes. #270/#132 stay open; core DNS ownership and
   secure lease integration remain prerequisites before attended installation.
+  Follow-up [reference research and an isolated real-core experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
+  confirm unchanged-TUN reload avoids repeated DNS calls in the tested fixture,
+  while changed-TUN reload and shutdown retain them. Target remains no recurring
+  prompts after explicit enrollment, with one scoped prompt as fallback. Neither
+  the helper nor a production reload optimization is installed.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and

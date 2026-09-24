@@ -378,6 +378,10 @@ September 25 preparation adds an [offline Rust DNS transaction/framing model](do
 and an isolated-kernel TUN-reuse probe without changing the installed runtime.
 This advances DNS-1 conformance, not prompt elimination: core DNS-off integration
 and real managed-link authority remain prerequisites for #270 host acceptance.
+The [follow-up reference/real-core research](docs/development/DNS_AUTHORIZATION_RESEARCH.md)
+records the owner's no-recurring-prompts target, one-authorization fallback and
+verified unchanged-TUN reload behavior in an isolated synthetic namespace. It
+does not close #270 or replace actual helper/restore/lifecycle acceptance.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

@@ -19,7 +19,9 @@ testable before granting any new privilege:
 1. Require enrolled peer, exclusive DNS writer, verified kernel lease and
    compatible fixed policy. These are **trusted adapter inputs**, not checks
    implemented by this library and never assertions accepted from IPC clients.
-2. Capture original managed-link settings before the first write.
+2. Capture original managed-link settings before the first write. The adapter
+   must prove the baseline can actually be restored: public effective properties
+   alone are insufficient (see the [resolved snapshot constraint](DNS_AUTHORIZATION_RESEARCH.md#snapshot-restoration-is-not-just-three-effective-properties)).
 3. Set fixed DNS servers, root routing domain and DNS default-route, joining each
    completion before the next effect. Servers come first to avoid deliberately
    selecting the link before configuring its resolver; this is not an atomic
@@ -152,6 +154,13 @@ silently turn this experiment into a production FD-passing protocol.
 
 ## Gates and continuation
 
+The subsequent [reference research and isolated real-core reload experiment](DNS_AUTHORIZATION_RESEARCH.md)
+adds concrete evidence for avoiding redundant DNS calls without authorizing a
+production reload or helper. It also records the owner's zero-recurring-prompt
+target / one-prompt fallback and a restoration constraint from resolved's actual
+API. The opt-in core probe is separate from both the mock suite and the earlier
+kernel FD-reuse experiment; none changes the installed VPN.
+
 Automatic checks: 35 transaction/fault tests, 18 request-framing/privacy tests,
 10 namespace-probe guard tests with injected adapters (no namespace effects in
 the default suite). Full workspace/developer gates also apply. The standalone
@@ -162,7 +171,7 @@ Local Try Omarchy ARM64 validation on this source checkpoint:
 - `tests/run-rust.sh`: **1,155 workspace tests passed, 11 ignored**, plus the
   script's one repeated targeted TUI protocol test; format, strict clippy,
   feature checks, terminal fixture tests and parity smoke passed.
-- `tests/run.sh`: **326 developer tests passed, 2 expected skips**;
+- `tests/run.sh`: **326 developer tests run: 324 passed, 2 expected skips**;
   Node/QML contracts and plugin validation passed.
 - Python compile, shell syntax, documentation navigation and diff whitespace
   checks passed. Dependency inversion lists only the new crate itself: no
