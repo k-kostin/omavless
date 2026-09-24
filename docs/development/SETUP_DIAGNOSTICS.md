@@ -66,9 +66,28 @@ Deterministic tests cover message context, unknown/oversized cases, privacy,
 legacy response shape, exact CLI arguments, actual Unix-socket response bounds,
 owner revocation, unchanged store/revision and no host mutations.
 
-Before completion: full Rust/developer/CI checks plus installed exact-candidate
-read against a real capture, legacy frontend/health compatibility and preserved
-core/TUN/controller state. Do not provoke persistent firewall damage for a
-positive counter. Zero counters are valid data, not proof that setup is healthy.
-Known failing physical-kernel scenarios remain unverified unless reproduced on
-that host; ordinary collector/IPC acceptance is supported on this ARM64 VM.
+Accepted implementation: `50c9f35d521822e638b2034333aa94744fc67eb1`.
+Full Rust/developer suites, strict Clippy/fmt/parity/PTY and source CI PASS;
+x86-64 and ARM64 package CI PASS. Developer suite: 276 tests, two expected
+optional skips. Four new deterministic tests cover this slice.
+
+Installed ARM64 developer package `0.0.0.r634.g50c9f35d5218-1`, binary SHA-256
+`f78a6bf503615d08b91ac65fe948c31e8511406716f6f3d730329fd77fa8758c`.
+Attended stop/install/start preserved private data and disabled startup.
+Disconnected new runtime returned unavailable/null capture; the restored owned
+core returned observed bounded counters. Existing frontend observation parser
+still accepts the old ten-field diagnostics object. Diagnostic reads preserved
+revision/desired state; final original profile/Routing restored, one core/TUN,
+zero auxiliary cores, verified controller configuration, no manual recovery.
+
+The first post-update reconnect returned a rejection and left a verified clean
+disconnected state. Human reported authorization accepted/settled. A separate
+attended restore on the same binary passed (135 ms); the initial cause was not
+captured and is **not** labelled fixed or attributed to DNS/provider/policy.
+The diagnostic read gate passes; this is not a blanket network-reliability test.
+
+No persistent firewall damage was induced to create a positive counter. Zero
+counters are data, not proof that setup is healthy. The reported kernel/firewall
+scenario is still unreproduced and no routing workaround is accepted. Such a
+change needs affected-host reproduction; normal collector/IPC acceptance here
+uses the supported ARM64 VM.
