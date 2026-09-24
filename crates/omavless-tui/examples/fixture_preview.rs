@@ -13,6 +13,16 @@ fn main() {
             return Err(omavless_tui::model::ReadError::Unavailable);
         }
         let mut response = support::response(r);
+        if scenario == "subscriptions" && r == omavless_tui::client::Read::Snapshot {
+            response["result"]["subscriptions"][0]["updatedAt"] =
+                serde_json::json!(1_790_000_000_000_u64);
+            response["result"]["profiles"][1]["missing"] = true.into();
+            for i in 1..64 {
+                response["result"]["subscriptions"].as_array_mut().unwrap().push(serde_json::json!({
+                    "id":format!("fixture-sub-{i}"),"name":format!("Empty subscription {i}"),"updatedAt":0
+                }));
+            }
+        }
         if matches!(
             r,
             omavless_tui::client::Read::Snapshot | omavless_tui::client::Read::Observation

@@ -234,12 +234,13 @@ impl App {
                 KeyCode::Char('r') => return Action::Refresh,
                 KeyCode::Char('?') => self.help = true,
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.inspection_scroll = (self.inspection_scroll + 1).min(24)
+                    self.inspection_scroll = self.inspection_scroll.saturating_add(1)
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.inspection_scroll = self.inspection_scroll.saturating_sub(1)
                 }
                 KeyCode::Home => self.inspection_scroll = 0,
+                KeyCode::End => self.inspection_scroll = u16::MAX,
                 KeyCode::Esc => {
                     self.page = crate::inspection::Page::Profiles;
                     return Action::Refresh;

@@ -42,6 +42,7 @@ fn grouped_navigation_preserves_feed_order_and_record_identity() {
     s.metadata.subscriptions.push(Subscription {
         id: "second-sub".into(),
         name: "Second subscription".into(),
+        updated_at: None,
     });
     s.metadata.profiles.insert(
         0,

@@ -13,6 +13,21 @@ use ratatui::{
 };
 use std::time::Instant;
 
+/// Retain the actual wrapped scroll offset before the next key event, so Up
+/// immediately works after End, resize or replacement by a shorter snapshot.
+pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
+    if app.page == crate::inspection::Page::Profiles || app.help || app.confirmation.is_some() {
+        return;
+    }
+    let body_height = height.saturating_sub(if app.actions_enabled { 15 } else { 12 });
+    let paragraph = Paragraph::new(inspection_lines(app, now)).wrap(Wrap { trim: false });
+    let limit = paragraph
+        .line_count(width.saturating_sub(2))
+        .saturating_sub(body_height as usize)
+        .min(u16::MAX as usize) as u16;
+    app.inspection_scroll = app.inspection_scroll.min(limit);
+}
+
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     let tr = |key| app.locale.text(key);
     let status = app.status(now);
@@ -185,19 +200,21 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         );
     } else if app.page != crate::inspection::Page::Profiles {
         let lines = inspection_lines(app, now);
-        // Even at a large viewport/key-repeat, never scroll past all content.
-        let scroll = app
-            .inspection_scroll
-            .min(lines.len().saturating_sub(1) as u16);
+        // Count rendered rows, including wrapping: End must show the last
+        // subscription, not an empty trailing line or an unreachable tail.
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        let height = sections[1].height.saturating_sub(2) as usize;
+        let max_scroll = paragraph
+            .line_count(sections[1].width.saturating_sub(2))
+            .saturating_sub(height)
+            .min(u16::MAX as usize) as u16;
+        let scroll = app.inspection_scroll.min(max_scroll);
         frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .scroll((scroll, 0))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(tr(app.page.key())),
-                ),
+            paragraph.scroll((scroll, 0)).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tr(app.page.key())),
+            ),
             sections[1],
         );
     } else {
@@ -498,6 +515,48 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 Line::from(tr("tui.health")),
                 Line::from(tr("tui.no_killswitch")),
             ]
+        }
+        Page::Subscriptions => {
+            let mut lines = vec![Line::from(tr("tui.subscription_scope"))];
+            if s.metadata.subscriptions.is_empty() {
+                lines.push(Line::from(tr("tui.no_subscriptions")));
+            }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| u64::try_from(d.as_millis()).ok());
+            for sub in &s.metadata.subscriptions {
+                let profiles: Vec<_> = s
+                    .metadata
+                    .profiles
+                    .iter()
+                    .filter(|p| p.subscription_id.as_ref() == Some(&sub.id))
+                    .collect();
+                let missing = profiles.iter().filter(|p| p.missing).count();
+                let (key, count) =
+                    crate::inspection::saved_age(sub.updated_at, now_ms.unwrap_or(0));
+                let age = count.map_or_else(
+                    || tr(key).to_owned(),
+                    |n| {
+                        // Only this bounded numeric slot is interpolated; private
+                        // provider text never becomes a format string.
+                        tr(key).replace("{count}", &n.to_string())
+                    },
+                );
+                lines.push(
+                    Line::from(display(&sub.name, 80))
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                );
+                lines.push(Line::from(format!(
+                    "  {}: {} · {}: {missing}",
+                    tr("tui.saved_profiles"),
+                    profiles.len(),
+                    tr("tui.feed_missing_count")
+                )));
+                lines.push(Line::from(format!("  {}: {age}", tr("tui.saved_update"))));
+                lines.push(Line::from(""));
+            }
+            lines
         }
         Page::Profiles => Vec::new(),
     }

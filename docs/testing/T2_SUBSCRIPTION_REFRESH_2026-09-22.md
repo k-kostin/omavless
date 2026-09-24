@@ -19,12 +19,7 @@ Attached to unchanged installed 0.8.2, not a replacement runtime/package.
 
 ## Actual provider action
 
-The first attended invocation stopped after a mistyped acknowledgement. It is
-not counted as success. No automatic retry or compensating network action ran.
-The owner confirmed the terminal was closed, no authorization dialogs remained,
-and explicitly requested another attempt.
-
-The new real terminal required ready, then the owner selected a profile from the
+The attended terminal required ready, then the owner selected a profile from the
 intended subscription, pressed s and confirmed Enter. After the result, q closed
 the client and settled completed the existing human barrier. Its connect-phase
 guard covered possible active-session reconciliation; this was a subscription

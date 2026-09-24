@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-09-22. This is the compact current-state entry point; the detailed
+Updated 2026-09-24. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -16,8 +16,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
   live traffic, details, diagnostics and theme presentation; closing the client
   preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
-  without changing the active profile/mode. Empty-feed/refresh-all/last-success
-  UX, probes and the remaining MVP stay separate work, not implicitly accepted.
+  without changing the active profile/mode. The next read-only overview shows
+  empty subscriptions, saved/missing profile counts and saved-list age through
+  the existing snapshot. Empty-feed refresh, refresh-all, attempt history,
+  probes and the remaining MVP stay separate work, not implicitly accepted.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including

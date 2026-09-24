@@ -9,6 +9,7 @@ pub enum Page {
     Traffic,
     Details,
     Diagnostics,
+    Subscriptions,
 }
 impl Page {
     pub fn next(self, reverse: bool) -> Self {
@@ -17,9 +18,10 @@ impl Page {
             Self::Traffic,
             Self::Details,
             Self::Diagnostics,
+            Self::Subscriptions,
         ];
         let index = pages.iter().position(|p| *p == self).unwrap_or(0);
-        pages[(index + if reverse { 3 } else { 1 }) % pages.len()]
+        pages[(index + if reverse { pages.len() - 1 } else { 1 }) % pages.len()]
     }
     pub fn key(self) -> &'static str {
         match self {
@@ -27,7 +29,29 @@ impl Page {
             Self::Traffic => "tui.traffic",
             Self::Details => "tui.details",
             Self::Diagnostics => "tui.diagnostics",
+            Self::Subscriptions => "tui.subscriptions",
         }
+    }
+}
+
+/// Saved metadata age, not last network attempt or a health assertion. The
+/// owner's millisecond timestamp is also a monotonic commit token, so a future
+/// value (clock rollback included) must not be rendered as "just updated".
+pub fn saved_age(updated_at: Option<u64>, now_ms: u64) -> (&'static str, Option<u64>) {
+    let Some(age) = updated_at
+        .filter(|n| *n > 0)
+        .and_then(|n| now_ms.checked_sub(n))
+    else {
+        return ("tui.metric_unavailable", None);
+    };
+    if age < 60_000 {
+        ("tui.age_recent", None)
+    } else if age < 3_600_000 {
+        ("tui.age_minutes", Some(age / 60_000))
+    } else if age < 86_400_000 {
+        ("tui.age_hours", Some(age / 3_600_000))
+    } else {
+        ("tui.age_days", Some(age / 86_400_000))
     }
 }
 
