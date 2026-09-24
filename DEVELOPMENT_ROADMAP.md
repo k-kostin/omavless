@@ -346,14 +346,21 @@ abandoning the plugin.
 
 ### Native follow-up triage — review and scope the issues
 
-State: **owner-requested triage queue, 2026-09-22; implementation not selected**.
+State: **mandatory RC 0.9.0 work under owner direction, 2026-09-24**.
+
+T2 completion is not RC readiness. Work through #272 → #271 → #270, reconcile
+#135 against the native #132 scenario, and adapt #30 to Rust before proposing
+0.9.0 promotion. See the [mandatory gate ledger](docs/development/RC_090.md#additional-mandatory-owner-gates--september-24).
+Do not close these gates merely by recording a plan. Implement justified fixes
+and retain applicable installed/security evidence. V0 unavailable families remain
+explicitly unvalidated; native harness acceptance does not invent credentials.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
 They adapt observations from the JaguarKovalev legacy fork to the Rust-owned
 0.8.2 baseline; fork reports are not native host acceptance. This queue does
-not change release priorities, expand the read-only T2a work in #269, reopen
-R6 or close AUTO-1/V0/network follow-ups.
+not reopen R6 or close AUTO-1/V0/network follow-ups by association. It now
+precedes RC readiness; the earlier read-only T2a scope is historical.
 
 | Issue to review | Existing track | Expected triage output |
 | --- | --- | --- |

@@ -44,6 +44,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-ipc-reads.js"
   node "$here/test-native-no-python.js"
   node "$here/test-native-connection-test.js"
+  node "$here/test-probe-semantics.js"
   node "$here/test-native-import.js"
   node "$here/test-native-subscriptions.js"
   node "$here/test-native-routing.js"
