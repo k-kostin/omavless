@@ -1,7 +1,7 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: R6 prerequisite satisfied; opt-in T2 client checkpoints are integrated
-in RC, not the packaged T2 MVP. Updated 2026-09-24.
+Status: bounded T2 MVP accepted for RC, not a published stable package.
+Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
 adds explicit connection/mode confirmations; installed acceptance is a separate
@@ -15,11 +15,18 @@ Runtime/API authority: [`CONTROL_PLANE.md`](CONTROL_PLANE.md).
 Host authority: [`PLATFORM.md`](PLATFORM.md).
 
 Current implementation checkpoint, 2026-09-24: R6's native prerequisite is
-satisfied. Opt-in T2a–f (read-only status, explicit connection/mode controls,
+satisfied. The [T2 MVP completion candidate](../development/T2_MVP.md) now adds
+empty-feed/refresh-all operation UX, selected/all profile checks, count-only
+connections, richer saved profile categories, default TUI builds and main-footer
+Open app below Profile actions. Its bounded MVP acceptance is complete;
+release package/pairing and publication remain separate. Stable main
+and immutable 0.8.2 assets/pins remain unchanged.
+
+Earlier opt-in T2a–f (read-only status, explicit connection/mode controls,
 grouped browsing/favorites, traffic/details/diagnostics, theme following and
 confirmed single-subscription refresh) are integrated in the next
 [RC candidate](../development/RC_090.md), not published main/default packages.
-The remaining MVP below is still a delivery checklist, not a shipped feature
+The MVP below defines the accepted development scope, not a shipped 0.9.0
 claim. Historical pre-R6 wording does not reopen accepted migration gates.
 See the [combined inspection evidence](../testing/T2_INSPECTION_THEME_2026-09-22.md).
 
@@ -28,8 +35,10 @@ The integrated read-only checkpoint #281 adds a Subscriptions page from the exis
 counts and saved-list age. It sends no provider request; `r` reloads local
 metadata only. Zero/missing/future timestamps are unavailable, not successful
 refresh evidence. EN/RU and wrapped scrolling cover the full 64-subscription
-bound. Empty-feed refresh, refresh-all and last-attempt/error history remain
-separate mutation/operation work. No installed package or runtime changes.
+bound. Empty-feed refresh, refresh-all and session attempt context were separate
+mutation/operation work at this checkpoint; they are implemented in the newer
+candidate above, with their own recorded acceptance. No installed package or
+runtime changes were implied by the original read-only checkpoint.
 See [ARM64 read-only acceptance](../testing/T2_SUBSCRIPTION_OVERVIEW_2026-09-24.md).
 
 The integrated session-activity client checkpoint #282 keeps up to 32 typed events
@@ -288,7 +297,15 @@ socket use is impractical, but both paths hit the same Rust runtime.
 
 ## 9. Launch and Omarchy integration
 
-After T2, the plugin exposes `Open app`.
+The T2 completion candidate places `Open app` on the main panel below Profile
+actions, outside list scrolling (owner direction, 2026-09-24), not in Settings.
+It enables the button only when the
+installed executable answers the fixed local `omavless tui --available` probe
+with `omavless.tui.v1`. Older/absent packages receive update guidance instead of
+a broken action. The probe has no daemon/private-store effects. Normal candidate
+builds include TUI by default; an explicitly headless build can opt out using
+`--no-default-features`. These are candidate changes pending installed acceptance,
+not a change to published 0.8.2 artifacts.
 
 Current launcher contract:
 
@@ -306,9 +323,12 @@ Requirements:
 - if a future Omarchy release changes launcher spelling, update only the
   frontend adapter.
 
-If runtime is down, the TUI may request startup of packaged user service under a
-bounded deadline, then negotiate `system.hello`. Failure opens doctor/remediation
-view; TUI never falls back to direct Mihomo start.
+The current candidate does not implicitly start a stopped runtime. It opens the
+normal unavailable/remediation presentation and keeps local help/settings usable.
+A separately reviewed future startup action may request the packaged service;
+TUI never falls back to direct Mihomo start. Open app passes literal arguments
+only, performs no package installation or privilege escalation, and uses the
+same stable app ID for launch and focus.
 
 ## 10. Distribution boundary
 

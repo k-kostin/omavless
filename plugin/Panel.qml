@@ -713,6 +713,7 @@ Panel {
       if (page === "main") targets = targets.concat(nativeRequiredComponents.focusTargets)
       if (page === "main" || page === "subscription")
         targets = targets.concat([rowPin, rowRename, rowEdit, rowQr, rowExport, rowDetails, rowDelete])
+      if (page === "main") targets = targets.concat([nativeOpenAppButton, nativeAppRefresh])
       return targets
     }
     if (page === "subscriptions") return [
@@ -1759,7 +1760,7 @@ Panel {
     // endpoint can still outgrow it — that is what the tooltip is for.
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(
-      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
+      root.bootstrapRequired ? setupPage.implicitHeight : onboardingWizard.visible ? Style.space(600) : root.page === "diagnostics" ? advancedDiagnosticsPage.implicitHeight : vless.nativeOwner ? nativeColumn.implicitHeight + (nativeProfileActions.visible ? nativeProfileActions.height + Style.space(12) : 0) + (nativeAppFooter.visible ? nativeAppFooter.height + Style.space(12) : 0) : root.page === "subscriptions" ? subscriptionsColumn.implicitHeight
         : (root.page === "settings" ? settingsColumn.implicitHeight
           : (root.page === "diagnostics"
             ? advancedDiagnosticsPage.implicitHeight : column.implicitHeight)),
@@ -2482,7 +2483,8 @@ Panel {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.rightMargin: root.scrollGutter
-        anchors.bottom: parent.bottom
+        anchors.bottom: nativeAppFooter.visible ? nativeAppFooter.top : parent.bottom
+        anchors.bottomMargin: nativeAppFooter.visible ? Style.space(12) : 0
         height: nativeProfileActionsContent.implicitHeight + Style.space(20)
         color: "transparent"
         radius: 0
@@ -2515,6 +2517,55 @@ Panel {
             Item { Layout.fillWidth: true }
             OmaNavigationButton { id: rowDelete; iconText: "󰆴"; tooltipText: root.textFor("common.delete"); focusable: true; enabled: nativeProfileActions.canAct && !nativeProfileActions.record.managed; onClicked: root.requestDelete(nativeProfileActions.record) }
           }
+        }
+      }
+
+      // Global navigation, not an action on the selected profile. Keep it
+      // below the fixed management dock and outside profile-list scrolling.
+      ColumnLayout {
+        id: nativeAppFooter
+        visible: !root.bootstrapRequired && vless.nativeOwner && root.page === "main"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.rightMargin: root.scrollGutter
+        anchors.bottom: parent.bottom
+        spacing: Style.space(6)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+          Button {
+            id: nativeOpenAppButton
+            Layout.fillWidth: true
+            text: root.textFor("native.app.open")
+            tooltipText: root.textFor("native.app.scope")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: vless.nativeAppAvailable && !vless.nativeAppChecking && !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: { if (vless.openNativeApp()) root.close() }
+          }
+          Button {
+            id: nativeAppRefresh
+            visible: !vless.nativeAppAvailable && !vless.nativeAppChecking
+            text: root.textFor("common.refresh")
+            fontFamily: root.fontFamily
+            bordered: true
+            focusable: true
+            enabled: !vless.nativeAppOpening
+            Keys.onPressed: function(event) { root.handlePanelControlKey(event) }
+            onClicked: vless.refreshNativeAppAvailability()
+          }
+        }
+        PlainText {
+          Layout.fillWidth: true
+          visible: vless.nativeAppLaunchFailed || !vless.nativeAppAvailable
+          text: root.textFor(vless.nativeAppLaunchFailed ? "native.app.failed"
+            : vless.nativeAppChecking ? "common.loading" : "native.app.unavailable")
+          color: vless.nativeAppLaunchFailed ? root.urgent : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
         }
       }
 

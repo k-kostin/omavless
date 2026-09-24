@@ -30,6 +30,7 @@ rustup toolchain install 1.98.0 --profile minimal --component clippy,rustfmt
 } > "$artifacts/build-provenance.txt"
 cargo build --release --locked -p omavless-runtime --bin omavless 2>&1 | tee "$artifacts/build.log"
 "$CARGO_TARGET_DIR/release/omavless" --help > "$artifacts/cli-help.txt"
+[[ $("$CARGO_TARGET_DIR/release/omavless" tui --available) == omavless.tui.v1 ]]
 readelf -h "$CARGO_TARGET_DIR/release/omavless" > "$artifacts/elf-header.txt"
 mkdir -m 700 "$build_root/assembled"
 python3 packaging/release/build-candidate.py "$build_root/assembled" \

@@ -50,6 +50,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-batch.js"
   node "$here/test-native-support.js"
   node "$here/test-native-settings-readiness.js"
+  node "$here/test-native-open-app.js"
   node "$here/test-native-startup-ui.js"
   node "$here/test-native-file-export.js"
   node "$here/test-native-routing-panel.js"

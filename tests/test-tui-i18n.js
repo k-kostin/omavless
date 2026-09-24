@@ -2,6 +2,9 @@
 const assert = require("assert");
 const catalog = require("../crates/omavless-tui/locales.json");
 const qml = require("../plugin/I18n.js");
+// This action also targets an empty feed directly; no selected profile exists.
+assert.strictEqual(catalog["tui.refresh_subscription"].en, "Refresh subscription");
+assert.strictEqual(catalog["tui.refresh_subscription"].ru, "Обновить подписку");
 for (const [key,entry] of Object.entries(catalog)) {
   for (const locale of ["en","ru"]) {
     assert(typeof entry[locale] === "string" && entry[locale].length > 0 && entry[locale].length <= 200);

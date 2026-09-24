@@ -59,11 +59,37 @@ configuration files can contain private metadata and are not shareable reports.
 Main-screen Test and latency sections are intentionally hidden for later
 improvement; their absence is not evidence of a broken core.
 
+## Open the terminal application (0.9.0 candidate)
+
+This section describes the development candidate, not the published 0.8.2 package.
+With a TUI-enabled application installed, **Open app** appears below the fixed
+Profile actions area on the main panel. It opens the terminal application or
+focuses its existing window. It does not start a second VPN or automatically
+start a stopped runtime. If unavailable, follow the displayed package/setup
+guidance rather than starting another core manually.
+
+In the terminal, Tab / Shift+Tab switch pages; `?` shows help. Select a profile
+with arrows, then `c` to connect; `d` disconnects. `1` / `2` / `3` select Full VPN,
+Routing or Direct. Network changes require a separate Enter confirmation;
+Escape cancels. The connected identity is independent of the selected row.
+
+On Subscriptions, `n` / `p` select the source, `s` refreshes it and `S` refreshes
+all. `r` only reloads the local view. On Profiles, `t` checks the selected
+profile and `T` checks all available profiles. These are HTTPS delay checks,
+not ICMP or whole-system DNS/leak tests. On Checks and updates, `x` requests
+cancellation; wait for the runtime's confirmed result. Unknown outcomes must
+not be retried as a new action blindly.
+
+`,` opens session Settings for language and theme. Closing with `q` or closing
+the terminal leaves the VPN and accepted background work running. The plugin
+remains available for import, editing and routing management.
+
 ## Close, disconnect, Quit
 
 | Action | Effect |
 | --- | --- |
 | Close panel / restart shell | Leaves the requested tunnel running |
+| Close terminal application | Leaves the requested tunnel and accepted background jobs running |
 | Disconnect | Stops the current VPN connection; keeps the plugin/runtime available |
 | Settings → Shut down OmaVLESS / Quit | Confirms shutdown, verifies core/TUN cleanup, then stops/disables runtime and plugin; preserves private data and installed files |
 

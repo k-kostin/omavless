@@ -3,10 +3,10 @@
 Status: active delivery ledger; stable release updated 2026-09-22.
 
 **Development candidate, not a main update:** the next `rc/0.9.0` includes
-checked T2a–f and reconciled workflow/triage documentation. Its
+the accepted T2 MVP and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
-excluded work. T2 remains incomplete; version tags/assets and installed stable
-0.8.2 are unchanged. Main remains frozen at the submitted marketplace SHA until
+excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
+published 0.8.2 tags/assets are unchanged. Main remains frozen at the submitted marketplace SHA until
 another explicit owner instruction, including for documentation-only changes.
 
 **Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
@@ -1148,22 +1148,38 @@ native R6 closure.
 
 ### T2 — Rust + Ratatui TUI MVP
 
-State: **native R6 prerequisite satisfied; opt-in T2 checkpoints integrated in
-rc/0.9.0, full MVP pending**. The [initial bounded client scope](docs/development/T2_READONLY_CLIENT.md)
+State: **bounded MVP accepted for rc/0.9.0; stable publication separate**.
+See [combined acceptance and limits](docs/testing/T2_MVP_2026-09-24.md).
+The [initial bounded client scope](docs/development/T2_READONLY_CLIENT.md)
 adds no mutations, plugin launcher, default package feature or new runtime owner.
 The dependent [T2b candidate](docs/development/T2_CONNECTION_ACTIONS.md) adds
 confirmed connection/mode commands through the existing owner. Both checkpoints
-remain opt-in development work; no main/release promotion is implied.
+were opt-in development work; their original evidence is retained below.
 [T2c browsing](docs/development/T2_GROUPED_BROWSING.md) adds grouped subscription
 profiles and a local favorites filter on top, without additional runtime methods.
 The subsequent RC includes traffic/details/diagnostics, theme following and
 attended single-subscription refresh. A read-only Subscriptions overview now
 adds empty-feed visibility and saved-list age without provider I/O; see the
-[current TUI contract](docs/roadmap/TUI_APP.md). Full T2 remains incomplete.
+[current TUI contract](docs/roadmap/TUI_APP.md). These slices are now completed
+by the combined MVP checkpoint below, not independently relabelled releases.
 The integrated client includes bounded session-only activity without raw daemon
 logs or persistence; current health stays separate from historical events.
 Session Settings adds in-window language/theme overrides and reset, with no
 runtime mutations or persistence. Startup/environment defaults remain intact.
+
+[PR #284](https://github.com/k-kostin/omavless/pull/284), targeting RC rather
+than main, implements the remaining [MVP operations and package boundary](docs/development/T2_MVP.md):
+selected/all profile checks, direct empty-feed and batch refresh, attempt state,
+allowlisted profile categories, active-connection count, default TUI packaging
+and Open app. Exact source `02a5a13b807aab8d984f37cc49e20eab71374942`
+passed 1,098 Rust tests (11 ignored), both package CI architectures and the
+attended ARM64 package update with matching frontend. The final frontend source
+`4e9960f1badf13f4426a4f49a4a7447d604d48f0` fixes first-window launch and keeps
+Open app in the main footer below Profile actions. Combined connection/job,
+cross-client conflict, cancellation, restart, rendering and launch/focus gates
+passed within the limits of the linked acceptance report. **T2 MVP is accepted;
+main promotion is not authorized.** The VM uses a local developer package;
+published 0.8.2 packages and release metadata remain unchanged.
 
 The first full application UI is Rust + Ratatui, using a reviewed terminal
 backend such as Crossterm. It is a client of the already accepted Rust runtime;

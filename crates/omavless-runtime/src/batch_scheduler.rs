@@ -15,6 +15,8 @@ pub(super) const METHODS: &[&str] = &[
     "subscriptions.refresh_all",
     "subscriptions.probe",
     "subscriptions.probe_results",
+    "profiles.probe",
+    "profiles.probe_results",
     "routing.refresh_providers",
     "operations.get",
     "operations.cancel",

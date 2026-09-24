@@ -7,6 +7,8 @@ pub mod browsing;
 pub mod client;
 pub mod i18n;
 pub mod inspection;
+pub mod job_ui;
+pub mod jobs;
 pub mod model;
 pub mod settings;
 pub mod theme;
@@ -35,6 +37,7 @@ pub fn run(
     run_client(
         read,
         None::<fn(&actions::Request) -> Result<Value, ReadError>>,
+        None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
     )
 }
 
@@ -44,12 +47,26 @@ pub fn run_actions(
     read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate))
+    run_client(
+        read,
+        Some(mutate),
+        None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
+    )
+}
+
+/// All three adapters contact the same owner; jobs use fixed unary calls.
+pub fn run_full(
+    read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
+    mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
+    jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
+) -> Result<(), &'static str> {
+    run_client(read, Some(mutate), Some(jobs))
 }
 
 fn run_client(
     mut read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
     mutate: Option<impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static>,
+    jobs: Option<impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static>,
 ) -> Result<(), &'static str> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
@@ -87,15 +104,20 @@ fn run_client(
                 .map_err(|_| "Could not initialize terminal signal handling")?,
         );
     }
-    let (request, requests) = mpsc::sync_channel::<inspection::Page>(1);
+    let (request, requests) = mpsc::sync_channel::<(inspection::Page, Option<String>)>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while let Ok(page) = requests.recv() {
+            while let Ok((page, selected)) = requests.recv() {
                 let started = Instant::now();
                 if results
-                    .send((started, page, client::load_page(&mut read, page)))
+                    .send((
+                        started,
+                        page,
+                        selected.clone(),
+                        client::load_page_for(&mut read, page, selected.as_deref()),
+                    ))
                     .is_err()
                 {
                     break;
@@ -138,6 +160,21 @@ fn run_client(
         })
         .map_err(|_| "Could not start terminal theme reader")?;
     app.actions_enabled = mutate.is_some();
+    app.jobs_enabled = jobs.is_some();
+    let (job_calls, job_requests) = mpsc::sync_channel::<(job_ui::Phase, jobs::Call)>(1);
+    let (job_results, job_responses) = mpsc::sync_channel(1);
+    if let Some(mut call) = jobs {
+        thread::Builder::new()
+            .name("tui-job".into())
+            .spawn(move || {
+                while let Ok((phase, request)) = job_requests.recv() {
+                    if job_results.send((phase, call(&request))).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "Could not start terminal job client")?;
+    }
     let (submit, submissions) = mpsc::sync_channel::<actions::Request>(1);
     let (finished, finishes) = mpsc::sync_channel(1);
     if let Some(mut mutate) = mutate {
@@ -157,6 +194,19 @@ fn run_client(
     let mut pending = false;
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
+        if let Ok((phase, value)) = job_responses.try_recv() {
+            if let Some(job) = &mut app.job {
+                job.accept(phase, value);
+            }
+            due = now;
+        }
+        if let Some(job) = &mut app.job
+            && let Some(phase) = job.next(now)
+            && let Some(call) = job.call(phase)
+            && job_calls.try_send((phase, call)).is_err()
+        {
+            job.accept(phase, Err(ReadError::Unavailable));
+        }
         if let Ok(palette) = palette_updates.try_recv() {
             app.update_palette(palette);
         }
@@ -164,16 +214,16 @@ fn run_client(
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, page, result)) = receive.try_recv() {
+        if let Ok((started, page, selected, result)) = receive.try_recv() {
             app.accept(result, started);
             pending = false;
-            due = if page == app.page {
+            due = if page == app.page && selected == app.selected {
                 now + Duration::from_secs(3)
             } else {
                 now
             };
         }
-        if !pending && now >= due && request.try_send(app.page).is_ok() {
+        if !pending && now >= due && request.try_send((app.page, app.selected.clone())).is_ok() {
             pending = true;
         }
         terminal
@@ -188,6 +238,20 @@ fn run_client(
                 Action::Close => break,
                 Action::Refresh => due = Instant::now(),
                 Action::None => {}
+                action @ (Action::StartJob | Action::PollJob | Action::CancelJob) => {
+                    let phase = match action {
+                        Action::StartJob => job_ui::Phase::Start,
+                        Action::CancelJob => job_ui::Phase::Cancel,
+                        _ => job_ui::Phase::Poll,
+                    };
+                    if let Some(job) = &mut app.job
+                        && (action != Action::PollJob || job.tracker.manual_poll_due(now))
+                        && let Some(call) = job.call(phase)
+                        && job_calls.try_send((phase, call)).is_err()
+                    {
+                        job.accept(phase, Err(ReadError::Unavailable));
+                    }
+                }
                 Action::Submit => {
                     if let Some(request) = app.pending.clone()
                         && submit.try_send(request).is_err()
