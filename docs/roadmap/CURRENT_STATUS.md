@@ -6,6 +6,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Owner-required RC completion gates, September 24:** T2 acceptance alone
+  does not make 0.9.0 ready. Work through #272, #271, #270, the native disposition
+  of #135/#132 and Rust adaptation of #30 before proposing main promotion.
+  See [mandatory gates](../development/RC_090.md#additional-mandatory-owner-gates--september-24).
+  The [#272 candidate](../development/PROBE_SEMANTICS.md) corrects actual probe
+  presentation; installed review is separate from deterministic tests.
+  Missing V0 fixtures remain gaps, not a protocol-maturity promotion.
+
 - **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
   the read-only subscription overview (#281), local session activity (#282),
   session-local language/theme settings (#283), the accepted T2 MVP (#284),
@@ -299,11 +307,11 @@ replay, not a supported fallback or second native lifecycle owner.
    Do not silently bump/publish packages or main. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
-Additional triage backlog: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
+Additional mandatory RC work: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
 for scoped DNS authorization (#270), network-setup diagnostics/compatibility
-(#271), and ICMP/HTTPS result semantics (#272). Their next action is analysis
-and scope selection, not immediate implementation or a change to the priority
-order above. Existing native readiness checks remain accepted.
+(#271), and ICMP/HTTPS result semantics (#272). The September 24 owner direction
+makes their disposition and applicable implementation/acceptance mandatory
+before RC readiness. Existing native readiness checks remain accepted.
 
 Historical acceptance reports retain their original heads and outcomes. Their
 old "Python still owns production", "R5 incomplete" or "publication withheld"

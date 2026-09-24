@@ -1358,7 +1358,12 @@ Item {
   function finishNativePing(context, code, output) {
     if (!nativePingCurrent(context)) return
     var result = code === 0 ? NativeSnapshot.parsePing(output, context) : null
-    if (!result || !result.available) { nativePingStatus = "unavailable"; return }
+    if (!result || !result.available) {
+      // Unavailable is not packet loss; do not revive an older successful
+      // window while the next request is pending.
+      nativePingSamples = []; _nativePingReceivedAt = 0
+      nativePingStatus = "unavailable"; return
+    }
     var next = nativePingSamples.slice()
     next.push(result.value)
     while (next.length > 10) next.shift()
