@@ -170,7 +170,7 @@ Panel {
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
   property var nativeExpanded: ({})
-  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed)
+  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed, vless.nativePending, vless.nativeOutcomeUnknown)
   readonly property var nativeActiveProfile: NativePresentation.activeProfile(nativeView)
   readonly property var nativeActionProfile: nativeView.profiles.find(function(p) { return p.id === root.nativeSelectedProfile }) || null
   readonly property bool nativeSelectionConnectable: nativeView.profiles.some(function(p) { return p.id === (root.nativeSelectedProfile || nativeView.lastProfileId) && !p.missing })
@@ -2068,9 +2068,9 @@ Panel {
             visible: root.page === "main" || root.page === "settings"
             Layout.fillWidth: true
             spacing: Style.space(6)
-            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.mode === "global" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
-            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.mode === "rule" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
-            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
+            Button { id: nativeGlobal; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("global"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "global" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "global"; onClicked: vless.requestNativeAction("mode", "", "global") }
+            Button { id: nativeRule; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("rule"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "rule" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "rule"; onClicked: vless.requestNativeAction("mode", "", "rule") }
+            Button { id: nativeDirect; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.nativeModeLabel("direct"); foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "direct" ? Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeView.mode !== "direct"; onClicked: vless.requestNativeAction("mode", "", "direct") }
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("native.settings.modeHelp"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow {
