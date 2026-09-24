@@ -42,7 +42,15 @@ Production-function regressions cover pending, unknown, stale and recovery,
 successful/restored mode and disconnected preference. Existing Service admission,
 duplicate click, stale reply and rollback tests remain applicable.
 
-Before acceptance: developer/QML suites, exact-head EN/RU isolated rendering of
-confirmed/pending/recovery and restored states, installed frontend identity and
-preserved real runtime state. Synthetic states are not real authorization tests.
-No core restart or VPN transition is needed merely to verify this visual signal.
+Implementation `2e8a070edc40edcb39838957995c95fe1627e8e9` passed the developer
+suite (276 tests, two expected skips), QML contracts/load, plugin validation and
+diff checks. Twelve production-presentation checks cover the mode signal.
+The installed Panel/NativePresentation files match this exact implementation.
+
+Isolated production-QML captures were visually reviewed: confirmed EN, pending
+RU, recovery EN/RU and restored RU. Recovery/pending has no confirmed mode accent;
+restored Routing regains its accent, with the existing layout and localized labels
+unchanged. Fixtures had no real credentials or host network access. Synthetic
+states are not real authorization tests. The live plugin remained enabled with
+the original connected Routing session, one owned core/TUN, no auxiliary core and
+no recovery requirement. No core restart was performed for this visual check.
