@@ -8,6 +8,7 @@ pub mod client;
 pub mod i18n;
 pub mod inspection;
 pub mod model;
+pub mod settings;
 pub mod theme;
 pub mod view;
 
@@ -157,7 +158,7 @@ fn run_client(
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if let Ok(palette) = palette_updates.try_recv() {
-            app.palette = palette;
+            app.update_palette(palette);
         }
         if let Ok(outcome) = finishes.try_recv() {
             app.finish(outcome, now);

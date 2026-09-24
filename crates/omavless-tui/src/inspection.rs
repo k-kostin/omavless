@@ -9,6 +9,7 @@ pub enum Page {
     Traffic,
     Details,
     Diagnostics,
+    Settings,
     Activity,
     Subscriptions,
 }
@@ -19,6 +20,7 @@ impl Page {
             Self::Traffic,
             Self::Details,
             Self::Diagnostics,
+            Self::Settings,
             Self::Activity,
             Self::Subscriptions,
         ];
@@ -31,6 +33,7 @@ impl Page {
             Self::Traffic => "tui.traffic",
             Self::Details => "tui.details",
             Self::Diagnostics => "tui.diagnostics",
+            Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
         }

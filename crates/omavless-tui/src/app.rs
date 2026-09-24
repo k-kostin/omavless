@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    pub settings: crate::settings::Settings,
     pub activity: Activity,
     pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
@@ -51,6 +52,7 @@ pub enum Action {
 impl App {
     pub fn new(locale: Locale) -> Self {
         Self {
+            settings: crate::settings::Settings::new(locale),
             activity: Activity::default(),
             palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
@@ -180,6 +182,10 @@ impl App {
             crate::browsing::visible(s, &self.query, self.favorites_only)
         })
     }
+    pub fn update_palette(&mut self, palette: crate::theme::Palette) {
+        self.settings.update_palette(palette);
+        self.palette = self.settings.palette();
+    }
     pub fn key(&mut self, key: KeyEvent) -> Action {
         self.key_at(key, Instant::now())
     }
@@ -249,6 +255,32 @@ impl App {
                 _ => {}
             }
             return Action::None;
+        }
+        // Local presentation controls never submit a command or clear a
+        // pending/unknown outcome. Modal/search handlers above retain priority.
+        if key.kind == KeyEventKind::Press
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            if key.code == KeyCode::Char(',') {
+                self.page = crate::inspection::Page::Settings;
+                self.inspection_scroll = 0;
+                return Action::None;
+            }
+            if self.page == crate::inspection::Page::Settings
+                && matches!(key.code, KeyCode::Char('l' | 't' | '0'))
+            {
+                match key.code {
+                    KeyCode::Char('l') => self.settings.next_language(),
+                    KeyCode::Char('t') => self.settings.next_theme(),
+                    KeyCode::Char('0') => self.settings.reset(),
+                    _ => {}
+                }
+                self.locale = self.settings.locale();
+                self.palette = self.settings.palette();
+                return Action::None;
+            }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
             self.page = self

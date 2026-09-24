@@ -23,6 +23,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   probes and the remaining MVP stay separate work, not implicitly accepted.
   The integrated TUI-only checkpoint #282 adds a 32-event in-memory session history,
   without private targets/raw logs, persistence or new runtime methods.
+  The next session-settings slice adds immediate window-local language/theme
+  choices, including offline use; installed package/plugin settings stay unchanged.
 
 - **September 22 release-snapshot workflow:** main stays at the owner-approved
   release snapshot until another explicit main-update instruction, including

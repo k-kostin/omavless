@@ -373,9 +373,17 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     if app.page != crate::inspection::Page::Profiles && app.confirmation.is_none() {
         footer = vec![
             Line::from(tr("tui.page_keys")),
-            Line::from(tr("tui.inspection_keys")),
+            Line::from(tr(if app.page == crate::inspection::Page::Settings {
+                "tui.settings_keys"
+            } else {
+                "tui.inspection_keys"
+            })),
             Line::from(tr(if app.notice.is_empty() {
-                "tui.readonly"
+                if app.page == crate::inspection::Page::Settings {
+                    "tui.settings_local"
+                } else {
+                    "tui.readonly"
+                }
             } else {
                 app.notice
             })),
@@ -393,6 +401,33 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     use crate::inspection::{Page, bytes};
     let tr = |key| app.locale.text(key);
     let field = |key, value: String| Line::from(format!("{}: {value}", tr(key)));
+    // Presentation settings work offline and never imply runtime readiness.
+    if app.page == Page::Settings {
+        let language = if app.settings.language == crate::settings::Language::Automatic {
+            format!(
+                "{} ({})",
+                tr(app.settings.language.key()),
+                tr(if app.locale == crate::i18n::Locale::Ru {
+                    "tui.language_ru"
+                } else {
+                    "tui.language_en"
+                })
+            )
+        } else {
+            tr(app.settings.language.key()).into()
+        };
+        return vec![
+            Line::from(tr("tui.settings_scope")),
+            Line::from(""),
+            field("tui.settings_language", language),
+            Line::from(tr("tui.language_hint")),
+            Line::from(""),
+            field("tui.settings_theme", tr(app.settings.theme.key()).into()),
+            Line::from(tr("tui.theme_hint")),
+            Line::from(""),
+            Line::from(tr("tui.settings_reset")),
+        ];
+    }
     // Session history remains readable when the daemon is unavailable/stale;
     // the separate header continues to describe current freshness/health.
     if app.page == Page::Activity {
@@ -577,6 +612,6 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             }
             lines
         }
-        Page::Profiles | Page::Activity => Vec::new(),
+        Page::Profiles | Page::Activity | Page::Settings => Vec::new(),
     }
 }

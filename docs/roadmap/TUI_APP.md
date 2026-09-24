@@ -41,6 +41,16 @@ or unavailable runtime within the current window, while the header remains the
 authority for current freshness. Closing the TUI discards history and leaves
 the runtime alone. This is not persistent logging or new daemon event streaming.
 
+The session-settings checkpoint adds a Settings page (`,` or the page cycle):
+`l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
+`0` restores both automatic choices. Changes are immediate and window-local;
+closing/reopening resets them. Automatic language retains the existing startup
+environment precedence and English fallback. Automatic theme continues tracking
+the existing bounded palette reader, even while a default override is selected.
+Settings work without a reachable runtime and never clear pending/unknown action
+state, change OS/plugin preferences, persist files or invoke extra IPC. This is
+the T2 presentation-settings entry point, not new VPN configuration management.
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with
