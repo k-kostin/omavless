@@ -41,7 +41,7 @@ or unavailable runtime within the current window, while the header remains the
 authority for current freshness. Closing the TUI discards history and leaves
 the runtime alone. This is not persistent logging or new daemon event streaming.
 
-The session-settings checkpoint adds a Settings page (`,` or the page cycle):
+The integrated session-settings checkpoint #283 adds a Settings page (`,` or the page cycle):
 `l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
 `0` restores both automatic choices. Changes are immediate and window-local;
 closing/reopening resets them. Automatic language retains the existing startup
