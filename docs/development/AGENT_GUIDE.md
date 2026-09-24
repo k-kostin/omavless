@@ -219,9 +219,14 @@ the change.
 - Preserve useful work on GitHub before ending an ephemeral/local VM session.
   Never leave the only copy of a useful commit or test report inside Try
   Omarchy.
-- After a PR merges or is conclusively superseded, delete its source branch and
-  prune remote-tracking refs. Keep branches for open evidence PRs, including a
-  long-lived Draft such as V0, until that PR is resolved.
+- After inclusion in an authorized main update, delete the source branch and
+  prune remote-tracking refs. An RC-only merge or closure of a duplicate source
+  PR does not by itself authorize deleting the independently reviewable evidence
+  branch: classify it as intentionally retained until main inclusion/cleanup.
+  Other conclusively superseded branches follow the canonical
+  [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle).
+  Keep branches for open evidence PRs, including a long-lived Draft such as V0,
+  until that PR is resolved.
 - Before deleting an unmerged branch with no active PR, inspect its unique
   commits and diff. Delete it only when the work is merged, explicitly closed,
   reproducibly superseded, or disposable automation with no unique durable

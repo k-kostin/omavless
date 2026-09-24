@@ -102,7 +102,9 @@ After inclusion in an authorized main update, delete the source branch and
 prune local remote-tracking refs. RC integration alone is not grounds to delete
 the only independently reviewable source/evidence branch.
 After closing a superseded PR, delete its branch once its unique commits have
-been classified. Temporary integration, recovery and CI-automation branches
+been classified, except source/evidence branches intentionally retained for
+RC-only integration until the authorized main update. Closing a duplicate PR
+does not erase this retention category. Temporary integration, recovery and CI-automation branches
 must be removed when their durable result is merged or recorded elsewhere.
 
 A cleanup audit classifies every retained branch as one of:
