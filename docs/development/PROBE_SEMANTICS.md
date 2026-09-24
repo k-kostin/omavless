@@ -48,7 +48,21 @@ HTTPS, unavailable versus measured loss, no stale sample revival, EN/RU result
 labels, untested rows and unchanged lifecycle state. Existing tests retain
 disconnect/profile/revision fencing and private-result bounds.
 
-Installed EN/RU subscription rendering and adjacent main-page review remain
-required before closing #272. Synthetic screenshots are presentation evidence,
-not provider interoperability or a new live network claim. Record exact source
-and actual results in the PR; do not repeat unchanged R6/T2 transitions.
+Try Omarchy ARM64 review of implementation `31c5cc9` passed: actual production
+QML rendered in an isolated Quickshell instance with the real Omarchy imports,
+theme and display. The read-only synthetic transport had no real home/store,
+runtime socket or network access. EN/RU subscription captures covered HTTPS
+success, timeout/failure and unresolved address together; adjacent main retained
+its hidden Test/latency sections and fixed controls. No clipping/overlap found.
+This is installed-stack rendering, not private-provider or live-probe evidence.
+
+The same frontend was installed atomically into the real plugin, with Panel,
+Service and catalog bytes verified. Plugin remained enabled; runtime revision 1,
+connected Routing, one core/TUN, zero auxiliaries and no manual recovery were
+unchanged before/after. No service restart, system authorization or VPN mutation
+occurred. The actual private provider batch is not repeated for a presentation
+change; its positive and negative measurements remain in T2 acceptance.
+
+Local developer suite: 276 tests, two optional skips; focused probe/ping/HTTPS,
+main-panel, localization, QML contracts, actual Quickshell compile, plugin
+validation and diff checks passed. Final source/CI identity is in PR #286.
