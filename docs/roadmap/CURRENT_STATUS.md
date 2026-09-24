@@ -6,6 +6,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.0-rc.1 prepared, not installed or published:** #292 aligns the candidate
+  version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
+  combined tests passed; the common frontend matches both build records. See
+  [artifact identities and remaining attended gate](../testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md).
+  No public pins/assets or main changes. The VM still runs the accepted #287
+  developer runtime; its prior live evidence is not relabelled as RC-package
+  acceptance. #288 is included as DNS investigation, not issue #270/#132 closure.
+
 - **Owner-required RC completion gates, September 24:** T2 acceptance alone
   does not make 0.9.0 ready. Work through #272, #271, #270, the native disposition
   of #135/#132 and Rust adaptation of #30 before proposing main promotion.
