@@ -172,3 +172,75 @@ fn both_languages_show_subscription_and_profile_before_confirmation() {
         assert!(!text.contains("fixture-sub") && !text.contains("fixture-b"));
     }
 }
+
+#[test]
+fn empty_feed_refresh_requires_its_own_selection_not_hidden_profile() {
+    let (mut a, now) = app();
+    a.page = Page::Subscriptions;
+    a.snapshot.as_mut().unwrap().metadata.profiles.truncate(1);
+    key(&mut a, KeyCode::Char('s'), now);
+    assert!(a.confirmation.is_none());
+    key(&mut a, KeyCode::Char('n'), now);
+    key(&mut a, KeyCode::Char('s'), now);
+    assert!(a.confirmation.is_some());
+    assert_eq!(a.confirm(now, "empty-refresh".into()), Action::Submit);
+    let p = a.pending.as_ref().unwrap().params();
+    assert_eq!(p["subscriptionId"], "fixture-sub");
+    assert!(p.get("profileId").is_none());
+    assert_eq!(a.subscription_attempts["fixture-sub"], "tui.action_pending");
+    a.finish(Outcome::Rejected("tui.action_denied"), now);
+    assert_eq!(a.subscription_attempts["fixture-sub"], "tui.action_denied");
+    assert!(
+        a.snapshot.as_ref().unwrap().metadata.subscriptions[0]
+            .updated_at
+            .is_none()
+    );
+}
+
+#[test]
+fn direct_subscription_confirmation_rejects_changed_target_or_context() {
+    for case in 0..7 {
+        let (mut a, now) = app();
+        a.page = Page::Subscriptions;
+        key(&mut a, KeyCode::Char('n'), now);
+        key(&mut a, KeyCode::Char('s'), now);
+        match case {
+            0 => a.selected_subscription = None,
+            1 => a.snapshot.as_mut().unwrap().metadata.subscriptions[0].name = "Changed".into(),
+            2 => a.snapshot.as_mut().unwrap().metadata.subscriptions.clear(),
+            3 => a.snapshot.as_mut().unwrap().revision += 1,
+            4 => a.page = Page::Profiles,
+            5 => a.sampled_at = Some(now - FRESH_FOR),
+            _ => a.snapshot.as_mut().unwrap().metadata.instance_id = "restarted".into(),
+        }
+        assert_eq!(
+            a.confirm(now, "empty-refresh".into()),
+            Action::None,
+            "case {case}"
+        );
+        assert!(a.pending.is_none());
+    }
+}
+
+#[test]
+fn direct_refresh_labels_subscription_not_a_profile_or_local_source() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut a, now) = app();
+        a.locale = locale;
+        a.page = Page::Subscriptions;
+        key(&mut a, KeyCode::Char('n'), now);
+        key(&mut a, KeyCode::Char('s'), now);
+        let mut t = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        t.draw(|f| view::draw(f, &a, now)).unwrap();
+        let text: String = t
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("Fixture subscription"));
+        assert!(!text.contains("Fixture Frankfurt"));
+        assert!(!text.contains("fixture-sub"));
+    }
+}

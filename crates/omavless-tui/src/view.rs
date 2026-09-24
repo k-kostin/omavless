@@ -20,7 +20,20 @@ pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
         return;
     }
     let body_height = height.saturating_sub(if app.actions_enabled { 15 } else { 12 });
-    let paragraph = Paragraph::new(inspection_lines(app, now)).wrap(Wrap { trim: false });
+    let lines = inspection_lines(app, now);
+    if app.page == crate::inspection::Page::Subscriptions && app.subscription_selection_moved {
+        if let Some(index) = lines
+            .iter()
+            .position(|line| line.to_string().starts_with("> "))
+        {
+            app.inspection_scroll = Paragraph::new(lines[..index].to_vec())
+                .wrap(Wrap { trim: false })
+                .line_count(width.saturating_sub(2))
+                .min(u16::MAX as usize) as u16;
+        }
+        app.subscription_selection_moved = false;
+    }
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     let limit = paragraph
         .line_count(width.saturating_sub(2))
         .saturating_sub(body_height as usize)
@@ -81,7 +94,13 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     let sections = Layout::vertical([
         Constraint::Length(5),
         Constraint::Min(3),
-        Constraint::Length(if app.actions_enabled { 8 } else { 5 }),
+        Constraint::Length(if app.confirmation.is_some() {
+            4
+        } else if app.actions_enabled {
+            8
+        } else {
+            5
+        }),
     ])
     .split(area);
     let active = app
@@ -135,8 +154,34 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Confirmation::New(command) => Some(command),
             Confirmation::Retry => app.pending.as_ref().map(|r| &r.command),
             Confirmation::Acknowledge { .. } => None,
+            Confirmation::Job(_) | Confirmation::CancelJob => None,
         };
         let mut lines = Vec::new();
+        let job_intent = match confirmation {
+            Confirmation::Job(intent) => Some(intent),
+            Confirmation::CancelJob => app.job.as_ref().map(|job| &job.intent),
+            _ => None,
+        };
+        if let Some(intent) = job_intent {
+            lines.push(Line::from(tr(intent.key())));
+            lines.push(Line::from(format!(
+                "{}: {} ({})",
+                tr("tui.target"),
+                if intent.label.is_empty() {
+                    tr("tui.all_saved").into()
+                } else {
+                    display(&intent.label, 80)
+                },
+                intent.count
+            )));
+            lines.push(Line::from(tr(
+                if intent.kind == crate::jobs::Kind::RefreshAll {
+                    "tui.confirm_refresh_all"
+                } else {
+                    "tui.probe_scope"
+                },
+            )));
+        }
         if let Some(command) = command {
             lines.push(Line::from(tr(command.kind.key())));
             lines.push(Line::from(format!(
@@ -154,7 +199,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             ) {
                 lines.push(Line::from(tr(command.mode.key())));
             }
-            if !command.name.is_empty() {
+            if !command.name.is_empty() && !command.profile.is_empty() {
                 lines.push(Line::from(format!(
                     "{}: {}",
                     tr("tui.source"),
@@ -178,6 +223,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Confirmation::New(_) => "tui.confirm_network",
             Confirmation::Retry => "tui.confirm_retry",
             Confirmation::Acknowledge { .. } => "tui.confirm_ack",
+            Confirmation::Job(_) => "tui.confirm_job",
+            Confirmation::CancelJob => "tui.confirm_cancel_job",
         })));
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(
@@ -314,17 +361,29 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             );
         }
     }
-    let selected = app
-        .snapshot
-        .as_ref()
-        .and_then(|s| {
-            s.metadata
-                .profiles
-                .iter()
-                .find(|p| app.selected.as_ref() == Some(&p.id))
-        })
-        .map(|p| display(&p.name, 80))
-        .unwrap_or_else(|| tr("tui.none").into());
+    let selected = if app.page == crate::inspection::Page::Subscriptions {
+        app.snapshot
+            .as_ref()
+            .and_then(|s| {
+                s.metadata
+                    .subscriptions
+                    .iter()
+                    .find(|sub| Some(&sub.id) == app.selected_subscription.as_ref())
+            })
+            .map(|s| display(&s.name, 80))
+            .unwrap_or_else(|| tr("tui.none").into())
+    } else {
+        app.snapshot
+            .as_ref()
+            .and_then(|s| {
+                s.metadata
+                    .profiles
+                    .iter()
+                    .find(|p| app.selected.as_ref() == Some(&p.id))
+            })
+            .map(|p| display(&p.name, 80))
+            .unwrap_or_else(|| tr("tui.none").into())
+    };
     let mut footer = vec![
         Line::from(format!(
             "{}: {}{}",
@@ -356,7 +415,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
         } else if app.confirmation.is_some() || app.running {
             "tui.auth_hint"
         } else {
-            "tui.subscription_keys"
+            "tui.profile_check_keys"
         })));
     }
     footer.push(Line::from(tr("tui.page_keys")));
@@ -373,7 +432,11 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     if app.page != crate::inspection::Page::Profiles && app.confirmation.is_none() {
         footer = vec![
             Line::from(tr("tui.page_keys")),
-            Line::from(tr(if app.page == crate::inspection::Page::Settings {
+            Line::from(tr(if app.page == crate::inspection::Page::Jobs {
+                "tui.job_keys"
+            } else if app.page == crate::inspection::Page::Subscriptions && app.actions_enabled {
+                "tui.subscription_page_keys"
+            } else if app.page == crate::inspection::Page::Settings {
                 "tui.settings_keys"
             } else {
                 "tui.inspection_keys"
@@ -381,6 +444,10 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Line::from(tr(if app.notice.is_empty() {
                 if app.page == crate::inspection::Page::Settings {
                     "tui.settings_local"
+                } else if app.page == crate::inspection::Page::Subscriptions
+                    || app.page == crate::inspection::Page::Jobs
+                {
+                    "tui.confirm_required"
                 } else {
                     "tui.readonly"
                 }
@@ -393,6 +460,31 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.close_hint"
             })),
         ];
+        if app.page == crate::inspection::Page::Subscriptions && app.actions_enabled {
+            let target = app.snapshot.as_ref().and_then(|s| {
+                s.metadata
+                    .subscriptions
+                    .iter()
+                    .find(|sub| Some(&sub.id) == app.selected_subscription.as_ref())
+            });
+            footer.insert(
+                0,
+                Line::from(format!(
+                    "{}: {}",
+                    tr("tui.target"),
+                    target
+                        .map(|s| display(&s.name, 80))
+                        .unwrap_or_else(|| tr("tui.none").into())
+                )),
+            );
+        }
+    }
+    if app.confirmation.is_some() {
+        footer = vec![
+            Line::from(tr("tui.confirm_keys")),
+            Line::from(tr("tui.auth_hint")),
+            Line::from(tr("tui.action_close_hint")),
+        ];
     }
     frame.render_widget(Paragraph::new(footer), sections[2]);
 }
@@ -401,6 +493,65 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     use crate::inspection::{Page, bytes};
     let tr = |key| app.locale.text(key);
     let field = |key, value: String| Line::from(format!("{}: {value}", tr(key)));
+    if app.page == Page::Jobs {
+        let Some(job) = &app.job else {
+            return vec![Line::from(tr("tui.job_empty"))];
+        };
+        let mut lines = vec![
+            Line::from(tr(job.intent.key())),
+            field(
+                "tui.target",
+                format!(
+                    "{} ({})",
+                    if job.intent.label.is_empty() {
+                        tr("tui.all_saved").into()
+                    } else {
+                        display(&job.intent.label, 80)
+                    },
+                    job.intent.count
+                ),
+            ),
+            Line::from(tr(job.notice)),
+        ];
+        if let Some(p) = job.tracker.progress {
+            lines.push(field(
+                "tui.progress",
+                format!("{} / {}", p.completed, p.total),
+            ));
+        }
+        lines.push(Line::from(tr("tui.job_close")));
+        if job.intent.kind != crate::jobs::Kind::RefreshAll {
+            lines.push(Line::from(tr("tui.probe_scope")));
+        }
+        if let Some(rows) = &job.rows {
+            if let Some(s) = app
+                .snapshot
+                .as_ref()
+                .filter(|_| app.fresh(now))
+                .filter(|s| job.intent.matches(s))
+            {
+                for row in rows {
+                    if let Some(p) = s.metadata.profiles.iter().find(|p| p.id == row.id) {
+                        let result =
+                            row.latency_ms
+                                .map(|ms| format!("{ms} ms"))
+                                .unwrap_or_else(|| {
+                                    tr(if row.resolved {
+                                        "tui.probe_unreachable"
+                                    } else {
+                                        "tui.probe_unresolved"
+                                    })
+                                    .into()
+                                });
+                        lines.push(Line::from(format!("{}: {result}", display(&p.name, 80))));
+                    }
+                }
+            } else {
+                lines.push(Line::from(tr("tui.job_results_stale")));
+            }
+        }
+        return lines;
+    }
     // Presentation settings work offline and never imply runtime readiness.
     if app.page == Page::Settings {
         let language = if app.settings.language == crate::settings::Language::Automatic {
@@ -486,7 +637,13 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             ),
             Line::from(tr("tui.traffic_scope")),
             Line::from(tr("tui.traffic_reset")),
-            Line::from(tr("tui.connections_deferred")),
+            field(
+                "tui.active_connections",
+                s.active_connections
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(unknown),
+            ),
+            Line::from(tr("tui.connection_count_scope")),
         ],
         Page::Details => {
             let p = s
@@ -497,8 +654,33 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             let Some(p) = p else {
                 return vec![Line::from(tr("tui.select_details"))];
             };
+            let details = s
+                .profile_details
+                .as_ref()
+                .filter(|d| d.profile_id() == p.id);
             vec![
                 field("tui.action_selected", display(&p.name, 80)),
+                field(
+                    "tui.protocol",
+                    details
+                        .and_then(|d| d.protocol)
+                        .map(str::to_owned)
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.transport",
+                    details
+                        .and_then(|d| d.transport)
+                        .map(str::to_owned)
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.security",
+                    details
+                        .and_then(|d| d.security)
+                        .map(str::to_owned)
+                        .unwrap_or_else(unknown),
+                ),
                 field(
                     "tui.source",
                     p.subscription_id
@@ -521,6 +703,13 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                     },
                 ),
                 Line::from(tr("tui.details_privacy")),
+                field("tui.core", "Mihomo".into()),
+                field("tui.cap_probe", boolean(s.capabilities.profile_probe)),
+                field(
+                    "tui.cap_refresh",
+                    boolean(s.capabilities.subscription_refresh),
+                ),
+                Line::from(tr("tui.details_categories")),
                 Line::from(tr("tui.health")),
             ]
         }
@@ -598,8 +787,16 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                     },
                 );
                 lines.push(
-                    Line::from(display(&sub.name, 80))
-                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                    Line::from(format!(
+                        "{}{}",
+                        if Some(&sub.id) == app.selected_subscription.as_ref() {
+                            "> "
+                        } else {
+                            ""
+                        },
+                        display(&sub.name, 80)
+                    ))
+                    .style(Style::default().add_modifier(Modifier::BOLD)),
                 );
                 lines.push(Line::from(format!(
                     "  {}: {} · {}: {missing}",
@@ -608,10 +805,17 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                     tr("tui.feed_missing_count")
                 )));
                 lines.push(Line::from(format!("  {}: {age}", tr("tui.saved_update"))));
+                if let Some(attempt) = app.subscription_attempts.get(&sub.id) {
+                    lines.push(Line::from(format!(
+                        "  {}: {}",
+                        tr("tui.session_attempt"),
+                        tr(attempt)
+                    )));
+                }
                 lines.push(Line::from(""));
             }
             lines
         }
-        Page::Profiles | Page::Activity | Page::Settings => Vec::new(),
+        Page::Profiles | Page::Activity | Page::Settings | Page::Jobs => Vec::new(),
     }
 }

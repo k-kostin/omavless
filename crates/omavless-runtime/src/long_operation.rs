@@ -239,15 +239,14 @@ impl LongOperationRegistry {
             return Err(LongOperationError::RevisionConflict);
         }
         if state == LongOperationState::Succeeded {
-            let expected =
-                if active.total == 0 || active.method == LongOperationMethod::SubscriptionProbe {
-                    active.base_revision
-                } else {
-                    active
-                        .base_revision
-                        .checked_add(1)
-                        .ok_or(LongOperationError::RevisionConflict)?
-                };
+            let expected = if active.total == 0 || active.method.is_probe() {
+                active.base_revision
+            } else {
+                active
+                    .base_revision
+                    .checked_add(1)
+                    .ok_or(LongOperationError::RevisionConflict)?
+            };
             if outcome_revision != expected {
                 return Err(LongOperationError::RevisionConflict);
             }

@@ -21,6 +21,7 @@ pub enum LongOperationMethod {
     SubscriptionRefreshAll,
     RuleProviderRefresh,
     SubscriptionProbe,
+    ProfileProbe,
 }
 impl LongOperationMethod {
     #[must_use]
@@ -29,6 +30,7 @@ impl LongOperationMethod {
             Self::SubscriptionRefreshAll => "subscriptions.refresh_all",
             Self::RuleProviderRefresh => "routing.refresh_providers",
             Self::SubscriptionProbe => "subscriptions.probe",
+            Self::ProfileProbe => "profiles.probe",
         }
     }
     #[must_use]
@@ -36,8 +38,11 @@ impl LongOperationMethod {
         match self {
             Self::SubscriptionRefreshAll => MAX_REFRESH_ALL_SUBSCRIPTIONS,
             Self::RuleProviderRefresh => omavless_mihomo::rule_provider::MAX_RULE_PROVIDERS,
-            Self::SubscriptionProbe => 256,
+            Self::SubscriptionProbe | Self::ProfileProbe => 256,
         }
+    }
+    pub const fn is_probe(self) -> bool {
+        matches!(self, Self::SubscriptionProbe | Self::ProfileProbe)
     }
 }
 
@@ -95,6 +100,71 @@ pub struct RefreshAllStartRequest {
 pub struct SubscriptionProbeStartRequest {
     pub(crate) metadata: RefreshAllStartRequest,
     pub(crate) subscription_id: String,
+}
+
+/// Omitted profileId selects all current, non-missing profiles under the owner
+/// lease; an explicit ID selects exactly one. Never accept a caller-owned list.
+pub struct ProfileProbeStartRequest {
+    pub(crate) metadata: RefreshAllStartRequest,
+    pub(crate) profile_id: Option<String>,
+}
+
+pub fn parse_profile_probe_start(
+    request: &Value,
+) -> Result<ProfileProbeStartRequest, MutationProtocolError> {
+    validate_request(request).map_err(|_| MutationProtocolError::InvalidRequest)?;
+    if request["method"] != "profiles.probe" {
+        return Err(MutationProtocolError::UnknownMethod);
+    }
+    let params = request["params"]
+        .as_object()
+        .ok_or(MutationProtocolError::InvalidArgument)?;
+    if !exact_fields(
+        params,
+        &["instanceId", "operationId", "expectedRevision", "profileId"],
+        &["instanceId", "operationId"],
+    ) {
+        return Err(MutationProtocolError::InvalidArgument);
+    }
+    let profile_id = params
+        .get("profileId")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| omavless_domain::store::valid_record_id(value))
+                .ok_or(MutationProtocolError::InvalidArgument)
+        })
+        .transpose()?;
+    let meta = metadata(params)?;
+    let instance = instance_id(params.get("instanceId"))?;
+    let operation = operation_id(params.get("operationId"))?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"omavless.control/profile-probe/v1\0");
+    append_field(&mut bytes, instance);
+    // Valid record IDs are nonempty, so the empty field uniquely means all.
+    append_field(&mut bytes, profile_id.unwrap_or(""));
+    match meta.expected_revision {
+        Some(revision) => {
+            bytes.push(1);
+            bytes.extend_from_slice(&revision.to_be_bytes());
+        }
+        None => bytes.push(0),
+    }
+    Ok(ProfileProbeStartRequest {
+        metadata: RefreshAllStartRequest {
+            instance_id: instance.to_owned(),
+            operation_id: operation.to_owned(),
+            expected_revision: meta.expected_revision,
+            digest: MutationDigest::from_semantic_bytes(&bytes),
+        },
+        profile_id: profile_id.map(str::to_owned),
+    })
+}
+
+pub fn parse_profile_probe_results(
+    request: &Value,
+) -> Result<OperationLookupRequest, MutationProtocolError> {
+    parse_lookup(request, "profiles.probe_results")
 }
 
 pub fn parse_subscription_probe_start(
@@ -334,17 +404,13 @@ impl LongOperationProjection<'_> {
                 .is_some_and(|revision| revision < self.base_revision)
             || (self.state == LongOperationState::Succeeded
                 && self.outcome_revision
-                    != Some(
-                        if self.progress.total == 0
-                            || self.method == LongOperationMethod::SubscriptionProbe
-                        {
-                            self.base_revision
-                        } else {
-                            self.base_revision
-                                .checked_add(1)
-                                .ok_or(MutationProtocolError::InvalidArgument)?
-                        },
-                    ))
+                    != Some(if self.progress.total == 0 || self.method.is_probe() {
+                        self.base_revision
+                    } else {
+                        self.base_revision
+                            .checked_add(1)
+                            .ok_or(MutationProtocolError::InvalidArgument)?
+                    }))
         {
             return Err(MutationProtocolError::InvalidArgument);
         }
@@ -404,6 +470,59 @@ mod tests {
     use serde_json::json;
 
     const INSTANCE: &str = "instance-1";
+
+    #[test]
+    fn profile_probe_selection_is_exact_and_digest_separates_all_single_and_subscription() {
+        let base = json!({"instanceId":INSTANCE,"operationId":"probe","expectedRevision":7});
+        let all = parse_profile_probe_start(&request("profiles.probe", base.clone())).unwrap();
+        assert!(all.profile_id.is_none());
+        let mut selected = base.clone();
+        selected["profileId"] = json!("10000000-0000-4000-8000-000000000001");
+        let single =
+            parse_profile_probe_start(&request("profiles.probe", selected.clone())).unwrap();
+        assert!(single.metadata.digest() != all.metadata.digest());
+        let mut other = selected.clone();
+        other["profileId"] = json!("10000000-0000-4000-8000-000000000002");
+        assert!(
+            parse_profile_probe_start(&request("profiles.probe", other))
+                .unwrap()
+                .metadata
+                .digest()
+                != single.metadata.digest()
+        );
+        let mut subscription = base.clone();
+        subscription["subscriptionId"] = selected["profileId"].clone();
+        assert!(
+            parse_subscription_probe_start(&request("subscriptions.probe", subscription))
+                .unwrap()
+                .metadata
+                .digest()
+                != single.metadata.digest()
+        );
+        for (key, value) in [
+            ("profileId", Value::Null),
+            ("profileId", json!("")),
+            ("profileId", json!("https://private.invalid/password")),
+            ("profiles", json!([])),
+            ("timeout", json!(1)),
+            ("concurrency", json!(64)),
+            ("expectedRevision", json!(-1)),
+        ] {
+            let mut invalid = base.clone();
+            invalid[key] = value;
+            let error = parse_profile_probe_start(&request("profiles.probe", invalid))
+                .err()
+                .unwrap();
+            assert!(!format!("{error}").contains("private.invalid"));
+        }
+        assert!(
+            parse_profile_probe_results(&request(
+                "profiles.probe_results",
+                json!({"instanceId":INSTANCE,"operationId":"probe"})
+            ))
+            .is_ok()
+        );
+    }
 
     #[test]
     fn selected_probe_intent_is_bounded_and_domain_separated() {

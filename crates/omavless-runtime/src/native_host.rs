@@ -497,6 +497,45 @@ impl LifecycleHost for NativeLifecycleHost {
         }
         Ok(sample)
     }
+    fn active_connection_count(&mut self, desired: &DesiredState) -> Result<u32, HostStepError> {
+        let deadline = Instant::now() + Duration::from_millis(750);
+        if !desired.connected {
+            return Err(HostStepError::Observation);
+        }
+        let valid = |facts: NativeLocalObservation| {
+            facts.owned_core_running
+                && facts.visible_mihomo_count == 1 + facts.owned_auxiliary_mihomo_count
+                && facts.managed_tun_count == 1
+                && facts.owned_controller_config_verified
+                && facts.desired_profile_matches_owned
+        };
+        if !valid(self.fresh_observation(desired)?) {
+            return Err(HostStepError::Observation);
+        }
+        let pid = self.core_pid().ok_or(HostStepError::Observation)?;
+        // Private 0700 parent, same-UID exact owned PID authentication, 512-KiB
+        // controller response bound, and one whole-exchange deadline are reused.
+        let payload = crate::core_selector::read_configuration(
+            &self.paths.controller_socket,
+            pid,
+            omavless_mihomo::ReadOnlyEndpoint::Connections,
+            deadline,
+        )
+        .ok_or(HostStepError::Observation)?;
+        let count =
+            crate::connections_summary::count(&payload).ok_or(HostStepError::Observation)?;
+        drop(payload);
+        if !valid(self.fresh_observation(desired)?)
+            || Instant::now() >= deadline
+            || !self
+                .core
+                .as_mut()
+                .is_some_and(|c| c.pid() == Some(pid) && c.running().unwrap_or(false))
+        {
+            return Err(HostStepError::Observation);
+        }
+        Ok(count)
+    }
     fn fresh_observation(
         &mut self,
         desired: &DesiredState,

@@ -2,6 +2,121 @@
 //! Bounded read-only projections. Raw controller objects never reach the view.
 use serde_json::Value;
 
+#[derive(Clone, Copy, Default)]
+pub struct Capabilities {
+    pub profile_details: bool,
+    pub traffic: bool,
+    pub diagnostics: bool,
+    pub subscription_refresh: bool,
+    pub profile_probe: bool,
+    pub subscription_probe: bool,
+    pub refresh_all: bool,
+    pub connection_count: bool,
+}
+impl Capabilities {
+    pub fn parse(methods: &[Value]) -> Self {
+        let has = |method| methods.iter().any(|value| value == method);
+        Self {
+            profile_details: has("profiles.details"),
+            traffic: has("runtime.traffic"),
+            diagnostics: has("diagnostics.summary"),
+            subscription_refresh: has("subscriptions.refresh"),
+            profile_probe: has("profiles.probe")
+                && has("profiles.probe_results")
+                && has("operations.get")
+                && has("operations.cancel"),
+            subscription_probe: has("subscriptions.probe")
+                && has("subscriptions.probe_results")
+                && has("operations.get")
+                && has("operations.cancel"),
+            refresh_all: has("subscriptions.refresh_all")
+                && has("operations.get")
+                && has("operations.cancel"),
+            connection_count: has("runtime.connections"),
+        }
+    }
+}
+
+pub fn connection_count(value: &Value) -> Option<u32> {
+    let result = &value["result"];
+    if value["ok"] != true
+        || result["schemaVersion"] != 1
+        || result["scope"] != "owned_core_active_connection_count"
+        || result["availability"] != "observed"
+    {
+        return None;
+    }
+    result["count"]
+        .as_u64()
+        .filter(|n| *n <= 4096)
+        .map(|n| n as u32)
+}
+
+/// Saved configuration categories, not an interoperability or health claim.
+/// Never retain the private name/server/SNI fields of profiles.details.
+#[derive(Clone)]
+pub struct ProfileDetails {
+    target: crate::client::ProfileTarget,
+    pub protocol: Option<&'static str>,
+    pub transport: Option<&'static str>,
+    pub security: Option<&'static str>,
+}
+impl ProfileDetails {
+    pub fn profile_id(&self) -> &str {
+        self.target.as_str()
+    }
+    pub fn parse(value: &Value, target: crate::client::ProfileTarget) -> Option<Self> {
+        if value["ok"] != true || value["result"]["version"] != 1 {
+            return None;
+        }
+        let r = &value["result"];
+        let token = |key: &str, allowed: &[&'static str]| {
+            let value = r[key].as_str()?;
+            allowed.iter().copied().find(|token| *token == value)
+        };
+        Some(Self {
+            target,
+            protocol: token("protocol", &["vless", "trojan", "hysteria2", "tuic"]),
+            transport: token(
+                "transport",
+                &["tcp", "ws", "http", "h2", "grpc", "xhttp", "udp"],
+            ),
+            security: token("security", &["none", "tls", "reality"]),
+        })
+    }
+}
+
+/// Existing runtime log classifications only; zero never means network healthy.
+#[derive(Clone)]
+pub struct CoreDiagnostics {
+    pub dns: u32,
+    pub tls: u32,
+    pub timeout: u32,
+    pub connection: u32,
+    pub other: u32,
+    pub oversized: u32,
+    pub incomplete: bool,
+    pub finished: bool,
+}
+impl CoreDiagnostics {
+    pub fn parse(value: &Value) -> Option<Self> {
+        if value["scope"] != "latest_owned_core_log_counts" {
+            return None;
+        }
+        let count = |key: &str| u32::try_from(value[key].as_u64()?).ok();
+        Some(Self {
+            dns: count("dnsErrors")?,
+            tls: count("tlsErrors")?,
+            timeout: count("timeoutErrors")?,
+            connection: count("connectionErrors")?,
+            other: count("otherWarnings")?,
+            oversized: count("oversizedLines")?,
+            incomplete: value["incomplete"].as_bool()? | value["readFailed"].as_bool()?,
+            finished: value["finished"].as_bool()?,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Page {
     #[default]
@@ -12,6 +127,7 @@ pub enum Page {
     Settings,
     Activity,
     Subscriptions,
+    Jobs,
 }
 impl Page {
     pub fn next(self, reverse: bool) -> Self {
@@ -22,6 +138,7 @@ impl Page {
             Self::Diagnostics,
             Self::Settings,
             Self::Activity,
+            Self::Jobs,
             Self::Subscriptions,
         ];
         let index = pages.iter().position(|p| *p == self).unwrap_or(0);
@@ -36,6 +153,7 @@ impl Page {
             Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
+            Self::Jobs => "tui.jobs",
         }
     }
 }

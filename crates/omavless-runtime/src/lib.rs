@@ -36,6 +36,7 @@ pub mod auxiliary_core;
 mod batch_scheduler;
 mod connection_test;
 pub mod connection_transaction;
+mod connections_summary;
 mod controller_permissions;
 pub mod core;
 pub mod core_diagnostics;
@@ -267,6 +268,7 @@ const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities
 const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.connection_test",
     "runtime.traffic",
+    "runtime.connections",
     "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
@@ -360,6 +362,10 @@ trait NativeRuntimeOwner: Send {
         deadline: std::time::Instant,
     ) -> std::result::Result<tun_ping::Context, StableErrorCode>;
     fn traffic(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connections(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -675,6 +681,12 @@ where
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.traffic(request)
     }
+    fn connections(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connections(request)
+    }
     fn runtime_observation(
         &mut self,
         request: &Value,
@@ -726,7 +738,11 @@ where
         if matches!(
             request["method"].as_str(),
             Some(
-                "subscriptions.refresh_all" | "subscriptions.probe" | "subscriptions.probe_results"
+                "subscriptions.refresh_all"
+                    | "subscriptions.probe"
+                    | "subscriptions.probe_results"
+                    | "profiles.probe"
+                    | "profiles.probe_results"
             )
         ) && !self.owner.rust_ownership_available()
         {
@@ -737,11 +753,21 @@ where
             coordinator.initialize_batch_operations(instance)?;
             self.batch_initialized = true;
         }
-        if request["method"] == "subscriptions.probe_results" {
+        if matches!(
+            request["method"].as_str(),
+            Some("subscriptions.probe_results" | "profiles.probe_results")
+        ) {
             return Ok((coordinator.subscription_probe_results(request)?, None));
         }
-        if request["method"] == "subscriptions.probe" {
-            long_operation_protocol::parse_subscription_probe_start(request)?;
+        if matches!(
+            request["method"].as_str(),
+            Some("subscriptions.probe" | "profiles.probe")
+        ) {
+            if request["method"] == "profiles.probe" {
+                long_operation_protocol::parse_profile_probe_start(request)?;
+            } else {
+                long_operation_protocol::parse_subscription_probe_start(request)?;
+            }
             let (core, scratch) = coordinator
                 .host()
                 .probe_paths()
@@ -2061,11 +2087,15 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
-        "ui.snapshot" | "runtime.observation" | "runtime.traffic" if runtime_ownership => {
+        "ui.snapshot" | "runtime.observation" | "runtime.traffic" | "runtime.connections"
+            if runtime_ownership =>
+        {
             let mut response = if method == "ui.snapshot" {
                 owner.ui_snapshot(request)?
             } else if method == "runtime.traffic" {
                 owner.traffic(request)?
+            } else if method == "runtime.connections" {
+                owner.connections(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -2340,6 +2370,13 @@ mod tests {
                 tx_bytes: 456,
                 sampled_at_ms: 1000,
             })
+        }
+        fn active_connection_count(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<u32, HostStepError> {
+            self.fresh_observation(desired)?;
+            Ok(3)
         }
         fn fresh_observation(
             &mut self,
@@ -3582,6 +3619,62 @@ mod tests {
     }
 
     #[test]
+    fn connections_socket_fences_revision_disconnect_ownership_and_private_output() {
+        let base = temporary_base("connections-socket");
+        let (mut owner, cutover, _calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let empty = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(empty["result"]["availability"], "unavailable");
+        assert!(empty["result"]["count"].is_null());
+        let connect=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connect["ok"], true);
+        let sample = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(sample["ok"], true);
+        assert_eq!(sample["revision"], connect["revision"]);
+        assert_eq!(
+            sample["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(sample["result"]["count"], 3);
+        assert!(encode_response(&sample).unwrap().len() < 512);
+        for secret in [
+            PROFILE_ID,
+            "Example",
+            "192.0.2.1",
+            "subscription-token",
+            "vless://",
+            "controllerSocket",
+        ] {
+            assert!(!sample.to_string().contains(secret));
+        }
+        let invalid = call(
+            &paths,
+            "runtime.connections",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-token"));
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"count-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        assert_eq!(down["ok"], true);
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let stale = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(stale["error"]["code"], "capability_unavailable");
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn ping_dispatch_fences_inputs_and_cannot_run_disconnected() {
         let base = temporary_base("ping-admission");
         let (owner, _, _) = native_owner_fixture(&base);
@@ -3685,6 +3778,62 @@ mod tests {
             let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"traffic-connect","expectedRevision":0})).unwrap();
             assert_eq!(connected["ok"], true);
             let sample = call(&paths, "runtime.traffic", json!({})).unwrap();
+            assert_eq!(sample["error"]["code"], "capability_unavailable");
+            assert!(sample.get("result").is_none());
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn connection_count_host_failure_is_unavailable_not_zero() {
+        let base = temporary_base("connections-host-failure");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Err(HostStepError::Observation);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connected["ok"], true);
+        let sample = call(&paths, "runtime.connections", json!({})).unwrap();
+        assert_eq!(sample["ok"], true);
+        assert_eq!(sample["result"]["availability"], "unavailable");
+        assert!(sample["result"]["count"].is_null());
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn connection_count_discards_desired_or_owner_change_during_read() {
+        for desired_changes in [true, false] {
+            let base = temporary_base("connections-read-race");
+            let (mut owner, cutover, _) = native_owner_fixture(&base);
+            let desired = base.join("state/omavless/desired.json");
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.on_fresh = Some(Box::new(move || {
+                if desired_changes {
+                    fs::write(
+                        &desired,
+                        serde_json::to_vec(&DesiredState {
+                            generation: 99,
+                            ..DesiredState::default()
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                } else {
+                    write_marker(&cutover, OwnershipPhase::Rust, 2);
+                }
+            }));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(2)).unwrap());
+            let connected=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
+            assert_eq!(connected["ok"], true);
+            let sample = call(&paths, "runtime.connections", json!({})).unwrap();
             assert_eq!(sample["error"]["code"], "capability_unavailable");
             assert!(sample.get("result").is_none());
             worker.join().unwrap();
@@ -4036,6 +4185,127 @@ mod tests {
                 .unwrap(),
             )
             .unwrap()
+    }
+
+    #[test]
+    fn profile_probe_scheduler_single_all_and_cross_method_results_are_fenced() {
+        for selected in [false, true] {
+            let base = temporary_base("profile-probe-scheduler");
+            let (server, slot) = probe_server(&base);
+            // Exercise the previously unreachable standalone profile too.
+            let path = base.join("config/profiles.json");
+            let mut store: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            store["profiles"][0]["subscriptionId"] = json!("");
+            store["profiles"][0]["subscriptionKey"] = json!("");
+            fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+            let before = fs::read(&path).unwrap();
+            let mut params = json!({"instanceId":server.instance_id,"operationId":"profiles","expectedRevision":0});
+            if selected {
+                params["profileId"] = json!(PROFILE_ID);
+            }
+            let request = make_request("profile-probe", "profiles.probe", params).unwrap();
+            assert_eq!(server.dispatch(&request).unwrap()["ok"], true);
+            let terminal = wait_batch(&server, "profiles");
+            assert_eq!(terminal["result"]["operation"]["state"], "succeeded");
+            assert_eq!(terminal["result"]["operation"]["method"], "profiles.probe");
+            assert_eq!(terminal["revision"], 0);
+            assert!(slot.mutation_safe());
+            let result = batch_call(&server, "profiles.probe_results", "profiles");
+            assert_eq!(result["ok"], true);
+            assert_eq!(
+                result["result"]["profileId"],
+                if selected {
+                    json!(PROFILE_ID)
+                } else {
+                    Value::Null
+                }
+            );
+            assert_eq!(result["result"]["results"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                batch_call(&server, "subscriptions.probe_results", "profiles")["ok"],
+                false
+            );
+            assert_eq!(
+                server.dispatch(&request).unwrap()["result"],
+                terminal["result"]
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+            let capabilities = server
+                .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+                .unwrap();
+            assert!(
+                capabilities["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("profiles.probe"))
+            );
+            for forbidden in ["vless://", "192.0.2.1", "Example", "subscription-token"] {
+                assert!(!result.to_string().contains(forbidden));
+            }
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn profile_probe_rejects_missing_target_stale_instance_and_stale_revision_before_work() {
+        let base = temporary_base("profile-probe-refusal");
+        let (server, slot) = probe_server(&base);
+        for (field, value, expected) in [
+            (
+                "profileId",
+                json!("00000000-0000-4000-8000-000000000099"),
+                "not_found",
+            ),
+            ("instanceId", json!("old-instance"), "not_found"),
+            ("expectedRevision", json!(99), "conflict"),
+            ("profileId", Value::Null, "invalid_argument"),
+        ] {
+            let mut params = json!({"instanceId":server.instance_id,"operationId":"refused","expectedRevision":0});
+            params[field] = value;
+            let response = server
+                .dispatch(&make_request("probe", "profiles.probe", params).unwrap())
+                .unwrap();
+            assert_eq!(response["error"]["code"], expected);
+            assert!(slot.mutation_safe());
+        }
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn profile_probe_cancel_releases_same_auxiliary_slot_without_spawn() {
+        let base = temporary_base("profile-probe-cancel");
+        let (server, slot) = probe_server(&base);
+        let permits: Vec<_> = (0..remote_fetch::MAX_CONCURRENT_REMOTE_FETCHES)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect();
+        let request = make_request(
+            "profiles",
+            "profiles.probe",
+            json!({
+                "instanceId":server.instance_id,"operationId":"profile-cancel","expectedRevision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(server.dispatch(&request).unwrap()["ok"], true);
+        assert!(!slot.mutation_safe());
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "profile-cancel")["result"]["accepted"],
+            true
+        );
+        assert_eq!(
+            wait_batch(&server, "profile-cancel")["result"]["operation"]["state"],
+            "cancelled"
+        );
+        assert!(slot.mutation_safe());
+        assert_eq!(
+            batch_call(&server, "profiles.probe_results", "profile-cancel")["ok"],
+            false
+        );
+        drop(permits);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

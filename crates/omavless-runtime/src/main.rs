@@ -60,16 +60,26 @@ impl From<&str> for CliError {
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     #[cfg(feature = "tui")]
+    if arguments == ["tui", "--available"] {
+        println!("omavless.tui.v1");
+        return Ok(());
+    }
+    #[cfg(feature = "tui")]
     if arguments == ["tui"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
         let action_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
-        return omavless_tui::run_actions(
+        let job_paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::run_full(
             move |request| {
                 call(&paths, request.method(), request.params())
                     .map_err(|_| omavless_tui::model::ReadError::Unavailable)
             },
             move |request| {
                 omavless_runtime::call_plugin_action(&action_paths, request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            move |request| {
+                call(&job_paths, request.method(), request.params())
                     .map_err(|_| omavless_tui::model::ReadError::Unavailable)
             },
         )
@@ -96,9 +106,7 @@ fn run() -> Result<(), CliError> {
     }
     if arguments == ["-h"] || arguments == ["--help"] {
         #[cfg(feature = "tui")]
-        println!(
-            "  tui                             read-only terminal preview; close leaves VPN unchanged"
-        );
+        println!("  tui                             terminal controls; close leaves VPN unchanged");
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );

@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 pub const FRESH_FOR: Duration = Duration::from_secs(6);
 
 pub struct App {
+    pub jobs_enabled: bool,
+    pub job: Option<crate::job_ui::Session>,
     pub settings: crate::settings::Settings,
     pub activity: Activity,
     pub palette: crate::theme::Palette,
@@ -21,6 +23,10 @@ pub struct App {
     pub sampled_at: Option<Instant>,
     pub error: Option<ReadError>,
     pub selected: Option<String>,
+    pub selected_subscription: Option<String>,
+    pub subscription_selection_moved: bool,
+    /// Latest attempt per subscription in this window, not persisted/provider history.
+    pub subscription_attempts: std::collections::BTreeMap<String, &'static str>,
     pub query: String,
     pub favorites_only: bool,
     pub searching: bool,
@@ -37,12 +43,17 @@ pub struct App {
     minimum_sample: Option<Instant>,
 }
 pub enum Confirmation {
+    Job(crate::job_ui::Intent),
+    CancelJob,
     New(Command),
     Retry,
     Acknowledge { instance: String, revision: u64 },
 }
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
+    StartJob,
+    PollJob,
+    CancelJob,
     None,
     Refresh,
     Close,
@@ -52,6 +63,8 @@ pub enum Action {
 impl App {
     pub fn new(locale: Locale) -> Self {
         Self {
+            jobs_enabled: false,
+            job: None,
             settings: crate::settings::Settings::new(locale),
             activity: Activity::default(),
             palette: crate::theme::Palette::default(),
@@ -62,6 +75,9 @@ impl App {
             sampled_at: None,
             error: None,
             selected: None,
+            selected_subscription: None,
+            subscription_selection_moved: false,
+            subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
             favorites_only: false,
             searching: false,
@@ -127,6 +143,19 @@ impl App {
                     .accepted
                     .as_ref()
                     .is_none_or(|(id, _)| *id != next.metadata.instance_id);
+                if changed {
+                    self.selected_subscription = None;
+                    self.subscription_attempts.clear();
+                }
+                if self
+                    .selected_subscription
+                    .as_ref()
+                    .is_some_and(|id| !next.metadata.subscriptions.iter().any(|s| s.id == *id))
+                {
+                    self.selected_subscription = None;
+                }
+                self.subscription_attempts
+                    .retain(|id, _| next.metadata.subscriptions.iter().any(|s| s.id == *id));
                 if changed
                     || self
                         .selected
@@ -160,6 +189,7 @@ impl App {
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
+                self.selected_subscription = None;
                 self.error = Some(error);
             }
         }
@@ -211,7 +241,10 @@ impl App {
                 KeyCode::Char('q') => return Action::Close,
                 KeyCode::Enter if key.kind == KeyEventKind::Press => {
                     // Held keys must not both open and confirm a network action.
-                    let operation = if matches!(self.confirmation, Some(Confirmation::New(_))) {
+                    let operation = if matches!(
+                        self.confirmation,
+                        Some(Confirmation::New(_) | Confirmation::Job(_))
+                    ) {
                         actions::operation_id()
                     } else {
                         Some(String::new())
@@ -290,6 +323,64 @@ impl App {
             return Action::Refresh;
         }
         if self.page != crate::inspection::Page::Profiles {
+            if self.page == crate::inspection::Page::Jobs
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('g')
+                        if self
+                            .job
+                            .as_ref()
+                            .is_some_and(|j| !j.in_flight && !j.finished) =>
+                    {
+                        return Action::PollJob;
+                    }
+                    KeyCode::Char('x')
+                        if self.job.as_ref().is_some_and(|j| {
+                            !j.in_flight
+                                && !j.finished
+                                && j.tracker.progress.is_some_and(|p| p.cancellable)
+                        }) =>
+                    {
+                        self.confirmation = Some(Confirmation::CancelJob)
+                    }
+                    _ => {}
+                }
+            }
+            if self.page == crate::inspection::Page::Subscriptions
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('n' | 'p') => {
+                        if let Some(s) = &self.snapshot {
+                            let rows = &s.metadata.subscriptions;
+                            if !rows.is_empty() {
+                                let old = rows.iter().position(|s| {
+                                    Some(&s.id) == self.selected_subscription.as_ref()
+                                });
+                                let next = if key.code == KeyCode::Char('p') {
+                                    old.unwrap_or(0).saturating_sub(1)
+                                } else {
+                                    old.map_or(0, |i| (i + 1).min(rows.len() - 1))
+                                };
+                                self.selected_subscription = Some(rows[next].id.clone());
+                                self.subscription_selection_moved = true;
+                            }
+                        }
+                    }
+                    KeyCode::Char('s') => self.prepare_subscription(now),
+                    KeyCode::Char('S') => {
+                        self.prepare_job(crate::jobs::Kind::RefreshAll, None, now)
+                    }
+                    _ => {}
+                }
+            }
             match key.code {
                 KeyCode::Char('q') => return Action::Close,
                 KeyCode::Char('r') => return Action::Refresh,
@@ -320,6 +411,18 @@ impl App {
                 KeyCode::Char('c') => self.prepare(Kind::Connect, None, now),
                 KeyCode::Char('d') => self.prepare(Kind::Disconnect, None, now),
                 KeyCode::Char('s') => self.prepare(Kind::RefreshSubscription, None, now),
+                KeyCode::Char('t') => {
+                    if self.selected.is_some() {
+                        self.prepare_job(
+                            crate::jobs::Kind::ProfileProbe,
+                            self.selected.clone(),
+                            now,
+                        );
+                    } else {
+                        self.notice = "tui.select_available";
+                    }
+                }
+                KeyCode::Char('T') => self.prepare_job(crate::jobs::Kind::ProfileProbe, None, now),
                 KeyCode::Char('1') => self.prepare(Kind::Mode, Some(Mode::Global), now),
                 KeyCode::Char('2') => self.prepare(Kind::Mode, Some(Mode::Rule), now),
                 KeyCode::Char('3') => self.prepare(Kind::Mode, Some(Mode::Direct), now),
@@ -389,6 +492,7 @@ impl App {
         self.actions_enabled
             && self.viewport_ready
             && self.pending.is_none()
+            && (kind == Kind::Disconnect || !self.job.as_ref().is_some_and(|j| j.blocks_actions()))
             && self.fresh(now)
             && self.snapshot.as_ref().is_some_and(|s| {
                 s.actions_available
@@ -464,6 +568,62 @@ impl App {
         self.notice = "";
     }
 
+    fn prepare_subscription(&mut self, now: Instant) {
+        if !self.eligible(Kind::RefreshSubscription, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        let Some(sub) = s
+            .metadata
+            .subscriptions
+            .iter()
+            .find(|sub| Some(&sub.id) == self.selected_subscription.as_ref())
+        else {
+            self.notice = "tui.select_subscription";
+            return;
+        };
+        self.confirmation = Some(Confirmation::New(Command {
+            instance: s.metadata.instance_id.clone(),
+            revision: s.revision,
+            kind: Kind::RefreshSubscription,
+            profile: String::new(),
+            subscription: Some(sub.id.clone()),
+            name: sub.name.clone(),
+            source: Some(sub.name.clone()),
+            was_connected: s.metadata.desired.connected,
+            mode: s.metadata.desired.mode,
+        }));
+        self.notice = "";
+    }
+
+    pub fn prepare_job(&mut self, kind: crate::jobs::Kind, target: Option<String>, now: Instant) {
+        if !self.jobs_enabled || !self.eligible(Kind::RefreshSubscription, now) {
+            self.notice = "tui.action_blocked";
+            return;
+        }
+        let Some(s) = &self.snapshot else {
+            return;
+        };
+        if target.as_ref().is_some_and(|id| {
+            !self
+                .visible()
+                .iter()
+                .any(|i| s.metadata.profiles[*i].id == *id)
+        }) {
+            self.notice = "tui.select_available";
+            return;
+        }
+        if let Some(intent) = crate::job_ui::Intent::new(s, kind, target) {
+            self.confirmation = Some(Confirmation::Job(intent));
+            self.notice = "";
+        } else {
+            self.notice = "tui.job_unsupported";
+        }
+    }
+
     /// Explicit confirmation only; callers must never automate host authorization.
     pub fn confirm(&mut self, now: Instant, operation: String) -> Action {
         if !self.actions_enabled || !self.viewport_ready {
@@ -473,12 +633,44 @@ impl App {
             return Action::None;
         };
         match confirmation {
+            Confirmation::Job(intent) => {
+                if !self.jobs_enabled
+                    || !self.eligible(Kind::RefreshSubscription, now)
+                    || !self.snapshot.as_ref().is_some_and(|s| intent.matches(s))
+                    || (intent.target.is_some() && intent.target != self.selected)
+                {
+                    self.notice = "tui.action_changed";
+                    return Action::None;
+                }
+                let Some(request) = intent.request(operation) else {
+                    self.notice = "tui.action_rejected";
+                    return Action::None;
+                };
+                self.job = Some(crate::job_ui::Session::new(intent, request, now));
+                self.page = crate::inspection::Page::Jobs;
+                self.inspection_scroll = 0;
+                return Action::StartJob;
+            }
+            Confirmation::CancelJob => {
+                if self
+                    .job
+                    .as_ref()
+                    .is_some_and(|j| !j.in_flight && !j.finished)
+                {
+                    return Action::CancelJob;
+                }
+                return Action::None;
+            }
             Confirmation::New(command) => {
                 if !self.eligible(command.kind, now)
                     || !self.snapshot.as_ref().is_some_and(|s| {
                         s.metadata.instance_id == command.instance
                             && s.revision == command.revision
                             && (!matches!(command.kind, Kind::Connect | Kind::RefreshSubscription)
+                                || (command.kind == Kind::RefreshSubscription
+                                    && command.profile.is_empty()
+                                    && self.page == crate::inspection::Page::Subscriptions
+                                    && self.selected_subscription == command.subscription)
                                 || (self.selected.as_ref() == Some(&command.profile)
                                     && self
                                         .visible()
@@ -536,6 +728,12 @@ impl App {
         } else if let Some(request) = &self.pending {
             self.activity
                 .record(Event::Submitted(request.command.kind), now);
+            if request.command.kind == Kind::RefreshSubscription
+                && let Some(sub) = &request.command.subscription
+            {
+                self.subscription_attempts
+                    .insert(sub.clone(), "tui.action_pending");
+            }
         }
         self.notice = "tui.action_pending";
         self.sampled_at = None;
@@ -569,6 +767,12 @@ impl App {
             Outcome::Rejected(key) => key,
             Outcome::Unknown => "tui.action_unknown",
         };
+        if let Some(request) = &self.pending
+            && request.command.kind == Kind::RefreshSubscription
+            && let Some(sub) = &request.command.subscription
+        {
+            self.subscription_attempts.insert(sub.clone(), self.notice);
+        }
         if !self.unknown {
             self.pending = None;
         }

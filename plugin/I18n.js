@@ -7,6 +7,11 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "native.app.title": {"en":"OmaVLESS application","ru":"Приложение OmaVLESS"},
+  "native.app.open": {"en":"Open app","ru":"Открыть приложение"},
+  "native.app.scope": {"en":"Open or focus the terminal workspace. Closing it leaves your VPN unchanged.","ru":"Открыть рабочее пространство в терминале или перейти к нему. Закрытие окна не отключает VPN."},
+  "native.app.unavailable": {"en":"The installed OmaVLESS package has no compatible terminal interface. Update the application package, then check again.","ru":"В установленном пакете OmaVLESS нет совместимого терминального интерфейса. Обновите пакет приложения и проверьте снова."},
+  "native.app.failed": {"en":"Could not open the application. Check the Omarchy terminal launcher and try again.","ru":"Не удалось открыть приложение. Проверьте запуск терминала Omarchy и повторите попытку."},
   "setup.components": {"en":"REQUIRED COMPONENTS","ru":"НЕОБХОДИМЫЕ КОМПОНЕНТЫ"},
   "setup.app_missing": {"en":"OmaVLESS application — not installed","ru":"Приложение OmaVLESS — не установлено"},
   "setup.core_missing": {"en":"Mihomo VPN core — not installed","ru":"VPN-ядро Mihomo — не установлено"},

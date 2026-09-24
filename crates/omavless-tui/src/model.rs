@@ -104,6 +104,10 @@ pub struct Observation {
 
 #[derive(Clone)]
 pub struct Snapshot {
+    pub active_connections: Option<u32>,
+    pub profile_details: Option<crate::inspection::ProfileDetails>,
+    pub core_diagnostics: Option<crate::inspection::CoreDiagnostics>,
+    pub capabilities: crate::inspection::Capabilities,
     pub traffic: Option<crate::inspection::Traffic>,
     pub diagnostics: Option<crate::inspection::Diagnostics>,
     pub inspection_available: (bool, bool),
@@ -224,6 +228,12 @@ impl Snapshot {
             _ => return Err(ReadError::Invalid),
         }
         Ok(Self {
+            active_connections: None,
+            profile_details: None,
+            core_diagnostics: crate::inspection::CoreDiagnostics::parse(
+                &observed["result"]["coreDiagnostics"],
+            ),
+            capabilities: crate::inspection::Capabilities::default(),
             traffic: None,
             diagnostics: None,
             inspection_available: (false, false),

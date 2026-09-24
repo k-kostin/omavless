@@ -694,7 +694,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeOpenAppRow.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -2255,6 +2255,18 @@ Panel {
             onAction: root.setWidgetSetting("showExitIp", !vless.showExitIp, true)
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.application"); foreground: root.foreground; fontFamily: root.fontFamily }
+          SettingsActionRow {
+            id: nativeOpenAppRow
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            title: root.textFor("native.app.title")
+            description: root.textFor(vless.nativeAppLaunchFailed ? "native.app.failed"
+              : vless.nativeAppChecking ? "common.loading"
+              : vless.nativeAppAvailable ? "native.app.scope" : "native.app.unavailable")
+            actionText: root.textFor(vless.nativeAppAvailable ? "native.app.open" : "common.refresh")
+            actionEnabled: !vless.nativeAppChecking && !vless.nativeAppOpening
+            onAction: { if (vless.nativeAppAvailable) vless.openNativeApp(); else vless.refreshNativeAppAvailability() }
+          }
           SettingsActionRow {
             id: nativeQuitSetting
             Layout.fillWidth: true
