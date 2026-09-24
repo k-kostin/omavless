@@ -44,6 +44,29 @@ These source facts explain a missing completion signal; they do not prove the
 cause of a particular provider/network outage. Current exact-candidate prompt
 and cancellation observations remain separate attended gates.
 
+### Three distinct waits; no user-speed requirement
+
+The acceptance terminal's pre-action `ready` and post-action `settled` waits
+have no human deadline. Before `ready`, no host action is dispatched; delaying
+there cannot explain a failed connection. `settled` confirms no dialog remains,
+not that a transition succeeded. Do not treat the typing speed as test evidence.
+
+The current native core admission has its own ten-second configured-readiness
+deadline; the unary test client also has a bounded transaction deadline. Neither
+is an authorization completion signal. A future DNS transaction must explicitly
+distinguish awaiting authorization, applying, verifying and completed/failed.
+Do not hold an optimistic UI-success state while a detached OS request can still
+change DNS. Cancellation/late replies must be fenced by transaction/lease identity;
+increasing a timeout is not a substitute for joining the actual DNS owner.
+
+The September 24 native XHTTP gate first returned `transition_failed_restored`,
+then passed in a separately attended attempt on the unchanged installed runtime.
+The human accepted all OS requests and clarified their initial delay was before
+`ready`. Therefore that delay is excluded as a cause, but the exact admission
+failure remains unexplained. This is not proof of a DNS timeout or a provider
+defect. Original Routing/profile restoration passed; no unattended host repeats
+or privileged policy changes are justified by this finding.
+
 ## Alternatives and decision
 
 | Approach | Decision | Reason |
@@ -159,3 +182,13 @@ neither resolved restoration nor absence of DNS leakage.
 select this gated broker direction. #270/RC host closure remains open until the
 unresolved ownership mechanism and applicable acceptance are explicitly resolved.
 No installed policy, prompt elimination or DNS-cancellation fix is claimed here.
+
+## Next-session boundary
+
+Offline work can validate the fixed protocol/failure model and review the core
+adapter options. It cannot prove prompt-free host operations, cancelled/late
+authorization, cleanup or a secure lease on a real TUN. Do not install a broker
+or a polkit rule while the owner is absent. The accepted native UI correction
+in #289 supersedes Python PR #135 as code, while #132 remains open. Retain this
+design candidate and its unresolved prerequisites rather than declaring the host
+gate complete merely because documentation/static checks pass.
