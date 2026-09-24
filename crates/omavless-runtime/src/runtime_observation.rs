@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 pub(crate) fn validate(request: &Value) -> Result<(), MutationProtocolError> {
     omavless_control_protocol::validate_request(request)
         .map_err(|_| MutationProtocolError::InvalidRequest)?;
-    if request["method"] != "runtime.observation" {
+    if request["method"] != "runtime.observation" && request["method"] != "diagnostics.setup" {
         return Err(MutationProtocolError::UnknownMethod);
     }
     if !request["params"].as_object().is_some_and(|p| p.is_empty()) {

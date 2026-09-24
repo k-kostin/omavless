@@ -158,6 +158,9 @@ fn run() -> Result<(), CliError> {
             "  plugin profile-replace INSTANCE REVISION OPERATION  stdin: ID newline NAME newline INPUT"
         );
         println!("  diagnostics summary|rules|providers  bounded live controller diagnostics");
+        println!(
+            "  diagnostics setup                safe TUN setup log hints; no automatic repair"
+        );
         println!("  runtime test                      explicit current-route HTTPS/IP observation");
         println!("  diagnostics export               shareable bounded native support report");
         println!("  routing preset PRESET [keep-mode]  adopt a bundled routing policy");

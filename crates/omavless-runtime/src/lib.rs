@@ -273,6 +273,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.observation",
     "ui.snapshot",
     "diagnostics.export",
+    "diagnostics.setup",
     "diagnostics.summary",
     "diagnostics.rules",
     "diagnostics.providers",
@@ -2087,7 +2088,11 @@ fn dispatch_native(
         "imports.classify" if runtime_ownership => return owner.import_preview(request),
         "routing.custom_rules.list" if runtime_ownership => return owner.custom_rules(request),
         "diagnostics.export" if runtime_ownership => return owner.support_report(request),
-        "ui.snapshot" | "runtime.observation" | "runtime.traffic" | "runtime.connections"
+        "ui.snapshot"
+        | "runtime.observation"
+        | "runtime.traffic"
+        | "runtime.connections"
+        | "diagnostics.setup"
             if runtime_ownership =>
         {
             let mut response = if method == "ui.snapshot" {
@@ -3480,6 +3485,49 @@ mod tests {
         assert_eq!(result["error"]["code"], "conflict");
         assert!(!result.to_string().contains("203.0.113.7"));
         drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn setup_diagnostics_socket_is_private_read_only_and_owner_gated() {
+        let base = temporary_base("setup-diagnostics");
+        let (owner, _cutover, calls) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let baseline = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(3)).unwrap());
+        let response = call(&paths, "diagnostics.setup", json!({})).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["revision"], 0);
+        assert_eq!(
+            response["result"]["scope"],
+            "latest_owned_core_setup_log_hints"
+        );
+        assert_eq!(response["result"]["availability"], "unavailable");
+        assert!(response["result"]["counts"].is_null());
+        assert!(response["result"]["instanceId"].is_string());
+        assert!(encode_response(&response).unwrap().len() < 2048);
+        let invalid = call(
+            &paths,
+            "diagnostics.setup",
+            json!({"repair":"private-secret"}),
+        )
+        .unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert!(!invalid.to_string().contains("private-secret"));
+        // Revoke the exact native ownership before the next read.
+        let marker = base.join("state/omavless/ownership.json");
+        // Use the fixture's canonical marker path, not an unrelated missing file.
+        assert!(marker.exists());
+        fs::remove_file(marker).unwrap();
+        let revoked = call(&paths, "diagnostics.setup", json!({})).unwrap();
+        assert_eq!(revoked["error"]["code"], "capability_unavailable");
+        worker.join().unwrap();
+        assert_eq!(fs::read(store).unwrap(), before);
+        assert_eq!(calls.load(Ordering::Relaxed), baseline);
         fs::remove_dir_all(base).unwrap();
     }
 

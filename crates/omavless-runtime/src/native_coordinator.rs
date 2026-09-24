@@ -713,6 +713,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<Value, NativeOwnerError> {
         crate::runtime_observation::validate(request)?;
         self.with_owned_read(|owner| {
+            if request["method"] == "diagnostics.setup" {
+                return Ok(crate::core_diagnostics::CoreDiagnostics::setup_projection(
+                    owner.host_mut().core_diagnostics(),
+                ));
+            }
             let desired = crate::desired::read_desired_snapshot(
                 owner.transaction.desired_paths(),
                 owner.transaction.uid(),

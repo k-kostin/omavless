@@ -75,6 +75,10 @@ pub fn parse_semantic_read(
             method: "diagnostics.export",
             params: json!({}),
         }),
+        ["diagnostics", "setup"] => Some(SemanticRequest {
+            method: "diagnostics.setup",
+            params: json!({}),
+        }),
         ["runtime", "test"] => Some(SemanticRequest {
             method: "runtime.connection_test",
             params: json!({}),
@@ -569,6 +573,22 @@ mod tests {
             &["runtime"][..],
             &["runtime", "raw"],
             &["runtime", "observation", "private-token"],
+        ] {
+            assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn setup_diagnostics_is_a_fixed_read_not_a_repair_command() {
+        let (method, params) = parse_semantic_read(&args(&["diagnostics", "setup"]))
+            .unwrap()
+            .unwrap()
+            .into_parts();
+        assert_eq!(method, "diagnostics.setup");
+        assert_eq!(params, json!({}));
+        for arguments in [
+            &["diagnostics", "setup", "private-interface"][..],
+            &["diagnostics", "setup", "--repair"],
         ] {
             assert!(parse_semantic_read(&args(arguments)).unwrap().is_none());
         }
