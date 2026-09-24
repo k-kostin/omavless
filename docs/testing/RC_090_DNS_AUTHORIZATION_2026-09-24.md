@@ -1,6 +1,6 @@
 # RC 0.9.0-rc.1: installed pair and DNS authorization
 
-Try Omarchy ARM64, attended September 24, 2026. This is real authorization
+Try Omarchy ARM64, attended September 24–25, 2026. This is real authorization
 evidence, not a prompt-free fix or RC release acceptance. Main, release assets,
 pins and marketplace remain unchanged. Issues #270 and #132 remain open.
 
@@ -64,6 +64,33 @@ policy edit or passwordless grant was performed; further authorizing tests were
 paused. Core/controller restoration with all DNS properties absent was **not**
 accepted as network/DNS recovery, even when the semantic action returned success.
 This failure does not prove the password itself was incorrect.
+
+### Verified final recovery
+
+After the normal 600-second interval plus a margin, a new separately attended
+recovery accepted OS authorization. The original profile/ Routing was restored;
+all three resolved properties matched after `settled`, one owned core and one
+TUN were present, and no manual recovery was reported. PAM then showed zero
+valid failed-attempt records following normal successful authentication; no
+agent reset or policy modification occurred. The final recovery check explicitly
+requires matching DNS readback, not just core/controller success.
+
+The restored connection passed a bounded generic HTTPS probe bound to its TUN,
+with TUN counters increasing. The service owns the single core; the private Unix
+controller responded and the generated config has no TCP external-controller.
+This session did not repeat privileged TCP-listener PID attribution or claim
+IPv4/IPv6/DNS leak coverage from HTTPS. The enabled plugin and original Routing
+connection were preserved.
+
+The exact installed TUI capability check passed. The plugin's fixed Open app
+launcher opened one TUI window; a repeat focused the same window. Closing it
+through the host's supported window-close dispatcher left desired state and the
+1-core/1-TUN connection unchanged. No repeated full T2 visual acceptance or
+x86_64 installed claim is made.
+
+The negative case exercised Connect from a verified disconnected baseline. It
+exposes the shared DNS-completion gap, but is not a pass for #132's separate
+connected mode-change cancellation/rollback, panel-reopen or shell-restart matrix.
 
 ## Reusable read-only evidence
 

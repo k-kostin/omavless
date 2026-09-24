@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-09-24. This is the compact current-state entry point; the detailed
+Updated 2026-09-25. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -14,6 +14,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   frontend passed attended replacement, private-state preservation and original
   Routing/profile restoration. New [DNS authorization evidence](../testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md)
   reproduces #132: cancelled DNS prompts leave an incorrect connected claim.
+  Following a PAM lockout/backoff, final original-state recovery passed with
+  matching DNS readback and TUN-bound HTTPS; Open app/focus/close also passed.
   #288 remains investigation, not issue #270/#132 closure or RC readiness.
 
 - **Owner-required RC completion gates, September 24:** T2 acceptance alone
