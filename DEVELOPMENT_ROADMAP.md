@@ -1160,6 +1160,8 @@ The subsequent RC includes traffic/details/diagnostics, theme following and
 attended single-subscription refresh. A read-only Subscriptions overview now
 adds empty-feed visibility and saved-list age without provider I/O; see the
 [current TUI contract](docs/roadmap/TUI_APP.md). Full T2 remains incomplete.
+A following client slice adds bounded session-only activity without raw daemon
+logs or persistence; current health stays separate from historical events.
 
 The first full application UI is Rust + Ratatui, using a reviewed terminal
 backend such as Crossterm. It is a client of the already accepted Rust runtime;

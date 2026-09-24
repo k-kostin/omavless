@@ -9,6 +9,7 @@ pub enum Page {
     Traffic,
     Details,
     Diagnostics,
+    Activity,
     Subscriptions,
 }
 impl Page {
@@ -18,6 +19,7 @@ impl Page {
             Self::Traffic,
             Self::Details,
             Self::Diagnostics,
+            Self::Activity,
             Self::Subscriptions,
         ];
         let index = pages.iter().position(|p| *p == self).unwrap_or(0);
@@ -29,6 +31,7 @@ impl Page {
             Self::Traffic => "tui.traffic",
             Self::Details => "tui.details",
             Self::Diagnostics => "tui.diagnostics",
+            Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
         }
     }

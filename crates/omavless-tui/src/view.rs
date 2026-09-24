@@ -393,6 +393,25 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     use crate::inspection::{Page, bytes};
     let tr = |key| app.locale.text(key);
     let field = |key, value: String| Line::from(format!("{}: {value}", tr(key)));
+    // Session history remains readable when the daemon is unavailable/stale;
+    // the separate header continues to describe current freshness/health.
+    if app.page == Page::Activity {
+        let mut lines = vec![Line::from(tr("tui.activity_scope"))];
+        for entry in app.activity.newest_first() {
+            let seconds = entry.elapsed_seconds;
+            lines.push(Line::from(format!(
+                "[{:02}:{:02}:{:02}] {}",
+                seconds / 3600,
+                seconds / 60 % 60,
+                seconds % 60,
+                tr(entry.event.key())
+            )));
+        }
+        if lines.len() == 1 {
+            lines.push(Line::from(tr("tui.activity_empty")));
+        }
+        return lines;
+    }
     let Some(s) = app
         .snapshot
         .as_ref()
@@ -558,6 +577,6 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             }
             lines
         }
-        Page::Profiles => Vec::new(),
+        Page::Profiles | Page::Activity => Vec::new(),
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Opt-in TUI client; no store, service, core or network ownership.
 pub mod actions;
+pub mod activity;
 pub mod app;
 pub mod browsing;
 pub mod client;
