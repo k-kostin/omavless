@@ -167,7 +167,10 @@ impl Effects for Host<'_> {
                     self.baseline = Some(baseline);
                     Completion::SnapshotCaptured
                 }
-                Err(_) => Completion::SettledFailure,
+                Err(error) => {
+                    crate::diagnostic::report(crate::diagnostic::Refusal::Baseline(error));
+                    Completion::SettledFailure
+                }
             };
         }
         if action == Action::SetFixedServers {

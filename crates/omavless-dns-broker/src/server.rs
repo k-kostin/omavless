@@ -1,6 +1,7 @@
 //! Single serialized fixed-purpose root listener. No client-selected targets.
 use crate::{
     admission::RootContext,
+    diagnostic::{Refusal, report},
     journal::Journal,
     transaction::{Lease, Outcome},
 };
@@ -70,7 +71,10 @@ pub fn serve() -> Result<(), Error> {
                 .map_err(|_| ChannelError::InvalidDescriptor)
         }) {
             Ok(proof) => proof,
-            Err(_) => continue,
+            Err(error) => {
+                report(Refusal::Channel(error));
+                continue;
+            }
         };
         let until = deadline();
         context
@@ -79,7 +83,8 @@ pub fn serve() -> Result<(), Error> {
         // Kernel admission is mandatory even for an enrolled same-user process.
         let held = match HeldTun::admit(proof) {
             Ok(held) => held,
-            Err(_) => {
+            Err(error) => {
+                report(Refusal::Tun(error));
                 let _ = session.reply(Response::Rejected);
                 continue;
             }
@@ -92,7 +97,8 @@ pub fn serve() -> Result<(), Error> {
             until,
         ) {
             Ok(resolved) => resolved,
-            Err(_) => {
+            Err(error) => {
+                report(Refusal::Resolved(error));
                 let _ = session.reply(Response::Rejected);
                 continue;
             }
