@@ -386,6 +386,9 @@ The [review-only core adapter](tests/core_dns_adapter/README.md) subsequently
 builds and passes isolated DNS-off/default/reload/FD checks; stock-core refusal
 also passes. No installed core, helper, OS policy or release changed. Secure
 lease/restore and reviewed production distribution remain required.
+The [FD authority follow-up](docs/development/DNS_TUN_AUTHORITY.md) proves a
+restricted-consumer candidate and explains why a bare TUN FD is insufficient.
+It is not an installed host helper or closure of DNS-0/#270.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

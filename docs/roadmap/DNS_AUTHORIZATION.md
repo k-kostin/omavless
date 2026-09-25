@@ -220,6 +220,14 @@ compiled DNS-off/default/reload/FD evidence in isolated namespaces and refuses
 the unpatched core. It advances the core-mechanism part of DNS-0, not approved
 distribution, production routing evidence, secure lease or installed closure.
 
+Further [kernel authority testing](../development/DNS_TUN_AUTHORITY.md) rejects
+another shortcut: an inherited FD with no capabilities still permits owner and
+persistence changes. Creator-held TUN plus a restricted consumer is the next
+candidate; isolated core readiness/close passes with an ioctl filter and empty
+capabilities. The experiment also denies FD export; production traffic and
+external FD extraction still need their own boundary. Fixed TUN/address/route ownership requires separate review, not a
+silent expansion of the DNS-only helper. No installed helper is claimed.
+
 ## Next-session boundary
 
 Offline work can validate the fixed protocol/failure model and review the core

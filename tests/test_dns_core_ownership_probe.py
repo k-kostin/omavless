@@ -173,6 +173,23 @@ class OwnershipProbeTests(unittest.TestCase):
             self.assertEqual(kwargs['stdout'], subprocess.DEVNULL)
             self.assertNotIn('subprocess', (root / 'resolvectl').read_text())
 
+    def test_restricted_core_launch_requires_fd_and_drops_privileges_before_exec(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(probe.subprocess, 'Popen') as launch:
+                with self.assertRaises(RuntimeError): probe.launch(root, root / 'candidate', True, restricted=True)
+                launch.assert_not_called()
+                probe.launch(root, root / 'candidate', True, fd=42, restricted=True)
+            command = launch.call_args.args[0]
+            self.assertEqual(command[0], '/usr/bin/setpriv')
+            for argument in ['--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all',
+                             '--no-new-privs', '--seccomp-filter']:
+                self.assertIn(argument, command)
+            self.assertEqual(launch.call_args.kwargs['pass_fds'], (42,))
+            self.assertTrue((root / 'ioctl-filter.bpf').stat().st_size > 0)
+            wrapper = (root / 'restricted_exec.py').read_text()
+            self.assertLess(wrapper.index('dropped_capabilities()'), wrapper.index('os.execve('))
+
 
 if __name__ == '__main__':
     unittest.main()

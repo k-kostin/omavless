@@ -22,6 +22,7 @@ python3 -m unittest -v \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \
   "$here/test_dns_tun_namespace_probe.py" \
+  "$here/test_dns_tun_authority_probe.py" \
   "$here/test_dns_core_namespace_probe.py" \
   "$here/test_dns_core_ownership_probe.py" \
   "$here/test_staged_native_unit_acceptance.py" \

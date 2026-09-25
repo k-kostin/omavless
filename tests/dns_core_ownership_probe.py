@@ -9,6 +9,7 @@ import hashlib
 import fcntl
 import json
 import os
+import platform
 from pathlib import Path
 import shutil
 import stat
@@ -19,6 +20,7 @@ import tempfile
 import time
 
 import dns_core_namespace_probe as base
+import dns_tun_fd_policy as fd_policy
 
 FACTS = {
     'isolated', 'omitted_keeps_legacy', 'false_keeps_legacy',
@@ -26,6 +28,7 @@ FACTS = {
     'true_to_false_restores_core_writer', 'false_to_true_releases_core_writer',
     'controller_confirms_flag', 'all_owned_children_exited',
     'fd_false_reverts_on_close', 'fd_true_suppresses_close',
+    'restricted_fd_core_ready', 'restricted_fd_core_clean_close',
 }
 
 
@@ -79,8 +82,9 @@ def stop_cleanly(child):
     return base.stop(child) and child.returncode == 0
 
 
-def launch(root, binary, disabled, fd=None):
+def launch(root, binary, disabled, fd=None, restricted=False):
     base.require(fd is None or (type(fd) is int and fd > 2))
+    base.require(type(restricted) is bool and (not restricted or fd is not None))
     (root / 'resolvectl').write_text(
         '#!' + sys.executable + '\nfrom pathlib import Path\nimport sys\n'
         'if len(sys.argv)<3 or sys.argv[1] not in '
@@ -93,7 +97,22 @@ def launch(root, binary, disabled, fd=None):
     if fd is not None:
         text = text.replace('tun:\n', 'tun:\n  file-descriptor: ' + str(fd) + '\n', 1)
     path.write_text(text)
-    return subprocess.Popen([str(binary), '-d', str(root), '-f', str(path)], env={
+    command = [str(binary), '-d', str(root), '-f', str(path)]
+    if restricted:
+        filter_path = root / 'ioctl-filter.bpf'
+        filter_path.write_bytes(fd_policy.encode(platform.machine()))
+        wrapper = root / 'restricted_exec.py'
+        wrapper.write_text(
+            'import os, sys\nfrom pathlib import Path\n'
+            'sys.path.insert(0, ' + repr(str(Path(__file__).resolve().parent)) + ')\n'
+            'from dns_tun_authority_probe import dropped_capabilities\n'
+            'dropped_capabilities()\n'
+            'Path(' + repr(str(root / 'capabilities-checked')) + ').write_bytes(b"checked")\n'
+            'os.execve(' + repr(str(binary)) + ', ' + repr(command) + ', dict(os.environ))\n')
+        command = ['/usr/bin/setpriv', '--bounding-set=-all', '--inh-caps=-all',
+                   '--ambient-caps=-all', '--no-new-privs', '--seccomp-filter',
+                   str(filter_path), '--', sys.executable, str(wrapper)]
+    return subprocess.Popen(command, env={
         'PATH': str(root), 'HOME': str(root), 'XDG_RUNTIME_DIR': str(root), 'LANG': 'C',
         'DBUS_SYSTEM_BUS_ADDRESS': 'unix:path=' + str(root / 'absent-system-bus'),
         'DBUS_SESSION_BUS_ADDRESS': 'unix:path=' + str(root / 'absent-session-bus'),
@@ -152,8 +171,8 @@ def experiment(root, source, digest):
         facts['all_owned_children_exited'] &= stop_cleanly(child)
     facts['true_suppresses_setup_and_close'] &= stable_calls(case, setup + ['revert'])
     base.require({item['ifname'] for item in base.ns.links()} == {'lo'})
-    for disabled in (False, True):
-        case = root / ('fd-true' if disabled else 'fd-false')
+    for disabled, restricted in ((False, False), (True, False), (True, True)):
+        case = root / ('fd-restricted' if restricted else 'fd-true' if disabled else 'fd-false')
         case.mkdir(mode=0o700)
         fd = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC | os.O_NONBLOCK)
         try:
@@ -166,13 +185,16 @@ def experiment(root, source, digest):
                 subprocess.run(['/usr/bin/ip', *args], stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=3, check=True)
-            child = launch(case, binary, disabled, fd=fd)
+            child = launch(case, binary, disabled, fd=fd, restricted=restricted)
             try:
                 wait_ready(case, child, fd)
                 base.require(flag(case) == disabled and stable_calls(case, []))
+                if restricted:
+                    facts['restricted_fd_core_ready'] = (case / 'capabilities-checked').read_bytes() == b'checked'
             finally:
                 facts['all_owned_children_exited'] &= stop_cleanly(child)
-            facts['fd_true_suppresses_close' if disabled else 'fd_false_reverts_on_close'] = stable_calls(
+            key = 'restricted_fd_core_clean_close' if restricted else 'fd_true_suppresses_close' if disabled else 'fd_false_reverts_on_close'
+            facts[key] = child.returncode == 0 and stable_calls(
                 case, [] if disabled else ['revert'])
         finally:
             os.close(fd)

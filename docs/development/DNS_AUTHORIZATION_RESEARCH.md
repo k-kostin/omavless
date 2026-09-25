@@ -212,6 +212,13 @@ serialization, actual readback and uncertain-outcome handling:
 
 ## Next session: no ceremonial repeat
 
+The subsequent [creator-held TUN authority experiment](DNS_TUN_AUTHORITY.md)
+found that a capability-free FD consumer can still change TUN owner/persistence.
+A tested ioctl/FD-export filter blocks those changes; the actual core starts and closes
+with that filter and empty capabilities. UDP ancillary compatibility and external
+FD-extraction/process isolation remain unproved. This advances a restricted-consumer
+candidate, not a root broker or host cutover.
+
 First finish the core DNS-off capability and real lease/restore integration,
 then root service/package/typed D-Bus implementation and fault tests. The
 prototype is **not yet installable merely because the owner is present**.
