@@ -122,6 +122,14 @@ unknown writes remain blocked. The raw transport is not exposed by the wrapper.
 `capture_reserved_baseline` names the trusted caller's explicit DNS reservation,
 not a claim that passing an arbitrary matching descriptor proves fresh ownership.
 
+The exact link path uses systemd's decimal-label escaping: index `42` becomes
+`/org/freedesktop/resolve1/link/_342`, **not** `.../_42`. The initial mock used
+the wrong spelling and concealed a real-host constructor refusal. Golden cases
+now use independently checked `libsystemd sd_bus_path_encode` results, also
+checked read-only against installed resolved `GetLink(1)`. The strict target
+comparison remains; this is not permission to accept arbitrary returned paths.
+See [systemd's link path implementation](https://github.com/systemd/systemd/blob/v261/src/resolve/resolved-link-bus.c).
+
 These checks are **not atomic with D-Bus**, not a late-call fence, and not
 descriptor retention across broker death. Root composition must preserve the
 independent manager-held descriptor and durable Pending journal before writes,

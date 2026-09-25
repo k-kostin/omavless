@@ -13,7 +13,7 @@ use tempfile::TempDir;
 use zbus::{fdo, zvariant::OwnedObjectPath};
 
 const SERVICE: &str = "org.freedesktop.resolve1";
-const LINK_PATH: &str = "/org/freedesktop/resolve1/link/_42";
+const LINK_PATH: &str = "/org/freedesktop/resolve1/link/_342";
 const PRIVATE_ERROR: &str = "https://private.invalid/token password=synthetic-private-key";
 
 #[test]
@@ -142,7 +142,7 @@ impl MockManager {
         }
         Ok(
             OwnedObjectPath::try_from(if self.0.lock().unwrap().wrong_link_path {
-                "/org/freedesktop/resolve1/link/_43"
+                "/org/freedesktop/resolve1/link/_343"
             } else {
                 LINK_PATH
             })

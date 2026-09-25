@@ -89,7 +89,7 @@ struct Resolve(Arc<Mutex<State>>);
 impl Resolve {
     fn get_link(&self, index: i32) -> OwnedObjectPath {
         assert_eq!(index, self.0.lock().unwrap().index);
-        OwnedObjectPath::try_from(format!("/org/freedesktop/resolve1/link/_{index}")).unwrap()
+        OwnedObjectPath::try_from(format!("/org/freedesktop/resolve1/link/_3{index}")).unwrap()
     }
     #[zbus(name = "SetLinkDNS")]
     fn set_link_dns(
@@ -417,7 +417,7 @@ sys.stdin.buffer.read(1)
         .serve_at("/org/freedesktop/resolve1", Resolve(state.clone()))
         .unwrap()
         .serve_at(
-            format!("/org/freedesktop/resolve1/link/_{index}"),
+            format!("/org/freedesktop/resolve1/link/_3{index}"),
             Link(state.clone()),
         )
         .unwrap()

@@ -5,6 +5,29 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[test]
+fn link_path_matches_systemd_decimal_label_encoding() {
+    // Golden results independently checked with libsystemd sd_bus_path_encode;
+    // installed resolved GetLink(1) also returns the first value below.
+    for (index, expected) in [
+        (1, "/org/freedesktop/resolve1/link/_31"),
+        (9, "/org/freedesktop/resolve1/link/_39"),
+        (10, "/org/freedesktop/resolve1/link/_310"),
+        (42, "/org/freedesktop/resolve1/link/_342"),
+        (123, "/org/freedesktop/resolve1/link/_3123"),
+        (i32::MAX, "/org/freedesktop/resolve1/link/_32147483647"),
+    ] {
+        assert_eq!(link_path(index).unwrap(), expected);
+        assert_ne!(
+            link_path(index).unwrap(),
+            format!("/org/freedesktop/resolve1/link/_{index}")
+        );
+    }
+    for index in [0, -1, i32::MIN] {
+        assert_eq!(link_path(index), Err(Error::LeaseLost));
+    }
+}
+
 struct MockLease {
     checks: Arc<AtomicUsize>,
     fail_at: usize,

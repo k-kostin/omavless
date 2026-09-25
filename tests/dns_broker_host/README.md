@@ -7,7 +7,7 @@ passed a host test. No script here runs sudo, modifies host DNS, installs a unit
 releases a retained TUN, or changes the installed VPN.
 
 The owning contracts are [DNS authorization](../../docs/roadmap/DNS_AUTHORIZATION.md),
-[TUN authority](../../docs/roadmap/DNS_TUN_AUTHORITY.md), and
+[TUN authority](../../docs/development/DNS_TUN_AUTHORITY.md), and
 [FD-store retention](../../docs/development/DNS_FDSTORE.md).
 
 ## Fixed host boundary
@@ -149,6 +149,14 @@ not these real DNS acceptance gates. No production password-free claim is made
 until the exact installed pair passes them.
 
 ### Opt-in service acceptance runner
+
+**Current installed-host limitation (2026-09-25):** the isolated runner below
+cannot start the current runtime: login admission intentionally requires the
+installed executable/receipt and refuses `OMAVLESS_HOME`. Do not weaken that
+production guard or count this runner's isolated startup as installed evidence.
+Use the actual installed package/service with separately preserved rollback
+and the same per-effect human barriers. The isolated entry point must be adapted
+before it can be recommended again; its pure evidence helpers remain useful.
 
 After separately attended installation, enrollment and startup, use
 `tests/native_service_acceptance.py --run --binary /absolute/candidate/omavless

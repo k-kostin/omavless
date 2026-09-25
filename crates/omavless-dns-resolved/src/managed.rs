@@ -147,7 +147,7 @@ impl<L: Lease> Managed<L> {
         )
         .map_err(|_| Error::Unavailable)?;
         let path: OwnedObjectPath = bounded_reply(&reply)?;
-        if path.as_str() != format!("/org/freedesktop/resolve1/link/_{ifindex}") {
+        if path.as_str() != link_path(ifindex)? {
             return Err(Error::InvalidReply);
         }
         held.recheck()?;
@@ -205,6 +205,16 @@ impl<L: Lease> Managed<L> {
         }
         result
     }
+}
+
+fn link_path(index: i32) -> Result<String, Error> {
+    if index <= 0 {
+        return Err(Error::LeaseLost);
+    }
+    // resolved uses sd_bus_path_encode on the decimal index. Its FIRST digit
+    // is escaped as _3N (ASCII hex); later decimal digits remain unchanged.
+    // Keep an exact target check, not a permissive object-path prefix match.
+    Ok(format!("/org/freedesktop/resolve1/link/_3{index}"))
 }
 
 fn verify_owner(connection: &Connection, expected: &str, deadline: Instant) -> Result<(), Error> {
