@@ -215,6 +215,10 @@ the old FD detects detachment but does not make a resolved write atomic.
 The existing core's FD path also retains teardown DNS calls. These concrete
 results narrow DNS-0; they do not close its lease/ownership prerequisites or
 turn DNS-1 preparation into installed prompt-free support.
+The [review-only core patch](../../tests/core_dns_adapter/README.md) now supplies
+compiled DNS-off/default/reload/FD evidence in isolated namespaces and refuses
+the unpatched core. It advances the core-mechanism part of DNS-0, not approved
+distribution, production routing evidence, secure lease or installed closure.
 
 ## Next-session boundary
 

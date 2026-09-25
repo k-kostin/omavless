@@ -192,7 +192,7 @@ def child(original_net, original_user, original_pid, expected_digest):
         return experiment(Path(directory), expected_digest)
 
 
-def project(raw):
+def project(raw, expected_facts=FACTS):
     require(len(raw) <= 2048)
     def unique(items):
         result = {}
@@ -203,7 +203,7 @@ def project(raw):
     data = json.loads(raw, object_pairs_hook=unique)
     require(type(data) is dict and set(data) == {'facts', 'coreSha256'})
     facts, digest = data['facts'], data['coreSha256']
-    require(type(facts) is dict and set(facts) == FACTS)
+    require(type(facts) is dict and set(facts) == expected_facts)
     require(all(type(value) is bool for value in facts.values()))
     require(type(digest) is str and len(digest) == 64
             and all(c in '0123456789abcdef' for c in digest))

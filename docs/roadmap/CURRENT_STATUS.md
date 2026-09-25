@@ -17,6 +17,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   while changed-TUN reload and shutdown retain them. Target remains no recurring
   prompts after explicit enrollment, with one scoped prompt as fallback. Neither
   the helper nor a production reload optimization is installed.
+  A [review-only core adapter](../../tests/core_dns_adapter/README.md) now builds
+  and passes 11 isolated DNS-owner checks, including FD teardown and old-core
+  refusal. It is not a shipped core fork or helper; privileged lease/restore,
+  package review and attended integration remain open.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and

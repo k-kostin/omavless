@@ -122,9 +122,48 @@ separate default-disabled `disable-system-dns` option. The spelling is a proposa
 
 Sources and existing no-flag/FD findings are in the
 [foundation report](DNS_TRANSACTION_FOUNDATION.md#existing-core-does-not-expose-the-required-dns-ownership-switch).
-No patch, custom core build, upstream PR, replacement package or distribution
-decision is claimed by this research. Review that narrow upstream/core-adapter
-change before installing anything; do not make users maintain a hidden fork.
+The subsequent [review-only patch and reproduction instructions](../../tests/core_dns_adapter/README.md)
+implement these three wiring points on the exact source above. Its two Go test
+functions pass (three config/default/serialization subcases and equality), and
+the complete core builds with Go 1.26.8, CGO disabled, default tags. This is a
+scratch test executable, **not** an upstream PR, replacement package, approved
+distribution choice, or the installed `with_gvisor` build.
+
+`tests/dns_core_ownership_probe.py` runs that explicit SHA-256 candidate only in
+fresh user/network/PID namespaces, copying without file capabilities and using
+the same scratch-only DNS verb recorder. All **11** final facts pass:
+
+- omitted/false preserves core setup and close calls;
+- true suppresses setup and close, including changed-TUN reload;
+- true→false resumes core DNS setup; false→true performs the old owner's revert
+  and suppresses subsequent calls;
+- the controller returns the explicit policy boolean;
+- an externally created FD with false still reverts; true suppresses that revert;
+- isolation and joined, clean owned-core exits pass.
+
+The FD fixture explicitly assigns its synthetic address and brings its private
+link up: FD mode skips that core configuration and cannot be tested honestly
+with just an open, unconfigured descriptor. Readiness requires configured TUN
+state, not merely a controller socket and a pre-existing link. Forced process
+termination is not accepted as evidence of a successful core Close path.
+
+The unchanged stock core is the negative control: it is rejected with fixed
+`unsupported_dns_ownership_capability`, not considered compatible because an
+unknown YAML key was accepted. These are test-tool checks, not a newly installed
+production admission path. Bounded quiet windows, a synthetic system-stack
+fixture and absence of recorded commands do not establish live system DNS,
+production gVisor/IPv6/routes/packet interception or a secure privileged lease.
+Review the adapter/distribution choice before installing anything; do not make
+users maintain a hidden fork. DNS-0's core mechanism now has executable evidence;
+its production integration and managed-link identity/restore gates remain open.
+
+Adapter checkpoint validation: **16** new effect-free probe guard tests;
+`tests/run.sh`: **355 run, 353 passed, 2 expected skips**, plus Node/QML
+contracts. Python compilation, shell syntax, documentation navigation and diff
+checks pass. No application/Rust runtime source changed, so prior workspace
+evidence is retained rather than labelled as a fresh host gate. Read-only host
+observation remains connected Routing, one owned core/managed TUN, no auxiliary
+core and no recovery flag. The installed core hash is unchanged.
 
 ## Snapshot restoration is not just three effective properties
 

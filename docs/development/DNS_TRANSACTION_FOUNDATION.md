@@ -190,8 +190,10 @@ The next implementation prerequisites are still **not merely sudo**:
 1. Review a supported core DNS-off adapter. A minimal upstream change would
    carry a default-off disable-system-DNS option through raw config, listener
    config/equality/reload, and sing-tun options, preserving packet DNS handling,
-   TUN routing and teardown semantics. It needs compile/fixture evidence and
-   reviewed distribution; this checkpoint neither patches nor selects a fork.
+   TUN routing and teardown semantics. A subsequent
+   [review-only patch](../../tests/core_dns_adapter/README.md) now supplies a
+   compiled core and isolated positive/negative evidence. It does not select
+   or install a production fork; distribution and production-tag gates remain.
 2. Establish the real managed-link lease and fixed privileged service boundary,
    with unrelated-link/reused-link/owner-loss refusal. The typed model and
    synthetic lease booleans are not that implementation.

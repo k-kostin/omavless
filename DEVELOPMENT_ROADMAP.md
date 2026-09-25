@@ -382,6 +382,10 @@ The [follow-up reference/real-core research](docs/development/DNS_AUTHORIZATION_
 records the owner's no-recurring-prompts target, one-authorization fallback and
 verified unchanged-TUN reload behavior in an isolated synthetic namespace. It
 does not close #270 or replace actual helper/restore/lifecycle acceptance.
+The [review-only core adapter](tests/core_dns_adapter/README.md) subsequently
+builds and passes isolated DNS-off/default/reload/FD checks; stock-core refusal
+also passes. No installed core, helper, OS policy or release changed. Secure
+lease/restore and reviewed production distribution remain required.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.
