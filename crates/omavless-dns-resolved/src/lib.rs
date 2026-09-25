@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: MIT
 //! Uninstalled resolved D-Bus conformance boundary, not a DNS host broker.
 //!
-//! There is deliberately no public constructor, system/session-bus discovery,
-//! privileged binary, caller-selected destination, or production dependent.
-//! Only in-crate tests construct it on their own disposable bus. A future
-//! trusted adapter must prove enrollment, kernel lease, exclusive DNS ownership,
-//! pristine baseline, bus authentication and routing before enabling access.
+//! No system/session-bus discovery, privileged binary or IPC-selected targets.
+//! ManagedResolved composes an already admitted real TUN with a trusted caller's
+//! pre-authenticated connection/pinned owner. Its caller must prove enrollment,
+//! retention, exclusive DNS ownership and fixed bus/policy admission separately.
 //! The fixed synthetic policy below is not an adopted production policy.
 
-use std::{fmt, future::Future, time::Duration};
+use std::{
+    fmt,
+    future::Future,
+    time::{Duration, Instant},
+};
 
 use serde::{Serialize, de::DeserializeOwned};
 use zbus::{Message, blocking::Connection, zvariant::OwnedValue};
+
+mod managed;
+pub use managed::ManagedResolved;
 
 const MANAGER_PATH: &str = "/org/freedesktop/resolve1";
 const MANAGER_INTERFACE: &str = "org.freedesktop.resolve1.Manager";
@@ -24,6 +30,7 @@ const MAX_DOMAIN_BYTES: usize = 253;
 const FIXED_DNS: [u8; 4] = [198, 18, 0, 2];
 
 type Servers = Vec<(i32, Vec<u8>)>;
+type ExtendedServers = Vec<(i32, Vec<u8>, u16, String)>;
 type Domains = Vec<(String, bool)>;
 
 /// Fixed public errors deliberately retain no raw bus error, target or value.
@@ -35,6 +42,10 @@ pub enum Error {
     AuthorizationRefused,
     OutcomeUnknown,
     RecoveryRequired,
+    NonPristine,
+    UnsupportedPolicy,
+    LeaseLost,
+    OwnershipChanged,
 }
 
 impl Error {
@@ -46,6 +57,10 @@ impl Error {
             Self::AuthorizationRefused => "dns_authorization_refused",
             Self::OutcomeUnknown => "dns_outcome_unknown",
             Self::RecoveryRequired => "dns_manual_recovery_required",
+            Self::NonPristine => "dns_baseline_not_pristine",
+            Self::UnsupportedPolicy => "dns_policy_unsupported",
+            Self::LeaseLost => "dns_lease_identity_lost",
+            Self::OwnershipChanged => "dns_reserved_settings_changed",
         }
     }
 }
@@ -59,6 +74,12 @@ impl fmt::Display for Error {
             Self::AuthorizationRefused => "DNS authorization was refused",
             Self::OutcomeUnknown => "DNS operation outcome is unknown",
             Self::RecoveryRequired => "DNS recovery is required before further writes",
+            Self::NonPristine => "The managed link does not have a compatible empty DNS baseline",
+            Self::LeaseLost => "The managed DNS lease identity could not be verified",
+            Self::OwnershipChanged => "Reserved DNS settings changed; recovery is required",
+            Self::UnsupportedPolicy => {
+                "The existing resolver policy needs separate compatibility review"
+            }
         })
     }
 }
@@ -69,8 +90,40 @@ impl std::error::Error for Error {}
 /// In particular, DefaultRoute cannot distinguish automatic from explicit false.
 pub struct Observation {
     servers: Servers,
+    extended_servers: ExtendedServers,
     domains: Domains,
     default_route: bool,
+    unchanged: Unchanged,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct Unchanged {
+    llmnr: String,
+    mdns: String,
+    dns_over_tls: String,
+    dnssec: String,
+    negative_trust_anchors: Vec<String>,
+}
+
+/// Reserved for a future trusted composition adapter. No public factory exists.
+/// Effective property reads cannot mint proof of exclusive ownership/freshness.
+pub struct ExclusiveOwnership {
+    _sealed: (),
+}
+
+/// Opaque effective-value comparison bound to one pinned service/link.
+/// This is not a reversible snapshot or a kernel/retention authorization token.
+pub struct Baseline {
+    owner: String,
+    link_path: String,
+    ifindex: i32,
+    unchanged: Unchanged,
+}
+
+impl fmt::Debug for Baseline {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Baseline { private values omitted }")
+    }
 }
 
 impl fmt::Debug for Observation {
@@ -82,8 +135,24 @@ impl fmt::Debug for Observation {
 impl Observation {
     pub fn matches_fixed_policy(&self) -> bool {
         self.servers == [(2, FIXED_DNS.to_vec())]
+            && self.extended_servers == [(2, FIXED_DNS.to_vec(), 0, String::new())]
             && self.domains == [(".".to_owned(), true)]
             && self.default_route
+            && self.compatible_policy()
+    }
+
+    fn compatible_policy(&self) -> bool {
+        // No extra privileged setter silently disables TLS or DNSSEC. Other
+        // modes need a separately reviewed fake-IP/plaintext compatibility gate.
+        self.unchanged.dns_over_tls == "no" && self.unchanged.dnssec == "no"
+    }
+
+    fn empty_dns(&self) -> bool {
+        self.servers.is_empty()
+            && self.extended_servers.is_empty()
+            && self.domains.is_empty()
+            && !self.default_route
+            && self.unchanged.negative_trust_anchors.is_empty()
     }
 }
 
@@ -98,35 +167,142 @@ pub struct Resolved {
     link_path: String,
     ifindex: i32,
     timeout: Duration,
+    deadline: Option<Instant>,
     uncertain_write: bool,
 }
 
 impl Resolved {
+    fn set_deadline(&mut self, deadline: Instant) -> Result<(), Error> {
+        validate_deadline(deadline)?;
+        self.deadline = Some(deadline);
+        Ok(())
+    }
+
+    fn call_deadline(&self) -> Result<Instant, Error> {
+        operation_deadline(self.timeout, self.deadline)
+    }
+
     /// Reads are uncached and separately requested; this is not an atomic
     /// multi-property snapshot and never constitutes a reversible baseline.
     pub fn observe(&self) -> Result<Observation, Error> {
         let servers: Servers = self.property("DNS")?;
+        let extended_servers: ExtendedServers = self.property("DNSEx")?;
         let domains: Domains = self.property("Domains")?;
         let default_route: bool = self.property("DefaultRoute")?;
+        let unchanged = Unchanged {
+            llmnr: self.property("LLMNR")?,
+            mdns: self.property("MulticastDNS")?,
+            dns_over_tls: self.property("DNSOverTLS")?,
+            dnssec: self.property("DNSSEC")?,
+            negative_trust_anchors: self.property("DNSSECNegativeTrustAnchors")?,
+        };
         if servers.len() > MAX_ENTRIES
+            || extended_servers.len() > MAX_ENTRIES
             || domains.len() > MAX_ENTRIES
+            || unchanged.negative_trust_anchors.len() > MAX_ENTRIES
             || servers
                 .iter()
                 .any(|(family, bytes)| !matches!((*family, bytes.len()), (2, 4) | (10, 16)))
-            || domains.iter().any(|(name, _)| {
-                name.is_empty()
-                    || name.len() > MAX_DOMAIN_BYTES
-                    || !name.is_ascii()
-                    || name.bytes().any(|b| b.is_ascii_control())
+            || extended_servers.iter().any(|(family, bytes, _, name)| {
+                !matches!((*family, bytes.len()), (2, 4) | (10, 16))
+                    || (!name.is_empty() && !bounded_domain(name))
             })
+            || extended_servers.len() != servers.len()
+            || extended_servers
+                .iter()
+                .zip(&servers)
+                .any(|((family, address, _, _), old)| *family != old.0 || *address != old.1)
+            || domains.iter().any(|(name, _)| !bounded_domain(name))
+            || unchanged
+                .negative_trust_anchors
+                .iter()
+                .any(|name| !bounded_domain(name))
+            || !matches!(unchanged.llmnr.as_str(), "no" | "yes" | "resolve")
+            || !matches!(unchanged.mdns.as_str(), "no" | "yes" | "resolve")
+            || !matches!(
+                unchanged.dns_over_tls.as_str(),
+                "no" | "yes" | "opportunistic"
+            )
+            || !matches!(unchanged.dnssec.as_str(), "no" | "yes" | "allow-downgrade")
         {
             return Err(Error::InvalidReply);
         }
         Ok(Observation {
             servers,
+            extended_servers,
             domains,
             default_route,
+            unchanged,
         })
+    }
+
+    /// Empty effective fields are a refusal gate, not proof the link was freshly
+    /// created. Only the future sealed ownership adapter may authorize capture.
+    pub fn capture_baseline(&self, _ownership: &ExclusiveOwnership) -> Result<Baseline, Error> {
+        if self.uncertain_write {
+            return Err(Error::RecoveryRequired);
+        }
+        let observation = self.observe()?;
+        if !observation.compatible_policy() {
+            return Err(Error::UnsupportedPolicy);
+        }
+        if !observation.empty_dns() {
+            return Err(Error::NonPristine);
+        }
+        Ok(Baseline {
+            owner: self.owner.clone(),
+            link_path: self.link_path.clone(),
+            ifindex: self.ifindex,
+            unchanged: observation.unchanged,
+        })
+    }
+
+    /// Compare only. Does not dispatch Revert or authorize compensation after an
+    /// unknown write; the broker must prove an ordered completion boundary.
+    pub fn verify_reset(&self, baseline: &Baseline) -> Result<(), Error> {
+        self.verify_baseline_binding(baseline)?;
+        let observation = self.observe()?;
+        if observation.empty_dns() && observation.unchanged == baseline.unchanged {
+            Ok(())
+        } else {
+            Err(Error::ReadbackMismatch)
+        }
+    }
+
+    pub fn verify_policy_preserves_baseline(&self, baseline: &Baseline) -> Result<(), Error> {
+        self.verify_baseline_binding(baseline)?;
+        let observation = self.observe()?;
+        if observation.unchanged != baseline.unchanged {
+            return Err(Error::OwnershipChanged);
+        }
+        if observation.matches_fixed_policy() {
+            Ok(())
+        } else {
+            Err(Error::ReadbackMismatch)
+        }
+    }
+
+    /// This is a prerequisite for a known-settled whole-link reset, never a fence
+    /// for an unknown write. A foreign change must not be erased by RevertLink.
+    fn revert_preserving_untouched(&mut self, baseline: &Baseline) -> Result<(), Error> {
+        self.verify_baseline_binding(baseline)?;
+        if self.observe()?.unchanged != baseline.unchanged {
+            return Err(Error::OwnershipChanged);
+        }
+        self.revert_pristine_link()
+    }
+
+    fn verify_baseline_binding(&self, baseline: &Baseline) -> Result<(), Error> {
+        if self.uncertain_write {
+            return Err(Error::RecoveryRequired);
+        }
+        if self.owner != baseline.owner
+            || self.link_path != baseline.link_path
+            || self.ifindex != baseline.ifindex
+        {
+            return Err(Error::OwnershipChanged);
+        }
+        Ok(())
     }
 
     pub fn verify_fixed_policy(&self) -> Result<(), Error> {
@@ -163,8 +339,8 @@ impl Resolved {
     where
         T: TryFrom<OwnedValue>,
     {
-        let reply = complete(
-            self.timeout,
+        let reply = complete_until(
+            self.call_deadline()?,
             self.connection.inner().call_method(
                 Some(self.owner.as_str()),
                 self.link_path.as_str(),
@@ -185,8 +361,12 @@ impl Resolved {
         if self.uncertain_write {
             return Err(Error::RecoveryRequired);
         }
-        let reply = complete(
-            self.timeout,
+        let deadline = self.call_deadline().map_err(|_| {
+            self.uncertain_write = true;
+            Error::OutcomeUnknown
+        })?;
+        let reply = complete_until(
+            deadline,
             self.connection.inner().call_method(
                 Some(self.owner.as_str()),
                 MANAGER_PATH,
@@ -216,6 +396,22 @@ impl Resolved {
     }
 }
 
+fn bounded_domain(value: &str) -> bool {
+    if value == "." {
+        return true;
+    }
+    let normalized = value.strip_suffix('.').unwrap_or(value);
+    !normalized.is_empty()
+        && value.len() <= MAX_DOMAIN_BYTES
+        && normalized.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+}
+
 fn bounded_reply<T>(message: &Message) -> Result<T, Error>
 where
     T: DeserializeOwned + zbus::zvariant::Type,
@@ -231,14 +427,43 @@ where
         .map_err(|_| Error::InvalidReply)
 }
 
+#[cfg(test)]
 fn complete<T>(
     timeout: Duration,
     call: impl Future<Output = zbus::Result<T>>,
 ) -> Result<T, Option<zbus::Error>> {
+    complete_until(Instant::now() + timeout, call)
+}
+
+fn validate_deadline(deadline: Instant) -> Result<(), Error> {
+    if deadline.saturating_duration_since(Instant::now()) > Duration::from_secs(30) {
+        Err(Error::Unavailable)
+    } else {
+        Ok(())
+    }
+}
+
+fn operation_deadline(timeout: Duration, operation: Option<Instant>) -> Result<Instant, Error> {
+    let now = Instant::now();
+    let deadline = operation.unwrap_or(now + timeout).min(now + timeout);
+    if deadline <= now {
+        Err(Error::Unavailable)
+    } else {
+        Ok(deadline)
+    }
+}
+
+fn complete_until<T>(
+    deadline: Instant,
+    call: impl Future<Output = zbus::Result<T>>,
+) -> Result<T, Option<zbus::Error>> {
+    if Instant::now() >= deadline {
+        return Err(None);
+    }
     futures_lite::future::block_on(futures_lite::future::race(
         async { call.await.map_err(Some) },
         async {
-            async_io::Timer::after(timeout).await;
+            async_io::Timer::at(deadline).await;
             Err(None)
         },
     ))

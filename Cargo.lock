@@ -1078,6 +1078,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "omavless-dns-broker"
+version = "0.9.0-rc.1"
+dependencies = [
+ "async-io",
+ "futures-lite",
+ "omavless-dns-channel",
+ "omavless-dns-resolved",
+ "omavless-dns-retention",
+ "omavless-dns-transaction",
+ "omavless-dns-tun",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zbus",
+]
+
+[[package]]
 name = "omavless-dns-channel"
 version = "0.9.0-rc.1"
 dependencies = [
@@ -1094,6 +1112,19 @@ version = "0.9.0-rc.1"
 dependencies = [
  "async-io",
  "futures-lite",
+ "omavless-dns-tun",
+ "serde",
+ "tempfile",
+ "zbus",
+]
+
+[[package]]
+name = "omavless-dns-retention"
+version = "0.9.0-rc.1"
+dependencies = [
+ "async-io",
+ "futures-lite",
+ "rustix",
  "serde",
  "tempfile",
  "zbus",

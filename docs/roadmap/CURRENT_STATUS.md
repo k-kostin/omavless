@@ -6,12 +6,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **DNS offline preparation, not a host fix:** the
+- **DNS uninstalled integration candidate, not a host fix:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
   adds an effect-free failure/cancellation model, strict draft broker requests
-  and isolated TUN-reuse evidence. No runtime dependency, policy, helper service
-  or installed binary changes. #270/#132 stay open; core DNS ownership and
-  secure lease integration remain prerequisites before attended installation.
+  and isolated TUN-reuse evidence. That foundation added no runtime consumer.
+  The subsequent opt-in composition below still changes no installed binary,
+  policy or running helper service. #270/#132 stay open pending host acceptance.
   Follow-up [reference research and an isolated real-core experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
   confirm unchanged-TUN reload avoids repeated DNS calls in the tested fixture,
   while changed-TUN reload and shutdown retain them. Target remains no recurring
@@ -29,8 +29,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
   whole-core namespace readiness/refusal/loss tests pass; synthetic replies are
   not actual DNS acceptance. [Systemd FD-store evidence](../development/DNS_FDSTORE.md)
   supplies a crash-retention mechanism, not a late-D-Bus completion fence.
-  Pristine policy, root-service integration/quarantine, distribution and attended
-  no-prompt host acceptance still remain. No installed helper is claimed.
+  The [uninstalled broker composition](../../crates/omavless-dns-broker/README.md)
+  now implements fixed root admission, enrolled-UID socket ACL, pristine-policy
+  checks, durable intent, verified FD retention and serialized DNS apply/reset.
+  [Real namespace composition tests](../../tests/DNS_BROKER_COMPOSITION.md)
+  cover late writes and ownership drift without host DNS changes. Managed-mode
+  runtime readiness requires actual broker Ready; legacy remains the default.
+  A separately staged local package preserves the stock core/runtime and has
+  an ALPM refusal guard for active/unknown leases; it never auto-enrolls or starts.
+  Distribution, attended system-service DNS and crash/recovery/removal gates
+  remain. No installed helper or #270 closure is claimed.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and

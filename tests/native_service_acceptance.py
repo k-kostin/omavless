@@ -107,12 +107,13 @@ def load_private_vless(path):
         raise Failure("private_store_unreadable") from None
 
 
-def route_template(tun, real=False):
-    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+def route_template(tun, real=False, managed=False):
+    require((managed and real and tun == "Meta") or
+            (not managed and re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None), "fixture_tun_invalid")
     dns = ("dns:\n  enable: true\n  ipv6: false\n  enhanced-mode: fake-ip\n"
            "  fake-ip-range: 198.18.0.1/16\n  default-nameserver: [1.1.1.1, 8.8.8.8]\n"
            "  nameserver: [https://1.1.1.1/dns-query]\n") if real else "dns: {enable: false}\n"
-    return f"""mixed-port: 0
+    text = f"""mixed-port: 0
 allow-lan: false
 mode: rule
 log-level: silent
@@ -132,10 +133,13 @@ proxy-groups:
 rules:
   - MATCH,{"PROXY" if real else "DIRECT"}
 """
+    if managed:
+        text = text.replace('tun:\n', 'tun:\n  disable-system-dns: true\n  omavless-dns-broker: true\n', 1)
+    return text
 
 
 def https_probe_args(tun):
-    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+    require(tun == "Meta" or re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
     return ["/usr/bin/curl", "--silent", "--show-error", "--noproxy", "*", "--proxy", "",
             "--interface", "if!" + tun, "--proto", "=https", "--proto-redir", "=https",
             "--connect-timeout", "5", "--max-time", "15", "--max-redirs", "0",
@@ -143,7 +147,7 @@ def https_probe_args(tun):
 
 
 def tun_counters(tun):
-    require(re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
+    require(tun == "Meta" or re.fullmatch(r"ovna[0-9a-f]{10}", tun) is not None, "fixture_tun_invalid")
     values = []
     for field in ("rx_bytes", "tx_bytes"):
         value = bounded(Path("/sys/class/net") / tun / "statistics" / field, 32).strip()
@@ -218,7 +222,7 @@ def descendants(pid):
     return found
 
 
-def core_controller(path, pid, mode):
+def core_controller(path, pid, mode, managed=False):
     metadata = path.lstat()
     require(stat.S_ISSOCK(metadata.st_mode) and metadata.st_uid == os.getuid(), "core_socket_identity")
     require(stat.S_IMODE(path.parent.stat().st_mode) == 0o700, "core_socket_directory")
@@ -232,7 +236,59 @@ def core_controller(path, pid, mode):
         response.begin()
         payload = response.read(65537)
         require(response.status == 200 and len(payload) <= 65536, "core_controller_response")
-        require(json.loads(payload).get("mode", "").lower() == mode, "core_mode")
+        value = json.loads(payload)
+        require(value.get("mode", "").lower() == mode, "core_mode")
+        if managed:
+            require(all(value.get('tun', {}).get(key) is True for key in
+                        ('enable', 'disable-system-dns', 'omavless-dns-broker', 'omavless-dns-ready')),
+                    'broker_core_not_ready')
+
+
+def experimental_core(digest):
+    require(isinstance(digest, str) and re.fullmatch(r'[0-9a-f]{64}', digest) is not None,
+            'experimental_core_pin_required')
+    path = Path('/usr/lib/omavless-dns-experimental/mihomo')
+    require(path.resolve(strict=True) == path, 'experimental_core_path')
+    for parent in path.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
+                and not metadata.st_mode & 0o022, 'experimental_core_ownership')
+    metadata = path.lstat()
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
+            and metadata.st_nlink == 1 and not metadata.st_mode & 0o022
+            and 0 < metadata.st_size <= 128 * 1024 * 1024, 'experimental_core_ownership')
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == digest, 'experimental_core_pin')
+    return str(path)
+
+
+def broker_count(raw):
+    require(len(raw) <= 1024, 'broker_state_invalid')
+    value = json.loads(raw)
+    require(isinstance(value, dict) and set(value) == {'type', 'data'}
+            and value['type'] == 'u' and type(value['data']) is int
+            and value['data'] in (0, 1), 'broker_state_invalid')
+    return value['data']
+
+
+def broker_evidence(expected, command):
+    active = command(['/usr/bin/systemctl', '--system', 'is-active', '--quiet',
+                      'omavless-dns-broker.service'])
+    require(active.returncode == 0, 'broker_service_unavailable')
+    raw = command(['/usr/bin/busctl', '--system', '--json=short', 'get-property',
+        'org.freedesktop.systemd1', '/org/freedesktop/systemd1/unit/omavless_2ddns_2dbroker_2eservice',
+        'org.freedesktop.systemd1.Service', 'NFileDescriptorStore']).stdout
+    require(broker_count(raw) == expected, 'broker_retention_mismatch')
+    spec = importlib.util.spec_from_file_location('broker_dns_readback',
+        Path(__file__).with_name('native_dns_readback.py'))
+    dns = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dns)
+    value = dns.observe()
+    require(value.get('available') is True and value.get('managedLinkPresent') is bool(expected),
+            'broker_dns_readback_unavailable')
+    if expected:
+        require(all(value.get(key) is True for key in
+                    ('fixedTunDns', 'rootRoutingDomain', 'dnsDefaultRoute')),
+                'broker_dns_readback_mismatch')
 
 
 def tcp_listeners():
@@ -310,6 +366,10 @@ def acceptance(options):
     private_source = getattr(options, "private_vless_store", None)
     real = private_source is not None
     require(not real or options.mode == "global", "private_fixture_requires_full_vpn")
+    managed_pin = getattr(options, 'experimental_dns_broker_core_sha', None)
+    managed = managed_pin is not None
+    require(not managed or real, 'managed_dns_requires_real_fixture')
+    core_binary = experimental_core(managed_pin) if managed else '/usr/bin/mihomo'
     private_profile = load_private_vless(private_source) if real else None
     binary = Path(options.binary)
     require(binary.is_absolute() and binary.resolve() == binary, "binary_not_canonical")
@@ -347,10 +407,14 @@ def acceptance(options):
 
     require(not any(name in (b"mihomo", b"omavless") for name in processes().values()), "baseline_runtime_present")
     require(not tuns(), "baseline_tun_present")
+    if managed:
+        broker_evidence(0, command)
     baseline_listeners = tcp_listeners()
     root = Path(tempfile.mkdtemp(prefix="omavless-native-gate-", dir=runtime_base))
     token = uuid.uuid4().hex[:10]
     unit, tun = "omavless-native-acceptance-" + token, "ovna" + token
+    if managed:
+        tun = 'Meta'
     started, passed = False, False
     config, state, runtime = root / "home/.config/omavless", root / "state/omavless", root / "runtime"
     try:
@@ -365,16 +429,17 @@ def acceptance(options):
         if real:
             store["profiles"] = [private_profile]
         private_write(config / "profiles.json", json.dumps(store))
-        private_write(config / "route-template.yaml", route_template(tun, real))
+        private_write(config / "route-template.yaml", route_template(tun, real, managed))
         private_write(state / "ownership.json", json.dumps({"schemaVersion": 1, "generation": 2, "phase": "rust"}))
         overrides = {"OMAVLESS_HOME": str(root / "home"), "XDG_STATE_HOME": str(root / "state"),
-                     "XDG_RUNTIME_DIR": str(runtime), "OMAVLESS_MIHOMO": "/usr/bin/mihomo"}
+                     "XDG_RUNTIME_DIR": str(runtime), "OMAVLESS_MIHOMO": core_binary}
         env = dict(os.environ, **overrides)
         args = ["systemd-run", "--user", "--collect", "--unit=" + unit, "-p", "NoNewPrivileges=no",
                 "-p", "LimitCORE=0", "-p", "UMask=0077"]
         args += ["--setenv=" + key + "=" + value for key, value in overrides.items()]
         emit(binary_sha256=binary_hash, mode=options.mode, private_fixture=real,
-             family="vless", authorization="normal_polkit_dialogs_may_appear")
+             family="vless", experimental_dns_broker=managed,
+             authorization="attended_acknowledgement_required")
         def start_fixture():
             nonlocal started
             # Only mark after 'ready'. Even a failed/timed-out start can leave
@@ -409,7 +474,9 @@ def acceptance(options):
             core_security = security_facts(core)
             require(core_security["nnp"] == 0 and core_security["effective_capabilities"] & 0x3400 == 0x3400,
                     "core_capability_policy")
-            core_controller(runtime / "omavless/mihomo.sock", core, options.mode)
+            core_controller(runtime / "omavless/mihomo.sock", core, options.mode, managed)
+            if managed:
+                broker_evidence(1, command)
             listeners = tcp_listeners()
             tcp = tcp_absent(core, listeners)
             no_new_listener = not bool(listeners - baseline_listeners)
@@ -428,6 +495,8 @@ def acceptance(options):
                 [str(binary), "disconnect"]))
             require(json.loads(command([str(binary), "status"], env).stdout)["result"]["actual"] == "disconnected", "disconnect_state")
             require(not tuns() and not any(name == b"mihomo" for name in processes().values()), "disconnect_resources")
+            if managed:
+                broker_evidence(0, command)
             require(set(map(int, bounded(cgroup / "cgroup.procs").split())) == {pid}, "disconnect_helpers")
             emit(case=index + 1, connect=True, disconnect=True, tun_cleanup=True,
                  daemon_unprivileged=True, core_capabilities=True, owned_process_group=True,
@@ -477,6 +546,8 @@ def main():
     parser.add_argument("--repetitions", type=int, choices=range(1, 11), default=1)
     parser.add_argument("--private-vless-store", metavar="ABS_PATH",
                         help="read one existing private VLESS fixture; global only, temporary auto-route + bounded TUN HTTPS")
+    parser.add_argument('--experimental-dns-broker-core-sha', metavar='SHA256',
+                        help='opt in to installed fixed-path experimental broker/core, exact core pin required')
     options = parser.parse_args()
     require(options.run, "explicit_run_required")
     acceptance(options)

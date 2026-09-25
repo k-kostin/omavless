@@ -1,6 +1,6 @@
 [package]
-name = "omavless-dns-resolved"
-description = "Uninstalled fixed-purpose resolved wire conformance boundary"
+name = "omavless-dns-retention"
+description = "Uninstalled fixed-purpose systemd descriptor retention boundary"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-omavless-dns-tun = { path = "../omavless-dns-tun" }
 async-io = "=2.6.0"
 futures-lite = "=2.6.1"
+rustix = { version = "=1.1.5", features = ["event", "fs", "net", "pipe", "process"] }
 serde = { version = "1.0", features = ["derive"] }
 zbus = "=5.19.0"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "=3.27.0"
 
 [lints]
 workspace = true

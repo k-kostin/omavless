@@ -157,7 +157,9 @@ impl OwnedCore {
     pub(crate) fn configured_ready(&self, timeout: Duration, expected: &ConfigReadiness) -> bool {
         !timeout.is_zero()
             && timeout <= Duration::from_secs(5)
-            && expected.ready(&self.controller_socket, Instant::now() + timeout)
+            && self.pid().is_some_and(|pid| {
+                expected.ready_for_pid(&self.controller_socket, pid, Instant::now() + timeout)
+            })
     }
 
     fn wait_for(
@@ -181,7 +183,8 @@ impl OwnedCore {
             let ready = match expected {
                 Some(expected) => {
                     let attempt_deadline = Instant::now() + budget;
-                    if expected.ready(&self.controller_socket, attempt_deadline) {
+                    let pid = self.pid().ok_or(CoreError::ExitedBeforeReady)?;
+                    if expected.ready_for_pid(&self.controller_socket, pid, attempt_deadline) {
                         true
                     } else {
                         // Startup-only correction; configured_ready remains a
@@ -192,7 +195,11 @@ impl OwnedCore {
                                     &self.controller_socket,
                                     pid,
                                     attempt_deadline,
-                                ) && expected.ready(&self.controller_socket, attempt_deadline)
+                                ) && expected.ready_for_pid(
+                                    &self.controller_socket,
+                                    pid,
+                                    attempt_deadline,
+                                )
                             })
                     }
                 }
@@ -210,7 +217,7 @@ impl OwnedCore {
     }
 
     pub fn stop(&mut self, timeout: Duration) -> Result<StopOutcome, CoreError> {
-        if timeout.is_zero() || timeout > Duration::from_secs(30) {
+        if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(CoreError::InvalidArgument);
         }
         // Establish that this is still our unreaped child before signalling.
@@ -510,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn live_controller_is_not_configured_until_mode_and_selectors_converge() {
+    fn foreign_same_user_controller_cannot_promote_owned_core_readiness() {
         use crate::desired::RoutingMode;
         use serde_json::json;
         use std::io::{Read, Write};
@@ -523,6 +530,7 @@ mod tests {
         let root = root("configuration-barrier");
         let socket = root.join("controller.sock");
         let listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let state = Arc::new(AtomicU8::new(0));
         let serving = Arc::clone(&state);
@@ -540,6 +548,9 @@ mod tests {
                 let Ok(count) = stream.read(&mut request) else {
                     continue;
                 };
+                if count == 0 {
+                    continue;
+                }
                 let request = std::str::from_utf8(&request[..count]).unwrap();
                 let stage = serving.load(Ordering::SeqCst);
                 let payload = if request.starts_with("GET /version ") {
@@ -590,10 +601,19 @@ mod tests {
             thread::sleep(Duration::from_millis(60));
             changing.store(1, Ordering::SeqCst);
         });
-        owned
-            .wait_configured(Duration::from_secs(1), &expected)
-            .unwrap();
         delayed.join().unwrap();
+        // This fixture is a valid controller owned by the test process, NOT by
+        // the spawned child. Correct-looking payloads cannot authenticate it.
+        assert!(expected.ready_for_pid(
+            &socket,
+            std::process::id(),
+            Instant::now() + Duration::from_secs(1)
+        ));
+        assert_eq!(
+            owned.wait_configured(Duration::from_millis(80), &expected),
+            Err(CoreError::ReadinessTimedOut)
+        );
+        assert!(!owned.configured_ready(Duration::from_millis(250), &expected));
         state.store(2, Ordering::SeqCst);
         assert!(!owned.configured_ready(Duration::from_millis(250), &expected));
         state.store(3, Ordering::SeqCst);
@@ -602,6 +622,73 @@ mod tests {
         assert!(owned.pid().is_none());
         state.store(255, Ordering::SeqCst);
         worker.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn actual_child_pid_managed_ready_and_extended_stop_budget_are_enforced() {
+        use crate::desired::RoutingMode;
+        let root = root("managed-pid-ready");
+        let controller = root.join("controller.py");
+        fs::write(&controller, r#"
+import json, os, pathlib, socket, sys
+root=pathlib.Path(sys.argv[sys.argv.index('-d')+1])
+listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+listener.bind(str(root/'controller.sock'))
+os.chmod(root/'controller.sock',0o600)
+listener.listen(8)
+while True:
+    peer,_=listener.accept()
+    with peer:
+        request=peer.recv(4096)
+        if not request: continue
+        path=request.split(b' ')[1]
+        if path==b'/configs':
+            value={'mode':'rule','tun':{'enable':True,'disable-system-dns':True,
+                'omavless-dns-broker':True,'omavless-dns-ready':(root/'ready').exists()}}
+        elif path==b'/rules': value={'rules':[]}
+        elif path==b'/providers/rules': value={'providers':{}}
+        elif path==b'/proxies': value={'proxies':{'Synthetic':{'type':'Vless'}}}
+        else: raise RuntimeError('unexpected fixture request')
+        body=json.dumps(value).encode()
+        try: peer.sendall(b'HTTP/1.0 200 OK\r\nContent-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body)
+        except BrokenPipeError: pass
+"#).unwrap();
+        let executable = script(
+            &root,
+            &format!("exec /usr/bin/python3 '{}' \"$@\"", controller.display()),
+        );
+        let mut owned = OwnedCore::spawn(
+            &executable,
+            &root,
+            &config(&root),
+            &root.join("controller.sock"),
+        )
+        .unwrap();
+        let expected = ConfigReadiness::from_generated_config(
+            RoutingMode::Rule,
+            "Synthetic".into(),
+            "tun:\n  enable: true\n  disable-system-dns: true\n  omavless-dns-broker: true\n",
+        )
+        .unwrap();
+        assert_eq!(
+            owned.wait_configured(Duration::from_millis(100), &expected),
+            Err(CoreError::ReadinessTimedOut)
+        );
+        fs::write(root.join("ready"), b"ready").unwrap();
+        owned
+            .wait_configured(Duration::from_secs(2), &expected)
+            .unwrap();
+        assert!(owned.configured_ready(Duration::from_secs(1), &expected));
+        fs::remove_file(root.join("ready")).unwrap();
+        assert!(!owned.configured_ready(Duration::from_secs(1), &expected));
+        assert_eq!(
+            owned.stop(Duration::from_secs(61)),
+            Err(CoreError::InvalidArgument)
+        );
+        assert!(owned.running().unwrap());
+        assert!(owned.stop(expected.stop_timeout()).unwrap().graceful);
+        assert!(owned.pid().is_none());
         fs::remove_dir_all(root).unwrap();
     }
 

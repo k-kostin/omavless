@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -13,6 +14,35 @@ import dns_core_broker_probe as probe
 
 
 class BrokerProbeTests(unittest.TestCase):
+    def test_stack_is_fixed_and_rejected_before_configuration_access(self):
+        with patch.object(probe.ownership, 'config') as config:
+            with self.assertRaises(RuntimeError):
+                probe.launch(Path('/unused'), Path('/unused'), 'arbitrary')
+            config.assert_not_called()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for stack in ('system', 'gvisor'):
+                with patch.object(probe.subprocess, 'Popen'):
+                    probe.launch(root, Path('/unused-core'), stack)
+                self.assertIn('  stack: ' + stack + '\n', (root / 'config.yaml').read_text())
+
+    def test_disable_tun_preserves_synthetic_dns_enabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = 'dns:\n  enable: true\ntun:\n  enable: true\n  device: Meta\n'
+            (root / 'config.yaml').write_text(config)
+            with patch.object(probe.base, 'request') as request:
+                probe.disable_tun(root)
+            self.assertEqual((root / 'config.yaml').read_text(),
+                             'dns:\n  enable: true\ntun:\n  enable: false\n  device: Meta\n')
+            self.assertEqual(request.call_args.args[1:3], ('PUT', '/configs?force=true'))
+            (root / 'config.yaml').write_text(
+                'tun:\n  enable: true\n  device: Meta\ndns:\n  enable: true\n')
+            with patch.object(probe.base, 'request'):
+                probe.disable_tun(root)
+            self.assertEqual((root / 'config.yaml').read_text(),
+                             'tun:\n  enable: false\n  device: Meta\ndns:\n  enable: true\n')
+
     def test_invalid_parent_has_no_file_service_or_namespace_effects(self):
         for uid, args in [(0, ['probe', '/core', 'a'*64, '/fixture', 'b'*64]),
                           (1000, ['probe']), (1000, ['probe', '--host'])]:

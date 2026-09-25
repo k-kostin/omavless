@@ -92,10 +92,11 @@ Explicit recovery must reconcile this uncertainty; blindly dropping the store
 is not safe recovery. Reboot establishes a different lifetime boundary, but is
 not the normal intended UX.
 
-The root unit, durable transaction record, exact metadata verification,
-recovery protocol, real resolved calls and queued-call fault injection remain
-implementation/acceptance work. This is not evidence that prompt-free DNS is
-ready to install.
+The [uninstalled broker candidate](../../crates/omavless-dns-broker/README.md)
+now provides a review-only root unit, durable record, typed metadata verification
+and resolved-call composition with private-bus late-write fault injection.
+Actual system-service crash/recovery and host DNS remain acceptance work. This
+ordinary-file experiment alone is not evidence that prompt-free DNS is ready.
 
 ## Stop, upgrade and removal semantics
 

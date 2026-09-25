@@ -1,5 +1,5 @@
 diff --git a/config/config.go b/config/config.go
-index 5a66ce6..159b742 100644
+index 5a66ce6..1f54324 100644
 --- a/config/config.go
 +++ b/config/config.go
 @@ -275,6 +275,8 @@ type RawTun struct {
@@ -11,7 +11,21 @@ index 5a66ce6..159b742 100644
  	AutoRoute           bool       `yaml:"auto-route" json:"auto-route"`
  	AutoDetectInterface bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
  
-@@ -1694,6 +1696,8 @@ func parseTun(rawTun RawTun, dns *DNS, general *General) error {
+@@ -1688,12 +1690,22 @@ func parseTun(rawTun RawTun, dns *DNS, general *General) error {
+ 		tunAddressPrefix = netip.MustParsePrefix("198.18.0.1/16")
+ 	}
+ 	tunAddressPrefix = netip.PrefixFrom(tunAddressPrefix.Addr(), 30)
++	// The fixed broker policy points resolved at the virtual TUN resolver, not
++	// at provider/upstream nameservers. Refuse before any interface effects when
++	// that target is not the reviewed IPv4-only resolver at 198.18.0.2:53.
++	if rawTun.OmaVLESSDNSBroker && (!dns.Enable ||
++		tunAddressPrefix != netip.MustParsePrefix("198.18.0.1/30") ||
++		len(rawTun.Inet6Address) != 0 || dns.FakeIPRange6.IsValid()) {
++		return errors.New("OmaVLESS DNS broker policy is unavailable")
++	}
+ 
+ 	general.Tun = LC.Tun{
+ 		Enable:              rawTun.Enable,
  		Device:              rawTun.Device,
  		Stack:               rawTun.Stack,
  		DNSHijack:           rawTun.DNSHijack,
@@ -22,16 +36,18 @@ index 5a66ce6..159b742 100644
  
 diff --git a/config/system_dns_test.go b/config/system_dns_test.go
 new file mode 100644
-index 0000000..889d226
+index 0000000..f1d1c47
 --- /dev/null
 +++ b/config/system_dns_test.go
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,110 @@
 +package config
 +
 +import (
 +	"encoding/json"
++	"net/netip"
 +	"testing"
 +
++	coreDNS "github.com/metacubex/mihomo/dns"
 +	"go.yaml.in/yaml/v3"
 +)
 +
@@ -89,12 +105,49 @@ index 0000000..889d226
 +			t.Fatal(err)
 +		}
 +		var general General
-+		if err := parseTun(raw, &DNS{}, &general); err != nil {
++		if err := parseTun(raw, &DNS{Enable: true}, &general); err != nil {
 +			t.Fatal(err)
 +		}
 +		if !general.Tun.OmaVLESSDNSBroker || !general.Tun.DisableSystemDNS || general.Tun.OmaVLESSDNSReady {
 +			t.Fatal("configured readiness or lost broker ownership")
 +		}
++	}
++}
++
++func TestSystemDNSBrokerFixedVirtualResolver(t *testing.T) {
++	for _, tc := range []struct {
++		name    string
++		dns     DNS
++		ipv6    []netip.Prefix
++		allowed bool
++	}{
++		{"default-virtual", DNS{Enable: true}, nil, true},
++		{"upstream-does-not-select-virtual", DNS{Enable: true, NameServer: []coreDNS.NameServer{{Net: "udp", Addr: "127.0.0.1:5353"}}}, nil, true},
++		{"tracked-template", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.0.1/16")}, nil, true},
++		{"same-virtual-different-pool", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.0.1/24")}, nil, true},
++		{"dns-disabled", DNS{}, nil, false},
++		{"other-address", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.1.1/16")}, nil, false},
++		{"other-family", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("2001:db8::1/64")}, nil, false},
++		{"ipv6-tun", DNS{Enable: true}, []netip.Prefix{netip.MustParsePrefix("2001:db8::1/64")}, false},
++		{"ipv6-pool", DNS{Enable: true, FakeIPRange6: netip.MustParsePrefix("2001:db8::1/64")}, nil, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			raw := RawTun{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet6Address: tc.ipv6}
++			var general General
++			err := parseTun(raw, &tc.dns, &general)
++			if tc.allowed {
++				if err != nil || len(general.Tun.Inet4Address) != 1 || general.Tun.Inet4Address[0].Addr().Next().String() != "198.18.0.2" {
++					t.Fatal("fixed virtual resolver policy was not preserved")
++				}
++			} else if err == nil || err.Error() != "OmaVLESS DNS broker policy is unavailable" {
++				t.Fatal("incompatible virtual resolver policy was not safely refused")
++			}
++			// Non-broker configurations retain upstream behavior.
++			raw.OmaVLESSDNSBroker = false
++			if parseTun(raw, &tc.dns, &General{}) != nil {
++				t.Fatal("opt-in guard changed ordinary TUN policy")
++			}
++		})
 +	}
 +}
 diff --git a/listener/config/system_dns_test.go b/listener/config/system_dns_test.go
@@ -166,7 +219,7 @@ index f6ca47f..75188d2 100644
  		return false
  	}
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
-index 1e9527e..70b5573 100644
+index 1e9527e..45cd174 100644
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
 @@ -48,6 +48,7 @@ type Listener struct {
@@ -177,17 +230,24 @@ index 1e9527e..70b5573 100644
  
  	networkUpdateMonitor    tun.NetworkUpdateMonitor
  	defaultInterfaceMonitor tun.DefaultInterfaceMonitor
-@@ -134,6 +135,9 @@ func checkTunName(tunName string) (ok bool) {
+@@ -133,7 +134,16 @@ func checkTunName(tunName string) (ok bool) {
+ 	return true
  }
  
++func fixedDNSBrokerTunPolicy(options LC.Tun) bool {
++	return options.DisableSystemDNS && options.FileDescriptor == 0 && options.Device == "Meta" &&
++		len(options.Inet4Address) == 1 && options.Inet4Address[0] == netip.MustParsePrefix("198.18.0.1/30") &&
++		len(options.Inet6Address) == 0
++}
++
  func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {
-+	if options.OmaVLESSDNSBroker && (runtime.GOOS != "linux" || !options.DisableSystemDNS || options.FileDescriptor != 0 || options.Device != "Meta") {
++	if options.OmaVLESSDNSBroker && (runtime.GOOS != "linux" || !fixedDNSBrokerTunPolicy(options)) {
 +		return nil, E.New("OmaVLESS DNS broker policy is unavailable")
 +	}
  	if len(additions) == 0 {
  		additions = []inbound.Addition{
  			inbound.WithInName("DEFAULT-TUN"),
-@@ -415,6 +419,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -415,6 +425,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  		IncludeMACAddress:                     includeMACAddress,
  		ExcludeMACAddress:                     excludeMACAddress,
  		FileDescriptor:                        options.FileDescriptor,
@@ -195,7 +255,7 @@ index 1e9527e..70b5573 100644
  		InterfaceMonitor:                      defaultInterfaceMonitor,
  		EXP_RecvMsgX:                          options.RecvMsgX,
  		EXP_SendMsgX:                          options.SendMsgX,
-@@ -511,6 +516,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -511,6 +522,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  		return
  	}
  	l.tunStack = tunStack
@@ -209,7 +269,7 @@ index 1e9527e..70b5573 100644
  
  	if l.autoRedirect != nil {
  		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
-@@ -676,6 +688,7 @@ func (l *Listener) Close() error {
+@@ -676,6 +694,7 @@ func (l *Listener) Close() error {
  		dialer.DefaultInterfaceFinder.CompareAndSwap(l.cDialerInterfaceFinder, nil)
  	}
  	return common.Close(
@@ -217,7 +277,7 @@ index 1e9527e..70b5573 100644
  		l.ruleUpdateCallbackCloser,
  		l.tunStack,
  		l.tunIf,
-@@ -687,7 +700,9 @@ func (l *Listener) Close() error {
+@@ -687,7 +706,9 @@ func (l *Listener) Close() error {
  }
  
  func (l *Listener) Config() LC.Tun {
@@ -432,10 +492,10 @@ index 0000000..f74f0ef
 +}
 diff --git a/listener/sing_tun/system_dns_linux.go b/listener/sing_tun/system_dns_linux.go
 new file mode 100644
-index 0000000..0d72e88
+index 0000000..82dd637
 --- /dev/null
 +++ b/listener/sing_tun/system_dns_linux.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,251 @@
 +//go:build linux
 +
 +package sing_tun
@@ -455,7 +515,9 @@ index 0000000..0d72e88
 +)
 +
 +const systemDNSPath = "/run/omavless-dns/control.sock"
-+const dnsDeadline = 10 * time.Second
++// The broker bounds a whole apply/release transaction to 30 seconds. Leave a
++// finite transport margin; this path never waits for human authorization.
++const dnsDeadline = 40 * time.Second
 +
 +var errDNSBroker = errors.New("OmaVLESS DNS broker transaction failed")
 +
@@ -687,10 +749,10 @@ index 0000000..0d72e88
 +}
 diff --git a/listener/sing_tun/system_dns_linux_test.go b/listener/sing_tun/system_dns_linux_test.go
 new file mode 100644
-index 0000000..26907f3
+index 0000000..35e70b0
 --- /dev/null
 +++ b/listener/sing_tun/system_dns_linux_test.go
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,250 @@
 +//go:build linux
 +
 +package sing_tun
@@ -698,6 +760,7 @@ index 0000000..26907f3
 +import (
 +	"bytes"
 +	"net"
++	"net/netip"
 +	"os"
 +	"path/filepath"
 +	"sync/atomic"
@@ -736,10 +799,19 @@ index 0000000..26907f3
 +}
 +
 +func TestSystemDNSBrokerRefusesPolicyBeforeDeviceAccess(t *testing.T) {
++	valid := LC.Tun{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.0.1/30")}}
++	if !fixedDNSBrokerTunPolicy(valid) {
++		t.Fatal("fixed virtual resolver policy refused")
++	}
 +	for _, policy := range []LC.Tun{
 +		{OmaVLESSDNSBroker: true, Device: "Meta"},
 +		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Other"},
 +		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", FileDescriptor: 42},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta"},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.1.1/30")}},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.0.1/16")}},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: append(valid.Inet4Address, netip.MustParsePrefix("198.18.1.1/30"))},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: valid.Inet4Address, Inet6Address: []netip.Prefix{netip.MustParsePrefix("2001:db8::1/64")}},
 +	} {
 +		listener, err := New(policy, nil)
 +		if listener != nil || err == nil || err.Error() != "OmaVLESS DNS broker policy is unavailable" {

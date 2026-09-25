@@ -394,8 +394,13 @@ single-queue TUN FD into a DNS-only broker. Uninstalled Rust channel/kernel/
 resolved boundaries, Go interop and whole-core namespace tests now exercise
 real framing, descriptors and readiness; [FD-store mechanics](docs/development/DNS_FDSTORE.md)
 also pass independently. Unknown D-Bus outcomes must remain quarantined across
-process death. This does not supply a production broker, pristine baseline,
-enrollment/removal or prompt-free host acceptance, and does not close #270.
+process death. The next [uninstalled composition checkpoint](crates/omavless-dns-broker/README.md)
+adds actual fixed root admission, socket ACL, reserved-baseline checks,
+journal/FD-store ordering and DNS apply/reset. Its
+[namespace integration](tests/DNS_BROKER_COMPOSITION.md) exercises actual Rust
+boundaries, late writes and ownership drift; managed runtime readiness waits
+for broker acknowledgement. Distribution and installed prompt-free DNS,
+crash/recovery and removal acceptance remain open. #270 is not closed.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

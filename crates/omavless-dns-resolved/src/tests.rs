@@ -16,18 +16,119 @@ const SERVICE: &str = "org.freedesktop.resolve1";
 const LINK_PATH: &str = "/org/freedesktop/resolve1/link/_42";
 const PRIVATE_ERROR: &str = "https://private.invalid/token password=synthetic-private-key";
 
+#[test]
+fn expired_operation_does_not_poll_or_dispatch_and_budget_is_bounded() {
+    let polled = std::cell::Cell::new(false);
+    assert!(
+        complete_until(Instant::now(), async {
+            polled.set(true);
+            Ok(())
+        })
+        .is_err()
+    );
+    assert!(!polled.get());
+    let mut fixture = Fixture::new(State::default());
+    assert_eq!(
+        fixture
+            .resolved
+            .set_deadline(Instant::now() + Duration::from_secs(31)),
+        Err(Error::Unavailable)
+    );
+    fixture.resolved.set_deadline(Instant::now()).unwrap();
+    assert!(fixture.resolved.observe().is_err());
+    assert_eq!(
+        fixture.resolved.set_fixed_servers(),
+        Err(Error::OutcomeUnknown)
+    );
+    fixture
+        .resolved
+        .set_deadline(Instant::now() + Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        fixture.resolved.revert_pristine_link(),
+        Err(Error::RecoveryRequired)
+    );
+    assert!(fixture.state.lock().unwrap().calls.is_empty());
+}
+
+#[test]
+fn absolute_write_budget_does_not_reset_per_call_or_allow_compensation() {
+    let mut fixture = Fixture::new(State {
+        delay_dns: true,
+        ..State::default()
+    });
+    fixture
+        .resolved
+        .set_deadline(Instant::now() + Duration::from_millis(40))
+        .unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        fixture.resolved.set_fixed_servers(),
+        Err(Error::OutcomeUnknown)
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    fixture
+        .resolved
+        .set_deadline(Instant::now() + Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        fixture.resolved.revert_pristine_link(),
+        Err(Error::RecoveryRequired)
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(fixture.state.lock().unwrap().calls, ["SetLinkDNS"]);
+}
+
+#[test]
+fn sequential_observations_share_one_absolute_budget() {
+    let mut fixture = Fixture::new(State {
+        delay_read: true,
+        ..State::default()
+    });
+    let started = Instant::now();
+    fixture
+        .resolved
+        .set_deadline(started + Duration::from_millis(400))
+        .unwrap();
+    fixture.resolved.observe().unwrap();
+    assert_eq!(fixture.resolved.observe().unwrap_err(), Error::Unavailable);
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(fixture.state.lock().unwrap().calls.is_empty());
+}
+
 #[derive(Default)]
-struct State {
+pub(super) struct State {
     servers: Servers,
+    extended_override: Option<ExtendedServers>,
     domains: Domains,
     default_route: bool,
-    calls: Vec<&'static str>,
+    unchanged: Unchanged,
+    reset_unchanged: Option<Unchanged>,
+    pub(super) calls: Vec<&'static str>,
+    pub(super) wrong_link_path: bool,
     deny_domains: bool,
     delay_dns: bool,
     fail_after_dns: bool,
     mismatch_default: bool,
     interactive_seen: bool,
     delay_read: bool,
+}
+
+impl Default for Unchanged {
+    fn default() -> Self {
+        Self {
+            llmnr: "yes".into(),
+            mdns: "no".into(),
+            dns_over_tls: "no".into(),
+            dnssec: "no".into(),
+            negative_trust_anchors: vec![],
+        }
+    }
+}
+
+fn ownership() -> ExclusiveOwnership {
+    // Test fixture alone owns its mock. There is no public production factory.
+    ExclusiveOwnership { _sealed: () }
 }
 
 #[derive(Clone)]
@@ -39,7 +140,14 @@ impl MockManager {
         if ifindex != 42 {
             return Err(fdo::Error::InvalidArgs(PRIVATE_ERROR.into()));
         }
-        Ok(OwnedObjectPath::try_from(LINK_PATH).unwrap())
+        Ok(
+            OwnedObjectPath::try_from(if self.0.lock().unwrap().wrong_link_path {
+                "/org/freedesktop/resolve1/link/_43"
+            } else {
+                LINK_PATH
+            })
+            .unwrap(),
+        )
     }
 
     #[zbus(name = "SetLinkDNS")]
@@ -95,6 +203,9 @@ impl MockManager {
         state.servers.clear();
         state.domains.clear();
         state.default_route = false;
+        if let Some(reset) = state.reset_unchanged.clone() {
+            state.unchanged = reset;
+        }
     }
 }
 
@@ -111,6 +222,17 @@ impl MockLink {
         }
         self.0.lock().unwrap().servers.clone()
     }
+    #[zbus(property, name = "DNSEx")]
+    fn dns_ex(&self) -> ExtendedServers {
+        let state = self.0.lock().unwrap();
+        state.extended_override.clone().unwrap_or_else(|| {
+            state
+                .servers
+                .iter()
+                .map(|(family, bytes)| (*family, bytes.clone(), 0, String::new()))
+                .collect()
+        })
+    }
     #[zbus(property)]
     fn domains(&self) -> Domains {
         self.0.lock().unwrap().domains.clone()
@@ -118,6 +240,31 @@ impl MockLink {
     #[zbus(property)]
     fn default_route(&self) -> bool {
         self.0.lock().unwrap().default_route
+    }
+    #[zbus(property, name = "LLMNR")]
+    fn llmnr(&self) -> String {
+        self.0.lock().unwrap().unchanged.llmnr.clone()
+    }
+    #[zbus(property, name = "MulticastDNS")]
+    fn mdns(&self) -> String {
+        self.0.lock().unwrap().unchanged.mdns.clone()
+    }
+    #[zbus(property, name = "DNSOverTLS")]
+    fn dns_over_tls(&self) -> String {
+        self.0.lock().unwrap().unchanged.dns_over_tls.clone()
+    }
+    #[zbus(property, name = "DNSSEC")]
+    fn dnssec(&self) -> String {
+        self.0.lock().unwrap().unchanged.dnssec.clone()
+    }
+    #[zbus(property, name = "DNSSECNegativeTrustAnchors")]
+    fn negative_trust_anchors(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .unchanged
+            .negative_trust_anchors
+            .clone()
     }
 }
 
@@ -175,16 +322,16 @@ impl Drop for Bus {
     }
 }
 
-struct Fixture {
-    resolved: Resolved,
-    state: Arc<Mutex<State>>,
+pub(super) struct Fixture {
+    pub(super) resolved: Resolved,
+    pub(super) state: Arc<Mutex<State>>,
     // Drop client and server before their own disposable bus.
-    server: Connection,
+    pub(super) server: Connection,
     bus: Bus,
 }
 
 impl Fixture {
-    fn new(state: State) -> Self {
+    pub(super) fn new(state: State) -> Self {
         let bus = Bus::start();
         let state = Arc::new(Mutex::new(state));
         let server = zbus::blocking::connection::Builder::address(bus.address().as_str())
@@ -237,6 +384,7 @@ impl Fixture {
             link_path: link.to_string(),
             ifindex: 42,
             timeout: Duration::from_secs(2),
+            deadline: None,
             uncertain_write: false,
         };
         Self {
@@ -369,8 +517,10 @@ fn invalid_and_oversized_private_properties_fail_without_echo() {
 fn observed_effective_values_have_no_debug_data_or_restore_api() {
     let observed = Observation {
         servers: vec![(2, vec![192, 0, 2, 1])],
+        extended_servers: vec![(2, vec![192, 0, 2, 1], 853, "private.invalid".into())],
         domains: vec![(PRIVATE_ERROR.into(), true)],
         default_route: false,
+        unchanged: Unchanged::default(),
     };
     assert_eq!(
         format!("{observed:?}"),
@@ -474,10 +624,276 @@ fn errors_have_fixed_bounded_english_fallbacks_only() {
         Error::AuthorizationRefused,
         Error::OutcomeUnknown,
         Error::RecoveryRequired,
+        Error::NonPristine,
+        Error::UnsupportedPolicy,
+        Error::LeaseLost,
+        Error::OwnershipChanged,
     ] {
         let output = format!("{error} {error:?} {}", error.code());
         assert!(output.is_ascii() && output.len() < 200);
         assert!(!output.contains(PRIVATE_ERROR));
         assert!(!output.contains(SERVICE));
     }
+}
+
+#[test]
+fn sealed_baseline_checks_apply_and_whole_link_reset_without_restoring_snapshot() {
+    let mut fixture = Fixture::new(State::default());
+    let baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+    assert_eq!(
+        format!("{baseline:?}"),
+        "Baseline { private values omitted }"
+    );
+    fixture.apply().unwrap();
+    fixture
+        .resolved
+        .verify_policy_preserves_baseline(&baseline)
+        .unwrap();
+    assert_eq!(
+        fixture.resolved.verify_reset(&baseline),
+        Err(Error::ReadbackMismatch)
+    );
+    fixture.resolved.revert_pristine_link().unwrap();
+    fixture.resolved.verify_reset(&baseline).unwrap();
+}
+
+#[test]
+fn nonempty_baselines_refuse_before_any_mutation() {
+    for state in [
+        State {
+            servers: vec![(2, vec![192, 0, 2, 1])],
+            ..State::default()
+        },
+        State {
+            domains: vec![("example.invalid".into(), false)],
+            ..State::default()
+        },
+        State {
+            default_route: true,
+            ..State::default()
+        },
+        State {
+            unchanged: Unchanged {
+                negative_trust_anchors: vec!["example.invalid".into()],
+                ..Unchanged::default()
+            },
+            ..State::default()
+        },
+    ] {
+        let fixture = Fixture::new(state);
+        assert_eq!(
+            fixture.resolved.capture_baseline(&ownership()).unwrap_err(),
+            Error::NonPristine
+        );
+        assert!(fixture.state.lock().unwrap().calls.is_empty());
+    }
+}
+
+#[test]
+fn tls_and_dnssec_modes_require_policy_review_not_extra_writes() {
+    for (tls, dnssec) in [
+        ("yes", "no"),
+        ("opportunistic", "no"),
+        ("no", "yes"),
+        ("no", "allow-downgrade"),
+    ] {
+        let fixture = Fixture::new(State {
+            unchanged: Unchanged {
+                dns_over_tls: tls.into(),
+                dnssec: dnssec.into(),
+                ..Unchanged::default()
+            },
+            ..State::default()
+        });
+        assert_eq!(
+            fixture.resolved.capture_baseline(&ownership()).unwrap_err(),
+            Error::UnsupportedPolicy
+        );
+        assert!(fixture.state.lock().unwrap().calls.is_empty());
+    }
+}
+
+#[test]
+fn extended_dns_fields_are_not_lost_in_legacy_projection() {
+    let mut fixture = Fixture::new(State::default());
+    fixture.apply().unwrap();
+    for (port, name) in [(853, ""), (53, ""), (0, "private.invalid")] {
+        fixture.state.lock().unwrap().extended_override =
+            Some(vec![(2, FIXED_DNS.to_vec(), port, name.into())]);
+        assert_eq!(
+            fixture.resolved.verify_fixed_policy(),
+            Err(Error::ReadbackMismatch)
+        );
+    }
+    fixture.state.lock().unwrap().extended_override =
+        Some(vec![(2, vec![192, 0, 2, 1], 0, String::new())]);
+    assert_eq!(fixture.resolved.observe().unwrap_err(), Error::InvalidReply);
+}
+
+#[test]
+fn expanded_fields_reject_oversize_invalid_enums_domains_and_shapes_privately() {
+    let fixture = Fixture::new(State::default());
+    for field in ["llmnr", "mdns", "tls", "dnssec"] {
+        for value in [PRIVATE_ERROR.to_owned(), "no\n".into(), "yes".repeat(6000)] {
+            let mut unchanged = Unchanged::default();
+            match field {
+                "llmnr" => unchanged.llmnr = value,
+                "mdns" => unchanged.mdns = value,
+                "tls" => unchanged.dns_over_tls = value,
+                _ => unchanged.dnssec = value,
+            }
+            fixture.state.lock().unwrap().unchanged = unchanged;
+            assert_eq!(fixture.resolved.observe().unwrap_err(), Error::InvalidReply);
+        }
+    }
+    for anchors in [
+        vec!["x".into(); MAX_ENTRIES + 1],
+        vec![PRIVATE_ERROR.into()],
+        vec!["x".repeat(64)],
+        vec!["x..invalid".into()],
+        vec!["юникод.invalid".into()],
+    ] {
+        fixture.state.lock().unwrap().unchanged = Unchanged {
+            negative_trust_anchors: anchors,
+            ..Unchanged::default()
+        };
+        assert_eq!(fixture.resolved.observe().unwrap_err(), Error::InvalidReply);
+    }
+    fixture.state.lock().unwrap().unchanged = Unchanged::default();
+    fixture.state.lock().unwrap().servers = vec![(2, vec![192, 0, 2, 1])];
+    for extended in [
+        vec![(2, vec![192, 0, 2, 1], 0, "x".repeat(254))],
+        vec![(2, vec![192, 0, 2, 1], 0, PRIVATE_ERROR.into())],
+        vec![(10, vec![0; 4], 0, String::new())],
+        vec![(2, vec![192, 0, 2, 1], 0, String::new()); MAX_ENTRIES + 1],
+    ] {
+        fixture.state.lock().unwrap().extended_override = Some(extended);
+        assert_eq!(fixture.resolved.observe().unwrap_err(), Error::InvalidReply);
+    }
+}
+
+#[test]
+fn reset_acknowledgement_cannot_hide_changes_to_unmodified_settings() {
+    for field in ["llmnr", "mdns", "tls", "dnssec", "nta"] {
+        let mut fixture = Fixture::new(State::default());
+        let baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+        fixture.apply().unwrap();
+        let mut reset = Unchanged::default();
+        match field {
+            "llmnr" => reset.llmnr = "no".into(),
+            "mdns" => reset.mdns = "yes".into(),
+            "tls" => reset.dns_over_tls = "yes".into(),
+            "dnssec" => reset.dnssec = "yes".into(),
+            _ => reset.negative_trust_anchors = vec!["example.invalid".into()],
+        }
+        fixture.state.lock().unwrap().reset_unchanged = Some(reset);
+        fixture.resolved.revert_pristine_link().unwrap();
+        assert_eq!(
+            fixture.resolved.verify_reset(&baseline),
+            Err(Error::ReadbackMismatch)
+        );
+    }
+}
+
+#[test]
+fn baseline_binding_and_unknown_write_cannot_be_bypassed_by_readback() {
+    let mut fixture = Fixture::new(State::default());
+    let mut baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+    baseline.ifindex += 1;
+    assert_eq!(
+        fixture.resolved.verify_reset(&baseline),
+        Err(Error::OwnershipChanged)
+    );
+    baseline.ifindex -= 1;
+    baseline.owner.push_str("-different");
+    assert_eq!(
+        fixture.resolved.verify_reset(&baseline),
+        Err(Error::OwnershipChanged)
+    );
+    let baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+    fixture.state.lock().unwrap().fail_after_dns = true;
+    assert_eq!(
+        fixture.resolved.set_fixed_servers(),
+        Err(Error::OutcomeUnknown)
+    );
+    fixture.state.lock().unwrap().servers.clear();
+    assert_eq!(
+        fixture.resolved.verify_reset(&baseline),
+        Err(Error::RecoveryRequired)
+    );
+    assert_eq!(
+        fixture.resolved.capture_baseline(&ownership()).unwrap_err(),
+        Error::RecoveryRequired
+    );
+}
+
+#[test]
+fn foreign_untouched_setting_drift_blocks_apply_readback_and_whole_link_reset() {
+    for field in ["llmnr", "mdns", "tls", "dnssec", "nta"] {
+        let mut fixture = Fixture::new(State::default());
+        let baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+        fixture.apply().unwrap();
+        {
+            let mut state = fixture.state.lock().unwrap();
+            match field {
+                "llmnr" => state.unchanged.llmnr = "no".into(),
+                "mdns" => state.unchanged.mdns = "yes".into(),
+                "tls" => state.unchanged.dns_over_tls = "yes".into(),
+                "dnssec" => state.unchanged.dnssec = "yes".into(),
+                _ => state.unchanged.negative_trust_anchors = vec!["example.invalid".into()],
+            }
+        }
+        assert_eq!(
+            fixture.resolved.verify_policy_preserves_baseline(&baseline),
+            Err(Error::OwnershipChanged)
+        );
+        assert_eq!(
+            fixture.resolved.revert_preserving_untouched(&baseline),
+            Err(Error::OwnershipChanged)
+        );
+        assert!(!fixture.state.lock().unwrap().calls.contains(&"RevertLink"));
+    }
+}
+
+#[test]
+fn unknown_write_cannot_be_fenced_by_unchanged_settings_read_before_reset() {
+    let mut fixture = Fixture::new(State::default());
+    let baseline = fixture.resolved.capture_baseline(&ownership()).unwrap();
+    fixture.state.lock().unwrap().fail_after_dns = true;
+    assert_eq!(
+        fixture.resolved.set_fixed_servers(),
+        Err(Error::OutcomeUnknown)
+    );
+    assert_eq!(
+        fixture.resolved.revert_preserving_untouched(&baseline),
+        Err(Error::RecoveryRequired)
+    );
+    assert_eq!(fixture.state.lock().unwrap().calls, ["SetLinkDNS"]);
+}
+
+#[test]
+fn maximum_bounded_domains_and_recognized_multicast_modes_are_observable() {
+    let fixture = Fixture::new(State {
+        domains: vec![
+            (
+                format!(
+                    "{}.{}.{}.{}",
+                    "a".repeat(63),
+                    "b".repeat(63),
+                    "c".repeat(63),
+                    "d".repeat(61)
+                ),
+                true
+            );
+            MAX_ENTRIES
+        ],
+        unchanged: Unchanged {
+            llmnr: "resolve".into(),
+            mdns: "resolve".into(),
+            negative_trust_anchors: vec!["example.invalid.".into(); MAX_ENTRIES],
+            ..Unchanged::default()
+        },
+        ..State::default()
+    });
+    assert!(fixture.resolved.observe().is_ok());
 }

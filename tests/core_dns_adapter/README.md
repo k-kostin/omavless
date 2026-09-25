@@ -97,6 +97,16 @@ cancellation test on the host.
 
 The newer patch adds opt-in `tun.omavless-dns-broker`, requiring Linux, fixed
 `Meta`, DNS-off and a newly core-created TUN (not caller-supplied FD mode).
+The fixed-policy guard additionally requires DNS enabled, exactly the derived
+IPv4 TUN address `198.18.0.1/30`, and no alternate IPv6 TUN/fake-IP pool. All
+three tracked routing templates use `fake-ip-range: 198.18.0.1/16`; Mihomo derives
+the `/30` TUN address and automatically intercepts its next address at
+`198.18.0.2:53`. This is the broker's virtual resolver, **not a provider/upstream
+nameserver**. A different compatible upstream does not change that target.
+The parser and listener independently refuse incompatible opt-in configurations
+before TUN effects. Ordinary non-broker configuration behavior stays unchanged.
+Nine parser policy cases and listener pre-device refusals pass the focused Go
+tests. This guard does not establish DNS-server reachability or host readiness.
 The private sing-tun accessor duplicates the actual attached descriptor under
 `SyscallConn.Control`; it never looks up another process's FD or reopens by name.
 The fixed root-owned socket is `/run/omavless-dns/control.sock`. Path ancestry,
@@ -141,10 +151,34 @@ normal-close test.
 
 **Fixture Ready/Released are synthetic acknowledgements, not DNS evidence.**
 The probe has no resolved writer; it does not certify cleanup of real settings.
-Eleven facts passed 20 repeats on Try Omarchy ARM64 with core SHA-256
-`3ac82f111167e72caecd320368716d89a5d6c961d09b9d868219a3658f082c8e`
-(same Go 1.26.8, CGO off/default tags). The original DNS-off ownership and packet
-results above still belong to their original core digest.
+The earlier core `3ac82f111167e72caecd320368716d89a5d6c961d09b9d868219a3658f082c8e`
+passed the original eleven-fact channel gate. After the fixed-policy guard,
+the exact candidate SHA-256 is:
+
+`d0dd975c33d05ef347908ca74499d1c8424b550fd75b96f01bd68ac390988db2`
+
+On this candidate, the eleven-fact whole-core broker probe passed **20 fresh
+repeats**, with DNS enabled only against synthetic loopback upstream configuration
+inside the isolated namespace. The existing ownership probe also passed all
+13 facts, and the packet probe passed all 10 facts (bidirectional TCP/UDP through
+the actual TUN, unrestricted/restricted core, no residual core DNS commands).
+Go 1.26.8, CGO off/default tags; no production-tag or installed-host claim.
+The Rust kernel-channel fixture used SHA-256
+`ee88e96abaf584a89f7022826ec71a4608c28036ad0017bc4c75d49cb854eecc`.
+The fixed-policy patch that produced this historical candidate reverses cleanly
+against its scratch source; machine-specific Go module replacement is excluded.
+
+The current full patch also gives the core a 40-second handshake/release budget,
+larger than the broker's joined 30-second transaction and five-second idle check.
+Its ARM64 binary SHA-256 is
+`0e23d09abe43abb0aec59c83cae90afd68c899d3823e686d2be2039e836ea2d2`.
+It passed **20 fresh eleven-fact broker-probe runs** with kernel-channel fixture
+`3e0b2308db7bbd98dcbd857eb383021c655b50af93a393cc59af0dcc0891206f`.
+The current full patch reverses cleanly against that exact build source.
+The opt-in Rust runtime waits 45 seconds for authenticated managed readiness
+and allows 55 seconds for teardown (44 seconds before forced termination).
+Legacy startup/stop budgets remain 10/5 seconds. No installed host result is
+inferred from this timing alignment or namespace test.
 
 ```sh
 cargo build --locked -p omavless-dns-channel --example kernel_channel

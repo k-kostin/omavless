@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = omavless-dns-experimental
+
+[Action]
+Description = Refusing unsafe experimental DNS broker replacement/removal
+When = PreTransaction
+Exec = /usr/lib/omavless-dns-experimental/package-guard
+AbortOnFail

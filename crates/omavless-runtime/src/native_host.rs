@@ -23,7 +23,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(20);
-const START_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_PATH_BYTES: usize = 4096;
@@ -695,6 +694,8 @@ impl LifecycleHost for NativeLifecycleHost {
                 desired.mode.as_str(),
             )
             .map_err(|_| HostStepError::Prepare)?;
+        let readiness = ConfigReadiness::from_generated_config(desired.mode, profile_name, &config)
+            .ok_or(HostStepError::Prepare)?;
         atomic_replace_private(&self.paths.staged_config, config.as_bytes(), self.uid)
             .map_err(|_| HostStepError::Prepare)?;
         if validate_config(
@@ -709,7 +710,7 @@ impl LifecycleHost for NativeLifecycleHost {
             return Err(HostStepError::Prepare);
         }
         self.profile_id = Some(desired.profile_id.clone());
-        self.readiness = Some(ConfigReadiness::new(desired.mode, profile_name));
+        self.readiness = Some(readiness);
         Ok(())
     }
 
@@ -747,7 +748,7 @@ impl LifecycleHost for NativeLifecycleHost {
         .map_err(|_| HostStepError::Start)?;
         self.core_diagnostics = Some(core.diagnostic_reader());
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
-        let ready = core.wait_configured(START_TIMEOUT, expected);
+        let ready = core.wait_configured(expected.startup_timeout(), expected);
         let private_controller = ready.is_ok()
             && core.pid().is_some_and(|pid| {
                 crate::controller_permissions::secure_owned(
@@ -790,8 +791,12 @@ impl LifecycleHost for NativeLifecycleHost {
         if !self.ping_slot.revoke() {
             return Err(HostStepError::Stop);
         }
+        let timeout = self
+            .readiness
+            .as_ref()
+            .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
         if let Some(mut core) = self.core.take()
-            && core.stop(STOP_TIMEOUT).is_err()
+            && core.stop(timeout).is_err()
         {
             self.core = Some(core);
             return Err(HostStepError::Stop);
@@ -824,7 +829,11 @@ impl Drop for NativeLifecycleHost {
         // ordinary stop/start instead refuse if synchronous reaping is unproven.
         let _ = self.ping_slot.revoke();
         if let Some(mut core) = self.core.take() {
-            let _ = core.stop(STOP_TIMEOUT);
+            let timeout = self
+                .readiness
+                .as_ref()
+                .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
+            let _ = core.stop(timeout);
         }
         let _ = self.remove_controller();
         let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);

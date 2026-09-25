@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import select
 import shutil
@@ -70,8 +71,12 @@ def disable_tun(root):
     # early SIGTERM is therefore not a deterministic normal-close experiment.
     path = root / 'config.yaml'
     text = path.read_text()
-    base.require(text.count('  enable: true\n') == 1)
-    path.write_text(text.replace('  enable: true\n', '  enable: false\n', 1))
+    sections = list(re.finditer(r'(?m)^tun:\n(?:[ \t]+[^\n]*\n)*', text))
+    base.require(len(sections) == 1)
+    tun = sections[0]
+    base.require(tun.group().count('  enable: true\n') == 1)
+    path.write_text(text[:tun.start()] + tun.group().replace(
+        '  enable: true\n', '  enable: false\n', 1) + text[tun.end():])
     base.request(root, 'PUT', '/configs?force=true', {'path': str(path)})
 
 
@@ -80,11 +85,16 @@ def stop_core(child):
     return child.returncode in (0, -signal.SIGTERM)
 
 
-def launch(root, core):
+def launch(root, core, stack='system'):
+    base.require(stack in ('system', 'gvisor'))
     # Fixed conversion of an existing synthetic config, never imported YAML.
     config = ownership.config(root, 'ovdnsprobe0', True).replace(
         'device: ovdnsprobe0', 'device: Meta').replace(
-        'tun:\n', 'tun:\n  omavless-dns-broker: true\n', 1)
+        'tun:\n', 'tun:\n  omavless-dns-broker: true\n', 1).replace(
+        'dns:\n  enable: false\n',
+        'dns:\n  enable: true\n  fake-ip-range: 198.18.0.1/16\n  nameserver: [127.0.0.1]\n', 1)
+    base.require(config.count('  stack: system\n') == 1)
+    config = config.replace('  stack: system\n', '  stack: ' + stack + '\n', 1)
     path = root / 'config.yaml'
     path.write_text(config)
     (root / 'resolvectl').write_text(
@@ -106,7 +116,8 @@ def copied(source, target, digest):
     return target
 
 
-def experiment(root, core_source, core_digest, fixture_source, fixture_digest, original):
+def experiment(root, core_source, core_digest, fixture_source, fixture_digest, original, stack='system'):
+    base.require(stack in ('system', 'gvisor'))
     # Recheck before the mount as well as entry: no broad host /run mutation.
     guard(original)
     subprocess.run(['/usr/bin/mount', '--make-rprivate', '/'], check=True,
@@ -131,7 +142,7 @@ def experiment(root, core_source, core_digest, fixture_source, fixture_digest, o
         child = None
         try:
             receive(server, 'fixture_ready')
-            child = launch(case, core)
+            child = launch(case, core, stack)
             receive(server, 'proof_admitted')
             base.require(child.poll() is None and base.index('Meta') > 0)
             facts['pending_not_ready'] &= not readiness(case)
@@ -174,21 +185,27 @@ def experiment(root, core_source, core_digest, fixture_source, fixture_digest, o
 
 
 def child(arguments):
-    base.require(len(arguments) == 8)
+    base.require(len(arguments) in (8, 9))
+    stack = arguments[8] if len(arguments) == 9 else 'system'
+    base.require(stack in ('system', 'gvisor'))
     original = arguments[:4]
     guard(original)
     with tempfile.TemporaryDirectory(prefix='omavless-core-broker-') as directory:
         return experiment(Path(directory), Path(arguments[4]), arguments[5],
-                          Path(arguments[6]), arguments[7], original)
+                          Path(arguments[6]), arguments[7], original, stack)
 
 
 def main():
     try:
-        if len(sys.argv) == 10 and sys.argv[1] == '--isolated-child':
+        if len(sys.argv) in (10, 11) and sys.argv[1] == '--isolated-child':
             result = child(sys.argv[2:])
         else:
-            base.require(len(sys.argv) == 5 and os.geteuid() != 0)
-            core, digest, fixture, fixture_digest = sys.argv[1:]
+            arguments = sys.argv[1:]
+            stack = 'system'
+            if arguments and arguments[0] == '--gvisor':
+                stack, arguments = 'gvisor', arguments[1:]
+            base.require(len(arguments) == 4 and os.geteuid() != 0)
+            core, digest, fixture, fixture_digest = arguments
             ownership.validate_source(Path(core), digest)
             ownership.validate_source(Path(fixture), fixture_digest)
             original = [base.ns.namespace(name) for name in ('net', 'user', 'pid', 'mnt')]
@@ -196,7 +213,7 @@ def main():
                 '/usr/bin/unshare', '--user', '--map-root-user', '--net', '--pid',
                 '--mount', '--propagation', 'private', '--fork', '--kill-child=SIGKILL',
                 '--', sys.executable, str(Path(__file__).resolve()), '--isolated-child',
-                *original, core, digest, fixture, fixture_digest,
+                *original, core, digest, fixture, fixture_digest, stack,
             ], stdin=subprocess.DEVNULL, capture_output=True, timeout=60, check=False)
             base.require(process.returncode in (0, 1))
             result = base.project(process.stdout, FACTS)

@@ -236,13 +236,18 @@ are explicitly outside this scope. Do not broaden host ownership without need.
 
 Actual Rust kernel admission, credentialed descriptor-channel tests, real
 private-bus resolved-wire tests and namespace-local TCP/UDP passage now provide
-executable boundaries. They are uninstalled, with no production consumers.
+executable boundaries. They remain uninstalled.
 The reviewed core adapter waits for Applying → Ready and Release → Releasing →
 Released; only a live verified lease projects `omavless-dns-ready`. This is still
-a review patch, not installed runtime readiness. Holding the descriptor in one
-process does not cover broker crash during a queued D-Bus write: retained
-lifetime across process death and recovery remain explicit gates. Readback of
-three effective properties is still not permission to restore arbitrary state.
+a review patch, not installed runtime readiness. The
+[broker composition candidate](../../crates/omavless-dns-broker/README.md) now
+combines a fixed root-service/enrollment admission, socket ACL, private journal,
+typed FD-store retention and actual DNS methods. Its private-bus/kernel tests
+exercise late writes, denied operations and ownership drift. Managed runtime
+readiness refuses missing/false broker acknowledgement; legacy DNS remains the
+default and a template flag is not enrollment consent. Real system-service
+crash retention, distribution and attended host acceptance remain gates.
+Readback of effective properties is still not permission to restore arbitrary state.
 
 ## Next-session boundary
 
