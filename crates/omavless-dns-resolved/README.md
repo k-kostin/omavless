@@ -166,7 +166,7 @@ developer-only executable. Missing dbus-daemon fails rather than reporting PASS.
 
 ```sh
 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
-  cargo test --locked -p omavless-dns-resolved
+  cargo test --locked -p omavless-dns-resolved -- --test-threads=1
 ```
 
 Sources checked for this boundary:
