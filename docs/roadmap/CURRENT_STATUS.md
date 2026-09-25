@@ -13,10 +13,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   A real-host GetLink escaping mismatch was fixed without relaxing target checks.
   Cross-UID denial/non-TUN rejection passed. Core death released broker-held DNS/TUN
   state, but runtime status/reaping remained stale until explicit Disconnect;
-  that combined crash scenario is not PASS. Original runtime/profile/Routing and
-  DNS were restored; experimental helper stopped, not boot-enabled. Root-broker
-  crash/quarantine/recovery, actual ALPM abort, runner adaptation and distribution
-  remain gates. #270/#132 and Draft #295 stay open; main/RC are unchanged.
+  that combined crash scenario is not PASS. A later attended root-helper SIGKILL
+  retained the original TUN/journal/FD; restart and actual ALPM upgrade refused
+  retained state. Owner reboot established an empty new epoch without forced
+  cleanup. Ordinary package/template restoration passed, but Routing reconnect
+  failed despite accepted OS prompts and remains under diagnosis (currently
+  disconnected, no core/TUN). Removal, mode/negative gates, runner adaptation and
+  distribution remain open. #270/#132 and Draft #295 stay open; main/RC unchanged.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

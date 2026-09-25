@@ -65,12 +65,12 @@ service/provider identity or reusable private configuration is published.
 - Loaded parallel runs encountered private-bus startup/deadline failures; only
   successful sequential runs are counted, not those attempts.
 
-## Remaining release gates
+## Additional installed security and crash gates
 
 Additional installed checks passed: another ordinary UID is denied at the socket;
 the enrolled UID can connect but a non-TUN descriptor is rejected before DNS
 writes; the installed read-only package guard refuses replacement while the
-broker is active. This last check is not an actual ALPM transaction-abort test.
+broker is active. The actual retained-state ALPM gate below is separate evidence.
 
 After an exact pidfd-targeted SIGKILL of the runtime-owned core, the broker
 removed the DNS link and released its retained descriptor. The crash test as a
@@ -80,22 +80,72 @@ and zero TUNs. Explicit attended Disconnect reaped the child and reached a fresh
 clean disconnected state. This runtime crash-status/reaping finding must be
 resolved separately; it is not a fully passing runtime crash scenario.
 
-Restoration passed: original runtime hash, original template bytes, absent
+The earlier positive/core-crash cycle's restoration passed: original runtime hash, original template bytes, absent
 experimental manager override, original profile in Routing, one healthy core/TUN
 and matching DNS readback. The experimental broker is stopped, not boot-enabled;
 its package and protected enrollment remain available for further development.
 Only identified inactive socket nodes were removed after proving zero retained
 descriptors, empty private journal and no TUN; no unknown state was erased.
 
-Actual root-broker crash/quarantine/recovery and installed ALPM abort behavior still need their
-declared gates. An unknown write remains a quarantine/recovery condition, never
-permission to erase the journal or retained descriptor. The isolated service
-runner needs a compatible installed-owner path before being recommended again.
+### Root-helper SIGKILL and retained-state refusal
+
+A separately attended run used the same pinned runtime/broker/core composition.
+Before the crash it again verified Full VPN, runtime-owned core, private Unix
+controller with managed-DNS Ready, actual resolved policy, one retained TUN and
+successful bounded TUN-bound HTTPS. The user runtime was masked without stopping
+it to prevent unattended reconnection after the recovery reboot; the root helper
+was never boot-enabled.
+
+| Actual installed gate | Result |
+| --- | --- |
+| SIGKILL of exact checked root-helper PID via pidfd | PASS |
+| Original TUN and one systemd-stored descriptor survive helper death | PASS |
+| Same active journal survives, without deletion or reinterpretation as clean | PASS |
+| Explicit helper restart refuses retained state; journal/retention unchanged | PASS |
+| Actual same-package `pacman -U` refused by ALPM PreTransaction hook | PASS |
+| Broker binary/journal/TUN/retention unchanged by refused transaction | PASS |
+| Coordinated owner reboot establishes a different boot epoch | PASS |
+| After reboot: helper inactive, FD store empty, no old journal/socket/TUN | PASS |
+
+This is crash quarantine, **not a kill switch or seamless availability**. No
+forced FD-store cleanup, journal removal, DNS reset, enrollment replacement or
+unit removal was used to escape unknown state. Package removal refusal remains
+a separate unexecuted installed transaction gate; upgrade refusal does not prove it.
+
+### Post-reboot restoration is not yet a passing connection gate
+
+The preserved ordinary runtime package, exact original route-template, absent
+experimental core override and original disabled user-unit enablement were
+restored; the temporary mask was removed. Read-only inspection confirmed the
+running original executable, stock Mihomo selection and valid generated config.
+The root experimental helper stayed stopped with zero stored descriptors.
+
+The final ordinary Routing Connect failed, as did one separately attended retry
+(`transition_failed_restored`). The owner confirmed that the latter OS prompts
+appeared, accepted the password and closed. Fresh observation shows disconnected,
+no core/TUN and no manual-recovery flag. Classified core logs show one other
+warning, but no DNS/TLS/timeout/connection or setup-permission classification;
+these hints do not establish the cause. Do not blame typing speed, claim restored
+VPN connectivity, or call the whole recovery workflow PASS from empty resources.
+Diagnosis and successful restoration remain pending.
+
+## Remaining release gates
+
+An unknown write remains a quarantine/recovery condition, never permission to
+erase the journal or retained descriptor. Resolve the runtime crash-status/reaping
+finding, finish post-reboot ordinary connection restoration, installed removal and
+applicable negative/mode-transition acceptance, and reviewed distribution before
+closing #270. The isolated service runner needs a compatible installed-owner path
+before being recommended again. Actual mode transitions and broader host failure
+coverage are not inferred from a successful single Full VPN cycle.
 
 CI exposed a parallel journal test returning ownership refusal instead of the
 expected malformed-record recovery classification. The private-bus/forking and
 short-deadline suites now run serially in `tests/run-rust.sh`, preserving all
 assertions and explicit race cases; no production journal check was relaxed.
+Exact checkpoint `59a6610a30824d4183deec936e0cdbbc04d22662` passed all three
+GitHub jobs (test, package, package-arm64). Its local full non-Rust runner reported
+451 tests, 449 passed and two expected skips, with QML/JavaScript contracts green.
 
 This checkpoint does not close #270, make the broker the default, prove a kill
 switch, or authorize promotion/publication of RC 0.9.0.
