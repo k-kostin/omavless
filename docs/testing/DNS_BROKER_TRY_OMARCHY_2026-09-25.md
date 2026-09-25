@@ -73,12 +73,20 @@ writes; the installed read-only package guard refuses replacement while the
 broker is active. The actual retained-state ALPM gate below is separate evidence.
 
 After an exact pidfd-targeted SIGKILL of the runtime-owned core, the broker
-removed the DNS link and released its retained descriptor. The crash test as a
-whole stopped: the runtime left a zombie child and stale `connected` status until
-explicit Disconnect. Fresh observation correctly reported `ownedCoreRunning=false`
-and zero TUNs. Explicit attended Disconnect reaped the child and reached a fresh
-clean disconnected state. This runtime crash-status/reaping finding must be
-resolved separately; it is not a fully passing runtime crash scenario.
+removed the DNS link and released its retained descriptor. The initial crash
+runner stopped because its raw process-name inventory still counted the zombie
+leader before explicit Disconnect. Fresh observation correctly reported
+`ownedCoreRunning=false` and zero TUNs. Explicit attended Disconnect reaped the
+child and reached a fresh clean disconnected state.
+
+Subsequent source/contract review corrected the initial **runtime-bug inference**:
+[owned-helper cleanup](R5_OWNED_HELPER_CLEANUP.md#native-ownership-contract)
+deliberately retains a waitable leader to pin PID/process-group identity until
+explicit cleanup. Observation must not reap it early. The native presentation
+uses fresh owned-core facts, not last-known lifecycle alone, for connected state.
+Do not weaken that ownership mechanism to satisfy a process-name-only assertion.
+The stopped test is still not a full PASS; a corrected host gate must distinguish
+dead pinned leader from live residual processes, then prove explicit cleanup.
 
 The earlier positive/core-crash cycle's restoration passed: original runtime hash, original template bytes, absent
 experimental manager override, original profile in Routing, one healthy core/TUN
@@ -112,7 +120,7 @@ forced FD-store cleanup, journal removal, DNS reset, enrollment replacement or
 unit removal was used to escape unknown state. Package removal refusal remains
 a separate unexecuted installed transaction gate; upgrade refusal does not prove it.
 
-### Post-reboot restoration is not yet a passing connection gate
+### Post-reboot restoration and separate stock-path observation
 
 The preserved ordinary runtime package, exact original route-template, absent
 experimental core override and original disabled user-unit enablement were
@@ -127,13 +135,37 @@ no core/TUN and no manual-recovery flag. Classified core logs show one other
 warning, but no DNS/TLS/timeout/connection or setup-permission classification;
 these hints do not establish the cause. Do not blame typing speed, claim restored
 VPN connectivity, or call the whole recovery workflow PASS from empty resources.
-Diagnosis and successful restoration remain pending.
+
+A separately supervised stock-core diagnostic then verified its private
+controller, TUN and fixed resolved readback; it was stopped cleanly. The next
+separately attended native Connect on the **unchanged** ordinary binary succeeded.
+Bounded exact-child read-only observation confirmed mode, legacy DNS ownership,
+rules/providers and expected selector; four endpoint reads took 9–13 ms in that
+successful run. Original profile/Routing, actual DNS and TUN-bound HTTPS were
+restored in that run. This closes restoration, not the cause of the two earlier failures:
+neither user typing speed nor a readiness-timeout hypothesis was established.
+
+### End-of-session state: subsequent gate stopped before runtime start
+
+A later mode/core/removal attempt installed the experimental candidate again and
+applied its trial configuration. Its human authorization barrier stopped with
+`human_authorization_unsettled` before runtime start. No subsequent automatic
+Connect, cleanup or rollback was attempted. The mode sequence, corrected core
+crash and package-removal gates remain NOT RUN, not failed protocol evidence.
+
+Final read-only inspection: user runtime inactive/disabled with MainPID zero;
+no TUN; root broker active with zero stored descriptors. The experimental runtime
+and core override remain installed/configured. The earlier successful Routing
+restoration is evidence for that earlier cycle, **not the current VM state**.
+Private backups and original rollback package remain locally preserved. The
+[PC continuation](../development/RC_090_PC_CONTINUATION_2026-09-25.md) starts from
+its own independently inspected VM, not assumptions about this ARM host.
 
 ## Remaining release gates
 
 An unknown write remains a quarantine/recovery condition, never permission to
-erase the journal or retained descriptor. Resolve the runtime crash-status/reaping
-finding, finish post-reboot ordinary connection restoration, installed removal and
+erase the journal or retained descriptor. Correct/repeat the core-crash gate
+without treating its deliberately pinned zombie as a live core; finish installed removal and
 applicable negative/mode-transition acceptance, and reviewed distribution before
 closing #270. The isolated service runner needs a compatible installed-owner path
 before being recommended again. Actual mode transitions and broader host failure

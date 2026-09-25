@@ -403,12 +403,14 @@ for broker acknowledgement. The subsequent
 [installed ARM64 checkpoint](docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
 passed Full VPN/DNS/HTTPS/clean release without recurring DNS dialogs after
 explicit installation. It also exposed a corrected GetLink path-encoding bug
-and a still-open runtime crash-status/reaping issue. Later root-helper SIGKILL
+and a crash-runner counting error: the waitable zombie intentionally pins its
+process group until explicit cleanup, so observation must not reap it early.
+Later root-helper SIGKILL
 retained its original TUN/journal/FD; restart and real ALPM upgrade refused that
-state. Coordinated reboot cleared the old epoch, but ordinary Routing reconnect
-failed after package/template restoration and remains under diagnosis. Installed
+state. Coordinated reboot cleared the old epoch; original Routing/DNS/HTTPS were
+restored after two unexplained ordinary Connect failures on unchanged code. Installed
 removal, mode/negative gates, runner adaptation and distribution remain open;
-#270 is not closed and this is not a complete recovery PASS.
+#270 is not closed or generally released by this installed checkpoint.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

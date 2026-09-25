@@ -12,14 +12,20 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [September 25 host evidence](../testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md).
   A real-host GetLink escaping mismatch was fixed without relaxing target checks.
   Cross-UID denial/non-TUN rejection passed. Core death released broker-held DNS/TUN
-  state, but runtime status/reaping remained stale until explicit Disconnect;
-  that combined crash scenario is not PASS. A later attended root-helper SIGKILL
+  state; its first crash runner incorrectly counted the intentionally pinned
+  zombie leader as a live core before explicit cleanup. That runner needs
+  correction/repetition, not premature reaping. A later attended root-helper SIGKILL
   retained the original TUN/journal/FD; restart and actual ALPM upgrade refused
   retained state. Owner reboot established an empty new epoch without forced
-  cleanup. Ordinary package/template restoration passed, but Routing reconnect
-  failed despite accepted OS prompts and remains under diagnosis (currently
-  disconnected, no core/TUN). Removal, mode/negative gates, runner adaptation and
+  cleanup. Original package/template/profile/Routing, DNS and HTTPS were restored;
+  two earlier ordinary Connect failures remain unexplained, not erased by a
+  later unchanged-binary success. Removal, mode/negative gates, runner adaptation and
   distribution remain open. #270/#132 and Draft #295 stay open; main/RC unchanged.
+  The subsequent mode/removal attempt stopped at its authorization barrier
+  before runtime start; the ARM VM is now disconnected with the experimental
+  package installed, not in that earlier restored state. Continue using the
+  [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.md), which transfers
+  the development branch without promoting main or RC.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
