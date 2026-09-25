@@ -399,8 +399,13 @@ adds actual fixed root admission, socket ACL, reserved-baseline checks,
 journal/FD-store ordering and DNS apply/reset. Its
 [namespace integration](tests/DNS_BROKER_COMPOSITION.md) exercises actual Rust
 boundaries, late writes and ownership drift; managed runtime readiness waits
-for broker acknowledgement. Distribution and installed prompt-free DNS,
-crash/recovery and removal acceptance remain open. #270 is not closed.
+for broker acknowledgement. The subsequent
+[installed ARM64 checkpoint](docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
+passed Full VPN/DNS/HTTPS/clean release without recurring DNS dialogs after
+explicit installation. It also exposed a corrected GetLink path-encoding bug
+and a still-open runtime crash-status/reaping issue. Root-broker crash/recovery,
+actual ALPM abort, installed-runner adaptation and distribution remain open.
+The original VM runtime/profile/Routing were restored; #270 is not closed.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

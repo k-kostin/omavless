@@ -6,17 +6,29 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **DNS uninstalled integration candidate, not a host fix:** the original
+- **DNS installed experimental checkpoint, not released/default:** #295 passed
+  an attended ARM64 Full VPN connect/HTTPS/disconnect with real resolved readback
+  and owner-confirmed absence of recurring DNS dialogs. Exact pair and limitations:
+  [September 25 host evidence](../testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md).
+  A real-host GetLink escaping mismatch was fixed without relaxing target checks.
+  Cross-UID denial/non-TUN rejection passed. Core death released broker-held DNS/TUN
+  state, but runtime status/reaping remained stale until explicit Disconnect;
+  that combined crash scenario is not PASS. Original runtime/profile/Routing and
+  DNS were restored; experimental helper stopped, not boot-enabled. Root-broker
+  crash/quarantine/recovery, actual ALPM abort, runner adaptation and distribution
+  remain gates. #270/#132 and Draft #295 stay open; main/RC are unchanged.
+
+- **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
   adds an effect-free failure/cancellation model, strict draft broker requests
   and isolated TUN-reuse evidence. That foundation added no runtime consumer.
-  The subsequent opt-in composition below still changes no installed binary,
-  policy or running helper service. #270/#132 stay open pending host acceptance.
+  The initial opt-in composition below changed no installed binary,
+  policy or running helper service; the separately attended host checkpoint is above.
   Follow-up [reference research and an isolated real-core experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
   confirm unchanged-TUN reload avoids repeated DNS calls in the tested fixture,
   while changed-TUN reload and shutdown retain them. Target remains no recurring
   prompts after explicit enrollment, with one scoped prompt as fallback. Neither
-  the helper nor a production reload optimization is installed.
+  the helper nor a production reload optimization was installed at that checkpoint.
   A [review-only core adapter](../../tests/core_dns_adapter/README.md) now builds
   and passes 11 isolated DNS-owner checks, including FD teardown and old-core
   refusal. It is not a shipped core fork or helper; privileged lease/restore,
@@ -37,8 +49,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   runtime readiness requires actual broker Ready; legacy remains the default.
   A separately staged local package preserves the stock core/runtime and has
   an ALPM refusal guard for active/unknown leases; it never auto-enrolls or starts.
-  Distribution, attended system-service DNS and crash/recovery/removal gates
-  remain. No installed helper or #270 closure is claimed.
+  That offline evidence alone did not establish installed service acceptance or
+  #270 closure. Use the current installed checkpoint above for subsequent results.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
