@@ -1,4 +1,4 @@
-# DNS-0: creator-held TUN and restricted FD consumer
+# DNS-0: TUN authority experiments and selected DNS-only boundary
 
 September 25, 2026, review-only #270/#132 continuation. No installed helper,
 host policy, route, DNS setting or core changed. Main and RC unchanged.
@@ -75,10 +75,10 @@ python3 tests/dns_tun_authority_probe.py
 python3 tests/dns_core_ownership_probe.py /absolute/test/core EXACT_SHA256
 ```
 
-## Next implementation boundary
+## Investigated broader alternative — not the selected prerequisite
 
-The next candidate is **creator-held TUN + restricted consumer**, not adoption
-of an arbitrary named link or a bare FD handed to an unrestricted core:
+The initial experiment suggested **root-created TUN + restricted consumer**.
+That remains a broader alternative, **not a required production migration**:
 
 1. Root-owned broker creates/holds the fixed managed TUN and owns its bounded
    address/route setup. Mihomo FD mode skips that setup: this is a separate host
@@ -107,6 +107,52 @@ of an arbitrary named link or a bare FD handed to an unrestricted core:
 Do not install this fixture as a broker, accept caller-selected filters/routes
 or close #270. It rejects an unsafe shortcut and proves a constrained consumer
 path without changing the running VPN.
+
+## Narrower preferred boundary after exact-core review
+
+A capability-bearing Mihomo executable does not give its caller arbitrary
+CAP_NET_ADMIN code execution. The inspected stock sing-tun implementation does
+not expose a generic caller-selected TUNSETOWNER/TUNSETPERSIST/LinkDel API.
+The destructive kernel control above was a separately privileged experimental
+actor. Do not convert that fact into an invented stock-core attack or require
+root route ownership solely because file capabilities exist.
+
+The preferred DNS-only candidate keeps TUN creation/address/routes in Mihomo.
+A reviewed adapter duplicates its actual, newly attached, fixed-name TUN FD and
+sends it to the broker. The broker checks the real character device, TUN flags,
+single queue/nonpersistence, kernel network namespace (TUNGETDEVNETNS), fixed
+name and index, retaining the original object across DNS effects. A second
+single-queue attach fails EBUSY; ordinary creator closure does not destroy the
+held device. Administrators/already-privileged link managers remain outside
+this boundary. Same-user admission is limited resource authority, not proof of
+application identity or protection against a compromised enrolled account.
+
+`tests/dns_tun_lease_probe.py` exercises 15 kernel facts in fresh unprivileged
+namespaces; the independent compiled `omavless-dns-tun` leaf exercises 11 facts
+using its actual Rust admission code. Both passed on ARM64. Wrong device/type,
+name, persistence, multiqueue, detached object and foreign namespace are refused.
+These checks establish object admission, **not** pristine resolved settings,
+atomic D-Bus, crash-safe lifetime or recovery. In particular, losing both broker
+and core FDs while a D-Bus operation is queued still needs retained lifetime
+through process death. Per-call rechecks do not solve that race.
+
+The kernel leaf has a visible, local unsafe exception for exactly two typed
+ioctls; the workspace forbid is unchanged. Its [review rationale](../../crates/omavless-dns-tun/README.md)
+and negative tests are part of this boundary, not hidden implementation detail.
+The [descriptor channel](../../crates/omavless-dns-channel/README.md) authenticates
+kernel credentials per packet and retains received rights on transaction errors.
+Neither crate is installed or imported by the production runtime.
+
+The separate packet probe also passed ten facts with the earlier review core:
+actual TCP and UDP echo pass through the TUN in both ordinary and restricted
+consumer cases, with marked client/unmarked core route separation and measured
+TUN counters. All peers/routes/sysctls are synthetic and namespace-local. This
+does not establish production gVisor, external providers, IPv6 or host DNS.
+
+```sh
+python3 tests/dns_tun_lease_probe.py
+python3 tests/dns_core_packet_probe.py /absolute/test/core EXACT_SHA256
+```
 
 Deterministic validation at this checkpoint includes 17 authority/filter tests
 and 17 core-ownership guard tests; the existing TUN/reload probes add 23. These

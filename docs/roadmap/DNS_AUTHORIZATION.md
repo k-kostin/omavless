@@ -130,11 +130,15 @@ and successful DNS setup is not fail-closed egress protection.
    No caller-supplied interface name, IP/DNS server, routing domain, shell, path,
    unit, rule, UID or command. DNS values derive only from the validated fixed
    tunnel policy, never a provider profile. Policy updates require package review.
-5. Bound strict versioned frames (8 KiB, duplicate/unknown-field rejection),
+5. Bound strict versioned semantic frames (8 KiB, duplicate/unknown-field rejection),
    same-user admission, per-lease serialization and generation fencing; opaque
    operation identifiers prevent duplicate effects. Public responses contain
    fixed codes/booleans, not DNS values, private interface/endpoint metadata or
    raw D-Bus errors. Root-owned state is bounded, atomic and credential-free.
+   The unpublished core-to-broker FD handoff is a separate fixed eight-byte
+   SOCK_SEQPACKET channel with exact ancillary-right counts and per-packet
+   kernel credentials; see its [contract/corpus](../../crates/omavless-dns-channel/README.md).
+   It is not NDJSON, a generic privileged API, or a deployed protocol change.
 6. Broker calls resolved's typed D-Bus methods directly; no shell or client
    resolvectl execution. Read each property back. Commit the DNS lease only after
    all required values match for the same link incarnation. The runtime cannot
@@ -220,13 +224,25 @@ compiled DNS-off/default/reload/FD evidence in isolated namespaces and refuses
 the unpatched core. It advances the core-mechanism part of DNS-0, not approved
 distribution, production routing evidence, secure lease or installed closure.
 
-Further [kernel authority testing](../development/DNS_TUN_AUTHORITY.md) rejects
-another shortcut: an inherited FD with no capabilities still permits owner and
-persistence changes. Creator-held TUN plus a restricted consumer is the next
-candidate; isolated core readiness/close passes with an ioctl filter and empty
-capabilities. The experiment also denies FD export; production traffic and
-external FD extraction still need their own boundary. Fixed TUN/address/route ownership requires separate review, not a
-silent expansion of the DNS-only helper. No installed helper is claimed.
+Further [kernel authority testing](../development/DNS_TUN_AUTHORITY.md) found
+that an inherited FD with no capabilities still permits owner/persistence
+changes. The restricted-consumer/root-route-owner experiment is retained as an
+alternative, not the next required implementation. Exact-core review and actual
+single-queue FD admission favor a narrower DNS-only broker receiving the core's
+actual attached TUN while Mihomo retains routes. A file-capability executable
+is not arbitrary CAP_NET_ADMIN code execution for its caller. No generic TUN
+mutation API was found in the pinned core; privileged administrators/managers
+are explicitly outside this scope. Do not broaden host ownership without need.
+
+Actual Rust kernel admission, credentialed descriptor-channel tests, real
+private-bus resolved-wire tests and namespace-local TCP/UDP passage now provide
+executable boundaries. They are uninstalled, with no production consumers.
+The reviewed core adapter waits for Applying → Ready and Release → Releasing →
+Released; only a live verified lease projects `omavless-dns-ready`. This is still
+a review patch, not installed runtime readiness. Holding the descriptor in one
+process does not cover broker crash during a queued D-Bus write: retained
+lifetime across process death and recovery remain explicit gates. Readback of
+three effective properties is still not permission to restore arbitrary state.
 
 ## Next-session boundary
 

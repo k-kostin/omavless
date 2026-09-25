@@ -389,6 +389,13 @@ lease/restore and reviewed production distribution remain required.
 The [FD authority follow-up](docs/development/DNS_TUN_AUTHORITY.md) proves a
 restricted-consumer candidate and explains why a bare TUN FD is insufficient.
 It is not an installed host helper or closure of DNS-0/#270.
+The narrower follow-up retains Mihomo route ownership and admits its actual
+single-queue TUN FD into a DNS-only broker. Uninstalled Rust channel/kernel/
+resolved boundaries, Go interop and whole-core namespace tests now exercise
+real framing, descriptors and readiness; [FD-store mechanics](docs/development/DNS_FDSTORE.md)
+also pass independently. Unknown D-Bus outcomes must remain quarantined across
+process death. This does not supply a production broker, pristine baseline,
+enrollment/removal or prompt-free host acceptance, and does not close #270.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

@@ -21,9 +21,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
   and passes 11 isolated DNS-owner checks, including FD teardown and old-core
   refusal. It is not a shipped core fork or helper; privileged lease/restore,
   package review and attended integration remain open.
-  [FD authority evidence](../development/DNS_TUN_AUTHORITY.md) shows capability
-  removal alone is insufficient; the test core accepts a restricted FD-consumer
-  boundary. Fixed creator-owned link/routing integration is still pending.
+  [FD authority evidence](../development/DNS_TUN_AUTHORITY.md) retains the broader
+  restricted-consumer experiment, but the selected narrower candidate keeps
+  routes in Mihomo and passes its real single-queue TUN FD to a DNS-only broker.
+  New uninstalled Rust crates test kernel admission, credentialed descriptor
+  transfer and real private-bus resolved messages. Actual Go/Rust interop and
+  whole-core namespace readiness/refusal/loss tests pass; synthetic replies are
+  not actual DNS acceptance. [Systemd FD-store evidence](../development/DNS_FDSTORE.md)
+  supplies a crash-retention mechanism, not a late-D-Bus completion fence.
+  Pristine policy, root-service integration/quarantine, distribution and attended
+  no-prompt host acceptance still remain. No installed helper is claimed.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and

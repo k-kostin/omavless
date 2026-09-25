@@ -1,0 +1,28 @@
+[package]
+name = "omavless-dns-tun"
+description = "Uninstalled fixed-device DNS TUN descriptor admission boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libc = "=0.2.189"
+rustix = { version = "=1.1.5", features = ["fs", "net", "process"] }
+
+# Explicit leaf exception: the workspace's forbid cannot permit the two typed
+# Linux TUN ioctls. Only private sys functions locally allow unsafe_code; see
+# README.md. Other crates and the workspace policy are unchanged.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[[example]]
+name = "dns-tun-conformance"
+path = "examples/conformance.rs"
