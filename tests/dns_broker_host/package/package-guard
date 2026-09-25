@@ -1,0 +1,49 @@
+#!/bin/bash
+# Read-only fixed-target ALPM guard. No caller arguments/targets or DNS effects.
+set -euo pipefail
+export PATH=/usr/bin:/bin
+export LC_ALL=C
+
+refuse() {
+  printf '%s\n' 'Experimental DNS package is not proven inactive and empty; resolve broker state before replacement/removal.' >&2
+  exit 1
+}
+
+[[ $# == 0 && $EUID == 0 ]] || refuse
+
+# Root-protected ancestors only. Never interpret a symlink/unknown directory as
+# absence. Unknown private entries are blockers, not disposable cleanup files.
+for directory in /run /run/omavless-dns /run/omavless-dns/private; do
+  [[ ! -L "$directory" ]] || refuse
+  if [[ -e "$directory" ]]; then
+    [[ -d "$directory" ]] || refuse
+    metadata=$(/usr/bin/stat -c '%u %a' -- "$directory") || refuse
+    read -r owner mode <<< "$metadata"
+    [[ "$owner" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] || refuse
+    (( (8#$mode & 0022) == 0 )) || refuse
+  fi
+done
+shopt -s nullglob dotglob
+for entry in /run/omavless-dns/private/*; do
+  # Every entry, including broken symlinks and staging, blocks the transaction.
+  [[ ! -e "$entry" && ! -L "$entry" ]] || refuse
+done
+
+# No start/stop/clean/reset-failed/reload. The unit has no activation socket,
+# automatic restart or enable target, so an ordinary UID cannot race a restart.
+state=$(/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C /usr/bin/timeout 5s /usr/bin/systemctl --system show omavless-dns-broker.service \
+  --property=LoadState --property=ActiveState --property=SubState \
+  --property=MainPID --property=NFileDescriptorStore --no-pager) || refuse
+load= active= sub= pid= count=
+while IFS='=' read -r key value; do
+  case "$key" in
+    LoadState) [[ -z "$load" ]] || refuse; load=$value ;;
+    ActiveState) [[ -z "$active" ]] || refuse; active=$value ;;
+    SubState) [[ -z "$sub" ]] || refuse; sub=$value ;;
+    MainPID) [[ -z "$pid" ]] || refuse; pid=$value ;;
+    NFileDescriptorStore) [[ -z "$count" ]] || refuse; count=$value ;;
+    *) refuse ;;
+  esac
+done <<< "$state"
+[[ "$load" == loaded && "$active" == inactive && "$sub" == dead && "$pid" == 0 && "$count" == 0 ]] || refuse
+exit 0

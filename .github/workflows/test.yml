@@ -17,4 +17,6 @@ jobs:
       - name: Run isolated checks
         run: ./tests/run.sh
       - name: Run Rust workspace and parity checks
-        run: ./tests/run-rust.sh
+        run: |
+          command -v dbus-daemon >/dev/null || { echo "dbus-daemon is required for isolated DNS conformance tests" >&2; exit 1; }
+          ./tests/run-rust.sh

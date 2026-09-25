@@ -1,0 +1,27 @@
+[package]
+name = "omavless-dns-broker"
+description = "Uninstalled DNS broker composition and crash-state boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+omavless-dns-channel = { path = "../omavless-dns-channel" }
+omavless-dns-resolved = { path = "../omavless-dns-resolved" }
+omavless-dns-retention = { path = "../omavless-dns-retention" }
+omavless-dns-transaction = { path = "../omavless-dns-transaction" }
+omavless-dns-tun = { path = "../omavless-dns-tun" }
+rustix = { version = "=1.1.5", features = ["fs", "net", "process"] }
+async-io = "=2.6.0"
+futures-lite = "=2.6.1"
+zbus = "=5.19.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

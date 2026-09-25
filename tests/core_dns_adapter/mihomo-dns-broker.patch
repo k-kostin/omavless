@@ -1,0 +1,1023 @@
+diff --git a/config/config.go b/config/config.go
+index 5a66ce6..1f54324 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -275,6 +275,8 @@ type RawTun struct {
+ 	Device              string     `yaml:"device" json:"device"`
+ 	Stack               C.TUNStack `yaml:"stack" json:"stack"`
+ 	DNSHijack           []string   `yaml:"dns-hijack" json:"dns-hijack"`
++	DisableSystemDNS    bool       `yaml:"disable-system-dns" json:"disable-system-dns"`
++	OmaVLESSDNSBroker   bool       `yaml:"omavless-dns-broker" json:"omavless-dns-broker"`
+ 	AutoRoute           bool       `yaml:"auto-route" json:"auto-route"`
+ 	AutoDetectInterface bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
+ 
+@@ -1688,12 +1690,22 @@ func parseTun(rawTun RawTun, dns *DNS, general *General) error {
+ 		tunAddressPrefix = netip.MustParsePrefix("198.18.0.1/16")
+ 	}
+ 	tunAddressPrefix = netip.PrefixFrom(tunAddressPrefix.Addr(), 30)
++	// The fixed broker policy points resolved at the virtual TUN resolver, not
++	// at provider/upstream nameservers. Refuse before any interface effects when
++	// that target is not the reviewed IPv4-only resolver at 198.18.0.2:53.
++	if rawTun.OmaVLESSDNSBroker && (!dns.Enable ||
++		tunAddressPrefix != netip.MustParsePrefix("198.18.0.1/30") ||
++		len(rawTun.Inet6Address) != 0 || dns.FakeIPRange6.IsValid()) {
++		return errors.New("OmaVLESS DNS broker policy is unavailable")
++	}
+ 
+ 	general.Tun = LC.Tun{
+ 		Enable:              rawTun.Enable,
+ 		Device:              rawTun.Device,
+ 		Stack:               rawTun.Stack,
+ 		DNSHijack:           rawTun.DNSHijack,
++		DisableSystemDNS:    rawTun.DisableSystemDNS,
++		OmaVLESSDNSBroker:   rawTun.OmaVLESSDNSBroker,
+ 		AutoRoute:           rawTun.AutoRoute,
+ 		AutoDetectInterface: rawTun.AutoDetectInterface,
+ 
+diff --git a/config/system_dns_test.go b/config/system_dns_test.go
+new file mode 100644
+index 0000000..f1d1c47
+--- /dev/null
++++ b/config/system_dns_test.go
+@@ -0,0 +1,110 @@
++package config
++
++import (
++	"encoding/json"
++	"net/netip"
++	"testing"
++
++	coreDNS "github.com/metacubex/mihomo/dns"
++	"go.yaml.in/yaml/v3"
++)
++
++func TestSystemDNSOption(t *testing.T) {
++	for _, tc := range []struct {
++		name  string
++		input string
++		want  bool
++	}{
++		{"omitted", "{}", false},
++		{"false", "disable-system-dns: false", false},
++		{"true", "disable-system-dns: true", true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			var raw RawTun
++			if err := yaml.Unmarshal([]byte(tc.input), &raw); err != nil {
++				t.Fatal(err)
++			}
++			raw.DNSHijack = []string{"any:53"}
++			raw.AutoRoute = true
++			raw.FileDescriptor = 42
++			var general General
++			if err := parseTun(raw, &DNS{}, &general); err != nil {
++				t.Fatal(err)
++			}
++			if general.Tun.DisableSystemDNS != tc.want {
++				t.Fatal("DNS ownership flag lost")
++			}
++			if !general.Tun.AutoRoute || general.Tun.FileDescriptor != 42 ||
++				len(general.Tun.DNSHijack) != 1 || general.Tun.DNSHijack[0] != "any:53" {
++				t.Fatal("unrelated TUN configuration changed")
++			}
++			encoded, err := json.Marshal(general.Tun)
++			if err != nil {
++				t.Fatal(err)
++			}
++			var fields map[string]any
++			if err := json.Unmarshal(encoded, &fields); err != nil {
++				t.Fatal(err)
++			}
++			if fields["disable-system-dns"] != tc.want {
++				t.Fatal("controller projection lost flag")
++			}
++		})
++	}
++}
++
++func TestSystemDNSBrokerReadyCannotBeConfigured(t *testing.T) {
++	for _, input := range []string{
++		"omavless-dns-broker: true\nomavless-dns-ready: true\ndisable-system-dns: true",
++		"omavless-dns-broker: true\nomavless-dns-ready: false\ndisable-system-dns: true",
++	} {
++		var raw RawTun
++		if err := yaml.Unmarshal([]byte(input), &raw); err != nil {
++			t.Fatal(err)
++		}
++		var general General
++		if err := parseTun(raw, &DNS{Enable: true}, &general); err != nil {
++			t.Fatal(err)
++		}
++		if !general.Tun.OmaVLESSDNSBroker || !general.Tun.DisableSystemDNS || general.Tun.OmaVLESSDNSReady {
++			t.Fatal("configured readiness or lost broker ownership")
++		}
++	}
++}
++
++func TestSystemDNSBrokerFixedVirtualResolver(t *testing.T) {
++	for _, tc := range []struct {
++		name    string
++		dns     DNS
++		ipv6    []netip.Prefix
++		allowed bool
++	}{
++		{"default-virtual", DNS{Enable: true}, nil, true},
++		{"upstream-does-not-select-virtual", DNS{Enable: true, NameServer: []coreDNS.NameServer{{Net: "udp", Addr: "127.0.0.1:5353"}}}, nil, true},
++		{"tracked-template", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.0.1/16")}, nil, true},
++		{"same-virtual-different-pool", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.0.1/24")}, nil, true},
++		{"dns-disabled", DNS{}, nil, false},
++		{"other-address", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("198.18.1.1/16")}, nil, false},
++		{"other-family", DNS{Enable: true, FakeIPRange: netip.MustParsePrefix("2001:db8::1/64")}, nil, false},
++		{"ipv6-tun", DNS{Enable: true}, []netip.Prefix{netip.MustParsePrefix("2001:db8::1/64")}, false},
++		{"ipv6-pool", DNS{Enable: true, FakeIPRange6: netip.MustParsePrefix("2001:db8::1/64")}, nil, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			raw := RawTun{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet6Address: tc.ipv6}
++			var general General
++			err := parseTun(raw, &tc.dns, &general)
++			if tc.allowed {
++				if err != nil || len(general.Tun.Inet4Address) != 1 || general.Tun.Inet4Address[0].Addr().Next().String() != "198.18.0.2" {
++					t.Fatal("fixed virtual resolver policy was not preserved")
++				}
++			} else if err == nil || err.Error() != "OmaVLESS DNS broker policy is unavailable" {
++				t.Fatal("incompatible virtual resolver policy was not safely refused")
++			}
++			// Non-broker configurations retain upstream behavior.
++			raw.OmaVLESSDNSBroker = false
++			if parseTun(raw, &tc.dns, &General{}) != nil {
++				t.Fatal("opt-in guard changed ordinary TUN policy")
++			}
++		})
++	}
++}
+diff --git a/listener/config/system_dns_test.go b/listener/config/system_dns_test.go
+new file mode 100644
+index 0000000..ffb3896
+--- /dev/null
++++ b/listener/config/system_dns_test.go
+@@ -0,0 +1,23 @@
++package config
++
++import "testing"
++
++func TestSystemDNSOwnershipChangeRequiresTunReplacement(t *testing.T) {
++	legacy := Tun{}
++	external := Tun{DisableSystemDNS: true}
++	if !legacy.Equal(legacy) || !external.Equal(external) {
++		t.Fatal("same policy must compare equal")
++	}
++	if legacy.Equal(external) || external.Equal(legacy) {
++		t.Fatal("changed DNS writer retained old TUN")
++	}
++	broker := Tun{DisableSystemDNS: true, OmaVLESSDNSBroker: true}
++	if external.Equal(broker) || broker.Equal(external) {
++		t.Fatal("broker enrollment change retained old TUN")
++	}
++	ready := broker
++	ready.OmaVLESSDNSReady = true
++	if !broker.Equal(ready) || !ready.Equal(broker) {
++		t.Fatal("volatile readiness must not force TUN replacement")
++	}
++}
+diff --git a/listener/config/tun.go b/listener/config/tun.go
+index f6ca47f..75188d2 100644
+--- a/listener/config/tun.go
++++ b/listener/config/tun.go
+@@ -10,12 +10,18 @@ import (
+ )
+ 
+ type Tun struct {
+-	Enable              bool       `yaml:"enable" json:"enable"`
+-	Device              string     `yaml:"device" json:"device"`
+-	Stack               C.TUNStack `yaml:"stack" json:"stack"`
+-	DNSHijack           []string   `yaml:"dns-hijack" json:"dns-hijack"`
+-	AutoRoute           bool       `yaml:"auto-route" json:"auto-route"`
+-	AutoDetectInterface bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
++	Enable    bool       `yaml:"enable" json:"enable"`
++	Device    string     `yaml:"device" json:"device"`
++	Stack     C.TUNStack `yaml:"stack" json:"stack"`
++	DNSHijack []string   `yaml:"dns-hijack" json:"dns-hijack"`
++	// DisableSystemDNS leaves system resolver configuration to an external owner.
++	// It does not change packet DNS interception or TUN routing.
++	DisableSystemDNS  bool `yaml:"disable-system-dns" json:"disable-system-dns"`
++	OmaVLESSDNSBroker bool `yaml:"omavless-dns-broker" json:"omavless-dns-broker"`
++	// Runtime observation only; never accepted from YAML or copied as policy.
++	OmaVLESSDNSReady    bool `yaml:"-" json:"omavless-dns-ready"`
++	AutoRoute           bool `yaml:"auto-route" json:"auto-route"`
++	AutoDetectInterface bool `yaml:"auto-detect-interface" json:"auto-detect-interface"`
+ 
+ 	MTU                                   uint32         `yaml:"mtu" json:"mtu,omitempty"`
+ 	GSO                                   bool           `yaml:"gso" json:"gso,omitempty"`
+@@ -96,6 +102,9 @@ func (t *Tun) Sort() {
+ }
+ 
+ func (t *Tun) Equal(other Tun) bool {
++	if t.DisableSystemDNS != other.DisableSystemDNS || t.OmaVLESSDNSBroker != other.OmaVLESSDNSBroker {
++		return false
++	}
+ 	if t.Enable != other.Enable {
+ 		return false
+ 	}
+diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
+index 1e9527e..45cd174 100644
+--- a/listener/sing_tun/server.go
++++ b/listener/sing_tun/server.go
+@@ -48,6 +48,7 @@ type Listener struct {
+ 
+ 	tunIf    tun.Tun
+ 	tunStack tun.Stack
++	dnsLease systemDNSLease
+ 
+ 	networkUpdateMonitor    tun.NetworkUpdateMonitor
+ 	defaultInterfaceMonitor tun.DefaultInterfaceMonitor
+@@ -133,7 +134,16 @@ func checkTunName(tunName string) (ok bool) {
+ 	return true
+ }
+ 
++func fixedDNSBrokerTunPolicy(options LC.Tun) bool {
++	return options.DisableSystemDNS && options.FileDescriptor == 0 && options.Device == "Meta" &&
++		len(options.Inet4Address) == 1 && options.Inet4Address[0] == netip.MustParsePrefix("198.18.0.1/30") &&
++		len(options.Inet6Address) == 0
++}
++
+ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {
++	if options.OmaVLESSDNSBroker && (runtime.GOOS != "linux" || !fixedDNSBrokerTunPolicy(options)) {
++		return nil, E.New("OmaVLESS DNS broker policy is unavailable")
++	}
+ 	if len(additions) == 0 {
+ 		additions = []inbound.Addition{
+ 			inbound.WithInName("DEFAULT-TUN"),
+@@ -415,6 +425,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+ 		IncludeMACAddress:                     includeMACAddress,
+ 		ExcludeMACAddress:                     excludeMACAddress,
+ 		FileDescriptor:                        options.FileDescriptor,
++		EXP_DisableDNSHijack:                  options.DisableSystemDNS,
+ 		InterfaceMonitor:                      defaultInterfaceMonitor,
+ 		EXP_RecvMsgX:                          options.RecvMsgX,
+ 		EXP_SendMsgX:                          options.SendMsgX,
+@@ -511,6 +522,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+ 		return
+ 	}
+ 	l.tunStack = tunStack
++	if options.OmaVLESSDNSBroker {
++		l.dnsLease, err = acquireSystemDNS(tunIf)
++		if err != nil {
++			err = E.New("OmaVLESS DNS broker did not verify DNS")
++			return
++		}
++	}
+ 
+ 	if l.autoRedirect != nil {
+ 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
+@@ -676,6 +694,7 @@ func (l *Listener) Close() error {
+ 		dialer.DefaultInterfaceFinder.CompareAndSwap(l.cDialerInterfaceFinder, nil)
+ 	}
+ 	return common.Close(
++		l.dnsLease,
+ 		l.ruleUpdateCallbackCloser,
+ 		l.tunStack,
+ 		l.tunIf,
+@@ -687,7 +706,9 @@ func (l *Listener) Close() error {
+ }
+ 
+ func (l *Listener) Config() LC.Tun {
+-	return l.options
++	config := l.options
++	config.OmaVLESSDNSReady = l.dnsLease != nil && l.dnsLease.Ready()
++	return config
+ }
+ 
+ func (l *Listener) Address() string {
+diff --git a/listener/sing_tun/system_dns.go b/listener/sing_tun/system_dns.go
+new file mode 100644
+index 0000000..dde17c5
+--- /dev/null
++++ b/listener/sing_tun/system_dns.go
+@@ -0,0 +1,8 @@
++package sing_tun
++
++// systemDNSLease is a cooperative external DNS lifetime. Readiness requires
++// verified broker acknowledgement, not merely a live TUN/controller.
++type systemDNSLease interface {
++	Close() error
++	Ready() bool
++}
+diff --git a/listener/sing_tun/system_dns_interop_linux_test.go b/listener/sing_tun/system_dns_interop_linux_test.go
+new file mode 100644
+index 0000000..f74f0ef
+--- /dev/null
++++ b/listener/sing_tun/system_dns_interop_linux_test.go
+@@ -0,0 +1,182 @@
++//go:build linux
++
++package sing_tun
++
++import (
++	"bufio"
++	"bytes"
++	"context"
++	"encoding/json"
++	"io"
++	"net"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// Explicit opt-in only. The example is an ordinary-user, synthetic Rust peer,
++// not a deployed broker. Production acquireSystemDNS always requires root.
++func TestSystemDNSRustChannelInterop(t *testing.T) {
++	serverPath := os.Getenv("OMAVLESS_DNS_INTEROP_SERVER")
++	corpusPath := os.Getenv("OMAVLESS_DNS_INTEROP_CORPUS")
++	if serverPath == "" && corpusPath == "" {
++		t.Skip("explicit Rust channel fixture paths not supplied")
++	}
++	if !filepath.IsAbs(serverPath) || !filepath.IsAbs(corpusPath) {
++		t.Fatal("absolute reviewed fixture paths are required")
++	}
++	corpusFile, err := os.Open(corpusPath)
++	if err != nil {
++		t.Fatal("shared fixture unavailable")
++	}
++	data, err := io.ReadAll(io.LimitReader(corpusFile, 4097))
++	corpusFile.Close()
++	if err != nil || len(data) > 4096 {
++		t.Fatal("shared fixture exceeds bound")
++	}
++	type entry struct {
++		Name  string `json:"name"`
++		Bytes []byte `json:"bytes"`
++		FDs   int    `json:"fds"`
++	}
++	var corpus struct {
++		Schema     int     `json:"schema"`
++		FrameBytes int     `json:"frameBytes"`
++		Magic      string  `json:"magic"`
++		Version    int     `json:"version"`
++		Requests   []entry `json:"requests"`
++		Responses  []entry `json:"responses"`
++	}
++	if json.Unmarshal(data, &corpus) != nil || corpus.Schema != 1 || corpus.FrameBytes != 8 ||
++		corpus.Magic != "OVDN" || corpus.Version != 1 || len(corpus.Requests) != 2 || len(corpus.Responses) != 6 {
++		t.Fatal("shared fixture schema mismatch")
++	}
++	for kind, entries := range map[byte][]entry{1: corpus.Requests, 2: corpus.Responses} {
++		for index, item := range entries {
++			if !bytes.Equal(item.Bytes, dnsFrame(kind, byte(index+1))) {
++				t.Fatal("Rust and Go golden frames differ")
++			}
++			wantFD := 0
++			if kind == 1 && index == 0 {
++				wantFD = 1
++			}
++			if item.FDs != wantFD {
++				t.Fatal("golden descriptor policy mismatch")
++			}
++		}
++	}
++	for _, scenario := range []string{"success", "reject", "recovery_on_release", "loss_after_ready"} {
++		t.Run(scenario, func(t *testing.T) {
++			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++			defer cancel()
++			path := filepath.Join(t.TempDir(), "channel")
++			command := exec.CommandContext(ctx, serverPath, "--fixture", scenario, path)
++			command.Env = []string{"LANG=C", "LC_ALL=C"}
++			stdout, err := command.StdoutPipe()
++			if err != nil {
++				t.Fatal("fixture output unavailable")
++			}
++			stdin, err := command.StdinPipe()
++			if err != nil {
++				t.Fatal("fixture input unavailable")
++			}
++			command.Stderr = io.Discard
++			if command.Start() != nil {
++				t.Fatal("Rust fixture failed to start")
++			}
++			waited := false
++			t.Cleanup(func() {
++				stdin.Close()
++				if !waited {
++					command.Process.Kill()
++					command.Wait()
++				}
++			})
++			lines := make(chan string, 2)
++			go func() {
++				defer close(lines)
++				scanner := bufio.NewScanner(stdout)
++				scanner.Buffer(make([]byte, 128), 128)
++				for scanner.Scan() {
++					lines <- scanner.Text()
++				}
++			}()
++			select {
++			case line := <-lines:
++				if line != "fixture_ready" {
++					t.Fatal("Rust fixture not ready")
++				}
++			case <-ctx.Done():
++				t.Fatal("Rust fixture readiness deadline")
++			}
++			conn, err := net.DialUnix("unixpacket", nil, &net.UnixAddr{Name: path, Net: "unixpacket"})
++			if err != nil {
++				t.Fatal("private fixture connection failed")
++			}
++			defer conn.Close()
++			proof, err := os.CreateTemp(t.TempDir(), "proof")
++			if err != nil {
++				t.Fatal("proof fixture unavailable")
++			}
++			defer proof.Close()
++			if _, err = proof.WriteString("omavless-dns-channel-fixture\n"); err != nil {
++				t.Fatal("proof fixture write failed")
++			}
++			var fatal atomic.Bool
++			fatalSignal := make(chan struct{}, 1)
++			lease, err := acquireDNSConn(conn, int(proof.Fd()), uint32(os.Getuid()), func() {
++				fatal.Store(true)
++				fatalSignal <- struct{}{}
++			})
++			if scenario == "reject" {
++				if lease != nil || err != errDNSBroker {
++					t.Fatal("Rust refusal was not retained")
++				}
++			} else {
++				if err != nil || lease == nil || !lease.Ready() {
++					t.Fatal("Rust broker was not admitted")
++				}
++				if scenario == "loss_after_ready" {
++					if _, err = io.WriteString(stdin, "drop\n"); err != nil {
++						t.Fatal("loss fixture control failed")
++					}
++					select {
++					case <-fatalSignal:
++					case <-ctx.Done():
++						t.Fatal("Rust EOF not observed")
++					}
++					if lease.Ready() || lease.Close() != errDNSBroker {
++						t.Fatal("EOF became successful release")
++					}
++				} else {
++					closeErr := lease.Close()
++					if scenario == "success" && closeErr != nil {
++						t.Fatal("Rust verified release refused")
++					}
++					if scenario == "recovery_on_release" && closeErr != errDNSBroker {
++						t.Fatal("Rust recovery became successful release")
++					}
++					if lease.Ready() || fatal.Load() {
++						t.Fatal("release changed lifetime incorrectly")
++					}
++				}
++			}
++			select {
++			case line := <-lines:
++				if line != "fixture_done" {
++					t.Fatal("Rust fixture did not finish")
++				}
++			case <-ctx.Done():
++				t.Fatal("Rust fixture completion deadline")
++			}
++			if command.Wait() != nil {
++				waited = true
++				t.Fatal("Rust fixture failed")
++			}
++			waited = true
++		})
++	}
++}
+diff --git a/listener/sing_tun/system_dns_linux.go b/listener/sing_tun/system_dns_linux.go
+new file mode 100644
+index 0000000..82dd637
+--- /dev/null
++++ b/listener/sing_tun/system_dns_linux.go
+@@ -0,0 +1,251 @@
++//go:build linux
++
++package sing_tun
++
++import (
++	"bytes"
++	"errors"
++	"net"
++	"os"
++	"sync"
++	"sync/atomic"
++	"syscall"
++	"time"
++
++	tun "github.com/metacubex/sing-tun"
++	"golang.org/x/sys/unix"
++)
++
++const systemDNSPath = "/run/omavless-dns/control.sock"
++// The broker bounds a whole apply/release transaction to 30 seconds. Leave a
++// finite transport margin; this path never waits for human authorization.
++const dnsDeadline = 40 * time.Second
++
++var errDNSBroker = errors.New("OmaVLESS DNS broker transaction failed")
++
++type dnsLease struct {
++	conn     *net.UnixConn
++	peer     unix.Ucred
++	ready    atomic.Bool
++	closing  atomic.Bool
++	released atomic.Bool
++	once     sync.Once
++	done     chan struct{}
++	fatal    func()
++}
++
++func dnsFrame(kind, code byte) []byte {
++	return []byte{'O', 'V', 'D', 'N', 1, kind, code, 0}
++}
++
++func safeBrokerPath() bool {
++	for _, path := range []string{"/run", "/run/omavless-dns"} {
++		info, err := os.Lstat(path)
++		if err != nil || !info.IsDir() || info.Mode().Perm()&0022 != 0 {
++			return false
++		}
++		stat, ok := info.Sys().(*syscall.Stat_t)
++		if !ok || stat.Uid != 0 {
++			return false
++		}
++	}
++	info, err := os.Lstat(systemDNSPath)
++	if err != nil || info.Mode()&os.ModeSocket == 0 || info.Mode().Perm()&0007 != 0 {
++		return false
++	}
++	stat, ok := info.Sys().(*syscall.Stat_t)
++	return ok && stat.Uid == 0
++}
++
++func acquireSystemDNS(device tun.Tun) (systemDNSLease, error) {
++	if !safeBrokerPath() {
++		return nil, errDNSBroker
++	}
++	rawDevice, ok := device.(interface {
++		SyscallConn() (syscall.RawConn, error)
++	})
++	if !ok {
++		return nil, errDNSBroker
++	}
++	raw, err := rawDevice.SyscallConn()
++	if err != nil {
++		return nil, errDNSBroker
++	}
++	fd := -1
++	var duplicateErr error
++	err = raw.Control(func(original uintptr) {
++		fd, duplicateErr = unix.FcntlInt(original, unix.F_DUPFD_CLOEXEC, 3)
++	})
++	if err != nil || duplicateErr != nil {
++		return nil, errDNSBroker
++	}
++	defer unix.Close(fd)
++	connection, err := (&net.Dialer{Timeout: dnsDeadline}).Dial("unixpacket", systemDNSPath)
++	if err != nil {
++		return nil, errDNSBroker
++	}
++	conn, ok := connection.(*net.UnixConn)
++	if !ok {
++		connection.Close()
++		return nil, errDNSBroker
++	}
++	lease, err := acquireDNSConn(conn, fd, 0, func() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) })
++	if err != nil {
++		conn.Close()
++		return nil, errDNSBroker
++	}
++	return lease, nil
++}
++
++// expectedUID/fatal are private test seams. Production always requires root and
++// terminates the owned core on unexpected lease loss; neither is configurable.
++func acquireDNSConn(conn *net.UnixConn, fd int, expectedUID uint32, fatal func()) (*dnsLease, error) {
++	raw, err := conn.SyscallConn()
++	if err != nil {
++		return nil, errDNSBroker
++	}
++	var peer *unix.Ucred
++	var socketErr error
++	err = raw.Control(func(socket uintptr) {
++		peer, socketErr = unix.GetsockoptUcred(int(socket), unix.SOL_SOCKET, unix.SO_PEERCRED)
++		if socketErr == nil {
++			socketErr = unix.SetsockoptInt(int(socket), unix.SOL_SOCKET, unix.SO_PASSCRED, 1)
++		}
++	})
++	if err != nil || socketErr != nil || peer == nil || peer.Uid != expectedUID || peer.Pid <= 0 {
++		return nil, errDNSBroker
++	}
++	lease := &dnsLease{conn: conn, peer: *peer, done: make(chan struct{}), fatal: fatal}
++	if err = conn.SetDeadline(time.Now().Add(dnsDeadline)); err != nil {
++		return nil, errDNSBroker
++	}
++	n, oobn, err := conn.WriteMsgUnix(dnsFrame(1, 1), unix.UnixRights(fd), nil)
++	if err != nil || n != 8 || oobn != len(unix.UnixRights(fd)) {
++		return nil, errDNSBroker
++	}
++	for count := 0; count < 2; count++ {
++		code, err := lease.readResponse()
++		if err != nil {
++			return nil, errDNSBroker
++		}
++		if code == 2 && count == 1 {
++			if conn.SetDeadline(time.Time{}) != nil {
++				return nil, errDNSBroker
++			}
++			lease.ready.Store(true)
++			go lease.observe()
++			return lease, nil
++		}
++		if code != 1 || count != 0 {
++			return nil, errDNSBroker
++		}
++	}
++	return nil, errDNSBroker
++}
++
++func (l *dnsLease) readResponse() (byte, error) {
++	var frame [9]byte
++	// Credentials are mandatory; spare ancillary space lets us close unexpected
++	// delivered descriptors even when rejecting the response.
++	oob := make([]byte, unix.CmsgSpace(unix.SizeofUcred)+unix.CmsgSpace(16*4))
++	raw, err := l.conn.SyscallConn()
++	if err != nil {
++		return 0, errDNSBroker
++	}
++	var n, oobn, flags int
++	var receiveErr error
++	err = raw.Read(func(fd uintptr) bool {
++		n, oobn, flags, _, receiveErr = unix.Recvmsg(int(fd), frame[:], oob, unix.MSG_CMSG_CLOEXEC)
++		return receiveErr != unix.EAGAIN && receiveErr != unix.EWOULDBLOCK
++	})
++	if err != nil || receiveErr != nil {
++		return 0, errDNSBroker
++	}
++	messages, err := unix.ParseSocketControlMessage(oob[:oobn])
++	valid := err == nil
++	credentials := 0
++	for _, message := range messages {
++		switch {
++		case message.Header.Level == unix.SOL_SOCKET && message.Header.Type == unix.SCM_RIGHTS:
++			fds, parseErr := unix.ParseUnixRights(&message)
++			if parseErr == nil {
++				for _, fd := range fds {
++					unix.Close(fd)
++				}
++			}
++			valid = false
++		case message.Header.Level == unix.SOL_SOCKET && message.Header.Type == unix.SCM_CREDENTIALS:
++			peer, parseErr := unix.ParseUnixCredentials(&message)
++			credentials++
++			if parseErr != nil || *peer != l.peer {
++				valid = false
++			}
++		default:
++			valid = false
++		}
++	}
++	if !valid || credentials != 1 || flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 || n != 8 ||
++		!bytes.Equal(frame[:6], dnsFrame(2, 0)[:6]) || frame[7] != 0 || frame[6] < 1 || frame[6] > 6 {
++		return 0, errDNSBroker
++	}
++	return frame[6], nil
++}
++
++func (l *dnsLease) observe() {
++	defer close(l.done)
++	for count := 0; count < 2; count++ {
++		code, err := l.readResponse()
++		if err == nil && l.closing.Load() {
++			if code == 4 && count == 1 {
++				l.released.Store(true)
++				l.ready.Store(false)
++				return
++			}
++			if code == 3 && count == 0 {
++				continue
++			}
++		}
++		l.ready.Store(false)
++		if !l.closing.Load() {
++			l.fatal()
++		}
++		return
++	}
++	l.ready.Store(false)
++	if !l.closing.Load() {
++		l.fatal()
++	}
++}
++
++func (l *dnsLease) Ready() bool { return l.ready.Load() && !l.closing.Load() }
++
++func (l *dnsLease) Close() error {
++	l.once.Do(func() {
++		l.closing.Store(true)
++		defer func() {
++			// Close unblocks the observer even on failed writes or deadlines.
++			// Join before returning so no stale lease goroutine survives Close.
++			l.conn.Close()
++			<-l.done
++			l.ready.Store(false)
++		}()
++		if !l.ready.Load() {
++			return
++		}
++		if l.conn.SetDeadline(time.Now().Add(dnsDeadline)) != nil {
++			return
++		}
++		if _, err := l.conn.Write(dnsFrame(1, 2)); err != nil {
++			return
++		}
++		select {
++		case <-l.done:
++		case <-time.After(dnsDeadline):
++		}
++		l.ready.Store(false)
++	})
++	if !l.released.Load() {
++		return errDNSBroker
++	}
++	return nil
++}
+diff --git a/listener/sing_tun/system_dns_linux_test.go b/listener/sing_tun/system_dns_linux_test.go
+new file mode 100644
+index 0000000..35e70b0
+--- /dev/null
++++ b/listener/sing_tun/system_dns_linux_test.go
+@@ -0,0 +1,250 @@
++//go:build linux
++
++package sing_tun
++
++import (
++	"bytes"
++	"net"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	LC "github.com/metacubex/mihomo/listener/config"
++	"golang.org/x/sys/unix"
++)
++
++func dnsTestPair(t *testing.T, server func(*net.UnixConn)) (*net.UnixConn, <-chan struct{}) {
++	t.Helper()
++	path := filepath.Join(t.TempDir(), "channel")
++	listener, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: path, Net: "unixpacket"})
++	if err != nil {
++		t.Fatal("test listener failed")
++	}
++	t.Cleanup(func() { listener.Close() })
++	done := make(chan struct{})
++	go func() {
++		defer close(done)
++		conn, err := listener.AcceptUnix()
++		if err != nil {
++			return
++		}
++		defer conn.Close()
++		conn.SetDeadline(time.Now().Add(3 * time.Second))
++		server(conn)
++	}()
++	client, err := net.DialUnix("unixpacket", nil, &net.UnixAddr{Name: path, Net: "unixpacket"})
++	if err != nil {
++		t.Fatal("test client failed")
++	}
++	t.Cleanup(func() { client.Close() })
++	return client, done
++}
++
++func TestSystemDNSBrokerRefusesPolicyBeforeDeviceAccess(t *testing.T) {
++	valid := LC.Tun{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.0.1/30")}}
++	if !fixedDNSBrokerTunPolicy(valid) {
++		t.Fatal("fixed virtual resolver policy refused")
++	}
++	for _, policy := range []LC.Tun{
++		{OmaVLESSDNSBroker: true, Device: "Meta"},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Other"},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", FileDescriptor: 42},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta"},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.1.1/30")}},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.0.1/16")}},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: append(valid.Inet4Address, netip.MustParsePrefix("198.18.1.1/30"))},
++		{OmaVLESSDNSBroker: true, DisableSystemDNS: true, Device: "Meta", Inet4Address: valid.Inet4Address, Inet6Address: []netip.Prefix{netip.MustParsePrefix("2001:db8::1/64")}},
++	} {
++		listener, err := New(policy, nil)
++		if listener != nil || err == nil || err.Error() != "OmaVLESS DNS broker policy is unavailable" {
++			t.Fatal("invalid broker policy was not refused before device effects")
++		}
++	}
++}
++
++func TestSystemDNSBrokerRejectsUnsolicitedCompletionAndJoins(t *testing.T) {
++	for _, phase := range []string{"unexpected-ready", "release-without-progress", "closed-socket"} {
++		t.Run(phase, func(t *testing.T) {
++			conn, done := dnsTestPair(t, func(server *net.UnixConn) {
++				dnsTestReceive(t, server, 1, true)
++				server.Write(dnsFrame(2, 1))
++				server.Write(dnsFrame(2, 2))
++				if phase == "unexpected-ready" {
++					server.Write(dnsFrame(2, 2))
++					return
++				}
++				if phase == "closed-socket" {
++					var b [1]byte
++					server.Read(b[:])
++					return
++				}
++				dnsTestReceive(t, server, 2, false)
++				server.Write(dnsFrame(2, 4))
++			})
++			fatal := make(chan struct{}, 1)
++			lease, err := acquireDNSConn(conn, dnsTestFD(t), uint32(os.Getuid()), func() { fatal <- struct{}{} })
++			if err != nil {
++				t.Fatal("test acquire failed")
++			}
++			if phase == "unexpected-ready" {
++				select {
++				case <-fatal:
++				case <-time.After(time.Second):
++					t.Fatal("unsolicited completion accepted")
++				}
++			}
++			if phase == "closed-socket" {
++				conn.Close()
++			}
++			if lease.Close() != errDNSBroker || lease.Ready() {
++				t.Fatal("failed cleanup reported ready or successful")
++			}
++			select {
++			case <-lease.done:
++			default:
++				t.Fatal("close left observer running")
++			}
++			<-done
++		})
++	}
++}
++
++func dnsTestReceive(t *testing.T, conn *net.UnixConn, code byte, wantFD bool) {
++	t.Helper()
++	var data [32]byte
++	oob := make([]byte, unix.CmsgSpace(4))
++	n, on, flags, _, err := conn.ReadMsgUnix(data[:], oob)
++	if err != nil || flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 || !bytes.Equal(data[:n], dnsFrame(1, code)) {
++		t.Error("unexpected client frame")
++	}
++	messages, err := unix.ParseSocketControlMessage(oob[:on])
++	if err != nil {
++		t.Error("invalid test ancillary")
++	}
++	count := 0
++	for _, message := range messages {
++		fds, err := unix.ParseUnixRights(&message)
++		if err != nil {
++			t.Error("unexpected test ancillary")
++			continue
++		}
++		count += len(fds)
++		for _, fd := range fds {
++			unix.Close(fd)
++		}
++	}
++	if (wantFD && count != 1) || (!wantFD && count != 0) {
++		t.Error("incorrect descriptor count")
++	}
++}
++
++func dnsTestFD(t *testing.T) int {
++	t.Helper()
++	file, err := os.CreateTemp(t.TempDir(), "proof")
++	if err != nil {
++		t.Fatal("test proof failed")
++	}
++	t.Cleanup(func() { file.Close() })
++	return int(file.Fd())
++}
++
++func TestSystemDNSBrokerAcquireRelease(t *testing.T) {
++	for _, progress := range []bool{true} {
++		t.Run(map[bool]string{false: "direct", true: "progress"}[progress], func(t *testing.T) {
++			conn, done := dnsTestPair(t, func(server *net.UnixConn) {
++				dnsTestReceive(t, server, 1, true)
++				if progress {
++					server.Write(dnsFrame(2, 1))
++				}
++				server.Write(dnsFrame(2, 2))
++				dnsTestReceive(t, server, 2, false)
++				if progress {
++					server.Write(dnsFrame(2, 3))
++				}
++				server.Write(dnsFrame(2, 4))
++			})
++			var fatal atomic.Bool
++			lease, err := acquireDNSConn(conn, dnsTestFD(t), uint32(os.Getuid()), func() { fatal.Store(true) })
++			if err != nil || !lease.Ready() {
++				t.Fatal("valid broker did not become ready")
++			}
++			if err = lease.Close(); err != nil || lease.Ready() || fatal.Load() {
++				t.Fatal("release failed")
++			}
++			if err = lease.Close(); err != nil {
++				t.Fatal("repeated close was not idempotent")
++			}
++			<-done
++		})
++	}
++}
++
++func TestSystemDNSBrokerRejectsMalformedReplies(t *testing.T) {
++	for _, response := range [][]byte{nil, []byte("private-token"), dnsFrame(2, 5), dnsFrame(2, 6),
++		dnsFrame(1, 2), dnsFrame(2, 0), dnsFrame(2, 2), append(dnsFrame(2, 2), 0)} {
++		conn, done := dnsTestPair(t, func(server *net.UnixConn) {
++			dnsTestReceive(t, server, 1, true)
++			if response != nil {
++				server.Write(response)
++			}
++		})
++		lease, err := acquireDNSConn(conn, dnsTestFD(t), uint32(os.Getuid()), func() { t.Error("fatal before initial ready") })
++		if err != errDNSBroker || lease != nil {
++			t.Fatal("invalid reply accepted")
++		}
++		conn.Close()
++		<-done
++	}
++}
++
++func TestSystemDNSBrokerRequiresExpectedPeer(t *testing.T) {
++	conn, done := dnsTestPair(t, func(server *net.UnixConn) { var data [1]byte; server.Read(data[:]) })
++	lease, err := acquireDNSConn(conn, dnsTestFD(t), uint32(os.Getuid()+1), func() {})
++	if err != errDNSBroker || lease != nil {
++		t.Fatal("foreign peer accepted")
++	}
++	conn.Close()
++	<-done
++}
++
++func TestSystemDNSBrokerLossInvalidatesReady(t *testing.T) {
++	closePeer := make(chan struct{})
++	conn, done := dnsTestPair(t, func(server *net.UnixConn) {
++		dnsTestReceive(t, server, 1, true)
++		server.Write(dnsFrame(2, 1))
++		server.Write(dnsFrame(2, 2))
++		<-closePeer
++	})
++	fatal := make(chan struct{}, 1)
++	lease, err := acquireDNSConn(conn, dnsTestFD(t), uint32(os.Getuid()), func() { fatal <- struct{}{} })
++	if err != nil || !lease.Ready() {
++		t.Fatal("test acquire failed")
++	}
++	close(closePeer)
++	select {
++	case <-fatal:
++	case <-time.After(time.Second):
++		t.Fatal("lease loss was not observed")
++	}
++	if lease.Ready() || lease.Close() != errDNSBroker {
++		t.Fatal("lost lease remained successful")
++	}
++	<-done
++}
++
++func TestSystemDNSBrokerRefusesUnexpectedRights(t *testing.T) {
++	fd := dnsTestFD(t)
++	conn, done := dnsTestPair(t, func(server *net.UnixConn) {
++		dnsTestReceive(t, server, 1, true)
++		server.WriteMsgUnix(dnsFrame(2, 2), unix.UnixRights(fd), nil)
++	})
++	lease, err := acquireDNSConn(conn, fd, uint32(os.Getuid()), func() {})
++	if err != errDNSBroker || lease != nil {
++		t.Fatal("unexpected rights accepted")
++	}
++	conn.Close()
++	<-done
++}
+diff --git a/listener/sing_tun/system_dns_stub.go b/listener/sing_tun/system_dns_stub.go
+new file mode 100644
+index 0000000..aa25ebf
+--- /dev/null
++++ b/listener/sing_tun/system_dns_stub.go
+@@ -0,0 +1,12 @@
++//go:build !linux
++
++package sing_tun
++
++import (
++	"errors"
++	tun "github.com/metacubex/sing-tun"
++)
++
++func acquireSystemDNS(_ tun.Tun) (systemDNSLease, error) {
++	return nil, errors.New("OmaVLESS DNS broker is unavailable")
++}

@@ -1,0 +1,146 @@
+diff --git i/config/config.go w/config/config.go
+index 5a66ce6..f0fdf83 100644
+--- i/config/config.go
++++ w/config/config.go
+@@ -275,6 +275,7 @@ type RawTun struct {
+ 	Device              string     `yaml:"device" json:"device"`
+ 	Stack               C.TUNStack `yaml:"stack" json:"stack"`
+ 	DNSHijack           []string   `yaml:"dns-hijack" json:"dns-hijack"`
++	DisableSystemDNS    bool       `yaml:"disable-system-dns" json:"disable-system-dns"`
+ 	AutoRoute           bool       `yaml:"auto-route" json:"auto-route"`
+ 	AutoDetectInterface bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
+ 
+@@ -1694,6 +1695,7 @@ func parseTun(rawTun RawTun, dns *DNS, general *General) error {
+ 		Device:              rawTun.Device,
+ 		Stack:               rawTun.Stack,
+ 		DNSHijack:           rawTun.DNSHijack,
++		DisableSystemDNS:    rawTun.DisableSystemDNS,
+ 		AutoRoute:           rawTun.AutoRoute,
+ 		AutoDetectInterface: rawTun.AutoDetectInterface,
+ 
+diff --git i/config/system_dns_test.go w/config/system_dns_test.go
+new file mode 100644
+index 0000000..6f92b2f
+--- /dev/null
++++ w/config/system_dns_test.go
+@@ -0,0 +1,52 @@
++package config
++
++import (
++	"encoding/json"
++	"testing"
++
++	"go.yaml.in/yaml/v3"
++)
++
++func TestSystemDNSOption(t *testing.T) {
++	for _, tc := range []struct {
++		name  string
++		input string
++		want  bool
++	}{
++		{"omitted", "{}", false},
++		{"false", "disable-system-dns: false", false},
++		{"true", "disable-system-dns: true", true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			var raw RawTun
++			if err := yaml.Unmarshal([]byte(tc.input), &raw); err != nil {
++				t.Fatal(err)
++			}
++			raw.DNSHijack = []string{"any:53"}
++			raw.AutoRoute = true
++			raw.FileDescriptor = 42
++			var general General
++			if err := parseTun(raw, &DNS{}, &general); err != nil {
++				t.Fatal(err)
++			}
++			if general.Tun.DisableSystemDNS != tc.want {
++				t.Fatal("DNS ownership flag lost")
++			}
++			if !general.Tun.AutoRoute || general.Tun.FileDescriptor != 42 ||
++				len(general.Tun.DNSHijack) != 1 || general.Tun.DNSHijack[0] != "any:53" {
++				t.Fatal("unrelated TUN configuration changed")
++			}
++			encoded, err := json.Marshal(general.Tun)
++			if err != nil {
++				t.Fatal(err)
++			}
++			var fields map[string]any
++			if err := json.Unmarshal(encoded, &fields); err != nil {
++				t.Fatal(err)
++			}
++			if fields["disable-system-dns"] != tc.want {
++				t.Fatal("controller projection lost flag")
++			}
++		})
++	}
++}
+diff --git i/listener/config/system_dns_test.go w/listener/config/system_dns_test.go
+new file mode 100644
+index 0000000..840684a
+--- /dev/null
++++ w/listener/config/system_dns_test.go
+@@ -0,0 +1,14 @@
++package config
++
++import "testing"
++
++func TestSystemDNSOwnershipChangeRequiresTunReplacement(t *testing.T) {
++	legacy := Tun{}
++	external := Tun{DisableSystemDNS: true}
++	if !legacy.Equal(legacy) || !external.Equal(external) {
++		t.Fatal("same policy must compare equal")
++	}
++	if legacy.Equal(external) || external.Equal(legacy) {
++		t.Fatal("changed DNS writer retained old TUN")
++	}
++}
+diff --git i/listener/config/tun.go w/listener/config/tun.go
+index f6ca47f..bce0975 100644
+--- i/listener/config/tun.go
++++ w/listener/config/tun.go
+@@ -10,12 +10,15 @@ import (
+ )
+ 
+ type Tun struct {
+-	Enable              bool       `yaml:"enable" json:"enable"`
+-	Device              string     `yaml:"device" json:"device"`
+-	Stack               C.TUNStack `yaml:"stack" json:"stack"`
+-	DNSHijack           []string   `yaml:"dns-hijack" json:"dns-hijack"`
+-	AutoRoute           bool       `yaml:"auto-route" json:"auto-route"`
+-	AutoDetectInterface bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
++	Enable    bool       `yaml:"enable" json:"enable"`
++	Device    string     `yaml:"device" json:"device"`
++	Stack     C.TUNStack `yaml:"stack" json:"stack"`
++	DNSHijack []string   `yaml:"dns-hijack" json:"dns-hijack"`
++	// DisableSystemDNS leaves system resolver configuration to an external owner.
++	// It does not change packet DNS interception or TUN routing.
++	DisableSystemDNS    bool `yaml:"disable-system-dns" json:"disable-system-dns"`
++	AutoRoute           bool `yaml:"auto-route" json:"auto-route"`
++	AutoDetectInterface bool `yaml:"auto-detect-interface" json:"auto-detect-interface"`
+ 
+ 	MTU                                   uint32         `yaml:"mtu" json:"mtu,omitempty"`
+ 	GSO                                   bool           `yaml:"gso" json:"gso,omitempty"`
+@@ -96,6 +99,9 @@ func (t *Tun) Sort() {
+ }
+ 
+ func (t *Tun) Equal(other Tun) bool {
++	if t.DisableSystemDNS != other.DisableSystemDNS {
++		return false
++	}
+ 	if t.Enable != other.Enable {
+ 		return false
+ 	}
+diff --git i/listener/sing_tun/server.go w/listener/sing_tun/server.go
+index 1e9527e..4ba6e1e 100644
+--- i/listener/sing_tun/server.go
++++ w/listener/sing_tun/server.go
+@@ -415,6 +415,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+ 		IncludeMACAddress:                     includeMACAddress,
+ 		ExcludeMACAddress:                     excludeMACAddress,
+ 		FileDescriptor:                        options.FileDescriptor,
++		EXP_DisableDNSHijack:                  options.DisableSystemDNS,
+ 		InterfaceMonitor:                      defaultInterfaceMonitor,
+ 		EXP_RecvMsgX:                          options.RecvMsgX,
+ 		EXP_SendMsgX:                          options.SendMsgX,

@@ -21,6 +21,17 @@ python3 -m unittest -v \
   "$here/test_native_service_acceptance.py" \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \
+  "$here/test_dns_tun_namespace_probe.py" \
+  "$here/test_dns_tun_authority_probe.py" \
+  "$here/test_dns_tun_lease_probe.py" \
+  "$here/test_dns_fdstore_probe.py" \
+  "$here/test_dns_core_namespace_probe.py" \
+  "$here/test_dns_core_ownership_probe.py" \
+  "$here/test_dns_core_packet_probe.py" \
+  "$here/test_dns_core_broker_probe.py" \
+  "$here/test_dns_broker_composition_probe.py" \
+  "$here/dns_broker_host/test_unit.py" \
+  "$here/dns_broker_host/package/test_package.py" \
   "$here/test_staged_native_unit_acceptance.py" \
   "$here/test_control_protocol_parity.py" \
   "$here/test_profile_classification_parity.py" \

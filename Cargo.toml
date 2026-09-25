@@ -2,6 +2,12 @@
 members = [
   "crates/omavless-control-protocol",
   "crates/omavless-domain",
+  "crates/omavless-dns-transaction",
+  "crates/omavless-dns-resolved",
+  "crates/omavless-dns-retention",
+  "crates/omavless-dns-broker",
+  "crates/omavless-dns-channel",
+  "crates/omavless-dns-tun",
   "crates/omavless-mihomo",
   "crates/omavless-parity",
   "crates/omavless-profile",

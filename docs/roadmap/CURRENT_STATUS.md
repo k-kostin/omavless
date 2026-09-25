@@ -6,6 +6,61 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **DNS installed experimental checkpoint, not released/default:** #295 passed
+  an attended ARM64 Full VPN connect/HTTPS/disconnect with real resolved readback
+  and owner-confirmed absence of recurring DNS dialogs. Exact pair and limitations:
+  [September 25 host evidence](../testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md).
+  A real-host GetLink escaping mismatch was fixed without relaxing target checks.
+  Cross-UID denial/non-TUN rejection passed. Core death released broker-held DNS/TUN
+  state; its first crash runner incorrectly counted the intentionally pinned
+  zombie leader as a live core before explicit cleanup. That runner needs
+  correction/repetition, not premature reaping. A later attended root-helper SIGKILL
+  retained the original TUN/journal/FD; restart and actual ALPM upgrade refused
+  retained state. Owner reboot established an empty new epoch without forced
+  cleanup. Original package/template/profile/Routing, DNS and HTTPS were restored;
+  two earlier ordinary Connect failures remain unexplained, not erased by a
+  later unchanged-binary success. Removal, mode/negative gates, runner adaptation and
+  distribution remain open. #270/#132 and Draft #295 stay open; main/RC unchanged.
+  The subsequent mode/removal attempt stopped at its authorization barrier
+  before runtime start; the ARM VM is now disconnected with the experimental
+  package installed, not in that earlier restored state. Continue using the
+  [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.md), which transfers
+  the development branch without promoting main or RC.
+
+- **Earlier DNS foundation/integration evidence:** the original
+  [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
+  adds an effect-free failure/cancellation model, strict draft broker requests
+  and isolated TUN-reuse evidence. That foundation added no runtime consumer.
+  The initial opt-in composition below changed no installed binary,
+  policy or running helper service; the separately attended host checkpoint is above.
+  Follow-up [reference research and an isolated real-core experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
+  confirm unchanged-TUN reload avoids repeated DNS calls in the tested fixture,
+  while changed-TUN reload and shutdown retain them. Target remains no recurring
+  prompts after explicit enrollment, with one scoped prompt as fallback. Neither
+  the helper nor a production reload optimization was installed at that checkpoint.
+  A [review-only core adapter](../../tests/core_dns_adapter/README.md) now builds
+  and passes 11 isolated DNS-owner checks, including FD teardown and old-core
+  refusal. It is not a shipped core fork or helper; privileged lease/restore,
+  package review and attended integration remain open.
+  [FD authority evidence](../development/DNS_TUN_AUTHORITY.md) retains the broader
+  restricted-consumer experiment, but the selected narrower candidate keeps
+  routes in Mihomo and passes its real single-queue TUN FD to a DNS-only broker.
+  New uninstalled Rust crates test kernel admission, credentialed descriptor
+  transfer and real private-bus resolved messages. Actual Go/Rust interop and
+  whole-core namespace readiness/refusal/loss tests pass; synthetic replies are
+  not actual DNS acceptance. [Systemd FD-store evidence](../development/DNS_FDSTORE.md)
+  supplies a crash-retention mechanism, not a late-D-Bus completion fence.
+  The [uninstalled broker composition](../../crates/omavless-dns-broker/README.md)
+  now implements fixed root admission, enrolled-UID socket ACL, pristine-policy
+  checks, durable intent, verified FD retention and serialized DNS apply/reset.
+  [Real namespace composition tests](../../tests/DNS_BROKER_COMPOSITION.md)
+  cover late writes and ownership drift without host DNS changes. Managed-mode
+  runtime readiness requires actual broker Ready; legacy remains the default.
+  A separately staged local package preserves the stock core/runtime and has
+  an ALPM refusal guard for active/unknown leases; it never auto-enrolls or starts.
+  That offline evidence alone did not establish installed service acceptance or
+  #270 closure. Use the current installed checkpoint above for subsequent results.
+
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
   combined tests passed; the common frontend matches both build records. See

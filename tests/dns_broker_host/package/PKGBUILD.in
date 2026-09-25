@@ -1,0 +1,24 @@
+# Local, opt-in fixture only. Render with stage.py; no downloads or builds here.
+pkgname=omavless-dns-experimental
+pkgver=0.9.0rc1
+pkgrel=1
+pkgdesc='Experimental fixed-purpose OmaVLESS DNS broker/core acceptance fixture'
+arch=('@ARCH@')
+license=('MIT' 'GPL-3.0-only')
+depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'bash' 'coreutils')
+options=('!strip' '!debug')
+install=omavless-dns-experimental.install
+source=('omavless-dns-broker' 'mihomo' 'omavless-dns-broker.service'
+        'package-guard' 'omavless-dns-experimental.hook'
+        'omavless-dns-experimental.install' 'reviewed-inputs.json')
+sha256sums=('@BROKER_SHA@' '@CORE_SHA@' '@UNIT_SHA@' '@GUARD_SHA@'
+            '@HOOK_SHA@' '@INSTALL_SHA@' '@MANIFEST_SHA@')
+
+package() {
+  install -Dm755 "$srcdir/omavless-dns-broker" "$pkgdir/usr/lib/omavless/omavless-dns-broker"
+  install -Dm755 "$srcdir/mihomo" "$pkgdir/usr/lib/omavless-dns-experimental/mihomo"
+  install -Dm755 "$srcdir/package-guard" "$pkgdir/usr/lib/omavless-dns-experimental/package-guard"
+  install -Dm644 "$srcdir/omavless-dns-broker.service" "$pkgdir/usr/lib/systemd/system/omavless-dns-broker.service"
+  install -Dm644 "$srcdir/omavless-dns-experimental.hook" "$pkgdir/usr/share/libalpm/hooks/omavless-dns-experimental.hook"
+  install -Dm644 "$srcdir/reviewed-inputs.json" "$pkgdir/usr/share/omavless-dns-experimental/reviewed-inputs.json"
+}

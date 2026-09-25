@@ -76,6 +76,14 @@ or privileged policy changes are justified by this finding.
 
 ## Alternatives and decision
 
+Owner clarification, September 25: target one explicit helper enrollment and
+no recurring DNS prompts. A single scoped authorization per transition is an
+acceptable fallback, not the preferred result. The
+[reference comparison and real-core namespace experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
+separate broad permission grants, avoiding needless TUN restarts and grouping
+effects behind one authorization. The installed Omarchy DNS Provider command
+changes global/physical-link settings and is not our VPN helper API.
+
 | Approach | Decision | Reason |
 | --- | --- | --- |
 | Four resolved actions allowed for the account | Reject | Any same-user program gains those effects on unrelated links. |
@@ -89,8 +97,10 @@ Do not silently install an experimental wrapper/core fork merely to complete
 this issue. First obtain an explicit, version-tested way for Mihomo to relinquish
 resolved management while retaining TUN routing and packet DNS handling. Options
 are an upstream-supported configuration capability or a separately reviewed core
-adapter/package. Without that prerequisite, prompt-free implementation is blocked,
-not solved by a polkit snippet. A separately owned root core service is another
+adapter/package. Without that prerequisite, the selected exclusive-writer broker
+integration is blocked; this is not a claim that all prompt-reduction approaches
+require transferring DNS ownership. A broad polkit grant can suppress prompts
+but does not meet this contract. A separately owned root core service is another
 architecture, not a small exception to the current user-service model.
 
 ## Preferred host contract
@@ -120,11 +130,15 @@ and successful DNS setup is not fail-closed egress protection.
    No caller-supplied interface name, IP/DNS server, routing domain, shell, path,
    unit, rule, UID or command. DNS values derive only from the validated fixed
    tunnel policy, never a provider profile. Policy updates require package review.
-5. Bound strict versioned frames (8 KiB, duplicate/unknown-field rejection),
+5. Bound strict versioned semantic frames (8 KiB, duplicate/unknown-field rejection),
    same-user admission, per-lease serialization and generation fencing; opaque
    operation identifiers prevent duplicate effects. Public responses contain
    fixed codes/booleans, not DNS values, private interface/endpoint metadata or
    raw D-Bus errors. Root-owned state is bounded, atomic and credential-free.
+   The unpublished core-to-broker FD handoff is a separate fixed eight-byte
+   SOCK_SEQPACKET channel with exact ancillary-right counts and per-packet
+   kernel credentials; see its [contract/corpus](../../crates/omavless-dns-channel/README.md).
+   It is not NDJSON, a generic privileged API, or a deployed protocol change.
 6. Broker calls resolved's typed D-Bus methods directly; no shell or client
    resolvectl execution. Read each property back. Commit the DNS lease only after
    all required values match for the same link incarnation. The runtime cannot
@@ -141,6 +155,12 @@ and successful DNS setup is not fail-closed egress protection.
 - Partial failure: restore only the captured settings on the *same* managed link,
   verify readback, then report restored failure. If ownership changed or cleanup
   cannot be proved, report manual recovery; never overwrite another manager.
+- Snapshot capture must establish original configuration semantics, not just
+  effective values. Resolved's `DefaultRoute` boolean hides automatic versus
+  explicit policy, and whole-link revert resets more than the three DNS fields.
+  Refuse an ambiguous baseline before writes; initial broker-owned pristine-link
+  scope and exact restoration need their own proof. See the
+  [source-backed constraint](../development/DNS_AUTHORIZATION_RESEARCH.md#snapshot-restoration-is-not-just-three-effective-properties).
 - Disconnect: release/verify managed-link DNS while identity still exists, then
   destroy the owned tunnel. Link disappearance is a distinct verified outcome;
   never run a delayed revert against a reused name/index.
@@ -189,6 +209,45 @@ neither resolved restoration nor absence of DNS leakage.
 select this gated broker direction. #270/RC host closure remains open until the
 unresolved ownership mechanism and applicable acceptance are explicitly resolved.
 No installed policy, prompt elimination or DNS-cancellation fix is claimed here.
+
+September 25 no-authorization preparation: the separate
+[offline Rust transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
+executes the failure/cancellation/readback contract without any production
+dependency or host writer. An isolated unprivileged user+network namespace
+experiment demonstrates same-name/index TUN reuse while the old FD is open;
+the old FD detects detachment but does not make a resolved write atomic.
+The existing core's FD path also retains teardown DNS calls. These concrete
+results narrow DNS-0; they do not close its lease/ownership prerequisites or
+turn DNS-1 preparation into installed prompt-free support.
+The [review-only core patch](../../tests/core_dns_adapter/README.md) now supplies
+compiled DNS-off/default/reload/FD evidence in isolated namespaces and refuses
+the unpatched core. It advances the core-mechanism part of DNS-0, not approved
+distribution, production routing evidence, secure lease or installed closure.
+
+Further [kernel authority testing](../development/DNS_TUN_AUTHORITY.md) found
+that an inherited FD with no capabilities still permits owner/persistence
+changes. The restricted-consumer/root-route-owner experiment is retained as an
+alternative, not the next required implementation. Exact-core review and actual
+single-queue FD admission favor a narrower DNS-only broker receiving the core's
+actual attached TUN while Mihomo retains routes. A file-capability executable
+is not arbitrary CAP_NET_ADMIN code execution for its caller. No generic TUN
+mutation API was found in the pinned core; privileged administrators/managers
+are explicitly outside this scope. Do not broaden host ownership without need.
+
+Actual Rust kernel admission, credentialed descriptor-channel tests, real
+private-bus resolved-wire tests and namespace-local TCP/UDP passage now provide
+executable boundaries. They remain uninstalled.
+The reviewed core adapter waits for Applying → Ready and Release → Releasing →
+Released; only a live verified lease projects `omavless-dns-ready`. This is still
+a review patch, not installed runtime readiness. The
+[broker composition candidate](../../crates/omavless-dns-broker/README.md) now
+combines a fixed root-service/enrollment admission, socket ACL, private journal,
+typed FD-store retention and actual DNS methods. Its private-bus/kernel tests
+exercise late writes, denied operations and ownership drift. Managed runtime
+readiness refuses missing/false broker acknowledgement; legacy DNS remains the
+default and a template flag is not enrollment consent. Real system-service
+crash retention, distribution and attended host acceptance remain gates.
+Readback of effective properties is still not permission to restore arbitrary state.
 
 ## Next-session boundary
 

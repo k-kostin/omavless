@@ -23,6 +23,39 @@ SPEC.loader.exec_module(PROBE)
 
 
 class NativeServiceAcceptanceTests(unittest.TestCase):
+    def test_managed_template_requires_real_fixed_link_and_preserves_legacy(self):
+        template = PROBE.route_template("Meta", real=True, managed=True)
+        self.assertIn("  disable-system-dns: true\n  omavless-dns-broker: true\n", template)
+        self.assertIn("fake-ip-range: 198.18.0.1/16", template)
+        self.assertNotIn("omavless-dns-ready", template)
+        for tun, real, managed in [("Meta", False, True), ("Meta", True, False),
+                                   ("ovna0123456789", True, True)]:
+            with self.assertRaises(PROBE.Failure):
+                PROBE.route_template(tun, real, managed)
+        self.assertNotIn("omavless-dns", PROBE.route_template("ovna0123456789", True))
+
+    def test_experimental_core_bad_pin_refuses_before_filesystem_access(self):
+        with patch.object(PROBE, "Path") as path:
+            for value in (None, "private-secret", "A" * 64, "0" * 63):
+                with self.assertRaisesRegex(PROBE.Failure, "^experimental_core_pin_required$"):
+                    PROBE.experimental_core(value)
+            path.assert_not_called()
+
+    def test_broker_count_requires_bounded_typed_single_slot(self):
+        for value in (0, 1):
+            self.assertEqual(PROBE.broker_count(json.dumps({"type": "u", "data": value}).encode()), value)
+        for value in (True, False, -1, 2, "1", [], None):
+            with self.assertRaises(PROBE.Failure):
+                PROBE.broker_count(json.dumps({"type": "u", "data": value}).encode())
+        for payload in (b'{"type":"s","data":1}', b'{"type":"u","data":1,"extra":0}', b" " * 1025):
+            with self.assertRaises(PROBE.Failure):
+                PROBE.broker_count(payload)
+
+    def test_managed_https_probe_is_bound_to_fixed_tun(self):
+        args = PROBE.https_probe_args("Meta")
+        self.assertEqual(args[args.index("--interface") + 1], "if!Meta")
+        self.assertEqual(args[-1], "https://example.com/")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="omavless-host-tool-unit-")
         self.addCleanup(self.temporary.cleanup)

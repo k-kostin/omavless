@@ -1,0 +1,60 @@
+# REVIEW-ONLY opt-in candidate. Not installed or enabled by normal packages.
+# Read README.md before any attended host test. Stop is NOT DNS recovery.
+[Unit]
+Description=OmaVLESS fixed-purpose DNS broker (opt-in candidate)
+Requires=dbus.service systemd-resolved.service
+After=dbus.service systemd-resolved.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+UMask=0077
+ExecStartPre=/usr/bin/install -d -o root -g root -m 0700 /run/omavless-dns/private
+ExecStart=/usr/lib/omavless/omavless-dns-broker --serve
+RuntimeDirectory=omavless-dns
+RuntimeDirectoryMode=0711
+RuntimeDirectoryPreserve=yes
+FileDescriptorStoreMax=1
+FileDescriptorStorePreserve=yes
+Restart=no
+TimeoutStartSec=30s
+TimeoutStopSec=20s
+KillMode=control-group
+
+# TUNGETDEVNETNS needs CAP_NET_ADMIN even though the broker has no route writer.
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+# Keep the original host network/user namespace for held-TUN identity checks.
+PrivateNetwork=no
+PrivateUsers=no
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/omavless-dns
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+# The typed reply cap is checked after zbus's upstream 128 MiB wire ceiling.
+# A resource kill must retain the FD/journal and require recovery, not retry.
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=0
+TasksMax=32
+LimitNOFILE=128
+StandardOutput=journal
+StandardError=journal
+
+# Intentionally no [Install]/WantedBy: no unattended boot enrollment yet.
