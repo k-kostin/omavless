@@ -56,7 +56,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
   no TUN, held broker descriptor or recovery. This is agent-attended diagnostic
   evidence, not the policy's human-attended acceptance or a permanent firewall
   solution. PC mode/DNS acceptance, firewall integration review and the other
-  RC gates remain open; no release claim follows.
+  RC gates remain open; no release claim follows. A narrower VM-only follow-up
+  identified the actual TUN peer source (`198.18.0.2`) and proved that an
+  inbound Meta allowance restricted to that peer and local TUN address also
+  passes installed Full VPN HTTPS, modes and cleanup. That temporary rule was
+  removed. This is agent-attended diagnostic evidence for the tested IPv4
+  flow, not a default firewall design or the owner's formal acceptance.
+  A corrected installed core-death runner also passed one agent-attended PC-VM
+  diagnostic: pidfd-targeted SIGKILL, expected pinned zombie but no live group
+  members, broker DNS/TUN release and separately confirmed Disconnect/Rule
+  restoration. The owner's formal core-crash gate remains open before main.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

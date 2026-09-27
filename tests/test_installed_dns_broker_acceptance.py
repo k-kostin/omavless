@@ -4,7 +4,9 @@
 import importlib.util
 import io
 import json
+import signal
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -21,6 +23,11 @@ class Terminal(io.StringIO):
 
 
 class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
+    @staticmethod
+    def stat_row(pid, state, parent, group, started=51):
+        return (f"{pid} (synthetic (core)) {state} {parent} {group} "
+                + "0 " * 16 + str(started) + "\n").encode()
+
     def test_refused_terminal_precedes_installed_or_private_access(self):
         authorization = gate.auth.HumanAuthorization(io.StringIO(), io.StringIO())
         with patch.object(gate, "installed_identity") as identity, \
@@ -66,6 +73,66 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
                         status.replace(b"0000000000003400", b"0000000000000000")):
             with self.assertRaisesRegex(gate.gate.Failure, "^owned_core_unverified$"):
                 gate.core_process_projection(altered, 41, 1000)
+
+    def test_stat_parser_uses_final_parenthesis_and_bounds_identity(self):
+        self.assertEqual(gate.process_stat(self.stat_row(42, "Z", 41, 42)),
+                         (42, b"Z", 41, 42, 51))
+        for malformed in (b"42 (bad) Z 41\n", b"42 bad Z 41 42\n",
+                          self.stat_row(42, "Z", 41, 42) + b"x" * 4096):
+            with self.assertRaisesRegex(gate.gate.Failure, "^core_crash_unverified$"):
+                gate.process_stat(malformed)
+
+    def test_zombie_leader_is_not_a_live_group_member(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for pid, state, group in ((42, "Z", 42), (43, "S", 900)):
+                path = root / str(pid)
+                path.mkdir()
+                (path / "stat").write_bytes(self.stat_row(pid, state, 41, group))
+            self.assertEqual(gate.live_core_group_members(42, root), 0)
+            (root / "43" / "stat").write_bytes(self.stat_row(43, "S", 41, 42))
+            self.assertEqual(gate.live_core_group_members(42, root), 1)
+
+    def test_pidfd_crash_signals_only_verified_owned_core(self):
+        row = self.stat_row(42, "S", 41, 42)
+        with patch.object(gate.gate, "bounded", return_value=row), \
+                patch.object(gate.os, "pidfd_open", return_value=7) as opened, \
+                patch.object(gate.os, "close") as closed, \
+                patch.object(signal, "pidfd_send_signal") as sent:
+            self.assertEqual(gate.crash_verified_core(42, 41), 51)
+        opened.assert_called_once_with(42, 0)
+        sent.assert_called_once_with(7, signal.SIGKILL, None, 0)
+        closed.assert_called_once_with(7)
+        with patch.object(gate.gate, "bounded", return_value=self.stat_row(42, "S", 999, 42)), \
+                patch.object(gate.os, "pidfd_open") as opened:
+            with self.assertRaisesRegex(gate.gate.Failure, "^core_crash_unverified$"):
+                gate.crash_verified_core(42, 41)
+        opened.assert_not_called()
+
+    def test_crash_effect_needs_its_own_authorization_barrier(self):
+        authorization = gate.auth.HumanAuthorization(Terminal("ready\nsettled\n"), Terminal())
+        value = authorization.step("core_crash", lambda: "signalled")
+        self.assertEqual(value, "signalled")
+        self.assertEqual(authorization.output.getvalue().count("Type ready"), 1)
+
+    def test_crash_release_uses_fresh_facts_not_last_known_actual(self):
+        observed = {"availability": "observed", "lastKnownActual": "connected",
+                    "manualRecoveryRequired": False,
+                    "facts": {"ownedCoreRunning": False, "visibleTunCount": 0}}
+        output = []
+        with patch.object(gate.gate, "bounded", return_value=self.stat_row(42, "Z", 41, 42)), \
+                patch.object(gate, "live_core_group_members", return_value=0), \
+                patch.object(gate.installed, "cli", return_value={"result": observed}), \
+                patch.object(gate.installed, "tuns", return_value=set()), \
+                patch.object(gate, "broker_state") as broker, \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            gate.crash_release_evidence(42, 41, 51)
+        broker.assert_called_once_with(0)
+        self.assertEqual(output, [{"core_dead_pinned": True,
+                                   "live_core_group_members": 0,
+                                   "tun_released": True, "dns_released": True,
+                                   "fresh_owned_core_running": False,
+                                   "last_known_connected": True}])
 
     def test_profile_selection_is_exact_and_never_prints_private_fields(self):
         candidate = {"id": "selected", "protocol": "vless", "missing": False,

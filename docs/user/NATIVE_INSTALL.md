@@ -160,6 +160,16 @@ install privileged policy or enable a service in a package hook. Follow the
 actual core path. Complete every normal OS authorization prompt before another
 connection or service action; a cancelled prompt is not successful setup.
 
+If your host uses a default-deny inbound firewall such as UFW, check its TUN
+policy before treating a Connected indicator as proof of working traffic.
+On one isolated Omarchy VM, the core and routes were healthy but HTTPS through
+the TUN timed out because UFW blocked packets arriving on that interface.
+OmaVLESS does not change firewall rules automatically. An administrator should
+review the local TUN address, peer, interface and firewall policy, apply only
+the exception appropriate for that host, and verify actual traffic and cleanup.
+The VM's temporary IPv4 exception is diagnostic evidence, not a universal
+command or an assurance about UDP, IPv6 and other interfaces.
+
 Desktop helpers remain optional package dependencies:
 
 - `wl-clipboard` for clipboard operations;

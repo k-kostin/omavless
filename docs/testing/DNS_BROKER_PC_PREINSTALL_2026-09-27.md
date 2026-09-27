@@ -377,3 +377,53 @@ not an endorsed permanent installer change. Before RC promotion, define and
 review a narrowly scoped, reversible firewall integration for UFW-enabled
 guests, then complete the remaining human-attended DNS/mode/crash/upgrade and
 removal gates on the exact candidate build. #270/#132 and 0.9.0 RC remain open.
+
+## Narrow VM UFW follow-up
+
+A second agent-attended VM-only A/B reduced the ingress exception to the
+specific TUN peer and local addresses. The independent DIRECT-only test core
+used `DiagTun` at `198.18.0.1/30`. An attempted exception with source
+`198.18.0.1` still timed out: the guest's UFW log classified the blocked TUN
+packet as source `198.18.0.2`, destination `198.18.0.1`. Replacing it with a
+temporary inbound exception **on DiagTun, from 198.18.0.2 to 198.18.0.1**
+made fixed-IP HTTPS return HTTP 200. The test unit and rule were removed.
+
+The same narrowly addressed, temporary **Meta** exception allowed the pinned
+installed pair to pass fixed-IP HTTPS with advancing TUN RX/TX, public HTTPS
+in Full VPN with advancing TUN RX/TX, Global → Rule → Direct → Global mode
+changes, Disconnect and restoration to Rule. The supplemental short-lived
+tracker sample missed its connection in this repetition; it was not used as
+the HTTPS verdict. The runner reported `passed:true`, `disconnected:true`,
+`dns_released:true`, `mode_restored:true`. Fresh native observation reported
+Disconnected/Rule, no recovery, no core or TUN and zero broker FD-store entries.
+The exact Meta exception was removed; neither `Meta` nor `DiagTun` remains in
+UFW's saved user rules. The outer PC and its VPN were untouched.
+
+This demonstrates an address-scoped workaround for the tested IPv4 VM flow,
+not a reviewed default firewall policy or proof for other TUN addresses,
+protocols, IPv6 or hosts. Prefer an explicit administrator prerequisite and
+read-only diagnostics for UFW-enabled installations in this RC; automatic
+firewall mutation requires a separate security/lifecycle design. These
+agent-attended checks do not replace the owner's human-attended gate before
+main.
+
+## Corrected core-death diagnostic in the PC VM
+
+The installed-owner runner now has a separate opt-in `--core-crash` path. It
+pins the installed runtime/core/broker identities, verifies the sole owned
+core's parent, process group and start time, then signals only that process via
+pidfd. Its bounded `/proc` group scan distinguishes the expected unreaped
+zombie leader from live residual members; it does not reap or signal by name.
+Every effect remains behind a separate terminal barrier. Pure tests cover
+the parser, zombie/live distinction, target pinning and barrier.
+
+One agent-attended VM run on the pinned installed pair passed: after core
+SIGKILL, the original leader was dead but still pinned, no live member remained
+in its group, fresh observation reported `ownedCoreRunning=false`, no TUN was
+visible and the broker retained no DNS FD. `lastKnownActual` remained the
+historical `connected` value until explicit Disconnect; the gate intentionally
+does not present that cached field as fresh health evidence. Disconnect reaped
+the child and restored Disconnected/Rule with no recovery, owned core, TUN or
+broker FD. No firewall exception was needed for this crash case. This is
+corrected **agent-attended diagnostic evidence**, not a retroactive PASS for
+the earlier ARM runner nor the owner's formal acceptance before main.

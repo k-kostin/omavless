@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import stat
 import struct
@@ -58,7 +59,7 @@ SAFE_FAILURES = frozenset((
     "core_mode", "broker_core_not_ready", "broker_service_unavailable", "broker_state_invalid",
     "broker_retention_mismatch", "broker_dns_readback_unavailable",
     "broker_dns_readback_mismatch", "full_vpn_https_failed", "cleanup_unverified",
-    "restoration_unverified",
+    "restoration_unverified", "core_crash_unverified", "live_core_group_remains",
 ))
 
 
@@ -220,6 +221,100 @@ def connected_state(runtime_pid, mode):
                          core, mode, managed=True)
     broker_state(1)
     return core
+
+
+def process_stat(raw):
+    """Read a bounded Linux stat record; the last ')' ends arbitrary comm bytes."""
+    require(0 < len(raw) <= 4096, "core_crash_unverified")
+    open_at, close_at = raw.find(b"("), raw.rfind(b")")
+    require(open_at > 1 and close_at > open_at and raw[open_at - 1:open_at] == b" "
+            and raw[close_at + 1:close_at + 2] == b" ", "core_crash_unverified")
+    fields = raw[close_at + 2:].split()
+    require(len(fields) >= 20 and raw[:open_at - 1].isdigit()
+            and all(fields[index].isdigit() for index in (1, 2, 19))
+            and len(fields[0]) == 1 and fields[0] in (b"R", b"S", b"D", b"T", b"t",
+                                                       b"Z", b"X", b"x", b"K", b"W", b"P", b"I"),
+            "core_crash_unverified")
+    return (int(raw[:open_at - 1]), fields[0], int(fields[1]), int(fields[2]),
+            int(fields[19]))
+
+
+def core_stat(core_pid, runtime_pid, started_at, expected_state):
+    pid, state, parent, group, start = process_stat(
+        gate.bounded(Path("/proc") / str(core_pid) / "stat", 4096))
+    require(pid == core_pid and parent == runtime_pid and group == core_pid
+            and start == started_at and state in expected_state, "core_crash_unverified")
+
+
+def live_core_group_members(core_pid, proc_root=Path("/proc")):
+    """Count live members, without mistaking the deliberately pinned Z leader for one."""
+    members = 0
+    for index, entry in enumerate(proc_root.iterdir()):
+        require(index < 32768, "live_core_group_remains")
+        if not entry.name.isascii() or not entry.name.isdigit():
+            continue
+        try:
+            raw = gate.bounded(entry / "stat", 4096)
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # Process disappeared during enumeration.
+        pid, state, _, group, _ = process_stat(raw)
+        require(pid == int(entry.name), "live_core_group_remains")
+        if group == core_pid and state not in (b"Z", b"X", b"x"):
+            members += 1
+            require(members <= 64, "live_core_group_remains")
+    return members
+
+
+def crash_verified_core(core_pid, runtime_pid):
+    """Signal only the exact already-verified child through a pinned pidfd."""
+    require(hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"),
+            "core_crash_unverified")
+    before = process_stat(gate.bounded(Path("/proc") / str(core_pid) / "stat", 4096))
+    require(before[0] == core_pid and before[1] not in (b"Z", b"X", b"x")
+            and before[2] == runtime_pid and before[3] == core_pid and before[4] > 0,
+            "core_crash_unverified")
+    descriptor = os.pidfd_open(core_pid, 0)
+    try:
+        core_stat(core_pid, runtime_pid, before[4], (before[1],))
+        signal.pidfd_send_signal(descriptor, signal.SIGKILL, None, 0)
+    finally:
+        os.close(descriptor)
+    return before[4]
+
+
+def crash_release_evidence(core_pid, runtime_pid, started_at):
+    deadline = time.monotonic() + 15
+    while True:
+        current = process_stat(gate.bounded(Path("/proc") / str(core_pid) / "stat", 4096))
+        require(current[0] == core_pid and current[2] == runtime_pid
+                and current[3] == core_pid and current[4] == started_at,
+                "core_crash_unverified")
+        dead = current[1] in (b"Z", b"X", b"x")
+        live_members = live_core_group_members(core_pid)
+        observation = installed.cli("runtime", "observation")["result"]
+        facts = observation.get("facts")
+        cleared = (observation.get("availability") == "observed"
+                   and observation.get("manualRecoveryRequired") is False
+                   and isinstance(facts, dict)
+                   and facts.get("ownedCoreRunning") is False
+                   and type(facts.get("visibleTunCount")) is int
+                   and facts["visibleTunCount"] == 0 and not installed.tuns())
+        if dead and live_members == 0 and cleared:
+            try:
+                broker_state(0)
+            except gate.Failure as error:
+                if str(error) != "broker_retention_mismatch":
+                    raise
+            else:
+                gate.emit(core_dead_pinned=True, live_core_group_members=0,
+                          tun_released=True, dns_released=True,
+                          fresh_owned_core_running=False,
+                          last_known_connected=observation.get("lastKnownActual") == "connected")
+                return
+        if time.monotonic() >= deadline:
+            raise gate.Failure("live_core_group_remains" if live_members else
+                               "core_crash_unverified")
+        time.sleep(0.25)
 
 
 def mode_sequence(authorization, change, verify):
@@ -440,6 +535,59 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
                   passed=completed and connected)
 
 
+def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=None):
+    """Opt-in installed crash diagnostic; never signals an unverified PID/name."""
+    authorization.require_terminal()
+    runtime_pid = installed_identity(expected_sha)
+    broker_identity(broker_sha)
+    initial = installed.cli("runtime", "observation")["result"]
+    require(installed.clean_disconnected_observation(initial) and not installed.tuns(),
+            "baseline_not_disconnected")
+    broker_state(0)
+    snapshot = installed.cli("plugin", "snapshot")["result"]
+    require(snapshot["startup"]["enabled"] is False, "startup_not_disabled")
+    profile = selected_profile(snapshot, profile_index)
+    original_mode = snapshot["desired"]["mode"]
+    require(original_mode in ("global", "rule", "direct"), "original_mode_unavailable")
+    gate.emit(case="installed-managed-dns-core-crash", preflight=True,
+              authorization="attended")
+    completed = False
+    core_pid = None
+    checkpoint = "connect"
+    try:
+        authorization.step("connect", lambda: installed.action("connect", profile, "global"))
+        checkpoint = "connected_state"
+        core_pid = connected_state(runtime_pid, "global")
+        checkpoint = "core_crash"
+        started_at = authorization.step(
+            "core_crash", lambda: crash_verified_core(core_pid, runtime_pid))
+        checkpoint = "crash_release"
+        crash_release_evidence(core_pid, runtime_pid, started_at)
+        completed = True
+    except Exception as error:
+        gate.emit(checkpoint=checkpoint, failure_type=failure_type(error))
+        raise
+    finally:
+        if authorization.blocked:
+            gate.emit(passed=False, cleanup=False,
+                      classification="human_authorization_unsettled")
+            raise auth.AuthorizationUnsettled()
+        authorization.step("disconnect", lambda: installed.action("disconnect"))
+        clean = installed.clean_disconnected_observation(
+            installed.cli("runtime", "observation")["result"])
+        require(clean and not installed.tuns()
+                and (core_pid is None or not (Path("/proc") / str(core_pid)).exists()),
+                "cleanup_unverified")
+        broker_state(0)
+        if installed.cli("plugin", "snapshot")["result"]["desired"]["mode"] != original_mode:
+            authorization.step("restore_mode", lambda: installed.action("mode", original_mode))
+        restored = installed.cli("plugin", "snapshot")["result"]["desired"]
+        require(restored["connected"] is False and restored["mode"] == original_mode,
+                "restoration_unverified")
+        gate.emit(disconnected=True, dns_released=True, mode_restored=True,
+                  passed=completed)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true")
@@ -447,13 +595,16 @@ def main(argv=None):
     parser.add_argument("--experimental-broker-sha", metavar="SHA256")
     parser.add_argument("--profile-index", type=int, metavar="N",
                         help="0-based index among available VLESS profiles; default: last selected")
+    parser.add_argument("--core-crash", action="store_true",
+                        help="opt-in exact-pidfd core death and cleanup diagnostic")
     args = parser.parse_args(argv)
     if not args.run:
         gate.emit(status="NOT RUN", reason="explicit_run_required")
         return 0
     try:
-        run_gate(auth.HumanAuthorization(), args.experimental_core_sha,
-                 args.experimental_broker_sha, args.profile_index)
+        runner = run_core_crash_gate if args.core_crash else run_gate
+        runner(auth.HumanAuthorization(), args.experimental_core_sha,
+               args.experimental_broker_sha, args.profile_index)
         return 0
     except Exception as error:
         gate.emit(passed=False, classification=failure_classification(error))
