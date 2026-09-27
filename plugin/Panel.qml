@@ -170,7 +170,9 @@ Panel {
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
   property var nativeExpanded: ({})
-  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed, vless.nativePending, vless.nativeOutcomeUnknown)
+  readonly property var nativeLifecyclePending: vless.nativePending
+    && ["connect", "disconnect", "mode"].indexOf(vless.nativePending.action) >= 0 ? vless.nativePending : null
+  readonly property var nativeView: NativePresentation.project(vless.nativeSnapshot, vless.nativeObservation, vless.nativeSnapshotFailed, nativeLifecyclePending, vless.nativeOutcomeUnknown)
   readonly property string nativeSwitchTarget: vless.nativeModeSwitching ? nativeModeLabel(vless.nativeModeTransition.targetMode) : ""
   readonly property bool nativeRealFailure: {
     if (vless.nativeOutcomeUnknown || vless.nativeSnapshotFailed) return true

@@ -101,6 +101,8 @@ assert(panel.includes('root.nativeMetadataTargetId === nativeRow.modelData.subsc
 assert(panel.includes('vless.nativeSubscriptionStatusId === nativeRow.modelData.subscription.id'))
 assert(panel.includes('["saved", "refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0'))
 assert(panel.includes('readonly property bool nativeStatusWaiting: nativeTransitionKind !== ""'))
+assert(panel.includes('readonly property var nativeLifecyclePending: vless.nativePending'))
+assert(panel.includes('vless.nativeSnapshotFailed, nativeLifecyclePending, vless.nativeOutcomeUnknown)'))
 assert(panel.includes('root.nativeMetadataTargetId !== ""'))
 assert(service.includes('id: nativeSubscriptionSuccessTimeout'))
 assert(service.includes('var contextualMetadataAction = subscriptionAction'))

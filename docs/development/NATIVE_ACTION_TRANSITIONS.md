@@ -17,7 +17,8 @@ connection. It extends the narrow mode-switch presentation in #296.
   controls, including a refresh launched from a subscription row on the main
   page. A successful subscription action there has a brief row-local result,
   not a persistent top-level notice. Metadata work does not turn the VPN bar or
-  header into a global Working state. Other settings mutations show it on
+  header into a global Working state or erase an otherwise confirmed routing
+  highlight. Other settings mutations show it on
   Settings. Rejected metadata
   actions retain their contextual error beside profile or Settings controls
   and display only a brief “checking current state” while fresh observations
