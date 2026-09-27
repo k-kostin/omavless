@@ -2255,7 +2255,9 @@ Panel {
           ColumnLayout {
             id: nativeTrafficSection
             Layout.fillWidth: true
-            visible: root.page === "main" && vless.nativeSnapshot !== null && vless.nativeSnapshot.desired.connected
+            visible: root.page === "main" && root.nativeTransitionKind !== "disconnect"
+              && root.nativeTransitionKind !== "stopping"
+              && vless.nativeSnapshot !== null && vless.nativeSnapshot.desired.connected
             spacing: Style.space(8)
             PanelSectionHeader { Layout.fillWidth: true; text: root.textFor("traffic.native_title"); foreground: root.foreground; fontFamily: root.fontFamily }
             PlainText { Layout.fillWidth: true; visible: root.nativeTransitionKind !== "" || !vless.nativeTrafficFresh; text: root.textFor(root.nativeTransitionKind !== "" ? "native.progress.traffic" : "traffic.native_unavailable"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }

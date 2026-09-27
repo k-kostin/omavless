@@ -65,5 +65,6 @@ assert(panel.includes('if (vless.nativeSnapshot.lastKnownActual === "manualRecov
 assert(panel.includes('nativeStatusWaiting ? transitionIcon'))
 assert(panel.includes('root.nativeMetadataAction.indexOf("subscription-") === 0'))
 assert(panel.includes('root.nativeMetadataAction.indexOf("profile-") === 0'))
+assert(panel.includes('root.nativeTransitionKind !== "disconnect"\n              && root.nativeTransitionKind !== "stopping"'))
 assert(!panel.includes('visible: vless.nativeActionRunning && !vless.nativeModeSwitching; text: root.textFor("native.pending")'))
 console.log('native action transitions: 7 state cases and contextual UI contracts passed')
