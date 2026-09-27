@@ -21,7 +21,8 @@ Invoke `python3 tests/dns_broker_host/package/stage.py` with:
 - `--broker-sha` and `--core-sha`: independently recorded lowercase SHA-256 pins;
 - `--revision`: exact 40-character repository source commit;
 - `--arch`: `aarch64` or `x86_64`, checked against both ELF machine headers;
-- `--output`: a **new**, outside-Git build directory whose parent already exists.
+- `--output`: a **new**, absolute, outside-Git build directory whose parent
+  already exists, is owned by the invoking user and is private (`0700`).
 
 The tool refuses symlinks, nonregular/unowned/hardlinked or oversized inputs,
 incorrect hashes and wrong architectures. It does not print source paths or

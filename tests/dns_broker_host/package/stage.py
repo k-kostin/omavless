@@ -22,7 +22,13 @@ class Refused(ValueError):
 def outside_git_destination(output):
     """Resolve symlink ancestors and reject normal, linked and bare Git trees."""
     output = Path(output)
+    if not output.is_absolute() or output.name in ("", ".", ".."):
+        raise Refused("Package staging requires an absolute new destination.")
     parent = output.parent.resolve(strict=True)
+    metadata = parent.stat()
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or metadata.st_mode & 0o077):
+        raise Refused("Package staging requires a private owned parent.")
     # Do not inherit GIT_DIR/GIT_WORK_TREE, global includes or discovery limits.
     try:
         result = subprocess.run(

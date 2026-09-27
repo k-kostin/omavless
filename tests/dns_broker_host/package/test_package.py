@@ -104,6 +104,16 @@ class PackageTests(unittest.TestCase):
                 self.render(output=directory / "staged")
             self.assertFalse((directory / "staged").exists())
 
+    def test_staging_requires_absolute_destination_under_private_owned_parent(self):
+        with self.assertRaises(stage.Refused):
+            self.render(output=Path("relative-staged"))
+        shared = self.root / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        with self.assertRaises(stage.Refused):
+            self.render(output=shared / "staged")
+        self.assertFalse((shared / "staged").exists())
+
     def test_real_abort_is_pretransaction_hook_not_only_scriptlet(self):
         hook = (ROOT / "omavless-dns-experimental.hook").read_text()
         for line in ("Operation = Upgrade", "Operation = Remove", "Type = Package",
