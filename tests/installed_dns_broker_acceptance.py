@@ -10,12 +10,17 @@ Only fixed classifications, counts and booleans are printed.
 """
 import argparse
 import hashlib
+import http.client
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
+import socket
 import stat
+import struct
 import subprocess
+import time
 
 
 def sibling(name):
@@ -35,6 +40,15 @@ BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
 BROKER_UNIT_SHA = "a63bc4db9c52b03c497e941cc8f5a143de6e85c3a1e2aafabead0f1f4d80c080"
 RUNTIME = "omavless-runtime.service"
 MODES = ("global", "rule", "direct", "global")
+# The built-in isolated profile check uses these independent public HTTPS
+# endpoints. A single website timeout is not evidence that the TUN is broken.
+HTTPS_TARGETS = (
+    "https://www.gstatic.com/generate_204",
+    "https://cp.cloudflare.com/generate_204",
+    "https://www.google.com/generate_204",
+)
+DIRECT_IP_HTTPS = "https://cloudflare-dns.com/cdn-cgi/trace"
+DIRECT_IP_RESOLVE = "cloudflare-dns.com:443:1.1.1.1"
 SAFE_FAILURES = frozenset((
     "vless_fixture_unavailable", "baseline_not_disconnected", "native_action_rejected",
     "connected_state_unverified",
@@ -214,6 +228,138 @@ def mode_sequence(authorization, change, verify):
         verify(mode)
 
 
+def route_projection():
+    def reverse_filter(interface):
+        value = gate.bounded(
+            Path("/proc/sys/net/ipv4/conf") / interface / "rp_filter", 8).strip()
+        require(value in (b"0", b"1", b"2"), "host_observation_unavailable")
+        return int(value)
+
+    def destination(address):
+        raw = fixed_command(["/usr/bin/ip", "-4", "-j", "route", "get", address]).stdout
+        rows = json.loads(raw)
+        require(isinstance(rows, list) and len(rows) == 1
+                and isinstance(rows[0], dict), "host_observation_unavailable")
+        return "Meta" if rows[0].get("dev") == "Meta" else "other"
+
+    raw_rules = fixed_command(["/usr/bin/ip", "-4", "-j", "rule", "show"]).stdout
+    rules = json.loads(raw_rules)
+    require(isinstance(rules, list) and len(rules) <= 64
+            and all(isinstance(row, dict) for row in rules), "host_observation_unavailable")
+    gate.emit(public_route=destination("1.1.1.1"),
+              fakeip_route=destination("198.18.0.78"),
+              ipv4_rule_count=len(rules),
+              all_rp_filter=reverse_filter("all"),
+              tun_rp_filter=reverse_filter("Meta"))
+
+
+def probe_tun_https():
+    for index, target in enumerate(HTTPS_TARGETS, start=1):
+        before = gate.tun_counters("Meta")
+        arguments = gate.https_probe_args("Meta")
+        arguments[-1] = target
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=25)
+        after = gate.tun_counters("Meta")
+        https, tun_used, classification = gate.https_probe_evidence(result, before, after)
+        # No URL, response body, address or private error reaches the output.
+        gate.emit(https_target=index, full_vpn_https=https,
+                  tun_used=tun_used,
+                  tun_rx_moved=after[0] > before[0],
+                  tun_tx_moved=after[1] > before[1],
+                  classification=classification)
+        if https and tun_used:
+            return True
+    return False
+
+
+def tun_tracker_count(payload):
+    snapshot = json.loads(payload)
+    require(isinstance(snapshot, dict) and "connections" in snapshot,
+            "core_controller_response")
+    connections = snapshot["connections"]
+    # Mihomo serializes an empty, nil tracker slice as JSON null.
+    if connections is None:
+        connections = []
+    require(isinstance(connections, list) and len(connections) <= 4096,
+            "core_controller_response")
+    require(all(isinstance(row, dict) and isinstance(row.get("metadata"), dict)
+                for row in connections), "core_controller_response")
+    return sum(row["metadata"].get("type") == "Tun" for row in connections)
+
+
+def core_tun_tracker_count(core_pid):
+    path = Path("/run/user") / str(os.getuid()) / "omavless/mihomo.sock"
+    metadata = path.lstat()
+    require(stat.S_ISSOCK(metadata.st_mode) and metadata.st_uid == os.getuid()
+            and stat.S_IMODE(path.parent.stat().st_mode) == 0o700,
+            "core_socket_identity")
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(2)
+        connection.connect(str(path))
+        peer_pid, peer_uid, _ = struct.unpack(
+            "3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        require(peer_pid == core_pid and peer_uid == os.getuid(), "core_socket_peer")
+        connection.sendall(b"GET /connections/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        response = http.client.HTTPResponse(connection)
+        response.begin()
+        payload = response.read(1048577)
+        require(response.status == 200 and len(payload) <= 1048576,
+                "core_controller_response")
+    return tun_tracker_count(payload)
+
+
+def probe_direct_ip_tun(core_pid):
+    """Diagnostic only: bypass DNS; do not count it as Full VPN acceptance."""
+    before = gate.tun_counters("Meta")
+    arguments = gate.https_probe_args("Meta")
+    arguments[-1] = DIRECT_IP_HTTPS
+    arguments[-1:-1] = ["--resolve", DIRECT_IP_RESOLVE]
+    max_tun_trackers = 0
+    tracker_observed = True
+    with subprocess.Popen(arguments, stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        deadline = time.monotonic() + 20
+        while process.poll() is None and time.monotonic() < deadline:
+            if tracker_observed:
+                try:
+                    max_tun_trackers = max(max_tun_trackers,
+                                           core_tun_tracker_count(core_pid))
+                except Exception:
+                    # Supplemental telemetry must not obscure the HTTPS gate.
+                    tracker_observed = False
+            time.sleep(0.25)
+        try:
+            stdout, stderr = process.communicate(timeout=max(1, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+        require(len(stdout) + len(stderr) <= 16384, "host_observation_unavailable")
+        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+    after = gate.tun_counters("Meta")
+    https, tun_used, classification = gate.https_probe_evidence(result, before, after)
+    gate.emit(direct_ip_https=https, direct_ip_tun_used=tun_used,
+              direct_ip_classification=classification,
+              direct_ip_tracker_observed=tracker_observed,
+              direct_ip_tun_trackers_seen=max_tun_trackers > 0,
+              direct_ip_tun_rx_moved=after[0] > before[0],
+              direct_ip_tun_tx_moved=after[1] > before[1])
+
+
+def probe_core_proxy_https():
+    arguments = [
+        "/usr/bin/curl", "--silent", "--show-error", "--noproxy", "",
+        "--proxy", "http://127.0.0.1:7890", "--proto", "=https",
+        "--connect-timeout", "5", "--max-time", "15", "--max-redirs", "0",
+        "--output", "/dev/null", "--write-out", "%{http_code}", HTTPS_TARGETS[0],
+    ]
+    result = subprocess.run(arguments, stdin=subprocess.DEVNULL,
+                            capture_output=True, timeout=25)
+    passed = result.returncode == 0 and re.fullmatch(rb"2[0-9]{2}", result.stdout) is not None
+    gate.emit(core_proxy_https=passed)
+    return passed
+
+
 def failure_classification(error):
     if isinstance(error, auth.AuthorizationUnsettled):
         return "human_authorization_unsettled"
@@ -259,15 +405,13 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
         authorization.step("connect", lambda: installed.action("connect", profile, "global"))
         connected = True
         checkpoint = "connected_state"
-        connected_state(runtime_pid, "global")
+        core_pid = connected_state(runtime_pid, "global")
+        route_projection()
         checkpoint = "https_probe"
-        before = gate.tun_counters("Meta")
-        probe = subprocess.run(gate.https_probe_args("Meta"), stdin=subprocess.DEVNULL,
-                               capture_output=True, timeout=25)
-        https, tun_used, classification = gate.https_probe_evidence(
-            probe, before, gate.tun_counters("Meta"))
-        gate.emit(full_vpn_https=https, tun_used=tun_used, classification=classification)
-        require(https and tun_used, "full_vpn_https_failed")
+        probe_direct_ip_tun(core_pid)
+        if not probe_tun_https():
+            probe_core_proxy_https()  # diagnosis only; it cannot replace TUN evidence
+            raise gate.Failure("full_vpn_https_failed")
         checkpoint = "mode_sequence"
         mode_sequence(authorization, lambda mode: installed.action("mode", mode),
                       lambda mode: connected_state(runtime_pid, mode))

@@ -253,3 +253,54 @@ the managed-DNS Full VPN/TUN gate. The next attended gate should select a
 repeat-passing WebSocket record, then require actual TUN-bound HTTPS and clean
 release. The owner-visible `ready`/`settled` barrier remains mandatory before
 each host effect. No release or #270/#132 closure follows from this screen.
+
+## Repeat-passing proxy profile: TUN HTTPS path still fails
+
+Three subsequent attended installed runs selected the same WebSocket profile
+that had passed the disconnected isolated HTTPS check twice. Each reached a
+connected owned core in Global mode, a live `Meta` TUN and an active broker
+lease. The initial fixed HTTPS request timed out through `Meta`. A second
+runner tried the same three independent HTTPS endpoints as the built-in
+profile check: all three timed out through `Meta`, while the first endpoint
+returned HTTP success through the connected core's local mixed proxy. Thus a
+working profile/core outbound does not establish a working full-tunnel path.
+
+The third run added bounded route/counter diagnostics. Both a public IPv4
+destination and a fixed fake-IP destination resolved to the `Meta` interface
+in the guest route table; the guest had ten IPv4 rules while connected. TUN
+counters moved during each timed-out request, and the same public HTTPS target
+again succeeded through the local core proxy. An additional ordinary guest
+HTTPS request without interface binding also timed out while connected. The
+route and traffic observations rule out a trivial missing TUN route and a
+`curl --interface`-only artifact. They do **not** prove whether the remaining
+fault is in kernel return filtering, TUN packet processing, core DNS/fake-IP
+handling or another guest-specific interaction. The earlier outer-host V2RayN
+TUN remains a confounder, not a demonstrated cause; it was not changed.
+
+A fourth separately attended run split the TUN counters: **both RX and TX**
+moved for each of the three timed-out HTTPS requests. While connected, Linux
+reported `all.rp_filter=1` and `Meta.rp_filter=2`, whose effective value is the
+loose mode. This does not support a simple strict-reverse-filter explanation.
+The same core-proxy HTTPS request passed, and the run again disconnected,
+released the broker FD and restored Rule without recovery.
+
+An initial follow-up diagnostic did not reach its HTTPS request because the
+test tool's new controller-connection projection could not validate its HTTP
+response. It reported `core_controller_response`, then separately attended
+Disconnect and Rule restoration completed with broker FD store zero. This is
+an acceptance-tool failure, not evidence that the runtime or network regressed.
+The projection's endpoint and empty-list handling were corrected, and the
+supplemental observation was made non-blocking for the primary HTTPS gate
+before another attempt.
+
+Each failed attempt used separately attended Disconnect and original-mode
+restoration. Final fresh observation was Disconnected/Rule, startup Off,
+`manualRecoveryRequired=false`, no owned core or TUN and broker FD store zero.
+The tested runner has no positive TUN-bound HTTPS result on x86_64, so it did
+not proceed to Rule/Direct/Global, crash or active-lease removal checks. The
+next bounded diagnostic should use a fixed HTTPS destination with DNS bypassed
+and inspect only aggregate TUN tracker presence from the verified private
+controller during that request. The disconnected guest returned HTTP 200 from
+the fixed destination before the next run. Do not alter host DNS, root
+permissions or the outer PC to guess at a fix. #270/#132 and 0.9.0 RC remain
+open.

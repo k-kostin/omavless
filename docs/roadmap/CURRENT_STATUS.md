@@ -38,8 +38,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
   passed individual repeat checks. Thus the earlier three failed connected
   profiles do not establish a blanket guest-network outage. This screen is not
   TUN or DNS-broker acceptance: a repeat-passing server still needs the
-  attended Full VPN/mode/cleanup gate. PC mode/DNS acceptance and a new release
-  claim do not follow.
+  attended Full VPN/mode/cleanup gate. Subsequent attended attempts with one
+  repeat-passing WebSocket record confirmed core-proxy HTTPS while three
+  independent TUN-bound HTTPS targets timed out. Guest public/fake-IP routes
+  pointed to `Meta` and both TUN RX/TX counters moved; an unbound HTTPS request
+  also timed out. Connected `Meta.rp_filter=2` does not support a simple strict
+  reverse-filter explanation. Disconnect and Rule restoration remained clean. The remaining
+  guest TUN-path cause is unresolved, so PC mode/DNS acceptance and a new
+  release claim do not follow.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

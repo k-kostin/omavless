@@ -3,6 +3,7 @@
 """No-effect checks for the installed-owner DNS acceptance gate."""
 import importlib.util
 import io
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
@@ -108,6 +109,122 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.gate.Failure, "^dns_readback_missing$"):
             gate.mode_sequence(authorization, effects.append, verify)
         self.assertEqual(effects, ["rule"])
+
+    def test_tun_https_tries_fixed_independent_targets_without_leaking_urls(self):
+        failed = Mock(returncode=28, stdout=b"000")
+        passed = Mock(returncode=0, stdout=b"204")
+        counters = [(0, 0), (1, 1), (1, 1), (2, 2)]
+        output = []
+        with patch.object(gate.gate, "tun_counters", side_effect=counters), \
+                patch.object(gate.subprocess, "run", side_effect=[failed, passed]) as run, \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            self.assertTrue(gate.probe_tun_https())
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list],
+                         list(gate.HTTPS_TARGETS[:2]))
+        self.assertEqual([item["https_target"] for item in output], [1, 2])
+        self.assertEqual(output[-1]["classification"], "pass")
+        self.assertTrue(output[-1]["tun_rx_moved"])
+        self.assertTrue(output[-1]["tun_tx_moved"])
+        self.assertNotIn("https://", str(output))
+
+    def test_direct_ip_diagnostic_uses_fixed_resolve_and_reports_only_classes(self):
+        class Process:
+            returncode = 0
+            def __init__(self):
+                self.poll_count = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def poll(self):
+                self.poll_count += 1
+                return None if self.poll_count == 1 else 0
+            def communicate(self, timeout=None):
+                return b"200", b""
+        output = []
+        with patch.object(gate.gate, "tun_counters", side_effect=[(0, 0), (1, 1)]), \
+                patch.object(gate.subprocess, "Popen", return_value=Process()) as popen, \
+                patch.object(gate, "core_tun_tracker_count", return_value=1), \
+                patch.object(gate.time, "sleep"), \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            gate.probe_direct_ip_tun(42)
+        arguments = popen.call_args.args[0]
+        self.assertEqual(arguments[-1], gate.DIRECT_IP_HTTPS)
+        self.assertEqual(arguments[-3:-1], ["--resolve", gate.DIRECT_IP_RESOLVE])
+        self.assertEqual(output, [{"direct_ip_https": True, "direct_ip_tun_used": True,
+                                   "direct_ip_classification": "pass",
+                                   "direct_ip_tracker_observed": True,
+                                   "direct_ip_tun_trackers_seen": True,
+                                   "direct_ip_tun_rx_moved": True,
+                                   "direct_ip_tun_tx_moved": True}])
+        self.assertNotIn("cloudflare", str(output))
+
+    def test_optional_tracker_failure_cannot_abort_https_diagnostic(self):
+        class Process:
+            returncode = 28
+            def __init__(self):
+                self.poll_count = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def poll(self):
+                self.poll_count += 1
+                return None if self.poll_count == 1 else 0
+            def communicate(self, timeout=None):
+                return b"000", b"private transport error"
+        output = []
+        with patch.object(gate.gate, "tun_counters", side_effect=[(0, 0), (1, 1)]), \
+                patch.object(gate.subprocess, "Popen", return_value=Process()), \
+                patch.object(gate, "core_tun_tracker_count", side_effect=ValueError("private")), \
+                patch.object(gate.time, "sleep"), \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            gate.probe_direct_ip_tun(42)
+        self.assertEqual(output[0]["direct_ip_classification"], "probe_timeout")
+        self.assertFalse(output[0]["direct_ip_tracker_observed"])
+        self.assertNotIn("private", str(output))
+
+    def test_tracker_projection_does_not_emit_private_metadata(self):
+        payload = json.dumps({"connections": [
+            {"metadata": {"type": "Tun", "host": "private.example"}},
+            {"metadata": {"type": "HTTP", "host": "private.example"}},
+        ]}).encode()
+        self.assertEqual(gate.tun_tracker_count(payload), 1)
+        self.assertEqual(gate.tun_tracker_count(b'{"connections":null}'), 0)
+        for invalid in (b"{}", b'{"connections":{}}',
+                        b'{"connections":[{"metadata":"private"}]}'):
+            with self.assertRaisesRegex(gate.gate.Failure, "^core_controller_response$"):
+                gate.tun_tracker_count(invalid)
+
+    def test_route_projection_emits_only_fixed_classes_and_rule_count(self):
+        output = []
+        def command(arguments):
+            if arguments[-2:] == ["get", "1.1.1.1"]:
+                value = [{"dev": "Meta", "gateway": "private"}]
+            elif arguments[-2:] == ["get", "198.18.0.78"]:
+                value = [{"dev": "eth0", "gateway": "private"}]
+            else:
+                value = [{"priority": 0}, {"priority": 32766}]
+            return Mock(stdout=json.dumps(value).encode())
+        with patch.object(gate, "fixed_command", side_effect=command), \
+                patch.object(gate.gate, "bounded", return_value=b"1\n"), \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            gate.route_projection()
+        self.assertEqual(output, [{"public_route": "Meta", "fakeip_route": "other",
+                                   "ipv4_rule_count": 2, "all_rp_filter": 1,
+                                   "tun_rp_filter": 1}])
+        self.assertNotIn("private", str(output))
+
+    def test_core_proxy_diagnostic_is_fixed_and_not_tun_acceptance(self):
+        output = []
+        with patch.object(gate.subprocess, "run", return_value=Mock(returncode=0, stdout=b"204")) as run, \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            self.assertTrue(gate.probe_core_proxy_https())
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[-1], gate.HTTPS_TARGETS[0])
+        self.assertIn("http://127.0.0.1:7890", arguments)
+        self.assertEqual(output, [{"core_proxy_https": True}])
 
     def test_failure_classification_is_specific_but_cannot_echo_private_text(self):
         self.assertEqual(gate.failure_classification(
