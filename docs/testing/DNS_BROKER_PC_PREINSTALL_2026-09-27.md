@@ -103,3 +103,15 @@ observation. This does not claim an independent running-inode proof. With that
 correction, the runner reached its required human `ready` barrier before its
 first Connect. All live network-mode, crash, removal and recovery gates remain
 unproven until separately attended execution.
+
+The exact common `0.9.0-rc.1` frontend archive was then installed in the VM
+through its reviewed frontend updater. Omarchy validated the installed plugin;
+Quickshell remained alive and the disconnected panel rendered with the retained
+subscription. This is a disconnected UI check, not a connected-state or DNS
+claim. No private screenshot is committed.
+
+An actual `pacman -R omavless-dns-experimental` attempt while the root service
+was active with FDstore=0 was aborted by its installed ALPM PreTransaction hook.
+The package, binary hashes, active service and disconnected/TUN-free runtime
+were unchanged afterward. This proves the **active-service** removal refusal,
+not the stronger retained-lease/quarantine removal gate or clean removal.
