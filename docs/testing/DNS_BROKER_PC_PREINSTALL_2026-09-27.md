@@ -126,7 +126,10 @@ DNS/route authorization dialogs** during these transitions. The initial runner
 collapsed the failure into a generic code. A type-only checkpoint on the later
 run identified `PermissionError` while observing the connected core, before
 the TUN-bound HTTPS probe or any mode change. On this file-capability host,
-ordinary-UID `/proc/<core-PID>/exe` inspection is not assured; this is a
+ordinary-UID [`/proc/<core-PID>/exe`](https://man7.org/linux/man-pages/man5/proc_pid_exe.5.html)
+inspection is not assured after an executable gains
+[file capabilities](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html);
+this is a
 test-observation problem, not proof of either DNS success or product failure.
 
 The runner now requires public process name, direct parent, UID, exact effective
