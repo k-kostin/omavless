@@ -163,6 +163,12 @@ impl Resolve {
                 .unwrap();
         assert_eq!(record["phase"], "releasing");
         state.calls.push("revert");
+        let delay = state.case == "release_timeout";
+        drop(state);
+        if delay {
+            thread::sleep(Duration::from_millis(2300));
+        }
+        let mut state = self.0.lock().unwrap();
         state.servers.clear();
         state.domains.clear();
         state.route = false;
@@ -340,7 +346,8 @@ fn guard() -> String {
             "apply_drift",
             "release_drift",
             "dns_drift",
-            "release_dns_drift"
+            "release_dns_drift",
+            "release_timeout"
         ]
         .contains(&case.as_str())
     );
@@ -496,6 +503,14 @@ sys.stdin.buffer.read(1)
             state.lock().unwrap().drift = true;
             assert_eq!(lease.release(), Outcome::RecoveryRequired);
         }
+        "release_timeout" => {
+            assert_eq!(outcome, Outcome::Ready);
+            assert!(lease.check_active());
+            assert_eq!(lease.release(), Outcome::RecoveryRequired);
+            // The manager can finish after the broker's deadline. A late reset
+            // is still not an acknowledged, verified release.
+            thread::sleep(Duration::from_millis(500));
+        }
         "dns_drift" | "release_dns_drift" => {
             assert_eq!(outcome, Outcome::Ready);
             assert!(lease.check_active());
@@ -567,6 +582,20 @@ sys.stdin.buffer.read(1)
                 assert_eq!(state.domains, [(".".into(), true)]);
                 assert!(state.route);
             }
+            assert_eq!(
+                state.notifications,
+                [
+                    "FDSTORE=1\nFDNAME=omavless-tun-lease\nFDPOLL=0",
+                    "BARRIER=1"
+                ]
+            );
+        }
+        "release_timeout" => {
+            assert!(reopened.requires_recovery());
+            assert!(state.stored.is_some());
+            assert!(tun_exists());
+            assert_eq!(state.calls, ["dns", "domains", "route", "revert"]);
+            assert!(state.servers.is_empty() && state.domains.is_empty() && !state.route);
             assert_eq!(
                 state.notifications,
                 [

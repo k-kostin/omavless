@@ -35,7 +35,7 @@ python3 tests/dns_broker_composition_probe.py ABSOLUTE_TEST_BINARY SHA256
 
 The ordinary test suite intentionally ignores the namespace test. The wrapper
 runs only `transaction::integration::actual_host_composition` with `--ignored`,
-under its isolation guards. It prints twelve public PASS classifications or one
+under its isolation guards. It prints thirteen public PASS classifications or one
 bounded failure, never mock/raw backend diagnostics.
 
 ## Evidence
@@ -57,6 +57,13 @@ SHA-256 `53156a169a3438613f0ce34c4b2a32b142277f67c784c75adcc3c0762040bb4d`.
 It adds separate late domain/default-route writes; 47 ordinary broker tests
 passed with one intentionally ignored namespace case. This is isolated mock-bus
 evidence, not an installed resolved or owner-attended result.
+
+The thirteen-scenario PC namespace probe passed once on library-test SHA-256
+`43c0f04395005b3aa09066f84a9b45681e5854fad3aac157249bfea9afcd55de`.
+It adds late completion of the release-side RevertLink call. The 47 ordinary
+broker tests passed (one namespace case ignored); `./tests/run.sh` and
+`./tests/run-rust.sh` passed on the same source checkout. This is still isolated
+mock-bus evidence, not installed-resolved or owner-attended acceptance.
 
 - `success`: pending journal and external FD retention precede the first DNS
   write; exact fixed parameters; Ready follows readback; release verifies DNS
@@ -88,6 +95,10 @@ evidence, not an installed resolved or owner-attended result.
   remains untouched, proof retention remains, and the journal requires recovery.
   Partial-apply compensation remains a different path: it never requires a full
   fixed policy that was not successfully applied.
+- `release_timeout`: the real RevertLink call times out, then clears the private
+  mock link late. Even if the later observed values look reset, the broker never
+  received and verified a settled release; its journal and TUN proof remain in
+  quarantine, with no speculative FD-store removal.
 
 The `drop` case is **not SIGKILL/PID 1 acceptance**: manager and resolved are
 private mock services in the fixture process, and dropping the broker lease is

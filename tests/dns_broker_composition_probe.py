@@ -17,7 +17,8 @@ def isolated(arguments):
     base.require(base.ns.namespace('mnt') != original[3])
     base.require(case in ('success', 'denial', 'timeout', 'domain_timeout',
                          'route_timeout', 'drop', 'policy', 'mismatch',
-                         'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift'))
+                         'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift',
+                         'release_timeout'))
     ownership.validate_source(Path(binary), digest)
     subprocess.run(['/usr/bin/mount', '--make-rprivate', '/'], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
@@ -49,7 +50,8 @@ def main():
         original = [base.ns.namespace(name) for name in ('net', 'user', 'pid', 'mnt')]
         for case in ('success', 'denial', 'timeout', 'domain_timeout',
                      'route_timeout', 'drop', 'policy', 'mismatch',
-                     'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift'):
+                     'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift',
+                     'release_timeout'):
             result = subprocess.run([
                 '/usr/bin/unshare', '--user', '--map-root-user', '--net', '--pid',
                 '--mount', '--propagation', 'private', '--fork', '--kill-child=SIGKILL',
