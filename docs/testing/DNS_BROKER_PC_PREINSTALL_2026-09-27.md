@@ -142,3 +142,41 @@ running after these observations; cause of shutdown has not been established.
 The last read-only observation before that showed a disconnected, recovery-free
 runtime, no TUN/owned core and zero broker FD-store entries. Positive mode/DNS,
 crash/quarantine, clean removal and recovery gates remain open.
+
+## Post-reboot VM inspection and restored test staging
+
+The guest's previous journal ends without a shutdown record; the reason QEMU
+stopped is still unknown. The outer host had no matching QEMU core dump or OOM
+record, and `qemu-img check` reported no disk error before the VM was restarted.
+This does not establish why the process ended.
+
+After the guest booted, the installed application, experimental Mihomo and broker
+still matched the independently recorded SHA-256 values above. The patched core
+retained only the reviewed network capabilities. The native runtime was active
+without a service drop-in; its fresh observation was disconnected with manual
+recovery false, startup disabled, 35 retained profiles and one subscription.
+There was no TUN or running Mihomo. The root broker was initially inactive,
+static and had zero stored descriptors.
+
+The installed QML panel rendered the disconnected state and retained profile
+group. Its Settings navigation and the `Open app` action worked; the installed
+TUI rendered a disconnected, Routing-mode view and explicitly said that
+Internet/DNS had not been tested. Closing the TUI did not change the native
+connection observation. These private screenshots remain outside Git. No
+Connect, mode change, subscription refresh or network check was performed.
+
+The user-manager's test-only `OMAVLESS_MIHOMO` selection had been lost on reboot.
+With startup still Off and no TUN, it was restored transiently and the user
+runtime restarted. Fresh observation again showed disconnected, recovery false
+and no TUN. A read-only root package guard passed with the broker stopped and
+FD store empty. The already installed/enrolled broker was then started manually,
+not enabled: `ActiveState=active`, `UnitFileState=static`,
+`NFileDescriptorStore=0`. The native runtime remained disconnected and TUN-free.
+The updated acceptance runner was copied into the guest's private test cache;
+its guest Python compilation and the 19 local runner/authorization unit tests
+passed. **The installed positive DNS/mode runner was not invoked.**
+
+This leaves a prepared but disconnected VM, not a DNS-3 PASS. Every authorizing
+Connect, mode change and cleanup still requires the separate human
+`ready`/`settled` procedure. No runtime/package/core/frontend change was made on
+the outer PC, and the development branch is not an RC/main or release decision.
