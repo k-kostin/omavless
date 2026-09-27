@@ -7,6 +7,7 @@ arch=('@ARCH@')
 license=('MIT' 'GPL-3.0-only' 'GPL-3.0-or-later')
 depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'bash' 'coreutils')
 options=('!strip' '!debug')
+noextract=('corresponding-source.tar.xz')
 install=omavless-dns-experimental.install
 source=('omavless-dns-broker' 'mihomo' 'omavless-dns-broker.service'
         'package-guard' 'omavless-dns-experimental.hook'

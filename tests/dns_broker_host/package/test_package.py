@@ -159,6 +159,7 @@ class PackageTests(unittest.TestCase):
         script = (ROOT / "omavless-dns-experimental.install").read_text()
         self.assertIn("/usr/lib/omavless-dns-experimental/mihomo", recipe)
         self.assertIn("corresponding-source.tar.xz", recipe)
+        self.assertIn("noextract=('corresponding-source.tar.xz')", recipe)
         self.assertIn("mihomo.LICENSE", recipe)
         self.assertIn("sing-tun.LICENSE", recipe)
         self.assertIn("omavless.LICENSE", recipe)

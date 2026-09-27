@@ -71,6 +71,8 @@ exact checksums; no mutable URL, `SKIP` checksum or network fetch exists. An
 incomplete staging directory is left for inspection, never automatically
 recursively erased. The receipt and source archive still require independent
 review; a self-reported hash is not a signature or proof of build provenance.
+The source archive is marked `noextract` in `PKGBUILD`: makepkg must copy it as
+source material, not unpack it over the candidate `mihomo` binary filename.
 
 After source review, an ordinary-user `makepkg` invocation can build the staged
 recipe without installing it. Inspect the archive's file list, `.PKGINFO`,
