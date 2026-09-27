@@ -406,6 +406,29 @@ def route_projection():
               tun_rp_filter=reverse_filter("Meta"))
 
 
+def ufw_projection():
+    """Read-only hint, never proof that a TUN packet was accepted or blocked.
+
+    UFW requires root for `ufw status` on Omarchy. Query only the fixed systemd
+    unit and keep its output private; other firewall managers or retained kernel
+    rules can still affect TUN ingress even when this unit is inactive.
+    """
+    try:
+        result = subprocess.run(
+            ["/usr/bin/systemctl", "--system", "is-active", "--quiet", "ufw.service"],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        state = "unknown"
+    else:
+        state = "active" if result.returncode == 0 else "unknown"
+        if len(result.stdout) + len(result.stderr) > 4096:
+            state = "unknown"
+    gate.emit(ufw_service=state,
+              tun_ingress_policy="review_required" if state == "active" else "unverified")
+    return state
+
+
 def probe_tun_https():
     for index, target in enumerate(HTTPS_TARGETS, start=1):
         before = gate.tun_counters("Meta")
@@ -551,6 +574,9 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
     require(original_mode in ("global", "rule", "direct"), "original_mode_unavailable")
     gate.emit(case="installed-managed-dns", preflight=True,
               mode_sequence=list(MODES), authorization="attended")
+    # This never installs a firewall exception. Connected DNS readback is not
+    # evidence that UFW (or another firewall) passes actual TUN ingress.
+    ufw_state = ufw_projection()
     connected = False
     completed = False
     checkpoint = "connect"
@@ -563,7 +589,10 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
         checkpoint = "https_probe"
         probe_direct_ip_tun(core_pid)
         if not probe_tun_https():
-            probe_core_proxy_https()  # diagnosis only; it cannot replace TUN evidence
+            proxy_ok = probe_core_proxy_https()  # cannot replace TUN evidence
+            gate.emit(tun_failure_hint=(
+                "ufw_ingress_possible_not_proven"
+                if ufw_state == "active" and proxy_ok else "undetermined"))
             raise gate.Failure("full_vpn_https_failed")
         checkpoint = "mode_sequence"
         mode_sequence(authorization, lambda mode: owned_action(runtime_pid, "mode", mode),

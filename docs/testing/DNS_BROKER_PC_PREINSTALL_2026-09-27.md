@@ -407,6 +407,15 @@ firewall mutation requires a separate security/lifecycle design. These
 agent-attended checks do not replace the owner's human-attended gate before
 main.
 
+The installed DNS acceptance runner now emits a bounded, read-only UFW service
+hint before Connect. If fixed-IP TUN HTTPS fails but the core's local proxy
+works, it emits `ufw_ingress_possible_not_proven` only when that service was
+observed active. This is a triage hint, **not** proof that UFW blocked the
+packet: other firewall managers, policy rules and server failures remain
+possible. The runner neither calls privileged `ufw status` nor changes or
+removes any firewall rule. An administrator must review the effective ingress
+policy separately; the temporary VM rules above are not installer defaults.
+
 ## Corrected core-death diagnostic in the PC VM
 
 The installed-owner runner now has a separate opt-in `--core-crash` path. It

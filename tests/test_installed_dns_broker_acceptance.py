@@ -327,6 +327,31 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
                                    "tun_rp_filter": 1}])
         self.assertNotIn("private", str(output))
 
+    def test_ufw_projection_is_read_only_and_never_claims_packet_verdict(self):
+        output = []
+        for exit_code, expected in ((0, "active"), (3, "unknown")):
+            with patch.object(gate.subprocess, "run", return_value=Mock(
+                    returncode=exit_code, stdout=b"private", stderr=b"private")) as run, \
+                    patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+                self.assertEqual(gate.ufw_projection(), expected)
+            self.assertEqual(run.call_args.args[0], [
+                "/usr/bin/systemctl", "--system", "is-active", "--quiet", "ufw.service"])
+            self.assertEqual(run.call_args.kwargs["stdin"], gate.subprocess.DEVNULL)
+            self.assertEqual(run.call_args.kwargs["timeout"], 5)
+        self.assertEqual(output, [
+            {"ufw_service": "active", "tun_ingress_policy": "review_required"},
+            {"ufw_service": "unknown", "tun_ingress_policy": "unverified"},
+        ])
+        self.assertNotIn("private", str(output))
+
+    def test_ufw_projection_failure_remains_unknown_and_has_no_host_effect(self):
+        output = []
+        with patch.object(gate.subprocess, "run", side_effect=OSError("private")), \
+                patch.object(gate.gate, "emit", side_effect=lambda **item: output.append(item)):
+            self.assertEqual(gate.ufw_projection(), "unknown")
+        self.assertEqual(output, [{"ufw_service": "unknown",
+                                   "tun_ingress_policy": "unverified"}])
+
     def test_core_proxy_diagnostic_is_fixed_and_not_tun_acceptance(self):
         output = []
         with patch.object(gate.subprocess, "run", return_value=Mock(returncode=0, stdout=b"204")) as run, \
