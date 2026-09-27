@@ -44,8 +44,19 @@ history. GitHub's actual main/PR state is authoritative for publication.
   pointed to `Meta` and both TUN RX/TX counters moved; an unbound HTTPS request
   also timed out. Connected `Meta.rp_filter=2` does not support a simple strict
   reverse-filter explanation. Disconnect and Rule restoration remained clean. The remaining
-  guest TUN-path cause is unresolved, so PC mode/DNS acceptance and a new
-  release claim do not follow.
+  fixed-IP diagnostic also timed out with DNS bypassed; the private core
+  controller showed no `Tun` tracker during that request, although `Meta`
+  counters moved and the same connected core's local proxy completed HTTPS.
+  A subsequent VM-only A/B isolated the cause: the guest's default-deny UFW
+  blocked TUN ingress. A temporary, interface-specific UFW allowance made an
+  independent DIRECT-only TUN probe pass, and the pinned installed OmaVLESS
+  pair then passed fixed-IP and public HTTPS through `Meta`, core `Tun` tracker
+  observation, mode transitions, Disconnect and original-Rule restoration.
+  The temporary rule was removed and the VM returned to Disconnected/Rule with
+  no TUN, held broker descriptor or recovery. This is agent-attended diagnostic
+  evidence, not the policy's human-attended acceptance or a permanent firewall
+  solution. PC mode/DNS acceptance, firewall integration review and the other
+  RC gates remain open; no release claim follows.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

@@ -311,6 +311,69 @@ not proceed to Rule/Direct/Global, crash or active-lease removal checks. The
 next bounded diagnostic should use a fixed HTTPS destination with DNS bypassed
 and inspect only aggregate TUN tracker presence from the verified private
 controller during that request. The disconnected guest returned HTTP 200 from
-the fixed destination before the next run. Do not alter host DNS, root
-permissions or the outer PC to guess at a fix. #270/#132 and 0.9.0 RC remain
-open.
+the fixed destination before the next run. The follow-up below isolates the
+VM firewall without changing host DNS or the outer PC. #270/#132 and 0.9.0 RC
+remain open.
+
+## Fixed-IP/TUN tracker diagnostic
+
+An agent-attended VM-only run used the same repeat-passing WebSocket fixture and
+the exact pinned experimental package pair above. This was diagnostic evidence,
+not the policy's human-attended acceptance. One initial terminal attempt stopped
+at the post-Connect acknowledgement because virtual keyboard input lost letters;
+no later effect was issued by that invocation. Fresh inspection showed an owned
+connection without recovery. An explicit Disconnect then returned the VM to
+Disconnected/Rule, no TUN and a zero-entry broker FD store before the next run.
+
+The corrected diagnostic completed with separately inspected Connect,
+Disconnect and Rule restoration. During Connected/Global, both public-IP and
+fake-IP guest routes pointed at `Meta`; ten IPv4 rules were present. A fixed-IP
+HTTPS request with DNS bypassed timed out. The controller responded to repeated
+private `/connections/` reads, but no `Tun` tracker was observed during that
+request. `Meta` RX and TX counters increased. Three independent TUN-bound HTTPS
+targets also timed out, while HTTPS through the *same connected core's* local
+mixed proxy succeeded. This narrows the guest failure to the full-tunnel ingress
+or handling path rather than a universally broken proxy server or DNS lookup.
+The absence of a tracker does not alone prove where packets were lost.
+
+The runner reported `full_vpn_https_failed`, then independently confirmed
+`disconnected:true`, `dns_released:true`, and `mode_restored:true`. A fresh native
+observation showed Disconnected/Rule, `manualRecoveryRequired=false`, no owned
+core or TUN, and the broker FD store had zero entries. No outer-PC network
+configuration was changed. No positive installed DNS/mode or 0.9.0 RC gate is
+claimed from this failed run alone.
+
+## VM firewall A/B and successful agent-attended diagnostic
+
+The guest had active UFW with default-deny incoming and no `Meta` allowance.
+To separate OmaVLESS, server and DNS behavior from guest filtering, a separate
+private standalone Mihomo config used DIRECT only, disabled core DNS/system-DNS
+changes and enabled TUN auto-route. With UFW unchanged, fixed-IP HTTPS through
+the test TUN timed out under both system and mixed TUN stacks; the same request
+without that core returned HTTP 200. A temporary **VM-only** inbound allowance
+on the standalone TUN interface made both bound and unbound fixed-IP HTTPS
+return HTTP 200. The standalone core was stopped and its allowance removed.
+This A/B identifies UFW filtering of TUN ingress as the cause of this guest's
+otherwise misleading route/counter symptoms. It does not implicate the outer
+PC's V2RayN or the tested profile.
+
+A temporary **VM-only** `ufw allow in on Meta` then allowed the installed,
+pinned OmaVLESS pair to complete the diagnostic with the same repeat-passing
+WebSocket fixture. Fixed-IP HTTPS succeeded through `Meta`; private core
+tracker observation confirmed a `Tun` connection, and both `Meta` RX/TX
+counters advanced. A second public HTTPS target in Full VPN mode succeeded
+through the TUN. Mode transitions Global → Rule → Direct → Global, Disconnect
+and restoration to the original Rule mode completed. The runner's final result
+reported `disconnected:true`, `dns_released:true`, `mode_restored:true` and
+`passed:true`. Fresh native observation showed Disconnected/Rule,
+`manualRecoveryRequired=false`, no owned core or TUN, and broker FD store zero.
+The temporary `Meta` allowance was removed, including its IPv6 counterpart;
+neither test-interface name remains in UFW's saved user rules. No outer-PC
+network setting or VPN process was changed.
+
+This is **agent-attended VM diagnostic evidence**, not the policy's required
+human-attended installed acceptance. The UFW exception was temporary and is
+not an endorsed permanent installer change. Before RC promotion, define and
+review a narrowly scoped, reversible firewall integration for UFW-enabled
+guests, then complete the remaining human-attended DNS/mode/crash/upgrade and
+removal gates on the exact candidate build. #270/#132 and 0.9.0 RC remain open.
