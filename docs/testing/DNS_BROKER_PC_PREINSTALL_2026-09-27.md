@@ -176,6 +176,14 @@ The updated acceptance runner was copied into the guest's private test cache;
 its guest Python compilation and the 19 local runner/authorization unit tests
 passed. **The installed positive DNS/mode runner was not invoked.**
 
+The installed broker socket was root-owned, mode 0660, with the expected named
+UID ACL and no owning-group/other access. An enrolled-UID `SOCK_SEQPACKET`
+connection succeeded; the same socket operation as `nobody` failed with
+`EACCES`. Neither sent a descriptor or lease request. The broker remained active
+with FD-store zero; the runtime remained disconnected, recovery-free and
+TUN-free. This proves the x86_64 guest's socket admission boundary, not a DNS
+transaction, a forged-descriptor refusal or an application-identity guarantee.
+
 This leaves a prepared but disconnected VM, not a DNS-3 PASS. Every authorizing
 Connect, mode change and cleanup still requires the separate human
 `ready`/`settled` procedure. No runtime/package/core/frontend change was made on
