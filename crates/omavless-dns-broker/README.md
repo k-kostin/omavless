@@ -1,8 +1,9 @@
 # Experimental fixed-purpose DNS broker
 
-This is an **uninstalled opt-in candidate**, not released prompt-free support.
-The ordinary package does not enable it. No current machine policy or installed
-runtime is changed by compiling or testing this crate.
+This is a **default-off opt-in candidate**, not released prompt-free support.
+It has been installed only as an explicit experimental pair in disposable
+Omarchy VMs; the ordinary package does not include or enable it. Compiling or
+testing this crate alone changes no installed runtime or machine policy.
 
 `omavless-dns-broker --serve` accepts no path, account, address, shell command or
 network operation argument. It can start only as the main process of the fixed
@@ -71,10 +72,15 @@ Unit tests cover admission, ACLs, journal crash boundaries and transaction
 ordering. The [actual composition probe](../../tests/DNS_BROKER_COMPOSITION.md)
 uses a real kernel TUN and real Rust/ancillary/D-Bus transports in disposable
 namespaces, with independent resolved/systemd fixtures. A separate real
-user-systemd experiment tests FD-store survival. None of these is a real
-system-service DNS acceptance result.
+user-systemd experiment tests FD-store survival. Later installed experimental
+ARM64 and x86_64 evidence is recorded in the
+[current status](../../docs/roadmap/CURRENT_STATUS.md): DNS readback/HTTPS,
+same/other-user access, normal release, crash retention and several actual
+ALPM refusal/removal paths have been exercised. Agent-attended VM diagnostics
+do not replace the owner's pre-main acceptance.
 
-Before release: attended installed helper/core/runtime pairing, same/other-user
-access, DNS readback plus HTTPS, normal release, real crash/quarantine/recovery,
-upgrade/removal refusal and default-off packaging. Do not close #270, promote
-RC or change marketplace claims on the strength of test-only evidence.
+Before release: resolve default legacy #132 versus mandatory managed ownership,
+complete remaining in-flight negatives, reviewed normal delivery/enrollment
+and rollback, firewall prerequisites, exact package/frontend pairing and
+owner-attended acceptance. Do not close #270, promote RC or change marketplace
+claims on the strength of the experimental checkpoint.

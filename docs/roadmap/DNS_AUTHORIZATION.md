@@ -1,9 +1,10 @@
 # Scoped native DNS authorization — #270 / #132
 
-Decision candidate, 2026-09-24, for RC development only. **Not a passwordless
-implementation or installed policy.** Main, startup Off and OS policy unchanged.
-This is a required RC investigation, not permission to hide an unfinished host
-gate by closing a triage issue. See [RC scope](../development/RC_090.md).
+Decision and implementation contract for RC development, started 2026-09-24.
+An explicit, default-off **experimental** package and paired runtime have since
+been installed and exercised in disposable ARM64 and x86_64 Omarchy VMs. This is
+not normal distribution, default behavior, a main-branch change or release
+approval. See the [current status](CURRENT_STATUS.md) and [RC scope](../development/RC_090.md).
 
 ## Evidence and the actual missing boundary
 
@@ -187,11 +188,16 @@ and successful DNS setup is not fail-closed egress protection.
 | DNS-2, Rust lifecycle | Typed DNS readiness/rollback integrated with native owner | Delayed/rejected/partial DNS cannot publish success; no duplicate effects or speculative mode confirmation. |
 | DNS-3, installed acceptance | Explicit enrollment then repeated supported operations | Attended no-extra-prompt connect/mode/disconnect, failed/cancelled setup, recovery and exact package/frontend identities. |
 
-These are concrete unimplemented slices, not newly finished roadmap stages.
-#270 owns the investigation; #132 owns the original cancellation truthfulness
-requirement. Old Python PR #135 is historical evidence, not an implementation
-vehicle for the broker. Native UI can improve pending/unknown presentation
-independently, but cannot turn absent DNS proof into a successful transition.
+DNS-0's reviewed exclusive-writer core adapter and descriptor handoff, DNS-1's
+experimental package and DNS-2's managed-readiness path have implementation and
+installed evidence. The exact source/VM identities and remaining negative gates
+are in the [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
+They are not completed production/distribution stages: the legacy stock-core
+path remains the default and still reproduces #132. #270 owns the scoped host
+integration; #132 owns cancellation truthfulness. Old Python PR #135 is
+historical evidence, not an implementation vehicle for the broker. Native UI
+can improve pending/unknown presentation, but cannot turn absent DNS proof into
+a successful transition.
 
 Try Omarchy is valid for ordinary broker/parser/package/lifecycle gates. Require
 a physical host only for identified suspend, physical-interface or system-policy
@@ -206,9 +212,10 @@ Probe IPv4/IPv6 and ordinary/system DNS separately; external HTTPS alone proves
 neither resolved restoration nor absence of DNS leakage.
 
 **Current outcome:** reject the broad rule and speculative route workarounds;
-select this gated broker direction. #270/RC host closure remains open until the
-unresolved ownership mechanism and applicable acceptance are explicitly resolved.
-No installed policy, prompt elimination or DNS-cancellation fix is claimed here.
+continue the gated, single-owner broker direction. Disposable-VM installed tests
+now establish positive managed DNS readiness and several crash/removal/refusal
+boundaries; they do not establish normal distribution, the remaining negative
+matrix, the owner's formal acceptance, legacy #132 closure or RC readiness.
 
 September 25 no-authorization preparation: the separate
 [offline Rust transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
@@ -235,26 +242,32 @@ mutation API was found in the pinned core; privileged administrators/managers
 are explicitly outside this scope. Do not broaden host ownership without need.
 
 Actual Rust kernel admission, credentialed descriptor-channel tests, real
-private-bus resolved-wire tests and namespace-local TCP/UDP passage now provide
-executable boundaries. They remain uninstalled.
+private-bus resolved-wire tests and namespace-local TCP/UDP passage provided
+offline boundaries before the later experimental VM installation.
 The reviewed core adapter waits for Applying → Ready and Release → Releasing →
-Released; only a live verified lease projects `omavless-dns-ready`. This is still
-a review patch, not installed runtime readiness. The
+Released; only a live verified lease projects `omavless-dns-ready`. It was
+installed only as an explicit experimental core in disposable VMs, not shipped
+as the normal Mihomo path. The
 [broker composition candidate](../../crates/omavless-dns-broker/README.md) now
 combines a fixed root-service/enrollment admission, socket ACL, private journal,
 typed FD-store retention and actual DNS methods. Its private-bus/kernel tests
 exercise late writes, denied operations and ownership drift. Managed runtime
 readiness refuses missing/false broker acknowledgement; legacy DNS remains the
 default and a template flag is not enrollment consent. Real system-service
-crash retention, distribution and attended host acceptance remain gates.
+crash retention and several ALPM lifecycle cases have since passed in disposable
+VMs. Reviewed normal distribution, remaining in-flight/negative cases and
+owner-attended pre-main acceptance remain gates.
 Readback of effective properties is still not permission to restore arbitrary state.
 
-## Next-session boundary
+## Promotion boundary
 
-Offline work can validate the fixed protocol/failure model and review the core
-adapter options. It cannot prove prompt-free host operations, cancelled/late
-authorization, cleanup or a secure lease on a real TUN. Do not install a broker
-or a polkit rule while the owner is absent. The accepted native UI correction
-in #289 supersedes Python PR #135 as code, while #132 remains open. Retain this
-design candidate and its unresolved prerequisites rather than declaring the host
-gate complete merely because documentation/static checks pass.
+Keep the experimental pair separate from normal installation until source and
+artifact provenance, explicit enrollment, persistent compatible core selection,
+upgrade/rollback and recovery are reviewed. Preserve the existing agent-attended
+VM observations separately from owner-attended acceptance. An opt-in broker
+cannot close the default legacy #132 path: either a supported release path must
+require the managed pair and fail closed without it, or the owner must explicitly
+approve an exception that leaves #132 open. Neither decision is implied by a
+passing VM test. Do not add a broad polkit rule or silently select a patched
+core. The accepted native UI correction in #289 supersedes Python PR #135 as
+code, while #132 remains open.

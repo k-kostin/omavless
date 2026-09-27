@@ -91,12 +91,19 @@ before the normal package transaction. Do not delete the directory or journal,
 run `systemctl clean`, or add a blanket cleanup hook. The package itself leaves
 runtime and enrollment data untouched.
 
-## Remaining installed gates
+## Installed evidence and remaining gates
 
-Source/package tests establish fixed paths and abort policy, not real ALPM
-acceptance. Before calling the experimental path usable, prove in the VM:
-actual install and capability readback; no unsolicited startup; loaded unit and
-ACL admission; successful fixed DNS lease; refusal of removal/upgrade with an
-active or quarantined lease; clean release then normal removal; no change to the
-stock core/application; and explicit recovery without disposing of unknown state.
-The review-only package does not close #270 by itself.
+The [ARM64 record](../../../docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
+and [x86_64 PC-VM record](../../../docs/testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
+now document explicit installation, capability readback, default-off behavior,
+enrolled access, a real managed DNS lease and positive release. Real ALPM
+transactions refused active-lease removal, crash-quarantined removal and an
+upgrade with retained state. Clean-state removal/reinstall passed; the rebuilt
+guard also refused a preserved stale socket before replacement, then allowed
+an explicitly proven clean recovery. These are exact experimental-package
+results, not normal release-distribution or blanket failure-path acceptance.
+
+Still open: reviewed persistent enrollment/core selection and artifact delivery,
+full concurrent/in-flight negatives, firewall prerequisites, exact owner-attended
+pre-main acceptance and the default legacy #132 defect. The package alone does
+not close #270 or make 0.9.0 RC ready.
