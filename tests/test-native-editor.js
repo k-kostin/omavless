@@ -9,14 +9,15 @@ function frame(input=seed){return JSON.stringify({api:'omavless.control',version
 function context(){
   const component={createObject:(_parent,properties)=>({...properties,running:false})};
   const c=vm.createContext({NativeSnapshot:parser, nativeOwner:true,nativeFactsCurrent:true,nativeCanAct:true,
-    nativeSnapshot:{instanceId:'instance',revision:4,profiles:[{id:'record',subscriptionId:''}]},
+    nativeSnapshot:{instanceId:'instance',revision:4,desired:{connected:false,profileId:''},profiles:[{id:'record',subscriptionId:''}]},
     nativeEditorDraft:null,nativeEditorRunning:false,nativeEditorReadProcess:null,nativeEditorProcess:null,
     nativeEditorReadComponent:component,nativeEditorComponent:component,nativeEditorCode:'',_nativeEditorSeed:'',
     nativePending:null,nativeActionRunning:false,nativeOutcomeUnknown:false,nativeActionCode:'',nativeActionProcess:{},
+    nativeConnectionTransition:null,nativeConnectionTransitionTimeout:{stop(){}},
     _nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',attention:0,finished:0});
   c.root=c;c.nativeEditorAttention=()=>c.attention++;c.editFinished=()=>c.finished++;
   for(const name of ['nativeEditorContextCurrent','nativeEditorFence','startNativeEditor','finishNativeEditorRead','reopenNativeEditor',
-    'discardNativeEditor','finishNativeEditor','finishNativeEditorAction','reconcileNativeAction','acceptRefreshedNativeState']) {
+    'discardNativeEditor','beginNativeProfileLifecycleTransition','finishNativeEditor','finishNativeEditorAction','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
   }
@@ -68,6 +69,15 @@ test('editor seed and saved replacement are stdin only; no optimistic state',()=
   assert.equal(c.nativePending.input,'record\nSynthetic\n'+edited);
   assert.equal(c.nativePending.action,'profile-replace');assert.equal(c.nativePending.revision,4);
   assert(!c.nativePending.command.join(' ').includes(edited));assert.equal(c.nativeSnapshot.revision,4);
+});
+test('saving the active profile waits for connected recovery, inactive save does not',()=>{
+  const active=opened();active.nativeSnapshot.desired={connected:true,profileId:'record'};
+  active.nativeEditorProcess=null;active.finishNativeEditor(active.nativeEditorDraft,0,edited,'');
+  assert.equal(active.nativeConnectionTransition.action,'profile-replace');
+  assert.equal(active.nativeConnectionTransition.profileId,'record');
+  const inactive=opened();inactive.nativeSnapshot.desired={connected:true,profileId:'other'};
+  inactive.nativeEditorProcess=null;inactive.finishNativeEditor(inactive.nativeEditorDraft,0,edited,'');
+  assert.equal(inactive.nativeConnectionTransition,null);
 });
 test('cancel and unchanged input clear draft without save',()=>{
   for(const [code,out] of [[3,''],[0,seed]]){const c=opened();c.nativeEditorProcess=null;c.finishNativeEditor(c.nativeEditorDraft,code,out,'');assert.equal(c.nativeEditorDraft,null);assert.equal(c.nativePending,null);assert.equal(c._nativeEditorSeed,'');}

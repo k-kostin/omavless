@@ -50,6 +50,17 @@ assert(stopping.nativeConnectionTransition,'stopping is not disconnected')
 const disconnected=context('disconnect','disconnected',5,'')
 disconnected.finishNativeActionTransitionObservation()
 assert.equal(disconnected.nativeConnectionTransition,null)
+for (const action of ['profile-rename','profile-replace']) {
+  const updating=context(action,'reconnecting',5,'new')
+  updating.finishNativeActionTransitionObservation()
+  assert(updating.nativeConnectionTransition,'active profile recovery is not complete while reconnecting')
+  const recovered=context(action,'connected',5,'new')
+  recovered.finishNativeActionTransitionObservation()
+  assert.equal(recovered.nativeConnectionTransition,null,'active profile change needs new connected facts')
+}
+const removed=context('profile-delete','disconnected',5,'')
+removed.finishNativeActionTransitionObservation()
+assert.equal(removed.nativeConnectionTransition,null,'active profile deletion needs disconnected facts')
 const failed=context('connect','failed',5,'new')
 failed.finishNativeActionTransitionObservation()
 assert.equal(failed.nativeConnectionTransition,null,'actual failure must not be hidden')
@@ -57,6 +68,23 @@ const stale=context('connect','connected',5,'new')
 stale.nativeObservation.revision=4
 stale.finishNativeActionTransitionObservation()
 assert(stale.nativeConnectionTransition,'stale observation is not proof')
+
+const beginName = 'beginNativeProfileLifecycleTransition'
+const beginStart = service.indexOf('  function ' + beginName + '(')
+const beginEnd = service.indexOf('\n  }', beginStart) + 4
+assert(beginStart >= 0 && beginEnd > beginStart)
+function profileMutationTransition(action, desiredId, editedId) {
+  const c = vm.createContext({nativeSnapshot:{instanceId:'fixture',revision:4,
+    desired:{connected:true,profileId:desiredId}}, nativeConnectionTransition:null,
+    nativeConnectionTransitionTimeout:{stop(){}}})
+  vm.runInContext(service.slice(beginStart,beginEnd),c)
+  c.beginNativeProfileLifecycleTransition(action,editedId)
+  return c.nativeConnectionTransition
+}
+assert.equal(profileMutationTransition('profile-favorite','new','new'),null)
+assert.equal(profileMutationTransition('profile-replace','new','other'),null)
+assert.equal(profileMutationTransition('profile-rename','new','new').action,'profile-rename')
+assert.equal(profileMutationTransition('profile-delete','new','new').action,'profile-delete')
 
 function panelStateExpression(property) {
   const marker = '  readonly property ' + property + ': {'
@@ -88,6 +116,12 @@ assert.deepEqual(visibleState('failed',{nativeConnectionSwitching:true,
 assert.deepEqual(visibleState('failed',{nativeConnectionSwitching:true,
   nativeConnectionTransition:{revision:4,action:'connect',switchingProfile:false}}),
   {failure:true,kind:''})
+assert.deepEqual(visibleState('connected',{nativeConnectionSwitching:true,
+  nativeConnectionTransition:{revision:4,action:'profile-replace',switchingProfile:false}}),
+  {failure:false,kind:'profileChange'})
+assert.deepEqual(visibleState('connected',{nativeConnectionSwitching:true,
+  nativeConnectionTransition:{revision:4,action:'profile-delete',switchingProfile:false}}),
+  {failure:false,kind:'disconnect'})
 
 for(const kind of ['connect','server','disconnect','starting','reconnecting','stopping'])
   assert(panel.includes('native.progress.' + kind) || panel.includes('"' + kind + '"'),kind)
@@ -106,6 +140,8 @@ assert(panel.includes('vless.nativeSnapshotFailed, nativeLifecyclePending, vless
 assert(panel.includes('root.nativeMetadataTargetId !== ""'))
 assert(service.includes('id: nativeSubscriptionSuccessTimeout'))
 assert(service.includes('var contextualMetadataAction = subscriptionAction'))
+assert(service.includes('beginNativeProfileLifecycleTransition("profile-replace", context.profileId)'))
+assert(service.includes('beginNativeProfileLifecycleTransition(action, profileId)'))
 assert(service.includes('contextualMetadataAction && result.code !== "manual_recovery_required"'))
 assert(service.includes('root.nativeMetadataErrorAction = pendingAction.action'))
 assert.equal((service.match(/\bonNativePendingChanged:/g) || []).length, 1)

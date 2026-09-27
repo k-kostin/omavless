@@ -142,7 +142,7 @@ function serviceHarness() {
     assert(match,name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',context);
   }
-  for(const name of ['requestNativeAction','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
+  for(const name of ['requestNativeAction','beginNativeProfileLifecycleTransition','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'(');
     const end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);

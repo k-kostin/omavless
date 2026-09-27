@@ -27,6 +27,10 @@ connection. It extends the narrow mode-switch presentation in #296.
   global. The status is time-bounded and cannot silently confirm an action.
 - During a connection transition, old traffic counters and the connected
   identity are hidden rather than presented as evidence about the new target.
+- Rename/replace of the *active* profile is not store-only: the Rust owner
+  quiesces and recovers its core. Its frontend waits for newer confirmed
+  connected facts; deleting the active profile waits for confirmed disconnect.
+  Edits to inactive profiles and favorite changes retain only local feedback.
 
 The icon/title/tooltip and card use the same transition classification. Local
 regressions test stale observation, a different connected server, intermediate

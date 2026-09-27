@@ -127,6 +127,7 @@ var CATALOG = {
   "native.progress.starting": {"en":"Connecting…","ru":"Подключаемся…"},
   "native.progress.reconnecting": {"en":"Reconnecting…","ru":"Переподключаемся…"},
   "native.progress.stopping": {"en":"Disconnecting…","ru":"Отключаемся…"},
+  "native.progress.profileChange": {"en":"Applying changes to the active profile…","ru":"Применяем изменения активного профиля…"},
   "native.progress.verify": {"en":"Waiting for the runtime to confirm the new state. This is not a connectivity test.","ru":"Ждём подтверждения состояния от службы. Это не проверка доступа в Интернет."},
   "native.progress.traffic": {"en":"Traffic data will resume after the transition.","ru":"Данные трафика обновятся после перехода."},
   "native.progress.subscriptionRefresh": {"en":"Updating subscription servers…","ru":"Обновляем серверы подписки…"},

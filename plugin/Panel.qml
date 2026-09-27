@@ -187,8 +187,12 @@ Panel {
   readonly property string nativeTransitionKind: {
     if (nativeRealFailure) return ""
     if (vless.nativeModeSwitching) return "mode"
-    if (vless.nativeConnectionSwitching) return vless.nativeConnectionTransition.action === "disconnect" ? "disconnect"
-      : vless.nativeConnectionTransition.switchingProfile ? "server" : "connect"
+    if (vless.nativeConnectionSwitching) {
+      var action = vless.nativeConnectionTransition.action
+      if (action === "disconnect" || action === "profile-delete") return "disconnect"
+      if (action === "profile-rename" || action === "profile-replace") return "profileChange"
+      return vless.nativeConnectionTransition.switchingProfile ? "server" : "connect"
+    }
     if (vless.nativeSnapshot && ["starting", "reconnecting", "stopping"].indexOf(vless.nativeSnapshot.lastKnownActual) >= 0)
       return vless.nativeSnapshot.lastKnownActual
     return ""
@@ -205,8 +209,10 @@ Panel {
   readonly property string nativeTransitionTitle: nativeTransitionKind === "mode"
     ? textFor("native.modeSwitch.title", {mode:nativeSwitchTarget})
     : textFor("native.progress." + nativeTransitionKind, {name:nativeTransitionTarget})
-  readonly property string nativeMetadataAction: vless.nativePending && vless.nativeMetadataBusy
-    ? vless.nativePending.action : vless.nativeMetadataTransition ? vless.nativeMetadataTransition.action : ""
+  readonly property string nativeMetadataAction: vless.nativeConnectionSwitching
+    && vless.nativeConnectionTransition.action.indexOf("profile-") === 0 ? ""
+    : vless.nativePending && vless.nativeMetadataBusy
+      ? vless.nativePending.action : vless.nativeMetadataTransition ? vless.nativeMetadataTransition.action : ""
   readonly property string nativeMetadataTargetId: vless.nativePending && vless.nativeMetadataBusy
     ? vless.nativePending.targetId || "" : vless.nativeMetadataTransition ? vless.nativeMetadataTransition.targetId || "" : ""
   readonly property string nativeMetadataText: nativeMetadataAction.indexOf("subscription-") === 0

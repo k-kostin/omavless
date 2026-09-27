@@ -132,8 +132,9 @@ Item {
       } else if (nativeSnapshot.revision > transition.revision
           && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) {
         var view = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
-        if ((transition.action === "disconnect" && view.state === "disconnected")
-            || (transition.action === "connect" && view.connected && view.activeId === transition.profileId)
+        if ((["disconnect", "profile-delete"].indexOf(transition.action) >= 0 && view.state === "disconnected")
+            || (["connect", "profile-rename", "profile-replace"].indexOf(transition.action) >= 0
+              && view.connected && view.activeId === transition.profileId)
             || ["failed", "manualRecoveryRequired", "unavailable"].indexOf(view.state) >= 0) {
           nativeConnectionTransitionTimeout.stop()
           nativeConnectionTransition = null
@@ -725,6 +726,7 @@ Item {
     var args = ["bash", backendPath, "native-profile-replace", context.instanceId, String(context.revision), operation]
     nativePending = {instanceId:context.instanceId, revision:context.revision, operationId:operation,
       action:"profile-replace", command:args, input:context.profileId + "\n" + context.name + "\n" + output}
+    beginNativeProfileLifecycleTransition("profile-replace", context.profileId)
     nativeOutcomeUnknown = false
     nativeActionCode = ""
     nativeActionProcess.command = args
@@ -794,6 +796,16 @@ Item {
     return true
   }
 
+  function beginNativeProfileLifecycleTransition(action, profileId) {
+    // Rename/replace of the active profile quiesces and recovers the core;
+    // deleting it disconnects. Inactive edits and favorites are store-only.
+    if (["profile-rename", "profile-replace", "profile-delete"].indexOf(action) < 0
+        || !nativeSnapshot.desired.connected || nativeSnapshot.desired.profileId !== profileId) return
+    nativeConnectionTransition = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      action:action, profileId:profileId, switchingProfile:false}
+    nativeConnectionTransitionTimeout.stop()
+  }
+
   function requestNativeProfileAction(action, profileId, value) {
     if (!nativeCanAct || ["profile-rename", "profile-favorite", "profile-delete"].indexOf(action) < 0) return false
     var profile = nativeSnapshot.profiles.find(function(p) { return p.id === profileId })
@@ -811,6 +823,7 @@ Item {
     // Private input survives only while an exact retry is possible; never argv.
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       operationId:operation, action:action, command:args, input:input}
+    beginNativeProfileLifecycleTransition(action, profileId)
     nativeActionCode = ""
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
@@ -3982,7 +3995,9 @@ Item {
       var pendingAction = root.nativePending
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
       var modeAction = root.nativePending && root.nativePending.action === "mode"
-      var connectionAction = root.nativePending && ["connect", "disconnect"].indexOf(root.nativePending.action) >= 0
+      var connectionAction = root.nativePending && (["connect", "disconnect"].indexOf(root.nativePending.action) >= 0
+        || (root.nativeConnectionTransition && root.nativeConnectionTransition.action === root.nativePending.action
+          && root.nativePending.action.indexOf("profile-") === 0))
       var metadataAction = root.nativePending && !modeAction && !connectionAction
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
       var contextualMetadataAction = subscriptionAction || (metadataAction && (
