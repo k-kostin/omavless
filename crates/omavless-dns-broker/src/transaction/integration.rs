@@ -132,7 +132,12 @@ impl Resolve {
                 "synthetic private diagnostic".into(),
             ));
         }
-        state.domains = domains;
+        let delay = state.case == "domain_timeout";
+        drop(state);
+        if delay {
+            thread::sleep(Duration::from_millis(2300));
+        }
+        self.0.lock().unwrap().domains = domains;
         Ok(())
     }
     fn set_link_default_route(&self, index: i32, enabled: bool) {
@@ -140,6 +145,12 @@ impl Resolve {
         assert_eq!(index, state.index);
         assert!(enabled);
         state.calls.push("route");
+        let delay = state.case == "route_timeout";
+        drop(state);
+        if delay {
+            thread::sleep(Duration::from_millis(2300));
+        }
+        let mut state = self.0.lock().unwrap();
         state.route = enabled && state.case != "mismatch";
         state.drift = state.case == "apply_drift";
     }
@@ -321,6 +332,8 @@ fn guard() -> String {
             "success",
             "denial",
             "timeout",
+            "domain_timeout",
+            "route_timeout",
             "drop",
             "policy",
             "mismatch",
@@ -468,7 +481,7 @@ sys.stdin.buffer.read(1)
         "policy" => {
             assert_eq!(outcome, Outcome::Refused);
         }
-        "timeout" => {
+        "timeout" | "domain_timeout" | "route_timeout" => {
             assert_eq!(outcome, Outcome::RecoveryRequired);
             thread::sleep(Duration::from_millis(500));
         }
@@ -519,8 +532,8 @@ sys.stdin.buffer.read(1)
                 assert!(state.notifications.is_empty());
             }
         }
-        "timeout" | "drop" | "apply_drift" | "release_drift" | "dns_drift"
-        | "release_dns_drift" => {
+        "timeout" | "domain_timeout" | "route_timeout" | "drop" | "apply_drift"
+        | "release_drift" | "dns_drift" | "release_dns_drift" => {
             assert!(reopened.requires_recovery());
             assert!(state.stored.is_some());
             assert!(tun_exists());
@@ -544,6 +557,15 @@ sys.stdin.buffer.read(1)
             );
             if case == "timeout" {
                 assert_eq!(state.calls, ["dns"]);
+                assert!(state.domains.is_empty() && !state.route);
+            } else if case == "domain_timeout" {
+                assert_eq!(state.calls, ["dns", "domains"]);
+                assert_eq!(state.domains, [(".".into(), true)]);
+                assert!(!state.route);
+            } else if case == "route_timeout" {
+                assert_eq!(state.calls, ["dns", "domains", "route"]);
+                assert_eq!(state.domains, [(".".into(), true)]);
+                assert!(state.route);
             }
             assert_eq!(
                 state.notifications,

@@ -15,7 +15,8 @@ def isolated(arguments):
     original, binary, digest, case = arguments[:4], *arguments[4:]
     base.guard(*original[:3])
     base.require(base.ns.namespace('mnt') != original[3])
-    base.require(case in ('success', 'denial', 'timeout', 'drop', 'policy', 'mismatch',
+    base.require(case in ('success', 'denial', 'timeout', 'domain_timeout',
+                         'route_timeout', 'drop', 'policy', 'mismatch',
                          'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift'))
     ownership.validate_source(Path(binary), digest)
     subprocess.run(['/usr/bin/mount', '--make-rprivate', '/'], check=True,
@@ -46,7 +47,8 @@ def main():
         binary, digest = sys.argv[1:]
         ownership.validate_source(Path(binary), digest)
         original = [base.ns.namespace(name) for name in ('net', 'user', 'pid', 'mnt')]
-        for case in ('success', 'denial', 'timeout', 'drop', 'policy', 'mismatch',
+        for case in ('success', 'denial', 'timeout', 'domain_timeout',
+                     'route_timeout', 'drop', 'policy', 'mismatch',
                      'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift'):
             result = subprocess.run([
                 '/usr/bin/unshare', '--user', '--map-root-user', '--net', '--pid',

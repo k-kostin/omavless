@@ -35,7 +35,7 @@ python3 tests/dns_broker_composition_probe.py ABSOLUTE_TEST_BINARY SHA256
 
 The ordinary test suite intentionally ignores the namespace test. The wrapper
 runs only `transaction::integration::actual_host_composition` with `--ignored`,
-under its isolation guards. It prints ten public PASS classifications or one
+under its isolation guards. It prints twelve public PASS classifications or one
 bounded failure, never mock/raw backend diagnostics.
 
 ## Evidence
@@ -52,6 +52,12 @@ The broker's 46 deterministic tests passed (the namespace case is intentionally
 ignored by ordinary cargo test). The earlier 160 executions remain evidence
 for their original eight-case artifact, not 20 repetitions of the new cases.
 
+The later twelve-scenario PC namespace probe passed once on library-test
+SHA-256 `53156a169a3438613f0ce34c4b2a32b142277f67c784c75adcc3c0762040bb4d`.
+It adds separate late domain/default-route writes; 47 ordinary broker tests
+passed with one intentionally ignored namespace case. This is isolated mock-bus
+evidence, not an installed resolved or owner-attended result.
+
 - `success`: pending journal and external FD retention precede the first DNS
   write; exact fixed parameters; Ready follows readback; release verifies DNS
   reset before FD removal and journal deletion; final descriptor close removes TUN.
@@ -60,6 +66,11 @@ for their original eight-case artifact, not 20 repetitions of the new cases.
 - `timeout`: the real method exceeds its deadline and applies late. No automatic
   Revert or FD removal occurs; journal reopening refuses new work, and manager
   retention keeps TUN present after client/broker-side descriptor drops.
+- `domain_timeout` / `route_timeout`: the second or third fixed resolved write
+  similarly completes after the broker's D-Bus deadline. Neither a partially
+  applied policy nor a late complete fixed policy may become Ready or trigger
+  speculative Revert/FD removal. The exact call prefix, late effective values,
+  retained descriptor and recovery-required journal are checked separately.
 - `drop`: after successful apply, broker-owned objects disappear without release.
   No drop cleanup is inferred; the external store keeps TUN, and a new journal
   instance requires recovery.
