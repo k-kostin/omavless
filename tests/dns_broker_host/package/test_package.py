@@ -1,6 +1,7 @@
 """No package build/install, root action, host systemd query or real DNS input."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import re
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -34,10 +36,47 @@ class PackageTests(unittest.TestCase):
         header[18:20] = (183).to_bytes(2, "little")
         self.binary.write_bytes(header)
         self.pin = hashlib.sha256(header).hexdigest()
+        self.pair = self.root / "pair"
+        self.pair.mkdir(mode=0o700)
+        source = io.BytesIO()
+        with tarfile.open(fileobj=source, mode="w:xz") as archive:
+            for name, content in (
+                ("mihomo/go.mod", b"synthetic Go module"),
+                ("mihomo/vendor/modules.txt", b"synthetic vendored modules"),
+                ("mihomo/LICENSE", b"synthetic GPL fixture"),
+                ("sing-tun/go.mod", b"synthetic sing-tun module"),
+                ("sing-tun/LICENSE", b"synthetic GPL fixture"),
+                ("omavless/Cargo.lock", b"synthetic Cargo lock"),
+                ("omavless/LICENSE", b"synthetic MIT fixture"),
+            ):
+                member = tarfile.TarInfo(name)
+                member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+        files = {
+            "omavless-dns-broker": bytes(header), "mihomo": bytes(header),
+            "corresponding-source.tar.xz": source.getvalue(),
+            "mihomo.LICENSE": b"synthetic GPL fixture",
+            "sing-tun.LICENSE": b"synthetic GPL fixture",
+            "omavless.LICENSE": b"synthetic MIT fixture",
+        }
+        for name, content in files.items():
+            (self.pair / name).write_bytes(content)
+        receipt = {
+            "schema": 1, "architecture": "aarch64", "omavless_commit": "a" * 40,
+            "mihomo_commit": build_pair.MIHOMO, "sing_tun_commit": build_pair.SING_TUN,
+            "patch_sha256": build_pair.PATCH_SHA,
+            "mihomo_tag": "v1.19.31", "sing_tun_tag": "v0.4.24",
+            "go_version": "go version go1.26.8 linux/arm64",
+            "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
+            "go_binary_sha256": "b" * 64, "cargo_lock_sha256": "c" * 64,
+            "rustc_version": "rustc 1.98.1", "cargo_version": "cargo 1.98.1",
+            "sha256": {name: hashlib.sha256(content).hexdigest()
+                       for name, content in files.items()},
+        }
+        (self.pair / "source-receipt.json").write_text(json.dumps(receipt))
 
     def render(self, output=None, **changes):
-        args = {"broker": self.binary, "core": self.binary, "broker_sha": self.pin,
-                "core_sha": self.pin, "architecture": "aarch64", "revision": "a" * 40,
+        args = {"pair": self.pair, "architecture": "aarch64", "revision": "a" * 40,
                 "output": output or self.root / "staged"}
         args.update(changes)
         stage.stage(**args)
@@ -75,27 +114,54 @@ class PackageTests(unittest.TestCase):
             build_pair.build(self.root, self.root, "/usr/bin/go", build_pair.REPO / "candidate")
 
     def test_bad_hash_arch_revision_symlink_hardlink_existing_target_refuse(self):
-        for changes in ({"broker_sha": "0" * 64}, {"core_sha": "SKIP"},
-                        {"architecture": "x86_64"}, {"revision": "main"}):
+        for changes in ({"architecture": "x86_64"}, {"revision": "main"}):
             with self.assertRaises(stage.Refused):
                 self.render(**changes)
         link = self.root / "link"
-        link.symlink_to(self.binary)
-        with self.assertRaises(OSError):
-            self.render(broker=link)
-        os.link(self.binary, self.root / "hardlink")
+        link.symlink_to(self.pair, target_is_directory=True)
+        with self.assertRaises(stage.Refused):
+            self.render(pair=link)
+        (self.pair / "mihomo").unlink()
+        os.link(self.binary, self.pair / "mihomo")
         with self.assertRaises(stage.Refused):
             self.render()
-        (self.root / "hardlink").unlink()
+        (self.pair / "mihomo").unlink()
+        (self.pair / "mihomo").write_bytes(self.binary.read_bytes())
+        (self.pair / "mihomo").write_bytes(b"changed")
+        with self.assertRaises(stage.Refused):
+            self.render()
+        (self.pair / "mihomo").write_bytes(self.binary.read_bytes())
         existing = self.root / "existing"
         existing.mkdir()
         with self.assertRaises(FileExistsError):
             self.render(output=existing)
 
+    def test_pair_receipt_tamper_extra_fields_and_wrong_patches_refuse(self):
+        path = self.pair / "source-receipt.json"
+        original = path.read_text()
+        try:
+            for mutation in (
+                lambda record: record.update({"private_profile": "synthetic"}),
+                lambda record: record.update({"patch_sha256": {}}),
+                lambda record: record["sha256"].update({"mihomo": "0" * 64}),
+                lambda record: record.update({"go_version": "synthetic\nsecret"}),
+            ):
+                record = json.loads(original)
+                mutation(record)
+                path.write_text(json.dumps(record))
+                with self.assertRaises(stage.Refused):
+                    self.render()
+        finally:
+            path.write_text(original)
+
     def test_package_has_no_stock_core_override_activation_or_enrollment(self):
         recipe = (ROOT / "PKGBUILD.in").read_text()
         script = (ROOT / "omavless-dns-experimental.install").read_text()
         self.assertIn("/usr/lib/omavless-dns-experimental/mihomo", recipe)
+        self.assertIn("corresponding-source.tar.xz", recipe)
+        self.assertIn("mihomo.LICENSE", recipe)
+        self.assertIn("sing-tun.LICENSE", recipe)
+        self.assertIn("omavless.LICENSE", recipe)
         self.assertNotIn("$pkgdir/usr/bin/", recipe)
         self.assertNotIn("$pkgdir/etc/", recipe)
         self.assertIn("/usr/bin/setcap cap_net_bind_service,cap_net_admin,cap_net_raw=ep /usr/lib/omavless-dns-experimental/mihomo", script)

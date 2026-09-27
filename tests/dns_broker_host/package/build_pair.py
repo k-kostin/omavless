@@ -122,14 +122,17 @@ def build(mihomo_git, sing_tun_git, go, output):
                   "GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "0"}
         command([go, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"],
                 cwd=sources / "mihomo", env=go_env)
-        command([go, "test", "-mod=readonly", "-tags=with_gvisor", "./listener/config",
+        command([go, "mod", "vendor"], cwd=sources / "mihomo", env=go_env)
+        if not (sources / "mihomo/vendor/modules.txt").is_file():
+            raise stage.Refused("Offline vendored dependency source is incomplete.")
+        command([go, "test", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
                  "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=1"],
                 cwd=sources / "mihomo", env=go_env)
         package = work / "payload"
         package.mkdir()
         package.chmod(0o700)
         core = package / "mihomo"
-        command([go, "build", "-mod=readonly", "-tags=with_gvisor", "-trimpath",
+        command([go, "build", "-mod=vendor", "-tags=with_gvisor", "-trimpath",
                  "-ldflags=-s -w", "-o", str(core), "."],
                 cwd=sources / "mihomo", env=go_env)
         info = subprocess.run([go, "version", "-m", str(core)],
@@ -155,11 +158,13 @@ def build(mihomo_git, sing_tun_git, go, output):
                 stream.add(sources / name, arcname=name, recursive=True)
         for name in ("mihomo", "sing-tun"):
             shutil.copy2(sources / name / "LICENSE", package / (name + ".LICENSE"))
+        shutil.copy2(sources / "omavless/LICENSE", package / "omavless.LICENSE")
         receipt = {
             "schema": 1, "architecture": "x86_64", "omavless_commit": revision,
             "mihomo_commit": MIHOMO, "mihomo_tag": "v1.19.31",
             "sing_tun_commit": SING_TUN, "sing_tun_tag": "v0.4.24",
             "patch_sha256": PATCH_SHA, "go_version": go_version,
+            "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
             "go_binary_sha256": digest(Path(go)),
             "rustc_version": subprocess.run(
                 ["/usr/bin/rustc", "--version"], stdin=subprocess.DEVNULL,
@@ -170,7 +175,7 @@ def build(mihomo_git, sing_tun_git, go, output):
             "cargo_lock_sha256": digest(sources / "omavless/Cargo.lock"),
             "sha256": {name: digest(package / name) for name in
                        ("mihomo", "omavless-dns-broker", "corresponding-source.tar.xz",
-                        "mihomo.LICENSE", "sing-tun.LICENSE")},
+                        "mihomo.LICENSE", "sing-tun.LICENSE", "omavless.LICENSE")},
         }
         (package / "source-receipt.json").write_text(
             json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")

@@ -38,7 +38,8 @@ The OmaVLESS checkout must be committed and clean. The build uses the full
 `mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
 alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
 `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, locked Go/Cargo dependencies and the
-production `with_gvisor` tag. A missing local dependency fails closed. Output
+production `with_gvisor` tag. It vendors Go dependencies offline, then tests
+and builds from that vendored tree. A missing local dependency fails closed. Output
 contains both binaries, the complete corresponding patched source archive,
 Mihomo/sing-tun licenses, and `source-receipt.json` with exact commits, patch
 hashes, toolchain and output hashes. The receipt is reproducibility evidence,
@@ -46,28 +47,30 @@ not a signature, independent audit, permission to enroll, or proof of installed
 network behavior. The current builder supports x86_64 only; ARM64 needs its
 own verified toolchain/build gate.
 
-The staged binary-only package below does **not yet include** this source
-archive, licenses or enforce this receipt. Review and package integration are
-still required before normal distribution; do not treat this builder alone as
-a release-ready solution.
+The staging fixture below now requires the pair directory and includes this
+source archive, licenses and receipt in the experimental package. It is still
+not a normal release: source review, cross-architecture coverage, enrollment
+and installed failure-path acceptance remain separate gates.
 
 ## Stage and inspect (ordinary user)
 
 Invoke `python3 tests/dns_broker_host/package/stage.py` with:
 
-- `--broker`: reviewed local `omavless-dns-broker` ELF64 binary;
-- `--core`: reviewed local patched Mihomo ELF64 binary;
-- `--broker-sha` and `--core-sha`: independently recorded lowercase SHA-256 pins;
-- `--revision`: exact 40-character repository source commit;
+- `--pair`: reviewed private directory containing both ELF64 binaries, complete
+  source archive, licenses and `source-receipt.json` from an offline pair build;
+- `--revision`: exact 40-character OmaVLESS source commit in that pair receipt;
 - `--arch`: `aarch64` or `x86_64`, checked against both ELF machine headers;
 - `--output`: a **new**, absolute, outside-Git build directory whose parent
   already exists, is owned by the invoking user and is private (`0700`).
 
 The tool refuses symlinks, nonregular/unowned/hardlinked or oversized inputs,
-incorrect hashes and wrong architectures. It does not print source paths or
-binary contents. All `PKGBUILD` sources are fixed local filenames with exact
-checksums; no mutable URL, `SKIP` checksum or network fetch exists. An incomplete
-staging directory is left for inspection, never automatically recursively erased.
+incorrect hashes and wrong architectures. It accepts only the exact bounded
+receipt schema and pinned upstream/patch identities. It does not print source
+paths or binary contents. All `PKGBUILD` sources are fixed local filenames with
+exact checksums; no mutable URL, `SKIP` checksum or network fetch exists. An
+incomplete staging directory is left for inspection, never automatically
+recursively erased. The receipt and source archive still require independent
+review; a self-reported hash is not a signature or proof of build provenance.
 
 After source review, an ordinary-user `makepkg` invocation can build the staged
 recipe without installing it. Inspect the archive's file list, `.PKGINFO`,
@@ -84,6 +87,10 @@ The archive installs only these fixed destinations:
 - `/usr/lib/systemd/system/omavless-dns-broker.service`;
 - `/usr/share/libalpm/hooks/omavless-dns-experimental.hook`;
 - `/usr/share/omavless-dns-experimental/reviewed-inputs.json`.
+- `/usr/share/omavless-dns-experimental/source-receipt.json` and
+  `corresponding-source.tar.xz`;
+- `/usr/share/licenses/omavless-dns-experimental/` with OmaVLESS, Mihomo and
+  sing-tun license texts.
 
 The package scriptlet sets
 `cap_net_bind_service,cap_net_admin,cap_net_raw=ep` **only** on that candidate
