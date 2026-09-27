@@ -134,6 +134,50 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
                                    "fresh_owned_core_running": False,
                                    "last_known_connected": True}])
 
+    def test_private_action_keeps_profile_out_of_process_arguments(self):
+        secret_id = "private-profile-id"
+        request_id = "installed-gate-" + "a" * 32
+        reply = json.dumps({"api": "omavless.control", "version": 1,
+                            "id": request_id, "ok": True, "revision": 8,
+                            "result": {"applied": True}}).encode() + b"\n"
+        class Connection:
+            def __init__(self):
+                self.sent = None
+                self.replied = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def settimeout(self, _):
+                pass
+            def connect(self, _):
+                pass
+            def getsockopt(self, *_):
+                return gate.struct.pack("3i", 41, gate.os.getuid(), 0)
+            def sendall(self, value):
+                self.sent = value
+            def shutdown(self, _):
+                pass
+            def recv(self, _):
+                if not self.replied:
+                    self.replied = True
+                    return reply
+                return b""
+        connection = Connection()
+        metadata = Mock(st_mode=gate.stat.S_IFSOCK | 0o600, st_uid=gate.os.getuid())
+        directory = Mock(st_mode=gate.stat.S_IFDIR | 0o700, st_uid=gate.os.getuid())
+        with patch.object(gate.installed, "cli", return_value={
+                "revision": 7, "result": {"instanceId": "runtime-instance"}}), \
+                patch.object(Path, "lstat", side_effect=[directory, metadata]), \
+                patch.object(gate.socket, "socket", return_value=connection), \
+                patch.object(gate.uuid, "uuid4", return_value=Mock(hex="a" * 32)), \
+                patch.object(gate.subprocess, "run") as process:
+            gate.owned_action(41, "connect", secret_id, "global")
+        request = json.loads(connection.sent)
+        self.assertEqual(request["params"]["profileId"], secret_id)
+        self.assertEqual(request["params"]["expectedRevision"], 7)
+        process.assert_not_called()
+
     def test_profile_selection_is_exact_and_never_prints_private_fields(self):
         candidate = {"id": "selected", "protocol": "vless", "missing": False,
                      "uri": "private material"}

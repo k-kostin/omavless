@@ -427,3 +427,13 @@ the child and restored Disconnected/Rule with no recovery, owned core, TUN or
 broker FD. No firewall exception was needed for this crash case. This is
 corrected **agent-attended diagnostic evidence**, not a retroactive PASS for
 the earlier ARM runner nor the owner's formal acceptance before main.
+
+The runner was subsequently tightened so Connect and other actions use the
+runtime's authenticated private Unix socket instead of passing the selected
+profile ID as a CLI argument. An additional post-Disconnect assertion checks
+that the original zombie PID was actually reaped. Pure tests cover the private
+request framing/peer check without launching an action process. The corrected
+runner passed a second agent-attended VM cycle with the same core-death,
+DNS/TUN-release and Disconnected/Rule outcomes. The VM was again left with
+zero owned cores/TUNs and zero retained broker descriptors. This still awaits
+owner-attended acceptance on the exact promotion candidate.

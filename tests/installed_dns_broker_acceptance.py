@@ -22,6 +22,7 @@ import stat
 import struct
 import subprocess
 import time
+import uuid
 
 
 def sibling(name):
@@ -164,6 +165,63 @@ def broker_identity(expected_sha):
 
 def broker_state(expected):
     gate.broker_evidence(expected, fixed_command)
+
+
+def owned_action(runtime_pid, name, *args):
+    """Use the private control socket; never put a profile ID in process argv."""
+    require(name in ("connect", "disconnect", "mode"), "native_action_rejected")
+    require((name == "connect" and len(args) == 2)
+            or (name == "mode" and len(args) == 1)
+            or (name == "disconnect" and not args), "native_action_rejected")
+    state = installed.cli("plugin", "snapshot")
+    snapshot = state["result"]
+    params = {"instanceId": snapshot["instanceId"],
+              "expectedRevision": state["revision"],
+              "operationId": "installed-gate-" + uuid.uuid4().hex,
+              "action": name}
+    if name == "connect":
+        params.update(profileId=args[0], mode=args[1])
+    elif name == "mode":
+        params["mode"] = args[0]
+    path = Path("/run/user") / str(os.getuid()) / "omavless/control.sock"
+    directory = path.parent.lstat()
+    metadata = path.lstat()
+    require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.getuid()
+            and stat.S_IMODE(directory.st_mode) == 0o700
+            and stat.S_ISSOCK(metadata.st_mode) and metadata.st_uid == os.getuid()
+            and stat.S_IMODE(metadata.st_mode) == 0o600,
+            "native_action_rejected")
+    request_id = "installed-gate-" + uuid.uuid4().hex
+    request = {"api": "omavless.control", "version": 1, "id": request_id,
+               "method": "plugin.action", "params": params}
+    frame = json.dumps(request, separators=(",", ":")).encode() + b"\n"
+    require(len(frame) <= 65536, "native_action_rejected")
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(120)
+        connection.connect(str(path))
+        peer_pid, peer_uid, _ = struct.unpack(
+            "3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        require(peer_pid == runtime_pid and peer_uid == os.getuid(),
+                "native_action_rejected")
+        connection.sendall(frame)
+        connection.shutdown(socket.SHUT_WR)
+        response = bytearray()
+        deadline = time.monotonic() + 120
+        while True:
+            require(time.monotonic() < deadline, "native_action_rejected")
+            chunk = connection.recv(8192)
+            if not chunk:
+                break
+            response.extend(chunk)
+            require(len(response) <= 262144, "native_action_rejected")
+    require(response.endswith(b"\n") and response.count(b"\n") == 1,
+            "native_action_rejected")
+    value = json.loads(response)
+    require(isinstance(value, dict) and value.get("api") == "omavless.control"
+            and type(value.get("version")) is int and value["version"] == 1
+            and value.get("id") == request_id
+            and value.get("ok") is True, "native_action_rejected")
+    return value
 
 
 def core_process_projection(status, runtime_pid, uid):
@@ -497,7 +555,7 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
     completed = False
     checkpoint = "connect"
     try:
-        authorization.step("connect", lambda: installed.action("connect", profile, "global"))
+        authorization.step("connect", lambda: owned_action(runtime_pid, "connect", profile, "global"))
         connected = True
         checkpoint = "connected_state"
         core_pid = connected_state(runtime_pid, "global")
@@ -508,7 +566,7 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
             probe_core_proxy_https()  # diagnosis only; it cannot replace TUN evidence
             raise gate.Failure("full_vpn_https_failed")
         checkpoint = "mode_sequence"
-        mode_sequence(authorization, lambda mode: installed.action("mode", mode),
+        mode_sequence(authorization, lambda mode: owned_action(runtime_pid, "mode", mode),
                       lambda mode: connected_state(runtime_pid, mode))
         completed = True
     except Exception as error:
@@ -521,13 +579,13 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
             raise auth.AuthorizationUnsettled()
         # A rejected/unknown Connect can still have host effects. Its separately
         # attended Disconnect must not be skipped just because CLI rejected it.
-        authorization.step("disconnect", lambda: installed.action("disconnect"))
+        authorization.step("disconnect", lambda: owned_action(runtime_pid, "disconnect"))
         clean = installed.clean_disconnected_observation(
             installed.cli("runtime", "observation")["result"])
         require(clean and not installed.tuns(), "cleanup_unverified")
         broker_state(0)
         if installed.cli("plugin", "snapshot")["result"]["desired"]["mode"] != original_mode:
-            authorization.step("restore_mode", lambda: installed.action("mode", original_mode))
+            authorization.step("restore_mode", lambda: owned_action(runtime_pid, "mode", original_mode))
         restored = installed.cli("plugin", "snapshot")["result"]["desired"]
         require(restored["connected"] is False and restored["mode"] == original_mode,
                 "restoration_unverified")
@@ -555,7 +613,7 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
     core_pid = None
     checkpoint = "connect"
     try:
-        authorization.step("connect", lambda: installed.action("connect", profile, "global"))
+        authorization.step("connect", lambda: owned_action(runtime_pid, "connect", profile, "global"))
         checkpoint = "connected_state"
         core_pid = connected_state(runtime_pid, "global")
         checkpoint = "core_crash"
@@ -572,7 +630,7 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
             gate.emit(passed=False, cleanup=False,
                       classification="human_authorization_unsettled")
             raise auth.AuthorizationUnsettled()
-        authorization.step("disconnect", lambda: installed.action("disconnect"))
+        authorization.step("disconnect", lambda: owned_action(runtime_pid, "disconnect"))
         clean = installed.clean_disconnected_observation(
             installed.cli("runtime", "observation")["result"])
         require(clean and not installed.tuns()
@@ -580,7 +638,7 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
                 "cleanup_unverified")
         broker_state(0)
         if installed.cli("plugin", "snapshot")["result"]["desired"]["mode"] != original_mode:
-            authorization.step("restore_mode", lambda: installed.action("mode", original_mode))
+            authorization.step("restore_mode", lambda: owned_action(runtime_pid, "mode", original_mode))
         restored = installed.cli("plugin", "snapshot")["result"]["desired"]
         require(restored["connected"] is False and restored["mode"] == original_mode,
                 "restoration_unverified")

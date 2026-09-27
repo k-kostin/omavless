@@ -13,6 +13,7 @@ python3 -m unittest -v \
   "$here/test_release_candidate.py" \
   "$here/test_frontend_pair.py" \
   "$here/test_installed_native_acceptance.py" \
+  "$here/test_installed_dns_broker_acceptance.py" \
   "$here/test_installed_native_domain.py" \
   "$here/test_installed_native_bridge.py" \
   "$here/test_installed_native_package.py" \
