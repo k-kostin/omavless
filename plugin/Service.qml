@@ -8,6 +8,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "NativeSnapshot.js" as NativeSnapshot
+import "NativePresentation.js" as NativePresentation
 
 // Headless state for the OmaVLESS widget. backend.sh keeps private links in a
 // 0600 store and runs a dedicated Mihomo user service.
@@ -95,6 +96,33 @@ Item {
   property var nativePending: null
   property string nativeActionCode: ""
   property bool nativeOutcomeUnknown: false
+  // A successful mode command invalidates the previous observation before a
+  // fresh status/observation pair arrives. Keep that known, bounded transition
+  // separate from an actual unverified or failed runtime state.
+  property var nativeModeTransition: null
+  readonly property bool nativeModeSwitching: nativeModeTransition !== null
+  Timer {
+    id: nativeModeTransitionTimeout
+    interval: 12000
+    repeat: false
+    onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeModeTransition = null
+  }
+  function finishNativeModeTransitionObservation() {
+    var transition = nativeModeTransition
+    if (!transition || nativePending || nativeActionRunning) return
+    if (!nativeSnapshot || nativeSnapshot.instanceId !== transition.instanceId) {
+      nativeModeTransitionTimeout.stop()
+      nativeModeTransition = null
+      return
+    }
+    if (nativeSnapshotFailed || nativeSnapshot.revision <= transition.revision
+        || !NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) return
+    var view = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+    if (view.modeConfirmed || ["failed", "manualRecoveryRequired", "unavailable"].indexOf(view.state) >= 0) {
+      nativeModeTransitionTimeout.stop()
+      nativeModeTransition = null
+    }
+  }
   readonly property bool nativeActionRunning: nativeActionProcess.running
   readonly property bool nativeFactsCurrent: nativeOwner && !nativeSnapshotFailed
     && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
@@ -684,6 +712,8 @@ Item {
     else if (action === "mode") args.push(mode)
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       operationId:operation, action:action, command:args}
+    if (action === "mode") nativeModeTransition = {instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, targetMode:mode, operationId:operation}
     nativeActionCode = ""
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
@@ -3851,6 +3881,7 @@ Item {
     stdout: StdioCollector { id: nativeObservationStdout; waitForEnd: true }
     onExited: function(exitCode) {
       root.nativeObservation = exitCode === 0 ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
+      root.finishNativeModeTransitionObservation()
     }
   }
 
@@ -3880,6 +3911,7 @@ Item {
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
+      var modeAction = root.nativePending && root.nativePending.action === "mode"
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
@@ -3896,6 +3928,13 @@ Item {
         // Subscription failures have their own contextual banner. Recovery
         // still belongs to the global state and must never be hidden.
         root.nativeActionCode = result.ok || (subscriptionAction && result.code !== "manual_recovery_required") ? "" : result.code
+      }
+      if (modeAction) {
+        if (result && result.ok) nativeModeTransitionTimeout.restart()
+        else {
+          nativeModeTransitionTimeout.stop()
+          root.nativeModeTransition = null
+        }
       }
       root.nativeObservation = null
       root.refreshAfterChange()
@@ -3976,6 +4015,10 @@ Item {
         root.statusFailureCount = 0
       } else {
         if (root.nativeOwner) root.nativeSnapshotFailed = true
+        if (root.nativeModeTransition && !root.nativeActionRunning) {
+          nativeModeTransitionTimeout.stop()
+          root.nativeModeTransition = null
+        }
         root.lastError = root.nativeOwner ? "Native metadata is unavailable"
           : root.elide(statusStderr.text || "Failed to read OmaVLESS status")
         root._pollError = true

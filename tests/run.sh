@@ -64,6 +64,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-qr.js"
   node "$here/test-native-editor.js"
   node "$here/test-native-presentation.js"
+  node "$here/test-native-mode-transition.js"
   node "$here/test-traffic-reference.js"
   node "$here/test-native-traffic.js"
   node "$here/test-native-ping.js"
