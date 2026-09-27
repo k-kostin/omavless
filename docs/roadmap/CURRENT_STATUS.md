@@ -29,7 +29,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   On the PC, a later [x86_64 pre-install checkpoint](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
   built the pinned experimental pair and passed isolated production-tag core
   probes after correcting a namespace-only reverse-path-filter test assumption.
-  No PC installed DNS cycle or new release claim follows from it.
+  The subsequent installed PC-VM cycles reached Connected with a held DNS lease,
+  but TUN-bound HTTPS timed out on tested XHTTP and WebSocket profiles. Attended
+  cleanup restored Disconnected/Rule with no TUN, held descriptor or recovery.
+  The outer PC's active V2RayN TUN is an unresolved egress confounder, not a
+  proven cause. PC mode/DNS acceptance and a new release claim do not follow.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
