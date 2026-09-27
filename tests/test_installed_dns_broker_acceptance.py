@@ -43,9 +43,16 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         state = {"lastProfileId": "selected", "profiles": [
             {"id": "other", "protocol": "vless", "missing": False}, candidate]}
         self.assertEqual(gate.selected_profile(state), "selected")
+        self.assertEqual(gate.selected_profile(state, 0), "other")
+        self.assertEqual(gate.selected_profile(state, 1), "selected")
+        for index in (-1, 2, True):
+            with self.assertRaisesRegex(gate.gate.Failure, "^vless_fixture_unavailable$"):
+                gate.selected_profile(state, index)
         state["profiles"][1]["missing"] = True
         with self.assertRaisesRegex(gate.gate.Failure, "^vless_fixture_unavailable$"):
             gate.selected_profile(state)
+        with self.assertRaisesRegex(gate.gate.Failure, "^vless_fixture_unavailable$"):
+            gate.selected_profile(state, 1)
 
     def test_each_mode_effect_needs_its_own_human_barrier(self):
         words = "ready\nsettled\n" * 3

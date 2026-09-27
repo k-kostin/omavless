@@ -46,9 +46,17 @@ def fixed_command(args):
     return result
 
 
-def selected_profile(state):
+def selected_profile(state, index=None):
     profiles = state.get("profiles")
     require(isinstance(profiles, list) and len(profiles) <= 256, "private_state_unavailable")
+    eligible = [profile for profile in profiles if isinstance(profile, dict)
+                and isinstance(profile.get("id"), str)
+                and profile.get("protocol") == "vless"
+                and profile.get("missing") is False]
+    if index is not None:
+        require(type(index) is int and 0 <= index < len(eligible),
+                "vless_fixture_unavailable")
+        return eligible[index]["id"]
     for profile in profiles:
         if (isinstance(profile, dict) and profile.get("id") == state.get("lastProfileId")
                 and profile.get("protocol") == "vless" and profile.get("missing") is False):
@@ -138,7 +146,7 @@ def mode_sequence(authorization, change, verify):
         verify(mode)
 
 
-def run_gate(authorization, expected_sha, broker_sha):
+def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
     authorization.require_terminal()  # before private state or host observation
     runtime_pid = installed_identity(expected_sha)
     broker_identity(broker_sha)
@@ -148,7 +156,7 @@ def run_gate(authorization, expected_sha, broker_sha):
     broker_state(0)
     snapshot = installed.cli("plugin", "snapshot")["result"]
     require(snapshot["startup"]["enabled"] is False, "startup_not_disabled")
-    profile = selected_profile(snapshot)
+    profile = selected_profile(snapshot, profile_index)
     original_mode = snapshot["desired"]["mode"]
     require(original_mode in ("global", "rule", "direct"), "original_mode_unavailable")
     gate.emit(case="installed-managed-dns", preflight=True,
@@ -195,13 +203,15 @@ def main(argv=None):
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--experimental-core-sha", metavar="SHA256")
     parser.add_argument("--experimental-broker-sha", metavar="SHA256")
+    parser.add_argument("--profile-index", type=int, metavar="N",
+                        help="0-based index among available VLESS profiles; default: last selected")
     args = parser.parse_args(argv)
     if not args.run:
         gate.emit(status="NOT RUN", reason="explicit_run_required")
         return 0
     try:
         run_gate(auth.HumanAuthorization(), args.experimental_core_sha,
-                 args.experimental_broker_sha)
+                 args.experimental_broker_sha, args.profile_index)
         return 0
     except Exception as error:
         allowed = {"vless_fixture_unavailable", "baseline_not_disconnected",

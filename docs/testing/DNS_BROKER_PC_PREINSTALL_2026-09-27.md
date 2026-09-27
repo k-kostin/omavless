@@ -62,8 +62,15 @@ access because current production login admission requires the installed owner.
 
 ## Still open
 
-The VM has no usable private VLESS fixture; no installed DNS broker/core/runtime
-cycle was attempted here. The human-attended installed mode sequence, actual
+At the initial package checkpoint the VM had no private fixture. The owner then
+provided a subscription for VM-only testing; its private stdin import succeeded
+and produced 35 VLESS records without changing the disconnected state. No URL,
+record identifiers or profile content is retained in Git. The powered-off VM
+disk and NVRAM were copied and byte-verified to a private, outside-Git checkpoint
+before any attempted package change. The exact public 0.8.2 x86_64 rollback
+package was separately retained and matched its published SHA-256. No package
+installation or VPN cycle followed this checkpoint. The human-attended installed
+mode sequence, actual
 resolved readback, same/cross-UID admission, crash/retention, ALPM
 removal/upgrade refusal, clean removal and recovery remain outstanding as
 specified by the [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.md).

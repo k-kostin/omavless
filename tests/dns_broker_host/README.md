@@ -160,8 +160,11 @@ After separately attended installation, enrollment and startup, run the new
 REVIEWED_CORE_SHA256 --experimental-broker-sha REVIEWED_BROKER_SHA256` in a
 visible terminal in the isolated guest. Both independently reviewed installed
 binaries and the actual running broker executable must match these pins. It uses the
-installed Rust owner and its current last-selected usable VLESS profile; it
-does not import, select or print a profile. It refuses an absent profile,
+installed Rust owner and its current last-selected usable VLESS profile, or an
+explicit `--profile-index N` (zero-based among available VLESS profiles) when
+a fresh VM has no last selection. The index is resolved once from the private
+snapshot before Connect; it is not a latency or usability test. The runner
+does not import or print a profile. It refuses an absent profile,
 connected baseline, enabled startup, wrong installed core or unavailable root
 broker before connecting. Preserve a reviewed rollback package separately.
 
