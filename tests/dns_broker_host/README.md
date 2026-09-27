@@ -157,7 +157,9 @@ production guard or count an isolated fixture as installed evidence.
 
 After separately attended installation, enrollment and startup, run the new
 `tests/installed_dns_broker_acceptance.py --run --experimental-core-sha
-REVIEWED_SHA256` in a visible terminal in the isolated guest. It uses the
+REVIEWED_CORE_SHA256 --experimental-broker-sha REVIEWED_BROKER_SHA256` in a
+visible terminal in the isolated guest. Both independently reviewed installed
+binaries and the actual running broker executable must match these pins. It uses the
 installed Rust owner and its current last-selected usable VLESS profile; it
 does not import, select or print a profile. It refuses an absent profile,
 connected baseline, enabled startup, wrong installed core or unavailable root

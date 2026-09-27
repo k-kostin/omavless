@@ -25,9 +25,17 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         with patch.object(gate, "installed_identity") as identity, \
                 patch.object(gate.installed, "cli") as cli, \
                 self.assertRaises(gate.auth.AuthorizationUnsettled):
-            gate.run_gate(authorization, "0" * 64)
+            gate.run_gate(authorization, "0" * 64, "0" * 64)
         identity.assert_not_called()
         cli.assert_not_called()
+
+    def test_missing_broker_pin_refuses_before_file_or_service_access(self):
+        with patch.object(Path, "lstat") as inspect, \
+                patch.object(gate, "fixed_command") as command, \
+                self.assertRaisesRegex(gate.gate.Failure, "^broker_pin_required$"):
+            gate.broker_identity(None)
+        inspect.assert_not_called()
+        command.assert_not_called()
 
     def test_profile_selection_is_exact_and_never_prints_private_fields(self):
         candidate = {"id": "selected", "protocol": "vless", "missing": False,

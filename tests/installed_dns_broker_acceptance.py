@@ -9,6 +9,7 @@ the current state for explicit inspection; no automatic recovery is attempted.
 Only fixed classifications, counts and booleans are printed.
 """
 import argparse
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -29,6 +30,7 @@ installed = sibling("installed_native_acceptance")
 auth = sibling("human_authorization")
 
 CORE_PATH = Path("/usr/lib/omavless-dns-experimental/mihomo")
+BROKER_PATH = Path("/usr/lib/omavless/omavless-dns-broker")
 RUNTIME = "omavless-runtime.service"
 MODES = ("global", "rule", "direct", "global")
 
@@ -74,6 +76,30 @@ def installed_identity(expected_sha):
     return pid
 
 
+def broker_identity(expected_sha):
+    require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
+            "broker_pin_required")
+    require(BROKER_PATH.resolve(strict=True) == BROKER_PATH, "broker_path_unsafe")
+    for parent in BROKER_PATH.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
+                and not metadata.st_mode & 0o022, "broker_path_unsafe")
+    metadata = BROKER_PATH.lstat()
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
+            and metadata.st_nlink == 1 and not metadata.st_mode & 0o022
+            and 0 < metadata.st_size <= 32 * 1024 * 1024, "broker_path_unsafe")
+    require(hashlib.sha256(BROKER_PATH.read_bytes()).hexdigest() == expected_sha,
+            "broker_pin_mismatch")
+    service = "omavless-dns-broker.service"
+    pid = int(fixed_command(["/usr/bin/systemctl", "--system", "show", service,
+                             "--property=MainPID", "--value"]).stdout.strip())
+    require(pid > 1, "broker_service_unavailable")
+    actual = (Path("/proc") / str(pid) / "exe").stat()
+    pinned = BROKER_PATH.stat()
+    require((actual.st_dev, actual.st_ino) == (pinned.st_dev, pinned.st_ino),
+            "running_broker_not_pinned")
+
+
 def broker_state(expected):
     gate.broker_evidence(expected, fixed_command)
 
@@ -112,9 +138,10 @@ def mode_sequence(authorization, change, verify):
         verify(mode)
 
 
-def run_gate(authorization, expected_sha):
+def run_gate(authorization, expected_sha, broker_sha):
     authorization.require_terminal()  # before private state or host observation
     runtime_pid = installed_identity(expected_sha)
+    broker_identity(broker_sha)
     initial = installed.cli("runtime", "observation")["result"]
     require(installed.clean_disconnected_observation(initial) and not installed.tuns(),
             "baseline_not_disconnected")
@@ -167,12 +194,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--experimental-core-sha", metavar="SHA256")
+    parser.add_argument("--experimental-broker-sha", metavar="SHA256")
     args = parser.parse_args(argv)
     if not args.run:
         gate.emit(status="NOT RUN", reason="explicit_run_required")
         return 0
     try:
-        run_gate(auth.HumanAuthorization(), args.experimental_core_sha)
+        run_gate(auth.HumanAuthorization(), args.experimental_core_sha,
+                 args.experimental_broker_sha)
         return 0
     except Exception as error:
         allowed = {"vless_fixture_unavailable", "baseline_not_disconnected",

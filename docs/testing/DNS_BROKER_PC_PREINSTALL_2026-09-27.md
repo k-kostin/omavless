@@ -53,8 +53,10 @@ This changes no host-level sysctl. The earlier failure must not be treated as
 either a core regression or a passing test.
 
 The full Python/QML suite and Rust suite passed after the test correction;
-targeted acceptance/packet tests reported 52 passed. The installed-owner DNS
-runner has mock safety tests, but has not run a real Connect or applied DNS.
+targeted acceptance/packet tests reported 53 passed after the final dual-pin
+runner check. The installed-owner DNS runner requires independent hashes for
+both the core and the running root broker and has mock safety tests, but has
+not run a real Connect or applied DNS.
 The older isolated-home runner now refuses managed mode before private/host
 access because current production login admission requires the installed owner.
 
