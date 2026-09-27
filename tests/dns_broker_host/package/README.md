@@ -5,12 +5,51 @@ installer, CI publication, marketplace flow, or default runtime selects it.
 It stages already-reviewed **local** binaries without downloading, compiling,
 installing, enabling, enrolling or connecting anything.
 
+`build_pair.py` is a separate opt-in **offline review build**, not a normal
+release builder. It exports exact committed upstream and OmaVLESS source trees,
+applies pinned patches, runs focused production-tag Go tests, and builds the
+candidate core and broker. It does not install, activate or enroll either one.
+
 Package: `omavless-dns-experimental`, version `0.9.0rc1-1`, one explicit
 `aarch64` or `x86_64` architecture. The source receipt records an exact repository
 revision and SHA-256 for both binaries, the reviewed unit and lifecycle guards.
 Review the retained Mihomo/sing-tun patches and their pinned upstream sources
 before supplying a binary; matching a user-supplied hash alone is not a code
 review or signature/authenticity guarantee.
+
+## Offline source-pair review build
+
+Supply local Git object stores containing Mihomo
+`ab405bad5beeeac8b003bb01f60f134f6df54471` (`v1.19.31`) and sing-tun
+`b50ae28a1409c7bce8e96e6c6966cf57d8ace754` (`v0.4.24`). They can be
+dirty checkouts: the builder exports only the exact pinned commits, never
+their working files. Supply an absolute local Go executable and a new absolute
+private outside-Git output path. Invoke:
+
+```text
+python3 tests/dns_broker_host/package/build_pair.py \
+  --mihomo-git /absolute/local/mihomo-git \
+  --sing-tun-git /absolute/local/sing-tun-git \
+  --go /absolute/local/go \
+  --output /absolute/private/new-candidate
+```
+
+The OmaVLESS checkout must be committed and clean. The build uses the full
+`mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
+alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
+`GOTOOLCHAIN=local`, `CGO_ENABLED=0`, locked Go/Cargo dependencies and the
+production `with_gvisor` tag. A missing local dependency fails closed. Output
+contains both binaries, the complete corresponding patched source archive,
+Mihomo/sing-tun licenses, and `source-receipt.json` with exact commits, patch
+hashes, toolchain and output hashes. The receipt is reproducibility evidence,
+not a signature, independent audit, permission to enroll, or proof of installed
+network behavior. The current builder supports x86_64 only; ARM64 needs its
+own verified toolchain/build gate.
+
+The staged binary-only package below does **not yet include** this source
+archive, licenses or enforce this receipt. Review and package integration are
+still required before normal distribution; do not treat this builder alone as
+a release-ready solution.
 
 ## Stage and inspect (ordinary user)
 

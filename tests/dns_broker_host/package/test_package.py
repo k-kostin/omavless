@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -15,6 +16,10 @@ ROOT = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("dns_package_stage", ROOT / "stage.py")
 stage = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(stage)
+sys.modules["stage"] = stage
+BUILD_SPEC = importlib.util.spec_from_file_location("dns_pair_build", ROOT / "build_pair.py")
+build_pair = importlib.util.module_from_spec(BUILD_SPEC)
+BUILD_SPEC.loader.exec_module(build_pair)
 EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n"
 
 
@@ -53,6 +58,21 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
         self.assertEqual(subprocess.run(["bash", "-n", str(destination / "PKGBUILD")],
                                        capture_output=True, check=False).returncode, 0)
+
+    def test_offline_pair_builder_pins_committed_patches_and_local_tool(self):
+        for name, expected in build_pair.PATCH_SHA.items():
+            self.assertEqual(build_pair.digest(build_pair.PATCHES / name), expected)
+        self.assertEqual(len(build_pair.git_value(build_pair.REPO, "rev-parse", "HEAD")), 40)
+        self.assertEqual(build_pair.MIHOMO, "ab405bad5beeeac8b003bb01f60f134f6df54471")
+        self.assertEqual(build_pair.SING_TUN, "b50ae28a1409c7bce8e96e6c6966cf57d8ace754")
+        with self.assertRaises(stage.Refused):
+            build_pair.reviewed_go("go")
+        link = self.root / "linked-go"
+        link.symlink_to("/usr/bin/go")
+        with self.assertRaises(stage.Refused):
+            build_pair.reviewed_go(str(link))
+        with self.assertRaises(stage.Refused):
+            build_pair.build(self.root, self.root, "/usr/bin/go", build_pair.REPO / "candidate")
 
     def test_bad_hash_arch_revision_symlink_hardlink_existing_target_refuse(self):
         for changes in ({"broker_sha": "0" * 64}, {"core_sha": "SKIP"},
