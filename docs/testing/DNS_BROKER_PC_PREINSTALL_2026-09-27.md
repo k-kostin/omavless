@@ -77,3 +77,29 @@ specified by the [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.m
 Synthetic Ready/Released messages and package metadata are not substitutes for
 those installed results. #270/#132 and Draft #295 stay open; RC, main, release
 and marketplace remain unchanged.
+
+## Installed continuation on the same disposable VM
+
+The VM subsequently installed the exact local `0.9.0rc1-1` application and
+experimental packages. Installed runtime, broker and patched-core hashes matched
+the pre-install table. The stock `mihomo-bin` package remained installed,
+subscription/profile counts remained 1/35, startup stayed off and no TUN was
+present. The experimental package did not auto-start or enroll the root service.
+An explicit protected UID-1000 enrollment and manual root-service start then
+passed service READY, narrow socket ACL and zero-FD checks.
+
+The first trial user-service start failed closed before VPN activation. Cause:
+a test-only systemd drop-in selected the patched core, but the native login
+owner correctly rejects any drop-in on its packaged runtime unit. Removing the
+drop-in and selecting the core through the user manager's transient environment
+restored a stable disconnected native runtime. No connected or DNS result is
+inferred from that correction.
+
+The installed acceptance preflight also found that an ordinary desktop UID
+cannot `stat /proc/<root-broker-PID>/exe` on this host. The reviewed runner now
+pins the broker package hash and unit, systemd's running ExecStart/PID, and the
+root process's name, UID and cgroup without requesting elevated privileges for
+observation. This does not claim an independent running-inode proof. With that
+correction, the runner reached its required human `ready` barrier before its
+first Connect. All live network-mode, crash, removal and recovery gates remain
+unproven until separately attended execution.

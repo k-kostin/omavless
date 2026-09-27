@@ -159,7 +159,11 @@ After separately attended installation, enrollment and startup, run the new
 `tests/installed_dns_broker_acceptance.py --run --experimental-core-sha
 REVIEWED_CORE_SHA256 --experimental-broker-sha REVIEWED_BROKER_SHA256` in a
 visible terminal in the isolated guest. Both independently reviewed installed
-binaries and the actual running broker executable must match these pins. It uses the
+binaries must match these pins. The ordinary-user runner cannot inspect the
+root broker's `/proc/PID/exe` inode on a hardened host; it instead pins the
+root-owned packaged unit, systemd's running ExecStart and PID, and the root
+process's name, UID and cgroup. This is systemd service identity, not an
+independent running-inode proof. It uses the
 installed Rust owner and its current last-selected usable VLESS profile, or an
 explicit `--profile-index N` (zero-based among available VLESS profiles) when
 a fresh VM has no last selection. The index is resolved once from the private
@@ -167,6 +171,13 @@ snapshot before Connect; it is not a latency or usability test. The runner
 does not import or print a profile. It refuses an absent profile,
 connected baseline, enabled startup, wrong installed core or unavailable root
 broker before connecting. Preserve a reviewed rollback package separately.
+
+For this disposable installed-owner trial, select the opt-in Mihomo through the
+user manager's transient `OMAVLESS_MIHOMO` environment while disconnected,
+then start the packaged runtime. Do **not** add a systemd drop-in to
+`omavless-runtime.service`: native login admission intentionally rejects any
+`DropInPaths`. An application distribution mechanism must replace this
+temporary selection method before calling the broker a shipped feature.
 
 The runner requires a distinct `ready` and `settled` acknowledgement for Connect,
 each Full VPN → Routing → Direct → Full VPN mode change, Disconnect and any

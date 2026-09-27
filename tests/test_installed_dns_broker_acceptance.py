@@ -37,6 +37,24 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         inspect.assert_not_called()
         command.assert_not_called()
 
+    def test_root_broker_projection_requires_fixed_service_and_process(self):
+        command = ("{ path=/usr/lib/omavless/omavless-dns-broker ; "
+                   "argv[]=/usr/lib/omavless/omavless-dns-broker --serve ; "
+                   "ignore_errors=no ; start_time=[test] ; stop_time=[n/a] ; "
+                   "pid=42 ; code=(null) ; status=0/0 }")
+        status = [b"Name:\tomavless-dns-br", b"Uid:\t0\t0\t0\t0"]
+        cgroup = b"0::/system.slice/omavless-dns-broker.service\n"
+        gate.running_broker_projection(command, 42, status, cgroup)
+        for altered in (
+            (command.replace(" --serve", " --other"), 42, status, cgroup),
+            (command, 43, status, cgroup),
+            (command, 42, status[1:], cgroup),
+            (command, 42, [status[0], b"Uid:\t1000\t1000\t1000\t1000"], cgroup),
+            (command, 42, status, b"0::/other.slice/omavless-dns-broker.service\n"),
+        ):
+            with self.assertRaisesRegex(gate.gate.Failure, "^running_broker_unverified$"):
+                gate.running_broker_projection(*altered)
+
     def test_profile_selection_is_exact_and_never_prints_private_fields(self):
         candidate = {"id": "selected", "protocol": "vless", "missing": False,
                      "uri": "private material"}

@@ -31,6 +31,8 @@ auth = sibling("human_authorization")
 
 CORE_PATH = Path("/usr/lib/omavless-dns-experimental/mihomo")
 BROKER_PATH = Path("/usr/lib/omavless/omavless-dns-broker")
+BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
+BROKER_UNIT_SHA = "a63bc4db9c52b03c497e941cc8f5a143de6e85c3a1e2aafabead0f1f4d80c080"
 RUNTIME = "omavless-runtime.service"
 MODES = ("global", "rule", "direct", "global")
 
@@ -84,6 +86,17 @@ def installed_identity(expected_sha):
     return pid
 
 
+def running_broker_projection(command, pid, status, cgroup):
+    """Check fixed systemd/proc facts without privileged procfs inode access."""
+    require(command.startswith("{ path=" + str(BROKER_PATH) + " ; argv[]="
+                               + str(BROKER_PATH) + " --serve ; ignore_errors=no ; ")
+            and command.endswith(" ; pid=" + str(pid) + " ; code=(null) ; status=0/0 }")
+            and b"Name:\tomavless-dns-br" in status
+            and b"Uid:\t0\t0\t0\t0" in status
+            and cgroup == b"0::/system.slice/omavless-dns-broker.service\n",
+            "running_broker_unverified")
+
+
 def broker_identity(expected_sha):
     require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
             "broker_pin_required")
@@ -99,13 +112,28 @@ def broker_identity(expected_sha):
     require(hashlib.sha256(BROKER_PATH.read_bytes()).hexdigest() == expected_sha,
             "broker_pin_mismatch")
     service = "omavless-dns-broker.service"
-    pid = int(fixed_command(["/usr/bin/systemctl", "--system", "show", service,
-                             "--property=MainPID", "--value"]).stdout.strip())
+    unit = BROKER_UNIT.lstat()
+    require(stat.S_ISREG(unit.st_mode) and unit.st_uid == 0
+            and unit.st_nlink == 1 and not unit.st_mode & 0o022
+            and hashlib.sha256(BROKER_UNIT.read_bytes()).hexdigest() == BROKER_UNIT_SHA,
+            "broker_unit_unsafe")
+    def property_value(name):
+        return fixed_command(["/usr/bin/systemctl", "--system", "show", service,
+                              "--property=" + name, "--value"]).stdout.decode("utf-8").strip()
+    require(property_value("FragmentPath") == str(BROKER_UNIT)
+            and property_value("DropInPaths") == ""
+            and property_value("ActiveState") == "active", "broker_unit_unverified")
+    pid = int(property_value("MainPID"))
     require(pid > 1, "broker_service_unavailable")
-    actual = (Path("/proc") / str(pid) / "exe").stat()
-    pinned = BROKER_PATH.stat()
-    require((actual.st_dev, actual.st_ino) == (pinned.st_dev, pinned.st_ino),
-            "running_broker_not_pinned")
+    # An ordinary desktop user cannot stat /proc/<root PID>/exe on a hardened
+    # host. Pin the package-owned unit and systemd's running ExecStart instead;
+    # never weaken procfs permissions or request root merely for this read.
+    command = property_value("ExecStart")
+    require(property_value("ControlGroup") == "/system.slice/" + service,
+            "running_broker_unverified")
+    status = gate.bounded(Path("/proc") / str(pid) / "status", 16384).splitlines()
+    cgroup = gate.bounded(Path("/proc") / str(pid) / "cgroup", 4096)
+    running_broker_projection(command, pid, status, cgroup)
 
 
 def broker_state(expected):
