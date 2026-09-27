@@ -110,8 +110,11 @@ not authorize a future unattended reconnect. This candidate is not a kill switch
 Package upgrades/removal must refuse or defer while any lease, journal, stored
 FD or unknown outcome remains. Do not remove the unit before retained state is
 resolved. The [experimental package fixture](package/README.md) implements a
-read-only ALPM PreTransaction refusal guard; installed upgrade/removal acceptance
-is still pending. The unit intentionally has no enable/boot target.
+read-only ALPM PreTransaction refusal guard. Actual experimental-package
+active/quarantined refusal and clean-state removal/reinstall are now recorded
+in the [PC-VM evidence](../../docs/testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md);
+normal release packaging and remaining failure paths are not covered by those
+tests. The unit intentionally has no enable/boot target.
 
 ## Resource policy
 

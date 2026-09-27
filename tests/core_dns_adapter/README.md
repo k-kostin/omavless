@@ -1,9 +1,10 @@
-# Experimental core DNS ownership adapter — not an installed dependency
+# Experimental core DNS ownership adapter — not a normal dependency
 
-This directory retains the minimal **unpublished, review-only** Mihomo patch
-needed to test DNS-0 for #270. It is not applied by install, package, release,
-runtime, plugin or ordinary CI. No fork distribution or upstream acceptance is
-implied. Do not add the proposed option to production configuration yet.
+This directory retains the **unpublished, review-only** Mihomo patches needed
+to test DNS-0 for #270. They are not applied by the ordinary installer, release,
+plugin or CI package. An explicitly staged experimental core using the full
+patch has since been installed only in disposable Omarchy VMs. No normal fork
+distribution or upstream acceptance is implied.
 
 Upstream: MetaCubeX/mihomo, exact source
 `ab405bad5beeeac8b003bb01f60f134f6df54471` (1.19.31), with its locked
@@ -119,9 +120,11 @@ the live lease, cannot be supplied in YAML and is not a configuration-equality
 key. Close sends Release and requires Releasing → Released; it always closes the
 channel and joins its observer, including failed writes. Loss/recovery/EOF is
 not clean release; unexpected loss invalidates readiness and sends SIGTERM to
-the core. The future broker must retain/quarantine the original object while a
-DNS outcome is unknown. The installed OmaVLESS runtime does **not** consume this
-new readiness signal yet.
+the core. The broker must retain/quarantine the original object while a DNS
+outcome is unknown. This paragraph records the earlier channel-only checkpoint;
+the later experimental runtime **does** consume the authenticated readiness
+signal when the reviewed core is explicitly selected. The stock-core path
+remains legacy.
 
 Real wire tests use disposable sockets and ordinary synthetic-file FDs. They
 exercise refusal, credentials, malformed replies, unsolicited completion,
@@ -186,8 +189,10 @@ python3 tests/dns_core_broker_probe.py /absolute/patched/core CORE_SHA256 \
   /absolute/target/debug/examples/kernel_channel FIXTURE_SHA256
 ```
 
-Root service/package enrollment, real typed resolved integration, pristine
-baseline policy, systemd-held crash quarantine, recovery/removal, production
-build tags, runtime admission and attended host operations remain required.
-See [descriptor-store proof](../../docs/development/DNS_FDSTORE.md). This is not
-a silently shipped Mihomo fork or a completed no-password implementation.
+The [installed experimental VM record](../../docs/roadmap/CURRENT_STATUS.md)
+now covers typed resolved integration, reserved baseline, FD-store crash
+quarantine, selected removal/refusal cases, production-tag core admission and
+positive attended operations on pinned bytes. Reviewed normal delivery,
+remaining negatives, firewall integration and owner-attended pre-main acceptance
+remain required. See [descriptor-store proof](../../docs/development/DNS_FDSTORE.md).
+This is not a silently shipped Mihomo fork or completed release integration.

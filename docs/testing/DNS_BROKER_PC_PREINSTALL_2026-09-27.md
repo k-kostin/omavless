@@ -614,3 +614,45 @@ experimental core. Fresh installed runtime/broker identity checks passed;
 Disconnected/Rule, startup Off, all private records, TUN0, broker FDstore0 and
 no manual recovery were preserved. This is an installed *disconnected*
 checkpoint for the runtime fix, not a repeated VPN/DNS acceptance on new bytes.
+
+## Connected diagnostic on the rebuilt application bytes
+
+After the disconnected replacement, an agent-attended VM-only run of the exact
+installed-owner runner exercised the new application binary SHA-256
+`0e86e2e49a25bf7d05021a89c7739ba3f651374428a3a1a9f32afefec11db831`
+with the same pinned experimental core and broker. The guest's UFW baseline
+was inspected first. A temporary inbound `Meta` exception restricted to source
+`198.18.0.2` and destination `198.18.0.1` was inserted for this IPv4 gate.
+
+The runner passed preflight, managed Full VPN Connect, direct-IP HTTPS with
+independent TUN tracker and RX/TX evidence, public HTTPS through TUN, Global →
+Rule → Direct → Global transitions, Disconnect and restoration of the original
+Rule mode. Its final fixed result was `passed=true`, `disconnected=true`,
+`dns_released=true`, `mode_restored=true`. Fresh read-side checks found startup
+Off, desired Disconnected/Rule, no manual recovery, 36 preserved profiles, no
+`Meta` TUN, broker FDstore zero, and both application and experimental package
+file checks reported zero altered files. The temporary UFW exception was then
+deleted by exact rule and the original numbered rule list was read back without
+any `Meta` entry. No outer-PC service or firewall was changed.
+
+This verifies the rebuilt application's connected positive path in the
+disposable x86_64 VM. At that checkpoint the paired frontend was not yet
+installed. The cycle does **not** prove IPv6/UDP firewall coverage, legacy #132
+cancellation, remaining in-flight negatives or the owner's formal human-attended
+pre-main acceptance.
+
+## Paired frontend installation in the PC VM
+
+The same source assembly produced frontend archive SHA-256
+`f81671a52d161982681c9935edd8f2635e72d920940d93a2ab7c0f06e8932e35`.
+Its contents and installer were inspected; the VM copy matched that hash and
+passed `omarchy plugin validate` before installation. The prior static plugin
+tree was preserved in a private VM-only rollback directory. With the native
+runtime disconnected, the archive's reviewed `install.sh` updated the existing
+`kdk.omavless` plugin without starting a tunnel. A checksum-aware dry run then
+found no differing installed content; only the two archive installer scripts
+were absent by design from the installed plugin tree. The installed plugin
+validated, one Quickshell process remained running, and read-side checks still
+showed desired Disconnected/Rule, startup Off, 36 preserved profiles, TUN0 and
+broker FDstore0. This pairs the local package/frontend bytes for further RC
+testing; it is not a fresh-install or UI interaction acceptance claim.

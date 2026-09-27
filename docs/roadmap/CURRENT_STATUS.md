@@ -95,8 +95,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   suite and all three CI jobs. The resulting unpublished x86_64 application
   package was installed in the isolated VM with exact binary/package hashes,
   while profiles, subscription, Disconnected/Rule/startup-Off state, TUN0 and
-  broker FDstore0 were preserved. The paired frontend was assembled but not
-  installed; no connected acceptance is claimed for the newly installed app.
+  broker FDstore0 were preserved. A subsequent agent-attended PC-VM diagnostic
+  on the new application bytes passed managed Full VPN TUN-bound HTTPS, mode
+  sequence, DNS release and restoration to Disconnected/Rule. The temporary
+  narrow UFW exception was removed afterward. The paired frontend was then
+  installed from its inspected same-source archive while disconnected; file
+  content matched, plugin validation passed and original profiles/Rule/startup
+  Off survived. This is not a fresh-install, UI or owner-attended promotion gate.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
