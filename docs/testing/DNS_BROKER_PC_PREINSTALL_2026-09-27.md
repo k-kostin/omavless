@@ -665,3 +665,31 @@ validated, one Quickshell process remained running, and read-side checks still
 showed desired Disconnected/Rule, startup Off, 36 preserved profiles, TUN0 and
 broker FDstore0. This pairs the local package/frontend bytes for further RC
 testing; it is not a fresh-install or UI interaction acceptance claim.
+
+## September 28 agent-run mode sequence on the installed x86_64 pair
+
+The disposable PC VM retained application binary SHA-256
+`0e86e2e49a25bf7d05021a89c7739ba3f651374428a3a1a9f32afefec11db831`,
+broker SHA-256 `55f77cc57dde588f84c277d5b5877026b4afbcbf097970fe9892066c0a9bcf32`
+and experimental core SHA-256
+`dc0732957deed3382bdb69ae693d631e822d550c18107d504a326bd193e40626`.
+The agent began from a fresh clean Disconnected/Rule observation, startup Off,
+no managed TUN and broker FDstore zero. An existing private VLESS test profile
+was selected inside the guest process; neither its identifier nor input was
+passed as a process argument or included in this report.
+
+Separate native socket actions and fresh installed-owner checks passed Full VPN
+Connect, then Rule, Direct and Global mode changes. Each connected checkpoint
+verified the requested mode, owned core/TUN and a held broker DNS lease through
+the installed runner's existing typed resolved readback. A separate Disconnect
+confirmed clean disconnected observation, no TUN and broker FDstore zero; a
+final mode action restored the original Rule preference. The runtime and broker
+services remained active, with no manual recovery. The outer PC's VPN and
+firewall were untouched. This cycle did not install a VM firewall exception or
+run a TUN-bound HTTPS probe; prior UFW findings still apply.
+
+This was an **agent-run VM diagnostic**, not the repository's human-attended
+authorization acceptance. No `ready`/`settled` prompt was forged or scripted.
+It advances the x86_64 mode/release checkpoint for these installed bytes only;
+it does not close the owner's pre-main acceptance, normal package distribution,
+the remaining in-flight negatives, firewall integration or stock-core #132.
