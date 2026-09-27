@@ -107,12 +107,7 @@ Item {
   property var nativeMetadataTransition: null
   property string nativeMetadataErrorAction: ""
   property string nativeMetadataErrorCode: ""
-  onNativePendingChanged: {
-    if (nativePending) {
-      nativeMetadataErrorAction = ""
-      nativeMetadataErrorCode = ""
-    }
-  }
+  property string nativeSubscriptionStatusId: ""
   readonly property bool nativeConnectionSwitching: nativeConnectionTransition !== null
   readonly property bool nativeMetadataBusy: (nativePending !== null && ["connect", "disconnect", "mode"].indexOf(nativePending.action) < 0)
     || nativeMetadataTransition !== null
@@ -584,9 +579,10 @@ Item {
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
     var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
-      operationId:operation, action:action, command:args, input:input}
+      operationId:operation, action:action, targetId:id, command:args, input:input}
     nativeActionCode = ""
     nativeSubscriptionCode = ""
+    nativeSubscriptionStatusId = id
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
     nativeActionProcess.stdinEnabled = true
@@ -3323,6 +3319,10 @@ Item {
     else if (nativeRoutingToolsVisible && !_nativeRulesFence && !nativeRoutingBusy) loadCustomRules()
   }
   onNativePendingChanged: {
+    if (nativePending) {
+      nativeMetadataErrorAction = ""
+      nativeMetadataErrorCode = ""
+    }
     if (_nativeDetailsContext !== null && !nativeProfileDetailsCurrent(_nativeDetailsContext)) clearNativeProfileDetails()
     if (_nativeQrContext !== null && !nativeQrCurrent(_nativeQrContext)) closeQr()
   }
@@ -4014,7 +4014,8 @@ Item {
       }
       if (metadataAction && result && exitCode !== 73 && result.code !== "daemon_restarting") {
         root.nativeMetadataTransition = {instanceId:pendingAction.instanceId,
-          revision:pendingAction.revision, action:pendingAction.action, failed:!result.ok}
+          revision:pendingAction.revision, action:pendingAction.action,
+          targetId:pendingAction.targetId || "", failed:!result.ok}
         nativeMetadataTransitionTimeout.restart()
       }
       root.nativeObservation = null

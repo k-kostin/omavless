@@ -14,7 +14,8 @@ connection. It extends the narrow mode-switch presentation in #296.
   manual-recovery state remains urgent. A retry can temporarily supersede an
   older failed snapshot, but a newer failure is urgent.
 - Subscription and profile mutations show a small status beside the relevant
-  controls. Other settings mutations show it on Settings. Rejected metadata
+  controls, including a refresh launched from a subscription row on the main
+  page. Other settings mutations show it on Settings. Rejected metadata
   actions retain their contextual error beside profile or Settings controls
   and display only a brief “checking current state” while fresh observations
   arrive; they do not imply that the VPN itself failed. Subscription errors

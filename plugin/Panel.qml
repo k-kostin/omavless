@@ -203,6 +203,8 @@ Panel {
     : textFor("native.progress." + nativeTransitionKind, {name:nativeTransitionTarget})
   readonly property string nativeMetadataAction: vless.nativePending && vless.nativeMetadataBusy
     ? vless.nativePending.action : vless.nativeMetadataTransition ? vless.nativeMetadataTransition.action : ""
+  readonly property string nativeMetadataTargetId: vless.nativePending && vless.nativeMetadataBusy
+    ? vless.nativePending.targetId || "" : vless.nativeMetadataTransition ? vless.nativeMetadataTransition.targetId || "" : ""
   readonly property string nativeMetadataText: nativeMetadataAction.indexOf("subscription-") === 0
     ? textFor(vless.nativeMetadataTransition && vless.nativeMetadataTransition.failed ? "native.progress.refreshState"
       : nativeMetadataAction === "subscription-refresh" ? "native.progress.subscriptionRefresh" : "native.progress.subscriptionSave")
@@ -2492,6 +2494,20 @@ Panel {
                       onClicked: if (enabled) vless.requestNativeSubscriptionAction("subscription-refresh", nativeRow.modelData.subscription.id, "", "")
                     }
                   }
+                  PlainText {
+                    Layout.fillWidth: true
+                    visible: !nativeRow.isProfile && (
+                      (root.nativeMetadataAction === "subscription-refresh" && root.nativeMetadataTargetId === nativeRow.modelData.subscription.id)
+                      || (vless.nativeSubscriptionStatusId === nativeRow.modelData.subscription.id
+                        && ["refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0))
+                    text: root.nativeMetadataAction === "subscription-refresh" && root.nativeMetadataTargetId === nativeRow.modelData.subscription.id
+                      ? root.nativeMetadataText : root.textFor("native.subscription." + vless.nativeSubscriptionCode)
+                    textFormat: Text.PlainText
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.Wrap
+                  }
                   RowLayout {
                     id: nativeProfileIdentityRow
                     visible: nativeRow.isProfile
@@ -3867,6 +3883,7 @@ Panel {
         nativeCanContinue: vless.nativeCanAct
         nativeStatus: vless.nativeOutcomeUnknown ? root.textFor("native.unknownOutcome")
           : vless.nativeActionCode !== "" ? root.textFor("error." + vless.nativeActionCode)
+          : vless.nativeMetadataErrorCode !== "" ? root.textFor("error." + vless.nativeMetadataErrorCode)
           : vless.nativeImportCode !== "" ? root.textFor("native.importError." + vless.nativeImportCode) : ""
         coreSetup: vless.coreSetup
         filePicker: vless.filePicker
