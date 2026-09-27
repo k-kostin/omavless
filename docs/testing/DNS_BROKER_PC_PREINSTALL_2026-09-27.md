@@ -246,6 +246,16 @@ control profile resolved but did not complete this VM proxy check; it was
 temporarily imported through private stdin and then removed. The original
 35-record subscription and disconnected/Rule/startup-Off state were restored.
 
+After the owner recommended the same gRPC control profile again, it was
+privately re-imported into the disconnected VM and tested twice using the
+installed, isolated no-TUN `profiles.probe` operation. Both operations
+completed normally and returned `resolved:true`, `reachable:false`,
+`latencyMs:-1`. This is a repeated guest-specific proxy-test failure, not
+evidence that the credential is globally invalid. The single temporary
+standalone record was then removed; all 35 subscription records remained.
+Fresh observation remained Disconnected/Rule without recovery, owned core or
+TUN, and the broker descriptor store remained empty.
+
 This demonstrates that the guest and its current outer-host egress can carry
 at least some proxied HTTPS traffic. It does **not** prove why the tested
 XHTTP/gRPC profiles failed or whether a successful WebSocket profile will pass
