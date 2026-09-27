@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -164,6 +165,18 @@ class PackageTests(unittest.TestCase):
         for entry in ("lease.json", ".lease.pending", "unknown"):
             self.assertNotEqual(self.run_guard_fixture(entry=entry).returncode, 0)
             (self.root / "run/omavless-dns/private" / entry).unlink()
+
+    def test_stale_socket_or_symlink_blocks_without_cleanup(self):
+        self.assertEqual(self.run_guard_fixture().returncode, 0)
+        path = self.root / "run/omavless-dns/control.sock"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(path))
+        self.assertNotEqual(self.run_guard_fixture().returncode, 0)
+        self.assertTrue(path.is_socket())
+        path.unlink()
+        path.symlink_to("missing")
+        self.assertNotEqual(self.run_guard_fixture().returncode, 0)
+        self.assertTrue(path.is_symlink())
 
 
 if __name__ == "__main__":

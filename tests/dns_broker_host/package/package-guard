@@ -29,6 +29,13 @@ for entry in /run/omavless-dns/private/*; do
   [[ ! -e "$entry" && ! -L "$entry" ]] || refuse
 done
 
+# RuntimeDirectoryPreserve=yes keeps the filesystem socket after an ordinary
+# SIGTERM. A package transaction must not leave that unidentified node behind
+# for the replacement service to trip over. An administrator may remove only
+# an independently verified inactive socket after proving the journal and FD
+# store empty; this guard never unlinks anything itself.
+[[ ! -e /run/omavless-dns/control.sock && ! -L /run/omavless-dns/control.sock ]] || refuse
+
 # No start/stop/clean/reset-failed/reload. The unit has no activation socket,
 # automatic restart or enable target, so an ordinary UID cannot race a restart.
 state=$(/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C /usr/bin/timeout 5s /usr/bin/systemctl --system show omavless-dns-broker.service \

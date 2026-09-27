@@ -437,3 +437,84 @@ runner passed a second agent-attended VM cycle with the same core-death,
 DNS/TUN-release and Disconnected/Rule outcomes. The VM was again left with
 zero owned cores/TUNs and zero retained broker descriptors. This still awaits
 owner-attended acceptance on the exact promotion candidate.
+
+## Active-lease package-removal refusal in the PC VM
+
+With the verified installed runtime and broker pair, an agent-only VM
+diagnostic connected through private IPC and established one managed DNS lease:
+the broker was active, systemd FD store held one descriptor, and fresh native
+observation showed one live core/TUN. The exact `omavless-dns-experimental`
+package was present and its broker binary matched the pinned digest. A normal
+interactive `sudo pacman -R omavless-dns-experimental` reached the installed
+ALPM PreTransaction guard and **failed before package removal**. No force flags
+or disabled hooks were used. Package identity, binary digest, active connection
+and retained FD count were unchanged by the refused transaction. A separate
+Disconnect then released DNS/TUN, and the original disconnected Rule mode was
+restored with no recovery flag or remaining core/TUN/FD.
+
+The VM retained the exact package archive for rollback. This verifies actual
+active-lease **Remove** refusal, distinct from the earlier ARM **Upgrade**
+refusal. It does not verify quarantined-lease removal, arbitrary failure paths,
+distribution or the owner's formal human-attended gate before main. No outer-PC
+package or network state changed.
+
+## Clean removal, reinstall and explicit stale-socket recovery
+
+After the refusal test released its lease, the VM's broker was stopped in an
+independently observed empty state. The installed guard passed with the unit
+inactive/dead, FD store zero and private journal empty. Ordinary interactive
+`pacman -R omavless-dns-experimental` succeeded without force flags or disabled
+hooks; the application stayed installed, Disconnected/Rule and recovery-free.
+The exact prebuilt experimental archive, SHA-256
+`2fcc027173dd698b806ea5c27efc50840c33c8f2bb680a531e61e43997ad536f`,
+was then reinstalled by ordinary interactive `pacman -U`. Package file checks
+reported 17 files with none altered; broker/core hashes and core file
+capabilities matched the earlier pinned evidence. No private profile changed.
+
+Starting the reinstalled broker initially **failed closed**. `systemd` showed
+FD store zero and no live broker, core, TUN or socket listener; the root-only
+private journal was empty. The fixed `control.sock` filesystem node remained
+from the prior SIGTERM because `RuntimeDirectoryPreserve=yes`; the new broker
+correctly refused to bind over it. After independently proving this exact
+empty state, the agent interactively unlinked only that identified inactive
+socket node in the disposable VM and started the broker. The service then
+returned active/READY with a new socket inode and FD store zero. This was
+agent-only lifecycle diagnosis, not a general permission to clear unknown
+state, and no outer-PC service was touched.
+
+The source ALPM guard is now hardened to refuse replacement/removal while any
+stale socket node remains, forcing this explicit empty-state inspection **before**
+a transaction instead of surprising the next service start. This changed guard
+has source tests but is not the already installed package: the installed binary
+pair and archive above are unchanged. The exact package-source change needs
+its own rebuild and repeat test before an RC inclusion claim.
+
+## Root-broker crash, quarantine and reboot in the PC VM
+
+With the reinstalled pinned pair and broker active/FDstore=0, an agent-only
+VM diagnostic selected a private test profile through the authenticated Unix
+control socket. Fresh observation confirmed one owned core, one `Meta` TUN and
+one retained broker descriptor in managed Full VPN. This crash case did not
+claim HTTPS; the VM's temporary firewall exception had already been removed.
+
+The agent signalled **only the named broker unit's main process** with SIGKILL.
+The unit became failed with MainPID=0 while FDstore remained **1**, its private
+journal retained one entry, and the original `Meta` device stayed present.
+The runtime's historical connected field was not treated as fresh proof of a
+healthy connection. An explicit broker start failed without clearing the FD or
+TUN. The installed package guard refused; an ordinary interactive
+`pacman -R omavless-dns-experimental` was then rejected by the actual ALPM
+PreTransaction hook. The package and both pinned binary hashes remained
+unchanged. Neither `systemctl clean` nor journal/socket deletion was used to
+manufacture an empty state.
+
+The disposable VM was then rebooted as the coordinated epoch boundary. After
+boot the broker unit was inactive/dead with FDstore=0, no `Meta`, no core and no
+old socket; the experimental package was still installed. The native runtime
+reported clean Disconnected with no manual recovery and startup Off. Its
+persisted desired mode had remained Global from the crash setup, so the agent
+restored the original Rule mode through the authenticated private control
+socket after confirming disconnection. The VM ended Disconnected/Rule with
+private profiles retained. This reproduces the ARM quarantine/reboot boundary
+on x86_64, but is agent-attended RC diagnostic evidence, not the owner's formal
+human-attended promotion gate or a solution for the earlier legacy #132 path.

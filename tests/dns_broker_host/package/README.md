@@ -61,6 +61,9 @@ capability bounding set is a different boundary.
 The fixed read-only guard requires root, zero arguments, protected runtime
 directories, no private journal/staging/**any unknown entry**, and a loaded unit
 that systemd confirms inactive/dead with MainPID=0 and NFileDescriptorStore=0.
+It also refuses a remaining `control.sock` filesystem node, including a broken
+symlink. This prevents a nominally clean package transaction from leaving a
+socket that makes the replacement broker fail to bind.
 Missing properties, bus failure, timeout, failed/active service and unknown state
 refuse. It never emits observed property values or private content.
 
@@ -76,11 +79,17 @@ the package is replaced. Root can override package hooks; root/CAP administrator
 are outside this ordinary-user boundary. Administrative force flags/disabled hooks
 must not be used as a recovery procedure.
 
-Clean package removal still leaves all runtime/journal/enrollment data untouched.
-A leftover socket is not proof of a live lease and is not removed by this package;
-the broker refuses to adopt unknown socket state. Resolve it through the explicit
-attended recovery procedure, not a blanket cleanup hook. Unknown retained writes
-continue to require the safe epoch boundary described in the [host contract](../README.md).
+Before a clean replacement/removal, explicitly prove that the broker is
+inactive/dead with MainPID=0 and FD store 0, the root-only private journal is
+empty, the original resolver state was read back, and no core/TUN or live
+listener remains. If any fact is unknown, stop: the retained state needs the
+recovery boundary in the [host contract](../README.md). After those facts are
+independently established, an administrator may inspect the exact fixed socket
+node and interactively unlink **only** `/run/omavless-dns/control.sock` (for
+example, `sudo rm -i -- /run/omavless-dns/control.sock`), then rerun the guard
+before the normal package transaction. Do not delete the directory or journal,
+run `systemctl clean`, or add a blanket cleanup hook. The package itself leaves
+runtime and enrollment data untouched.
 
 ## Remaining installed gates
 

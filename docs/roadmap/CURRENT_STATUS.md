@@ -66,6 +66,22 @@ history. GitHub's actual main/PR state is authoritative for publication.
   diagnostic: pidfd-targeted SIGKILL, expected pinned zombie but no live group
   members, broker DNS/TUN release and separately confirmed Disconnect/Rule
   restoration. The owner's formal core-crash gate remains open before main.
+  The PC VM also confirmed actual ALPM removal refusal while a managed lease
+  was active: the package, broker digest, connection and held FD survived the
+  aborted transaction; separate Disconnect restored Disconnected/Rule and
+  released the lease. A later empty-state ordinary removal and pinned-archive
+  reinstall passed, but the restarted service refused a preserved stale socket
+  until exact empty-state inspection and explicit socket-only unlink; it then
+  started with FDstore zero. The source ALPM guard now refuses such a node before
+  removal/replacement, but this guard change has not yet been built or installed.
+  Quarantined-state removal was still open at that checkpoint; reviewed
+  distribution and owner-attended acceptance remain open.
+  A subsequent PC-VM root-broker SIGKILL retained the original TUN, private
+  journal and systemd FD store; explicit restart and real ALPM removal both
+  refused without clearing them. Coordinated VM reboot established an empty
+  epoch, and the agent restored the original disconnected Rule mode with
+  profiles preserved. This is x86_64 agent-attended diagnostic evidence, not
+  the formal owner-attended promotion gate or #132 closure.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

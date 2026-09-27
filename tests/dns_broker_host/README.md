@@ -86,6 +86,13 @@ recovery/refusal loop. `FileDescriptorStorePreserve=yes`, per-FD `FDPOLL=0` and
 `RuntimeDirectoryPreserve=yes` preserve quarantine through stop, crash, upgrade
 or failed restart. The unit has no cleanup hook. `systemctl stop` and a successful
 new `GetAll` are **not** proof that old resolved method calls have settled.
+Even a clean ordinary stop may leave the old filesystem socket node; a later
+start refuses it rather than unlinking unknown state. Only after independently
+proving an inactive unit, empty private journal/FD store, restored resolver and
+no live core/TUN/listener may an administrator remove that exact inactive socket
+node. The [experimental package procedure](package/README.md#replacementremoval-gate)
+requires this proof before replacement/removal too. An unknown old write is not
+made safe by socket removal.
 
 Clean release must prove the original resolver owner/boundary, revert/read back
 the reserved link's baseline, durably record cleanup, remove and verify the FD
