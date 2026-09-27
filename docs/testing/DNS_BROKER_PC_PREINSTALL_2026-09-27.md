@@ -693,3 +693,53 @@ authorization acceptance. No `ready`/`settled` prompt was forged or scripted.
 It advances the x86_64 mode/release checkpoint for these installed bytes only;
 it does not close the owner's pre-main acceptance, normal package distribution,
 the remaining in-flight negatives, firewall integration or stock-core #132.
+
+## September 28 source-paired experimental package checkpoint
+
+The offline review builder on committed source
+`d118f6e658f3832a0150ca16dac959ac88b95c3f` exported the exact pinned
+Mihomo and sing-tun commits, applied the retained full patches, populated Go
+vendor dependencies from the pinned module graph, then tested and built with
+`with_gvisor`, `CGO_ENABLED=0` and no network access during the build. Its
+private receipt names Go `1.27.0-X:nodwarf5` on linux/amd64. The resulting core
+SHA-256 was `460a6a40b1094267de764f8df20dec3893873c50c2469a5c9835af3a3fbdd219`;
+the broker SHA-256 remained
+`55f77cc57dde588f84c277d5b5877026b4afbcbf097970fe9892066c0a9bcf32`.
+The corresponding patched/vendored source archive SHA-256 was
+`00a32b8ebd311f475d06c23908c767ad513a29f14e20cbb81b5e0d9fbab01823`.
+These are review artifacts, not signed releases.
+
+The stage contract rejected unmatched or additional receipt fields in unit
+tests and accepted this real source/binary/license pair. `makepkg` in the VM
+initially exposed automatic extraction of `corresponding-source.tar.xz` over
+the `mihomo` binary name; `noextract` fixed the recipe. On the exact source
+commit above, all twelve fixed source checks then passed and the archive built
+without installation. Its SHA-256 was
+`88266b76859e3fa327b56aa07aef6acb097afc8cc5737dafa4beea0d591fa29b`.
+Archive inspection found the fixed binaries, unit, hook, receipt, source archive
+and three license texts; no stock `/usr/bin/mihomo` replacement or enrollment.
+The VM's pacman emitted missing *sync database* warnings, but the local package
+transaction completed using already installed dependencies; this does not
+establish a clean repository-backed install.
+
+For the VM-only same-version replacement, the user runtime was first stopped
+while disconnected. The broker was stopped with MainPID/FDstore zero, journal
+absent and TUN absent. Its leftover root-owned socket was inspected and removed
+by exact interactive path, then the existing package guard passed. Ordinary
+`pacman -U` installed the source-paired experimental archive with the guard
+active; no force flags or disabled hooks were used. Installed hashes matched
+the receipt, the reviewed Mihomo file capabilities were present, and neither
+service nor TUN was auto-started. The preexisting root enrollment and private
+profiles were preserved. After explicit broker/user-runtime starts, a fresh
+installed-owner preflight passed, followed by a real managed Full VPN connect
+and disconnect using a guest-private profile identifier. Connected readback
+confirmed the owned core/TUN and broker lease; release confirmed clean native
+observation, no TUN and broker FDstore zero. The VM ended with both services
+active and disconnected. No firewall exception or TUN-bound HTTPS test was run
+on these new core bytes, and the outer PC's network state was untouched.
+
+The same new core passed isolated broker-channel, DNS ownership and TCP/UDP
+packet probes under disposable namespaces before installation. These are
+agent-run diagnostics only. Normal distribution/enrollment, active/unknown
+upgrade and more installed in-flight negatives, firewall policy, formal
+owner-attended acceptance and the legacy default #132 remain open.
