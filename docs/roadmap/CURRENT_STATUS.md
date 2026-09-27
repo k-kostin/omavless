@@ -84,6 +84,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
   epoch, and the agent restored the original disconnected Rule mode with
   profiles preserved. This is x86_64 agent-attended diagnostic evidence, not
   the formal owner-attended promotion gate or #132 closure.
+  An additional installed PC-VM negative rejected a forged non-TUN descriptor
+  without a lease, and a managed Connect with the broker deliberately stopped
+  returned refusal while fresh actual/desired state stayed Disconnected/Rule
+  with no TUN, FD or recovery. The broker was restored from a proven empty
+  stale-socket state. These do not establish legacy authorization cancellation
+  or every in-flight failure path.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

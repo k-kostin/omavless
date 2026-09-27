@@ -551,3 +551,31 @@ installed pair pinned, native app Disconnected/Rule, startup Off, no recovery,
 36 private profiles retained, no TUN and broker FDstore=0. This validates the
 guard and explicit lifecycle on the VM; no default or automatic firewall/DNS
 policy change was added.
+
+## Installed managed Connect with broker unavailable
+
+On the same pinned VM pair, the agent first sent the enrolled UID's broker
+socket one correctly framed Acquire carrying `/dev/null` rather than a TUN FD.
+The broker returned the fixed Rejected frame; FDstore stayed zero, no TUN
+appeared and the native runtime remained cleanly disconnected. This is a
+single installed kernel-admission negative, not exhaustive malformed-frame
+coverage or a substituted real TUN.
+
+For an end-to-end managed-readiness negative, the agent then stopped the
+empty broker service while the native runtime was Disconnected/Rule, startup
+Off, with no TUN or held FD. The installed native runtime's authenticated
+private control socket was asked to Connect one private VLESS fixture in Full
+VPN. After its bounded wait, the action was refused. Fresh observation and
+snapshot reported actual Disconnected, desired Connected=false, original Rule
+mode, no manual recovery and no TUN; broker FDstore remained zero. No false
+connected or confirmed Global result was published. The private profile ID
+was never placed in a process argument or output.
+
+Normal SIGTERM left the identified inactive broker socket node. After
+independently rechecking inactive/dead MainPID=0, empty journal/FD store, no
+listener/core/TUN and the disconnected app, the agent interactively removed
+only that node and restarted the broker. Final pinned runtime/broker identity
+and Disconnected/Rule/startup-Off/FDstore-zero checks passed. This is an
+agent-only installed negative for **broker unavailable**; it does not reproduce
+stock-core polkit cancellation, in-flight partial resolved writes or the
+owner's formal pre-main acceptance.
