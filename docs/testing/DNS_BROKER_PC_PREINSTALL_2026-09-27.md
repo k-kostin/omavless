@@ -230,3 +230,26 @@ session failure from guest/core routing or config translation, using redacted
 core transport evidence and a known-working fixture before repeating this gate.
 The next comparison should also use an explicitly agreed host-egress condition
 so nested tunnelling is not mistaken for a DNS-broker regression.
+
+## Follow-up: screen the subscription before another TUN gate
+
+The previous three failed connected profiles were not a representative network
+sample. With the VM disconnected, the installed native `profiles.probe` operation
+tested all 35 retained VLESS records through its isolated, no-TUN auxiliary
+Mihomo and fixed public HTTPS targets. All 35 endpoints resolved; **four**
+profiles completed HTTPS through their proxies (60–182 ms in this pass), all
+from the WebSocket subset. The 23 XHTTP records did not pass this probe.
+Two of the successful WebSocket profiles passed individual repeat probes
+(154 ms and 289 ms). These are proxy checks, not TUN, route, managed-DNS or
+mode-transition acceptance. A separately provided, historically usable gRPC
+control profile resolved but did not complete this VM proxy check; it was
+temporarily imported through private stdin and then removed. The original
+35-record subscription and disconnected/Rule/startup-Off state were restored.
+
+This demonstrates that the guest and its current outer-host egress can carry
+at least some proxied HTTPS traffic. It does **not** prove why the tested
+XHTTP/gRPC profiles failed or whether a successful WebSocket profile will pass
+the managed-DNS Full VPN/TUN gate. The next attended gate should select a
+repeat-passing WebSocket record, then require actual TUN-bound HTTPS and clean
+release. The owner-visible `ready`/`settled` barrier remains mandatory before
+each host effect. No release or #270/#132 closure follows from this screen.
