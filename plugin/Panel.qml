@@ -2122,6 +2122,7 @@ Panel {
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.appearance"); foreground: root.foreground; fontFamily: root.fontFamily }
           PlainText { Layout.fillWidth: true; visible: root.page === "settings" && root.nativeMetadataAction !== "" && root.nativeMetadataAction.indexOf("subscription-") !== 0 && root.nativeMetadataAction.indexOf("profile-") !== 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.page === "settings" && vless.nativeMetadataErrorCode !== "" && vless.nativeMetadataErrorAction.indexOf("subscription-") !== 0 && vless.nativeMetadataErrorAction.indexOf("profile-") !== 0; text: vless.nativeMetadataErrorCode ? root.textFor("error." + vless.nativeMetadataErrorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           SettingsActionRow { id: nativeLanguageRow; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.language"); description: root.textFor("settings.language_description"); actionText: root.languageSettingLabel(); onAction: root.cycleLanguageSetting() }
           SettingsActionRow {
             id: nativeThroughputSetting
@@ -2408,6 +2409,7 @@ Panel {
             OmaNavigationButton { id: nativeImportFile; iconText: "󰉓"; tooltipText: root.textFor("native.importFile"); focusable: true; Layout.alignment: Qt.AlignVCenter; enabled: vless.nativeCanAct && !vless.nativeImportBusy; onClicked: { root.close(); vless.startNativeImport("file") } }
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "main" && root.nativeMetadataAction.indexOf("profile-") === 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && vless.nativeMetadataErrorCode !== "" && vless.nativeMetadataErrorAction.indexOf("profile-") === 0; text: vless.nativeMetadataErrorCode ? root.textFor("error." + vless.nativeMetadataErrorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorCode !== ""; text: vless.nativeEditorCode ? root.textFor("native.editor." + vless.nativeEditorCode) : ""; textFormat: Text.PlainText; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeEditorDraft !== null; text: root.textFor("native.editor.privateDraft"); textFormat: Text.PlainText; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Flow {

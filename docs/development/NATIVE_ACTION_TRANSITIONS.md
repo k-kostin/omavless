@@ -15,10 +15,11 @@ connection. It extends the narrow mode-switch presentation in #296.
   older failed snapshot, but a newer failure is urgent.
 - Subscription and profile mutations show a small status beside the relevant
   controls. Other settings mutations show it on Settings. Rejected metadata
-  actions retain their contextual error and display only a brief “checking
-  current state” while fresh observations arrive; they do not imply that the
-  VPN itself failed. The status is time-bounded and cannot silently confirm an
-  action.
+  actions retain their contextual error beside profile or Settings controls
+  and display only a brief “checking current state” while fresh observations
+  arrive; they do not imply that the VPN itself failed. Subscription errors
+  keep their existing local banner. Unknown outcomes and manual recovery remain
+  global. The status is time-bounded and cannot silently confirm an action.
 - During a connection transition, old traffic counters and the connected
   identity are hidden rather than presented as evidence about the new target.
 

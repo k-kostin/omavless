@@ -105,6 +105,14 @@ Item {
   // presentation until a newer coherent observation arrives or the hold ends.
   property var nativeConnectionTransition: null
   property var nativeMetadataTransition: null
+  property string nativeMetadataErrorAction: ""
+  property string nativeMetadataErrorCode: ""
+  onNativePendingChanged: {
+    if (nativePending) {
+      nativeMetadataErrorAction = ""
+      nativeMetadataErrorCode = ""
+    }
+  }
   readonly property bool nativeConnectionSwitching: nativeConnectionTransition !== null
   readonly property bool nativeMetadataBusy: (nativePending !== null && ["connect", "disconnect", "mode"].indexOf(nativePending.action) < 0)
     || nativeMetadataTransition !== null
@@ -3969,6 +3977,9 @@ Item {
       var connectionAction = root.nativePending && ["connect", "disconnect"].indexOf(root.nativePending.action) >= 0
       var metadataAction = root.nativePending && !modeAction && !connectionAction
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
+      var contextualMetadataAction = subscriptionAction || (metadataAction && (
+        root.nativePending.action.indexOf("profile-") === 0
+        || ["startup-configure", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(root.nativePending.action) >= 0))
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeRoutingAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
@@ -3983,7 +3994,12 @@ Item {
         root.nativePending = null
         // Subscription failures have their own contextual banner. Recovery
         // still belongs to the global state and must never be hidden.
-        root.nativeActionCode = result.ok || (subscriptionAction && result.code !== "manual_recovery_required") ? "" : result.code
+        root.nativeActionCode = result.ok || (contextualMetadataAction && result.code !== "manual_recovery_required") ? "" : result.code
+      }
+      if (contextualMetadataAction && result && !result.ok && exitCode !== 73
+          && result.code !== "daemon_restarting" && result.code !== "manual_recovery_required") {
+        root.nativeMetadataErrorAction = pendingAction.action
+        root.nativeMetadataErrorCode = result.code
       }
       if (modeAction) {
         if (result && result.ok) nativeModeTransitionTimeout.restart()
