@@ -188,3 +188,45 @@ This leaves a prepared but disconnected VM, not a DNS-3 PASS. Every authorizing
 Connect, mode change and cleanup still requires the separate human
 `ready`/`settled` procedure. No runtime/package/core/frontend change was made on
 the outer PC, and the development branch is not an RC/main or release decision.
+
+## Installed live-gate result on the isolated VM
+
+The installed runner from `ba1ae19d3977ba8bac839f528ea773b57467b0ce`
+subsequently completed attended Connect and separately attended cleanup in the
+VM. The owner explicitly authorized the agent to enter each `ready`/`settled`
+word in the VM terminal; the agent inspected the screen between words. One
+intermediate run had owner input as well and is not treated as independent agent
+evidence. No separate OS authorization dialog was observed in these runs. This
+is a negative live gate, **not** acceptance of password-free DNS or the RC.
+
+Connect reported an owned, connected core in global mode, a live `Meta` TUN and
+one stored broker descriptor. The guest resolved both a public test name and
+the selected server while connected, and the local proxy listened. However,
+the fixed TUN-bound HTTPS probe timed out. A separate local-proxy request also
+failed (timeout or HTTP 502). Two subscription profiles using XHTTP and one
+using WebSocket produced the same fixed `full_vpn_https_failed` classification.
+Both checked XHTTP endpoints were TCP-reachable while disconnected; that alone
+does not prove a valid VLESS/Reality session or identify the cause of the failure.
+The guest's direct HTTPS probe returned 200 before and after the VPN cycles.
+The outer PC concurrently had V2RayN's `singbox_tun` and a rule routing ordinary
+IPv4 traffic into it. That is a live-test confounder for QEMU user-mode NAT,
+not an established cause of the guest's failures. The outer tunnel was not
+stopped, reconfigured or bypassed.
+
+After each failure the runner's separately authorized cleanup reported
+`disconnected:true`, `dns_released:true`, and `mode_restored:true`. A fresh
+read-only guest check confirmed native actual/desired Disconnected, no manual
+recovery, original Rule mode, startup off, no `Meta` device and broker
+`NFileDescriptorStore=0`. The broker service remained available but held no
+lease. No outer-PC VPN, route, DNS or installed package was changed. Private
+profile data, server addresses, raw logs and screenshots remain outside Git.
+
+The connected HTTPS prerequisite for the subsequent mode sequence did not
+pass, so Rule/Direct/Global transitions, resolved-DNS readback, crash/quarantine,
+retained-lease removal, recovery and clean removal have **not** passed installed
+acceptance. Draft #295 must remain Draft; RC, main, release and marketplace
+publication remain unchanged. The next diagnostic needs to distinguish remote
+session failure from guest/core routing or config translation, using redacted
+core transport evidence and a known-working fixture before repeating this gate.
+The next comparison should also use an explicitly agreed host-egress condition
+so nested tunnelling is not mistaken for a DNS-broker regression.
