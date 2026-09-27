@@ -579,3 +579,38 @@ and Disconnected/Rule/startup-Off/FDstore-zero checks passed. This is an
 agent-only installed negative for **broker unavailable**; it does not reproduce
 stock-core polkit cancellation, in-flight partial resolved writes or the
 owner's formal pre-main acceptance.
+
+## Runtime cleanup budget and reinstalled application candidate
+
+The first CI run after the guard change failed one unrelated auxiliary-core
+cleanup test under shared-runner load. That test's old 600 ms group-drain budget
+could fail while scanning `/proc` twice even when the synthetic child had
+stopped. The bounded runtime stop/drain budgets were widened to 3/4 seconds,
+without replacing whole-group proof with a PID-name check or treating timeout
+as cleanup. Targeted local auxiliary tests, the complete Rust script and the
+complete non-Rust/QML script passed. CI on the runtime-fix commit
+`727682f` passed test, x86_64 package and ARM64 package jobs; the previous red
+run is retained as the trigger, not relabelled green.
+
+From later clean source commit `13883df7d18bb10f15b4c985ddde71af9c9a1099`,
+the agent built an **unpublished** local x86_64 application candidate with
+binary SHA-256
+`0e86e2e49a25bf7d05021a89c7739ba3f651374428a3a1a9f32afefec11db831`.
+The native package archive SHA-256 is
+`64bb113d67ba538ff2bd65ec54872e4ed0c3c4ee806b4af9dbb345c80ba9923a`;
+the paired frontend archive remains outside Git with SHA-256
+`f81671a52d161982681c9935edd8f2635e72d920940d93a2ab7c0f06e8932e35`.
+The frontend archive was assembled, **not installed** at this checkpoint.
+The earlier x86_64 application rollback package remained separately retained
+and byte-verified. No asset/tag/public package was published.
+
+With the VM already Disconnected/Rule, startup Off, 36 profiles, one
+subscription, no TUN and broker FDstore=0, its user runtime was stopped.
+Ordinary interactive `pacman -U` reinstalled the same-version new application
+package; no force flags or profile cleanup were used. Installed binary hash
+matched the candidate record and `pacman -Qkk omavless` reported 17 files with
+none altered. The native runtime restarted with the already selected pinned
+experimental core. Fresh installed runtime/broker identity checks passed;
+Disconnected/Rule, startup Off, all private records, TUN0, broker FDstore0 and
+no manual recovery were preserved. This is an installed *disconnected*
+checkpoint for the runtime fix, not a repeated VPN/DNS acceptance on new bytes.

@@ -90,6 +90,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   with no TUN, FD or recovery. The broker was restored from a proven empty
   stale-socket state. These do not establish legacy authorization cancellation
   or every in-flight failure path.
+  An unrelated CI auxiliary-core cleanup timeout was widened while preserving
+  bounded whole-group proof; its runtime-fix head passed the full local Rust
+  suite and all three CI jobs. The resulting unpublished x86_64 application
+  package was installed in the isolated VM with exact binary/package hashes,
+  while profiles, subscription, Disconnected/Rule/startup-Off state, TUN0 and
+  broker FDstore0 were preserved. The paired frontend was assembled but not
+  installed; no connected acceptance is claimed for the newly installed app.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
