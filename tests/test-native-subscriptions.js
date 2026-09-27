@@ -10,6 +10,7 @@ function context(){
     nativeSnapshot:{instanceId:'instance',revision:4,subscriptions:[{id:'record',name:'Synthetic'}]},
     nativePending:null,nativeActionRunning:false,nativeOutcomeUnknown:false,nativeActionCode:'',nativeActionProcess:{},
     nativeMetadataTransitionTimeout:{restart(){},stop(){}},
+    nativeSubscriptionSuccessTimeout:{restart(){},stop(){}},
     nativeSubscriptionDraft:null,nativeSubscriptionLoading:false,nativeSubscriptionReadProcess:null,
     nativeSubscriptionReadComponent:{createObject:(_parent,properties)=>({...properties,running:false})},
     nativeSubscriptionCode:'',_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',ready:[],saved:0});

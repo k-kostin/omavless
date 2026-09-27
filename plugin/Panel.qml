@@ -191,7 +191,9 @@ Panel {
       return vless.nativeSnapshot.lastKnownActual
     return ""
   }
-  readonly property bool nativeStatusWaiting: nativeTransitionKind !== "" || (vless.nativeMetadataBusy && !nativeRealFailure)
+  // Metadata work is local to its control; the VPN header/bar must continue
+  // describing the actual connection rather than a subscription edit.
+  readonly property bool nativeStatusWaiting: nativeTransitionKind !== ""
   readonly property string nativeTransitionTarget: {
     var transition = vless.nativeConnectionTransition
     if (!transition || transition.action !== "connect") return ""
@@ -2368,8 +2370,8 @@ Panel {
               Button { id: nativeBatchAbandon; visible: vless.nativeBatchAbandonable; text: root.textFor("native.acceptState"); focusable: true; bordered: true; onClicked: vless.abandonNativeBatch() }
             }
           }
-          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== ""; text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0; text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: vless.nativeSubscriptionCode !== "" && !(root.page === "main" && vless.nativeSubscriptionCode === "saved" && vless.nativeSubscriptionStatusId !== ""); text: root.textFor("native.subscription." + vless.nativeSubscriptionCode); color: vless.nativeSubscriptionCode === "unknown" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+          PlainText { Layout.fillWidth: true; visible: root.nativeMetadataAction.indexOf("subscription-") === 0 && !(root.page === "main" && root.nativeMetadataTargetId !== ""); text: root.nativeMetadataText; textFormat: Text.PlainText; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions" && root.nativeView.subscriptions.length === 0; text: root.textFor("native.subscriptions.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           Repeater {
             id: nativeSubscriptions
@@ -2499,7 +2501,7 @@ Panel {
                     visible: !nativeRow.isProfile && (
                       (root.nativeMetadataAction === "subscription-refresh" && root.nativeMetadataTargetId === nativeRow.modelData.subscription.id)
                       || (vless.nativeSubscriptionStatusId === nativeRow.modelData.subscription.id
-                        && ["refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0))
+                        && ["saved", "refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0))
                     text: root.nativeMetadataAction === "subscription-refresh" && root.nativeMetadataTargetId === nativeRow.modelData.subscription.id
                       ? root.nativeMetadataText : root.textFor("native.subscription." + vless.nativeSubscriptionCode)
                     textFormat: Text.PlainText

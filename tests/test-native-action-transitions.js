@@ -58,6 +58,37 @@ stale.nativeObservation.revision=4
 stale.finishNativeActionTransitionObservation()
 assert(stale.nativeConnectionTransition,'stale observation is not proof')
 
+function panelStateExpression(property) {
+  const marker = '  readonly property ' + property + ': {'
+  const from = panel.indexOf(marker)
+  const to = panel.indexOf('\n  }\n', from)
+  assert(from >= 0 && to > from, property)
+  return panel.slice(from + marker.length, to)
+}
+const realFailureExpression = panelStateExpression('bool nativeRealFailure')
+const transitionExpression = panelStateExpression('string nativeTransitionKind')
+function visibleState(actual, overrides={}) {
+  const vless = Object.assign({nativeOutcomeUnknown:false,nativeSnapshotFailed:false,
+    nativeSnapshot:{lastKnownActual:actual,revision:5},nativeModeSwitching:false,
+    nativeConnectionSwitching:false,nativeConnectionTransition:null}, overrides)
+  const c = vm.createContext({vless,nativeRealFailure:false})
+  c.nativeRealFailure = vm.runInContext('(function(){' + realFailureExpression + '\n})()',c)
+  const kind = vm.runInContext('(function(){' + transitionExpression + '\n})()',c)
+  return {failure:c.nativeRealFailure,kind}
+}
+for (const [actual,kind] of [['starting','starting'],['reconnecting','reconnecting'],['stopping','stopping']])
+  assert.deepEqual(visibleState(actual),{failure:false,kind})
+assert.deepEqual(visibleState('failed'),{failure:true,kind:''})
+assert.deepEqual(visibleState('manualRecoveryRequired'),{failure:true,kind:''})
+assert.deepEqual(visibleState('reconnecting',{nativeOutcomeUnknown:true}),{failure:true,kind:''})
+assert.deepEqual(visibleState('reconnecting',{nativeSnapshotFailed:true}),{failure:true,kind:''})
+assert.deepEqual(visibleState('failed',{nativeConnectionSwitching:true,
+  nativeConnectionTransition:{revision:5,action:'connect',switchingProfile:false}}),
+  {failure:false,kind:'connect'})
+assert.deepEqual(visibleState('failed',{nativeConnectionSwitching:true,
+  nativeConnectionTransition:{revision:4,action:'connect',switchingProfile:false}}),
+  {failure:true,kind:''})
+
 for(const kind of ['connect','server','disconnect','starting','reconnecting','stopping'])
   assert(panel.includes('native.progress.' + kind) || panel.includes('"' + kind + '"'),kind)
 assert(panel.includes('if (nativeRealFailure) return ""'))
@@ -68,6 +99,10 @@ assert(panel.includes('root.nativeMetadataAction.indexOf("profile-") === 0'))
 assert(service.includes('action:action, targetId:id, command:args, input:input'))
 assert(panel.includes('root.nativeMetadataTargetId === nativeRow.modelData.subscription.id'))
 assert(panel.includes('vless.nativeSubscriptionStatusId === nativeRow.modelData.subscription.id'))
+assert(panel.includes('["saved", "refreshFailed", "fetchFailed"].indexOf(vless.nativeSubscriptionCode) >= 0'))
+assert(panel.includes('readonly property bool nativeStatusWaiting: nativeTransitionKind !== ""'))
+assert(panel.includes('root.nativeMetadataTargetId !== ""'))
+assert(service.includes('id: nativeSubscriptionSuccessTimeout'))
 assert(service.includes('var contextualMetadataAction = subscriptionAction'))
 assert(service.includes('contextualMetadataAction && result.code !== "manual_recovery_required"'))
 assert(service.includes('root.nativeMetadataErrorAction = pendingAction.action'))
@@ -76,4 +111,4 @@ assert(panel.includes('vless.nativeMetadataErrorAction.indexOf("profile-") === 0
 assert(panel.includes('vless.nativeMetadataErrorAction.indexOf("subscription-") !== 0'))
 assert(panel.includes('root.nativeTransitionKind !== "disconnect"\n              && root.nativeTransitionKind !== "stopping"'))
 assert(!panel.includes('visible: vless.nativeActionRunning && !vless.nativeModeSwitching; text: root.textFor("native.pending")'))
-console.log('native action transitions: 7 state cases and contextual UI contracts passed')
+console.log('native action transitions: observation and reconnect/failure states plus contextual UI contracts passed')

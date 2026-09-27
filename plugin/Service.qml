@@ -510,6 +510,12 @@ Item {
   property var nativeSubscriptionDraft: null
   property var nativeSubscriptionReadProcess: null
   property string nativeSubscriptionCode: ""
+  Timer {
+    id: nativeSubscriptionSuccessTimeout
+    interval: 5000
+    repeat: false
+    onTriggered: if (root.nativeSubscriptionCode === "saved") root.nativeSubscriptionCode = ""
+  }
   readonly property bool nativeSubscriptionLoading: nativeSubscriptionReadProcess !== null
   signal nativeSubscriptionReady(string name, string url, string kind, bool editing)
   signal nativeSubscriptionSaved()
@@ -582,6 +588,7 @@ Item {
       operationId:operation, action:action, targetId:id, command:args, input:input}
     nativeActionCode = ""
     nativeSubscriptionCode = ""
+    nativeSubscriptionSuccessTimeout.stop()
     nativeSubscriptionStatusId = id
     nativeOutcomeUnknown = false
     nativeActionProcess.command = args
@@ -599,6 +606,7 @@ Item {
     else if (result.ok) {
       nativeSubscriptionDraft = null
       nativeSubscriptionCode = "saved"
+      nativeSubscriptionSuccessTimeout.restart()
       nativeSubscriptionSaved()
     } else {
       if (nativeSubscriptionDraft) nativeSubscriptionDraft.unresolved = false

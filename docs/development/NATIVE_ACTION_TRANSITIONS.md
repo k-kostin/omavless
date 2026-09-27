@@ -15,7 +15,10 @@ connection. It extends the narrow mode-switch presentation in #296.
   older failed snapshot, but a newer failure is urgent.
 - Subscription and profile mutations show a small status beside the relevant
   controls, including a refresh launched from a subscription row on the main
-  page. Other settings mutations show it on Settings. Rejected metadata
+  page. A successful subscription action there has a brief row-local result,
+  not a persistent top-level notice. Metadata work does not turn the VPN bar or
+  header into a global Working state. Other settings mutations show it on
+  Settings. Rejected metadata
   actions retain their contextual error beside profile or Settings controls
   and display only a brief “checking current state” while fresh observations
   arrive; they do not imply that the VPN itself failed. Subscription errors
