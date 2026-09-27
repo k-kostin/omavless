@@ -120,6 +120,7 @@ test('real Service exit handler clears completion pending and refreshes confirme
  function run(raw,code) {
   const c=vm.createContext({NativeSnapshot:parser,nativeActionStdout:{text:raw},nativePending:completionPending(),
    nativeOutcomeUnknown:false,nativeActionCode:'',nativeObservation:{},refreshes:0,
+   nativeMetadataTransitionTimeout:{restart(){},stop(){}},
    finishNativeEditorAction(){},finishNativeSubscriptionAction(){},finishNativeRoutingAction(){},
    refreshAfterChange(){this.refreshes++}});c.root=c;vm.runInContext(handler,c);c.exited(code);return c;
  }

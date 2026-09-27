@@ -101,6 +101,51 @@ Item {
   // separate from an actual unverified or failed runtime state.
   property var nativeModeTransition: null
   readonly property bool nativeModeSwitching: nativeModeTransition !== null
+  // A command acknowledgement is not connection proof. Hold only its
+  // presentation until a newer coherent observation arrives or the hold ends.
+  property var nativeConnectionTransition: null
+  property var nativeMetadataTransition: null
+  readonly property bool nativeConnectionSwitching: nativeConnectionTransition !== null
+  readonly property bool nativeMetadataBusy: (nativePending !== null && ["connect", "disconnect", "mode"].indexOf(nativePending.action) < 0)
+    || nativeMetadataTransition !== null
+  Timer {
+    id: nativeConnectionTransitionTimeout
+    interval: 12000
+    repeat: false
+    onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeConnectionTransition = null
+  }
+  Timer {
+    id: nativeMetadataTransitionTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.nativeMetadataTransition = null
+  }
+  function finishNativeActionTransitionObservation() {
+    if (nativeConnectionTransition && !nativePending && !nativeActionRunning) {
+      var transition = nativeConnectionTransition
+      if (!nativeSnapshot || nativeSnapshot.instanceId !== transition.instanceId || nativeSnapshotFailed) {
+        nativeConnectionTransitionTimeout.stop()
+        nativeConnectionTransition = null
+      } else if (nativeSnapshot.revision > transition.revision
+          && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) {
+        var view = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+        if ((transition.action === "disconnect" && view.state === "disconnected")
+            || (transition.action === "connect" && view.connected && view.activeId === transition.profileId)
+            || ["failed", "manualRecoveryRequired", "unavailable"].indexOf(view.state) >= 0) {
+          nativeConnectionTransitionTimeout.stop()
+          nativeConnectionTransition = null
+        }
+      }
+    }
+    if (nativeMetadataTransition && !nativePending && !nativeActionRunning
+        && nativeSnapshot && !nativeSnapshotFailed
+        && nativeSnapshot.instanceId === nativeMetadataTransition.instanceId
+        && nativeSnapshot.revision > nativeMetadataTransition.revision
+        && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)) {
+      nativeMetadataTransitionTimeout.stop()
+      nativeMetadataTransition = null
+    }
+  }
   Timer {
     id: nativeModeTransitionTimeout
     interval: 12000
@@ -712,6 +757,13 @@ Item {
     else if (action === "mode") args.push(mode)
     nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
       operationId:operation, action:action, command:args}
+    if (action === "connect" || action === "disconnect") {
+      var prior = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
+      nativeConnectionTransition = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+        action:action, profileId:profileId,
+        switchingProfile:action === "connect" && prior.connected && prior.activeId !== profileId}
+      nativeConnectionTransitionTimeout.stop()
+    }
     if (action === "mode") nativeModeTransition = {instanceId:nativeSnapshot.instanceId,
       revision:nativeSnapshot.revision, targetMode:mode, operationId:operation}
     nativeActionCode = ""
@@ -3882,6 +3934,7 @@ Item {
     onExited: function(exitCode) {
       root.nativeObservation = exitCode === 0 ? NativeSnapshot.parseObservation(nativeObservationStdout.text) : null
       root.finishNativeModeTransitionObservation()
+      root.finishNativeActionTransitionObservation()
     }
   }
 
@@ -3910,8 +3963,11 @@ Item {
     stdout: StdioCollector { id: nativeActionStdout; waitForEnd: true }
     // Raw errors never enter visible state or the shared legacy error channel.
     onExited: function(exitCode) {
+      var pendingAction = root.nativePending
       var result = NativeSnapshot.parseActionExit(nativeActionStdout.text, root.nativePending, exitCode)
       var modeAction = root.nativePending && root.nativePending.action === "mode"
+      var connectionAction = root.nativePending && ["connect", "disconnect"].indexOf(root.nativePending.action) >= 0
+      var metadataAction = root.nativePending && !modeAction && !connectionAction
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
@@ -3935,6 +3991,15 @@ Item {
           nativeModeTransitionTimeout.stop()
           root.nativeModeTransition = null
         }
+      }
+      if (connectionAction) {
+        if (result && result.ok) nativeConnectionTransitionTimeout.restart()
+        else { nativeConnectionTransitionTimeout.stop(); root.nativeConnectionTransition = null }
+      }
+      if (metadataAction && result && exitCode !== 73 && result.code !== "daemon_restarting") {
+        root.nativeMetadataTransition = {instanceId:pendingAction.instanceId,
+          revision:pendingAction.revision, action:pendingAction.action, failed:!result.ok}
+        nativeMetadataTransitionTimeout.restart()
       }
       root.nativeObservation = null
       root.refreshAfterChange()
@@ -4018,6 +4083,10 @@ Item {
         if (root.nativeModeTransition && !root.nativeActionRunning) {
           nativeModeTransitionTimeout.stop()
           root.nativeModeTransition = null
+        }
+        if (root.nativeConnectionTransition && !root.nativeActionRunning) {
+          nativeConnectionTransitionTimeout.stop()
+          root.nativeConnectionTransition = null
         }
         root.lastError = root.nativeOwner ? "Native metadata is unavailable"
           : root.elide(statusStderr.text || "Failed to read OmaVLESS status")

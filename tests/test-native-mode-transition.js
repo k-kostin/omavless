@@ -90,6 +90,8 @@ function completeMode(result, exitCode) {
   c.nativePending = {action: 'mode', instanceId: 'synthetic', revision: 4, operationId: 'mode-one'}
   c.nativeObservation = {older: true}
   c.nativeActionStdout = {text: ''}
+  c.nativeConnectionTransitionTimeout = {restart() {}, stop() {}}
+  c.nativeMetadataTransitionTimeout = {restart() {}, stop() {}}
   c.NativeSnapshot = {parseActionExit: () => result}
   c.finishNativeEditorAction = () => {}
   c.finishNativeSubscriptionAction = () => {}
@@ -123,8 +125,8 @@ assert(service.includes('if (action === "mode") nativeModeTransition = {instance
 assert(service.includes('if (result && result.ok) nativeModeTransitionTimeout.restart()'))
 assert(service.includes('onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeModeTransition = null'))
 assert(panel.includes('id: nativeModeTransitionCard'))
-assert(panel.includes('visible: !vless.nativeModeSwitching && root.nativeView.state !== "disconnected"'))
-assert(panel.includes('vless.nativeModeSwitching ? transitionIcon : nativeView.connected'))
-assert(panel.includes('vless.nativeModeSwitching ? "native.modeSwitch.traffic" : "traffic.native_unavailable"'))
-assert(panel.includes('visible: vless.nativeTrafficFresh && !vless.nativeModeSwitching'))
+assert(panel.includes('root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected"'))
+assert(panel.includes('nativeStatusWaiting ? transitionIcon : nativeView.connected'))
+assert(panel.includes('root.nativeTransitionKind !== "" ? "native.progress.traffic" : "traffic.native_unavailable"'))
+assert(panel.includes('visible: vless.nativeTrafficFresh && root.nativeTransitionKind === ""'))
 console.log('native mode transition: pending, settled, rollback, failure and unknown states passed')
