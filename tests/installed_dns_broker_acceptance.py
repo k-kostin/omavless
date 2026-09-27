@@ -35,6 +35,17 @@ BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
 BROKER_UNIT_SHA = "a63bc4db9c52b03c497e941cc8f5a143de6e85c3a1e2aafabead0f1f4d80c080"
 RUNTIME = "omavless-runtime.service"
 MODES = ("global", "rule", "direct", "global")
+SAFE_FAILURES = frozenset((
+    "vless_fixture_unavailable", "baseline_not_disconnected", "native_action_rejected",
+    "connected_state_unverified",
+    "mode_unconfirmed", "managed_tun_unverified", "runtime_cgroup_unverified",
+    "owned_core_unverified", "running_core_not_pinned", "core_socket_identity",
+    "core_socket_directory", "core_socket_peer", "core_controller_response",
+    "core_mode", "broker_core_not_ready", "broker_service_unavailable", "broker_state_invalid",
+    "broker_retention_mismatch", "broker_dns_readback_unavailable",
+    "broker_dns_readback_mismatch", "full_vpn_https_failed", "cleanup_unverified",
+    "restoration_unverified",
+))
 
 
 def require(condition, code):
@@ -140,6 +151,24 @@ def broker_state(expected):
     gate.broker_evidence(expected, fixed_command)
 
 
+def core_process_projection(status, runtime_pid, uid):
+    """Check public proc status when file capabilities hide proc/PID/exe."""
+    fields = {}
+    for line in status.splitlines():
+        if b":" not in line:
+            continue
+        key, value = line.split(b":", 1)
+        if key in (b"Name", b"State", b"PPid", b"Uid", b"CapEff"):
+            require(key not in fields, "owned_core_unverified")
+            fields[key] = value.strip().split()
+    require(fields.get(b"Name") == [b"mihomo"]
+            and fields.get(b"State", [b"?"])[0] not in (b"Z", b"X")
+            and fields.get(b"PPid") == [str(runtime_pid).encode()]
+            and fields.get(b"Uid") == [str(uid).encode()] * 4
+            and fields.get(b"CapEff") == [b"0000000000003400"],
+            "owned_core_unverified")
+
+
 def connected_state(runtime_pid, mode):
     observed = installed.cli("runtime", "observation")["result"]
     require(observed.get("availability") == "observed"
@@ -154,14 +183,25 @@ def connected_state(runtime_pid, mode):
     require(group.is_relative_to(Path("/sys/fs/cgroup"))
             and runtime_pid in set(map(int, gate.bounded(group / "cgroup.procs").split())),
             "runtime_cgroup_unverified")
-    cores = {member for member in set(map(int, gate.bounded(group / "cgroup.procs").split()))
-             if gate.processes().get(member) == b"mihomo"}
-    require(len(cores) == 1 and cores <= gate.descendants(runtime_pid),
-            "owned_core_unverified")
+    members = set(map(int, gate.bounded(group / "cgroup.procs").split()))
+    cores = {member for member in members
+             if gate.bounded(Path("/proc") / str(member) / "comm", 256).strip() == b"mihomo"}
+    require(len(cores) == 1, "owned_core_unverified")
     core = next(iter(cores))
+    core_process_projection(gate.bounded(Path("/proc") / str(core) / "status", 16384),
+                            runtime_pid, os.getuid())
     actual, pinned = Path("/proc") / str(core) / "exe", CORE_PATH
-    require((actual.stat().st_dev, actual.stat().st_ino) ==
-            (pinned.stat().st_dev, pinned.stat().st_ino), "running_core_not_pinned")
+    try:
+        inode = actual.stat()
+    except PermissionError:
+        # The exact reviewed core has file capabilities. Linux can mark such
+        # a process nondumpable and reject this ordinary user's procfs read.
+        # The package pin, owner-selected path, status/cgroup and controller
+        # peer PID below remain evidence, but not running-inode proof.
+        pass
+    else:
+        require((inode.st_dev, inode.st_ino) ==
+                (pinned.stat().st_dev, pinned.stat().st_ino), "running_core_not_pinned")
     gate.core_controller(Path("/run/user") / str(os.getuid()) / "omavless/mihomo.sock",
                          core, mode, managed=True)
     broker_state(1)
@@ -172,6 +212,29 @@ def mode_sequence(authorization, change, verify):
     for mode in MODES[1:]:
         authorization.step("mode_change", lambda mode=mode: change(mode))
         verify(mode)
+
+
+def failure_classification(error):
+    if isinstance(error, auth.AuthorizationUnsettled):
+        return "human_authorization_unsettled"
+    if isinstance(error, gate.Failure):
+        code = str(error)
+        # An allowlist, not just a syntax check: opaque private ASCII tokens
+        # can also satisfy a simple identifier pattern.
+        if code in SAFE_FAILURES:
+            return code
+    return "installed_dns_gate_failed"
+
+
+def failure_type(error):
+    # Type-only diagnostics cannot contain a provider error or profile field.
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "subprocess_timeout"
+    for kind in (FileNotFoundError, PermissionError, KeyError, IndexError,
+                 TypeError, ValueError, AttributeError, OSError):
+        if isinstance(error, kind):
+            return kind.__name__
+    return "other"
 
 
 def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
@@ -191,10 +254,13 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
               mode_sequence=list(MODES), authorization="attended")
     connected = False
     completed = False
+    checkpoint = "connect"
     try:
         authorization.step("connect", lambda: installed.action("connect", profile, "global"))
         connected = True
+        checkpoint = "connected_state"
         connected_state(runtime_pid, "global")
+        checkpoint = "https_probe"
         before = gate.tun_counters("Meta")
         probe = subprocess.run(gate.https_probe_args("Meta"), stdin=subprocess.DEVNULL,
                                capture_output=True, timeout=25)
@@ -202,9 +268,13 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
             probe, before, gate.tun_counters("Meta"))
         gate.emit(full_vpn_https=https, tun_used=tun_used, classification=classification)
         require(https and tun_used, "full_vpn_https_failed")
+        checkpoint = "mode_sequence"
         mode_sequence(authorization, lambda mode: installed.action("mode", mode),
                       lambda mode: connected_state(runtime_pid, mode))
         completed = True
+    except Exception as error:
+        gate.emit(checkpoint=checkpoint, failure_type=failure_type(error))
+        raise
     finally:
         if authorization.blocked:
             gate.emit(passed=False, cleanup=False,
@@ -242,13 +312,7 @@ def main(argv=None):
                  args.experimental_broker_sha, args.profile_index)
         return 0
     except Exception as error:
-        allowed = {"vless_fixture_unavailable", "baseline_not_disconnected",
-                   "full_vpn_https_failed", "cleanup_unverified", "restoration_unverified"}
-        classification = ("human_authorization_unsettled"
-                          if isinstance(error, auth.AuthorizationUnsettled)
-                          else str(error) if isinstance(error, gate.Failure)
-                          and str(error) in allowed else "installed_dns_gate_failed")
-        gate.emit(passed=False, classification=classification)
+        gate.emit(passed=False, classification=failure_classification(error))
         return 1
 
 

@@ -55,6 +55,17 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
             with self.assertRaisesRegex(gate.gate.Failure, "^running_broker_unverified$"):
                 gate.running_broker_projection(*altered)
 
+    def test_capability_core_projection_uses_parent_uid_and_exact_caps(self):
+        status = (b"Name:\tmihomo\nState:\tS (sleeping)\nPPid:\t41\n"
+                  b"Uid:\t1000\t1000\t1000\t1000\nCapEff:\t0000000000003400\n")
+        gate.core_process_projection(status, 41, 1000)
+        for altered in (status.replace(b"PPid:\t41", b"PPid:\t42"),
+                        status.replace(b"S (sleeping)", b"Z (zombie)"),
+                        status.replace(b"1000\t1000", b"1001\t1001"),
+                        status.replace(b"0000000000003400", b"0000000000000000")):
+            with self.assertRaisesRegex(gate.gate.Failure, "^owned_core_unverified$"):
+                gate.core_process_projection(altered, 41, 1000)
+
     def test_profile_selection_is_exact_and_never_prints_private_fields(self):
         candidate = {"id": "selected", "protocol": "vless", "missing": False,
                      "uri": "private material"}
@@ -97,6 +108,19 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.gate.Failure, "^dns_readback_missing$"):
             gate.mode_sequence(authorization, effects.append, verify)
         self.assertEqual(effects, ["rule"])
+
+    def test_failure_classification_is_specific_but_cannot_echo_private_text(self):
+        self.assertEqual(gate.failure_classification(
+            gate.gate.Failure("broker_retention_mismatch")), "broker_retention_mismatch")
+        self.assertEqual(gate.failure_classification(
+            gate.auth.AuthorizationUnsettled()), "human_authorization_unsettled")
+        for error in (gate.gate.Failure("secret.example.com"),
+                      gate.gate.Failure("private name"),
+                      gate.gate.Failure("private_token"), ValueError("private")):
+            self.assertEqual(gate.failure_classification(error), "installed_dns_gate_failed")
+        self.assertEqual(gate.failure_type(FileNotFoundError("private")), "FileNotFoundError")
+        self.assertEqual(gate.failure_type(ValueError("private")), "ValueError")
+        self.assertEqual(gate.failure_type(gate.gate.Failure("private")), "other")
 
 
 if __name__ == "__main__":

@@ -115,3 +115,27 @@ was active with FDstore=0 was aborted by its installed ALPM PreTransaction hook.
 The package, binary hashes, active service and disconnected/TUN-free runtime
 were unchanged afterward. This proves the **active-service** removal refusal,
 not the stronger retained-lease/quarantine removal gate or clean removal.
+
+## Attended mode-gate diagnostic, not a positive result
+
+The first GUI terminal was closed before its result was retained. Two subsequent
+attended runs reached Connect and then separately authorized Disconnect and
+mode restoration. Both ended `passed:false`; cleanup reported disconnected,
+DNS released and original mode restored. The owner reported **no separate OS
+DNS/route authorization dialogs** during these transitions. The initial runner
+collapsed the failure into a generic code. A type-only checkpoint on the later
+run identified `PermissionError` while observing the connected core, before
+the TUN-bound HTTPS probe or any mode change. On this file-capability host,
+ordinary-UID `/proc/<core-PID>/exe` inspection is not assured; this is a
+test-observation problem, not proof of either DNS success or product failure.
+
+The runner now requires public process name, direct parent, UID, exact effective
+capabilities, runtime cgroup and private-controller peer PID, while using the
+running executable inode comparison only when procfs permits it. The installed
+path and package hash remain separately pinned. This narrower projection does
+**not** claim independent running-inode proof. Its unit tests passed; the
+updated runner has **not** yet passed an installed Connect. The VM was no longer
+running after these observations; cause of shutdown has not been established.
+The last read-only observation before that showed a disconnected, recovery-free
+runtime, no TUN/owned core and zero broker FD-store entries. Positive mode/DNS,
+crash/quarantine, clean removal and recovery gates remain open.
