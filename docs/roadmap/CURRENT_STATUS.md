@@ -73,7 +73,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   reinstall passed, but the restarted service refused a preserved stale socket
   until exact empty-state inspection and explicit socket-only unlink; it then
   started with FDstore zero. The source ALPM guard now refuses such a node before
-  removal/replacement, but this guard change has not yet been built or installed.
+  removal/replacement; the guard change was subsequently built and installed
+  from a pinned x86_64 archive, then its real ALPM stale-socket refusal and
+  explicit clean recovery passed in the isolated VM.
   Quarantined-state removal was still open at that checkpoint; reviewed
   distribution and owner-attended acceptance remain open.
   A subsequent PC-VM root-broker SIGKILL retained the original TUN, private

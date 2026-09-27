@@ -482,12 +482,11 @@ returned active/READY with a new socket inode and FD store zero. This was
 agent-only lifecycle diagnosis, not a general permission to clear unknown
 state, and no outer-PC service was touched.
 
-The source ALPM guard is now hardened to refuse replacement/removal while any
+The source ALPM guard was then hardened to refuse replacement/removal while any
 stale socket node remains, forcing this explicit empty-state inspection **before**
-a transaction instead of surprising the next service start. This changed guard
-has source tests but is not the already installed package: the installed binary
-pair and archive above are unchanged. The exact package-source change needs
-its own rebuild and repeat test before an RC inclusion claim.
+a transaction instead of surprising the next service start. The rebuilt and
+installed validation of that source change is recorded below; this earlier
+reinstall used the unchanged original archive.
 
 ## Root-broker crash, quarantine and reboot in the PC VM
 
@@ -518,3 +517,37 @@ socket after confirming disconnection. The VM ended Disconnected/Rule with
 private profiles retained. This reproduces the ARM quarantine/reboot boundary
 on x86_64, but is agent-attended RC diagnostic evidence, not the owner's formal
 human-attended promotion gate or a solution for the earlier legacy #132 path.
+
+## Rebuilt stale-socket guard package and installed lifecycle check
+
+From exact source commit `779639477020fe6c721acd70846574f420273c27`, the
+agent staged a new x86_64 experimental archive using the same pinned broker
+and patched core binaries. Source receipt, fixed archive file list and extracted
+guard matched their independently checked SHA-256 values. The new archive hash
+is `a9b52f3dbb2cb43281d1d67e1daa6810df8c62bf58c575bba60a380172275b0b`;
+its guard hash is
+`686ccd5d1ff36e53aa79f2dc268230a06764cd7ba5d75b026a5b14c6132937f5`.
+This is another local review artifact, not a public release asset.
+
+After reboot had cleared the quarantined epoch, the VM showed the broker
+inactive/dead, FDstore=0, no socket/journal or TUN. Normal interactive
+`pacman -U` reinstalled the same-version new archive through the old package's
+PreTransaction guard. Installed guard, broker and core digests matched the
+staged receipt; the reviewed core capabilities were restored, and `pacman -Qkk`
+reported 17 files with none altered. The package did not enable/start the
+broker or connect the application.
+
+The agent started the broker with FDstore=0, then stopped it cleanly. Systemd
+reported inactive/dead, MainPID=0 and FDstore=0; the private journal was empty,
+no `Meta` or live core/listener remained, but the identified filesystem socket
+node persisted. The **new installed guard refused** this state. An actual
+interactive same-package `pacman -U` was also rejected by its ALPM
+PreTransaction hook, with no package change. After repeating the empty-state
+checks, the agent interactively unlinked only that socket; the guard passed and
+the broker started normally with a new listener and FDstore=0. The transient
+test-core selection was restored to the VM's user manager after reboot and the
+disconnected runtime restarted. Final fresh identity/observation checks passed:
+installed pair pinned, native app Disconnected/Rule, startup Off, no recovery,
+36 private profiles retained, no TUN and broker FDstore=0. This validates the
+guard and explicit lifecycle on the VM; no default or automatic firewall/DNS
+policy change was added.
