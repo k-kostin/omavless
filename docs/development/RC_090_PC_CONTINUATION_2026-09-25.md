@@ -4,6 +4,11 @@ This is the current cross-machine handoff, not release approval. It supersedes
 older handoff instructions about uninstalled DNS experiments or pending
 post-reboot Routing restoration. Read the retained evidence, not a chat replay.
 
+The September 27 PC pre-install continuation is recorded in the
+[x86_64 evidence report](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
+It built and inspected the pinned packages and passed isolated production-tag
+core probes, but did not install the pair or close any attended host gate.
+
 ## Ownership and starting refs
 
 The Try Omarchy writer stops after publishing this document and the linked #270

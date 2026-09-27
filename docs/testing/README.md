@@ -22,7 +22,8 @@ release work. Dated reports below retain their original pre-merge wording.
 
 - [0.9.0 PC continuation](../development/RC_090_PC_CONTINUATION_2026-09-25.md):
   current #270 ownership transfer, remaining DNS host gates and frozen release
-  boundary; [installed ARM64 evidence](DNS_BROKER_TRY_OMARCHY_2026-09-25.md).
+  boundary; [installed ARM64 evidence](DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
+  and [PC x86_64 pre-install evidence](DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
 - [0.8.2 fresh x86_64 VM installation](NATIVE_082_FRESH_VM_2026-09-21.md):
   actual plugin-first setup with both application and Mihomo initially absent,
   onboarding/reopen and exact-source marketplace baseline; no new VPN claim.

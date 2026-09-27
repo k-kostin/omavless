@@ -212,6 +212,18 @@ class NativeServiceAcceptanceTests(unittest.TestCase):
             PROBE.acceptance(options)
         load.assert_not_called()
 
+    def test_managed_dns_refuses_isolated_owner_before_private_or_host_access(self):
+        options = MagicMock(private_vless_store="/private/source", mode="global",
+                            experimental_dns_broker_core_sha="0" * 64)
+        with patch.object(PROBE.auth, "HumanAuthorization") as guard, \
+                patch.object(PROBE, "load_private_vless") as load, \
+                patch.object(PROBE, "experimental_core") as core, \
+                self.assertRaisesRegex(PROBE.Failure, "^managed_dns_requires_installed_owner$"):
+            PROBE.acceptance(options)
+        guard.return_value.require_terminal.assert_called_once_with()
+        load.assert_not_called()
+        core.assert_not_called()
+
     @staticmethod
     def authorization(words):
         class Terminal(io.StringIO):

@@ -13,6 +13,13 @@ import dns_core_packet_probe as probe
 
 
 class PacketProbeTests(unittest.TestCase):
+    def test_reverse_path_filter_is_disabled_only_for_synthetic_namespace(self):
+        self.assertEqual(probe.namespace_sysctl_args(), [
+            '/usr/bin/sysctl', '-q', '-w',
+            'net.ipv4.conf.ovdnsprobe0.accept_local=1',
+            'net.ipv4.conf.ovdnsprobe0.rp_filter=0',
+            'net.ipv4.conf.all.rp_filter=0'])
+
     def test_root_parent_and_extra_arguments_refuse_without_access(self):
         for uid, args in [(0, ['probe', '/synthetic/core', 'a' * 64]),
                           (1000, ['probe', '--host']), (1000, ['probe'])]:

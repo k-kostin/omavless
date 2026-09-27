@@ -368,7 +368,10 @@ def acceptance(options):
     require(not real or options.mode == "global", "private_fixture_requires_full_vpn")
     managed_pin = getattr(options, 'experimental_dns_broker_core_sha', None)
     managed = managed_pin is not None
-    require(not managed or real, 'managed_dns_requires_real_fixture')
+    # Current native login admission requires the installed executable/receipt.
+    # This runner deliberately uses OMAVLESS_HOME and cannot prove that owner.
+    # A managed-DNS result here would mislabel an isolated fixture as installed.
+    require(not managed, 'managed_dns_requires_installed_owner')
     core_binary = experimental_core(managed_pin) if managed else '/usr/bin/mihomo'
     private_profile = load_private_vless(private_source) if real else None
     binary = Path(options.binary)

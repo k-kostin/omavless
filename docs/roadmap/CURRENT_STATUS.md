@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-09-25. This is the compact current-state entry point; the detailed
+Updated 2026-09-27. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -26,6 +26,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   package installed, not in that earlier restored state. Continue using the
   [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.md), which transfers
   the development branch without promoting main or RC.
+  On the PC, a later [x86_64 pre-install checkpoint](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
+  built the pinned experimental pair and passed isolated production-tag core
+  probes after correcting a namespace-only reverse-path-filter test assumption.
+  No PC installed DNS cycle or new release claim follows from it.
 
 - **Earlier DNS foundation/integration evidence:** the original
   [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)

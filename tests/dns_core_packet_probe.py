@@ -30,6 +30,17 @@ FACTS = {'isolated', 'unrestricted_tcp', 'unrestricted_udp',
          'marked_route_is_tun', 'unmarked_route_is_local', 'bidirectional_tun_bytes'}
 
 
+def namespace_sysctl_args():
+    # Linux uses max(conf/all, conf/interface) for rp_filter. A host with
+    # all.rp_filter=1 otherwise drops these synthetic TUN packets even after
+    # the test disables the per-TUN setting. This runs only after guard() has
+    # proved that we are in a fresh disposable network namespace.
+    return ['/usr/bin/sysctl', '-q', '-w',
+            'net.ipv4.conf.ovdnsprobe0.accept_local=1',
+            'net.ipv4.conf.ovdnsprobe0.rp_filter=0',
+            'net.ipv4.conf.all.rp_filter=0']
+
+
 def ip(*args):
     subprocess.run(['/usr/bin/ip', *args], check=True, timeout=3,
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -113,9 +124,7 @@ def experiment(root, source, digest, original_net, original_user, original_pid):
         ip('link', 'set', 'dev', 'ovdnsprobe0', 'up')
         # The echo address is local in this fully disposable namespace. Permit
         # its synthesized TUN reply; this is not a host sysctl or product need.
-        subprocess.run(['/usr/bin/sysctl', '-q', '-w',
-                        'net.ipv4.conf.ovdnsprobe0.accept_local=1',
-                        'net.ipv4.conf.ovdnsprobe0.rp_filter=0'],
+        subprocess.run(namespace_sysctl_args(),
                        check=True, timeout=3, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # Only a fresh namespace reaches this point. The mark rule must precede

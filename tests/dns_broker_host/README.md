@@ -148,29 +148,30 @@ Static tests and disposable private sockets cover configuration/ACL mechanics,
 not these real DNS acceptance gates. No production password-free claim is made
 until the exact installed pair passes them.
 
-### Opt-in service acceptance runner
+### Opt-in installed-owner acceptance runner
 
-**Current installed-host limitation (2026-09-25):** the isolated runner below
-cannot start the current runtime: login admission intentionally requires the
-installed executable/receipt and refuses `OMAVLESS_HOME`. Do not weaken that
-production guard or count this runner's isolated startup as installed evidence.
-Use the actual installed package/service with separately preserved rollback
-and the same per-effect human barriers. The isolated entry point must be adapted
-before it can be recommended again; its pure evidence helpers remain useful.
+The older `native_service_acceptance.py` uses `OMAVLESS_HOME` and an isolated
+user unit. Current login admission correctly rejects that path; its managed-DNS
+option now refuses before private fixture or host access. Do not weaken the
+production guard or count an isolated fixture as installed evidence.
 
-After separately attended installation, enrollment and startup, use
-`tests/native_service_acceptance.py --run --binary /absolute/candidate/omavless
---private-vless-store /absolute/private/store.json --mode global
---experimental-dns-broker-core-sha REVIEWED_SHA256` in a visible terminal.
-The existing per-effect human authorization barriers remain mandatory.
+After separately attended installation, enrollment and startup, run the new
+`tests/installed_dns_broker_acceptance.py --run --experimental-core-sha
+REVIEWED_SHA256` in a visible terminal in the isolated guest. It uses the
+installed Rust owner and its current last-selected usable VLESS profile; it
+does not import, select or print a profile. It refuses an absent profile,
+connected baseline, enabled startup, wrong installed core or unavailable root
+broker before connecting. Preserve a reviewed rollback package separately.
 
-This opt-in accepts only the root-protected installed candidate at
-`/usr/lib/omavless-dns-experimental/mihomo`, with an exact SHA-256 pin. It uses
-the fixed `Meta` link and canonical broker flags, verifies actual-child controller
-readiness, manager retention count and resolved readback, and runs bounded HTTPS
-bound to the TUN. It requires an independently settled disconnected baseline;
-it does not stop the user's existing runtime or select another private profile.
-Restore that separately preserved original state after the isolated gate.
-Failure/unknown retention requires the recovery contract above, not journal
-deletion. A successful runner alone cannot establish that no password dialogs
-appeared: that observation and root-service/crash/removal gates remain separate.
+The runner requires a distinct `ready` and `settled` acknowledgement for Connect,
+each Full VPN → Routing → Direct → Full VPN mode change, Disconnect and any
+restoration of the initial mode. Refusal stops automatic effects and leaves the
+guest for manual inspection. Each connected step checks the actual owned core,
+fixed TUN, core controller, broker FD store and resolved readback. Full VPN also
+checks bounded TUN-bound HTTPS. A clean Disconnect must leave no TUN, no manual
+recovery and no retained broker lease, then restore the original selected mode.
+
+This is one positive installed mode-sequence gate, not crash, cancellation,
+negative authorization, package-removal or privacy-leak acceptance. The owner
+must independently note whether any OS dialog appeared. Failure/unknown
+retention follows the recovery contract, never journal deletion or forced stop.
