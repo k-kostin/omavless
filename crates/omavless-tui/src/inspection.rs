@@ -15,6 +15,7 @@ pub struct Capabilities {
     pub subscription_probe: bool,
     pub refresh_all: bool,
     pub connection_count: bool,
+    pub connection_overview: bool,
 }
 impl Capabilities {
     pub fn parse(methods: &[Value]) -> Self {
@@ -39,6 +40,7 @@ impl Capabilities {
                 && has("operations.get")
                 && has("operations.cancel"),
             connection_count: has("runtime.connections"),
+            connection_overview: has("runtime.connection_overview"),
         }
     }
 }
@@ -56,6 +58,49 @@ pub fn connection_count(value: &Value) -> Option<u32> {
         .as_u64()
         .filter(|n| *n <= 4096)
         .map(|n| n as u32)
+}
+
+#[derive(Clone, Copy)]
+pub struct ConnectionOverview {
+    pub total: u32,
+    pub tcp: u32,
+    pub udp: u32,
+    pub other_network: u32,
+    pub direct: u32,
+    pub blocked: u32,
+    pub vpn: u32,
+    pub unclassified: u32,
+}
+
+impl ConnectionOverview {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let result = &value["result"];
+        if value["ok"] != true
+            || result["schemaVersion"] != 1
+            || result["scope"] != "owned_core_connection_categories"
+            || result["availability"] != "observed"
+        {
+            return None;
+        }
+        let count = |path: &Value| u32::try_from(path.as_u64().filter(|n| *n <= 4096)?).ok();
+        let overview = Self {
+            total: count(&result["total"])?,
+            tcp: count(&result["network"]["tcp"])?,
+            udp: count(&result["network"]["udp"])?,
+            other_network: count(&result["network"]["other"])?,
+            direct: count(&result["outcome"]["direct"])?,
+            blocked: count(&result["outcome"]["blocked"])?,
+            vpn: count(&result["outcome"]["vpn"])?,
+            unclassified: count(&result["outcome"]["unclassified"])?,
+        };
+        if overview.tcp + overview.udp + overview.other_network != overview.total
+            || overview.direct + overview.blocked + overview.vpn + overview.unclassified
+                != overview.total
+        {
+            return None;
+        }
+        Some(overview)
+    }
 }
 
 /// Saved configuration categories, not an interoperability or health claim.

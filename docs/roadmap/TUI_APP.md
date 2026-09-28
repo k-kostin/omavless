@@ -397,6 +397,10 @@ The Traffic page also keeps a volatile, 60-second window of valid consecutive
 TUN counter-rate samples in this TUI process. Its two small sparklines use
 relative per-direction scales and disappear after reset, stale data or a read
 failure; they do not represent continuous background monitoring.
+When the native runtime advertises the T3 connection overview, the same page
+shows only aggregate network/chain categories and preserves the older count-only
+read as a compatibility fallback. No individual destination or process is
+presented, and the categories do not prove all traffic's route.
 
 This is development scope, not T3 acceptance: installed EN/RU terminal review,
 live owner-restart behavior and the remaining connections/route/traffic/log

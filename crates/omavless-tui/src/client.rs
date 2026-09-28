@@ -15,6 +15,7 @@ pub enum Read {
     Providers,
     HostSupport,
     Connections,
+    ConnectionOverview,
     ProfileDetails(ProfileTarget),
 }
 
@@ -60,6 +61,7 @@ impl Read {
             Self::Providers => "diagnostics.providers",
             Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
+            Self::ConnectionOverview => "runtime.connection_overview",
             Self::ProfileDetails(_) => "profiles.details",
         }
     }
@@ -148,12 +150,15 @@ pub fn load_page_for(
     // Extra reads are bracketed by metadata and observation from the same owner.
     // Failure means unavailable, never zero; unrelated connection facts survive.
     let extra = method.and_then(|m| read(m).ok());
-    let connections = if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections")
-    {
-        read(Read::Connections).ok()
-    } else {
-        None
-    };
+    let connection_method =
+        if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
+            Some(Read::ConnectionOverview)
+        } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections") {
+            Some(Read::Connections)
+        } else {
+            None
+        };
+    let connections = connection_method.and_then(|method| read(method).ok());
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
@@ -165,7 +170,16 @@ pub fn load_page_for(
         {
             return Err(ReadError::Changed);
         }
-        snapshot.active_connections = crate::inspection::connection_count(&value);
+        match connection_method {
+            Some(Read::ConnectionOverview) => {
+                snapshot.connection_overview = crate::inspection::ConnectionOverview::parse(&value);
+                snapshot.active_connections = snapshot.connection_overview.map(|o| o.total);
+            }
+            Some(Read::Connections) => {
+                snapshot.active_connections = crate::inspection::connection_count(&value);
+            }
+            _ => {}
+        }
     }
     snapshot.inspection_available = (
         methods.iter().any(|m| m == "runtime.traffic"),

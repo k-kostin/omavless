@@ -662,6 +662,31 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 ),
                 Line::from(tr("tui.connection_count_scope")),
             ];
+            if let Some(overview) = s.connection_overview {
+                lines.push(Line::from(""));
+                lines.push(Line::from(tr("tui.connection_categories_scope")));
+                lines.push(field(
+                    "tui.connection_network_counts",
+                    format!(
+                        "TCP {} · UDP {} · {} {}",
+                        overview.tcp,
+                        overview.udp,
+                        tr("tui.connection_other"),
+                        overview.other_network
+                    ),
+                ));
+                lines.push(field(
+                    "tui.connection_outcome_counts",
+                    format!(
+                        "DIRECT {} · REJECT {} · PROXY {} · {} {}",
+                        overview.direct,
+                        overview.blocked,
+                        overview.vpn,
+                        tr("tui.connection_unclassified"),
+                        overview.unclassified
+                    ),
+                ));
+            }
             lines.push(Line::from(""));
             lines.push(Line::from(tr("tui.traffic_history_scope")));
             let samples = app.traffic_history.recent(now).count();
