@@ -104,6 +104,10 @@ Item {
   // A command acknowledgement is not connection proof. Hold only its
   // presentation until a newer coherent observation arrives or the hold ends.
   property var nativeConnectionTransition: null
+  // A definitive, no-effect DNS-pair refusal still invalidates the old local
+  // observation while the post-action snapshot is read. Show a bounded neutral
+  // verification state, never a false fatal shield or optimistic Connected.
+  property var nativeRefusalVerification: null
   property var nativeMetadataTransition: null
   property string nativeMetadataErrorAction: ""
   property string nativeMetadataErrorCode: ""
@@ -118,12 +122,30 @@ Item {
     onTriggered: if (!root.nativePending && !root.nativeActionRunning) root.nativeConnectionTransition = null
   }
   Timer {
+    id: nativeRefusalVerificationTimeout
+    interval: 8000
+    repeat: false
+    onTriggered: root.nativeRefusalVerification = null
+  }
+  Timer {
     id: nativeMetadataTransitionTimeout
     interval: 8000
     repeat: false
     onTriggered: root.nativeMetadataTransition = null
   }
   function finishNativeActionTransitionObservation() {
+    if (nativeRefusalVerification && !nativePending && !nativeActionRunning) {
+      var refusal = nativeRefusalVerification
+      if (nativeSnapshotFailed || (nativeSnapshot && nativeSnapshot.instanceId !== refusal.instanceId)) {
+        nativeRefusalVerificationTimeout.stop()
+        nativeRefusalVerification = null
+      } else if (nativeSnapshot && nativeSnapshot.revision >= refusal.revision
+          && NativeSnapshot.coherent(nativeSnapshot, nativeObservation)
+          && nativeObservation.availability === "observed") {
+        nativeRefusalVerificationTimeout.stop()
+        nativeRefusalVerification = null
+      }
+    }
     if (nativeConnectionTransition && !nativePending && !nativeActionRunning) {
       var transition = nativeConnectionTransition
       if (!nativeSnapshot || nativeSnapshot.instanceId !== transition.instanceId || nativeSnapshotFailed) {
@@ -761,6 +783,8 @@ Item {
     if (!(action === "disconnect" ? nativeCanStop : nativeCanAct)) return false
     if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
+    nativeRefusalVerificationTimeout.stop()
+    nativeRefusalVerification = null
     // A new accepted connection command must not inherit a completed
     // subscription banner. Keep an open editor's feedback and unresolved
     // operations intact; admission above still fences all mutations.
@@ -4034,6 +4058,10 @@ Item {
       if (connectionAction) {
         if (result && result.ok) nativeConnectionTransitionTimeout.restart()
         else { nativeConnectionTransitionTimeout.stop(); root.nativeConnectionTransition = null }
+      }
+      if (result && !result.ok && result.code === "dns_pair_required" && (modeAction || connectionAction)) {
+        root.nativeRefusalVerification = {instanceId:pendingAction.instanceId, revision:pendingAction.revision}
+        nativeRefusalVerificationTimeout.restart()
       }
       if (metadataAction && result && exitCode !== 73 && result.code !== "daemon_restarting") {
         root.nativeMetadataTransition = {instanceId:pendingAction.instanceId,
