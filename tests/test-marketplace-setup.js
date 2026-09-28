@@ -88,6 +88,7 @@ test('installed programs disappear from the required-components card; readiness 
   assert(card.includes('visible: SetupState.needsAttention(facts)'));
   assert(card.includes('[installButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]'));
   assert(card.includes('visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"'));
+  assert(card.includes('RowLayout {\n        Layout.fillWidth: true\n        spacing: Style.space(8)\n        visible: card.facts.state'));
   assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
   assert(card.includes('card.facts.coreInstalled === true && !card.busy'));
   assert(panel.includes('panelOpen: root.opened'));
