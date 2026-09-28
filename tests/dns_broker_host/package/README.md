@@ -188,6 +188,13 @@ before the normal package transaction. Do not delete the directory or journal,
 run `systemctl clean`, or add a blanket cleanup hook. The package itself leaves
 runtime and enrollment data untouched.
 
+The same stale-socket check applies to a manually stopped service: a plain
+`systemctl restart` can refuse to bind while the preserved socket node remains.
+Do not retry in a loop or delete it from an automatic unit hook. First prove
+the inactive/empty conditions above, then remove only that inspected node and
+start the service explicitly. An installed PC-VM stopped-service negative and
+manual restoration are recorded in the linked x86_64 evidence.
+
 ## Installed evidence and remaining gates
 
 The [ARM64 record](../../../docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
@@ -200,7 +207,7 @@ guard also refused a preserved stale socket before replacement, then allowed
 an explicitly proven clean recovery. These are exact experimental-package
 results, not normal release-distribution or blanket failure-path acceptance.
 
-Still open: reviewed persistent enrollment/core selection and artifact delivery,
+Still open: release-reviewed enrollment/core selection and artifact delivery,
 full concurrent/in-flight negatives, firewall prerequisites, exact owner-attended
 pre-main acceptance and the default legacy #132 defect. The package alone does
 not close #270 or make 0.9.0 RC ready.
