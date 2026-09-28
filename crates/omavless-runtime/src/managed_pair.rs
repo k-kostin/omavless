@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 pub(crate) const CORE: &str = "/usr/lib/omavless-dns-experimental/mihomo";
 const BROKER: &str = "/usr/lib/omavless/omavless-dns-broker";
 const RECEIPT: &str = "/usr/share/omavless-dns-experimental/source-receipt.json";
-const SELECTOR: &str = "managed-dns-selection";
-const SELECTION_BYTES: &[u8] = b"managed-dns-source-pair-v1\n";
+pub(crate) const SELECTOR: &str = "managed-dns-selection";
+pub(crate) const SELECTION_BYTES: &[u8] = b"managed-dns-source-pair-v1\n";
 const MIHOMO_COMMIT: &str = "ab405bad5beeeac8b003bb01f60f134f6df54471";
 const SING_TUN_COMMIT: &str = "b50ae28a1409c7bce8e96e6c6966cf57d8ace754";
 const CORE_PATCH: &str = "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37";
@@ -45,6 +45,12 @@ pub(crate) struct ManagedPair {
     receipt_sha: [u8; 32],
     core_sha: [u8; 32],
     broker_sha: [u8; 32],
+}
+
+struct PackageHashes {
+    receipt: [u8; 32],
+    core: [u8; 32],
+    broker: [u8; 32],
 }
 
 fn safe_file(path: &Path, owner: u32, mode: u32, max_bytes: u64) -> Result<File, HostStepError> {
@@ -156,6 +162,28 @@ impl ManagedPair {
         if bounded_bytes(selector, uid, 0o600, 64)? != SELECTION_BYTES {
             return Err(HostStepError::Prepare);
         }
+        let hashes = Self::validate_package_at(core, broker, receipt, package_owner)?;
+        let selection = Self {
+            selector_path: selector.to_path_buf(),
+            selector_owner: uid,
+            core_path: core.to_path_buf(),
+            broker_path: broker.to_path_buf(),
+            receipt_path: receipt.to_path_buf(),
+            owner: package_owner,
+            receipt_sha: hashes.receipt,
+            core_sha: hashes.core,
+            broker_sha: hashes.broker,
+        };
+        selection.verify()?;
+        Ok(Some(selection))
+    }
+
+    fn validate_package_at(
+        core: &Path,
+        broker: &Path,
+        receipt: &Path,
+        package_owner: u32,
+    ) -> Result<PackageHashes, HostStepError> {
         let bytes = bounded_bytes(receipt, package_owner, 0o644, 8192)?;
         let value: Receipt = serde_json::from_slice(&bytes).map_err(|_| HostStepError::Prepare)?;
         if value.schema != 1
@@ -185,19 +213,21 @@ impl ManagedPair {
                 .get("omavless-dns-broker")
                 .ok_or(HostStepError::Prepare)?,
         )?;
-        let selection = Self {
-            selector_path: selector.to_path_buf(),
-            selector_owner: uid,
-            core_path: core.to_path_buf(),
-            broker_path: broker.to_path_buf(),
-            receipt_path: receipt.to_path_buf(),
-            owner: package_owner,
-            receipt_sha: Sha256::digest(&bytes).into(),
-            core_sha,
-            broker_sha,
-        };
-        selection.verify()?;
-        Ok(Some(selection))
+        if sha256_file(core, package_owner, 128 * 1024 * 1024)? != core_sha
+            || sha256_file(broker, package_owner, 32 * 1024 * 1024)? != broker_sha
+        {
+            return Err(HostStepError::Prepare);
+        }
+        Ok(PackageHashes {
+            receipt: Sha256::digest(&bytes).into(),
+            core: core_sha,
+            broker: broker_sha,
+        })
+    }
+
+    pub(crate) fn validate_package() -> Result<(), HostStepError> {
+        Self::validate_package_at(Path::new(CORE), Path::new(BROKER), Path::new(RECEIPT), 0)?;
+        Ok(())
     }
 
     pub(crate) fn verify(&self) -> Result<(), HostStepError> {

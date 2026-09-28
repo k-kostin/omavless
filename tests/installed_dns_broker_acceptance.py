@@ -39,7 +39,7 @@ auth = sibling("human_authorization")
 CORE_PATH = Path("/usr/lib/omavless-dns-experimental/mihomo")
 BROKER_PATH = Path("/usr/lib/omavless/omavless-dns-broker")
 BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
-BROKER_UNIT_SHA = "a63bc4db9c52b03c497e941cc8f5a143de6e85c3a1e2aafabead0f1f4d80c080"
+BROKER_UNIT_SHA = "a82b31226f09dc0b8aa9d247a2919f66a2b4d46070356e56c21cf2df2672524f"
 RUNTIME = "omavless-runtime.service"
 MODES = ("global", "rule", "direct", "global")
 # The built-in isolated profile check uses these independent public HTTPS

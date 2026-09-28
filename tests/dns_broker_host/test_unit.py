@@ -28,9 +28,9 @@ class CandidateUnitTests(unittest.TestCase):
         }.items():
             self.assertEqual(self.service[key], value, key)
 
-    def test_no_automatic_recovery_or_boot_enable(self):
+    def test_no_automatic_recovery_and_explicit_boot_opt_in(self):
         self.assertEqual(self.service["Restart"], "no")
-        self.assertNotIn("Install", self.config)
+        self.assertEqual(self.config["Install"]["WantedBy"], "multi-user.target")
         for forbidden in ("ExecStop", "ExecStopPost", "WatchdogSec", "ExecReload"):
             self.assertNotIn(forbidden, self.service)
         for value in self.service.values():

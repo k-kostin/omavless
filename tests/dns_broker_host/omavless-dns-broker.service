@@ -57,4 +57,7 @@ LimitNOFILE=128
 StandardOutput=journal
 StandardError=journal
 
-# Intentionally no [Install]/WantedBy: no unattended boot enrollment yet.
+# This target is available only for an explicit administrator enable after
+# enrollment. Installation alone never enables or starts the broker.
+[Install]
+WantedBy=multi-user.target

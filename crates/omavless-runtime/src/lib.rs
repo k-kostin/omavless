@@ -62,6 +62,7 @@ pub mod login_transaction;
 pub mod long_operation;
 pub mod long_operation_protocol;
 mod managed_pair;
+pub mod managed_selection;
 pub mod mutation;
 pub mod mutation_binding;
 pub mod mutation_protocol;

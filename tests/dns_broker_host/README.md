@@ -50,6 +50,12 @@ default. The administrator must choose the actual local desktop account. Zero,
 UID sentinel, unknown/duplicate fields and invalid or oversized files are
 refused. Changing enrollment while a lease/journal/store exists is forbidden;
 first reach a proven empty state or the explicit recovery boundary.
+The experimental package has a separate, root-only `--enroll UID` / `--revoke`
+administrator vocabulary. It uses the installed empty-state package guard,
+rejects an existing `Meta` link and writes only this fixed file; package
+installation never invokes it. It does not activate or enable the system
+service. The service's `[Install]` target makes an explicit administrator
+`systemctl enable` possible after enrollment; there is no default boot start.
 
 The socket starts at mode 0600. Before READY or accepting a request, the broker
 sets and reads back one exact POSIX ACL: owner `rw`, enrolled UID `rw`, owning

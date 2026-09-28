@@ -98,7 +98,9 @@ The package scriptlet sets
 `cap_net_bind_service,cap_net_admin,cap_net_raw=ep` **only** on that candidate
 Mihomo path. It does not replace `/usr/bin/mihomo`, the installed application,
 its config or frontend. No enrollment file is shipped and no service is enabled
-or started. Arch's ordinary systemd package hook may reload unit metadata; that
+or started. The unit offers an explicit `WantedBy=multi-user.target` installation
+target, but neither the package nor the broker calls `systemctl enable`. Arch's
+ordinary systemd package hook may reload unit metadata; that
 is not activation. Verify actual capabilities before accepting enrollment:
 post-install scriptlet failure cannot be treated as an atomic installation abort.
 Do not grant the broker executable file capabilities; its root service's fixed
@@ -112,8 +114,34 @@ administrator's root-only broker enrollment. It pins this source-paired core
 and broker receipt on runtime startup, and rejects a missing/replaced pair or
 a route template without both managed flags at connection preparation. It must
 be changed only while disconnected, followed by a deliberate user-runtime
-restart. A supported enrollment/revocation UI/CLI and template-repair flow are
-still required; this marker is not a normal-user setup instruction.
+restart. A complete end-user setup and template-repair flow is still required;
+this manual marker is not a normal-user setup instruction.
+
+The broker now also has a **root-only, fixed-target development enrollment
+command**: `--enroll UID` creates an exact root-owned `0600` enrollment for
+one explicitly chosen nonzero numeric UID; `--revoke` removes only that file.
+Neither command starts/stops a service, edits DNS, touches a TUN or accepts a
+path or policy from the caller. The package's strict empty-state guard must
+pass first, and `Meta` must be absent. Existing enrollment, staging, an active
+broker, a held descriptor, any private journal entry or even a preserved socket
+refuses. The operator must verify the intended local UID before invoking a
+separately authorized root command. A failed/unknown outcome must be inspected
+before retry; the tool does not recover or delete an existing staging file.
+This is still an experimental administrator path, not frontend consent or a
+normal distribution workflow. It has not been enabled on a release package.
+
+For an isolated development VM only, after the exact package is installed and
+its guard reports an empty broker state, the explicit administrator sequence is
+`sudo /usr/lib/omavless/omavless-dns-broker --enroll "$(id -u)"`, followed by
+`sudo systemctl enable --now omavless-dns-broker.service`. Use the numeric UID
+of the intended desktop user, not root's UID. A separately stopped, disconnected
+user runtime can then run `omavless dns-pair select` and be started again;
+`omavless dns-pair status` reports only the selected local pair, **not** live
+DNS health or full enrollment verification. The route template must already
+contain the two reviewed managed flags. None of these steps installs a VPN
+profile, changes a firewall rule, or proves internet reachability. If any
+precondition fails, stop and inspect rather than editing the enrollment file or
+deleting a retained broker journal.
 
 ## Replacement/removal gate
 

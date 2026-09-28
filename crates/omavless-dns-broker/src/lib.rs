@@ -1,5 +1,6 @@
 //! Opt-in root DNS broker candidate. Not installed by the production package.
 mod access;
+pub mod admin;
 pub mod admission;
 mod diagnostic;
 pub mod journal;
