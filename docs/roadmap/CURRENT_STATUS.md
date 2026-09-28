@@ -6,7 +6,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **September 28 distribution continuation:** Drafts #305–#312 stage a
+- **September 28 distribution continuation:** Drafts #305–#314 stage a
   production-name DNS companion, release-only runtime selector, exact
   version-matched two-package dependency, first-use frontend, offline
   artifact pairing and separate stopped-broker start/re-enrollment actions.
@@ -21,6 +21,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
   passed in this agent-run diagnostic. The rule was removed; see
   [Draft #313](https://github.com/k-kostin/omavless/pull/313) and the
   [sanitized network record](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md).
+  Draft #314 adds the reversible firewall prerequisite to EN/RU first-use
+  messaging without changing firewall policy. A later agent-run active-lease
+  check confirmed direct package-guard refusal, and system DNS readbacks
+  returned to their exact pre-connect values after Disconnect; see the
+  [bounded removal/restoration record](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md).
   Release pin maps remain empty; authenticated GitHub download/marketplace
   installation, ARM64 fresh setup and formal owner-attended host gates remain
   open. No main/RC merge or publication authorization follows from this work.
