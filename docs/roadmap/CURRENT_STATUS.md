@@ -6,7 +6,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **September 28 distribution continuation:** Drafts #305–#314 stage a
+- **September 28 distribution continuation:** Drafts #305–#315 stage a
   production-name DNS companion, release-only runtime selector, exact
   version-matched two-package dependency, first-use frontend, offline
   artifact pairing and separate stopped-broker start/re-enrollment actions.
@@ -27,6 +27,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   transaction before package changes. System DNS readbacks returned to their
   exact pre-connect values after Disconnect; see the
   [bounded removal/restoration record](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md).
+  Draft #315 also fences the automatic first-use package path against an
+  already registered package, leftover user runtime unit or `Meta` TUN;
+  ambiguous ownership is manual attention, not an implicit upgrade.
   Release pin maps remain empty; authenticated GitHub download/marketplace
   installation, ARM64 fresh setup and formal owner-attended host gates remain
   open. No main/RC merge or publication authorization follows from this work.
