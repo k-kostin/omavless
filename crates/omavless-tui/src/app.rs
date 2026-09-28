@@ -18,6 +18,7 @@ pub struct App {
     pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
     pub traffic_rates: Option<(u64, u64)>,
+    pub traffic_history: crate::traffic_history::History,
     pub inspection_scroll: u16,
     pub snapshot: Option<Snapshot>,
     pub sampled_at: Option<Instant>,
@@ -72,6 +73,7 @@ impl App {
             palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
             traffic_rates: None,
+            traffic_history: crate::traffic_history::History::default(),
             inspection_scroll: 0,
             snapshot: None,
             sampled_at: None,
@@ -142,6 +144,7 @@ impl App {
                             && old.revision == next.revision
                     })
                     .and_then(|old| next.traffic.as_ref()?.rates(old.traffic.as_ref()?));
+                self.traffic_history.observe(self.traffic_rates, started);
                 let changed = self
                     .accepted
                     .as_ref()
@@ -189,6 +192,7 @@ impl App {
                     self.activity.record(Event::ReadFailed(error), started);
                 }
                 self.traffic_rates = None;
+                self.traffic_history.clear();
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;

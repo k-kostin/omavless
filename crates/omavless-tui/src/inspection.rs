@@ -472,7 +472,7 @@ fn rows<'a>(
 
 impl Rules {
     pub fn parse(value: &Value) -> Option<Self> {
-        let (total, truncated, raw) = rows(value, "rules", 2048, 65_536)?;
+        let (total, truncated, raw) = rows(value, "rules", 2048, 2048)?;
         let mut items = Vec::with_capacity(raw.len());
         for item in raw {
             let target = match item["target"].as_str()? {

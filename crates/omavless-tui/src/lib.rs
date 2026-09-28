@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod model;
 pub mod settings;
 pub mod theme;
+pub mod traffic_history;
 pub mod view;
 
 use app::{Action, App};

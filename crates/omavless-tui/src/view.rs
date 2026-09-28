@@ -624,43 +624,78 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     let unknown = || tr("tui.metric_unavailable").to_owned();
     let boolean = |value: bool| tr(if value { "tui.yes" } else { "tui.no" }).to_owned();
     match app.page {
-        Page::Traffic => vec![
-            field(
-                "tui.upload_rate",
-                app.traffic_rates
-                    .map(|(u, _)| format!("{}/s", bytes(u)))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.download_rate",
-                app.traffic_rates
-                    .map(|(_, d)| format!("{}/s", bytes(d)))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.upload_total",
-                s.traffic
-                    .as_ref()
-                    .map(|t| bytes(t.upload))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.download_total",
-                s.traffic
-                    .as_ref()
-                    .map(|t| bytes(t.download))
-                    .unwrap_or_else(unknown),
-            ),
-            Line::from(tr("tui.traffic_scope")),
-            Line::from(tr("tui.traffic_reset")),
-            field(
-                "tui.active_connections",
-                s.active_connections
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(unknown),
-            ),
-            Line::from(tr("tui.connection_count_scope")),
-        ],
+        Page::Traffic => {
+            let mut lines = vec![
+                field(
+                    "tui.upload_rate",
+                    app.traffic_rates
+                        .map(|(u, _)| format!("{}/s", bytes(u)))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.download_rate",
+                    app.traffic_rates
+                        .map(|(_, d)| format!("{}/s", bytes(d)))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.upload_total",
+                    s.traffic
+                        .as_ref()
+                        .map(|t| bytes(t.upload))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.download_total",
+                    s.traffic
+                        .as_ref()
+                        .map(|t| bytes(t.download))
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.traffic_scope")),
+                Line::from(tr("tui.traffic_reset")),
+                field(
+                    "tui.active_connections",
+                    s.active_connections
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.connection_count_scope")),
+            ];
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.traffic_history_scope")));
+            let samples = app.traffic_history.recent(now).count();
+            if samples == 0 {
+                lines.push(Line::from(tr("tui.traffic_history_unavailable")));
+            } else {
+                lines.push(field("tui.traffic_history_samples", samples.to_string()));
+                for (upload, label) in [
+                    (true, "tui.upload_history"),
+                    (false, "tui.download_history"),
+                ] {
+                    let graph = app
+                        .traffic_history
+                        .sparkline(now, upload)
+                        .unwrap_or_default();
+                    let peak = app.traffic_history.peak(now, upload).unwrap_or_default();
+                    lines.push(
+                        Line::from(format!(
+                            "{}: {}  ({}: {}/s)",
+                            tr(label),
+                            graph,
+                            tr("tui.traffic_history_peak"),
+                            bytes(peak)
+                        ))
+                        .style(if upload {
+                            Style::default().fg(app.palette.accent)
+                        } else {
+                            Style::default().fg(app.palette.foreground)
+                        }),
+                    );
+                }
+            }
+            lines
+        }
         Page::Details => {
             let p = s
                 .metadata

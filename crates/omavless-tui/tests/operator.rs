@@ -104,7 +104,7 @@ fn projections_reject_malformed_counts_rows_and_statuses() {
     let rules = support::response(Read::Rules);
     assert_eq!(Rules::parse(&rules).unwrap().items.len(), 3);
     for (path, bad) in [
-        ("/result/rules/total", json!(65537)),
+        ("/result/rules/total", json!(2049)),
         ("/result/rules/shown", json!(2)),
         ("/result/rules/truncated", json!(true)),
         ("/result/rules/items/0/target", json!("private-chain")),

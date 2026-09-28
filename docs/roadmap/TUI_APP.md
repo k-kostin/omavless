@@ -393,6 +393,10 @@ snapshot; a truncated projection is explicitly marked. Rules show categorical
 targets, not private chain names or proof of a request's route. Host file and
 service facts are not VPN, DNS or connectivity health claims. The view does not
 refresh providers, repair host setup, change routes or perform mutations.
+The Traffic page also keeps a volatile, 60-second window of valid consecutive
+TUN counter-rate samples in this TUI process. Its two small sparklines use
+relative per-direction scales and disappear after reset, stale data or a read
+failure; they do not represent continuous background monitoring.
 
 This is development scope, not T3 acceptance: installed EN/RU terminal review,
 live owner-restart behavior and the remaining connections/route/traffic/log
