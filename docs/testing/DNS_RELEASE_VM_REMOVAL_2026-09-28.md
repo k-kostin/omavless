@@ -59,9 +59,16 @@ they do not retroactively validate the initial pair.
    and matched their own pre-connect bytes exactly after Disconnect. The
    lease again returned to FD store zero with no TUN. No DNS address or
    private configuration was printed or retained in this evidence.
+9. With the same later package pair connected again and the broker FD store
+   at one, an ordinary `pacman -R --noconfirm omavless omavless-dns` reached
+   the production PreTransaction hook. The guard exited 1 and pacman aborted
+   before package changes. Both exact packages remained installed and the
+   connection stayed `connected` with its lease held. A subsequent normal
+   Disconnect reached `disconnected`, removed the TUN and returned the FD
+   store to zero. No force/override flags or package repair were used.
 
-Limits: active-lease ALPM transaction refusal, unknown/quarantined lease
-refusal, wider DNS behavior beyond these resolved readbacks, another
+Limits: unknown/quarantined lease transaction refusal on this production
+candidate, wider DNS behavior beyond these resolved readbacks, another
 architecture, Russian GUI rendering and owner-attended recovery remain
 separate. Default-deny firewall behavior is recorded in the separate
 [network diagnostic](DNS_RELEASE_VM_NETWORK_2026-09-28.md). The initial

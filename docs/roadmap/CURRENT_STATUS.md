@@ -22,9 +22,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [Draft #313](https://github.com/k-kostin/omavless/pull/313) and the
   [sanitized network record](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md).
   Draft #314 adds the reversible firewall prerequisite to EN/RU first-use
-  messaging without changing firewall policy. A later agent-run active-lease
-  check confirmed direct package-guard refusal, and system DNS readbacks
-  returned to their exact pre-connect values after Disconnect; see the
+  messaging without changing firewall policy. Later agent-run active-lease
+  checks confirmed both direct guard refusal and an aborted ALPM removal
+  transaction before package changes. System DNS readbacks returned to their
+  exact pre-connect values after Disconnect; see the
   [bounded removal/restoration record](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md).
   Release pin maps remain empty; authenticated GitHub download/marketplace
   installation, ARM64 fresh setup and formal owner-attended host gates remain
