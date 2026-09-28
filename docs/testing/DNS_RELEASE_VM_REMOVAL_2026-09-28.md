@@ -30,10 +30,19 @@ physical PC and its VPN were untouched.
    inactive**, and TUN absent. No package, profile, pair or startup mutation
    was repeated. Synthetic tests also cover rejection of wrong target, stale
    socket, non-stopped broker, cancelled consent and failed enrollment.
+6. The exact frontend from source `2f2e86234c5bbf2d5407fcdc166e094883c2ebc9`
+   was installed in the separate graphical Omarchy VM. A temporary local
+   helper returned `needs_reenrollment/present` to render the state without
+   stopping its broker or changing networking. At 1890×2080, the English
+   explanation and full-width “Restore DNS enrollment” action were readable,
+   with no overlap in the setup card or profile list. The original helper was
+   restored and its SHA-256 verified; actual components returned `ready`.
+   The user runtime stayed inactive and TUN absent. This verifies only the
+   visual state, not a second live re-enrollment or Russian rendering.
 
 Limits: active/unknown/quarantined lease refusal, actual DNS restoration,
-default-deny firewall behavior, another architecture, exact installed GUI
-rendering and owner-attended recovery remain separate. The currently built
+default-deny firewall behavior, another architecture, Russian GUI rendering
+and owner-attended recovery remain separate. The currently built
 production guard still uses the old word “Experimental” in its refusal text;
 the refusal itself is correct, but that wording should be reconciled before a
 user-facing release. A message-only source change requires a new matching
