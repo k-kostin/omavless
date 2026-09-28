@@ -34,6 +34,7 @@ count=$(git -C "$repo_root" rev-list --count HEAD)
 epoch=$(git -C "$repo_root" show -s --format=%ct HEAD)
 [[ $count =~ ^[0-9]+$ && $epoch =~ ^[0-9]+$ ]] || fail
 package_version="0.0.0.r$count.g${expected_sha:0:12}"
+core_dependency=mihomo
 if [[ $# -eq 4 ]]; then
   # RC and stable assembly are explicit, disjoint modes. Neither publishes.
   # Only the checked-in Cargo version labels artifacts, never caller input.
@@ -45,6 +46,10 @@ if [[ $# -eq 4 ]]; then
     [[ $candidate_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]] || fail
   fi
   package_version=${candidate_version/-rc./rc}
+  # Candidate/stable runtime must be installed with the version-matched
+  # managed DNS companion. Development snapshots retain their older,
+  # explicitly non-release Mihomo dependency for isolated diagnostics.
+  core_dependency="omavless-dns=$package_version-1"
 fi
 architecture=$(uname -m)
 case $architecture in
@@ -85,6 +90,7 @@ tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
 payload_hash=$(sha256sum -- "$builddir/payload.tar"); payload_hash=${payload_hash%% *}
 sed -e "s/@VERSION@/$package_version/g" \
   -e "s/@ARCH@/$architecture/g" -e "s/@PAYLOAD_SHA256@/$payload_hash/g" \
+  -e "s/@CORE_DEPENDENCY@/$core_dependency/g" \
   "$script_dir/PKGBUILD.local.in" > "$builddir/PKGBUILD"
 # Use the root-owned distribution configuration, not per-user build hooks.
 # Force every makepkg output below the explicitly selected build directory.

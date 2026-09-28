@@ -1,6 +1,6 @@
 # Unpublished, offline normal-package candidate. Render only with stage.py.
 pkgname=omavless-dns
-pkgver=0.9.0rc1
+pkgver=@VERSION@
 pkgrel=1
 pkgdesc='OmaVLESS managed DNS core and fixed-purpose broker'
 arch=('@ARCH@')

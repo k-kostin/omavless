@@ -8,13 +8,28 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests/dns_broker_host/package"))
 import stage as fixture  # noqa: E402 - shared strict offline pair validation
 
 HERE = Path(__file__).resolve().parent
+
+
+def package_version(cargo_text, manifest_text):
+    try:
+        cargo_version = tomllib.loads(cargo_text)["workspace"]["package"]["version"]
+        frontend_version = json.loads(manifest_text)["version"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise fixture.Refused("Product version metadata is invalid.") from error
+    if (not isinstance(cargo_version, str) or cargo_version != frontend_version
+            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?",
+                                cargo_version)):
+        raise fixture.Refused("Companion version does not match the frontend and runtime.")
+    return cargo_version.replace("-rc.", "rc")
 
 
 def stage(pair, architecture, revision, output):
@@ -43,6 +58,8 @@ def stage(pair, architecture, revision, output):
     payload["reviewed-inputs.json"] = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
     values = {
         "ARCH": architecture,
+        "VERSION": package_version((ROOT / "Cargo.toml").read_text(encoding="utf-8"),
+                                   (ROOT / "manifest.json").read_text(encoding="utf-8")),
         "BROKER_SHA": manifest["sha256"]["omavless-dns-broker"],
         "CORE_SHA": manifest["sha256"]["mihomo"],
         "UNIT_SHA": manifest["sha256"]["omavless-dns-broker.service"],

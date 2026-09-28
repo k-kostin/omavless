@@ -35,11 +35,18 @@ and verifies the release core, broker and receipt before use. Its ordinary
 `omavless dns-pair select` now creates **only** that release selector; it does
 not fall back to the experimental package when the release pair is absent.
 An existing experimental marker is refused by the new runtime rather than
-silently authorizing the release package. The already-installed experimental
-VM build is unchanged; moving that VM to release bytes needs a separate,
-clean-state migration and fresh enrollment.
+silently authorizing the release package. One isolated x86_64 VM migration
+with fresh enrollment and release-pair selection was checked in the
+[scoped diagnostic](../../docs/testing/DNS_RELEASE_VM_MIGRATION_2026-09-28.md);
+it is not the public first-use installer or formal owner-attended acceptance.
+
+The staged package version is derived from matching `Cargo.toml` and
+`manifest.json` product versions, rather than a frozen RC literal. The
+candidate/stable application package declares an exact-version dependency on
+this companion; ordinary development snapshots retain their separate Mihomo
+dependency. Neither package authorizes runtime setup merely by being present.
 
 Do not install this staged archive over an active experimental lease or use
-pacman override flags. A reviewed fresh-install/migration UI and tested
-release-pair selection are still missing. Package build/inspection and unit
-tests alone are not installed or release acceptance.
+pacman override flags. A reviewed fresh-install/migration UI and normal
+two-package bootstrap are still missing. Package build/inspection and unit
+tests alone are not release acceptance.
