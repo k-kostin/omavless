@@ -22,6 +22,7 @@ esac
 [[ $(git -C "$sing_tun_git" rev-parse --verify 'b50ae28a1409c7bce8e96e6c6966cf57d8ace754^{commit}') == b50ae28a1409c7bce8e96e6c6966cf57d8ace754 ]]
 go_bin=$(readlink -f "$(command -v go)")
 [[ -f $go_bin && ! -L $go_bin ]]
+command -v zstd >/dev/null
 
 mkdir -m 700 "$output"
 scratch=$(mktemp -d "$output/.hydrate.XXXXXXXX")
@@ -64,9 +65,11 @@ python3 "$stage_tool" \
   --arch "$architecture" --output "$output/staged"
 (
   cd "$output/staged"
-  PKGDEST="$output/staged" makepkg --noconfirm
+  # Arch Linux ARM currently defaults to .pkg.tar.xz, while the reviewed
+  # release download/assembler contract names .pkg.tar.zst on both arches.
+  PKGEXT=.pkg.tar.zst PKGDEST="$output/staged" makepkg --noconfirm
 )
-packages=("$output"/staged/"$package_name"-*.pkg.tar.*)
+packages=("$output"/staged/"$package_name"-*.pkg.tar.zst)
 [[ ${#packages[@]} == 1 && -f ${packages[0]} ]]
 package_arch=$(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^arch = //p')
 [[ $package_arch == "$architecture" ]]

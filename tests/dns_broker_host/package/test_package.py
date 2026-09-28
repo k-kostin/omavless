@@ -31,6 +31,15 @@ EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFile
 
 
 class PackageTests(unittest.TestCase):
+    def test_native_ci_emits_the_reviewed_package_extension_on_both_arches(self):
+        script_path = ROOT / "build-ci.sh"
+        script = script_path.read_text()
+        self.assertEqual(subprocess.run(["bash", "-n", str(script_path)],
+                                       capture_output=True, check=False).returncode, 0)
+        self.assertIn("PKGEXT=.pkg.tar.zst PKGDEST=", script)
+        self.assertIn('"$package_name"-*.pkg.tar.zst)', script)
+        self.assertIn("command -v zstd >/dev/null", script)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="omavless-package-test-")
         self.root = Path(self.temporary.name)

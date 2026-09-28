@@ -3,8 +3,9 @@
 This directory stages a **normal-name package candidate** from a separately
 reviewed, native, offline source pair. It does not install, enroll, enable a
 service, alter DNS/TUN, publish an asset or make 0.9 ready. The public setup
-path, runtime selection, cross-architecture artifact pairing and owner-attended
-acceptance remain separate work. See the
+path, immutable release assets and owner-attended acceptance remain separate
+work. Stacked drafts add runtime selection, offline release-triple inspection
+and guided first use, but their pin maps remain empty. See the
 [release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md).
 
 The existing `tests/dns_broker_host/package` fixture stays experimental. To
@@ -18,6 +19,10 @@ broker receipt, mismatched ELF architecture, source, patch, Go/toolchain,
 license, symlink, checksum or occupied/unsafe destination. The staged
 `PKGBUILD` has only fixed local inputs and exact SHA-256 pins; `makepkg` is a
 separate ordinary-user action after review.
+The native CI builder explicitly sets `PKGEXT=.pkg.tar.zst` on both
+architectures and rejects a different output suffix. Arch Linux ARM's
+default `.pkg.tar.xz` must not be silently renamed or published as the
+`.pkg.tar.zst` expected by the bootstrap and offline assembler.
 
 The package is named `omavless-dns`, conflicts with (but does not silently
 replace) `omavless-dns-experimental`, and uses distinct core, broker, guard,
@@ -47,6 +52,7 @@ this companion; ordinary development snapshots retain their separate Mihomo
 dependency. Neither package authorizes runtime setup merely by being present.
 
 Do not install this staged archive over an active experimental lease or use
-pacman override flags. A reviewed fresh-install/migration UI and normal
-two-package bootstrap are still missing. Package build/inspection and unit
-tests alone are not release acceptance.
+pacman override flags. A guided first-use UI and normal two-package bootstrap
+are staged in this draft stack, not yet published or
+formally accepted. Package build/inspection and unit tests alone are not
+release acceptance.
