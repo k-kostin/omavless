@@ -885,3 +885,13 @@ store zero. No network, DNS, firewall or outer-PC state changed for this test.
 This validates the fresh-default setup step only on the installed x86_64 VM
 package. It does not make custom-template upgrades automatic, prove release
 distribution, or substitute for the owner's formal authorization gate.
+
+On the same installed package pair, an active-lease removal negative was also
+repeated. An internally selected previously HTTPS-passing private VLESS fixture
+established a managed Global connection with one broker-held descriptor. A
+normal `pacman -R --noconfirm omavless-dns-experimental` transaction was refused
+by the installed pre-transaction empty-state hook; no package was removed and
+the owned connection/core/TUN/DNS lease remained confirmed. A separate explicit
+Disconnect and Rule restoration released the TUN and broker descriptor with no
+manual recovery. The VM's firewall and the physical PC were unchanged. This is
+an agent-run regression check, not the owner-attended retained-state gate.
