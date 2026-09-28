@@ -10,6 +10,7 @@ pub struct Capabilities {
     pub support: bool,
     pub rules: bool,
     pub providers: bool,
+    pub custom_rules: bool,
     pub subscription_refresh: bool,
     pub profile_probe: bool,
     pub subscription_probe: bool,
@@ -27,6 +28,7 @@ impl Capabilities {
             support: has("diagnostics.export"),
             rules: has("diagnostics.rules"),
             providers: has("diagnostics.providers"),
+            custom_rules: has("routing.custom_rules.list"),
             subscription_refresh: has("subscriptions.refresh"),
             profile_probe: has("profiles.probe")
                 && has("profiles.probe_results")
@@ -178,6 +180,7 @@ pub enum Page {
     Host,
     Rules,
     Providers,
+    CustomRules,
     Settings,
     Activity,
     Subscriptions,
@@ -195,6 +198,7 @@ impl Page {
             Self::Host,
             Self::Rules,
             Self::Providers,
+            Self::CustomRules,
             Self::Jobs,
             Self::Subscriptions,
         ];
@@ -210,6 +214,7 @@ impl Page {
             Self::Host => "tui.host",
             Self::Rules => "tui.rules",
             Self::Providers => "tui.providers",
+            Self::CustomRules => "tui.custom_rules",
             Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
@@ -326,6 +331,61 @@ pub struct Providers {
     pub total: u64,
     pub truncated: bool,
     pub items: Vec<Provider>,
+}
+
+/// Private editor payload. The opaque ID is validated then discarded because
+/// this page cannot edit or delete a rule. Never log or serialize these rows.
+#[derive(Clone)]
+pub struct CustomRule {
+    pub kind: &'static str,
+    pub action: &'static str,
+    pub value: String,
+}
+
+#[derive(Clone)]
+pub struct CustomRules {
+    pub items: Vec<CustomRule>,
+}
+
+impl CustomRules {
+    pub fn parse(value: &Value) -> Option<Self> {
+        if value["ok"] != true || value["result"]["version"] != 1 {
+            return None;
+        }
+        let raw = value["result"]["rules"].as_array()?;
+        if raw.len() > 128 {
+            return None;
+        }
+        let mut items = Vec::with_capacity(raw.len());
+        for item in raw {
+            let id = item["id"].as_str()?;
+            if !crate::model::opaque(id) {
+                return None;
+            }
+            let kind = match item["kind"].as_str()? {
+                "domain" => "domain",
+                "suffix" => "suffix",
+                "ipcidr" => "ipcidr",
+                _ => return None,
+            };
+            let action = match item["action"].as_str()? {
+                "proxy" => "PROXY",
+                "direct" => "DIRECT",
+                "reject" => "REJECT",
+                _ => return None,
+            };
+            let input = item["value"].as_str()?;
+            if input.is_empty() || input.len() > 1024 {
+                return None;
+            }
+            items.push(CustomRule {
+                kind,
+                action,
+                value: crate::model::display(input, 1024),
+            });
+        }
+        Some(Self { items })
+    }
 }
 
 #[derive(Clone)]

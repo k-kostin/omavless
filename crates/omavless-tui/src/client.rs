@@ -13,6 +13,7 @@ pub enum Read {
     Diagnostics,
     Rules,
     Providers,
+    CustomRules,
     HostSupport,
     Connections,
     ConnectionOverview,
@@ -59,6 +60,7 @@ impl Read {
             Self::Diagnostics => "diagnostics.summary",
             Self::Rules => "diagnostics.rules",
             Self::Providers => "diagnostics.providers",
+            Self::CustomRules => "routing.custom_rules.list",
             Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
             Self::ConnectionOverview => "runtime.connection_overview",
@@ -93,7 +95,8 @@ pub fn load_page_for(
     selected: Option<&str>,
 ) -> Result<Snapshot, ReadError> {
     use crate::inspection::{
-        Capabilities, Diagnostics, HostSupport, Page, ProfileDetails, Providers, Rules, Traffic,
+        Capabilities, CustomRules, Diagnostics, HostSupport, Page, ProfileDetails, Providers,
+        Rules, Traffic,
     };
     fn success(value: Value) -> Result<Value, ReadError> {
         // Production transport already validates bounded framing, envelope and ID.
@@ -140,6 +143,9 @@ pub fn load_page_for(
         Page::Rules if methods.iter().any(|m| m == "diagnostics.rules") => Some(Read::Rules),
         Page::Providers if methods.iter().any(|m| m == "diagnostics.providers") => {
             Some(Read::Providers)
+        }
+        Page::CustomRules if methods.iter().any(|m| m == "routing.custom_rules.list") => {
+            Some(Read::CustomRules)
         }
         Page::Host if methods.iter().any(|m| m == "diagnostics.export") => Some(Read::HostSupport),
         Page::Details if methods.iter().any(|m| m == "profiles.details") => {
@@ -194,6 +200,7 @@ pub fn load_page_for(
             Some(Read::Diagnostics) => snapshot.diagnostics = Diagnostics::parse(&value),
             Some(Read::Rules) => snapshot.rules = Rules::parse(&value),
             Some(Read::Providers) => snapshot.providers = Providers::parse(&value),
+            Some(Read::CustomRules) => snapshot.custom_rules = CustomRules::parse(&value),
             Some(Read::HostSupport) => snapshot.host_support = HostSupport::parse(&value),
             Some(Read::ProfileDetails(target)) => {
                 snapshot.profile_details = ProfileDetails::parse(&value, target);

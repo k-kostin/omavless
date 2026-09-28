@@ -36,6 +36,10 @@ pub fn response(request: Read) -> Value {
                 {"name":"fixture-empty","behavior":"ipcidr","updatedAt":"","ruleCount":0,"status":"empty","refreshable":false}
             ]}})
         }
+        Read::CustomRules => json!({"version":1,"rules":[
+            {"id":"fixture-rule-1","kind":"domain","value":"fixture.invalid","action":"proxy"},
+            {"id":"fixture-rule-2","kind":"ipcidr","value":"192.0.2.0/24","action":"direct"}
+        ]}),
         Read::HostSupport => json!({
             "schemaVersion":3,"scope":"native_support",
             "coverage":{"coreSetupVerified":true,"serviceEnablementVerified":true,

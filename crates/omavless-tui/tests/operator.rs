@@ -5,7 +5,7 @@ use omavless_tui::{
     app::{Action, App, FRESH_FOR},
     client::{Read, load_page},
     i18n::Locale,
-    inspection::{HostSupport, Page, Providers, Rules},
+    inspection::{CustomRules, HostSupport, Page, Providers, Rules},
     model::{ReadError, Status},
     view,
 };
@@ -44,12 +44,21 @@ fn operator_reads_are_page_local_capability_gated_and_fenced() {
         (Page::Host, Read::HostSupport),
         (Page::Rules, Read::Rules),
         (Page::Providers, Read::Providers),
+        (Page::CustomRules, Read::CustomRules),
     ] {
         let mut calls = Vec::new();
         let snapshot = load_page(
             &mut |read| {
                 calls.push(read);
-                Ok(support::response(read))
+                let mut result = support::response(read);
+                if page == Page::CustomRules && read == Read::Capabilities {
+                    result["result"]["methods"] = json!([
+                        "ui.snapshot",
+                        "runtime.observation",
+                        "routing.custom_rules.list"
+                    ]);
+                }
+                Ok(result)
             },
             page,
         )
@@ -83,10 +92,18 @@ fn operator_reads_are_page_local_capability_gated_and_fenced() {
         assert!(without_capability.rules.is_none());
         assert!(without_capability.providers.is_none());
         assert!(without_capability.host_support.is_none());
+        assert!(without_capability.custom_rules.is_none());
         assert!(matches!(
             load_page(
                 &mut |read| {
                     let mut result = support::response(read);
+                    if page == Page::CustomRules && read == Read::Capabilities {
+                        result["result"]["methods"] = json!([
+                            "ui.snapshot",
+                            "runtime.observation",
+                            "routing.custom_rules.list"
+                        ]);
+                    }
                     if read == read_kind {
                         result["revision"] = json!(8);
                     }
@@ -281,11 +298,24 @@ fn backend_truncation_and_failures_are_explicit_without_raw_error_echo() {
 fn operator_pages_render_safely_in_both_languages_at_small_sizes() {
     let now = Instant::now();
     for locale in [Locale::En, Locale::Ru] {
-        for page in [Page::Host, Page::Rules, Page::Providers] {
+        for page in [Page::Host, Page::Rules, Page::Providers, Page::CustomRules] {
             let mut app = App::new(locale);
             app.page = page;
             app.accept(
-                load_page(&mut |read| Ok(support::response(read)), page),
+                load_page(
+                    &mut |read| {
+                        let mut value = support::response(read);
+                        if page == Page::CustomRules && read == Read::Capabilities {
+                            value["result"]["methods"] = json!([
+                                "ui.snapshot",
+                                "runtime.observation",
+                                "routing.custom_rules.list"
+                            ]);
+                        }
+                        Ok(value)
+                    },
+                    page,
+                ),
                 now,
             );
             let wide = render_at(&app, now, 70, 24);
@@ -331,4 +361,74 @@ fn diagnostics_shows_only_typed_log_classifications_not_private_lines() {
         assert!(screen.contains(locale.text("tui.core_log_incomplete")));
         assert!(!screen.contains("private://secret"));
     }
+}
+
+#[test]
+fn saved_rule_overrides_are_private_page_local_and_not_mistaken_for_loaded_rules() {
+    let now = Instant::now();
+    let mut app = App::new(Locale::En);
+    app.page = Page::Diagnostics;
+    assert_eq!(key(&mut app, KeyCode::Char('C')), Action::Refresh);
+    assert!(app.page == Page::CustomRules);
+    let mut calls = Vec::new();
+    app.accept(
+        load_page(
+            &mut |read| {
+                calls.push(read);
+                let mut value = support::response(read);
+                if read == Read::Capabilities {
+                    value["result"]["methods"] = json!([
+                        "ui.snapshot",
+                        "runtime.observation",
+                        "routing.custom_rules.list"
+                    ]);
+                }
+                Ok(value)
+            },
+            Page::CustomRules,
+        ),
+        now,
+    );
+    assert_eq!(
+        calls,
+        [
+            Read::Hello,
+            Read::Capabilities,
+            Read::Snapshot,
+            Read::CustomRules,
+            Read::Observation
+        ]
+    );
+    assert_eq!(Read::CustomRules.params(), json!({}));
+    let screen = render(&app, now);
+    assert!(screen.contains("Configured rule overrides"));
+    assert!(screen.contains("fixture.invalid"));
+    assert!(!screen.contains("fixture-rule-1"));
+    assert!(!screen.contains("Loaded rules"));
+    assert_eq!(key(&mut app, KeyCode::Char('/')), Action::None);
+    for c in "192.0.2".chars() {
+        assert_eq!(key(&mut app, KeyCode::Char(c)), Action::None);
+    }
+    assert_eq!(key(&mut app, KeyCode::Enter), Action::None);
+    let screen = render(&app, now);
+    assert!(screen.contains("192.0.2.0/24"));
+    assert!(!screen.contains("fixture.invalid"));
+    assert!(app.pending.is_none());
+    assert_eq!(key(&mut app, KeyCode::Esc), Action::Refresh);
+    assert!(app.page == Page::Diagnostics);
+
+    let mut malformed = support::response(Read::CustomRules);
+    for (path, bad) in [
+        ("/result/rules/0/id", json!("")),
+        ("/result/rules/0/kind", json!("shell")),
+        ("/result/rules/0/action", json!("unknown")),
+        ("/result/rules/0/value", json!("x".repeat(1025))),
+    ] {
+        *malformed.pointer_mut(path).unwrap() = bad;
+        assert!(CustomRules::parse(&malformed).is_none(), "{path}");
+        malformed = support::response(Read::CustomRules);
+    }
+    malformed["result"]["rules"][0]["value"] = json!("private\u{001b}[31m.invalid");
+    let parsed = CustomRules::parse(&malformed).unwrap();
+    assert!(!parsed.items[0].value.contains('\u{001b}'));
 }

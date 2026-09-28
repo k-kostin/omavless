@@ -444,7 +444,9 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.host_keys"
             } else if matches!(
                 app.page,
-                crate::inspection::Page::Rules | crate::inspection::Page::Providers
+                crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
             ) {
                 "tui.operator_keys"
             } else {
@@ -454,7 +456,9 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 if app.searching
                     && matches!(
                         app.page,
-                        crate::inspection::Page::Rules | crate::inspection::Page::Providers
+                        crate::inspection::Page::Rules
+                            | crate::inspection::Page::Providers
+                            | crate::inspection::Page::CustomRules
                     )
                 {
                     "tui.operator_search_exit"
@@ -1038,6 +1042,52 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             }
             if matches.len() > DISPLAY_LIMIT {
                 lines.push(Line::from(tr("tui.refine_provider_filter")));
+            }
+            lines
+        }
+        Page::CustomRules => {
+            let Some(custom) = &s.custom_rules else {
+                return vec![Line::from(tr("tui.metric_unavailable"))];
+            };
+            let query = app.operator_query.to_lowercase();
+            let matches: Vec<_> = custom
+                .items
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row.value.to_lowercase().contains(&query)
+                        || row.kind.contains(&query)
+                        || row.action.to_lowercase().contains(&query)
+                })
+                .collect();
+            let mut lines = vec![
+                Line::from(tr("tui.custom_rules_scope")),
+                field("tui.configured_total", custom.items.len().to_string()),
+                field("tui.matching_rows", matches.len().to_string()),
+            ];
+            if !app.operator_query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if custom.items.is_empty() {
+                    "tui.no_custom_rules"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            const DISPLAY_LIMIT: usize = 80;
+            for row in matches.iter().take(DISPLAY_LIMIT) {
+                lines.push(Line::from(format!(
+                    "{} → {} · {}",
+                    row.kind, row.action, row.value
+                )));
+            }
+            if matches.len() > DISPLAY_LIMIT {
+                lines.push(Line::from(tr("tui.refine_custom_filter")));
             }
             lines
         }
