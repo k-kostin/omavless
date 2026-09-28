@@ -205,6 +205,12 @@ their destination is its local IPv4 address:
 sudo ufw allow in on Meta to 198.18.0.1 comment omavless-tun
 ```
 
+It does **not** restrict remote source addresses, ports or protocols: return
+traffic can have many such values. Review services listening on that local
+address and your firewall threat model before applying it. If this exception
+is too broad for the host, keep the default-deny policy and design a suitable
+host-specific rule instead; do not disable UFW to make a VPN test pass.
+
 Retest traffic in Full VPN mode, then inspect `sudo ufw status numbered` for
 duplicate or unexpected rules. Remove this exact exception when no longer
 needed:
