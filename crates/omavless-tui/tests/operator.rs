@@ -120,8 +120,15 @@ fn operator_reads_are_page_local_capability_gated_and_fenced() {
 fn projections_reject_malformed_counts_rows_and_statuses() {
     let rules = support::response(Read::Rules);
     assert_eq!(Rules::parse(&rules).unwrap().items.len(), 3);
+    let mut truncated_rules = rules.clone();
+    truncated_rules["result"]["rules"]["total"] = json!(65_536);
+    truncated_rules["result"]["rules"]["truncated"] = json!(true);
+    let parsed = Rules::parse(&truncated_rules).unwrap();
+    assert_eq!(parsed.total, 65_536);
+    assert_eq!(parsed.items.len(), 3);
+    assert!(parsed.truncated);
     for (path, bad) in [
-        ("/result/rules/total", json!(2049)),
+        ("/result/rules/total", json!(65_537)),
         ("/result/rules/shown", json!(2)),
         ("/result/rules/truncated", json!(true)),
         ("/result/rules/items/0/target", json!("private-chain")),

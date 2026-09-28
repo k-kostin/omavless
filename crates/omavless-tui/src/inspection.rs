@@ -577,7 +577,9 @@ fn rows<'a>(
 
 impl Rules {
     pub fn parse(value: &Value) -> Option<Self> {
-        let (total, truncated, raw) = rows(value, "rules", 2048, 2048)?;
+        // The core can load up to 65,536 rules, while the IPC projection
+        // intentionally shows at most 2,048 of them.
+        let (total, truncated, raw) = rows(value, "rules", 2048, 65_536)?;
         let mut items = Vec::with_capacity(raw.len());
         for item in raw {
             let target = match item["target"].as_str()? {
