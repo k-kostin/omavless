@@ -1,10 +1,30 @@
 # Current delivery status
 
-Updated 2026-09-27. This is the compact current-state entry point; the detailed
+Updated 2026-09-28. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **September 28 PC-VM continuation, still experimental:** the DNS work is
+  stacked as Draft #295 (broker/core foundation), #298 (explicit root enrollment
+  and durable local pair selection), and #299 (safe bundled-template preparation).
+  The corresponding installed x86_64 pair retained private profiles across a
+  VM reboot, then passed an agent-run managed Connect, verified owned-core
+  SIGKILL with DNS/TUN release, and clean Disconnected/Rule restoration. A
+  stopped-broker Connect was rejected without a false Connected claim; the
+  deliberately preserved socket required documented empty-state inspection
+  and manual socket-only cleanup before service restart. #299 source
+  `841c223cffaf7d47b671fd7183ce45c82303ccbd` has local Python/QML/Rust
+  checks and x86_64/ARM64 package CI passing. The separate Draft UI #296/#297
+  branches render a neutral mode transition in an installed VM widget;
+  source-level combined DNS+UI tests and `qmllint` pass at local composition
+  `a6b6967c961a9eb142201b378f8d2f50348b07f1`.
+  Exact heads and boundaries are in the [PC evidence](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
+  and [UI Draft PR #297](https://github.com/k-kostin/omavless/pull/297). Main and RC
+  are unchanged. Formal owner-attended negative/host acceptance, default-path
+  #132 disposition, reviewed distribution and firewall behavior remain open;
+  this is not a 0.9.0 release-ready claim.
 
 - **DNS installed experimental checkpoint, not released/default:** #295 passed
   an attended ARM64 Full VPN connect/HTTPS/disconnect with real resolved readback

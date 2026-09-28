@@ -917,3 +917,15 @@ DNS lease. Explicit Disconnect and Rule restoration returned a clean observed
 Disconnected state without recovery. This validates the post-reboot ownership
 and release path on the installed VM pair; it is not a formal owner-attended
 authorization result and does not establish public release readiness.
+
+An additional VM-only negative checked the selected pair with its root broker
+explicitly stopped while no VPN lease existed. An ordinary-user Connect was
+rejected; observed runtime stayed Disconnected/Rule with desired connection
+false, no `Meta` TUN and no recovery flag. Restarting the stopped broker first
+failed closed on its preserved Unix socket, as the package contract predicts.
+After checking inactive PID/FD store, the empty private journal, absent socket
+listener and absent owned TUN, only that fixed stale socket was interactively
+removed by the VM administrator. The service then started successfully and
+reported active/enabled with FD store zero; durable pair selection and the
+original disconnected runtime remained intact. This is a deliberate manual
+recovery step for a stopped service, not unattended startup/upgrade proof.
