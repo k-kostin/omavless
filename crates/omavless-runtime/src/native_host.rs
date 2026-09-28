@@ -11,6 +11,7 @@ use crate::core::OwnedCore;
 use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
+use crate::managed_pair::{self, ManagedPair};
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
 use omavless_mihomo::observation::{processes_named_strict, tun_interface_count_strict};
@@ -41,6 +42,7 @@ pub struct NativeHostPaths {
     pub active_config: PathBuf,
     pub staged_config: PathBuf,
     pub controller_socket: PathBuf,
+    managed_pair: Option<ManagedPair>,
 }
 
 impl NativeHostPaths {
@@ -61,6 +63,7 @@ impl NativeHostPaths {
             active_config: config_directory.join("config.yaml"),
             staged_config: config_directory.join(".config.candidate.yaml"),
             controller_socket: runtime_directory.join("mihomo.sock"),
+            managed_pair: None,
             config_directory,
             runtime_directory,
             proc_root,
@@ -82,14 +85,22 @@ impl NativeHostPaths {
             return Err(HostStepError::Prepare);
         }
         let config = home.join(".config/omavless");
-        Ok(Self::new(
-            resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?,
+        let managed_pair = ManagedPair::detect(&config, nix::unistd::getuid().as_raw())?;
+        let core = if managed_pair.is_some() {
+            PathBuf::from(managed_pair::CORE)
+        } else {
+            resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?
+        };
+        let mut paths = Self::new(
+            core,
             config.clone(),
             config,
             runtime_directory.to_path_buf(),
             PathBuf::from("/proc"),
             PathBuf::from("/sys/class/net"),
-        ))
+        );
+        paths.managed_pair = managed_pair;
+        Ok(paths)
     }
 }
 
@@ -656,6 +667,9 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        if let Some(pair) = &self.paths.managed_pair {
+            pair.verify()?;
+        }
         if !self.auxiliary.mutation_safe() {
             return Err(HostStepError::Prepare);
         }
@@ -696,6 +710,9 @@ impl LifecycleHost for NativeLifecycleHost {
             .map_err(|_| HostStepError::Prepare)?;
         let readiness = ConfigReadiness::from_generated_config(desired.mode, profile_name, &config)
             .ok_or(HostStepError::Prepare)?;
+        if self.paths.managed_pair.is_some() && !readiness.managed_dns() {
+            return Err(HostStepError::Prepare);
+        }
         atomic_replace_private(&self.paths.staged_config, config.as_bytes(), self.uid)
             .map_err(|_| HostStepError::Prepare)?;
         if validate_config(

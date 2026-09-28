@@ -154,7 +154,7 @@ impl Resolve {
         state.route = enabled && state.case != "mismatch";
         state.drift = state.case == "apply_drift";
     }
-    fn revert_link(&self, index: i32) {
+    fn revert_link(&self, index: i32) -> fdo::Result<()> {
         let mut state = self.0.lock().unwrap();
         assert_eq!(index, state.index);
         assert!(state.stored.is_some());
@@ -163,6 +163,11 @@ impl Resolve {
                 .unwrap();
         assert_eq!(record["phase"], "releasing");
         state.calls.push("revert");
+        if state.case == "release_denial" {
+            return Err(fdo::Error::AccessDenied(
+                "synthetic private diagnostic".into(),
+            ));
+        }
         let delay = state.case == "release_timeout";
         drop(state);
         if delay {
@@ -172,6 +177,7 @@ impl Resolve {
         state.servers.clear();
         state.domains.clear();
         state.route = false;
+        Ok(())
     }
 }
 struct Link(Arc<Mutex<State>>);
@@ -347,7 +353,8 @@ fn guard() -> String {
             "release_drift",
             "dns_drift",
             "release_dns_drift",
-            "release_timeout"
+            "release_timeout",
+            "release_denial"
         ]
         .contains(&case.as_str())
     );
@@ -503,13 +510,15 @@ sys.stdin.buffer.read(1)
             state.lock().unwrap().drift = true;
             assert_eq!(lease.release(), Outcome::RecoveryRequired);
         }
-        "release_timeout" => {
+        "release_timeout" | "release_denial" => {
             assert_eq!(outcome, Outcome::Ready);
             assert!(lease.check_active());
             assert_eq!(lease.release(), Outcome::RecoveryRequired);
-            // The manager can finish after the broker's deadline. A late reset
-            // is still not an acknowledged, verified release.
-            thread::sleep(Duration::from_millis(500));
+            if case == "release_timeout" {
+                // The manager can finish after the broker's deadline. A late
+                // reset is still not an acknowledged, verified release.
+                thread::sleep(Duration::from_millis(500));
+            }
         }
         "dns_drift" | "release_dns_drift" => {
             assert_eq!(outcome, Outcome::Ready);
@@ -590,12 +599,18 @@ sys.stdin.buffer.read(1)
                 ]
             );
         }
-        "release_timeout" => {
+        "release_timeout" | "release_denial" => {
             assert!(reopened.requires_recovery());
             assert!(state.stored.is_some());
             assert!(tun_exists());
             assert_eq!(state.calls, ["dns", "domains", "route", "revert"]);
-            assert!(state.servers.is_empty() && state.domains.is_empty() && !state.route);
+            if case == "release_timeout" {
+                assert!(state.servers.is_empty() && state.domains.is_empty() && !state.route);
+            } else {
+                assert_eq!(state.servers, [(2, vec![198, 18, 0, 2])]);
+                assert_eq!(state.domains, [(".".into(), true)]);
+                assert!(state.route);
+            }
             assert_eq!(
                 state.notifications,
                 [

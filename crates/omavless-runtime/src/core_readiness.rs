@@ -82,6 +82,10 @@ impl ConfigReadiness {
         std::time::Duration::from_secs(if self.managed_dns { 45 } else { 10 })
     }
 
+    pub(crate) fn managed_dns(&self) -> bool {
+        self.managed_dns
+    }
+
     pub(crate) fn stop_timeout(&self) -> std::time::Duration {
         // OwnedCore allows 80% grace before SIGKILL: 55s gives 44s, beyond the
         // core's bounded 40s broker release (broker idle5s + release30s).

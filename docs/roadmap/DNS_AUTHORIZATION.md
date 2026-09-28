@@ -271,3 +271,15 @@ approve an exception that leaves #132 open. Neither decision is implied by a
 passing VM test. Do not add a broad polkit rule or silently select a patched
 core. The accepted native UI correction in #289 supersedes Python PR #135 as
 code, while #132 remains open.
+
+A subsequent dev-branch foundation adds a private per-user
+`managed-dns-selection` marker, separate from route templates and from the
+root-only broker enrollment. When present, the native runtime selects the fixed
+source-paired package core rather than an ambient `OMAVLESS_MIHOMO`/PATH result,
+pins the root-owned package receipt and core/broker hashes, and requires both
+managed flags in every generated connection. A missing/replaced pair or a
+template/preset that drops the flags fails closed instead of silently returning
+to legacy DNS ownership. The marker does **not** enroll a UID, enable a system
+unit, change firewall policy or create a supported release path by itself.
+Until a reviewed enrollment/revocation and template-repair flow exists, this
+remains experimental and #132 stays open for the default legacy path.

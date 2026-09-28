@@ -35,7 +35,7 @@ python3 tests/dns_broker_composition_probe.py ABSOLUTE_TEST_BINARY SHA256
 
 The ordinary test suite intentionally ignores the namespace test. The wrapper
 runs only `transaction::integration::actual_host_composition` with `--ignored`,
-under its isolation guards. It prints thirteen public PASS classifications or one
+under its isolation guards. It prints fourteen public PASS classifications or one
 bounded failure, never mock/raw backend diagnostics.
 
 ## Evidence
@@ -64,6 +64,12 @@ It adds late completion of the release-side RevertLink call. The 47 ordinary
 broker tests passed (one namespace case ignored); `./tests/run.sh` and
 `./tests/run-rust.sh` passed on the same source checkout. This is still isolated
 mock-bus evidence, not installed-resolved or owner-attended acceptance.
+
+The fourteen-scenario namespace probe passed once on library-test SHA-256
+`7c212afff3c4da5d0df3718b2d2c6bdc84d4fe15e1ea1d88a42e56c500e1dd61`.
+The added definite release denial leaves the effective link unchanged and
+retains the TUN proof/journal. As with earlier probes, this is private mock-bus
+evidence, not an installed authorization result.
 
 - `success`: pending journal and external FD retention precede the first DNS
   write; exact fixed parameters; Ready follows readback; release verifies DNS
@@ -99,6 +105,9 @@ mock-bus evidence, not installed-resolved or owner-attended acceptance.
   mock link late. Even if the later observed values look reset, the broker never
   received and verified a settled release; its journal and TUN proof remain in
   quarantine, with no speculative FD-store removal.
+- `release_denial`: a definite AccessDenied reply to RevertLink after Ready
+  retains the still-effective managed policy, journal and TUN proof. Refusal is
+  not reported as clean release and cannot trigger FD-store removal.
 
 The `drop` case is **not SIGKILL/PID 1 acceptance**: manager and resolved are
 private mock services in the fixture process, and dropping the broker lease is

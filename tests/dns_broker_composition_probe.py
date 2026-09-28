@@ -18,7 +18,7 @@ def isolated(arguments):
     base.require(case in ('success', 'denial', 'timeout', 'domain_timeout',
                          'route_timeout', 'drop', 'policy', 'mismatch',
                          'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift',
-                         'release_timeout'))
+                         'release_timeout', 'release_denial'))
     ownership.validate_source(Path(binary), digest)
     subprocess.run(['/usr/bin/mount', '--make-rprivate', '/'], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
@@ -51,7 +51,7 @@ def main():
         for case in ('success', 'denial', 'timeout', 'domain_timeout',
                      'route_timeout', 'drop', 'policy', 'mismatch',
                      'apply_drift', 'release_drift', 'dns_drift', 'release_dns_drift',
-                     'release_timeout'):
+                     'release_timeout', 'release_denial'):
             result = subprocess.run([
                 '/usr/bin/unshare', '--user', '--map-root-user', '--net', '--pid',
                 '--mount', '--propagation', 'private', '--fork', '--kill-child=SIGKILL',

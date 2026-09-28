@@ -104,6 +104,17 @@ post-install scriptlet failure cannot be treated as an atomic installation abort
 Do not grant the broker executable file capabilities; its root service's fixed
 capability bounding set is a different boundary.
 
+The dev-branch native runtime can also recognize a separate, private
+`~/.config/omavless/managed-dns-selection` file containing the exact fixed line
+`managed-dns-source-pair-v1` plus a final newline, owned by the user with mode
+`0600`. This is **not** written by the package and does not replace the
+administrator's root-only broker enrollment. It pins this source-paired core
+and broker receipt on runtime startup, and rejects a missing/replaced pair or
+a route template without both managed flags at connection preparation. It must
+be changed only while disconnected, followed by a deliberate user-runtime
+restart. A supported enrollment/revocation UI/CLI and template-repair flow are
+still required; this marker is not a normal-user setup instruction.
+
 ## Replacement/removal gate
 
 The fixed read-only guard requires root, zero arguments, protected runtime
