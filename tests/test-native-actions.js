@@ -136,6 +136,7 @@ function serviceHarness() {
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
     nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
     nativeConnectionTransitionTimeout:{stop(){}},
+    nativeRefusalVerificationTimeout:{stop(){},restart(){}},nativeRefusalVerification:null,
     nativeActionProcess:{command:[],running:false},profiles:[{id:'legacy-profile',active:false}]});
   for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct','nativeCanStop']) {
     const match=source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));

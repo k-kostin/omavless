@@ -91,6 +91,8 @@ function completeMode(result, exitCode) {
   c.nativeObservation = {older: true}
   c.nativeActionStdout = {text: ''}
   c.nativeConnectionTransitionTimeout = {restart() {}, stop() {}}
+  c.nativeRefusalVerificationTimeout = {restart() {}, stop() {}}
+  c.nativeRefusalVerification = null
   c.nativeMetadataTransitionTimeout = {restart() {}, stop() {}}
   c.NativeSnapshot = {parseActionExit: () => result}
   c.finishNativeEditorAction = () => {}

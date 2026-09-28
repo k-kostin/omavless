@@ -20,6 +20,8 @@ function context(action, actual, revision, activeId) {
   const timer = {running:true,stop(){this.running=false}}
   const c = vm.createContext({NativePresentation:presentation,NativeSnapshot:parser,
     nativeConnectionTransitionTimeout:timer,nativeMetadataTransitionTimeout:{stop(){}},
+    nativeRefusalVerificationTimeout:{running:true,stop(){this.running=false}},
+    nativeRefusalVerification:null,
     nativePending:null,nativeActionRunning:false,nativeSnapshotFailed:false,
     nativeConnectionTransition:{instanceId:'fixture',revision:4,action,profileId:'new'},
     nativeMetadataTransition:null,
@@ -68,6 +70,21 @@ const stale=context('connect','connected',5,'new')
 stale.nativeObservation.revision=4
 stale.finishNativeActionTransitionObservation()
 assert(stale.nativeConnectionTransition,'stale observation is not proof')
+const refusalWaiting=context('connect','disconnected',5,'')
+refusalWaiting.nativeRefusalVerification={instanceId:'fixture',revision:4}
+refusalWaiting.nativeObservation=null
+refusalWaiting.finishNativeActionTransitionObservation()
+assert(refusalWaiting.nativeRefusalVerification,'missing observation cannot settle a refused action')
+const refusalConfirmed=context('connect','disconnected',5,'')
+refusalConfirmed.nativeRefusalVerification={instanceId:'fixture',revision:4}
+refusalConfirmed.finishNativeActionTransitionObservation()
+assert.equal(refusalConfirmed.nativeRefusalVerification,null,'fresh coherent observation ends neutral verification')
+assert.equal(refusalConfirmed.nativeRefusalVerificationTimeout.running,false)
+const refusalUnverified=context('connect','disconnected',5,'')
+refusalUnverified.nativeRefusalVerification={instanceId:'fixture',revision:4}
+refusalUnverified.nativeSnapshotFailed=true
+refusalUnverified.finishNativeActionTransitionObservation()
+assert.equal(refusalUnverified.nativeRefusalVerification,null,'real read failure is not hidden')
 
 const beginName = 'beginNativeProfileLifecycleTransition'
 const beginStart = service.indexOf('  function ' + beginName + '(')
@@ -98,7 +115,8 @@ const transitionExpression = panelStateExpression('string nativeTransitionKind')
 function visibleState(actual, overrides={}) {
   const vless = Object.assign({nativeOutcomeUnknown:false,nativeSnapshotFailed:false,
     nativeSnapshot:{lastKnownActual:actual,revision:5},nativeModeSwitching:false,
-    nativeConnectionSwitching:false,nativeConnectionTransition:null}, overrides)
+    nativeConnectionSwitching:false,nativeConnectionTransition:null,
+    nativeRefusalVerification:null}, overrides)
   const c = vm.createContext({vless,nativeRealFailure:false})
   c.nativeRealFailure = vm.runInContext('(function(){' + realFailureExpression + '\n})()',c)
   const kind = vm.runInContext('(function(){' + transitionExpression + '\n})()',c)
@@ -108,6 +126,10 @@ for (const [actual,kind] of [['starting','starting'],['reconnecting','reconnecti
   assert.deepEqual(visibleState(actual),{failure:false,kind})
 assert.deepEqual(visibleState('failed'),{failure:true,kind:''})
 assert.deepEqual(visibleState('manualRecoveryRequired'),{failure:true,kind:''})
+assert.deepEqual(visibleState('disconnected',{nativeRefusalVerification:{revision:4}}),
+  {failure:false,kind:'refreshState'})
+assert.deepEqual(visibleState('manualRecoveryRequired',{nativeRefusalVerification:{revision:4}}),
+  {failure:true,kind:''})
 assert.deepEqual(visibleState('reconnecting',{nativeOutcomeUnknown:true}),{failure:true,kind:''})
 assert.deepEqual(visibleState('reconnecting',{nativeSnapshotFailed:true}),{failure:true,kind:''})
 assert.deepEqual(visibleState('failed',{nativeConnectionSwitching:true,
@@ -143,6 +165,8 @@ assert(service.includes('var contextualMetadataAction = subscriptionAction'))
 assert(service.includes('beginNativeProfileLifecycleTransition("profile-replace", context.profileId)'))
 assert(service.includes('beginNativeProfileLifecycleTransition(action, profileId)'))
 assert(service.includes('contextualMetadataAction && result.code !== "manual_recovery_required"'))
+assert(service.includes('result.code === "dns_pair_required" && (modeAction || connectionAction)'))
+assert(panel.includes('vless.nativeActionCode === "dns_pair_required" ? root.foreground : root.urgent'))
 assert(service.includes('root.nativeMetadataErrorAction = pendingAction.action'))
 assert.equal((service.match(/\bonNativePendingChanged:/g) || []).length, 1)
 assert(panel.includes('vless.nativeMetadataErrorAction.indexOf("profile-") === 0'))
