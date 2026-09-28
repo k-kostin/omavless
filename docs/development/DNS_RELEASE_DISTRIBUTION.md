@@ -49,8 +49,9 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
    obtain both exact pinned packages over HTTPS, verify both hashes and package
    identities, then invoke normal `pacman` without `--nodeps`, blanket
    `--overwrite`, `--noconfirm` or background sudo. Preserve existing profiles.
-2. Recheck the installed binary hashes, capabilities and unit metadata. Show
-   the actual numeric desktop UID and the broker's fixed paths/effects before
+2. Recheck the installed binary hashes, capabilities and unit metadata.
+   Initialize only an absent private store and validate compatibility before
+   changing ownership. Show the numeric desktop UID and broker's fixed effects before
    a **separate**, attended administrator enrollment. No NOPASSWD sudoers or
    account-wide polkit grant is installed.
 3. With no VPN lease and an empty broker state, perform the exact fixed-target
@@ -58,8 +59,11 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
    or unknown answer stops the sequence; inspect before retrying.
 4. With the user runtime stopped and Disconnected, prepare only the exact
    bundled default route template with its private backup and select the
-   installed managed pair. Custom YAML must refuse automatic rewriting. Start
-   the user runtime afterward; login/startup remains Off until the owner opts in.
+   installed managed pair **before the Rust cutover**. The candidate runtime
+   resolves its bundled core through that selection; activating first can
+   start and then roll back. Custom YAML must refuse automatic rewriting.
+   Only then perform disconnected ownership cutover and enable the user
+   runtime; login/startup remains Off until the owner opts in.
 5. Confirm the fixed package/selector, actual broker readiness and one real
    DNS/TUN/HTTPS cycle. A local selection flag alone proves neither enrollment
    nor Internet connectivity.
@@ -67,13 +71,17 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
 The stacked first-use draft changes `plugin/setup-runtime.sh` to require two
 exact, same-source package pins, inspect both local archive identities, install
 them in one normal `pacman` transaction and request separate DNS enrollment
-before template preparation/selection. It removes the stock-Mihomo AUR offer.
+before template preparation/selection and disconnected Rust cutover. It
+removes the stock-Mihomo AUR offer.
 The current `runtime-release.json` and `dns-release.json` intentionally have
 **empty** package maps, so the public download path remains unavailable. An
 already installed but incomplete app receives bounded setup guidance; a
 connected native owner retains explicit Disconnect even when setup discovery
-needs attention. This is source/test work, not a claimed installed first-use
-acceptance. The frontend release assembler still needs authenticated two-asset
+needs attention. The isolated x86_64
+[fresh-setup diagnostic](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md)
+used local offline asset transfer in place of unpublished GitHub downloads.
+It is not a marketplace install or formal owner-attended acceptance. The
+frontend release assembler still needs authenticated two-asset
 pairing and immutable published pins before metadata can be populated.
 
 ## Replacement, removal and firewall

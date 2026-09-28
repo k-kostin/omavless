@@ -9,7 +9,7 @@ const card = fs.readFileSync(__dirname + '/../plugin/RequiredComponents.qml', 'u
 let count = 0;
 function test(name, run) { try { run(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
 test('only public bounded status enums cross the process boundary', () => {
-  for (const value of ['ready', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_attention', 'release_unavailable']) {
+  for (const value of ['ready', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_runtime_stop', 'needs_attention', 'release_unavailable']) {
     assert.equal(state.parse(value + '\n', 0), value);
     assert.equal(state.parse(value, 1), 'needs_attention');
   }
@@ -17,7 +17,7 @@ test('only public bounded status enums cross the process boundary', () => {
     assert.equal(state.parse(value, 0), 'needs_attention');
 });
 test('only explicit package, activation or selection states offer setup', () => {
-  for (const value of ['ready', 'needs_companion', 'needs_attention', 'release_unavailable', 'checking']) assert(!state.canInstall(value));
+  for (const value of ['ready', 'needs_companion', 'needs_broker', 'needs_runtime_stop', 'needs_attention', 'release_unavailable', 'checking']) assert(!state.canInstall(value));
   assert(state.canInstall('needs_package')); assert(state.canInstall('needs_activation')); assert(state.canInstall('needs_selection'));
 });
 test('page never uses missing backend, never installs on load or check', () => {
@@ -40,7 +40,7 @@ test('setup has separate navigation and cannot expose legacy mutation shortcuts'
 test('launcher exit 71 cannot dismiss setup or reveal a competing normal page', () => {
   const vm = require('node:vm');
   const expression = panel.match(/readonly property bool bootstrapRequired: ([^\n]+)/)[1];
-  for (const nativeOwner of [true, false]) for (const value of ['checking', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_attention', 'release_unavailable', 'ready']) {
+  for (const nativeOwner of [true, false]) for (const value of ['checking', 'needs_package', 'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_runtime_stop', 'needs_attention', 'release_unavailable', 'ready']) {
     assert.equal(vm.runInNewContext(expression, {vless:{nativeOwner}, setupPage:{state:value}}), value !== 'ready' && !nativeOwner);
   }
   assert(panel.includes('visible: !root.bootstrapRequired && vless.nativeOwner && root.page !== "diagnostics"'));
@@ -48,7 +48,7 @@ test('launcher exit 71 cannot dismiss setup or reveal a competing normal page', 
 });
 test('all first-use and unavailable states have bounded EN/RU plain text', () => {
   for (const locale of ['en', 'ru']) for (const key of ['title', 'checking', 'ready', 'needs_package',
-    'needs_activation', 'needs_companion', 'needs_selection', 'needs_attention', 'release_unavailable', 'explanation', 'terminal', 'terminal_closed', 'install', 'prepare', 'select_pair', 'check', 'guide', 'later', 'components', 'app_missing', 'core_missing', 'install_all', 'install_app', 'install_core', 'prepare_title', 'guide_short', 'panel_unavailable', 'profiles_unavailable']) {
+    'needs_activation', 'needs_companion', 'needs_selection', 'needs_broker', 'needs_runtime_stop', 'needs_attention', 'release_unavailable', 'explanation', 'terminal', 'terminal_closed', 'install', 'prepare', 'select_pair', 'check', 'guide', 'later', 'components', 'app_missing', 'core_missing', 'install_all', 'install_app', 'install_core', 'prepare_title', 'guide_short', 'panel_unavailable', 'profiles_unavailable']) {
     const text = i18n.translate('setup.' + key, locale, {});
     assert(text.length > 0 && text.length <= 512);
     assert(!/Missing translation|[<>]/.test(text));
@@ -72,6 +72,8 @@ test('all component combinations select one correct install target or no action'
     assert.equal(state.missingAction(activation),coreInstalled?'install':'');
     const selection={state:'needs_selection',coreInstalled};assert.equal(state.missingAction(selection),coreInstalled?'finish-selection':'');
     assert.equal(state.missingAction({state:'needs_companion',coreInstalled}),'');
+    assert.equal(state.missingAction({state:'needs_broker',coreInstalled}),'');
+    assert.equal(state.missingAction({state:'needs_runtime_stop',coreInstalled}),'');
   }
   assert.equal(state.missingAction({state:'needs_attention',coreInstalled:false}),'');
 });

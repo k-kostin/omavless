@@ -4,8 +4,9 @@ This guide covers the **0.8.2 native release** on Arch/Omarchy. The unpublished
 0.9 RC development branches have a different requirement: a version-matched
 `omavless` + `omavless-dns` package pair, separate administrator enrollment
 for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
-selection. Their guided two-package installer remains unavailable until both
-immutable download pins are published and the fresh-install gate passes. Do not
+selection before Rust activation. Their guided two-package installer remains
+unavailable until both immutable download pins are published and the formal
+fresh-install gate passes. Do not
 apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the
 [managed DNS distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
 for the current development status.

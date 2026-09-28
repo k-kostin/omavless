@@ -42,6 +42,8 @@ pair_installed() { return 1; }
 pair_selection_status() { return 1; }
 user_runtime_stopped() { return 0; }
 system_broker_idle() { return 1; }
+system_broker_available() { return 1; }
+broker_access_for_user() { return 1; }
 no_managed_tun() { return 0; }
 enroll_uid() { echo UNEXPECTED_ENROLL_EFFECT >&2; return 99; }
 start_broker() { echo UNEXPECTED_BROKER_EFFECT >&2; return 99; }
@@ -124,6 +126,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
 native_present() { return 0; }
 package_installed() { echo 'omavless 0.9.0rc1-1'; }
 pair_installed() { return 0; }
+system_broker_available() { return 0; }
 native_target() { echo rust; }
 pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
 '''
@@ -132,6 +135,13 @@ pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","se
 pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
 setup_status
 ''').stdout, "needs_selection\n")
+        self.assertEqual(self.run_shell(fixture + 'system_broker_available() { return 1; }; setup_status').stdout,
+                         "needs_broker\n")
+        self.assertEqual(self.run_shell(fixture + '''
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
+user_runtime_stopped() { return 1; }
+setup_status
+''').stdout, "needs_runtime_stop\n")
         self.assertEqual(self.run_shell(fixture + 'native_target() { echo legacy; }; setup_status').stdout,
                          "needs_activation\n")
         self.assertEqual(self.run_shell(fixture + 'pair_installed() { return 1; }; setup_status').stdout,
@@ -143,7 +153,8 @@ setup_status
 
     def test_component_inventory_reports_only_fixed_presence(self):
         for state in ("ready", "needs_package", "needs_activation", "needs_companion",
-                      "needs_selection", "release_unavailable", "needs_attention"):
+                      "needs_selection", "needs_broker", "needs_runtime_stop",
+                      "release_unavailable", "needs_attention"):
             for present in (True, False):
                 result = self.run_shell(f'''setup_status() {{ echo {state}; }}
 pair_installed() {{ return {0 if present else 1}; }}
@@ -233,6 +244,7 @@ pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaV
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
 start_broker() { echo start >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker"; }
 system_broker_idle() { [[ -f "$TEST_DIR/broker" ]]; }
+broker_access_for_user() { return 0; }
 native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }
 enroll_and_select_pair
 '''
@@ -263,6 +275,7 @@ enroll_and_select_pair
         fixture = '''
 pair_installed() { return 0; }
 system_broker_idle() { return 0; }
+broker_access_for_user() { return 0; }
 native_present() { return 0; }
 package_installed() { echo 'omavless 0.9.0rc1-1'; }
 native_target() { echo rust; }
@@ -283,11 +296,62 @@ finish_pair_selection
             "system_broker_idle() { return 0; }", "system_broker_idle() { return 1; }"),
             "SELECT\n").returncode, 0)
         self.assertFalse((self.directory / "trace").exists())
+        self.assertNotEqual(self.run_shell(fixture.replace(
+            "broker_access_for_user() { return 0; }",
+            "broker_access_for_user() { return 1; }"),
+            "SELECT\n").returncode, 0)
+        self.assertFalse((self.directory / "trace").exists())
 
     def test_existing_owner_never_reinitializes_or_reenables(self):
         result = self.run_shell('native_target() { echo rust; }; prepare_application')
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout + result.stderr, "")
+
+    def test_clean_store_selects_pair_before_cutover(self):
+        fixture = '''
+native_target() { if [[ -f "$TEST_DIR/activated" ]]; then echo rust; else echo legacy; fi; }
+pair_installed() { return 0; }
+pair_selection_status() {
+  if [[ -f "$TEST_DIR/selected" ]]; then
+    echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'
+  else
+    echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'
+  fi
+}
+native() {
+  echo "$*" >> "$TEST_DIR/trace"
+  case "$*" in
+    'setup initialize') mkdir -p "$TEST_DIR/.config/omavless"; touch "$TEST_DIR/.config/omavless/profiles.json" ;;
+    store-compatibility) echo '{"schemaVersion":1,"compatible":true}' ;;
+    'dns-pair select') touch "$TEST_DIR/selected" ;;
+    'cutover activate') [[ -f "$TEST_DIR/selected" ]] || return 1; touch "$TEST_DIR/activated" ;;
+  esac
+}
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
+start_broker() { echo start-broker >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker"; }
+system_broker_idle() { [[ -f "$TEST_DIR/broker" ]]; }
+system_broker_available() { [[ -f "$TEST_DIR/broker" ]]; }
+broker_access_for_user() { return 0; }
+enable_runtime() { echo enable-runtime >> "$TEST_DIR/trace"; }
+prepare_private_store && enroll_and_select_pair && prepare_application
+'''
+        result = self.run_shell(fixture, "DNS\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), [
+            "setup initialize", "store-compatibility", "enroll", "start-broker",
+            "dns-pair prepare-template", "dns-pair select", "store-compatibility",
+            "cutover activate", "enable-runtime",
+        ])
+
+    def test_cutover_refuses_unselected_pair(self):
+        result = self.run_shell('''
+native_target() { echo legacy; }
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
+native() { echo "unexpected effect" >&2; return 99; }
+prepare_application
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("unexpected effect", result.stderr)
 
     def test_activation_preserves_existing_store_and_stops_on_failure(self):
         store = self.directory / ".config/omavless/profiles.json"
@@ -295,6 +359,8 @@ finish_pair_selection
         store.write_text("synthetic unchanged private fixture")
         fixture = '''
 native_target() { if [[ -f "$TEST_DIR/activated" ]]; then echo rust; else echo legacy; fi; }
+pair_selected() { return 0; }
+system_broker_available() { return 0; }
 native() {
   echo "$*" >> "$TEST_DIR/trace"
   case "$*" in

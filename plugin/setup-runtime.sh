@@ -45,6 +45,12 @@ pair_installed() {
           && ! -L /usr/lib/omavless-dns/omavless-dns-broker ]]
 }
 pair_selection_status() { timeout 8 /usr/bin/omavless dns-pair status 2>/dev/null; }
+pair_selected() {
+  local selected
+  selected=$(pair_selection_status) || return 1
+  jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
+    >/dev/null 2>&1 <<< "$selected"
+}
 user_runtime_stopped() {
   local state
   state=$(timeout 8 /usr/bin/systemctl --user show omavless-runtime.service --no-pager \
@@ -56,6 +62,18 @@ system_broker_idle() {
   state=$(timeout 8 /usr/bin/systemctl --system show omavless-dns-broker.service --no-pager \
     -p LoadState -p ActiveState -p SubState -p NFileDescriptorStore 2>/dev/null) || return 1
   [[ "$state" == $'LoadState=loaded\nActiveState=active\nSubState=running\nNFileDescriptorStore=0' ]]
+}
+system_broker_available() {
+  local state
+  state=$(timeout 8 /usr/bin/systemctl --system show omavless-dns-broker.service --no-pager \
+    -p LoadState -p ActiveState -p SubState 2>/dev/null) || return 1
+  [[ "$state" == $'LoadState=loaded\nActiveState=active\nSubState=running' ]] \
+    && broker_access_for_user
+}
+broker_access_for_user() {
+  local socket=/run/omavless-dns/control.sock
+  [[ -S "$socket" && ! -L "$socket" && -w "$socket"
+     && $(stat -c %u -- "$socket") == 0 ]]
 }
 no_managed_tun() { [[ ! -e /sys/class/net/Meta && ! -L /sys/class/net/Meta ]]; }
 enroll_uid() { /usr/bin/sudo /usr/lib/omavless-dns/omavless-dns-broker --enroll "$1"; }
@@ -110,10 +128,13 @@ setup_status() {
           || { printf 'needs_attention\n'; return; }
         if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == true' \
           >/dev/null 2>&1 <<< "$selected"; then
-          printf 'ready\n'
+          if system_broker_available; then printf 'ready\n'; else printf 'needs_broker\n'; fi
         elif jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
           >/dev/null 2>&1 <<< "$selected"; then
-          printf 'needs_selection\n'
+          if ! system_broker_available; then printf 'needs_broker\n'
+          elif ! no_managed_tun; then printf 'needs_attention\n'
+          elif user_runtime_stopped; then printf 'needs_selection\n'
+          else printf 'needs_runtime_stop\n'; fi
         else
           printf 'needs_attention\n'
         fi
@@ -166,14 +187,16 @@ enroll_and_select_pair() {
   enroll_uid "$(id -u)" || return 1
   start_broker || return 1
   system_broker_idle || return 1
+  broker_access_for_user || return 1
   native dns-pair prepare-template >/dev/null 2>&1 || return 1
   native dns-pair select >/dev/null 2>&1 || return 1
-  [[ $(setup_status) == ready ]]
+  pair_selected
 }
 
 finish_pair_selection() {
   pair_installed || return 1
   system_broker_idle || return 1
+  broker_access_for_user || return 1
   user_runtime_stopped || return 1
   no_managed_tun || return 1
   local answer
@@ -183,7 +206,7 @@ finish_pair_selection() {
   [[ "$answer" == SELECT ]] || return 1
   native dns-pair prepare-template >/dev/null 2>&1 || return 1
   native dns-pair select >/dev/null 2>&1 || return 1
-  [[ $(setup_status) == ready ]]
+  pair_selected
 }
 
 install_package() {
@@ -220,7 +243,7 @@ install_package() {
   [[ $(package_installed) == "omavless $package_version-1" ]] && pair_installed
 }
 
-prepare_application() {
+prepare_private_store() {
   local target config
   target=$(native_target) || return 1
   # Already activated: never reset, restart or re-enable after an explicit Quit.
@@ -234,6 +257,18 @@ prepare_application() {
   # Existing data is validated by the canonical Rust owner; never parsed,
   # repaired, reset or overwritten by shell. Connected/enabled legacy owners,
   # malformed stores and incomplete prior transitions refuse safely.
+  native store-compatibility 2>/dev/null | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null || return 1
+}
+
+prepare_application() {
+  local target
+  target=$(native_target) || return 1
+  [[ "$target" != rust ]] || return 0
+  [[ "$target" == legacy ]] || return 1
+  # The candidate runtime must resolve the reviewed bundled core during
+  # cutover. Activating before local pair selection fails and rolls back.
+  pair_selected || return 1
+  system_broker_available || return 1
   native store-compatibility 2>/dev/null | jq -e '.schemaVersion == 1 and .compatible == true' >/dev/null || return 1
   native cutover activate >/dev/null 2>&1 || return 1
   [[ $(native_target) == rust ]] || return 1
@@ -294,9 +329,25 @@ setup_main() {
         install_package || exit 1
         reload_units || exit 1
       fi
+      prepare_private_store || exit 1
+      selected=$(pair_selection_status) || exit 1
+      if jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
+        >/dev/null 2>&1 <<< "$selected"; then
+        if system_broker_idle; then
+          # A prior enrollment may have succeeded before selection was
+          # interrupted. Resume only if this UID can access the exact live
+          # broker socket; never repeat or replace root enrollment blindly.
+          broker_access_for_user || exit 1
+          finish_pair_selection || exit 1
+        else
+          enroll_and_select_pair || exit 1
+        fi
+      else
+        pair_selected || exit 1
+      fi
       prepare_application || exit 1
-      enroll_and_select_pair || exit 1
     fi
+    [[ $(setup_status) == ready ]] || exit 1
     say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».'
   ) || {
     say 'Setup did not finish. Do not repeat an unresolved authorization. Existing data was not reset; inspect the setup guide before retrying.' \
