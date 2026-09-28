@@ -779,3 +779,78 @@ installed. The user manager's older transient core override remains configured
 for experimental acceptance, so the VM result does not independently prove
 that normal enrollment/distribution no longer needs that override. No
 TUN-bound HTTPS or owner-attended authorization gate was run on this package.
+
+## September 28 explicit enrollment/selection package diagnostic
+
+The next stacked development head,
+`9f47fb26db1218a7248e61556e19928f77fed1a0`, added a fixed root-only
+enrollment/revocation command, an explicitly enable-able system unit, and an
+ordinary-user `dns-pair status|select` command. The full developer suite,
+locked offline Rust suite, clippy and local package checks passed. This is
+still opt-in development work: neither package installation nor the user
+selector automatically enrolls, enables a service or repairs an existing
+route template.
+
+The source-paired experimental x86_64 package SHA-256 was
+`d627a7d2091043ac2dffaa54f45a899dd83159331a15e44af52637aced4afd95`.
+Its installed core SHA-256 was
+`460a6a40b1094267de764f8df20dec3893873c50c2469a5c9835af3a3fbdd219`,
+broker SHA-256
+`4f86bb49fc9d18a5f6d155533eba46ede6f5348f8083ca2ba454d0dd93389cf0`,
+and unit SHA-256
+`a82b31226f09dc0b8aa9d247a2919f66a2b4d46070356e56c21cf2df2672524f`.
+The native application package SHA-256 was
+`c5417b45f6b51fcb5e4244cfe8ed7cc54b4f1689f6803ae788c22e9c7945333f`,
+with installed binary SHA-256
+`cd27f58567d3c1dacc1bd33b1dff25cad40510aea8edc159efd8110ea21faba1`.
+The frontend archive was not installed. Both installed packages came from the
+same clean source head through ordinary local pacman transactions, with the
+experimental package guard active and no disabled hooks or force flags. The
+guest's pacman emitted missing sync-database warnings; this was not a clean
+repository-backed installation.
+
+The VM's existing private root enrollment was retained. A non-root invocation
+of the installed enrollment command was refused, and a duplicate root
+enrollment was refused while the broker was inactive and the empty-state guard
+passed. The service remained disabled and inactive immediately after package
+installation. It was then explicitly enabled and started in the VM, with
+`ActiveState=active`, `UnitFileState=enabled` and FD store zero. The previously
+selected user marker remained `0600`; installed `dns-pair status` reported only
+that local selection, and `select` refused to overwrite it. A prior disposable
+debug build of the same selection code had successfully created a missing
+marker with the user runtime stopped, then refused selection while the runtime
+was active. Neither result establishes a complete normal-user onboarding or
+template-repair flow.
+
+On the exact installed pair, read-only identity and idle-broker preflight
+passed. A private existing VLESS fixture passed managed Connect, owned
+core/TUN and broker lease checks, Global → Rule → Direct → Global transitions,
+Disconnect and clean DNS/TUN release. That fixture and two adjacent records did
+not complete public HTTPS through the local proxy, so they were not used to
+claim working internet. With OmaVLESS disconnected, the guest itself returned
+HTTP 204 and 200 from two independent direct HTTPS targets. An isolated,
+no-TUN native profile probe screened 37 private VLESS records and found six
+reachable HTTPS proxies; it emitted only counts and ordinal indices. One of
+those passing records then returned HTTP 204 through the connected core's local
+proxy. With a temporary, narrowly addressed **VM-only** UFW allowance on
+`Meta` from the TUN peer `198.18.0.2` to `198.18.0.1`, the same connection
+returned HTTP 200 through a fixed-IP TUN request and HTTP 204 through a public
+DNS/TUN request. Global → Rule → Direct → Global transitions retained broker
+lease/readback; a post-transition TUN request again returned HTTP 204. Explicit
+Disconnect restored Disconnected/Rule with no managed TUN and broker FD store
+zero. The exact temporary UFW rule was then deleted and verified absent from
+saved user rules. The physical PC's VPN and firewall were not changed.
+
+A separate user-provided control VLESS profile was imported solely into the
+VM's private store. It reached the managed Connected state, but the guest's
+proxy and TUN HTTPS checks ended in TLS EOF for that particular remote. This
+does not prove a parser defect or that the credential is globally invalid;
+the six working private profiles and direct guest baseline localize this
+observation to the selected remote path or its conversion. No URI, endpoint,
+UUID, subscription URL, profile name or raw log is included here.
+
+These are **agent-run VM diagnostics**, not the mandatory owner-attended
+authorization/cancellation acceptance. The VM-specific UFW prerequisite still
+needs a reviewed user-facing treatment; the ordinary setup/template flow and
+remaining retained-state/upgrade negatives need completion before this can be
+called an RC-ready DNS path. No main, release or marketplace state changed.
