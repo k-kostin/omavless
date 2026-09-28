@@ -67,8 +67,8 @@ ColumnLayout {
       Button {
         id: prepareButton
         Layout.fillWidth: true
-        text: card.tr(card.facts.state === "needs_selection" ? "select_pair" : "prepare")
-        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection"
+        text: card.tr(card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_reenrollment" ? "restore_enrollment" : "prepare")
+        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_reenrollment"
         enabled: visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true

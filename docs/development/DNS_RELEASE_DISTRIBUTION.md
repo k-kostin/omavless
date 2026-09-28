@@ -104,6 +104,14 @@ selection may silently authorize a future production reinstall. A migration
 from the experimental path needs a named, tested clean-state procedure and
 fresh opt-in. Removal of the Omarchy frontend alone must not be mistaken for
 removal of a root broker, user service, package or private profiles.
+After a clean package removal/reinstall which preserves Rust ownership and the
+selected pair but revokes the broker enrollment, the frontend offers a distinct
+`Restore DNS enrollment` action. It requires a stopped user runtime, absent
+TUN/socket and a stopped zero-FD broker, then separately asks for DNS consent.
+The root broker's fixed empty-state guard refuses residual enrollment,
+journal/lease or unknown state. Success enrolls the current UID and starts the
+broker without selecting a different pair, enabling the user runtime or
+connecting a VPN. A generic broker failure keeps manual recovery guidance.
 
 The PC VM has default-deny UFW and requires an inbound `Meta` allowance for
 its tested IPv4 TUN flow. That temporary, peer/address-scoped diagnostic rule

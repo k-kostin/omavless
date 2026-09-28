@@ -10,6 +10,11 @@ fresh-install gate passes. Do not
 apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the
 [managed DNS distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
 for the current development status.
+For the unpublished 0.9 candidate, a clean removal may preserve private
+profiles and the selected pair while revoking the privileged broker
+registration. On reinstall, **Restore DNS enrollment** is a separate attended
+step, not a second package install or a VPN connection. It refuses residual or
+unknown broker state and does not re-enable a previously stopped user runtime.
 
 New users of the released version can
 install the plugin and follow its guided first-run setup. Existing native and
