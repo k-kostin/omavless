@@ -12,9 +12,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
   An unselected or subsequently invalidated pair in a running owner refuses
   with a localized fixed code; invalid startup discovery fails host creation.
   Explicit Disconnect remains available and no existing owner is stopped on this
-  refusal. Local Python/QML checks and serialized Rust checks passed; installed
-  VM and owner-attended gates for this exact composition remain open. Main and
-  RC are unchanged.
+  refusal. Local Python/QML checks and serialized Rust checks passed. An
+  installed PC-VM diagnostic on the combined DNS/UI source confirmed
+  effect-free refusal while disconnected, preserved active connection on mode
+  and server-change refusal, and available Disconnect. A separately screened
+  reachable private profile passed proxy and TUN HTTPS with a temporary narrow
+  VM-only UFW exception; see the exact [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
+  Formal owner-attended gates and reviewed delivery/firewall behavior remain
+  open. Main and RC are unchanged.
 
 - **September 28 PC-VM continuation, still experimental:** the DNS work is
   stacked as Draft #295 (broker/core foundation), #298 (explicit root enrollment
