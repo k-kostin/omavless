@@ -11,7 +11,7 @@ use crate::core::OwnedCore;
 use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
-use crate::managed_pair::{self, ManagedPair};
+use crate::managed_pair::ManagedPair;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
 use omavless_mihomo::observation::{processes_named_strict, tun_interface_count_strict};
@@ -88,8 +88,8 @@ impl NativeHostPaths {
         }
         let config = home.join(".config/omavless");
         let managed_pair = ManagedPair::detect(&config, nix::unistd::getuid().as_raw())?;
-        let core = if managed_pair.is_some() {
-            PathBuf::from(managed_pair::CORE)
+        let core = if let Some(pair) = managed_pair.as_ref() {
+            pair.core_path().to_path_buf()
         } else {
             resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?
         };

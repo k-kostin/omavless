@@ -30,6 +30,16 @@ looks for `/etc/omavless-dns/release-enrollment.json` with the separate
 authority for this package. A migration still requires an attended old-policy
 revocation at a proven clean boundary; the package does not perform it.
 
+The native runtime recognizes the new private `managed-dns-release-v1` selector
+and verifies the release core, broker and receipt before use. Its ordinary
+`omavless dns-pair select` now creates **only** that release selector; it does
+not fall back to the experimental package when the release pair is absent.
+An existing experimental marker is refused by the new runtime rather than
+silently authorizing the release package. The already-installed experimental
+VM build is unchanged; moving that VM to release bytes needs a separate,
+clean-state migration and fresh enrollment.
+
 Do not install this staged archive over an active experimental lease or use
-pacman override flags. This branch does not yet make `omavless` select the new
-package. Package build/inspection alone is not installed or release acceptance.
+pacman override flags. A reviewed fresh-install/migration UI and tested
+release-pair selection are still missing. Package build/inspection and unit
+tests alone are not installed or release acceptance.

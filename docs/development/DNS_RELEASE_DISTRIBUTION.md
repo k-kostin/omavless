@@ -1,10 +1,12 @@
 # Managed DNS pair: release-distribution contract (proposal)
 
-Status: proposed for 0.9 review, **not implemented or approved for normal
-installation**. Draft #302 proves a combined app/UI source and an installed
-x86_64 VM diagnostic; Draft #303 builds experimental pair packages on both
-native architectures. Neither the experimental package name nor its manual
-enrollment procedure is a public release path. The broker's security and host
+Status: proposed for 0.9 review, **not approved for normal installation**.
+Draft #302 proves a combined app/UI source and an installed x86_64 VM
+diagnostic; Draft #303 builds experimental pair packages on both native
+architectures. A later stacked draft stages a separate `omavless-dns` package
+candidate and a release-only runtime selector. Neither that uninstalled
+candidate nor the experimental manual enrollment is a public release path.
+The broker's security and host
 contracts remain in [DNS broker composition](../../tests/dns_broker_host/README.md)
 and [authorization research](DNS_AUTHORIZATION_RESEARCH.md).
 
@@ -63,7 +65,9 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
    nor Internet connectivity.
 
 The existing `plugin/setup-runtime.sh` and `runtime-release.json` are still
-single-package/stock-Mihomo code and do **not** implement this sequence. RC
+single-package/stock-Mihomo code and do **not** implement this sequence. The
+separate normal-name staging/selector branch also does not install, enroll,
+select or migrate anything on a host. RC
 metadata must remain unprovisioned until both architecture tuples and this
 flow have their own tests and installed acceptance.
 

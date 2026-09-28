@@ -13,11 +13,11 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-pub(crate) const CORE: &str = "/usr/lib/omavless-dns-experimental/mihomo";
-const BROKER: &str = "/usr/lib/omavless/omavless-dns-broker";
-const RECEIPT: &str = "/usr/share/omavless-dns-experimental/source-receipt.json";
+const RELEASE_CORE: &str = "/usr/lib/omavless-dns/mihomo";
+const RELEASE_BROKER: &str = "/usr/lib/omavless-dns/omavless-dns-broker";
+const RELEASE_RECEIPT: &str = "/usr/share/omavless-dns/source-receipt.json";
 pub(crate) const SELECTOR: &str = "managed-dns-selection";
-pub(crate) const SELECTION_BYTES: &[u8] = b"managed-dns-source-pair-v1\n";
+pub(crate) const SELECTION_BYTES: &[u8] = b"managed-dns-release-v1\n";
 const MIHOMO_COMMIT: &str = "ab405bad5beeeac8b003bb01f60f134f6df54471";
 const SING_TUN_COMMIT: &str = "b50ae28a1409c7bce8e96e6c6966cf57d8ace754";
 const CORE_PATCH: &str = "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37";
@@ -32,6 +32,8 @@ struct Receipt {
     patch_sha256: std::collections::HashMap<String, String>,
     go_build_tags: String,
     go_dependency_mode: String,
+    package_flavor: String,
+    broker_feature: String,
     sha256: std::collections::HashMap<String, String>,
 }
 
@@ -138,9 +140,9 @@ impl ManagedPair {
     pub(crate) fn detect(config_directory: &Path, uid: u32) -> Result<Option<Self>, HostStepError> {
         Self::detect_at(
             &config_directory.join(SELECTOR),
-            Path::new(CORE),
-            Path::new(BROKER),
-            Path::new(RECEIPT),
+            Path::new(RELEASE_CORE),
+            Path::new(RELEASE_BROKER),
+            Path::new(RELEASE_RECEIPT),
             uid,
             0,
         )
@@ -192,6 +194,8 @@ impl ManagedPair {
             || value.sing_tun_commit != SING_TUN_COMMIT
             || value.go_build_tags != "with_gvisor"
             || value.go_dependency_mode != "vendor"
+            || value.package_flavor != "release"
+            || value.broker_feature != "release-package"
             || value.patch_sha256.len() != 2
             || value
                 .patch_sha256
@@ -226,8 +230,17 @@ impl ManagedPair {
     }
 
     pub(crate) fn validate_package() -> Result<(), HostStepError> {
-        Self::validate_package_at(Path::new(CORE), Path::new(BROKER), Path::new(RECEIPT), 0)?;
+        Self::validate_package_at(
+            Path::new(RELEASE_CORE),
+            Path::new(RELEASE_BROKER),
+            Path::new(RELEASE_RECEIPT),
+            0,
+        )?;
         Ok(())
+    }
+
+    pub(crate) fn core_path(&self) -> &Path {
+        &self.core_path
     }
 
     pub(crate) fn verify(&self) -> Result<(), HostStepError> {
@@ -290,6 +303,7 @@ mod tests {
                 "sing-tun-descriptor.patch": TUN_PATCH,
             },
             "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
+            "package_flavor": "release", "broker_feature": "release-package",
             "sha256": {"mihomo": hash(b"synthetic core"),
                        "omavless-dns-broker": hash(b"synthetic broker")},
         });
@@ -339,5 +353,54 @@ mod tests {
         fs::remove_file(&selector).unwrap();
         symlink("missing", &selector).unwrap();
         assert!(ManagedPair::detect_at(&selector, &package, &package, &package, uid, uid).is_err());
+    }
+
+    #[test]
+    fn release_selector_requires_release_receipt_and_never_uses_experimental_variant() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("config");
+        let package = root.path().join("package");
+        fs::create_dir(&config).unwrap();
+        fs::create_dir(&package).unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+        let selector = config.join(SELECTOR);
+        let core = package.join("mihomo");
+        let broker = package.join("broker");
+        let receipt = package.join("receipt.json");
+        let uid = nix::unistd::getuid().as_raw();
+        write_mode(&selector, SELECTION_BYTES, 0o600);
+        write_mode(&core, b"release core", 0o755);
+        write_mode(&broker, b"release broker", 0o755);
+        let hash = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+        let mut document = json!({
+            "schema": 1, "architecture": std::env::consts::ARCH,
+            "mihomo_commit": MIHOMO_COMMIT, "sing_tun_commit": SING_TUN_COMMIT,
+            "patch_sha256": {"mihomo-dns-broker.patch": CORE_PATCH,
+                             "sing-tun-descriptor.patch": TUN_PATCH},
+            "go_build_tags": "with_gvisor", "go_dependency_mode": "vendor",
+            "sha256": {"mihomo": hash(b"release core"),
+                       "omavless-dns-broker": hash(b"release broker")},
+        });
+        write_mode(
+            &receipt,
+            serde_json::to_string(&document).unwrap().as_bytes(),
+            0o644,
+        );
+        assert!(ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid).is_err());
+        document["package_flavor"] = json!("release");
+        document["broker_feature"] = json!("release-package");
+        write_mode(
+            &receipt,
+            serde_json::to_string(&document).unwrap().as_bytes(),
+            0o644,
+        );
+        let selected = ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.core_path(), core);
+        assert!(selected.verify().is_ok());
+        write_mode(&selector, b"managed-dns-source-pair-v1\n", 0o600);
+        assert!(selected.verify().is_err());
+        assert!(ManagedPair::detect_at(&selector, &core, &broker, &receipt, uid, uid).is_err());
     }
 }

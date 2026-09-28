@@ -195,6 +195,7 @@ fn empty_pair_gate(directory: &Path, uid: u32) -> Result<(), Error> {
     if desired.connected || !private_directory(directory, uid) {
         return Err(Error::Refused);
     }
+    // No stock or experimental fallback is permitted for this release path.
     ManagedPair::validate_package().map_err(|_| Error::Refused)?;
     if !stopped_runtime()
         || !idle_broker()
