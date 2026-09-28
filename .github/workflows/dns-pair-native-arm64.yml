@@ -1,4 +1,4 @@
-name: Experimental DNS pair native ARM64
+name: Experimental DNS pair native packages
 
 on:
   workflow_dispatch:
@@ -15,6 +15,43 @@ permissions:
   contents: read
 
 jobs:
+  native-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: archlinux:base-devel-20260913.0.592969
+    steps:
+      - name: Install disposable native build dependencies
+        run: pacman -Syu --noconfirm --needed git go rustup python
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build pinned pair offline after dependency hydration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == x86_64 ]]
+          useradd --create-home --shell /bin/bash packagebuilder
+          chown -R packagebuilder:packagebuilder "$GITHUB_WORKSPACE"
+          runuser -u packagebuilder -- /bin/bash -euo pipefail -c '
+            rustup toolchain install 1.98.0 --profile minimal
+            rustup default 1.98.0
+            mkdir -m 700 "$HOME/dns-sources"
+            git init -q "$HOME/dns-sources/mihomo"
+            git -C "$HOME/dns-sources/mihomo" fetch --depth=1 https://github.com/MetaCubeX/mihomo.git ab405bad5beeeac8b003bb01f60f134f6df54471
+            git init -q "$HOME/dns-sources/sing-tun"
+            git -C "$HOME/dns-sources/sing-tun" fetch --depth=1 https://github.com/MetaCubeX/sing-tun.git b50ae28a1409c7bce8e96e6c6966cf57d8ace754
+            bash tests/dns_broker_host/package/build-ci.sh \
+              "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-pair-output"
+          '
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: experimental-dns-pair-x86_64-${{ github.sha }}
+          path: /home/packagebuilder/dns-pair-output/staged/omavless-dns-experimental-*.pkg.tar.*
+          if-no-files-found: error
+          retention-days: 7
+
   native-arm64:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60

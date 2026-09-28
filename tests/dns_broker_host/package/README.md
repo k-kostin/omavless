@@ -53,11 +53,12 @@ hashes, toolchain and output hashes. The receipt is reproducibility evidence,
 not a signature, independent audit, permission to enroll, or proof of installed
 network behavior. The ARM64 path has source-level checks only until an exact
 native aarch64 output passes the same build, staging and installed gates.
-The separate native ARM64 CI job exercises the same pinned source-pair build
-and staging on a native Arch Linux ARM build root. It hydrates locked Go/Cargo
-caches before the builder's offline phase, then uploads only an **experimental,
-uninstalled** package. A CI artifact is not enrollment, installed acceptance,
-normal distribution or release approval.
+The separate native x86_64 and ARM64 CI jobs exercise the same pinned
+source-pair build and staging in disposable Arch build roots. Each hydrates
+locked Go/Cargo caches before the builder's offline phase, then uploads only
+an **experimental, uninstalled** architecture-specific package. A CI artifact
+is not enrollment, installed acceptance, normal distribution or release
+approval.
 
 The staging fixture below now requires the pair directory and includes this
 source archive, licenses and receipt in the experimental package. It is still
