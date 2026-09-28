@@ -139,6 +139,17 @@ that every destination works. See the sanitized
 
 ## Promotion gates
 
+The attended installed-owner DNS cycle tool now accepts an explicit
+`--pair release` with `--release-core-sha` and `--release-broker-sha` from the
+separately inspected package; the historical default and its
+`--experimental-*-sha` pins still address only the experimental package.
+It also checks the fixed production broker unit bytes. Run it only in an
+isolated, already installed VM with a screened private profile and a human at
+each authorization barrier. It does not install packages, enroll an account,
+change the firewall, test package removal or recover an uncertain state.
+Its passing HTTPS/DNS/mode cycle cannot substitute for the other promotion
+gates below or authenticate caller-supplied digests.
+
 - Both architecture packages and one common frontend built from a reconciled
   exact source, with immutable asset pins and a complete source/license receipt.
 - Fresh VM installation and existing-0.8.x migration, including refusal and

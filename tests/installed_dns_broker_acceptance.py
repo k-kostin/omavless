@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: MIT
 """Attended installed-owner DNS broker gate for an isolated Omarchy test VM.
 
-This does not install, enroll, start, stop or recover the experimental broker.
+This does not install, enroll, start, stop or recover either broker package.
 The exact installed pair and an existing private VLESS profile are prerequisites.
 Every network mutation has its own ready/settled barrier. Refusing one leaves
 the current state for explicit inspection; no automatic recovery is attempted.
 Only fixed classifications, counts and booleans are printed.
+The default remains the historical experimental pair; --pair release selects
+only the production-name paths and requires its separately reviewed digests.
 """
 import argparse
 import hashlib
@@ -38,8 +40,11 @@ auth = sibling("human_authorization")
 
 CORE_PATH = Path("/usr/lib/omavless-dns-experimental/mihomo")
 BROKER_PATH = Path("/usr/lib/omavless/omavless-dns-broker")
+RELEASE_CORE_PATH = Path("/usr/lib/omavless-dns/mihomo")
+RELEASE_BROKER_PATH = Path("/usr/lib/omavless-dns/omavless-dns-broker")
 BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
 BROKER_UNIT_SHA = "a82b31226f09dc0b8aa9d247a2919f66a2b4d46070356e56c21cf2df2672524f"
+RELEASE_UNIT_SHA = "126b208158e9288c475084c8bd74029e2808edf9846da514a369266b6306462d"
 RUNTIME = "omavless-runtime.service"
 SELECTION_BYTES = b"managed-dns-source-pair-v1\n"
 MODES = ("global", "rule", "direct", "global")
@@ -67,6 +72,32 @@ SAFE_FAILURES = frozenset((
 
 def require(condition, code):
     gate.require(condition, code)
+
+
+def pair_paths(pair):
+    require(pair in ("experimental", "release"), "pair_not_selected")
+    if pair == "release":
+        return RELEASE_CORE_PATH, RELEASE_BROKER_PATH, RELEASE_UNIT_SHA
+    return CORE_PATH, BROKER_PATH, BROKER_UNIT_SHA
+
+
+def release_core(expected_sha):
+    """Pin the production-name package, never an experimental fallback."""
+    require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
+            "core_pin_required")
+    path = RELEASE_CORE_PATH
+    require(path.resolve(strict=True) == path, "core_path_unsafe")
+    for parent in path.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
+                and not metadata.st_mode & 0o022, "core_path_unsafe")
+    metadata = path.lstat()
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
+            and metadata.st_nlink == 1 and not metadata.st_mode & 0o022
+            and 0 < metadata.st_size <= 128 * 1024 * 1024, "core_path_unsafe")
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha,
+            "core_pin_mismatch")
+    return str(path)
 
 
 def fixed_command(args):
@@ -120,7 +151,7 @@ def durable_core_selection(config_directory, uid):
         os.close(descriptor)
 
 
-def installed_identity(expected_sha):
+def installed_identity(expected_sha, pair="experimental"):
     require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
             "core_pin_required")
     require(installed.valid_environment(os.environ, Path.home(),
@@ -130,22 +161,24 @@ def installed_identity(expected_sha):
             and not binary.st_mode & 0o022, "installed_binary_unsafe")
     require(installed.command([installed.BINARY, "plugin", "target"]) == b"rust\n",
             "not_native_owner")
-    require(gate.experimental_core(expected_sha) == str(CORE_PATH), "core_pin_mismatch")
+    core_path, _, _ = pair_paths(pair)
+    pinned = gate.experimental_core if pair == "experimental" else release_core
+    require(pinned(expected_sha) == str(core_path), "core_pin_mismatch")
     pid = int(installed.unit(RUNTIME, "MainPID"))
     require(pid > 1 and installed.unit(RUNTIME, "ActiveState") == "active",
             "runtime_unavailable")
     environment = gate.bounded(Path("/proc") / str(pid) / "environ", 65536).split(b"\0")
     overrides = [entry for entry in environment if entry.startswith(b"OMAVLESS_MIHOMO=")]
-    require(not overrides or overrides == [b"OMAVLESS_MIHOMO=" + os.fsencode(CORE_PATH)],
+    require(not overrides or overrides == [b"OMAVLESS_MIHOMO=" + os.fsencode(core_path)],
             "installed_core_not_selected")
     durable_core_selection(Path.home() / ".config/omavless", os.getuid())
     return pid
 
 
-def running_broker_projection(command, pid, status, cgroup):
+def running_broker_projection(command, pid, status, cgroup, broker_path=BROKER_PATH):
     """Check fixed systemd/proc facts without privileged procfs inode access."""
-    require(command.startswith("{ path=" + str(BROKER_PATH) + " ; argv[]="
-                               + str(BROKER_PATH) + " --serve ; ignore_errors=no ; ")
+    require(command.startswith("{ path=" + str(broker_path) + " ; argv[]="
+                               + str(broker_path) + " --serve ; ignore_errors=no ; ")
             and command.endswith(" ; pid=" + str(pid) + " ; code=(null) ; status=0/0 }")
             and b"Name:\tomavless-dns-br" in status
             and b"Uid:\t0\t0\t0\t0" in status
@@ -153,25 +186,26 @@ def running_broker_projection(command, pid, status, cgroup):
             "running_broker_unverified")
 
 
-def broker_identity(expected_sha):
+def broker_identity(expected_sha, pair="experimental"):
     require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
             "broker_pin_required")
-    require(BROKER_PATH.resolve(strict=True) == BROKER_PATH, "broker_path_unsafe")
-    for parent in BROKER_PATH.parents:
+    _, broker_path, unit_sha = pair_paths(pair)
+    require(broker_path.resolve(strict=True) == broker_path, "broker_path_unsafe")
+    for parent in broker_path.parents:
         metadata = parent.lstat()
         require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
                 and not metadata.st_mode & 0o022, "broker_path_unsafe")
-    metadata = BROKER_PATH.lstat()
+    metadata = broker_path.lstat()
     require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
             and metadata.st_nlink == 1 and not metadata.st_mode & 0o022
             and 0 < metadata.st_size <= 32 * 1024 * 1024, "broker_path_unsafe")
-    require(hashlib.sha256(BROKER_PATH.read_bytes()).hexdigest() == expected_sha,
+    require(hashlib.sha256(broker_path.read_bytes()).hexdigest() == expected_sha,
             "broker_pin_mismatch")
     service = "omavless-dns-broker.service"
     unit = BROKER_UNIT.lstat()
     require(stat.S_ISREG(unit.st_mode) and unit.st_uid == 0
             and unit.st_nlink == 1 and not unit.st_mode & 0o022
-            and hashlib.sha256(BROKER_UNIT.read_bytes()).hexdigest() == BROKER_UNIT_SHA,
+            and hashlib.sha256(BROKER_UNIT.read_bytes()).hexdigest() == unit_sha,
             "broker_unit_unsafe")
     def property_value(name):
         return fixed_command(["/usr/bin/systemctl", "--system", "show", service,
@@ -189,7 +223,7 @@ def broker_identity(expected_sha):
             "running_broker_unverified")
     status = gate.bounded(Path("/proc") / str(pid) / "status", 16384).splitlines()
     cgroup = gate.bounded(Path("/proc") / str(pid) / "cgroup", 4096)
-    running_broker_projection(command, pid, status, cgroup)
+    running_broker_projection(command, pid, status, cgroup, broker_path)
 
 
 def broker_state(expected):
@@ -271,7 +305,7 @@ def core_process_projection(status, runtime_pid, uid):
             "owned_core_unverified")
 
 
-def connected_state(runtime_pid, mode):
+def connected_state(runtime_pid, mode, pair="experimental"):
     observed = installed.cli("runtime", "observation")["result"]
     require(observed.get("availability") == "observed"
             and observed.get("lastKnownActual") == "connected"
@@ -292,7 +326,7 @@ def connected_state(runtime_pid, mode):
     core = next(iter(cores))
     core_process_projection(gate.bounded(Path("/proc") / str(core) / "status", 16384),
                             runtime_pid, os.getuid())
-    actual, pinned = Path("/proc") / str(core) / "exe", CORE_PATH
+    actual, pinned = Path("/proc") / str(core) / "exe", pair_paths(pair)[0]
     try:
         inode = actual.stat()
     except PermissionError:
@@ -588,10 +622,12 @@ def failure_type(error):
     return "other"
 
 
-def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
+def run_gate(authorization, expected_sha, broker_sha, profile_index=None,
+             pair="experimental"):
     authorization.require_terminal()  # before private state or host observation
-    runtime_pid = installed_identity(expected_sha)
-    broker_identity(broker_sha)
+    pair_paths(pair)
+    runtime_pid = installed_identity(expected_sha, pair)
+    broker_identity(broker_sha, pair)
     initial = installed.cli("runtime", "observation")["result"]
     require(installed.clean_disconnected_observation(initial) and not installed.tuns(),
             "baseline_not_disconnected")
@@ -601,7 +637,7 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
     profile = selected_profile(snapshot, profile_index)
     original_mode = snapshot["desired"]["mode"]
     require(original_mode in ("global", "rule", "direct"), "original_mode_unavailable")
-    gate.emit(case="installed-managed-dns", preflight=True,
+    gate.emit(case="installed-managed-dns", pair=pair, preflight=True,
               mode_sequence=list(MODES), authorization="attended")
     # This never installs a firewall exception. Connected DNS readback is not
     # evidence that UFW (or another firewall) passes actual TUN ingress.
@@ -613,7 +649,7 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
         authorization.step("connect", lambda: owned_action(runtime_pid, "connect", profile, "global"))
         connected = True
         checkpoint = "connected_state"
-        core_pid = connected_state(runtime_pid, "global")
+        core_pid = connected_state(runtime_pid, "global", pair)
         route_projection()
         checkpoint = "https_probe"
         probe_direct_ip_tun(core_pid)
@@ -625,7 +661,7 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
             raise gate.Failure("full_vpn_https_failed")
         checkpoint = "mode_sequence"
         mode_sequence(authorization, lambda mode: owned_action(runtime_pid, "mode", mode),
-                      lambda mode: connected_state(runtime_pid, mode))
+                      lambda mode: connected_state(runtime_pid, mode, pair))
         completed = True
     except Exception as error:
         gate.emit(checkpoint=checkpoint, failure_type=failure_type(error))
@@ -651,11 +687,13 @@ def run_gate(authorization, expected_sha, broker_sha, profile_index=None):
                   passed=completed and connected)
 
 
-def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=None):
+def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=None,
+                        pair="experimental"):
     """Opt-in installed crash diagnostic; never signals an unverified PID/name."""
     authorization.require_terminal()
-    runtime_pid = installed_identity(expected_sha)
-    broker_identity(broker_sha)
+    pair_paths(pair)
+    runtime_pid = installed_identity(expected_sha, pair)
+    broker_identity(broker_sha, pair)
     initial = installed.cli("runtime", "observation")["result"]
     require(installed.clean_disconnected_observation(initial) and not installed.tuns(),
             "baseline_not_disconnected")
@@ -665,7 +703,7 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
     profile = selected_profile(snapshot, profile_index)
     original_mode = snapshot["desired"]["mode"]
     require(original_mode in ("global", "rule", "direct"), "original_mode_unavailable")
-    gate.emit(case="installed-managed-dns-core-crash", preflight=True,
+    gate.emit(case="installed-managed-dns-core-crash", pair=pair, preflight=True,
               authorization="attended")
     completed = False
     core_pid = None
@@ -673,7 +711,7 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
     try:
         authorization.step("connect", lambda: owned_action(runtime_pid, "connect", profile, "global"))
         checkpoint = "connected_state"
-        core_pid = connected_state(runtime_pid, "global")
+        core_pid = connected_state(runtime_pid, "global", pair)
         checkpoint = "core_crash"
         started_at = authorization.step(
             "core_crash", lambda: crash_verified_core(core_pid, runtime_pid))
@@ -707,8 +745,12 @@ def run_core_crash_gate(authorization, expected_sha, broker_sha, profile_index=N
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--pair", choices=("experimental", "release"),
+                        default="experimental")
     parser.add_argument("--experimental-core-sha", metavar="SHA256")
     parser.add_argument("--experimental-broker-sha", metavar="SHA256")
+    parser.add_argument("--release-core-sha", metavar="SHA256")
+    parser.add_argument("--release-broker-sha", metavar="SHA256")
     parser.add_argument("--profile-index", type=int, metavar="N",
                         help="0-based index among available VLESS profiles; default: last selected")
     parser.add_argument("--core-crash", action="store_true",
@@ -718,9 +760,20 @@ def main(argv=None):
         gate.emit(status="NOT RUN", reason="explicit_run_required")
         return 0
     try:
+        if args.pair == "release":
+            require(args.experimental_core_sha is None and args.experimental_broker_sha is None,
+                    "pair_pin_mismatch")
+            core_sha, broker_sha = args.release_core_sha, args.release_broker_sha
+        else:
+            require(args.release_core_sha is None and args.release_broker_sha is None,
+                    "pair_pin_mismatch")
+            core_sha, broker_sha = args.experimental_core_sha, args.experimental_broker_sha
+        require(re.fullmatch(r"[0-9a-f]{64}", core_sha or "") is not None
+                and re.fullmatch(r"[0-9a-f]{64}", broker_sha or "") is not None,
+                "pair_pin_mismatch")
         runner = run_core_crash_gate if args.core_crash else run_gate
-        runner(auth.HumanAuthorization(), args.experimental_core_sha,
-               args.experimental_broker_sha, args.profile_index)
+        runner(auth.HumanAuthorization(), core_sha, broker_sha, args.profile_index,
+               args.pair)
         return 0
     except Exception as error:
         gate.emit(passed=False, classification=failure_classification(error))

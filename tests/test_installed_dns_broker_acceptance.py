@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """No-effect checks for the installed-owner DNS acceptance gate."""
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -68,6 +69,58 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         inspect.assert_not_called()
         command.assert_not_called()
 
+    def test_release_pair_has_fixed_distinct_paths_and_reviewed_unit_bytes(self):
+        core, broker, unit_sha = gate.pair_paths("release")
+        self.assertEqual(str(core), "/usr/lib/omavless-dns/mihomo")
+        self.assertEqual(str(broker), "/usr/lib/omavless-dns/omavless-dns-broker")
+        self.assertNotEqual(core, gate.CORE_PATH)
+        self.assertNotEqual(broker, gate.BROKER_PATH)
+        source = (Path(__file__).parents[1] / "tests/dns_broker_host"
+                  / "omavless-dns-broker.service").read_bytes()
+        generated = source.replace(
+            b"ExecStart=/usr/lib/omavless/omavless-dns-broker --serve",
+            b"ExecStart=/usr/lib/omavless-dns/omavless-dns-broker --serve",
+        ).replace(
+            b"# REVIEW-ONLY opt-in candidate. Not installed or enabled by normal packages.\n",
+            b"# Installation alone does not enroll, enable, or start this service.\n",
+        )
+        self.assertNotEqual(source, generated)
+        self.assertEqual(hashlib.sha256(generated).hexdigest(), unit_sha)
+        with self.assertRaisesRegex(gate.gate.Failure, "^pair_not_selected$"):
+            gate.pair_paths("unknown")
+
+    def test_release_core_requires_pin_before_access_and_never_uses_experimental(self):
+        with patch.object(Path, "resolve") as inspect, \
+                self.assertRaisesRegex(gate.gate.Failure, "^core_pin_required$"):
+            gate.release_core(None)
+        inspect.assert_not_called()
+        with patch.object(gate.gate, "experimental_core") as experimental, \
+                patch.object(gate, "release_core", return_value=str(gate.RELEASE_CORE_PATH)) as release, \
+                patch.object(gate.installed, "valid_environment", return_value=True), \
+                patch.object(Path, "lstat", return_value=Mock(
+                    st_mode=gate.stat.S_IFREG | 0o755, st_uid=0)), \
+                patch.object(gate.installed, "command", return_value=b"rust\n"), \
+                patch.object(gate.installed, "unit", side_effect=["41", "active"]), \
+                patch.object(gate.gate, "bounded", return_value=b""), \
+                patch.object(gate, "durable_core_selection"):
+            self.assertEqual(gate.installed_identity("a" * 64, "release"), 41)
+        release.assert_called_once_with("a" * 64)
+        experimental.assert_not_called()
+
+    def test_release_cli_requires_exclusive_complete_pin_pair_before_runner(self):
+        release_args = ["--run", "--pair", "release", "--release-core-sha", "a" * 64,
+                        "--release-broker-sha", "b" * 64]
+        with patch.object(gate, "run_gate") as runner, \
+                patch.object(gate.auth, "HumanAuthorization", return_value=object()), \
+                patch.object(gate.gate, "emit"):
+            self.assertEqual(gate.main(release_args), 0)
+            self.assertEqual(runner.call_args.args[1:],
+                             ("a" * 64, "b" * 64, None, "release"))
+            runner.reset_mock()
+            self.assertEqual(gate.main(release_args[:-2]), 1)
+            self.assertEqual(gate.main(release_args + ["--experimental-core-sha", "c" * 64]), 1)
+            runner.assert_not_called()
+
     def test_root_broker_projection_requires_fixed_service_and_process(self):
         command = ("{ path=/usr/lib/omavless/omavless-dns-broker ; "
                    "argv[]=/usr/lib/omavless/omavless-dns-broker --serve ; "
@@ -85,6 +138,11 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(gate.gate.Failure, "^running_broker_unverified$"):
                 gate.running_broker_projection(*altered)
+        release_path = gate.RELEASE_BROKER_PATH
+        release_command = command.replace(str(gate.BROKER_PATH), str(release_path))
+        gate.running_broker_projection(release_command, 42, status, cgroup, release_path)
+        with self.assertRaisesRegex(gate.gate.Failure, "^running_broker_unverified$"):
+            gate.running_broker_projection(command, 42, status, cgroup, release_path)
 
     def test_capability_core_projection_uses_parent_uid_and_exact_caps(self):
         status = (b"Name:\tmihomo\nState:\tS (sleeping)\nPPid:\t41\n"
