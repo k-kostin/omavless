@@ -47,6 +47,22 @@ at `0.9.0rc1-1`, selected pair true, runtime unit enabled/active, broker
 enabled/active with FD store zero, initial private store present, installer
 lock absent, and TUN absent. No VPN connection was started.
 
+After a VM reboot, Rust remained the target, the managed pair remained
+selected, both units were active and the TUN was still absent.
+
+## Interrupted enrollment continuation
+
+The clean baseline was booted in another disposable overlay. The same exact
+two packages were installed in one ordinary pacman transaction. The empty
+private store was initialized; the numeric desktop UID was enrolled and the
+broker was started, but pair selection and Rust cutover were deliberately
+left incomplete. Read-only facts at that checkpoint were Legacy target,
+unselected pair, active broker, accessible control socket and inactive user
+runtime. The amended first-use script reported `needs_activation`, accepted
+`INSTALL` and then `SELECT`, and finished without reinstalling packages or
+repeating root enrollment. Final facts were `ready/present`, Rust target,
+selected pair, active user runtime, broker FD store zero and TUN absent.
+
 ## Remaining gates
 
 Actual immutable release assets and download pins, GUI-first marketplace
