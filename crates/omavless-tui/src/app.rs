@@ -277,7 +277,9 @@ impl App {
         if self.searching {
             let operator = matches!(
                 self.page,
-                crate::inspection::Page::Rules | crate::inspection::Page::Providers
+                crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
             );
             let query = if operator {
                 &mut self.operator_query
@@ -322,6 +324,7 @@ impl App {
             if key.code == KeyCode::Char(',') {
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
+                self.operator_query.clear();
                 return Action::None;
             }
             if self.page == crate::inspection::Page::Settings
@@ -371,12 +374,20 @@ impl App {
                         self.operator_query.clear();
                         return Action::Refresh;
                     }
+                    KeyCode::Char('C') => {
+                        self.page = crate::inspection::Page::CustomRules;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
                     _ => {}
                 }
             }
             if matches!(
                 self.page,
-                crate::inspection::Page::Rules | crate::inspection::Page::Providers
+                crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
             ) && key.kind == KeyEventKind::Press
                 && !key
                     .modifiers
@@ -471,6 +482,7 @@ impl App {
                         crate::inspection::Page::Host
                             | crate::inspection::Page::Rules
                             | crate::inspection::Page::Providers
+                            | crate::inspection::Page::CustomRules
                     ) {
                         crate::inspection::Page::Diagnostics
                     } else {

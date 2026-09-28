@@ -10,11 +10,13 @@ pub struct Capabilities {
     pub support: bool,
     pub rules: bool,
     pub providers: bool,
+    pub custom_rules: bool,
     pub subscription_refresh: bool,
     pub profile_probe: bool,
     pub subscription_probe: bool,
     pub refresh_all: bool,
     pub connection_count: bool,
+    pub connection_overview: bool,
 }
 impl Capabilities {
     pub fn parse(methods: &[Value]) -> Self {
@@ -26,6 +28,7 @@ impl Capabilities {
             support: has("diagnostics.export"),
             rules: has("diagnostics.rules"),
             providers: has("diagnostics.providers"),
+            custom_rules: has("routing.custom_rules.list"),
             subscription_refresh: has("subscriptions.refresh"),
             profile_probe: has("profiles.probe")
                 && has("profiles.probe_results")
@@ -39,6 +42,7 @@ impl Capabilities {
                 && has("operations.get")
                 && has("operations.cancel"),
             connection_count: has("runtime.connections"),
+            connection_overview: has("runtime.connection_overview"),
         }
     }
 }
@@ -56,6 +60,49 @@ pub fn connection_count(value: &Value) -> Option<u32> {
         .as_u64()
         .filter(|n| *n <= 4096)
         .map(|n| n as u32)
+}
+
+#[derive(Clone, Copy)]
+pub struct ConnectionOverview {
+    pub total: u32,
+    pub tcp: u32,
+    pub udp: u32,
+    pub other_network: u32,
+    pub direct: u32,
+    pub blocked: u32,
+    pub vpn: u32,
+    pub unclassified: u32,
+}
+
+impl ConnectionOverview {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let result = &value["result"];
+        if value["ok"] != true
+            || result["schemaVersion"] != 1
+            || result["scope"] != "owned_core_connection_categories"
+            || result["availability"] != "observed"
+        {
+            return None;
+        }
+        let count = |path: &Value| u32::try_from(path.as_u64().filter(|n| *n <= 4096)?).ok();
+        let overview = Self {
+            total: count(&result["total"])?,
+            tcp: count(&result["network"]["tcp"])?,
+            udp: count(&result["network"]["udp"])?,
+            other_network: count(&result["network"]["other"])?,
+            direct: count(&result["outcome"]["direct"])?,
+            blocked: count(&result["outcome"]["blocked"])?,
+            vpn: count(&result["outcome"]["vpn"])?,
+            unclassified: count(&result["outcome"]["unclassified"])?,
+        };
+        if overview.tcp + overview.udp + overview.other_network != overview.total
+            || overview.direct + overview.blocked + overview.vpn + overview.unclassified
+                != overview.total
+        {
+            return None;
+        }
+        Some(overview)
+    }
 }
 
 /// Saved configuration categories, not an interoperability or health claim.
@@ -133,6 +180,7 @@ pub enum Page {
     Host,
     Rules,
     Providers,
+    CustomRules,
     Settings,
     Activity,
     Subscriptions,
@@ -150,6 +198,7 @@ impl Page {
             Self::Host,
             Self::Rules,
             Self::Providers,
+            Self::CustomRules,
             Self::Jobs,
             Self::Subscriptions,
         ];
@@ -165,6 +214,7 @@ impl Page {
             Self::Host => "tui.host",
             Self::Rules => "tui.rules",
             Self::Providers => "tui.providers",
+            Self::CustomRules => "tui.custom_rules",
             Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
@@ -281,6 +331,61 @@ pub struct Providers {
     pub total: u64,
     pub truncated: bool,
     pub items: Vec<Provider>,
+}
+
+/// Private editor payload. The opaque ID is validated then discarded because
+/// this page cannot edit or delete a rule. Never log or serialize these rows.
+#[derive(Clone)]
+pub struct CustomRule {
+    pub kind: &'static str,
+    pub action: &'static str,
+    pub value: String,
+}
+
+#[derive(Clone)]
+pub struct CustomRules {
+    pub items: Vec<CustomRule>,
+}
+
+impl CustomRules {
+    pub fn parse(value: &Value) -> Option<Self> {
+        if value["ok"] != true || value["result"]["version"] != 1 {
+            return None;
+        }
+        let raw = value["result"]["rules"].as_array()?;
+        if raw.len() > 128 {
+            return None;
+        }
+        let mut items = Vec::with_capacity(raw.len());
+        for item in raw {
+            let id = item["id"].as_str()?;
+            if !crate::model::opaque(id) {
+                return None;
+            }
+            let kind = match item["kind"].as_str()? {
+                "domain" => "domain",
+                "suffix" => "suffix",
+                "ipcidr" => "ipcidr",
+                _ => return None,
+            };
+            let action = match item["action"].as_str()? {
+                "proxy" => "PROXY",
+                "direct" => "DIRECT",
+                "reject" => "REJECT",
+                _ => return None,
+            };
+            let input = item["value"].as_str()?;
+            if input.is_empty() || input.len() > 1024 {
+                return None;
+            }
+            items.push(CustomRule {
+                kind,
+                action,
+                value: crate::model::display(input, 1024),
+            });
+        }
+        Some(Self { items })
+    }
 }
 
 #[derive(Clone)]
@@ -472,7 +577,9 @@ fn rows<'a>(
 
 impl Rules {
     pub fn parse(value: &Value) -> Option<Self> {
-        let (total, truncated, raw) = rows(value, "rules", 2048, 2048)?;
+        // The core can load up to 65,536 rules, while the IPC projection
+        // intentionally shows at most 2,048 of them.
+        let (total, truncated, raw) = rows(value, "rules", 2048, 65_536)?;
         let mut items = Vec::with_capacity(raw.len());
         for item in raw {
             let target = match item["target"].as_str()? {

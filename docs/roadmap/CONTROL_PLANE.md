@@ -1432,6 +1432,23 @@ closing, filtering or arbitrary controller forwarding. TUI traffic reads also
 fence the result to the current instance/revision and show unavailable when
 that context cannot be established.
 
+### `runtime.connection_overview` (T3 development)
+
+This additional exact-empty-params read retains `runtime.connections` unchanged
+for older clients. The owned-core `/connections` response is projected inside
+the Rust host to a small, versioned aggregate: total (0..4096), TCP/UDP/other
+network counts, and conservative DIRECT/REJECT/PROXY/unclassified chain counts.
+Each category set must sum to total. Unknown chains are **unclassified**, never
+assumed VPN. No connection ID, destination, hostname, process, profile name,
+raw chain, per-connection transfer or query-controlled filter crosses IPC.
+Malformed or oversized controller data yields unavailable, not a partial zero.
+
+The read shares the same authenticated owned PID/controller, 750-ms deadline,
+pre/post fresh observation, desired-state and revision fences as the count-only
+method. It makes no route or Internet-protection claim and has no close action.
+The TUI prefers it only when advertised, otherwise retains the count-only read;
+neither method runs on a hidden page.
+
 ### Existing details read in the TUI
 
 `profiles.details` remains the explicit same-user private method documented

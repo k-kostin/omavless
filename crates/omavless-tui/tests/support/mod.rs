@@ -36,6 +36,10 @@ pub fn response(request: Read) -> Value {
                 {"name":"fixture-empty","behavior":"ipcidr","updatedAt":"","ruleCount":0,"status":"empty","refreshable":false}
             ]}})
         }
+        Read::CustomRules => json!({"version":1,"rules":[
+            {"id":"fixture-rule-1","kind":"domain","value":"fixture.invalid","action":"proxy"},
+            {"id":"fixture-rule-2","kind":"ipcidr","value":"192.0.2.0/24","action":"direct"}
+        ]}),
         Read::HostSupport => json!({
             "schemaVersion":3,"scope":"native_support",
             "coverage":{"coreSetupVerified":true,"serviceEnablementVerified":true,
@@ -52,6 +56,12 @@ pub fn response(request: Read) -> Value {
         Read::Connections => {
             json!({"schemaVersion":1,"scope":"owned_core_active_connection_count","availability":"observed","count":3,"instanceId":"fixture-runtime"})
         }
+        Read::ConnectionOverview => json!({
+            "schemaVersion":1,"scope":"owned_core_connection_categories","availability":"observed","total":3,
+            "network":{"tcp":2,"udp":1,"other":0},
+            "outcome":{"direct":1,"blocked":0,"vpn":2,"unclassified":0},
+            "instanceId":"fixture-runtime"
+        }),
         Read::Observation => json!({
             "schemaVersion":1,"scope":"local_runtime_observation","instanceId":"fixture-runtime",
             "transition":null,"availability":"observed",

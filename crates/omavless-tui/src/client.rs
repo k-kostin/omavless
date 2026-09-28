@@ -13,8 +13,10 @@ pub enum Read {
     Diagnostics,
     Rules,
     Providers,
+    CustomRules,
     HostSupport,
     Connections,
+    ConnectionOverview,
     ProfileDetails(ProfileTarget),
 }
 
@@ -58,8 +60,10 @@ impl Read {
             Self::Diagnostics => "diagnostics.summary",
             Self::Rules => "diagnostics.rules",
             Self::Providers => "diagnostics.providers",
+            Self::CustomRules => "routing.custom_rules.list",
             Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
+            Self::ConnectionOverview => "runtime.connection_overview",
             Self::ProfileDetails(_) => "profiles.details",
         }
     }
@@ -91,7 +95,8 @@ pub fn load_page_for(
     selected: Option<&str>,
 ) -> Result<Snapshot, ReadError> {
     use crate::inspection::{
-        Capabilities, Diagnostics, HostSupport, Page, ProfileDetails, Providers, Rules, Traffic,
+        Capabilities, CustomRules, Diagnostics, HostSupport, Page, ProfileDetails, Providers,
+        Rules, Traffic,
     };
     fn success(value: Value) -> Result<Value, ReadError> {
         // Production transport already validates bounded framing, envelope and ID.
@@ -139,6 +144,9 @@ pub fn load_page_for(
         Page::Providers if methods.iter().any(|m| m == "diagnostics.providers") => {
             Some(Read::Providers)
         }
+        Page::CustomRules if methods.iter().any(|m| m == "routing.custom_rules.list") => {
+            Some(Read::CustomRules)
+        }
         Page::Host if methods.iter().any(|m| m == "diagnostics.export") => Some(Read::HostSupport),
         Page::Details if methods.iter().any(|m| m == "profiles.details") => {
             target.map(Read::ProfileDetails)
@@ -148,12 +156,15 @@ pub fn load_page_for(
     // Extra reads are bracketed by metadata and observation from the same owner.
     // Failure means unavailable, never zero; unrelated connection facts survive.
     let extra = method.and_then(|m| read(m).ok());
-    let connections = if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections")
-    {
-        read(Read::Connections).ok()
-    } else {
-        None
-    };
+    let connection_method =
+        if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
+            Some(Read::ConnectionOverview)
+        } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections") {
+            Some(Read::Connections)
+        } else {
+            None
+        };
+    let connections = connection_method.and_then(|method| read(method).ok());
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
@@ -165,7 +176,16 @@ pub fn load_page_for(
         {
             return Err(ReadError::Changed);
         }
-        snapshot.active_connections = crate::inspection::connection_count(&value);
+        match connection_method {
+            Some(Read::ConnectionOverview) => {
+                snapshot.connection_overview = crate::inspection::ConnectionOverview::parse(&value);
+                snapshot.active_connections = snapshot.connection_overview.map(|o| o.total);
+            }
+            Some(Read::Connections) => {
+                snapshot.active_connections = crate::inspection::connection_count(&value);
+            }
+            _ => {}
+        }
     }
     snapshot.inspection_available = (
         methods.iter().any(|m| m == "runtime.traffic"),
@@ -180,6 +200,7 @@ pub fn load_page_for(
             Some(Read::Diagnostics) => snapshot.diagnostics = Diagnostics::parse(&value),
             Some(Read::Rules) => snapshot.rules = Rules::parse(&value),
             Some(Read::Providers) => snapshot.providers = Providers::parse(&value),
+            Some(Read::CustomRules) => snapshot.custom_rules = CustomRules::parse(&value),
             Some(Read::HostSupport) => snapshot.host_support = HostSupport::parse(&value),
             Some(Read::ProfileDetails(target)) => {
                 snapshot.profile_details = ProfileDetails::parse(&value, target);

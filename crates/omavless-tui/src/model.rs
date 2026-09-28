@@ -105,6 +105,7 @@ pub struct Observation {
 #[derive(Clone)]
 pub struct Snapshot {
     pub active_connections: Option<u32>,
+    pub connection_overview: Option<crate::inspection::ConnectionOverview>,
     pub profile_details: Option<crate::inspection::ProfileDetails>,
     pub core_diagnostics: Option<crate::inspection::CoreDiagnostics>,
     pub capabilities: crate::inspection::Capabilities,
@@ -112,6 +113,7 @@ pub struct Snapshot {
     pub diagnostics: Option<crate::inspection::Diagnostics>,
     pub rules: Option<crate::inspection::Rules>,
     pub providers: Option<crate::inspection::Providers>,
+    pub custom_rules: Option<crate::inspection::CustomRules>,
     pub host_support: Option<crate::inspection::HostSupport>,
     pub inspection_available: (bool, bool),
     pub actions_available: bool,
@@ -232,6 +234,7 @@ impl Snapshot {
         }
         Ok(Self {
             active_connections: None,
+            connection_overview: None,
             profile_details: None,
             core_diagnostics: crate::inspection::CoreDiagnostics::parse(
                 &observed["result"]["coreDiagnostics"],
@@ -241,6 +244,7 @@ impl Snapshot {
             diagnostics: None,
             rules: None,
             providers: None,
+            custom_rules: None,
             host_support: None,
             inspection_available: (false, false),
             actions_available: false,
