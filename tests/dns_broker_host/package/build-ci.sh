@@ -23,9 +23,18 @@ go_bin=$(readlink -f "$(command -v go)")
 
 mkdir -m 700 "$output"
 scratch=$(mktemp -d "$output/.hydrate.XXXXXXXX")
-mkdir -m 700 "$scratch/mihomo" "$scratch/sing-tun"
-git -C "$mihomo_git" archive --format=tar ab405bad5beeeac8b003bb01f60f134f6df54471 | tar -xf - -C "$scratch/mihomo"
-git -C "$sing_tun_git" archive --format=tar b50ae28a1409c7bce8e96e6c6966cf57d8ace754 | tar -xf - -C "$scratch/sing-tun"
+python3 - "$source_root" "$mihomo_git" "$sing_tun_git" "$scratch" <<'PY'
+import sys
+from pathlib import Path
+
+root, mihomo, sing_tun, scratch = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root / "tests/dns_broker_host/package"))
+import build_pair
+
+# Reuse the offline builder's bounded, data-filtered Git archive extraction.
+build_pair.export_git(mihomo, build_pair.MIHOMO, scratch / "mihomo")
+build_pair.export_git(sing_tun, build_pair.SING_TUN, scratch / "sing-tun")
+PY
 git -C "$scratch/mihomo" apply "$source_root/tests/core_dns_adapter/mihomo-dns-broker.patch"
 git -C "$scratch/sing-tun" apply "$source_root/tests/core_dns_adapter/sing-tun-descriptor.patch"
 (
@@ -46,6 +55,8 @@ python3 "$source_root/tests/dns_broker_host/package/stage.py" \
   --arch "$architecture" --output "$output/staged"
 (
   cd "$output/staged"
-  makepkg --noconfirm
+  PKGDEST="$output/staged" makepkg --noconfirm
 )
+packages=("$output"/staged/omavless-dns-experimental-*.pkg.tar.*)
+[[ ${#packages[@]} == 1 && -f ${packages[0]} ]]
 echo "Native experimental DNS pair built and packaged for $architecture; nothing installed."
