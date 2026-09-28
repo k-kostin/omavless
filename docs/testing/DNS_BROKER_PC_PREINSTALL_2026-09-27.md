@@ -929,3 +929,47 @@ removed by the VM administrator. The service then started successfully and
 reported active/enabled with FD store zero; durable pair selection and the
 original disconnected runtime remained intact. This is a deliberate manual
 recovery step for a stopped service, not unattended startup/upgrade proof.
+
+## September 28 required-pair admission and combined UI diagnostic
+
+The VM application package from DNS/UI source composition
+`547dd288d50b66ab0c3c49f3603c79faeba8e2ff` installed the required-pair
+runtime binary SHA-256
+`8082279db7d3448ee8179c58a7b296efd8e66c1481f2ab97271f58f0b5fb5c3d`.
+The frontend was then paired byte-for-byte with local DNS/UI composition
+`24e8e7d6e09cacda287e9c6d5c4fefff85507307`; the latter only changed
+frontend/tests after the application build. Developer suite and `qmllint` passed
+on that exact combined source. The installed root broker and experimental core
+remained the previously pinned VM pair; the outer PC was not changed.
+
+With the VM Disconnected/Rule and no TUN, temporarily removing only its private
+managed-pair selection made `dns-pair status` report `selected:false`. A widget
+Connect was rejected before desired-state generation changed or a TUN appeared.
+The combined frontend showed a neutral bounded verification state, then
+Disconnected with the localized setup instruction, not a false red recovery
+state or Disconnect action. The selection file was restored and rechecked.
+
+A locally saved control profile then reached Connected/Rule and a live TUN but
+failed isolated proxy HTTPS. This matches its earlier VM-specific probe result;
+it was not counted as working Internet. With the VM Disconnected again, the
+installed isolated, no-TUN profile check completed 37/37 records and found six
+HTTPS-reachable subscription records. One of those completed HTTPS 204 through
+the connected core's local proxy. With a temporary inbound UFW allowance limited
+to interface `Meta`, source `198.18.0.2` and destination `198.18.0.1`, fixed-IP
+TUN HTTPS returned 200 and public HTTPS returned 204. The exact rule was removed
+immediately; readback had no `Meta` exception. This is the same narrow IPv4 VM
+firewall diagnostic as above, not an installer default or IPv6/UDP proof.
+
+While that working connection was active, removing the VM's selection again
+caused widget mode-change and server-change attempts to refuse without stopping
+the owned connection: actual remained Connected, mode Rule and desired generation
+unchanged; the TUN and isolated proxy HTTPS 204 persisted. Explicit Disconnect
+still succeeded, released the TUN and returned Disconnected/Rule. The selection
+was restored and `selected:true` verified. The VM finished disconnected without
+a temporary UFW rule. No credential, subscription URL, profile ID, raw log or
+VM screenshot is included in this record.
+
+These are agent-run isolated-VM diagnostics, **not** the repository's required
+owner-attended authorization/cancellation acceptance or a release-readiness
+claim. Reviewed normal delivery/enrollment and host firewall treatment remain
+open, as do the retained-state/upgrade negative matrix and formal #132 decision.
