@@ -36,6 +36,8 @@ struct Receipt {
 }
 
 pub(crate) struct ManagedPair {
+    selector_path: PathBuf,
+    selector_owner: u32,
     core_path: PathBuf,
     broker_path: PathBuf,
     receipt_path: PathBuf,
@@ -184,6 +186,8 @@ impl ManagedPair {
                 .ok_or(HostStepError::Prepare)?,
         )?;
         let selection = Self {
+            selector_path: selector.to_path_buf(),
+            selector_owner: uid,
             core_path: core.to_path_buf(),
             broker_path: broker.to_path_buf(),
             receipt_path: receipt.to_path_buf(),
@@ -197,7 +201,11 @@ impl ManagedPair {
     }
 
     pub(crate) fn verify(&self) -> Result<(), HostStepError> {
-        if sha256_file(&self.core_path, self.owner, 128 * 1024 * 1024)? != self.core_sha
+        // A running daemon must not keep using an opted-in core after the
+        // user's selection has been removed or replaced. Selection changes
+        // still require a disconnected restart to take effect.
+        if bounded_bytes(&self.selector_path, self.selector_owner, 0o600, 64)? != SELECTION_BYTES
+            || sha256_file(&self.core_path, self.owner, 128 * 1024 * 1024)? != self.core_sha
             || sha256_file(&self.broker_path, self.owner, 32 * 1024 * 1024)? != self.broker_sha
         {
             return Err(HostStepError::Prepare);
@@ -264,6 +272,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(pair.verify().is_ok());
+        write_mode(&selector, b"changed selection", 0o600);
+        assert!(pair.verify().is_err());
+        write_mode(&selector, SELECTION_BYTES, 0o600);
+        fs::remove_file(&selector).unwrap();
+        assert!(pair.verify().is_err());
+        write_mode(&selector, SELECTION_BYTES, 0o600);
         write_mode(&core, b"changed core", 0o755);
         assert!(pair.verify().is_err());
         write_mode(&core, b"synthetic core", 0o755);
