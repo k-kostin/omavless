@@ -64,12 +64,17 @@ printing profile IDs, DNS values, provider URLs or privileged-command output.
    DNS/TUN/HTTPS cycle. A local selection flag alone proves neither enrollment
    nor Internet connectivity.
 
-The existing `plugin/setup-runtime.sh` and `runtime-release.json` are still
-single-package/stock-Mihomo code and do **not** implement this sequence. The
-separate normal-name staging/selector branch also does not install, enroll,
-select or migrate anything on a host. RC
-metadata must remain unprovisioned until both architecture tuples and this
-flow have their own tests and installed acceptance.
+The stacked first-use draft changes `plugin/setup-runtime.sh` to require two
+exact, same-source package pins, inspect both local archive identities, install
+them in one normal `pacman` transaction and request separate DNS enrollment
+before template preparation/selection. It removes the stock-Mihomo AUR offer.
+The current `runtime-release.json` and `dns-release.json` intentionally have
+**empty** package maps, so the public download path remains unavailable. An
+already installed but incomplete app receives bounded setup guidance; a
+connected native owner retains explicit Disconnect even when setup discovery
+needs attention. This is source/test work, not a claimed installed first-use
+acceptance. The frontend release assembler still needs authenticated two-asset
+pairing and immutable published pins before metadata can be populated.
 
 ## Replacement, removal and firewall
 

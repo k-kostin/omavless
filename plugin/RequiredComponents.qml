@@ -42,8 +42,8 @@ ColumnLayout {
       Button {
         id: installButton
         Layout.fillWidth: true
-        text: card.tr(card.appMissing ? (card.coreMissing ? "install_all" : "install_app") : "install_core")
-        visible: card.action !== ""
+        text: card.tr(card.coreMissing ? "install_all" : "install_app")
+        visible: card.appMissing && card.action === "install"
         enabled: visible && !card.busy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true
@@ -67,12 +67,12 @@ ColumnLayout {
       Button {
         id: prepareButton
         Layout.fillWidth: true
-        text: card.tr("prepare")
-        visible: card.facts.state === "needs_activation"
+        text: card.tr(card.facts.state === "needs_selection" ? "select_pair" : "prepare")
+        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection"
         enabled: visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true
-        onClicked: card.installRequested("install")
+        onClicked: card.installRequested(card.action)
       }
     }
   }

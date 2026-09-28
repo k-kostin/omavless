@@ -30,8 +30,11 @@ Panel {
   // nativeOwner can also mean a read-only failure surface after launcher exit
   // 71, including a MISSING binary. Only the independent target probe admits
   // the normal application, never that presentation flag alone.
-  readonly property bool bootstrapRequired: setupPage.state !== "ready"
-  readonly property bool coreComponentMissing: setupPage.coreMissing
+  // An existing native owner must retain Disconnect/Full Quit even when a
+  // companion or selection needs attention. Only the absent/unactivated app
+  // uses the unavailable-profile setup shell.
+  readonly property bool bootstrapRequired: setupPage.state !== "ready" && !vless.nativeOwner
+  readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"
   property int subscriptionIndex: 0

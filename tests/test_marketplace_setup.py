@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""First-run shell composition. All mutating boundaries are synthetic functions.
+"""0.9 first-run composition with synthetic boundaries only.
 
-No production test override/environment hook, GUI, sudo, private store or network.
+No test invokes pacman, sudo, systemd, a network client, or a private store.
+The committed RC metadata is deliberately unprovisioned until release assets
+have independently verified immutable hashes.
 """
 import hashlib
 import json
@@ -10,15 +12,19 @@ import subprocess
 import tempfile
 import unittest
 
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
+VERSION = "0.9.0-rc.1"
+PKGVER = "0.9.0rc1"
+SOURCE = "b" * 40
 
 
 class MarketplaceSetupTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="omavless-bootstrap-test-")
-        self.addCleanup(self.tmp.cleanup)
-        self.directory = Path(self.tmp.name)
+        temporary = tempfile.TemporaryDirectory(prefix="omavless-bootstrap-test-")
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
         self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.directory),
                     "TEST_DIR": str(self.directory)}
 
@@ -28,237 +34,300 @@ source "$1"
 setup_dir="$TEST_DIR"
 setup_temp="$TEST_DIR"
 native_present() { return 1; }
-core_binary_present() { return 1; }
-no_core_process() { return 0; }
-native() { printf 'UNEXPECTED_NATIVE_EFFECT' >&2; return 99; }
-package_install() { printf 'UNEXPECTED_PACKAGE_EFFECT' >&2; return 99; }
-install_core_dependency() { printf 'UNEXPECTED_CORE_EFFECT' >&2; return 99; }
-enable_runtime() { printf 'UNEXPECTED_ENABLE_EFFECT' >&2; return 99; }
-curl() { printf 'UNEXPECTED_NETWORK_EFFECT' >&2; return 99; }
+native_target() { echo legacy; }
+native() { echo UNEXPECTED_NATIVE_EFFECT >&2; return 99; }
+package_install() { echo UNEXPECTED_PACKAGE_EFFECT >&2; return 99; }
+package_installed() { return 1; }
+pair_installed() { return 1; }
+pair_selection_status() { return 1; }
+user_runtime_stopped() { return 0; }
+system_broker_idle() { return 1; }
+no_managed_tun() { return 0; }
+enroll_uid() { echo UNEXPECTED_ENROLL_EFFECT >&2; return 99; }
+start_broker() { echo UNEXPECTED_BROKER_EFFECT >&2; return 99; }
+enable_runtime() { echo UNEXPECTED_ENABLE_EFFECT >&2; return 99; }
+curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
 '''
         return subprocess.run(["/bin/bash", "-c", prefix + code, "test", str(SCRIPT)],
                               env=self.env, input=input, text=True, capture_output=True,
                               timeout=10, check=False)
 
-    def pins(self, **updates):
-        entry = {"sha256": "a" * 64, "sourceCommit": "b" * 40}
-        data = {"schemaVersion": 1, "version": "0.9.0",
-                "packages": {"aarch64": entry, "x86_64": entry}}
-        data.update(updates)
-        (self.directory / "runtime-release.json").write_text(json.dumps(data))
+    def pins(self, *, app=None, dns=None, source=SOURCE, version=VERSION):
+        entry = lambda digest: {"sha256": digest, "sourceCommit": source}
+        for name, digest in (("runtime-release.json", app),
+                             ("dns-release.json", dns)):
+            data = {"schemaVersion": 1, "version": version,
+                    "packages": ({"aarch64": entry(digest),
+                                  "x86_64": entry(digest)} if digest else {})}
+            (self.directory / name).write_text(json.dumps(data))
 
-    def test_status_existing_owner_is_read_only(self):
-        for target, expected in [("rust", "ready"), ("legacy", "needs_activation"),
-                                 ("private-unknown", "needs_attention")]:
-            result = self.run_shell(f'native_present() {{ return 0; }}\nnative_target() {{ echo {target}; }}\nsetup_status')
-            self.assertEqual(result.stdout, expected + "\n")
-            self.assertEqual(result.stderr, "")
-
-    def test_failed_native_read_is_not_a_fresh_install(self):
-        result = self.run_shell('native_present() { return 0; }; native_target() { return 1; }; setup_status')
-        self.assertEqual(result.stdout, "needs_attention\n")
-
-    def test_component_inventory_has_independent_bounded_facts(self):
-        for state in ("ready", "needs_activation", "needs_package", "release_unavailable", "needs_attention"):
-            for present in (True, False):
-                result = self.run_shell(f'setup_status() {{ echo {state}; }}; core_binary_present() {{ return {0 if present else 1}; }}; setup_components')
-                self.assertEqual(result.stdout, state + "\t" + ("present" if present else "missing") + "\n")
-                self.assertEqual(result.stderr, "")
-
-    def test_missing_core_never_changes_existing_native_ownership_status(self):
-        result = self.run_shell('native_present() { return 0; }; native_target() { echo rust; }; setup_components')
-        self.assertEqual(result.stdout, "ready\tmissing\n")
-
-    def test_existing_core_dependency_is_a_noop_without_consent(self):
-        result = self.run_shell('core_dependency_present() { return 0; }; core_binary_present() { return 0; }; ensure_core_dependency')
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout + result.stderr, "")
-
-    def test_running_or_unobservable_core_blocks_install_without_prompt(self):
-        result = self.run_shell('core_dependency_present() { return 1; }; no_core_process() { return 1; }; ensure_core_dependency', 'CORE\n')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout + result.stderr, "")
-
-    def test_core_install_only_never_runs_application_or_service_effects(self):
-        result = self.run_shell('''
-core_dependency_present() { [[ -f "$TEST_DIR/core" ]]; }
-core_binary_present() { core_dependency_present; }
-install_core_dependency() { touch "$TEST_DIR/core"; }
-ensure_core_dependency
-''', 'CORE\n')
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stderr, "")
-
-    def test_claimed_package_install_without_binary_does_not_report_success(self):
-        result = self.run_shell('core_dependency_present() { return 0; }; install_core_dependency() { return 0; }; ensure_core_dependency', 'CORE\n')
-        self.assertNotEqual(result.returncode, 0)
-
-    def test_core_appearing_after_consent_blocks_package_action(self):
-        result = self.run_shell('''
-core_dependency_present() { return 1; }
-calls=0
-no_core_process() { calls=$((calls+1)); [[ $calls == 1 ]]; }
-ensure_core_dependency
-''', 'CORE\n')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn('UNEXPECTED', result.stderr)
-
-    def test_pinned_missing_runtime_is_installable_on_both_architectures(self):
+    def test_committed_rc_pins_are_unpublished_on_both_architectures(self):
+        manifest = json.loads((ROOT / "manifest.json").read_text())
+        for filename in ("runtime-release.json", "dns-release.json"):
+            metadata = json.loads((ROOT / "plugin" / filename).read_text())
+            self.assertEqual(metadata, {"schemaVersion": 1,
+                                        "version": manifest["version"], "packages": {}})
+        self.assertEqual(manifest["version"], VERSION)
         self.pins()
         for arch in ("aarch64", "x86_64"):
-            result = self.run_shell(f'native_present() {{ return 1; }}; uname() {{ echo {arch}; }}; setup_status')
-            self.assertEqual(result.stdout, "needs_package\n")
-
-    def test_missing_unpublished_and_unsupported_packages_fail_closed(self):
-        for arch in ("aarch64", "x86_64", "i686"):
-            self.pins(packages={})
-            result = self.run_shell(f'native_present() {{ return 1; }}; uname() {{ echo {arch}; }}; setup_status')
-            self.assertEqual(result.stdout, "release_unavailable\n")
-
-    def test_malformed_untrusted_metadata_is_not_echoed(self):
-        path = self.directory / "runtime-release.json"
-        for value in ["secret://synthetic", "[]", "x" * 8193,
-                      '{"schemaVersion":1,"version":"0.8.0","packages":{"aarch64":{"sha256":"x","sourceCommit":"y"}}}']:
-            path.write_text(value)
-            result = self.run_shell('uname() { echo aarch64; }; release_fields')
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(result.stdout + result.stderr, "")
-
-    def test_symlink_metadata_refused(self):
-        self.pins()
-        path = self.directory / "runtime-release.json"
-        path.rename(self.directory / "real.json")
-        path.symlink_to(self.directory / "real.json")
-        self.assertNotEqual(self.run_shell('release_fields').returncode, 0)
-
-    def test_unknown_metadata_keys_or_version_refused(self):
-        for updates in [{"version": "latest"}, {"version": "0.8.0"}, {"version": "0.8.2"},
-                        {"schemaVersion": 2}, {"url": "https://example.invalid"}]:
-            self.pins(**updates)
-            self.assertNotEqual(self.run_shell('release_fields').returncode, 0)
-
-    def test_committed_pins_use_the_frontend_version_and_supported_architectures(self):
-        metadata = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
-        self.assertEqual(metadata['version'], json.loads((ROOT / 'manifest.json').read_text())['version'])
-        self.assertEqual(metadata['version'], '0.9.0-rc.1')
-        self.assertEqual(metadata['packages'], {})
-        self.assertLessEqual(set(metadata['packages']), {'aarch64', 'x86_64'})
-        self.pins(**metadata)
-        for arch in ('aarch64','x86_64'):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(result.stdout, '')
-            status = self.run_shell(f'uname() {{ echo {arch}; }}; setup_status')
-            self.assertEqual(status.stdout, 'release_unavailable\n')
-
-    def test_headless_install_and_unknown_arguments_have_no_effect(self):
-        for arguments in ["install", "install ru", "install-core", "install-core ru", "components en", "status en", "download", "install zz", "status extra more"]:
-            result = self.run_shell("setup_main " + arguments)
-            self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout + result.stderr, "")
+            self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                             "release_unavailable\n")
 
-    def test_cancel_requires_exact_consent(self):
+    def test_pair_requires_both_exact_pins_and_one_source(self):
+        self.pins(app="a" * 64, dns="c" * 64)
+        for arch in ("aarch64", "x86_64"):
+            result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout,
+                             f"{VERSION}\t{arch}\t{'a' * 64}\t{'c' * 64}\t{SOURCE}\n")
+            self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                             "needs_package\n")
+        for filename in ("runtime-release.json", "dns-release.json"):
+            path = self.directory / filename
+            original = path.read_text()
+            path.write_text(json.dumps({"schemaVersion": 1, "version": VERSION,
+                                        "packages": {}}))
+            self.assertNotEqual(self.run_shell("release_fields").returncode, 0)
+            path.write_text(original)
+        dns = self.directory / "dns-release.json"
+        content = json.loads(dns.read_text())
+        content["packages"]["x86_64"]["sourceCommit"] = "d" * 40
+        dns.write_text(json.dumps(content))
+        self.assertNotEqual(self.run_shell("release_fields").returncode, 0)
+
+    def test_malformed_or_linked_metadata_never_reaches_install(self):
+        self.pins(app="a" * 64, dns="c" * 64)
+        path = self.directory / "dns-release.json"
+        original = path.read_text()
+        for value in ("secret://synthetic", "[]", "x" * 8193,
+                      json.dumps({"schemaVersion": 1, "version": VERSION,
+                                  "packages": {"x86_64": {"sha256": "x",
+                                                          "sourceCommit": SOURCE}}}),
+                      json.dumps({"schemaVersion": 1, "version": VERSION,
+                                  "packages": {"x86_64": {"sha256": "c" * 64,
+                                                          "sourceCommit": SOURCE,
+                                                          "url": "https://untrusted.invalid"}}})):
+            path.write_text(value)
+            result = self.run_shell("release_fields")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout + result.stderr, "")
+        path.write_text(original)
+        path.rename(self.directory / "dns-real.json")
+        path.symlink_to(self.directory / "dns-real.json")
+        self.assertNotEqual(self.run_shell("release_fields").returncode, 0)
+
+    def test_existing_package_states_are_bounded_and_read_only(self):
+        fixture = '''
+native_present() { return 0; }
+package_installed() { echo 'omavless 0.9.0rc1-1'; }
+pair_installed() { return 0; }
+native_target() { echo rust; }
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
+'''
+        self.assertEqual(self.run_shell(fixture + "setup_status").stdout, "ready\n")
+        self.assertEqual(self.run_shell(fixture + '''
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
+setup_status
+''').stdout, "needs_selection\n")
+        self.assertEqual(self.run_shell(fixture + 'native_target() { echo legacy; }; setup_status').stdout,
+                         "needs_activation\n")
+        self.assertEqual(self.run_shell(fixture + 'pair_installed() { return 1; }; setup_status').stdout,
+                         "needs_companion\n")
+        self.assertEqual(self.run_shell(fixture + 'package_installed() { echo "omavless 0.8.2-1"; }; setup_status').stdout,
+                         "needs_attention\n")
+        self.assertEqual(self.run_shell(fixture + 'pair_selection_status() { return 1; }; setup_status').stdout,
+                         "needs_attention\n")
+
+    def test_component_inventory_reports_only_fixed_presence(self):
+        for state in ("ready", "needs_package", "needs_activation", "needs_companion",
+                      "needs_selection", "release_unavailable", "needs_attention"):
+            for present in (True, False):
+                result = self.run_shell(f'''setup_status() {{ echo {state}; }}
+pair_installed() {{ return {0 if present else 1}; }}
+setup_components''')
+                self.assertEqual(result.stdout,
+                                 state + "\t" + ("present" if present else "missing") + "\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_consent_words_are_exact_and_do_not_accept_passwords(self):
         for answer in ("\n", "yes\n", "install\n", "INSTALL extra\n", ""):
             self.assertNotEqual(self.run_shell("confirm", answer).returncode, 0)
         self.assertEqual(self.run_shell("confirm", "INSTALL\n").returncode, 0)
+        for answer in ("\n", "ready\n", "DNS extra\n"):
+            self.assertNotEqual(self.run_shell("confirm_dns_enrollment", answer).returncode, 0)
+        self.assertEqual(self.run_shell("confirm_dns_enrollment", "DNS\n").returncode, 0)
 
-    def test_existing_native_owner_does_not_restart_or_enable(self):
+    def download_fixture(self, *, app_hash_ok=True, dns_hash_ok=True,
+                         dns_package_ok=True, app_identity_ok=True,
+                         dns_identity_ok=True):
+        payload = b"synthetic package -- NOT AN ARCH PACKAGE"
+        (self.directory / "payload").write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        app_hash = digest if app_hash_ok else "0" * 64
+        dns_hash = digest if dns_hash_ok else "0" * 64
+        return self.run_shell(f'''
+release_fields() {{ printf '{VERSION}\\tx86_64\\t{app_hash}\\t{dns_hash}\\t{SOURCE}\\n'; }}
+curl() {{
+  local output= last=
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == --output ]]; then output=$2; shift 2; continue; fi
+    last=$1; shift
+  done
+  printf '%s\\n' "$last" >> "$TEST_DIR/urls"
+  cp "$TEST_DIR/payload" "$output"
+}}
+package_info() {{
+  if [[ "$1" == *'/omavless-dns-'* ]]; then
+    echo 'omavless-dns {'0.9.0rc1-1' if dns_package_ok else '0.8.2-1'}'
+  else echo 'omavless 0.9.0rc1-1'; fi
+}}
+app_archive_identity() {{ return {0 if app_identity_ok else 1}; }}
+dns_archive_identity() {{ return {0 if dns_identity_ok else 1}; }}
+package_install() {{ printf '%s\\n' "$1" "$2" > "$TEST_DIR/install-args"; touch "$TEST_DIR/installed"; }}
+package_installed() {{ [[ -f "$TEST_DIR/installed" ]] && echo 'omavless 0.9.0rc1-1'; }}
+pair_installed() {{ [[ -f "$TEST_DIR/installed" ]]; }}
+install_package
+''')
+
+    def test_both_downloads_are_pinned_before_single_pacman_transaction(self):
+        result = self.download_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        urls = (self.directory / "urls").read_text().splitlines()
+        self.assertEqual(urls, [
+            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
+            f"https://github.com/k-kostin/omavless/releases/download/v{VERSION}/omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst",
+        ])
+        args = (self.directory / "install-args").read_text().splitlines()
+        self.assertEqual(len(args), 2)
+        self.assertEqual([Path(arg).name for arg in args],
+                         [f"omavless-{PKGVER}-1-x86_64.pkg.tar.zst",
+                          f"omavless-dns-{PKGVER}-1-x86_64.pkg.tar.zst"])
+        source = SCRIPT.read_text()
+        for bound in ("--disable", "--proto '=https'", "--proto-redir '=https'",
+                      "--max-filesize", "--connect-timeout", "--max-time"):
+            self.assertIn(bound, source)
+        self.assertIn('/usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"', source)
+        self.assertNotIn('omarchy pkg aur add', source)
+
+    def test_any_archive_or_identity_failure_precedes_package_install(self):
+        for variant in ({"app_hash_ok": False}, {"dns_hash_ok": False},
+                        {"dns_package_ok": False}, {"app_identity_ok": False},
+                        {"dns_identity_ok": False}):
+            with self.subTest(variant=variant):
+                for name in ("installed", "install-args", "urls"):
+                    (self.directory / name).unlink(missing_ok=True)
+                result = self.download_fixture(**variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.directory / "install-args").exists())
+
+    def test_enrollment_requires_separate_consent_and_sequential_facts(self):
+        fixture = '''
+pair_installed() { return 0; }
+native_present() { return 0; }
+package_installed() { echo 'omavless 0.9.0rc1-1'; }
+native_target() { echo rust; }
+pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
+start_broker() { echo start >> "$TEST_DIR/trace"; touch "$TEST_DIR/broker"; }
+system_broker_idle() { [[ -f "$TEST_DIR/broker" ]]; }
+native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }
+enroll_and_select_pair
+'''
+        result = self.run_shell(fixture, "\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.directory / "trace").exists())
+        result = self.run_shell(fixture, "DNS\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(),
+                         ["enroll", "start", "dns-pair prepare-template", "dns-pair select"])
+
+    def test_enrollment_and_selection_stop_at_first_unknown_effect(self):
+        fixture = '''
+pair_installed() { return 0; }
+enroll_uid() { echo enroll >> "$TEST_DIR/trace"; return 1; }
+start_broker() { echo BAD >> "$TEST_DIR/trace"; }
+enroll_and_select_pair
+'''
+        result = self.run_shell(fixture, "DNS\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["enroll"])
+        result = self.run_shell(fixture.replace("pair_installed() { return 0; }",
+                                                 "pair_installed() { return 0; }; user_runtime_stopped() { return 1; }"),
+                                "DNS\n")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_selection_resume_requires_idle_broker_and_explicit_word(self):
+        fixture = '''
+pair_installed() { return 0; }
+system_broker_idle() { return 0; }
+native_present() { return 0; }
+package_installed() { echo 'omavless 0.9.0rc1-1'; }
+native_target() { echo rust; }
+pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
+native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }
+finish_pair_selection
+'''
+        for answer in ("\n", "DNS\n", "select\n"):
+            result = self.run_shell(fixture, answer)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((self.directory / "trace").exists())
+        self.assertEqual(self.run_shell(fixture, "SELECT\n").returncode, 0)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(),
+                         ["dns-pair prepare-template", "dns-pair select"])
+        (self.directory / "trace").unlink()
+        (self.directory / "selected").unlink()
+        self.assertNotEqual(self.run_shell(fixture.replace(
+            "system_broker_idle() { return 0; }", "system_broker_idle() { return 1; }"),
+            "SELECT\n").returncode, 0)
+        self.assertFalse((self.directory / "trace").exists())
+
+    def test_existing_owner_never_reinitializes_or_reenables(self):
         result = self.run_shell('native_target() { echo rust; }; prepare_application')
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout + result.stderr, "")
 
-    def activation_fixture(self, existing=False, fail=""):
-        config = self.directory / ".config/omavless/profiles.json"
-        if existing:
-            config.parent.mkdir(parents=True, exist_ok=True)
-            config.write_text("synthetic unchanged private fixture")
-        return self.run_shell('''
+    def test_activation_preserves_existing_store_and_stops_on_failure(self):
+        store = self.directory / ".config/omavless/profiles.json"
+        store.parent.mkdir(parents=True)
+        store.write_text("synthetic unchanged private fixture")
+        fixture = '''
 native_target() { if [[ -f "$TEST_DIR/activated" ]]; then echo rust; else echo legacy; fi; }
 native() {
-  printf '%s\\n' "$*" >> "$TEST_DIR/trace"
-  [[ "$*" != "''' + fail + '''" ]] || return 1
+  echo "$*" >> "$TEST_DIR/trace"
   case "$*" in
-    'setup initialize') return 0 ;;
-    store-compatibility) printf '{"schemaVersion":1,"compatible":true}';;
+    store-compatibility) echo '{"schemaVersion":1,"compatible":true}' ;;
     'cutover activate') touch "$TEST_DIR/activated" ;;
-    *) return 99 ;;
+    *) return 1 ;;
   esac
 }
 enable_runtime() { echo enable >> "$TEST_DIR/trace"; }
 prepare_application
-''')
-
-    def test_new_setup_uses_only_canonical_initialization_and_activation(self):
-        result = self.activation_fixture()
-        self.assertEqual(result.returncode, 0)
+'''
+        self.assertEqual(self.run_shell(fixture).returncode, 0)
         self.assertEqual((self.directory / "trace").read_text().splitlines(),
-                         ["setup initialize", "store-compatibility", "cutover activate", "enable"])
-
-    def test_existing_store_never_initialized_or_rewritten(self):
-        result = self.activation_fixture(existing=True)
-        self.assertEqual(result.returncode, 0)
-        self.assertNotIn("setup initialize", (self.directory / "trace").read_text())
-        self.assertEqual((self.directory / ".config/omavless/profiles.json").read_text(),
-                         "synthetic unchanged private fixture")
-
-    def test_failed_activation_does_not_enable_or_retry(self):
-        result = self.activation_fixture(fail="cutover activate")
-        self.assertNotEqual(result.returncode, 0)
+                         ["store-compatibility", "cutover activate", "enable"])
+        self.assertEqual(store.read_text(), "synthetic unchanged private fixture")
+        (self.directory / "activated").unlink()
+        (self.directory / "trace").unlink()
+        failed = fixture.replace('touch "$TEST_DIR/activated"', 'return 1')
+        self.assertNotEqual(self.run_shell(failed).returncode, 0)
         self.assertEqual((self.directory / "trace").read_text().splitlines(),
-                         ["setup initialize", "store-compatibility", "cutover activate"])
+                         ["store-compatibility", "cutover activate"])
+        self.assertEqual(store.read_text(), "synthetic unchanged private fixture")
 
-    def test_unknown_owner_never_activates(self):
-        result = self.run_shell('native_target() { echo invalid; }; prepare_application')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout + result.stderr, "")
-
-    def download_fixture(self, *, hash_ok=True, core=True, consent="", core_success=True):
-        payload = b"synthetic package -- NOT AN ARCH PACKAGE"
-        (self.directory / "payload").write_bytes(payload)
-        checksum = hashlib.sha256(payload).hexdigest() if hash_ok else "0" * 64
-        return self.run_shell('''
-release_fields() { printf '0.8.0\\taarch64\\t''' + checksum + '''\\tbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; }
-curl() {
-  printf '%s\\n' "$@" > "$TEST_DIR/curl-args"
-  cp "$TEST_DIR/payload" "$setup_temp/omavless-0.8.0-1-aarch64.pkg.tar.zst"
-}
-package_info() { echo info >> "$TEST_DIR/trace"; echo 'omavless 0.8.0-1'; }
-package_install() { echo install >> "$TEST_DIR/trace"; }
-package_installed() { echo 'omavless 0.8.0-1'; }
-core_dependency_present() { ''' + ('return 0' if core else '[[ -f "$TEST_DIR/core" ]]') + '''; }
-core_binary_present() { core_dependency_present; }
-install_core_dependency() { echo core >> "$TEST_DIR/trace"; ''' + ('touch "$TEST_DIR/core"' if core_success else 'return 1') + '''; }
-install_package
-''', consent)
-
-    def test_hash_verified_before_any_package_or_core_effect(self):
-        result = self.download_fixture(hash_ok=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.directory / "trace").exists())
-
-    def test_pinned_download_uses_bounded_https_and_normal_package_install(self):
-        result = self.download_fixture()
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["info", "install"])
-        args = (self.directory / "curl-args").read_text().splitlines()
-        self.assertEqual(args[-1], "https://github.com/k-kostin/omavless/releases/download/v0.8.0/omavless-0.8.0-1-aarch64.pkg.tar.zst")
-        for flag in ("--disable", "--proto", "--proto-redir", "--max-filesize", "--max-time"):
-            self.assertIn(flag, args)
-
-    def test_missing_core_requires_separate_consent(self):
-        result = self.download_fixture(core=False, consent="\n")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["info"])
-
-    def test_accepted_core_install_precedes_runtime_package(self):
-        result = self.download_fixture(core=False, consent="CORE\n")
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["info", "core", "install"])
-
-    def test_failed_core_install_never_installs_runtime(self):
-        result = self.download_fixture(core=False, consent="CORE\n", core_success=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["info", "core"])
+    def test_invalid_commands_or_headless_install_have_no_effect(self):
+        for arguments in ("install", "install ru", "finish-selection", "components en",
+                          "status en", "install-core", "download", "install zz"):
+            result = self.run_shell("setup_main " + arguments)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout + result.stderr, "")
+        source = SCRIPT.read_text()
+        self.assertIn('[[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2', source)
+        self.assertIn('[[ ! ${OMAVLESS_HOME+x} ]] || return 2', source)
+        subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
 
 if __name__ == "__main__":
