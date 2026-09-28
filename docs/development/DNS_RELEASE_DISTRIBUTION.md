@@ -81,8 +81,10 @@ needs attention. The isolated x86_64
 [fresh-setup diagnostic](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md)
 used local offline asset transfer in place of unpublished GitHub downloads.
 It is not a marketplace install or formal owner-attended acceptance. The
-frontend release assembler still needs authenticated two-asset
-pairing and immutable published pins before metadata can be populated.
+offline frontend triple assembler now checks two reviewed archives and the
+committed frontend against the common package source. Immutable published
+assets, authenticated delivery and exact bootstrap pins are still absent;
+an offline caller-supplied hash is not release authenticity.
 
 ## Replacement, removal and firewall
 
