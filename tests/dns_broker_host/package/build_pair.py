@@ -131,6 +131,7 @@ def build(mihomo_git, sing_tun_git, go, architecture, output):
                     cwd=sources / directory, env=git_env)
         go_env = {"PATH": "/usr/bin:/bin", "HOME": os.environ["HOME"],
                   "GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local",
+                  "GOWORK": "off",
                   "GOOS": "linux", "GOARCH": go_arch, "CGO_ENABLED": "0"}
         command([go, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"],
                 cwd=sources / "mihomo", env=go_env)
