@@ -29,7 +29,9 @@ replace) `omavless-dns-experimental`, and uses distinct core, broker, guard,
 receipt and license paths. It installs a dormant system unit and an ALPM
 PreTransaction removal/upgrade guard. Its scriptlet grants the reviewed core
 file capabilities only; it neither grants the broker file capabilities nor
-enrolls, starts, enables, connects or edits the firewall. The release broker
+enrolls, starts, enables, connects or edits the firewall. The shared guard
+uses a neutral refusal message; the production package does not present
+itself as experimental. The release broker
 looks for `/etc/omavless-dns/release-enrollment.json` with the separate
 `meta-ipv4-release-v1` policy. An old experimental enrollment is therefore not
 authority for this package. A migration still requires an attended old-policy

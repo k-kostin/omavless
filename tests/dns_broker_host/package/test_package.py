@@ -335,6 +335,8 @@ class PackageTests(unittest.TestCase):
             result = self.run_guard_fixture(state=invalid)
             self.assertNotEqual(result.returncode, 0)
             self.assertLess(len(result.stderr), 200)
+            self.assertIn(b"OmaVLESS DNS broker is not proven inactive", result.stderr)
+            self.assertNotIn(b"Experimental DNS package", result.stderr)
             self.assertEqual(result.stdout, b"")
 
     def test_any_journal_staging_or_unknown_entry_blocks(self):

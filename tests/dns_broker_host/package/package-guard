@@ -5,7 +5,7 @@ export PATH=/usr/bin:/bin
 export LC_ALL=C
 
 refuse() {
-  printf '%s\n' 'Experimental DNS package is not proven inactive and empty; resolve broker state before replacement/removal.' >&2
+  printf '%s\n' 'OmaVLESS DNS broker is not proven inactive and empty; resolve broker state before replacement/removal.' >&2
   exit 1
 }
 
