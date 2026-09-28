@@ -385,6 +385,23 @@ Natural TUI homes for deeper capabilities:
 
 The bar may show compact summaries but need not duplicate full tables.
 
+The first T3 development slice is a read-only operator view for the existing
+native `diagnostics.rules`, `diagnostics.providers` and `diagnostics.export`
+methods. It shows bounded, controller-projected loaded rows and typed local
+host setup facts. Search filters only rows received in the current bounded
+snapshot; a truncated projection is explicitly marked. Rules show categorical
+targets, not private chain names or proof of a request's route. Host file and
+service facts are not VPN, DNS or connectivity health claims. The view does not
+refresh providers, repair host setup, change routes or perform mutations.
+The Traffic page also keeps a volatile, 60-second window of valid consecutive
+TUN counter-rate samples in this TUI process. Its two small sparklines use
+relative per-direction scales and disappear after reset, stale data or a read
+failure; they do not represent continuous background monitoring.
+
+This is development scope, not T3 acceptance: installed EN/RU terminal review,
+live owner-restart behavior and the remaining connections/route/traffic/log
+work retain their own tests and evidence before promotion.
+
 ### T4
 
 Later management candidates:

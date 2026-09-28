@@ -18,6 +18,7 @@ pub struct App {
     pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
     pub traffic_rates: Option<(u64, u64)>,
+    pub traffic_history: crate::traffic_history::History,
     pub inspection_scroll: u16,
     pub snapshot: Option<Snapshot>,
     pub sampled_at: Option<Instant>,
@@ -28,6 +29,8 @@ pub struct App {
     /// Latest attempt per subscription in this window, not persisted/provider history.
     pub subscription_attempts: std::collections::BTreeMap<String, &'static str>,
     pub query: String,
+    /// Local filter for the currently visible bounded rules/providers snapshot.
+    pub operator_query: String,
     pub favorites_only: bool,
     pub searching: bool,
     pub help: bool,
@@ -70,6 +73,7 @@ impl App {
             palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
             traffic_rates: None,
+            traffic_history: crate::traffic_history::History::default(),
             inspection_scroll: 0,
             snapshot: None,
             sampled_at: None,
@@ -79,6 +83,7 @@ impl App {
             subscription_selection_moved: false,
             subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
+            operator_query: String::new(),
             favorites_only: false,
             searching: false,
             help: false,
@@ -139,6 +144,7 @@ impl App {
                             && old.revision == next.revision
                     })
                     .and_then(|old| next.traffic.as_ref()?.rates(old.traffic.as_ref()?));
+                self.traffic_history.observe(self.traffic_rates, started);
                 let changed = self
                     .accepted
                     .as_ref()
@@ -186,6 +192,7 @@ impl App {
                     self.activity.record(Event::ReadFailed(error), started);
                 }
                 self.traffic_rates = None;
+                self.traffic_history.clear();
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -268,22 +275,38 @@ impl App {
             return Action::None;
         }
         if self.searching {
+            let operator = matches!(
+                self.page,
+                crate::inspection::Page::Rules | crate::inspection::Page::Providers
+            );
+            let query = if operator {
+                &mut self.operator_query
+            } else {
+                &mut self.query
+            };
             match key.code {
                 KeyCode::Esc | KeyCode::Enter => self.searching = false,
                 KeyCode::Backspace => {
-                    self.query.pop();
-                    self.selected = None;
+                    query.pop();
+                    if operator {
+                        self.inspection_scroll = 0;
+                    } else {
+                        self.selected = None;
+                    }
                 }
                 KeyCode::Char(c)
                     if !key
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                         && !c.is_control()
-                        && self.query.chars().count() < 80 =>
+                        && query.chars().count() < 80 =>
                 {
-                    self.query
-                        .push_str(&crate::model::display(&c.to_string(), 1));
-                    self.selected = None;
+                    query.push_str(&crate::model::display(&c.to_string(), 1));
+                    if operator {
+                        self.inspection_scroll = 0;
+                    } else {
+                        self.selected = None;
+                    }
                 }
                 _ => {}
             }
@@ -320,9 +343,58 @@ impl App {
                 .page
                 .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
             self.inspection_scroll = 0;
+            self.operator_query.clear();
             return Action::Refresh;
         }
         if self.page != crate::inspection::Page::Profiles {
+            if self.page == crate::inspection::Page::Diagnostics
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('H') => {
+                        self.page = crate::inspection::Page::Host;
+                        self.inspection_scroll = 0;
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('R') => {
+                        self.page = crate::inspection::Page::Rules;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('P') => {
+                        self.page = crate::inspection::Page::Providers;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    _ => {}
+                }
+            }
+            if matches!(
+                self.page,
+                crate::inspection::Page::Rules | crate::inspection::Page::Providers
+            ) && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('/') => {
+                        self.searching = true;
+                        return Action::None;
+                    }
+                    KeyCode::Char('c') => {
+                        self.operator_query.clear();
+                        self.inspection_scroll = 0;
+                        return Action::None;
+                    }
+                    _ => {}
+                }
+            }
             if self.page == crate::inspection::Page::Jobs
                 && key.kind == KeyEventKind::Press
                 && !key
@@ -394,7 +466,17 @@ impl App {
                 KeyCode::Home => self.inspection_scroll = 0,
                 KeyCode::End => self.inspection_scroll = u16::MAX,
                 KeyCode::Esc => {
-                    self.page = crate::inspection::Page::Profiles;
+                    self.page = if matches!(
+                        self.page,
+                        crate::inspection::Page::Host
+                            | crate::inspection::Page::Rules
+                            | crate::inspection::Page::Providers
+                    ) {
+                        crate::inspection::Page::Diagnostics
+                    } else {
+                        crate::inspection::Page::Profiles
+                    };
+                    self.operator_query.clear();
                     return Action::Refresh;
                 }
                 _ => {}

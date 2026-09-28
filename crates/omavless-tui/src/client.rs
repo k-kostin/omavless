@@ -11,6 +11,9 @@ pub enum Read {
     Observation,
     Traffic,
     Diagnostics,
+    Rules,
+    Providers,
+    HostSupport,
     Connections,
     ProfileDetails(ProfileTarget),
 }
@@ -53,6 +56,9 @@ impl Read {
             Self::Observation => "runtime.observation",
             Self::Traffic => "runtime.traffic",
             Self::Diagnostics => "diagnostics.summary",
+            Self::Rules => "diagnostics.rules",
+            Self::Providers => "diagnostics.providers",
+            Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
             Self::ProfileDetails(_) => "profiles.details",
         }
@@ -84,7 +90,9 @@ pub fn load_page_for(
     page: crate::inspection::Page,
     selected: Option<&str>,
 ) -> Result<Snapshot, ReadError> {
-    use crate::inspection::{Capabilities, Diagnostics, Page, ProfileDetails, Traffic};
+    use crate::inspection::{
+        Capabilities, Diagnostics, HostSupport, Page, ProfileDetails, Providers, Rules, Traffic,
+    };
     fn success(value: Value) -> Result<Value, ReadError> {
         // Production transport already validates bounded framing, envelope and ID.
         // Do not forward remote error strings to either the terminal or stderr.
@@ -127,6 +135,11 @@ pub fn load_page_for(
         Page::Diagnostics if methods.iter().any(|m| m == "diagnostics.summary") => {
             Some(Read::Diagnostics)
         }
+        Page::Rules if methods.iter().any(|m| m == "diagnostics.rules") => Some(Read::Rules),
+        Page::Providers if methods.iter().any(|m| m == "diagnostics.providers") => {
+            Some(Read::Providers)
+        }
+        Page::Host if methods.iter().any(|m| m == "diagnostics.export") => Some(Read::HostSupport),
         Page::Details if methods.iter().any(|m| m == "profiles.details") => {
             target.map(Read::ProfileDetails)
         }
@@ -165,6 +178,9 @@ pub fn load_page_for(
         match method {
             Some(Read::Traffic) => snapshot.traffic = Traffic::parse(&value),
             Some(Read::Diagnostics) => snapshot.diagnostics = Diagnostics::parse(&value),
+            Some(Read::Rules) => snapshot.rules = Rules::parse(&value),
+            Some(Read::Providers) => snapshot.providers = Providers::parse(&value),
+            Some(Read::HostSupport) => snapshot.host_support = HostSupport::parse(&value),
             Some(Read::ProfileDetails(target)) => {
                 snapshot.profile_details = ProfileDetails::parse(&value, target);
             }
