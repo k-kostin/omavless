@@ -300,3 +300,35 @@ fn operator_pages_render_safely_in_both_languages_at_small_sizes() {
         }
     }
 }
+
+#[test]
+fn diagnostics_shows_only_typed_log_classifications_not_private_lines() {
+    let now = Instant::now();
+    for locale in [Locale::En, Locale::Ru] {
+        let mut app = App::new(locale);
+        app.page = Page::Diagnostics;
+        app.accept(
+            load_page(
+                &mut |read| {
+                    let mut value = support::response(read);
+                    if read == Read::Observation {
+                        value["result"]["coreDiagnostics"] = json!({
+                            "scope":"latest_owned_core_log_counts",
+                            "dnsErrors":2,"tlsErrors":1,"timeoutErrors":0,
+                            "connectionErrors":3,"otherWarnings":0,"oversizedLines":1,
+                            "readFailed":false,"incomplete":true,"finished":false,
+                            "rawLine":"private://secret"
+                        });
+                    }
+                    Ok(value)
+                },
+                Page::Diagnostics,
+            ),
+            now,
+        );
+        let screen = render_at(&app, now, 100, 40);
+        assert!(screen.contains(locale.text("tui.core_log_dns")));
+        assert!(screen.contains(locale.text("tui.core_log_incomplete")));
+        assert!(!screen.contains("private://secret"));
+    }
+}

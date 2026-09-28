@@ -401,6 +401,9 @@ When the native runtime advertises the T3 connection overview, the same page
 shows only aggregate network/chain categories and preserves the older count-only
 read as a compatibility fallback. No individual destination or process is
 presented, and the categories do not prove all traffic's route.
+The Diagnostics page may show the already-existing Rust-owned, typed core-log
+classification counts with an incomplete-collection marker. It never reads or
+prints raw core log lines, and zero counts do not establish a healthy connection.
 
 This is development scope, not T3 acceptance: installed EN/RU terminal review,
 live owner-restart behavior and the remaining connections/route/traffic/log

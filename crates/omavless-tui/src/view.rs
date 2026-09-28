@@ -831,6 +831,57 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                         .map(|d| d.providers.to_string())
                         .unwrap_or_else(unknown),
                 ),
+                Line::from(""),
+                Line::from(tr("tui.core_log_scope")),
+                field(
+                    "tui.core_log_dns",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.dns.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_tls",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.tls.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_timeout",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.timeout.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_connection",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.connection.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_other",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.other.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_oversized",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.oversized.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_incomplete",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| boolean(d.incomplete))
+                        .unwrap_or_else(unknown),
+                ),
                 Line::from(tr("tui.health")),
                 Line::from(tr("tui.no_killswitch")),
                 Line::from(tr("tui.diagnostic_drilldown")),
