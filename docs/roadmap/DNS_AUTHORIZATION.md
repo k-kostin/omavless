@@ -265,12 +265,20 @@ Keep the experimental pair separate from normal installation until source and
 artifact provenance, explicit enrollment, persistent compatible core selection,
 upgrade/rollback and recovery are reviewed. Preserve the existing agent-attended
 VM observations separately from owner-attended acceptance. An opt-in broker
-cannot close the default legacy #132 path: either a supported release path must
-require the managed pair and fail closed without it, or the owner must explicitly
-approve an exception that leaves #132 open. Neither decision is implied by a
-passing VM test. Do not add a broad polkit rule or silently select a patched
-core. The accepted native UI correction in #289 supersedes Python PR #135 as
-code, while #132 remains open.
+cannot close the default legacy #132 path. The separate 0.9 candidate branch
+`dev/dns-required-connect` now requires the explicitly selected managed pair
+before admitting a new connection, connected server/mode switch or active
+profile quiesce. The guard runs before changing desired state or stopping the
+existing owner; explicit Disconnect and disconnected mode selection remain
+available. A running owner without the selected pair (or with a subsequently
+invalidated selection) returns the fixed `dns_pair_required` code and never
+starts the stock core as a supported new connection. Invalid pair discovery at
+owner startup still fails closed before IPC becomes available. This is
+source-level candidate behavior, not yet an installed or owner-accepted release
+path. Package delivery, enrollment UX, negative recovery, firewall policy and
+formal host acceptance remain gates. Do not add a broad polkit rule or silently
+select a patched core. The accepted native UI correction in #289 supersedes
+Python PR #135 as code, while #132 remains open.
 
 A subsequent dev-branch foundation adds a private per-user
 `managed-dns-selection` marker, separate from route templates and from the
@@ -281,5 +289,8 @@ managed flags in every generated connection. A missing/replaced pair or a
 template/preset that drops the flags fails closed instead of silently returning
 to legacy DNS ownership. The marker does **not** enroll a UID, enable a system
 unit, change firewall policy or create a supported release path by itself.
-Until a reviewed enrollment/revocation and template-repair flow exists, this
-remains experimental and #132 stays open for the default legacy path.
+Separate Draft branches now implement explicit enrollment/revocation and a
+create-only bundled-template preparation step. They do not automatically
+authorize the root service, repair custom templates, alter firewall policy or
+constitute normal distribution. Until the mandatory-path candidate and those
+flows pass their remaining gates, #132 remains open for the shipped legacy path.

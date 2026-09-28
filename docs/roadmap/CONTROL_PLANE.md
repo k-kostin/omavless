@@ -977,6 +977,7 @@ not_found
 conflict
 busy
 capability_unavailable
+dns_pair_required
 permission_denied
 core_rejected
 subscription_unavailable
@@ -988,6 +989,10 @@ internal_error
 
 `manual_recovery_required` is always hard failure, never silently rendered as
 ordinary disconnected.
+
+`dns_pair_required` refuses a new supported connection before stopping an
+existing owner when the explicitly selected managed DNS pair is absent or
+invalid. It carries no private package path or profile data.
 
 `subscription_unavailable` identifies a subscription transport/download failure,
 not a Mihomo lifecycle rejection. It is an additive native error category;

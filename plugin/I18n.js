@@ -563,6 +563,7 @@ var CATALOG = {
   "error.conflict": {"en":"The request conflicts with current state","ru":"Запрос конфликтует с текущим состоянием"},
   "error.busy": {"en":"Another operation is in progress","ru":"Уже выполняется другая операция"},
   "error.capability_unavailable": {"en":"The requested capability is unavailable","ru":"Запрошенная возможность недоступна"},
+  "error.dns_pair_required": {"en":"Set up the managed DNS pair before connecting. Your current connection was not changed.","ru":"Настройте управляемую DNS-пару перед подключением. Текущее соединение не изменено."},
   "error.permission_denied": {"en":"The request is not permitted","ru":"Запрос не разрешён"},
   "error.core_rejected": {"en":"The proxy core rejected the operation","ru":"Прокси-ядро отклонило операцию"},
   "error.subscription_unavailable": {"en":"The subscription could not be downloaded","ru":"Не удалось скачать подписку"},

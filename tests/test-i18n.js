@@ -179,7 +179,7 @@ for (const [key, value] of Object.entries(I18n.CATALOG)) {
 const protocolErrors = [
   "invalid_request", "unsupported_version", "unknown_method",
   "invalid_argument", "not_found", "conflict", "busy",
-  "capability_unavailable", "permission_denied", "core_rejected", "subscription_unavailable",
+  "capability_unavailable", "dns_pair_required", "permission_denied", "core_rejected", "subscription_unavailable",
   "transition_failed_restored", "manual_recovery_required",
   "daemon_restarting", "internal_error"
 ]

@@ -6,6 +6,16 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **Mandatory managed-DNS admission is a Draft 0.9 candidate, not a release
+  claim:** `dev/dns-required-connect` adds an effect-free pre-admission before
+  new Connect, connected server/mode replacement and active profile quiesce.
+  An unselected or subsequently invalidated pair in a running owner refuses
+  with a localized fixed code; invalid startup discovery fails host creation.
+  Explicit Disconnect remains available and no existing owner is stopped on this
+  refusal. Local Python/QML checks and serialized Rust checks passed; installed
+  VM and owner-attended gates for this exact composition remain open. Main and
+  RC are unchanged.
+
 - **September 28 PC-VM continuation, still experimental:** the DNS work is
   stacked as Draft #295 (broker/core foundation), #298 (explicit root enrollment
   and durable local pair selection), and #299 (safe bundled-template preparation).

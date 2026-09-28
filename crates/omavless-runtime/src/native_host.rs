@@ -43,6 +43,7 @@ pub struct NativeHostPaths {
     pub staged_config: PathBuf,
     pub controller_socket: PathBuf,
     managed_pair: Option<ManagedPair>,
+    require_managed_pair: bool,
 }
 
 impl NativeHostPaths {
@@ -64,6 +65,7 @@ impl NativeHostPaths {
             staged_config: config_directory.join(".config.candidate.yaml"),
             controller_socket: runtime_directory.join("mihomo.sock"),
             managed_pair: None,
+            require_managed_pair: false,
             config_directory,
             runtime_directory,
             proc_root,
@@ -100,6 +102,7 @@ impl NativeHostPaths {
             PathBuf::from("/sys/class/net"),
         );
         paths.managed_pair = managed_pair;
+        paths.require_managed_pair = true;
         Ok(paths)
     }
 }
@@ -632,7 +635,18 @@ impl LifecycleHost for NativeLifecycleHost {
         Some((pid, Sha256::digest(config).into()))
     }
     fn validate_startup(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        self.connection_preflight()?;
         crate::startup_validation::validate(&self.paths, self.uid, desired)
+    }
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        if !self.paths.require_managed_pair {
+            return Ok(());
+        }
+        self.paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?
+            .verify()
     }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {
@@ -667,6 +681,7 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        self.connection_preflight()?;
         if let Some(pair) = &self.paths.managed_pair {
             pair.verify()?;
         }
@@ -907,6 +922,19 @@ mod tests {
         );
         let host = NativeLifecycleHost::new(paths, uid).unwrap();
         (root, host)
+    }
+
+    #[test]
+    fn managed_pair_required_host_refuses_legacy_path_before_staging() {
+        let (root, mut host) = observation_fixture();
+        host.paths.require_managed_pair = true;
+        assert_eq!(host.connection_preflight(), Err(HostStepError::Prepare));
+        assert_eq!(
+            host.prepare(&DesiredState::default()),
+            Err(HostStepError::Prepare)
+        );
+        assert!(!host.paths.staged_config.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

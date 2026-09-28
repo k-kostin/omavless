@@ -365,7 +365,7 @@ Item {
   }
 
   function nativeBatchPublicError(code) {
-    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_rejected", "subscription_unavailable", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
+    return ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_rejected", "subscription_unavailable", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"].indexOf(code) >= 0
       ? "error." + code : "error.capability_unavailable"
   }
 
