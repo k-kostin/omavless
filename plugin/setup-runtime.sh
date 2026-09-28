@@ -36,6 +36,7 @@ dns_archive_identity() {
 }
 package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"; }
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
+dns_package_registered() { /usr/bin/pacman -Q omavless-dns >/dev/null 2>&1; }
 pair_installed() {
   [[ $(/usr/bin/pacman -Q omavless-dns 2>/dev/null) == "omavless-dns $package_version-1" ]] \
     && [[ -f /usr/lib/omavless-dns/mihomo && -x /usr/lib/omavless-dns/mihomo \
@@ -56,6 +57,12 @@ user_runtime_stopped() {
   state=$(timeout 8 /usr/bin/systemctl --user show omavless-runtime.service --no-pager \
     -p LoadState -p ActiveState -p SubState -p MainPID 2>/dev/null) || return 1
   [[ "$state" == $'LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0' ]]
+}
+fresh_user_runtime_absent() {
+  local state
+  state=$(timeout 8 /usr/bin/systemctl --user show omavless-runtime.service --no-pager \
+    -p LoadState -p ActiveState -p SubState -p MainPID 2>/dev/null) || return 1
+  [[ "$state" == $'LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0' ]]
 }
 system_broker_idle() {
   local state
@@ -85,6 +92,12 @@ broker_access_for_user() {
      && $(stat -c %u -- "$socket") == 0 ]]
 }
 no_managed_tun() { [[ ! -e /sys/class/net/Meta && ! -L /sys/class/net/Meta ]]; }
+fresh_package_boundary() {
+  # A missing executable is not proof of a fresh machine. Never let the
+  # public installer repair/replace an existing or active owner implicitly.
+  ! native_present && ! package_installed >/dev/null 2>&1 \
+    && ! dns_package_registered && fresh_user_runtime_absent && no_managed_tun
+}
 enroll_uid() { /usr/bin/sudo /usr/lib/omavless-dns/omavless-dns-broker --enroll "$1"; }
 start_broker() { /usr/bin/sudo /usr/bin/systemctl enable --now omavless-dns-broker.service; }
 reload_units() { /usr/bin/systemctl --user daemon-reload; }
@@ -154,8 +167,8 @@ setup_status() {
       legacy) printf 'needs_activation\n' ;;
       *) printf 'needs_attention\n' ;;
     esac
-  elif pair_installed; then
-    # Never replace an existing root broker through the fresh-install path.
+  elif ! fresh_package_boundary; then
+    # An existing package, unit or Meta interface is not a fresh install.
     printf 'needs_attention\n'
   elif release_fields >/dev/null; then
     printf 'needs_package\n'
@@ -271,6 +284,7 @@ start_existing_broker() {
 
 install_package() {
   local version arch app_hash dns_hash source app_package dns_package url actual
+  fresh_package_boundary || return 1
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
   [[ "$version" == "$release_version" && -n "$arch" && -n "$app_hash" && -n "$dns_hash" && -n "$source" ]] || return 1
   app_package="omavless-${package_version}-1-${arch}.pkg.tar.zst"
@@ -295,8 +309,7 @@ install_package() {
   [[ "${actual%% *}" == "$dns_hash" ]] || return 1
   [[ $(package_info "$setup_temp/$dns_package") == "omavless-dns $package_version-1" ]] || return 1
   dns_archive_identity "$setup_temp/$dns_package" "$source" "$arch" || return 1
-  native_present && return 1
-  pair_installed && return 1
+  fresh_package_boundary || return 1
   # Normal dependency and user confirmation checks. No --nodeps/--overwrite,
   # --noconfirm, package hooks added by this script, or background sudo.
   package_install "$setup_temp/$app_package" "$setup_temp/$dns_package" || return 1

@@ -72,7 +72,11 @@ The stacked first-use draft changes `plugin/setup-runtime.sh` to require two
 exact, same-source package pins, inspect both local archive identities, install
 them in one normal `pacman` transaction and request separate DNS enrollment
 before template preparation/selection and disconnected Rust cutover. It
-removes the stock-Mihomo AUR offer.
+removes the stock-Mihomo AUR offer. The automatic package-install path also
+requires an absent application and DNS package registration, absent user
+runtime unit and absent `Meta` TUN, rechecked immediately before pacman.
+A missing executable alone is not fresh-install evidence; ambiguous or damaged
+ownership is manual attention, not an implicit repair/upgrade.
 The current `runtime-release.json` and `dns-release.json` intentionally have
 **empty** package maps, so the public download path remains unavailable. An
 already installed but incomplete app receives bounded setup guidance; a

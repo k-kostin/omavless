@@ -38,7 +38,9 @@ native_target() { echo legacy; }
 native() { echo UNEXPECTED_NATIVE_EFFECT >&2; return 99; }
 package_install() { echo UNEXPECTED_PACKAGE_EFFECT >&2; return 99; }
 package_installed() { return 1; }
+dns_package_registered() { return 1; }
 pair_installed() { return 1; }
+fresh_user_runtime_absent() { return 0; }
 pair_selection_status() { return 1; }
 user_runtime_stopped() { return 0; }
 system_broker_idle() { return 1; }
@@ -171,6 +173,21 @@ setup_components''')
                                  state + "\t" + ("present" if present else "missing") + "\n")
                 self.assertEqual(result.stderr, "")
 
+    def test_fresh_install_refuses_existing_or_ambiguous_owner(self):
+        self.pins(app="a" * 64, dns="c" * 64)
+        for override in (
+            "native_present() { return 0; }",
+            "package_installed() { echo 'omavless 0.8.2-1'; }",
+            "dns_package_registered() { return 0; }",
+            "fresh_user_runtime_absent() { return 1; }",
+            "no_managed_tun() { return 1; }",
+        ):
+            with self.subTest(override=override):
+                result = self.run_shell(override + "; setup_status")
+                self.assertEqual(result.stdout, "needs_attention\n")
+                self.assertEqual(result.stderr, "")
+                self.assertNotEqual(self.run_shell(override + "; fresh_package_boundary").returncode, 0)
+
     def test_consent_words_are_exact_and_do_not_accept_passwords(self):
         for answer in ("\n", "yes\n", "install\n", "INSTALL extra\n", ""):
             self.assertNotEqual(self.run_shell("confirm", answer).returncode, 0)
@@ -196,7 +213,7 @@ setup_components''')
 
     def download_fixture(self, *, app_hash_ok=True, dns_hash_ok=True,
                          dns_package_ok=True, app_identity_ok=True,
-                         dns_identity_ok=True):
+                         dns_identity_ok=True, boundary_override=""):
         payload = b"synthetic package -- NOT AN ARCH PACKAGE"
         (self.directory / "payload").write_bytes(payload)
         digest = hashlib.sha256(payload).hexdigest()
@@ -223,8 +240,26 @@ dns_archive_identity() {{ return {0 if dns_identity_ok else 1}; }}
 package_install() {{ printf '%s\\n' "$1" "$2" > "$TEST_DIR/install-args"; touch "$TEST_DIR/installed"; }}
 package_installed() {{ [[ -f "$TEST_DIR/installed" ]] && echo 'omavless 0.9.0rc1-1'; }}
 pair_installed() {{ [[ -f "$TEST_DIR/installed" ]]; }}
+{boundary_override}
 install_package
 ''')
+
+    def test_fresh_boundary_refuses_before_download_or_install(self):
+        for override in (
+            "native_present() { return 0; }",
+            "package_installed() { echo 'omavless 0.8.2-1'; }",
+            "dns_package_registered() { return 0; }",
+            "fresh_user_runtime_absent() { return 1; }",
+            "no_managed_tun() { return 1; }",
+        ):
+            with self.subTest(override=override):
+                for name in ("installed", "install-args", "urls"):
+                    (self.directory / name).unlink(missing_ok=True)
+                result = self.download_fixture(boundary_override=override)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.directory / "installed").exists())
+                self.assertFalse((self.directory / "install-args").exists())
+                self.assertFalse((self.directory / "urls").exists())
 
     def test_both_downloads_are_pinned_before_single_pacman_transaction(self):
         result = self.download_fixture()
