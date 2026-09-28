@@ -1,14 +1,16 @@
 #!/bin/bash
-# Native, opt-in CI proof for the pinned experimental DNS source pair.
+# Native, opt-in CI proof for the pinned DNS source pair.
 # Fetching exact upstream commits is the caller's job. This script installs,
 # enables, enrolls and connects nothing.
 set -euo pipefail
 
-[[ $# == 3 ]] || exit 2
+[[ $# == 3 || $# == 4 ]] || exit 2
 source_root=$(git rev-parse --show-toplevel)
 mihomo_git=$1
 sing_tun_git=$2
 output=$3
+flavor=${4:-experimental}
+[[ $flavor == experimental || $flavor == release ]] || exit 2
 [[ $mihomo_git == /* && $sing_tun_git == /* && $output == /* ]] || exit 2
 [[ ! -e $output && ! -L $output ]] || exit 2
 case $(uname -m) in
@@ -49,16 +51,25 @@ git -C "$scratch/sing-tun" apply "$source_root/tests/core_dns_adapter/sing-tun-d
 
 python3 "$source_root/tests/dns_broker_host/package/build_pair.py" \
   --mihomo-git "$mihomo_git" --sing-tun-git "$sing_tun_git" \
-  --go "$go_bin" --arch "$architecture" --output "$output/pair"
-python3 "$source_root/tests/dns_broker_host/package/stage.py" \
+  --go "$go_bin" --arch "$architecture" --flavor "$flavor" --output "$output/pair"
+if [[ $flavor == release ]]; then
+  stage_tool="$source_root/packaging/dns/stage.py"
+  package_name=omavless-dns
+else
+  stage_tool="$source_root/tests/dns_broker_host/package/stage.py"
+  package_name=omavless-dns-experimental
+fi
+python3 "$stage_tool" \
   --pair "$output/pair" --revision "$(git -C "$source_root" rev-parse HEAD)" \
   --arch "$architecture" --output "$output/staged"
 (
   cd "$output/staged"
   PKGDEST="$output/staged" makepkg --noconfirm
 )
-packages=("$output"/staged/omavless-dns-experimental-*.pkg.tar.*)
+packages=("$output"/staged/"$package_name"-*.pkg.tar.*)
 [[ ${#packages[@]} == 1 && -f ${packages[0]} ]]
 package_arch=$(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^arch = //p')
 [[ $package_arch == "$architecture" ]]
-echo "Native experimental DNS pair built and packaged for $architecture; nothing installed."
+package_identity=$(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^pkgname = //p')
+[[ $package_identity == "$package_name" ]]
+echo "Native $flavor DNS pair built and packaged for $architecture; nothing installed."

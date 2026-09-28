@@ -1,4 +1,4 @@
-name: Experimental DNS pair native packages
+name: DNS pair native packages (unpublished)
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - '.github/workflows/dns-pair-native-arm64.yml'
       - 'tests/dns_broker_host/package/**'
       - 'tests/core_dns_adapter/**'
+      - 'packaging/dns/**'
       - 'crates/omavless-dns-broker/**'
       - 'crates/omavless-dns-channel/**'
       - 'Cargo.lock'
@@ -44,11 +45,15 @@ jobs:
             git -C "$HOME/dns-sources/sing-tun" fetch --depth=1 https://github.com/MetaCubeX/sing-tun.git b50ae28a1409c7bce8e96e6c6966cf57d8ace754
             bash tests/dns_broker_host/package/build-ci.sh \
               "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-pair-output"
+            bash tests/dns_broker_host/package/build-ci.sh \
+              "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-release-output" release
           '
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: experimental-dns-pair-x86_64-${{ github.sha }}
-          path: /home/packagebuilder/dns-pair-output/staged/omavless-dns-experimental-*.pkg.tar.*
+          name: dns-pair-x86_64-${{ github.sha }}
+          path: |
+            /home/packagebuilder/dns-pair-output/staged/omavless-dns-experimental-*.pkg.tar.*
+            /home/packagebuilder/dns-release-output/staged/omavless-dns-0*.pkg.tar.*
           if-no-files-found: error
           retention-days: 7
 
@@ -94,18 +99,23 @@ jobs:
                 git -C "$HOME/dns-sources/sing-tun" fetch --depth=1 https://github.com/MetaCubeX/sing-tun.git b50ae28a1409c7bce8e96e6c6966cf57d8ace754
                 bash tests/dns_broker_host/package/build-ci.sh \
                   "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-pair-output"
+                bash tests/dns_broker_host/package/build-ci.sh \
+                  "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-release-output" release
               '\''
             '
           docker cp omavless-dns-arm-build:/home/packagebuilder/dns-pair-output/staged "$RUNNER_TEMP/dns-pair-staged"
-          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/dns-pair-staged"
-          mapfile -t packages < <(find "$RUNNER_TEMP/dns-pair-staged" -maxdepth 2 -type f \
+          docker cp omavless-dns-arm-build:/home/packagebuilder/dns-release-output/staged "$RUNNER_TEMP/dns-release-staged"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/dns-pair-staged" "$RUNNER_TEMP/dns-release-staged"
+          mapfile -t experimental < <(find "$RUNNER_TEMP/dns-pair-staged" -maxdepth 1 -type f \
             -name 'omavless-dns-experimental-*.pkg.tar.*' -print)
-          [[ ${#packages[@]} == 1 ]]
+          mapfile -t release < <(find "$RUNNER_TEMP/dns-release-staged" -maxdepth 1 -type f \
+            -name 'omavless-dns-0*.pkg.tar.*' -print)
+          [[ ${#experimental[@]} == 1 && ${#release[@]} == 1 ]]
           mkdir "$RUNNER_TEMP/dns-pair-artifact"
-          cp -- "${packages[0]}" "$RUNNER_TEMP/dns-pair-artifact/"
+          cp -- "${experimental[0]}" "${release[0]}" "$RUNNER_TEMP/dns-pair-artifact/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: experimental-dns-pair-aarch64-${{ github.sha }}
-          path: ${{ runner.temp }}/dns-pair-artifact/omavless-dns-experimental-*.pkg.tar.*
+          name: dns-pair-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/dns-pair-artifact/omavless-dns-*.pkg.tar.*
           if-no-files-found: error
           retention-days: 7
