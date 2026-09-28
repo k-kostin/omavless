@@ -895,3 +895,13 @@ the owned connection/core/TUN/DNS lease remained confirmed. A separate explicit
 Disconnect and Rule restoration released the TUN and broker descriptor with no
 manual recovery. The VM's firewall and the physical PC were unchanged. This is
 an agent-run regression check, not the owner-attended retained-state gate.
+
+An isolated VM reboot then tested the explicit system-service enablement. The
+guest's encrypted root volume required its normal console unlock before Linux
+or SSH could start; no application startup claim was inferred during that
+expected pre-boot pause. After unlock, the broker was active and enabled with
+FD store zero, the user runtime was active but desired/actual remained
+Disconnected, recovery was false, local pair selection persisted and no `Meta`
+TUN or temporary UFW allowance existed. This is an agent-run boot-state check
+after console unlock, not unattended encrypted-volume boot or a public release
+acceptance.
