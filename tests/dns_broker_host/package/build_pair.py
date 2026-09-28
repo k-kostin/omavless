@@ -102,7 +102,9 @@ def reviewed_go(go, architecture):
     return version
 
 
-def build(mihomo_git, sing_tun_git, go, architecture, output):
+def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experimental"):
+    if flavor not in ("experimental", "release"):
+        raise stage.Refused("A supported package flavor is required.")
     output = stage.outside_git_destination(output)
     host = os.uname()
     go_arch = reviewed_target(architecture, host.sysname, host.machine)
@@ -158,8 +160,11 @@ def build(mihomo_git, sing_tun_git, go, architecture, output):
             raise stage.Refused("Reviewed core build identity is incomplete.")
         cargo_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
                      "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": str(work / "cargo-target")}
-        command(["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
-                 "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"],
+        cargo_command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
+                         "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"]
+        if flavor == "release":
+            cargo_command.extend(("--features", "release-package"))
+        command(cargo_command,
                 cwd=sources / "omavless", env=cargo_env)
         shutil.copy2(work / "cargo-target/release/omavless-dns-broker",
                      package / "omavless-dns-broker")
@@ -190,6 +195,9 @@ def build(mihomo_git, sing_tun_git, go, architecture, output):
                        ("mihomo", "omavless-dns-broker", "corresponding-source.tar.xz",
                         "mihomo.LICENSE", "sing-tun.LICENSE", "omavless.LICENSE")},
         }
+        if flavor == "release":
+            receipt["package_flavor"] = "release"
+            receipt["broker_feature"] = "release-package"
         (package / "source-receipt.json").write_text(
             json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         if output.exists() or output.is_symlink():
@@ -203,10 +211,11 @@ def main():
     for name in ("mihomo-git", "sing-tun-git", "go", "output"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--arch", choices=tuple(GO_ARCH), required=True)
+    parser.add_argument("--flavor", choices=("experimental", "release"), default="experimental")
     args = parser.parse_args()
     try:
         receipt = build(args.mihomo_git, args.sing_tun_git, args.go,
-                        args.arch, args.output)
+                        args.arch, args.output, args.flavor)
     except (OSError, ValueError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired, stage.Refused):
         parser.exit(1, "Offline DNS pair build refused; no package installed or activated.\n")

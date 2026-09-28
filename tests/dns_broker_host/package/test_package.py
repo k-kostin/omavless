@@ -23,6 +23,10 @@ sys.modules["stage"] = stage
 BUILD_SPEC = importlib.util.spec_from_file_location("dns_pair_build", ROOT / "build_pair.py")
 build_pair = importlib.util.module_from_spec(BUILD_SPEC)
 BUILD_SPEC.loader.exec_module(build_pair)
+RELEASE_SPEC = importlib.util.spec_from_file_location(
+    "dns_release_stage", ROOT.parents[2] / "packaging/dns/stage.py")
+release_stage = importlib.util.module_from_spec(RELEASE_SPEC)
+RELEASE_SPEC.loader.exec_module(release_stage)
 EMPTY = "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nNFileDescriptorStore=0\n"
 
 
@@ -98,6 +102,42 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
         self.assertEqual(subprocess.run(["bash", "-n", str(destination / "PKGBUILD")],
                                        capture_output=True, check=False).returncode, 0)
+
+    def test_release_staging_requires_release_broker_and_has_distinct_fixed_paths(self):
+        with self.assertRaises(stage.Refused):
+            release_stage.stage(self.pair, "aarch64", "a" * 40, self.root / "release")
+        receipt_path = self.pair / "source-receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt["package_flavor"] = "release"
+        receipt["broker_feature"] = "release-package"
+        receipt_path.write_text(json.dumps(receipt))
+        with self.assertRaises(stage.Refused):
+            stage.stage(self.pair, "aarch64", "a" * 40, self.root / "experimental")
+        destination = self.root / "release"
+        release_stage.stage(self.pair, "aarch64", "a" * 40, destination)
+        recipe = (destination / "PKGBUILD").read_text()
+        unit = (destination / "omavless-dns-broker.service").read_text()
+        hook = (destination / "omavless-dns.hook").read_text()
+        script = (destination / "omavless-dns.install").read_text()
+        self.assertIn("pkgname=omavless-dns\n", recipe)
+        self.assertIn("conflicts=('omavless-dns-experimental')", recipe)
+        self.assertIn("/usr/lib/omavless-dns/mihomo", recipe)
+        self.assertIn("/usr/lib/omavless-dns/omavless-dns-broker", unit)
+        self.assertIn("Target = omavless-dns", hook)
+        self.assertIn("AbortOnFail", hook)
+        self.assertIn("/usr/lib/omavless-dns/package-guard", script)
+        self.assertIn("/usr/bin/setcap cap_net_bind_service,cap_net_admin,cap_net_raw=ep /usr/lib/omavless-dns/mihomo", script)
+        self.assertNotIn("systemctl enable", script)
+        self.assertNotIn("--enroll", script)
+        self.assertNotIn("SKIP", recipe)
+        self.assertNotIn("://", recipe)
+        for filename in ("PKGBUILD", "omavless-dns.install"):
+            self.assertEqual(subprocess.run(["bash", "-n", str(destination / filename)],
+                                           capture_output=True, check=False).returncode, 0)
+        manifest = json.loads((destination / "reviewed-inputs.json").read_text())
+        self.assertEqual(manifest["package"], "omavless-dns")
+        for name, expected in manifest["sha256"].items():
+            self.assertEqual(hashlib.sha256((destination / name).read_bytes()).hexdigest(), expected)
 
     def test_offline_pair_builder_pins_committed_patches_and_local_tool(self):
         for name, expected in build_pair.PATCH_SHA.items():

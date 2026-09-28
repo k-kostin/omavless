@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+release-package = []
+
 [dependencies]
 omavless-dns-channel = { path = "../omavless-dns-channel" }
 omavless-dns-resolved = { path = "../omavless-dns-resolved" }

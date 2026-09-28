@@ -11,8 +11,14 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 const DIRECTORY: &str = "/etc/omavless-dns";
+#[cfg(feature = "release-package")]
+const ENROLLMENT: &str = "release-enrollment.json";
+#[cfg(not(feature = "release-package"))]
 const ENROLLMENT: &str = "enrollment.json";
 const STAGING: &str = ".enrollment.pending";
+#[cfg(feature = "release-package")]
+const GUARD: &str = "/usr/lib/omavless-dns/package-guard";
+#[cfg(not(feature = "release-package"))]
 const GUARD: &str = "/usr/lib/omavless-dns-experimental/package-guard";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,7 +148,10 @@ fn enroll_at(directory: &Path, owner: u32, uid: u32) -> Result<(), Error> {
     if !absent(&target)? || !absent(&staging)? {
         return Err(Error::Refused);
     }
-    let value = format!("{{\"schema\":1,\"uid\":{uid},\"policy\":\"meta-ipv4-v1\"}}\n");
+    let value = format!(
+        "{{\"schema\":1,\"uid\":{uid},\"policy\":\"{}\"}}\n",
+        crate::ENROLLMENT_POLICY
+    );
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -227,7 +236,10 @@ mod tests {
         let target = directory.join(ENROLLMENT);
         assert_eq!(
             fs::read_to_string(&target).unwrap(),
-            "{\"schema\":1,\"uid\":1000,\"policy\":\"meta-ipv4-v1\"}\n"
+            format!(
+                "{{\"schema\":1,\"uid\":1000,\"policy\":\"{}\"}}\n",
+                crate::ENROLLMENT_POLICY
+            )
         );
         assert_eq!(
             fs::metadata(&target).unwrap().permissions().mode() & 0o7777,

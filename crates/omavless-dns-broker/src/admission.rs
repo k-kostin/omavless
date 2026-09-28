@@ -16,6 +16,9 @@ use std::{
 };
 use zbus::{Message, blocking::Connection, zvariant::OwnedValue};
 
+#[cfg(feature = "release-package")]
+const ENROLLMENT: &str = "/etc/omavless-dns/release-enrollment.json";
+#[cfg(not(feature = "release-package"))]
 const ENROLLMENT: &str = "/etc/omavless-dns/enrollment.json";
 const SYSTEM_BUS: &str = "/run/dbus/system_bus_socket";
 const BUS_ADDRESS: &str = "unix:path=/run/dbus/system_bus_socket";
@@ -303,7 +306,7 @@ fn read_enrollment(path: &Path, owner: u32) -> Result<u32, Error> {
     if value.schema != 1
         || value.uid == 0
         || value.uid == u32::MAX
-        || value.policy != "meta-ipv4-v1"
+        || value.policy != crate::ENROLLMENT_POLICY
     {
         return Err(Error::InvalidEnrollment);
     }

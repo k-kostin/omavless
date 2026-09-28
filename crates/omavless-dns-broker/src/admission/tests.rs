@@ -308,20 +308,24 @@ fn manager_owner_replacement_refuses_instead_of_rebinding() {
 fn enrollment_is_exact_versioned_bounded_and_credential_free() {
     let root = tempfile::tempdir().unwrap();
     let uid = rustix::process::geteuid().as_raw();
-    let valid = br#"{"schema":1,"uid":1000,"policy":"meta-ipv4-v1"}"#;
-    assert_eq!(read_enrollment(&enrollment(&root, valid), uid), Ok(1000));
+    let policy = crate::ENROLLMENT_POLICY;
+    let valid = format!(r#"{{"schema":1,"uid":1000,"policy":"{policy}"}}"#);
+    assert_eq!(
+        read_enrollment(&enrollment(&root, valid.as_bytes()), uid),
+        Ok(1000)
+    );
     for invalid in [
-        r#"{"schema":2,"uid":1000,"policy":"meta-ipv4-v1"}"#.to_string(),
-        r#"{"schema":1,"uid":0,"policy":"meta-ipv4-v1"}"#.into(),
-        r#"{"schema":1,"uid":4294967295,"policy":"meta-ipv4-v1"}"#.into(),
+        format!(r#"{{"schema":2,"uid":1000,"policy":"{policy}"}}"#),
+        format!(r#"{{"schema":1,"uid":0,"policy":"{policy}"}}"#),
+        format!(r#"{{"schema":1,"uid":4294967295,"policy":"{policy}"}}"#),
         r#"{"schema":1,"uid":1000,"policy":"arbitrary"}"#.into(),
-        r#"{"schema":1,"uid":1000,"uid":1001,"policy":"meta-ipv4-v1"}"#.into(),
-        r#"{"schema":1,"uid":1000,"policy":"meta-ipv4-v1","command":"private"}"#.into(),
-        r#"{"schema":1,"uid":true,"policy":"meta-ipv4-v1"}"#.into(),
+        format!(r#"{{"schema":1,"uid":1000,"uid":1001,"policy":"{policy}"}}"#),
+        format!(r#"{{"schema":1,"uid":1000,"policy":"{policy}","command":"private"}}"#),
+        format!(r#"{{"schema":1,"uid":true,"policy":"{policy}"}}"#),
         "[]".into(),
         "{}".into(),
         "x".repeat(257),
-        String::from_utf8(valid.to_vec()).unwrap() + " {}",
+        valid.clone() + " {}",
     ] {
         assert_eq!(
             read_enrollment(&enrollment(&root, invalid.as_bytes()), uid),
@@ -332,13 +336,24 @@ fn enrollment_is_exact_versioned_bounded_and_credential_free() {
         read_enrollment(&enrollment(&root, b"\xff"), uid),
         Err(Error::InvalidEnrollment)
     );
+    if cfg!(feature = "release-package") {
+        let old = br#"{"schema":1,"uid":1000,"policy":"meta-ipv4-v1"}"#;
+        assert_eq!(
+            read_enrollment(&enrollment(&root, old), uid),
+            Err(Error::InvalidEnrollment)
+        );
+    }
 }
 
 #[test]
 fn enrollment_owner_mode_symlink_hardlink_and_nonregular_refuse() {
     let root = tempfile::tempdir().unwrap();
     let owner = rustix::process::geteuid().as_raw();
-    let path = enrollment(&root, br#"{"schema":1,"uid":1000,"policy":"meta-ipv4-v1"}"#);
+    let valid = format!(
+        r#"{{"schema":1,"uid":1000,"policy":"{}"}}"#,
+        crate::ENROLLMENT_POLICY
+    );
+    let path = enrollment(&root, valid.as_bytes());
     assert_eq!(
         read_enrollment(&path, owner.wrapping_add(1)),
         Err(Error::InvalidEnrollment)

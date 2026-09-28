@@ -29,6 +29,7 @@ RECEIPT_KEYS = {"schema", "architecture", "omavless_commit", "mihomo_commit",
                 "go_version", "go_binary_sha256", "cargo_lock_sha256",
                 "go_build_tags", "go_dependency_mode", "rustc_version",
                 "cargo_version", "sha256"}
+RELEASE_RECEIPT_KEYS = RECEIPT_KEYS | {"package_flavor", "broker_feature"}
 
 
 class Refused(ValueError):
@@ -105,7 +106,9 @@ def no_duplicate_keys(pairs):
     return result
 
 
-def reviewed_pair(directory, architecture, revision):
+def reviewed_pair(directory, architecture, revision, flavor="experimental"):
+    if flavor not in ("experimental", "release"):
+        raise Refused("A supported package flavor is required.")
     directory = Path(directory)
     metadata = directory.lstat()
     if (not directory.is_absolute() or not stat.S_ISDIR(metadata.st_mode)
@@ -126,10 +129,13 @@ def reviewed_pair(directory, architecture, revision):
         receipt = json.loads(raw, object_pairs_hook=no_duplicate_keys)
     except (UnicodeError, ValueError) as error:
         raise Refused("The source receipt is invalid.") from error
-    if (not isinstance(receipt, dict) or set(receipt) != RECEIPT_KEYS
+    expected_keys = RELEASE_RECEIPT_KEYS if flavor == "release" else RECEIPT_KEYS
+    if (not isinstance(receipt, dict) or set(receipt) != expected_keys
             or type(receipt.get("schema")) is not int
             or receipt["schema"] != 1 or receipt.get("architecture") != architecture
             or receipt.get("omavless_commit") != revision
+            or (flavor == "release" and (receipt.get("package_flavor") != "release"
+                                               or receipt.get("broker_feature") != "release-package"))
             or receipt.get("mihomo_commit") != PINNED_MIHOMO
             or receipt.get("mihomo_tag") != "v1.19.31"
             or receipt.get("sing_tun_commit") != PINNED_SING_TUN
