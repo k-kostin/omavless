@@ -61,9 +61,15 @@ jobs:
             '
           docker cp omavless-dns-arm-build:/home/packagebuilder/dns-pair-output/staged "$RUNNER_TEMP/dns-pair-staged"
           sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/dns-pair-staged"
+          mapfile -t packages < <(find "$RUNNER_TEMP/dns-pair-staged" -maxdepth 2 -type f \
+            -name 'omavless-dns-experimental-*.pkg.tar.*' -print)
+          [[ ${#packages[@]} == 1 ]]
+          [[ $(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^arch = //p') == aarch64 ]]
+          mkdir "$RUNNER_TEMP/dns-pair-artifact"
+          cp -- "${packages[0]}" "$RUNNER_TEMP/dns-pair-artifact/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: experimental-dns-pair-aarch64-${{ github.sha }}
-          path: ${{ runner.temp }}/dns-pair-staged/omavless-dns-experimental-*.pkg.tar.zst
+          path: ${{ runner.temp }}/dns-pair-artifact/omavless-dns-experimental-*.pkg.tar.*
           if-no-files-found: error
           retention-days: 7
