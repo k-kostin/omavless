@@ -6,6 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const parser = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../plugin/NativeSnapshot.js'), 'utf8'), parser);
+const presentation = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../plugin/NativePresentation.js'), 'utf8'), presentation);
 let count = 0;
 function test(name, fn) { try { fn(); count++; } catch (e) { e.message = name + ': ' + e.message; throw e; } }
 function frame(result) { return {api:'omavless.control', version:1, id:'synthetic-request', ok:true, revision:4, result}; }
@@ -126,20 +128,21 @@ test('malformed oversized and invalid Unicode inputs fail without throwing or ec
 });
 function serviceHarness() {
   const source=fs.readFileSync(path.join(__dirname,'../plugin/Service.qml'),'utf8');
-  const context=vm.createContext({NativeSnapshot:parser,nativeOwner:true,nativeSnapshotFailed:false,
+  const context=vm.createContext({NativeSnapshot:parser,NativePresentation:presentation,nativeOwner:true,nativeSnapshotFailed:false,
     nativeSnapshot:{instanceId:'instance-one',revision:4,lastKnownActual:'disconnected',desired:{connected:false,mode:'rule',generation:3},
       profiles:[{id:'profile-one',missing:false,subscriptionId:'',favorite:false},{id:'profile-missing',missing:true,subscriptionId:''},
-        {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}]},
+        {id:'profile-managed',missing:false,subscriptionId:'subscription-one',favorite:false}],subscriptions:[],lastProfileId:''},
     nativeObservation:{instanceId:'instance-one',revision:4,desired:{connected:false,mode:'rule',generation:3},
       availability:'observed',lastKnownActual:'disconnected',manualRecoveryRequired:false},nativePending:null,nativeOutcomeUnknown:false,
     nativeActionCode:'',nativeSubscriptionDraft:null,nativeSubscriptionCode:'',nativeQuitting:false,_nativeOperationSerial:0,backendPath:'/synthetic/backend.sh',
+    nativeConnectionTransitionTimeout:{stop(){}},
     nativeActionProcess:{command:[],running:false},profiles:[{id:'legacy-profile',active:false}]});
   for(const name of ['nativeActionRunning','nativeFactsCurrent','nativeCanAct','nativeCanStop']) {
     const match=source.match(new RegExp('readonly property bool '+name+': ([\\s\\S]*?)(?=\\n  (?:readonly )?property|\\n  function)'));
     assert(match,name);
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return ('+match[1].trim()+');}});',context);
   }
-  for(const name of ['requestNativeAction','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
+  for(const name of ['requestNativeAction','beginNativeProfileLifecycleTransition','requestNativeProfileAction','isValidName','reconcileNativeAction','acceptRefreshedNativeState']) {
     const start=source.indexOf('  function '+name+'(');
     const end=source.indexOf('\n  }',start)+4;
     assert(start>=0 && end>start,name);
