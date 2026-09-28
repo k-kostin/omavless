@@ -6,17 +6,24 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **September 28 distribution continuation:** Drafts #305–#308 stage a
+- **September 28 distribution continuation:** Drafts #305–#312 stage a
   production-name DNS companion, release-only runtime selector, exact
-  version-matched two-package dependency and first-use frontend. Both-arch
-  package CI and frontend checks pass. A disposable clean x86_64 VM exposed
-  and then verified a correction to first-use ordering: select the managed
-  pair before Rust cutover. The corrected offline-transfer run ended with
-  packages, owner and units ready, broker FD store zero and no TUN or VPN
-  connection. See the bounded [fresh-setup record](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md).
-  Release pin maps are empty and GitHub download/marketplace installation,
-  ARM64 fresh setup, recovery and formal owner-attended gates remain open.
-  No main/RC merge or publication authorization follows from this diagnostic.
+  version-matched two-package dependency, first-use frontend, offline
+  artifact pairing and separate stopped-broker start/re-enrollment actions.
+  Both-arch package CI and frontend checks pass. A disposable clean x86_64 VM
+  verified the corrected first-use order (pair selection before Rust cutover),
+  stopped-broker recovery/refusal and installed offline package pair; see the
+  bounded [fresh-setup record](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md).
+  In the same VM, a responsive subscription server passed proxy HTTPS but
+  its TUN route was blocked by default-deny UFW. A temporary `Meta` rule
+  scoped to the local destination restored the built-in HTTPS check and IP/DNS-name
+  HTTPS; Rule/Direct/Full VPN, a second responsive server and Disconnect then
+  passed in this agent-run diagnostic. The rule was removed; see
+  [Draft #313](https://github.com/k-kostin/omavless/pull/313) and the
+  [sanitized network record](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md).
+  Release pin maps remain empty; authenticated GitHub download/marketplace
+  installation, ARM64 fresh setup and formal owner-attended host gates remain
+  open. No main/RC merge or publication authorization follows from this work.
 
 - **Mandatory managed-DNS admission is a Draft 0.9 candidate, not a release
   claim:** `dev/dns-required-connect` adds an effect-free pre-admission before
