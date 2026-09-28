@@ -206,8 +206,10 @@ def validate_build_identity(package, raw):
     return identity
 
 
-def inspect_archive(path):
+def inspect_archive(path, expected_architecture=None):
     require(path.name.endswith(".pkg.tar.zst"), "archive_type")
+    architecture = os.uname().machine if expected_architecture is None else expected_architecture
+    require(architecture in ("x86_64", "aarch64"), "package_identity")
     uid = path.lstat().st_uid
     require(uid in (0, os.getuid()), "archive_owner")
     mark = fingerprint(path, uid)
@@ -220,7 +222,7 @@ def inspect_archive(path):
         return capture(["/usr/bin/bsdtar", "-xOf", str(path), name],
                        limit=ARCHIVE_LIMIT if digest else 16384, digest=digest)
     package = key_values(member(".PKGINFO"), " = ", {"pkgname", "pkgver", "arch"})
-    require(package["pkgname"] == "omavless" and package["arch"] == os.uname().machine,
+    require(package["pkgname"] == "omavless" and package["arch"] == architecture,
             "package_identity")
     identity = validate_build_identity(package, member("usr/share/doc/omavless/build-identity.txt"))
     require(member("usr/bin/omavless", True) == identity["binarySha256"], "archive_binary_mismatch")

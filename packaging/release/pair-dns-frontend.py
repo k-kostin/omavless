@@ -237,10 +237,13 @@ def copy_verified(src, dst, expected, limit):
         raise ValueError('package changed during copy')
 
 
-def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha):
+def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha,
+             architecture=None):
     release.checked_source(root, frontend_source)
     version = release.version(root)
-    arch = os.uname().machine
+    # Inspection is offline: the selected architecture need not be the host's.
+    # Installed acceptance still defaults to (and requires) the native arch.
+    arch = os.uname().machine if architecture is None else architecture
     if arch not in ('x86_64', 'aarch64') or any(not re.fullmatch(SHA, value)
                                               for value in (app_sha, dns_sha)):
         raise ValueError('input identity')
@@ -248,14 +251,20 @@ def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha):
         owner = path.lstat().st_uid
         if owner not in (0, os.getuid()) or inspection.fingerprint(path, owner)[0] != expected:
             raise ValueError('input hash')
-    app_info = inspection.inspect_archive(app)
+    app_info = inspection.inspect_archive(app, arch)
     if app_info['version'] != version.replace('-rc.', 'rc') + '-1':
         raise ValueError('app version')
     source = app_info['source']
     if not re.fullmatch(COMMIT, source):
         raise ValueError('app source')
     pkg = package_values(member(app, '.PKGINFO', 16384))
-    if ('omavless-dns=' + app_info['version'] not in pkg.get('depend', [])
+    binary_sha, header = member(app, 'usr/bin/omavless', 256 * 1024 * 1024, digest=True)
+    machine = 62 if arch == 'x86_64' else 183
+    if (binary_sha != app_info['binary'] or header[:6] != b'\x7fELF\x02\x01'
+            or int.from_bytes(header[18:20], 'little') != machine):
+        raise ValueError('app binary architecture')
+    if (pkg['arch'] != [arch]
+            or 'omavless-dns=' + app_info['version'] not in pkg.get('depend', [])
             or any('mihomo' in value for value in pkg.get('depend', []))):
         raise ValueError('app companion dependency')
     dns_info = inspect_dns_archive(dns, version.replace('-rc.', 'rc'), arch, source)
@@ -305,10 +314,13 @@ def main():
     parser.add_argument('frontend_commit')
     parser.add_argument('application_sha256')
     parser.add_argument('dns_sha256')
+    parser.add_argument('--arch', choices=('x86_64', 'aarch64'),
+                        help='inspect this archive architecture without executing its binaries')
     args = parser.parse_args()
     try:
         assemble(ROOT, args.output, args.application_package, args.dns_package,
-                 args.frontend_commit, args.application_sha256, args.dns_sha256)
+                 args.frontend_commit, args.application_sha256, args.dns_sha256,
+                 args.arch)
     except (OSError, ValueError, TypeError, KeyError, UnicodeError,
             subprocess.SubprocessError, inspection.Refused):
         parser.exit(2, 'Managed DNS release pairing refused; nothing installed or published.\n')

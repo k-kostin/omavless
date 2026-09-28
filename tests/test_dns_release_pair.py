@@ -67,12 +67,25 @@ class DnsReleasePairTests(unittest.TestCase):
         self.git('commit', '-qm', 'fixture')
         return self.git('rev-parse', 'HEAD').decode().strip()
 
-    def assembly(self, source=None, app_sha=None, dns_sha=None):
+    def assembly(self, source=None, app_sha=None, dns_sha=None, arch=None,
+                 binary_machine=None):
         app_mark = (self.app_sha, 0o600, os.getuid())
         dns_mark = (self.dns_sha, 0o600, os.getuid())
+        architecture = arch or os.uname().machine
+        machine = binary_machine if binary_machine is not None else (
+            62 if architecture == 'x86_64' else 183)
+        header = bytearray(20)
+        header[:6] = b'\x7fELF\x02\x01'
+        header[18:20] = machine.to_bytes(2, 'little')
 
         def fingerprint(path, uid):
             return app_mark if path == self.app else dns_mark
+
+        def archive_member(_path, name, _limit=8192, digest=False):
+            if name == 'usr/bin/omavless' and digest:
+                return '1' * 64, bytes(header)
+            return (f'pkgname = omavless\npkgver = 0.9.0rc1-1\n'
+                    f'arch = {architecture}\ndepend = omavless-dns=0.9.0rc1-1\n').encode()
 
         with patch.object(PAIR.inspection, 'fingerprint', side_effect=fingerprint), \
              patch.object(PAIR.inspection, 'safe_parents'), \
@@ -83,12 +96,10 @@ class DnsReleasePairTests(unittest.TestCase):
                  'version': '0.9.0rc1-1', 'source': self.runtime,
                  'coreSha256': '2' * 64, 'brokerSha256': '3' * 64,
                  'receiptSha256': '4' * 64}), \
-             patch.object(PAIR, 'member', return_value=(
-                 b'pkgname = omavless\npkgver = 0.9.0rc1-1\narch = x86_64\n'
-                 b'depend = omavless-dns=0.9.0rc1-1\n')):
+             patch.object(PAIR, 'member', side_effect=archive_member):
             return PAIR.assemble(self.repo, self.output, self.app, self.dns,
                                  source or self.runtime, app_sha or self.app_sha,
-                                 dns_sha or self.dns_sha)
+                                 dns_sha or self.dns_sha, arch)
 
     def test_exact_members_include_no_unreviewed_path(self):
         members = PAIR.expected_members()
@@ -118,6 +129,18 @@ class DnsReleasePairTests(unittest.TestCase):
         self.assertEqual(result['publication'], 'unpublished-candidate')
         self.assertEqual(len(list(self.output.glob('*.pkg.tar.zst'))), 2)
         self.assertTrue((self.output / 'SHA256SUMS').is_file())
+
+    def test_foreign_architecture_is_checked_offline_not_executed(self):
+        other = 'aarch64' if os.uname().machine == 'x86_64' else 'x86_64'
+        result = self.assembly(arch=other)
+        self.assertEqual(result['architecture'], other)
+        self.assertEqual(len(list(self.output.glob('*-' + other + '.pkg.tar.zst'))), 2)
+
+    def test_mismatched_application_elf_architecture_refuses_before_output(self):
+        wrong = 183 if os.uname().machine == 'x86_64' else 62
+        with self.assertRaises(ValueError):
+            self.assembly(binary_machine=wrong)
+        self.assertEqual(list(self.output.iterdir()), [])
 
     def test_both_matching_pins(self):
         arch = os.uname().machine

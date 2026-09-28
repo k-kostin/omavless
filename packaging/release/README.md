@@ -184,19 +184,23 @@ single-package `pair-frontend.py` is not sufficient for that release. After
 reviewing each architecture's app and production-name `omavless-dns` CI
 archives, copy them into a private directory outside Git and record their
 full SHA-256 hashes and the common package-source commit. From a clean
-descendant frontend commit on the matching native architecture, create an
-empty private output directory under non-writable-by-others parents and run:
+descendant frontend commit, create an empty private output directory under
+non-writable-by-others parents and run:
 
 ```sh
 python3 packaging/release/pair-dns-frontend.py \
   /absolute/empty-output \
   /absolute/reviewed/omavless-0.9.0rc1-1-ARCH.pkg.tar.zst \
   /absolute/reviewed/omavless-dns-0.9.0rc1-1-ARCH.pkg.tar.zst \
-  FULL_FRONTEND_COMMIT_SHA APP_PACKAGE_SHA256 DNS_PACKAGE_SHA256
+  FULL_FRONTEND_COMMIT_SHA APP_PACKAGE_SHA256 DNS_PACKAGE_SHA256 \
+  --arch ARCH
 ```
 
-This offline tool checks both archive hashes before parsing, the application's
-strict native payload and exact companion dependency, the DNS package's fixed
+`ARCH` is `x86_64` or `aarch64`; omitting `--arch` defaults to the inspection
+host's own architecture. This is offline archive inspection, not emulation or
+execution of a foreign-architecture binary. The tool checks both archive
+hashes before parsing, the application's fixed payload and exact companion
+dependency, the DNS package's fixed
 member list, root-owned regular file modes, metadata, source receipt, pinned
 upstream/patch identities, payload hashes, native ELF architecture and
 privileged script/unit bytes against the committed source. It requires one
