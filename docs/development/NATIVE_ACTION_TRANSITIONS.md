@@ -55,3 +55,16 @@ and released DNS/TUN. Private captures remain outside Git.
 This checks the rendered English success path only. Failed authorization,
 unknown results, Russian layout and owner-attended acceptance remain separate
 gates; neither these images nor a Connected label prove internet reachability.
+
+A separate installed-widget Disconnect click was captured during the same
+VM-only paired runtime. Its intermediate card read `Disconnecting…` with a
+neutral working icon, hid the prior connected identity and traffic, and kept
+conflicting controls inactive. It settled to Disconnected only after the
+runtime observed no owned TUN or recovery and the broker FD store returned to
+zero. This does not exercise the unresolved-operation or failure presentation.
+
+The same widget's main switch also completed a VM Connect using the previously
+verified local fixture, and a second click returned to clean Disconnected/Rule.
+The settled connected and disconnected frames matched runtime observations;
+the brief connecting interval was not captured at the chosen sampling rate, so
+its rendered card is covered by tests but not claimed as installed visual proof.
