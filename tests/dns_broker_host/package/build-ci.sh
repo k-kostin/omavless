@@ -59,4 +59,6 @@ python3 "$source_root/tests/dns_broker_host/package/stage.py" \
 )
 packages=("$output"/staged/omavless-dns-experimental-*.pkg.tar.*)
 [[ ${#packages[@]} == 1 && -f ${packages[0]} ]]
+package_arch=$(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^arch = //p')
+[[ $package_arch == "$architecture" ]]
 echo "Native experimental DNS pair built and packaged for $architecture; nothing installed."

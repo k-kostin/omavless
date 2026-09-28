@@ -64,7 +64,6 @@ jobs:
           mapfile -t packages < <(find "$RUNNER_TEMP/dns-pair-staged" -maxdepth 2 -type f \
             -name 'omavless-dns-experimental-*.pkg.tar.*' -print)
           [[ ${#packages[@]} == 1 ]]
-          [[ $(bsdtar -xOf "${packages[0]}" .PKGINFO | sed -n 's/^arch = //p') == aarch64 ]]
           mkdir "$RUNNER_TEMP/dns-pair-artifact"
           cp -- "${packages[0]}" "$RUNNER_TEMP/dns-pair-artifact/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
