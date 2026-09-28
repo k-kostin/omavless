@@ -182,6 +182,8 @@ install privileged policy or enable a service in a package hook. Follow the
 actual core path. Complete every normal OS authorization prompt before another
 connection or service action; a cancelled prompt is not successful setup.
 
+### Default-deny firewall and TUN
+
 If your host uses a default-deny inbound firewall such as UFW, check its TUN
 policy before treating a Connected indicator as proof of working traffic.
 On one isolated Omarchy VM, the core and routes were healthy but HTTPS through
@@ -189,8 +191,32 @@ the TUN timed out because UFW blocked packets arriving on that interface.
 OmaVLESS does not change firewall rules automatically. An administrator should
 review the local TUN address, peer, interface and firewall policy, apply only
 the exception appropriate for that host, and verify actual traffic and cleanup.
-The VM's temporary IPv4 exception is diagnostic evidence, not a universal
-command or an assurance about UDP, IPv6 and other interfaces.
+The built-in HTTPS check (`omavless runtime test`) is read-only and follows the
+current route; in Direct or selective Routing mode it may not traverse the VPN.
+
+For the **bundled IPv4 template only**, first confirm that the active TUN is
+`Meta` with address `198.18.0.1/30` and that UFW is active with default-deny
+incoming policy (`ip -4 addr show dev Meta` and `sudo ufw status verbose`). If
+those facts match and the administrator accepts the host-specific exception,
+the following reversible rule allows incoming packets from `Meta` only when
+their destination is its local IPv4 address:
+
+```sh
+sudo ufw allow in on Meta to 198.18.0.1 comment omavless-tun
+```
+
+Retest traffic in Full VPN mode, then inspect `sudo ufw status numbered` for
+duplicate or unexpected rules. Remove this exact exception when no longer
+needed:
+
+```sh
+sudo ufw delete allow in on Meta to 198.18.0.1 comment omavless-tun
+```
+
+Do not copy the example for a custom TUN address, another firewall, or IPv6.
+The VM's temporary IPv4 result is not an assurance about every protocol,
+destination or host policy. A firewall check does not replace the normal
+connected, DNS, route and HTTPS verification.
 
 Desktop helpers remain optional package dependencies:
 

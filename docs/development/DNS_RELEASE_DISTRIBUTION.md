@@ -121,12 +121,17 @@ refuses before starting the service; the owner may then select the distinct
 re-enrollment action only after confirming clean removal/revocation.
 
 The PC VM has default-deny UFW and requires an inbound `Meta` allowance for
-its tested IPv4 TUN flow. That temporary, peer/address-scoped diagnostic rule
-was removed after each test. Normal setup must present an explicit, reversible
-administrator firewall prerequisite and a read-only diagnostic; it must not
-silently install a broad interface rule or infer all-host IPv6/UDP behavior
-from the VM's IPv4 HTTPS result. `Connected` means confirmed owner/core/TUN/DNS
-facts, not proof that every destination works.
+its tested IPv4 TUN flow. A rule restricted to the configured peer as the
+source did **not** restore traffic: returning packets have remote source
+addresses. A temporary rule restricted to input on `Meta` and destination
+`198.18.0.1` restored the built-in HTTPS check, IP-based TUN HTTPS and
+DNS-name HTTPS with a reachable subscription server. It was removed after
+testing. Normal setup must present an explicit, reversible administrator
+firewall prerequisite and a read-only diagnostic; it must not silently install
+a broad interface rule or infer all-host IPv6/UDP behavior from the VM's IPv4
+HTTPS result. `Connected` means confirmed owner/core/TUN/DNS facts, not proof
+that every destination works. See the sanitized
+[VM network diagnostic](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md).
 
 ## Promotion gates
 
