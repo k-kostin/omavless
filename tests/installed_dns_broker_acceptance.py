@@ -41,6 +41,7 @@ BROKER_PATH = Path("/usr/lib/omavless/omavless-dns-broker")
 BROKER_UNIT = Path("/usr/lib/systemd/system/omavless-dns-broker.service")
 BROKER_UNIT_SHA = "a82b31226f09dc0b8aa9d247a2919f66a2b4d46070356e56c21cf2df2672524f"
 RUNTIME = "omavless-runtime.service"
+SELECTION_BYTES = b"managed-dns-source-pair-v1\n"
 MODES = ("global", "rule", "direct", "global")
 # The built-in isolated profile check uses these independent public HTTPS
 # endpoints. A single website timeout is not evidence that the TUN is broken.
@@ -93,6 +94,32 @@ def selected_profile(state, index=None):
     raise gate.Failure("vless_fixture_unavailable")
 
 
+def durable_core_selection(config_directory, uid):
+    """Pin the normal post-reboot selector, not a transient systemd override."""
+    try:
+        parent = config_directory.lstat()
+        before = (config_directory / "managed-dns-selection").lstat()
+    except OSError as error:
+        raise gate.Failure("installed_core_not_selected") from error
+    require(stat.S_ISDIR(parent.st_mode) and parent.st_uid == uid
+            and not parent.st_mode & 0o077, "installed_core_not_selected")
+    path = config_directory / "managed-dns-selection"
+    require(stat.S_ISREG(before.st_mode) and before.st_uid == uid
+            and before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600
+            and before.st_size == len(SELECTION_BYTES), "installed_core_not_selected")
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as error:
+        raise gate.Failure("installed_core_not_selected") from error
+    try:
+        after = os.fstat(descriptor)
+        require((after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
+                and os.read(descriptor, len(SELECTION_BYTES) + 1) == SELECTION_BYTES,
+                "installed_core_not_selected")
+    finally:
+        os.close(descriptor)
+
+
 def installed_identity(expected_sha):
     require(re.fullmatch(r"[0-9a-f]{64}", expected_sha or "") is not None,
             "core_pin_required")
@@ -108,8 +135,10 @@ def installed_identity(expected_sha):
     require(pid > 1 and installed.unit(RUNTIME, "ActiveState") == "active",
             "runtime_unavailable")
     environment = gate.bounded(Path("/proc") / str(pid) / "environ", 65536).split(b"\0")
-    require(b"OMAVLESS_MIHOMO=" + os.fsencode(CORE_PATH) in environment,
+    overrides = [entry for entry in environment if entry.startswith(b"OMAVLESS_MIHOMO=")]
+    require(not overrides or overrides == [b"OMAVLESS_MIHOMO=" + os.fsencode(CORE_PATH)],
             "installed_core_not_selected")
+    durable_core_selection(Path.home() / ".config/omavless", os.getuid())
     return pid
 
 

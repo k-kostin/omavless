@@ -905,3 +905,15 @@ Disconnected, recovery was false, local pair selection persisted and no `Meta`
 TUN or temporary UFW allowance existed. This is an agent-run boot-state check
 after console unlock, not unattended encrypted-volume boot or a public release
 acceptance.
+
+The post-reboot acceptance helper initially refused before any network action:
+it still required a test-only user-manager `OMAVLESS_MIHOMO` override, which
+correctly disappeared on reboot. The helper now checks the exact private,
+durable source-pair selector and rejects any conflicting override. With that
+helper correction, the installed pinned pair connected in managed Global mode
+using an internally selected private fixture. An agent-run, pidfd-targeted
+crash of its verified owned core then left no live core group, TUN or broker
+DNS lease. Explicit Disconnect and Rule restoration returned a clean observed
+Disconnected state without recovery. This validates the post-reboot ownership
+and release path on the installed VM pair; it is not a formal owner-attended
+authorization result and does not establish public release readiness.

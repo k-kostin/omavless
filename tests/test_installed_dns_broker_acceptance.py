@@ -4,6 +4,7 @@
 import importlib.util
 import io
 import json
+import os
 import signal
 from pathlib import Path
 import tempfile
@@ -23,6 +24,28 @@ class Terminal(io.StringIO):
 
 
 class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
+    def test_durable_selection_requires_private_exact_regular_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)
+            os.chmod(config, 0o700)
+            marker = config / "managed-dns-selection"
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid())
+            marker.write_bytes(gate.SELECTION_BYTES)
+            os.chmod(marker, 0o600)
+            gate.durable_core_selection(config, os.getuid())
+            marker.write_bytes(b"managed-dns-source-pair-v1\nextra")
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid())
+            marker.write_bytes(gate.SELECTION_BYTES)
+            os.chmod(marker, 0o644)
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid())
+            marker.unlink()
+            marker.symlink_to(config / "other")
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid())
+
     @staticmethod
     def stat_row(pid, state, parent, group, started=51):
         return (f"{pid} (synthetic (core)) {state} {parent} {group} "
