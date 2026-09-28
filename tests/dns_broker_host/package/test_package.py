@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent
@@ -105,13 +106,35 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(build_pair.MIHOMO, "ab405bad5beeeac8b003bb01f60f134f6df54471")
         self.assertEqual(build_pair.SING_TUN, "b50ae28a1409c7bce8e96e6c6966cf57d8ace754")
         with self.assertRaises(stage.Refused):
-            build_pair.reviewed_go("go")
+            build_pair.reviewed_go("go", "x86_64")
         link = self.root / "linked-go"
         link.symlink_to("/usr/bin/go")
         with self.assertRaises(stage.Refused):
-            build_pair.reviewed_go(str(link))
+            build_pair.reviewed_go(str(link), "x86_64")
         with self.assertRaises(stage.Refused):
-            build_pair.build(self.root, self.root, "/usr/bin/go", build_pair.REPO / "candidate")
+            build_pair.build(self.root, self.root, "/usr/bin/go", "x86_64",
+                             build_pair.REPO / "candidate")
+
+    def test_pair_builder_requires_matching_native_architecture_and_go(self):
+        for architecture, go_arch in (("x86_64", "amd64"), ("aarch64", "arm64")):
+            self.assertEqual(build_pair.reviewed_target(architecture, "Linux", architecture),
+                             go_arch)
+            with self.assertRaises(stage.Refused):
+                build_pair.reviewed_target(architecture, "Linux", "other")
+            with self.assertRaises(stage.Refused):
+                build_pair.reviewed_target(architecture, "Darwin", architecture)
+            with mock.patch.object(build_pair.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = (
+                    f"go version go1.26.8 linux/{go_arch}\n".encode("ascii"))
+                self.assertIn(go_arch, build_pair.reviewed_go("/usr/bin/git", architecture))
+                run.return_value.stdout = (
+                    b"go version go1.26.8 linux/arm64\n" if go_arch == "amd64"
+                    else b"go version go1.26.8 linux/amd64\n")
+                with self.assertRaises(stage.Refused):
+                    build_pair.reviewed_go("/usr/bin/git", architecture)
+        with self.assertRaises(stage.Refused):
+            build_pair.reviewed_target("unknown", "Linux", "unknown")
 
     def test_bad_hash_arch_revision_symlink_hardlink_existing_target_refuse(self):
         for changes in ({"architecture": "x86_64"}, {"revision": "main"}):

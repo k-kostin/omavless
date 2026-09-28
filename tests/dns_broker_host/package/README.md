@@ -31,8 +31,13 @@ python3 tests/dns_broker_host/package/build_pair.py \
   --mihomo-git /absolute/local/mihomo-git \
   --sing-tun-git /absolute/local/sing-tun-git \
   --go /absolute/local/go \
+  --arch x86_64 \
   --output /absolute/private/new-candidate
 ```
+
+Use `--arch aarch64` on a native Linux aarch64 builder. The requested
+architecture must match both the host and the absolute local Go toolchain;
+the builder does not silently cross-compile or accept a mismatched receipt.
 
 The OmaVLESS checkout must be committed and clean. The build uses the full
 `mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
@@ -40,12 +45,12 @@ alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
 `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, locked Go/Cargo dependencies and the
 production `with_gvisor` tag. It vendors Go dependencies offline, then tests
 and builds from that vendored tree. A missing local dependency fails closed. Output
-contains both binaries, the complete corresponding patched source archive,
+contains both native-architecture binaries, the complete corresponding patched source archive,
 Mihomo/sing-tun licenses, and `source-receipt.json` with exact commits, patch
 hashes, toolchain and output hashes. The receipt is reproducibility evidence,
 not a signature, independent audit, permission to enroll, or proof of installed
-network behavior. The current builder supports x86_64 only; ARM64 needs its
-own verified toolchain/build gate.
+network behavior. The ARM64 path has source-level checks only until an exact
+native aarch64 output passes the same build, staging and installed gates.
 
 The staging fixture below now requires the pair directory and includes this
 source archive, licenses and receipt in the experimental package. It is still
