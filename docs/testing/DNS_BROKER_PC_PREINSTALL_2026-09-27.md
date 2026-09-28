@@ -998,8 +998,22 @@ without a loading or recovery error. The immediately preceding application
 archive was retained outside Git for rollback; no outer-PC package, VPN or
 firewall change was made.
 
-This is an exact-byte installed update/idle/UI-smoke checkpoint. It does not
-replace a working-server HTTPS cycle on these exact bytes, fresh marketplace
-installation, formal owner-attended negatives or reviewed normal DNS-pair
-distribution. A subsequent documentation-only evidence commit does not change
-the tested binary or frontend identity.
+A subsequent disconnected, no-TUN isolated profile check covered the same 37
+available records and found six with successful HTTPS; it emitted only counts
+and ordinal positions. Two earlier manually selected records had failed HTTPS
+through the connected core's local proxy, while the VM's disconnected direct
+HTTPS returned 200. One newly screened record then established a managed Rule
+connection: local proxy and fixed-IP TUN HTTPS both returned 200. With a
+temporary VM-only UFW allowance restricted to `Meta`, source `198.18.0.2` and
+destination `198.18.0.1`, public TUN HTTPS also returned 200. Widget clicks
+changed Rule → Global → Rule; observed mode matched each settled state and
+public TUN HTTPS remained 200 in Global. Widget Disconnect returned
+Disconnected/Rule, removed `Meta` and released the broker FD store to zero.
+The temporary UFW allowance was deleted and its absence verified. No private
+server identity, URL, credential, controller log or screenshot is recorded.
+
+This is an exact-byte installed update, live HTTPS/mode and cleanup diagnostic.
+It does not replace fresh marketplace installation, formal owner-attended
+negatives or reviewed normal DNS-pair/firewall distribution. A subsequent
+documentation-only evidence commit does not change the tested binary or
+frontend identity.

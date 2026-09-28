@@ -19,8 +19,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
   reachable private profile passed proxy and TUN HTTPS with a temporary narrow
   VM-only UFW exception; see the exact [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
   Combined Draft #302 passed all four CI jobs and its exact application/frontend
-  bytes passed an installed PC-VM update, private-state preservation and idle
-  widget smoke. Working-server HTTPS on those exact bytes remains untested.
+  bytes passed an installed PC-VM update, private-state preservation, screened
+  working-server proxy/TUN HTTPS, Rule → Global → Rule widget transitions and
+  clean Disconnect. The VM-only narrow UFW exception was removed afterward.
   Formal owner-attended gates and reviewed delivery/firewall behavior remain
   open. Main and RC are unchanged.
 
