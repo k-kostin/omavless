@@ -973,3 +973,33 @@ These are agent-run isolated-VM diagnostics, **not** the repository's required
 owner-attended authorization/cancellation acceptance or a release-readiness
 claim. Reviewed normal delivery/enrollment and host firewall treatment remain
 open, as do the retained-state/upgrade negative matrix and formal #132 decision.
+
+## Combined Draft RC package checkpoint
+
+The exact `dev/rc-090-composition-check` source
+`d177e78b8f6bb1ca6111693bf92aa27e19bc961a` passed its developer/Rust,
+QML lint and four GitHub test/package jobs, including native ARM64. The x86_64
+application archive from that CI run had SHA-256
+`fb63fc2dff49daa80f1f588851a06c6db188dd3133f2e1eece3159b1f03211ca`
+and binary SHA-256
+`0525bb0bd98391388a7bc3ae968e07f545032ab40c2574e0cfc246b4e41b4300`.
+An offline same-source frontend archive was assembled from that inspected
+binary/source pair, checked by `SHA256SUMS`, and had SHA-256
+`4216643627fac881fa7d17658951bc67f9f8044f30a12173ddb2a2f1036ba416`.
+
+The isolated PC VM was Disconnected/Rule with no `Meta` TUN and broker FD store
+zero before replacement. Its user runtime was stopped; the CI application
+package was reinstalled at the same RC version, and the offline frontend was
+installed through its reviewed native-only installer. Readback matched the CI
+binary and staged frontend files; plugin validation passed. The user runtime
+restarted and reported Disconnected/Rule, with the previous 37 profiles and one
+subscription preserved, no TUN and broker FD store zero. The widget reopened
+without a loading or recovery error. The immediately preceding application
+archive was retained outside Git for rollback; no outer-PC package, VPN or
+firewall change was made.
+
+This is an exact-byte installed update/idle/UI-smoke checkpoint. It does not
+replace a working-server HTTPS cycle on these exact bytes, fresh marketplace
+installation, formal owner-attended negatives or reviewed normal DNS-pair
+distribution. A subsequent documentation-only evidence commit does not change
+the tested binary or frontend identity.
