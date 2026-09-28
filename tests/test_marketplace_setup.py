@@ -144,7 +144,7 @@ system_broker_available() { return 1; }
 system_broker_stopped() { return 0; }
 no_broker_socket() { return 0; }
 setup_status
-''').stdout, "needs_reenrollment\n")
+''').stdout, "needs_broker_stopped\n")
         self.assertEqual(self.run_shell(fixture + '''
 pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; }
 user_runtime_stopped() { return 1; }
@@ -161,7 +161,7 @@ setup_status
 
     def test_component_inventory_reports_only_fixed_presence(self):
         for state in ("ready", "needs_package", "needs_activation", "needs_companion",
-                      "needs_selection", "needs_broker", "needs_reenrollment", "needs_runtime_stop",
+                      "needs_selection", "needs_broker", "needs_broker_stopped", "needs_runtime_stop",
                       "release_unavailable", "needs_attention"):
             for present in (True, False):
                 result = self.run_shell(f'''setup_status() {{ echo {state}; }}
@@ -340,6 +340,42 @@ restore_enrollment
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.directory / "trace").read_text().splitlines(), ["enroll"])
 
+    def test_stopped_existing_broker_starts_without_reenrolling_or_starting_vpn(self):
+        fixture = '''
+pair_installed() { return 0; }
+native_target() { echo rust; }
+pair_selected() { return 0; }
+user_runtime_stopped() { return 0; }
+no_managed_tun() { return 0; }
+system_broker_stopped() { return 0; }
+no_broker_socket() { return 0; }
+existing_enrollment_metadata() { return 0; }
+start_stopped_broker_service() { echo start-existing >> "$TEST_DIR/trace"; }
+system_broker_idle() { return 0; }
+broker_access_for_user() { return 0; }
+start_existing_broker
+'''
+        result = self.run_shell(fixture)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.directory / "trace").read_text().splitlines(), ["start-existing"])
+        (self.directory / "trace").unlink()
+        for before, after in (
+            ("existing_enrollment_metadata() { return 0; }",
+             "existing_enrollment_metadata() { return 1; }"),
+            ("system_broker_stopped() { return 0; }",
+             "system_broker_stopped() { return 1; }"),
+            ("no_broker_socket() { return 0; }",
+             "no_broker_socket() { return 1; }"),
+            ("user_runtime_stopped() { return 0; }",
+             "user_runtime_stopped() { return 1; }"),
+        ):
+            self.assertNotEqual(self.run_shell(fixture.replace(before, after)).returncode, 0)
+            self.assertFalse((self.directory / "trace").exists())
+        source = SCRIPT.read_text()
+        self.assertIn("/usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C", source)
+        self.assertIn("/usr/bin/stat -c '%F:%u:%a:%h' --", source)
+        self.assertIn("/usr/bin/sudo /usr/bin/systemctl --system start omavless-dns-broker.service", source)
+
     def test_existing_owner_never_reinitializes_or_reenables(self):
         result = self.run_shell('native_target() { echo rust; }; prepare_application')
         self.assertEqual(result.returncode, 0)
@@ -423,7 +459,7 @@ prepare_application
         self.assertEqual(store.read_text(), "synthetic unchanged private fixture")
 
     def test_invalid_commands_or_headless_install_have_no_effect(self):
-        for arguments in ("install", "install ru", "finish-selection", "restore-enrollment", "components en",
+        for arguments in ("install", "install ru", "finish-selection", "start-broker", "restore-enrollment", "components en",
                           "status en", "install-core", "download", "install zz"):
             result = self.run_shell("setup_main " + arguments)
             self.assertEqual(result.returncode, 2)

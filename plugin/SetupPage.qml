@@ -32,7 +32,7 @@ Item {
   function acknowledgeTerminalClosed() { terminalOpened = false; check() }
   function guide() { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md") }
   function install(action) {
-    var allowed = action === SetupState.missingAction(facts) && action !== ""
+    var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
     launchAction = action
     launching = true

@@ -139,7 +139,7 @@ setup_status() {
           >/dev/null 2>&1 <<< "$selected"; then
           if system_broker_available; then printf 'ready\n'
           elif user_runtime_stopped && no_managed_tun && system_broker_stopped && no_broker_socket; then
-            printf 'needs_reenrollment\n'
+            printf 'needs_broker_stopped\n'
           else printf 'needs_broker\n'; fi
         elif jq -e '.schemaVersion == 1 and .scope == "local_pair_only" and .selected == false' \
           >/dev/null 2>&1 <<< "$selected"; then
@@ -240,6 +240,35 @@ restore_enrollment() {
   pair_selected
 }
 
+existing_enrollment_metadata() {
+  local metadata
+  # A missing enrollment must not turn an attempted service start into a
+  # failed systemd unit, which would hide the separate recovery action.
+  # This fixed-path root read returns only metadata, never the UID or content.
+  metadata=$(/usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+    /usr/bin/stat -c '%F:%u:%a:%h' -- \
+    /etc/omavless-dns/release-enrollment.json 2>/dev/null) || return 1
+  [[ "$metadata" == 'regular file:0:600:1' ]]
+}
+start_stopped_broker_service() {
+  /usr/bin/sudo /usr/bin/systemctl --system start omavless-dns-broker.service
+}
+
+start_existing_broker() {
+  pair_installed || return 1
+  [[ $(native_target) == rust ]] || return 1
+  pair_selected || return 1
+  user_runtime_stopped || return 1
+  no_managed_tun || return 1
+  system_broker_stopped || return 1
+  no_broker_socket || return 1
+  existing_enrollment_metadata || return 1
+  start_stopped_broker_service || return 1
+  system_broker_idle || return 1
+  broker_access_for_user || return 1
+  pair_selected
+}
+
 install_package() {
   local version arch app_hash dns_hash source app_package dns_package url actual
   IFS=$'\t' read -r version arch app_hash dns_hash source < <(release_fields)
@@ -312,7 +341,7 @@ setup_main() {
   case "$1" in
     status) [[ $# == 1 ]] || return 2; setup_status; return ;;
     components) [[ $# == 1 ]] || return 2; setup_components; return ;;
-    install|finish-selection|restore-enrollment) ;;
+    install|finish-selection|start-broker|restore-enrollment) ;;
     *) return 2 ;;
   esac
   [[ -t 0 && -t 1 && $EUID -ne 0 ]] || return 2
@@ -324,12 +353,16 @@ setup_main() {
     return
   fi
   if [[ "$1" == finish-selection && "$state" != needs_selection ]] \
-      || [[ "$1" == restore-enrollment && "$state" != needs_reenrollment ]] \
+      || [[ "$1" == start-broker && "$state" != needs_broker_stopped ]] \
+      || [[ "$1" == restore-enrollment && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == install && "$state" != needs_package && "$state" != needs_activation ]]; then
     say 'Setup is unavailable. No changes made. Check the setup guide.' 'Установка недоступна. Ничего не изменено. Откройте руководство.'
     return 1
   fi
-  if [[ "$1" == restore-enrollment ]]; then
+  if [[ "$1" == start-broker ]]; then
+    say 'Start the existing DNS broker after a clean stop or package update. Enrollment, profiles and startup stay unchanged; no VPN connection is started.' \
+        'Запустить существующий DNS-брокер после чистой остановки или обновления пакета. Регистрация, профили и автозапуск не меняются; VPN не подключается.'
+  elif [[ "$1" == restore-enrollment ]]; then
     say 'Restore broker enrollment only after a clean removal. The selected pair and profiles stay unchanged; no VPN connection or startup is enabled.' \
         'Восстановить регистрацию DNS-брокера только после чистого удаления. Выбранная пара и профили сохранятся; VPN и автозапуск не включаются.'
   elif [[ "$1" == finish-selection ]]; then
@@ -359,6 +392,8 @@ setup_main() {
     [[ $(setup_status) == "$state" ]] || exit 1
     if [[ "$1" == finish-selection ]]; then
       finish_pair_selection || exit 1
+    elif [[ "$1" == start-broker ]]; then
+      start_existing_broker || exit 1
     elif [[ "$1" == restore-enrollment ]]; then
       restore_enrollment || exit 1
     else
@@ -396,7 +431,7 @@ setup_main() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   result=0
   setup_main "$@" || result=$?
-  if [[ ( "${1:-}" == install || "${1:-}" == finish-selection || "${1:-}" == restore-enrollment ) && -t 0 ]]; then
+  if [[ ( "${1:-}" == install || "${1:-}" == finish-selection || "${1:-}" == start-broker || "${1:-}" == restore-enrollment ) && -t 0 ]]; then
     say 'Press Enter to close.' 'Нажмите Enter, чтобы закрыть.'
     IFS= read -r _ || true
   fi

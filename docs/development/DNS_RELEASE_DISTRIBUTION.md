@@ -112,6 +112,13 @@ The root broker's fixed empty-state guard refuses residual enrollment,
 journal/lease or unknown state. Success enrolls the current UID and starts the
 broker without selecting a different pair, enabling the user runtime or
 connecting a VPN. A generic broker failure keeps manual recovery guidance.
+The same unprivileged stopped-broker observations also occur after a clean
+package update that preserves enrollment; they cannot prove revocation. The
+frontend therefore separately offers `Start existing DNS broker`. That action
+checks fixed root-owned enrollment metadata before a start attempt and never
+enrolls, enables the user runtime or connects. An absent or unsafe enrollment
+refuses before starting the service; the owner may then select the distinct
+re-enrollment action only after confirming clean removal/revocation.
 
 The PC VM has default-deny UFW and requires an inbound `Meta` allowance for
 its tested IPv4 TUN flow. That temporary, peer/address-scoped diagnostic rule

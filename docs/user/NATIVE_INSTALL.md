@@ -15,6 +15,12 @@ profiles and the selected pair while revoking the privileged broker
 registration. On reinstall, **Restore DNS enrollment** is a separate attended
 step, not a second package install or a VPN connection. It refuses residual or
 unknown broker state and does not re-enable a previously stopped user runtime.
+After a clean package update or temporary broker stop, the registration may
+instead still be present: choose **Start existing DNS broker**, not Restore.
+That action checks the fixed enrollment file metadata and starts only the
+broker; it does not re-enroll, start the user runtime or connect. If the
+enrollment was revoked during a clean removal, choose Restore instead. A
+failed or uncertain authorization requires inspection before either retry.
 
 New users of the released version can
 install the plugin and follow its guided first-run setup. Existing native and
