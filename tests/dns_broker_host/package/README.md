@@ -135,10 +135,20 @@ its guard reports an empty broker state, the explicit administrator sequence is
 `sudo /usr/lib/omavless/omavless-dns-broker --enroll "$(id -u)"`, followed by
 `sudo systemctl enable --now omavless-dns-broker.service`. Use the numeric UID
 of the intended desktop user, not root's UID. A separately stopped, disconnected
-user runtime can then run `omavless dns-pair select` and be started again;
+user runtime with the byte-for-byte bundled default route template can then
+run `omavless dns-pair prepare-template` and `omavless dns-pair select`, in that
+order, before starting the runtime again. Template preparation creates one
+private, create-only `route-template.pre-managed-dns.yaml` backup, replaces
+only the exact bundled default and never rewrites custom or partly managed
+YAML. An already managed template is left unchanged. If the operation refuses
+or reports an unknown outcome, inspect the original, backup and staging file
+before retrying; do not delete them blindly. The template step changes no
+network settings while OmaVLESS is stopped. It is still a development-only
+operator path and not unattended plugin setup.
+
 `omavless dns-pair status` reports only the selected local pair, **not** live
 DNS health or full enrollment verification. The route template must already
-contain the two reviewed managed flags. None of these steps installs a VPN
+contain the two reviewed managed flags before selection. None of these steps installs a VPN
 profile, changes a firewall rule, or proves internet reachability. If any
 precondition fails, stop and inspect rather than editing the enrollment file or
 deleting a retained broker journal.

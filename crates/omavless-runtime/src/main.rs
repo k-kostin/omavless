@@ -123,7 +123,7 @@ fn run() -> Result<(), CliError> {
             "  cutover activate                 explicit disconnected native ownership transition"
         );
         println!(
-            "  dns-pair status|select          inspect or select the reviewed pair while stopped"
+            "  dns-pair status|prepare-template|select\n                                  inspect or opt in to the reviewed pair while stopped"
         );
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
@@ -199,6 +199,9 @@ fn run() -> Result<(), CliError> {
             }
             [_, command] if command == "select" => {
                 omavless_runtime::managed_selection::select_current()
+            }
+            [_, command] if command == "prepare-template" => {
+                omavless_runtime::managed_selection::prepare_template_current()
             }
             _ => return Err("Invalid DNS pair command".into()),
         }
