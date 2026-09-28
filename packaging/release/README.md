@@ -3,6 +3,10 @@
 Current development candidate: **0.9.0-rc.1**, unpublished and uninstalled.
 Use the default RC assembler (no `--stable` flag). This is preparation, not RC
 acceptance: DNS/#132 and exact-package installed gates remain open.
+The proposed [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+tracks the separate companion package, enrollment, upgrade/removal and firewall
+work still missing from this single-package assembler; it is not an available
+public installer.
 
 Public **0.8.2** is stable and immutable; its
 [release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2) and

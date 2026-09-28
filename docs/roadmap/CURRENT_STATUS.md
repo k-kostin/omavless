@@ -23,7 +23,8 @@ history. GitHub's actual main/PR state is authoritative for publication.
   working-server proxy/TUN HTTPS, Rule → Global → Rule widget transitions and
   clean Disconnect. The VM-only narrow UFW exception was removed afterward.
   Formal owner-attended gates and reviewed delivery/firewall behavior remain
-  open. Main and RC are unchanged.
+  open; the [distribution proposal](../development/DNS_RELEASE_DISTRIBUTION.md)
+  bounds the latter without claiming implementation. Main and RC are unchanged.
 
 - **September 28 PC-VM continuation, still experimental:** the DNS work is
   stacked as Draft #295 (broker/core foundation), #298 (explicit root enrollment

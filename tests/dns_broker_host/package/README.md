@@ -4,6 +4,9 @@ This is **not** the normal OmaVLESS package or release pipeline. No production
 installer, CI publication, marketplace flow, or default runtime selects it.
 It stages already-reviewed **local** binaries without downloading, compiling,
 installing, enabling, enrolling or connecting anything.
+The separate [release-distribution proposal](../../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+lists the normal two-package/first-use/upgrade gates; this fixture does not
+silently acquire those properties.
 
 `build_pair.py` is a separate opt-in **offline review build**, not a normal
 release builder. It exports exact committed upstream and OmaVLESS source trees,
