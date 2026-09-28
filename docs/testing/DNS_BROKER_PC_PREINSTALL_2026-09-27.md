@@ -854,3 +854,34 @@ authorization/cancellation acceptance. The VM-specific UFW prerequisite still
 needs a reviewed user-facing treatment; the ordinary setup/template flow and
 remaining retained-state/upgrade negatives need completion before this can be
 called an RC-ready DNS path. No main, release or marketplace state changed.
+
+## September 28 bundled-template preparation diagnostic
+
+Stacked source `d8dd0398889af3676a003e0b061a9269d8f183e0` adds an explicit
+`dns-pair prepare-template` CLI step. It accepts only the byte-for-byte bundled
+default and preserves a private create-only backup; custom and partly managed
+YAML is never silently rewritten. Focused tests, the locked full Rust suite,
+clippy with warnings denied and the developer/QML suite passed locally. A
+same-source native application package SHA-256
+`ca09cf84b3ef3ca645ce0b773ff6dc7d31b0c185f901451db855cf74722048cc`
+was installed into the disconnected PC VM through ordinary local pacman. Its
+binary SHA-256 was
+`63ae0c5a46d2e9cd55ff523d270110f459cca861578622953e4b1823414870c5`.
+The broker/core package and frontend were not replaced.
+
+With the existing user runtime stopped, the installed command recognized its
+already managed private template and returned `changed:false` without changing
+its bytes; the normal runtime then restarted into a clean Disconnected state.
+For a positive preparation check, a separate empty 0700 test home and state
+root was created under the VM's private cache, using only the public bundled
+default template. The installed command returned `changed:true`, produced the
+exact two reviewed managed flags after the fixed `Meta` device line, retained
+an unchanged 0600 backup and left no staging file. In the same isolated test
+root, installed `dns-pair select` created a 0600 marker and `status` reported
+selection. The original VM config and profiles were never replaced; its user
+runtime was explicitly restarted and rechecked Disconnected with broker FD
+store zero. No network, DNS, firewall or outer-PC state changed for this test.
+
+This validates the fresh-default setup step only on the installed x86_64 VM
+package. It does not make custom-template upgrades automatic, prove release
+distribution, or substitute for the owner's formal authorization gate.
