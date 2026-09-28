@@ -157,6 +157,7 @@ fn subscription_lifecycle_error(error: LifecycleError) -> SubscriptionTransactio
             SubscriptionTransactionError::ManualRecoveryRequired
         }
         LifecycleError::InvalidRequest
+        | LifecycleError::DnsPairRequired
         | LifecycleError::State
         | LifecycleError::TransitionFailedRestored => SubscriptionTransactionError::Store,
     }

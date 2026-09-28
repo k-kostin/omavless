@@ -104,7 +104,7 @@ test('all canonical public error codes retain code and discard raw private messa
   const start=source.indexOf('pub const fn as_str(');
   const body=source.slice(start,source.indexOf('\n    }',start));
   const codes=[...body.matchAll(/=> "([a-z_]+)"/g)].map(m=>m[1]);
-  assert.equal(codes.length,15);
+  assert.equal(codes.length,16);
   for(const code of codes){
     const p={api:'omavless.control',version:1,id:'request',ok:false,revision:4,
       error:{code,message:'https://private.invalid/password?key=private-token',retryable:false}};
