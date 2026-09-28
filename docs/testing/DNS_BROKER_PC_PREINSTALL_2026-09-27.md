@@ -743,3 +743,39 @@ packet probes under disposable namespaces before installation. These are
 agent-run diagnostics only. Normal distribution/enrollment, active/unknown
 upgrade and more installed in-flight negatives, firewall policy, formal
 owner-attended acceptance and the legacy default #132 remain open.
+
+## September 28 persistent selection diagnostic in the PC VM
+
+From clean source `ca33eb726969e4811ece547cc2384204d20e3df8`, an
+unpublished x86_64 application binary SHA-256
+`ef086d0f2e22c5495f35d2f688b76d53eb0baa6bd8db091db9fe17ae9cf9e164`
+was assembled into a local native package SHA-256
+`278f6e76ce7400ae82a2e16ba1c38898e118b29b18d64d0c26ac3acb55828892`.
+The corresponding frontend archive was inspected but **not** installed; the
+VM retained the previously installed frontend. Full local Rust/developer
+checks and all three source CI jobs passed on the exact source head. With the
+VM disconnected, the application package was installed by a normal same-version
+local transaction. The source-paired DNS package, broker and private profiles
+were not replaced; the physical PC was untouched.
+
+The installed runtime first passed read-only identity, broker and clean-state
+checks **without** a selection marker. A fixed-content private user marker was
+then installed in the VM only while its runtime was stopped. After restart,
+installed-owner checks passed managed Full VPN Connect and Disconnect on the
+existing private fixture. Connected checks confirmed the owned core/TUN,
+controller managed-DNS flags and broker lease/readback; release confirmed a
+clean disconnected observation, no TUN and broker FDstore zero. No fixture ID,
+credential or provider URL entered command arguments or this document.
+
+A separate disconnected negative changed the marker to an invalid `0644`
+mode: the runtime refused startup, entered its bounded failed restart state and
+created no TUN or broker lease. After restoring `0600`, resetting only the
+failed user unit and explicitly restarting it, the runtime was active and
+disconnected with broker FDstore zero. The selection marker remains present
+in this disposable VM. This negative exercised startup validation on the
+installed `ca33eb7` bytes; the subsequent source-only `2fdef7f` addition
+rechecks the marker before every new preparation and was unit-tested, not yet
+installed. The user manager's older transient core override remains configured
+for experimental acceptance, so the VM result does not independently prove
+that normal enrollment/distribution no longer needs that override. No
+TUN-bound HTTPS or owner-attended authorization gate was run on this package.
