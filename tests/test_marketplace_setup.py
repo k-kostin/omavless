@@ -179,6 +179,21 @@ setup_components''')
             self.assertNotEqual(self.run_shell("confirm_dns_enrollment", answer).returncode, 0)
         self.assertEqual(self.run_shell("confirm_dns_enrollment", "DNS\n").returncode, 0)
 
+    def test_first_run_warns_about_firewall_without_changing_it(self):
+        source = SCRIPT.read_text()
+        for phrase in (
+            "firewall denies incoming traffic by default",
+            "межсетевой экран по умолчанию блокирует входящий трафик",
+            "Setup never changes firewall rules",
+            "Установка не меняет правила экрана",
+            "omavless runtime test checks HTTPS on the current route",
+            "omavless runtime test проверяет HTTPS на текущем маршруте",
+            "It is not a VPN leak test",
+            "Это не проверка утечки VPN",
+        ):
+            self.assertIn(phrase, source)
+        self.assertNotIn("/usr/bin/ufw", source)
+
     def download_fixture(self, *, app_hash_ok=True, dns_hash_ok=True,
                          dns_package_ok=True, app_identity_ok=True,
                          dns_identity_ok=True):

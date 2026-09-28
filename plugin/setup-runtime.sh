@@ -374,6 +374,8 @@ setup_main() {
       'Установить недостающие пакеты приложения и управляемого DNS, затем подготовить приватные настройки и службы. VPN подключаться не будет.'
     say 'Existing profiles are preserved. Existing VPN/startup must be off before migration. Passwords go only to sudo, not this prompt.' \
       'Существующие профили сохраняются. Перед переносом отключите VPN и автоподключение. Пароль вводите только в sudo, не здесь.'
+    say 'If your firewall denies incoming traffic by default, TUN may need a reviewed Meta-interface exception. Setup never changes firewall rules; read the setup guide before connecting.' \
+      'Если межсетевой экран по умолчанию блокирует входящий трафик, для TUN может потребоваться проверенное исключение интерфейса Meta. Установка не меняет правила экрана; прочитайте руководство перед подключением.'
     confirm || { say 'Cancelled. No changes made.' 'Отменено. Ничего не изменено.'; return; }
   fi
   # One transaction per user runtime directory. A stale lock after a killed
@@ -421,6 +423,8 @@ setup_main() {
     fi
     [[ $(setup_status) == ready ]] || exit 1
     say 'OmaVLESS is ready. Return to the plugin and press Check again.' 'OmaVLESS готов. Вернитесь в плагин и нажмите «Проверить снова».'
+    say 'After connecting, omavless runtime test checks HTTPS on the current route. It is not a VPN leak test.' \
+        'После подключения omavless runtime test проверяет HTTPS на текущем маршруте. Это не проверка утечки VPN.'
   ) || {
     say 'Setup did not finish. Do not repeat an unresolved authorization. Existing data was not reset; inspect the setup guide before retrying.' \
         'Настройка не завершена. Не повторяйте незавершённую авторизацию. Данные не сбрасывались; перед повтором откройте руководство.'
