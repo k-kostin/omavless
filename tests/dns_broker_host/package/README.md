@@ -24,15 +24,22 @@ Supply local Git object stores containing Mihomo
 `b50ae28a1409c7bce8e96e6c6966cf57d8ace754` (`v0.4.24`). They can be
 dirty checkouts: the builder exports only the exact pinned commits, never
 their working files. Supply an absolute local Go executable and a new absolute
-private outside-Git output path. Invoke:
+private outside-Git output path. Resolve a distribution-provided Go symlink
+such as `/usr/bin/go` to its real executable first (`readlink -f /usr/bin/go`);
+the builder deliberately refuses a symlink as the toolchain identity. Invoke:
 
 ```text
 python3 tests/dns_broker_host/package/build_pair.py \
   --mihomo-git /absolute/local/mihomo-git \
   --sing-tun-git /absolute/local/sing-tun-git \
   --go /absolute/local/go \
+  --arch x86_64 \
   --output /absolute/private/new-candidate
 ```
+
+Use `--arch aarch64` on a native Linux aarch64 builder. The requested
+architecture must match both the host and the absolute local Go toolchain;
+the builder does not silently cross-compile or accept a mismatched receipt.
 
 The OmaVLESS checkout must be committed and clean. The build uses the full
 `mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
@@ -40,12 +47,17 @@ alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
 `GOTOOLCHAIN=local`, `CGO_ENABLED=0`, locked Go/Cargo dependencies and the
 production `with_gvisor` tag. It vendors Go dependencies offline, then tests
 and builds from that vendored tree. A missing local dependency fails closed. Output
-contains both binaries, the complete corresponding patched source archive,
+contains both native-architecture binaries, the complete corresponding patched source archive,
 Mihomo/sing-tun licenses, and `source-receipt.json` with exact commits, patch
 hashes, toolchain and output hashes. The receipt is reproducibility evidence,
 not a signature, independent audit, permission to enroll, or proof of installed
-network behavior. The current builder supports x86_64 only; ARM64 needs its
-own verified toolchain/build gate.
+network behavior. The ARM64 path has source-level checks only until an exact
+native aarch64 output passes the same build, staging and installed gates.
+The separate native ARM64 CI job exercises the same pinned source-pair build
+and staging on a native Arch Linux ARM build root. It hydrates locked Go/Cargo
+caches before the builder's offline phase, then uploads only an **experimental,
+uninstalled** package. A CI artifact is not enrollment, installed acceptance,
+normal distribution or release approval.
 
 The staging fixture below now requires the pair directory and includes this
 source archive, licenses and receipt in the experimental package. It is still

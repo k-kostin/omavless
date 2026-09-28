@@ -1,0 +1,74 @@
+name: Experimental DNS pair native ARM64
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/dns-pair-native-arm64.yml'
+      - 'tests/dns_broker_host/package/**'
+      - 'tests/core_dns_adapter/**'
+      - 'crates/omavless-dns-broker/**'
+      - 'crates/omavless-dns-channel/**'
+      - 'Cargo.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  native-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify native Arch Linux ARM build root
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == aarch64 ]]
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --max-time 240 --output rootfs.tar.gz \
+            https://de3.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+          echo '42a4eeaa038994ffd31fa173256ef2f0ef511358eeb41b9ea1f8626391b9b319  rootfs.tar.gz' | sha256sum --check -
+          docker import rootfs.tar.gz omavless-dns-arm-build:local
+      - name: Build pinned pair offline after dependency hydration
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --name omavless-dns-arm-build \
+            --volume "$GITHUB_WORKSPACE:/source" --workdir /source \
+            omavless-dns-arm-build:local /bin/bash -euo pipefail -c '
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Syu --disable-sandbox --noconfirm --needed base-devel git go rustup python
+              useradd --create-home --shell /bin/bash packagebuilder
+              chown -R packagebuilder:packagebuilder /source
+              runuser -u packagebuilder -- /bin/bash -euo pipefail -c '\''
+                rustup toolchain install 1.98.0 --profile minimal
+                rustup default 1.98.0
+                mkdir -m 700 "$HOME/dns-sources"
+                git init -q "$HOME/dns-sources/mihomo"
+                git -C "$HOME/dns-sources/mihomo" fetch --depth=1 https://github.com/MetaCubeX/mihomo.git ab405bad5beeeac8b003bb01f60f134f6df54471
+                git init -q "$HOME/dns-sources/sing-tun"
+                git -C "$HOME/dns-sources/sing-tun" fetch --depth=1 https://github.com/MetaCubeX/sing-tun.git b50ae28a1409c7bce8e96e6c6966cf57d8ace754
+                bash tests/dns_broker_host/package/build-ci.sh \
+                  "$HOME/dns-sources/mihomo" "$HOME/dns-sources/sing-tun" "$HOME/dns-pair-output"
+              '\''
+            '
+          docker cp omavless-dns-arm-build:/home/packagebuilder/dns-pair-output/staged "$RUNNER_TEMP/dns-pair-staged"
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/dns-pair-staged"
+          mapfile -t packages < <(find "$RUNNER_TEMP/dns-pair-staged" -maxdepth 2 -type f \
+            -name 'omavless-dns-experimental-*.pkg.tar.*' -print)
+          [[ ${#packages[@]} == 1 ]]
+          mkdir "$RUNNER_TEMP/dns-pair-artifact"
+          cp -- "${packages[0]}" "$RUNNER_TEMP/dns-pair-artifact/"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: experimental-dns-pair-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/dns-pair-artifact/omavless-dns-experimental-*.pkg.tar.*
+          if-no-files-found: error
+          retention-days: 7

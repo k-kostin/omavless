@@ -26,6 +26,7 @@ PATCH_SHA = {
     "sing-tun-descriptor.patch": "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab",
 }
 MAX_ARCHIVE = 128 * 1024 * 1024
+GO_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 
 
 def digest(path):
@@ -77,7 +78,15 @@ def export_git(repository, revision, destination):
     archive.unlink()
 
 
-def reviewed_go(go):
+def reviewed_target(architecture, system, machine):
+    if architecture not in GO_ARCH or system != "Linux" or machine != architecture:
+        raise stage.Refused("A native Linux build for the selected architecture is required.")
+    return GO_ARCH[architecture]
+
+
+def reviewed_go(go, architecture):
+    if architecture not in GO_ARCH:
+        raise stage.Refused("A supported architecture is required.")
     path = Path(go)
     if (not path.is_absolute() or not path.is_file() or path.is_symlink()
             or not os.access(path, os.X_OK)):
@@ -87,20 +96,23 @@ def reviewed_go(go):
     if result.returncode != 0 or len(result.stdout) > 256:
         raise stage.Refused("Go toolchain identity is unavailable.")
     version = result.stdout.decode("ascii").strip()
-    if not version.startswith("go version go1.") or not version.endswith(" linux/amd64"):
-        raise stage.Refused("This review builder currently requires Linux amd64 Go.")
+    if (not version.startswith("go version go1.")
+            or not version.endswith(" linux/" + GO_ARCH[architecture])):
+        raise stage.Refused("The local Go toolchain does not match the selected architecture.")
     return version
 
 
-def build(mihomo_git, sing_tun_git, go, output):
+def build(mihomo_git, sing_tun_git, go, architecture, output):
     output = stage.outside_git_destination(output)
+    host = os.uname()
+    go_arch = reviewed_target(architecture, host.sysname, host.machine)
     revision = git_value(REPO, "rev-parse", "HEAD")
     if len(revision) != 40 or git_value(REPO, "status", "--porcelain", "--untracked-files=no"):
         raise stage.Refused("The OmaVLESS source checkout must be committed and clean.")
     for filename, expected in PATCH_SHA.items():
         if digest(PATCHES / filename) != expected:
             raise stage.Refused("Reviewed patch identity changed.")
-    go_version = reviewed_go(go)
+    go_version = reviewed_go(go, architecture)
     with tempfile.TemporaryDirectory(prefix=".omavless-dns-build-", dir=output.parent) as scratch:
         work = Path(scratch)
         sources = work / "sources"
@@ -119,7 +131,8 @@ def build(mihomo_git, sing_tun_git, go, output):
                     cwd=sources / directory, env=git_env)
         go_env = {"PATH": "/usr/bin:/bin", "HOME": os.environ["HOME"],
                   "GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local",
-                  "GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "0"}
+                  "GOWORK": "off",
+                  "GOOS": "linux", "GOARCH": go_arch, "CGO_ENABLED": "0"}
         command([go, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"],
                 cwd=sources / "mihomo", env=go_env)
         command([go, "mod", "vendor"], cwd=sources / "mihomo", env=go_env)
@@ -150,9 +163,9 @@ def build(mihomo_git, sing_tun_git, go, output):
                 cwd=sources / "omavless", env=cargo_env)
         shutil.copy2(work / "cargo-target/release/omavless-dns-broker",
                      package / "omavless-dns-broker")
-        stage.reviewed_binary(core, digest(core), "x86_64")
+        stage.reviewed_binary(core, digest(core), architecture)
         stage.reviewed_binary(package / "omavless-dns-broker",
-                              digest(package / "omavless-dns-broker"), "x86_64")
+                              digest(package / "omavless-dns-broker"), architecture)
         with tarfile.open(package / "corresponding-source.tar.xz", "w:xz") as stream:
             for name in ("mihomo", "sing-tun", "omavless"):
                 stream.add(sources / name, arcname=name, recursive=True)
@@ -160,7 +173,7 @@ def build(mihomo_git, sing_tun_git, go, output):
             shutil.copy2(sources / name / "LICENSE", package / (name + ".LICENSE"))
         shutil.copy2(sources / "omavless/LICENSE", package / "omavless.LICENSE")
         receipt = {
-            "schema": 1, "architecture": "x86_64", "omavless_commit": revision,
+            "schema": 1, "architecture": architecture, "omavless_commit": revision,
             "mihomo_commit": MIHOMO, "mihomo_tag": "v1.19.31",
             "sing_tun_commit": SING_TUN, "sing_tun_tag": "v0.4.24",
             "patch_sha256": PATCH_SHA, "go_version": go_version,
@@ -189,9 +202,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("mihomo-git", "sing-tun-git", "go", "output"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--arch", choices=tuple(GO_ARCH), required=True)
     args = parser.parse_args()
     try:
-        receipt = build(args.mihomo_git, args.sing_tun_git, args.go, args.output)
+        receipt = build(args.mihomo_git, args.sing_tun_git, args.go,
+                        args.arch, args.output)
     except (OSError, ValueError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired, stage.Refused):
         parser.exit(1, "Offline DNS pair build refused; no package installed or activated.\n")
