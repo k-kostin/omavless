@@ -198,4 +198,20 @@ mod tests {
             assert_eq!(validate(&request).is_ok(), params == json!({}));
         }
     }
+
+    #[test]
+    fn malformed_later_rows_refuse_whole_projection() {
+        let mut rows = vec![json!({}); 128];
+        rows.push(json!({"metadata":{"network":false}}));
+        assert_eq!(
+            project(extract(&json!({"connections":rows})))["availability"],
+            "unavailable"
+        );
+        assert_eq!(
+            project(extract(
+                &json!({"connections":vec![json!({});crate::connections_summary::MAX_CONNECTIONS+1]})
+            ))["availability"],
+            "unavailable"
+        );
+    }
 }

@@ -81,7 +81,7 @@
   "tui.connection_rows_empty":{"en":"No active connections observed","ru":"Активных соединений не обнаружено"},
   "tui.connection_route_direct":{"en":"DIRECT","ru":"Напрямую"},
   "tui.connection_route_blocked":{"en":"REJECT","ru":"Блокировано"},
-  "tui.connection_route_vpn":{"en":"PROXY","ru":"Через прокси"},
+  "tui.connection_route_vpn":{"en":"PROXY chain","ru":"Цепочка PROXY"},
   "tui.traffic_history_scope":{"en":"Recent TUN-rate samples · last 60s · relative scale, not continuous monitoring","ru":"Недавние замеры скорости TUN · 60 с · относительная шкала, не непрерывный мониторинг"},
   "tui.connection_categories_scope":{"en":"Owned core's active-connection categories; not proof that all traffic follows this route.","ru":"Категории активных соединений своего ядра; это не доказывает маршрут всего трафика."},
   "tui.connection_network_counts":{"en":"Core network types","ru":"Типы сети по данным ядра"},
