@@ -17,6 +17,8 @@ use std::{
 
 const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
+#[path = "support/packet.rs"]
+mod packet;
 const DIAGNOSTIC: &str = "K1_NFT_SYNTHETIC_READBACK=";
 
 // Only explicitly requested, bounded JSON from this harness's newly created
@@ -118,17 +120,24 @@ struct NamespaceGuard {
     claimed_parent: NamespaceIdentity,
 }
 impl NamespaceGuard {
-    fn check(&self) -> Result<u64, &'static str> {
+    fn check_identity(&self) -> Result<NamespaceIdentity, &'static str> {
         let current =
             fd_identity(&File::open("/proc/self/ns/net").map_err(|_| "namespace_unavailable")?)?;
         let parent = fd_identity(&self.parent_fd)?;
+        if current.ino == 0
+            || parent.ino == 0
+            || current.dev != parent.dev
+            || current == parent
+            || parent != self.claimed_parent
+        {
+            return Err("isolation_refused");
+        }
+        Ok(current)
+    }
+    fn check(&self) -> Result<u64, &'static str> {
+        let current = self.check_identity()?;
         let dev = bounded_read(Path::new("/proc/net/dev"))?;
-        if !isolated(
-            current,
-            parent,
-            self.claimed_parent,
-            std::str::from_utf8(&dev).map_err(|_| "invalid_interfaces")?,
-        ) {
+        if !only_loopback(std::str::from_utf8(&dev).map_err(|_| "invalid_interfaces")?) {
             return Err("isolation_refused");
         }
         Ok(current.ino)
@@ -163,7 +172,7 @@ impl Scratch {
 }
 impl Drop for Scratch {
     fn drop(&mut self) {
-        for name in ["input.json", "stdout", "stderr"] {
+        for name in ["input.json", "stdout", "stderr", "packet.py"] {
             let _ = fs::remove_file(self.0.join(name));
         }
         let _ = fs::remove_dir(&self.0);
