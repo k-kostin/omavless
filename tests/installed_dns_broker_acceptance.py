@@ -47,6 +47,7 @@ BROKER_UNIT_SHA = "a82b31226f09dc0b8aa9d247a2919f66a2b4d46070356e56c21cf2df26725
 RELEASE_UNIT_SHA = "126b208158e9288c475084c8bd74029e2808edf9846da514a369266b6306462d"
 RUNTIME = "omavless-runtime.service"
 SELECTION_BYTES = b"managed-dns-source-pair-v1\n"
+RELEASE_SELECTION_BYTES = b"managed-dns-release-v1\n"
 MODES = ("global", "rule", "direct", "global")
 # The built-in isolated profile check uses these independent public HTTPS
 # endpoints. A single website timeout is not evidence that the TUN is broken.
@@ -59,6 +60,7 @@ DIRECT_IP_HTTPS = "https://cloudflare-dns.com/cdn-cgi/trace"
 DIRECT_IP_RESOLVE = "cloudflare-dns.com:443:1.1.1.1"
 SAFE_FAILURES = frozenset((
     "vless_fixture_unavailable", "baseline_not_disconnected", "native_action_rejected",
+    "installed_core_not_selected",
     "connected_state_unverified",
     "mode_unconfirmed", "managed_tun_unverified", "runtime_cgroup_unverified",
     "owned_core_unverified", "running_core_not_pinned", "core_socket_identity",
@@ -125,8 +127,10 @@ def selected_profile(state, index=None):
     raise gate.Failure("vless_fixture_unavailable")
 
 
-def durable_core_selection(config_directory, uid):
+def durable_core_selection(config_directory, uid, pair="experimental"):
     """Pin the normal post-reboot selector, not a transient systemd override."""
+    pair_paths(pair)
+    expected = RELEASE_SELECTION_BYTES if pair == "release" else SELECTION_BYTES
     try:
         parent = config_directory.lstat()
         before = (config_directory / "managed-dns-selection").lstat()
@@ -137,7 +141,7 @@ def durable_core_selection(config_directory, uid):
     path = config_directory / "managed-dns-selection"
     require(stat.S_ISREG(before.st_mode) and before.st_uid == uid
             and before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600
-            and before.st_size == len(SELECTION_BYTES), "installed_core_not_selected")
+            and before.st_size == len(expected), "installed_core_not_selected")
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError as error:
@@ -145,7 +149,7 @@ def durable_core_selection(config_directory, uid):
     try:
         after = os.fstat(descriptor)
         require((after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
-                and os.read(descriptor, len(SELECTION_BYTES) + 1) == SELECTION_BYTES,
+                and os.read(descriptor, len(expected) + 1) == expected,
                 "installed_core_not_selected")
     finally:
         os.close(descriptor)
@@ -171,7 +175,7 @@ def installed_identity(expected_sha, pair="experimental"):
     overrides = [entry for entry in environment if entry.startswith(b"OMAVLESS_MIHOMO=")]
     require(not overrides or overrides == [b"OMAVLESS_MIHOMO=" + os.fsencode(core_path)],
             "installed_core_not_selected")
-    durable_core_selection(Path.home() / ".config/omavless", os.getuid())
+    durable_core_selection(Path.home() / ".config/omavless", os.getuid(), pair)
     return pid
 
 

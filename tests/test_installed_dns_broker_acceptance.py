@@ -35,6 +35,13 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
             marker.write_bytes(gate.SELECTION_BYTES)
             os.chmod(marker, 0o600)
             gate.durable_core_selection(config, os.getuid())
+            marker.write_bytes(gate.RELEASE_SELECTION_BYTES)
+            gate.durable_core_selection(config, os.getuid(), "release")
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid(), "experimental")
+            marker.write_bytes(gate.SELECTION_BYTES)
+            with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
+                gate.durable_core_selection(config, os.getuid(), "release")
             marker.write_bytes(b"managed-dns-source-pair-v1\nextra")
             with self.assertRaisesRegex(gate.gate.Failure, "^installed_core_not_selected$"):
                 gate.durable_core_selection(config, os.getuid())
@@ -102,10 +109,11 @@ class InstalledDnsBrokerAcceptanceTests(unittest.TestCase):
                 patch.object(gate.installed, "command", return_value=b"rust\n"), \
                 patch.object(gate.installed, "unit", side_effect=["41", "active"]), \
                 patch.object(gate.gate, "bounded", return_value=b""), \
-                patch.object(gate, "durable_core_selection"):
+                patch.object(gate, "durable_core_selection") as selection:
             self.assertEqual(gate.installed_identity("a" * 64, "release"), 41)
         release.assert_called_once_with("a" * 64)
         experimental.assert_not_called()
+        selection.assert_called_once_with(Path.home() / ".config/omavless", os.getuid(), "release")
 
     def test_release_cli_requires_exclusive_complete_pin_pair_before_runner(self):
         release_args = ["--run", "--pair", "release", "--release-core-sha", "a" * 64,
