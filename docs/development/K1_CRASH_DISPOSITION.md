@@ -141,6 +141,10 @@ removal, persistent survival/released owner and foreign-socket refusal/adoption
 behavior without interpreting adoption as application ownership. It requires
 explicit coordination and exact VM-kernel evidence; it is proposed, not run.
 
+The follow-on [opt-in socket-lifetime harness](K1_OWNER_LIFETIME.md) implements
+this bounded experiment. Its owning Draft PR carries exact-head VM evidence;
+it does not enable production adoption or close the authority gate.
+
 Before production, add process-kill/crash points across exclusive kernel commit,
 receipt/fsync and reply, real supported-filesystem reboot tests, trusted canonical
 namespace/subsystem continuity, enrollment/boot/service/package integration,
