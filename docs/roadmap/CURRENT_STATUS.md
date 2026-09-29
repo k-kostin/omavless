@@ -33,14 +33,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
   locally installed package identity; the user observed no separate DNS/route
   password dialogs during runtime transitions. The immutable validation-only
   `v0.9.0-rc.1` packages/frontend were anonymously downloaded and hash-verified.
-  ARM64 same-account first use installed both from those public pins and completed
-  graphical onboarding, with preserved prior-account markers handled explicitly.
-  A separate empty-account GUI pass clicked Required components, completed
-  enrollment/activation against the installed pair, and reached disconnected/Rule
-  with no profiles; it found and fixed a false pre-activation VPN-controls display.
-  These are complementary runs, not one blank-machine end-to-end installation.
+  An ARM64 account with an empty private home and both system packages removed
+  completed the real Required components GUI path: pinned public downloads,
+  package installation, DNS enrollment, onboarding and the usable
+  disconnected/Rule panel, with no profiles or automatic VPN. The original
+  private store was preserved and its broker enrollment restored. A preceding empty-account pass
+  found and fixed false pre-activation VPN controls.
   A stopped-broker Connect refusal restored Disconnected/Rule without a false Full VPN claim.
-  Combined blank-machine setup, in-flight negative/recovery coverage and final
+  In-flight negative/recovery coverage and final
   #270/#132 disposition remain. #270/#132 are open; main and
   rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the
