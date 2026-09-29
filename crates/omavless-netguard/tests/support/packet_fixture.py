@@ -5,6 +5,7 @@ readback. This helper refuses all socket effects without its inherited pinned
 parent namespace descriptor, exact child identity and fixed interface inventory.
 """
 import ipaddress
+import errno
 import os
 import select
 import socket
@@ -118,6 +119,87 @@ def frame_matches(frame, expected, family):
     return observed == expected
 
 
+def application_cases():
+    cases = []
+    for family in [4, 6]:
+        for protocol in [6, 17]:
+            for port in [53, 443]:
+                cases.append(vector(f"app{family}_{protocol}_{port}", family, protocol,
+                                    sport=43000 + len(cases), dport=port))
+        cases.append(vector(f"app{family}_marked_dns", family, 17,
+                            sport=43000 + len(cases), dport=53, mark=MARK, allowed=True))
+    return cases
+
+
+def application_frame_matches(frame, case):
+    """Match only the emitted tuple + actual SYN or unique UDP body.
+
+    Kernel-selected TCP options, IPv4 IDs and checksum-offload fields are not
+    policy predicates. No arbitrary traffic can match this isolated fixture.
+    """
+    if len(frame) < 14:
+        return False
+    data = frame[14:]
+    src = ipaddress.ip_address(case["src"]).packed
+    dst = ipaddress.ip_address(case["dst"]).packed
+    if case["family"] == 4:
+        if frame[12:14] != b"\x08\x00" or len(data) < 20 or data[0] >> 4 != 4:
+            return False
+        offset = (data[0] & 15) * 4
+        if offset < 20 or data[9] != case["protocol"] or data[12:16] != src or data[16:20] != dst:
+            return False
+    else:
+        if (frame[12:14] != b"\x86\xdd" or len(data) < 40 or data[0] >> 4 != 6
+                or data[6] != case["protocol"] or data[8:24] != src or data[24:40] != dst):
+            return False
+        offset = 40
+    transport = data[offset:]
+    if len(transport) < 8 or transport[:4] != struct.pack("!HH", case["sport"], case["dport"]):
+        return False
+    if case["protocol"] == 6:
+        return len(transport) >= 20 and transport[13] & 0x12 == 0x02
+    return transport[8:] == TOKEN + case["name"].encode("ascii")
+
+
+def application_case(case, phase):
+    output = guard(phase)
+    family = socket.AF_INET if case["family"] == 4 else socket.AF_INET6
+    kind = socket.SOCK_STREAM if case["protocol"] == 6 else socket.SOCK_DGRAM
+    with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3)) as capture:
+        capture.bind(("k1peer0", 0))
+        capture.setblocking(False)
+        guard(phase)
+        with socket.socket(family, kind) as sender:
+            sender.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, output.encode() + b"\0")
+            if case["mark"]:
+                sender.setsockopt(socket.SOL_SOCKET, socket.SO_MARK, case["mark"])
+            sender.bind((case["src"], case["sport"]))
+            sender.setblocking(False)
+            guard(phase)
+            destination = (case["dst"], case["dport"])
+            if kind == socket.SOCK_STREAM:
+                code = sender.connect_ex(destination)
+                if code not in (0, errno.EINPROGRESS, errno.EACCES, errno.EPERM):
+                    raise RuntimeError("unexpected connect result")
+            else:
+                try:
+                    sender.sendto(TOKEN + case["name"].encode("ascii"), destination)
+                except PermissionError:
+                    pass
+            deadline = time.monotonic() + 0.08
+            seen = False
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([capture], [], [], max(0, deadline - time.monotonic()))
+                if not ready:
+                    break
+                if application_frame_matches(capture.recv(4096), case):
+                    seen = True
+                    break
+    allowed = phase in ("baseline", "interface") or (phase == "full" and case["allowed"])
+    if seen != allowed:
+        raise RuntimeError("application vector mismatch")
+
+
 def namespace_facts_valid(parent, inherited, current, names, phase):
     output = "omavless0" if phase in ("interface", "emergency") else "k1out0"
     return (parent == inherited and parent[0] == current[0]
@@ -204,6 +286,15 @@ def self_test():
     cases = vectors()
     assert len(cases) == 43 and len({c["name"] for c in cases}) == 43
     assert sum(c["allowed"] for c in cases) == 7
+    app_cases = application_cases()
+    assert len(app_cases) == 10 and sum(c["allowed"] for c in app_cases) == 2
+    for case in app_cases:
+        encoded = packet(case)
+        frame = b"\0" * 12 + (b"\x08\x00" if case["family"] == 4 else b"\x86\xdd") + encoded
+        assert application_frame_matches(frame, case)
+        assert not application_frame_matches(frame, case | dict(dport=9999))
+        assert not application_frame_matches(frame, case | dict(src="10.0.0.1" if case["family"] == 4 else "fd00::1"))
+        assert not application_frame_matches(frame[:20], case)
     for case in cases:
         encoded = packet(case)
         frame = b"\0" * 12 + (b"\x08\x00" if case["family"] == 4 else b"\x86\xdd") + encoded
@@ -230,6 +321,9 @@ if __name__ == "__main__":
             for index, item in enumerate(vectors(), 1):
                 print("K1_PACKET_CASE=" + str(index), flush=True)
                 run_case(item, mode)
+            for index, item in enumerate(application_cases(), 44):
+                print("K1_PACKET_CASE=" + str(index), flush=True)
+                application_case(item, mode)
             print("K1_PACKET_PASS=" + mode)
         except Exception:
             # Never expose packet bytes, paths or tool output on failure.

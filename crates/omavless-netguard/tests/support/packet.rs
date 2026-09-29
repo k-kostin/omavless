@@ -33,14 +33,23 @@ fn links_valid(value: &Value, output: &str, pinned: Option<(u64, u64)>) -> Optio
         }
     }
     let indexes = (out["ifindex"].as_u64()?, peer["ifindex"].as_u64()?);
+    // Actual same-netns iproute2 readback uses reciprocal link names. Numeric
+    // peer indexes are accepted only as a complete separate representation.
+    let named = out.get("link_index").is_none()
+        && peer.get("link_index").is_none()
+        && out["link"] == PEER
+        && peer["link"] == output;
+    let indexed = out.get("link").is_none()
+        && peer.get("link").is_none()
+        && out["link_index"].as_u64() == Some(indexes.1)
+        && peer["link_index"].as_u64() == Some(indexes.0);
     if indexes.0 <= 1
         || indexes.1 <= 1
         || indexes.0 == indexes.1
         || pinned.is_some_and(|p| p != indexes)
         || out["linkinfo"]["info_kind"] != "veth"
         || peer["linkinfo"]["info_kind"] != "veth"
-        || out["link_index"].as_u64()? != indexes.1
-        || peer["link_index"].as_u64()? != indexes.0
+        || !(named || indexed)
     {
         return None;
     }
@@ -182,10 +191,10 @@ impl PacketGuard {
             Stdio::from(self.base.parent_fd.try_clone().unwrap()),
         )
         .unwrap();
-        if !result.success {
-            if let Some(index) = last_case(&result.bytes) {
-                println!("K1_PACKET_CASE={index}");
-            }
+        if !result.success
+            && let Some(index) = last_case(&result.bytes)
+        {
+            println!("K1_PACKET_CASE={index}");
         }
         assert!(
             result.success
@@ -257,7 +266,7 @@ fn last_case(bytes: &[u8]) -> Option<u8> {
             line.strip_prefix("K1_PACKET_CASE=")?
                 .parse::<u8>()
                 .ok()
-                .filter(|v| (1..=43).contains(v))
+                .filter(|v| (1..=53).contains(v))
         })
         .next_back()
 }
@@ -292,8 +301,8 @@ fn nft_packet_child() {
     );
     let links = ip(&base, &["-j", "-d", "link", "show"]);
     assert!(links.success);
-    let indexes = links_valid(&serde_json::from_slice(&links.bytes).unwrap(), OUT, None)
-        .expect("local veth pair required");
+    let links_value: Value = serde_json::from_slice(&links.bytes).unwrap();
+    let indexes = links_valid(&links_value, OUT, None).expect("local veth pair required");
     let mut guard = PacketGuard {
         base,
         child,
@@ -390,6 +399,23 @@ fn topology_and_route_guards_refuse_uplinks_defaults_and_identity_changes() {
         {"ifname":PEER,"ifindex":3,"link_index":2,"linkinfo":{"info_kind":"veth"}}
     ]);
     assert_eq!(links_valid(&fixture, OUT, Some((2, 3))), Some((2, 3)));
+    let mut named = fixture.clone();
+    named[1].as_object_mut().unwrap().remove("link_index");
+    named[2].as_object_mut().unwrap().remove("link_index");
+    named[1]["link"] = json!(PEER);
+    named[2]["link"] = json!(OUT);
+    assert_eq!(links_valid(&named, OUT, Some((2, 3))), Some((2, 3)));
+    for (index, field, value) in [
+        (1, "link", json!("foreign")),
+        (2, "link", json!(PEER)),
+        (1, "link_index", json!(3)),
+        (1, "link_netnsid", json!(0)),
+        (2, "master", json!(1)),
+    ] {
+        let mut changed = named.clone();
+        changed[index][field] = value;
+        assert_eq!(links_valid(&changed, OUT, Some((2, 3))), None);
+    }
     for (pointer, bad) in [
         ("/1/link_index", json!(55)),
         ("/1/linkinfo/info_kind", json!("tun")),
