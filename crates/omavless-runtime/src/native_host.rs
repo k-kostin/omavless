@@ -548,6 +548,13 @@ impl LifecycleHost for NativeLifecycleHost {
         let payload = self.owned_connections_payload(desired)?;
         crate::connection_overview::aggregate(&payload).ok_or(HostStepError::Observation)
     }
+    fn active_connection_rows(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<crate::connection_rows::ConnectionRows, HostStepError> {
+        let payload = self.owned_connections_payload(desired)?;
+        crate::connection_rows::extract(&payload).ok_or(HostStepError::Observation)
+    }
     fn fresh_observation(
         &mut self,
         desired: &DesiredState,

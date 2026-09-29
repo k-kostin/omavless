@@ -17,6 +17,7 @@ pub struct Capabilities {
     pub refresh_all: bool,
     pub connection_count: bool,
     pub connection_overview: bool,
+    pub connection_rows: bool,
 }
 impl Capabilities {
     pub fn parse(methods: &[Value]) -> Self {
@@ -43,6 +44,7 @@ impl Capabilities {
                 && has("operations.cancel"),
             connection_count: has("runtime.connections"),
             connection_overview: has("runtime.connection_overview"),
+            connection_rows: has("runtime.connection_rows"),
         }
     }
 }
@@ -72,6 +74,80 @@ pub struct ConnectionOverview {
     pub blocked: u32,
     pub vpn: u32,
     pub unclassified: u32,
+}
+
+#[derive(Clone)]
+pub struct ConnectionRow {
+    pub host: Option<String>,
+    pub ip: Option<String>,
+    pub port: Option<u16>,
+    pub network: &'static str,
+    pub route: &'static str,
+}
+
+#[derive(Clone)]
+pub struct ConnectionRows {
+    pub total: u32,
+    pub truncated: bool,
+    pub rows: Vec<ConnectionRow>,
+}
+
+impl ConnectionRows {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let result = &value["result"];
+        if value["ok"] != true
+            || result["schemaVersion"] != 1
+            || result["scope"] != "owned_core_private_connection_rows"
+            || result["availability"] != "observed"
+        {
+            return None;
+        }
+        let total = u32::try_from(result["total"].as_u64().filter(|n| *n <= 4096)?).ok()?;
+        let rows = result["rows"].as_array().filter(|rows| rows.len() <= 128)?;
+        if result["shown"].as_u64()? != rows.len() as u64
+            || (total as usize) < rows.len()
+            || result["truncated"].as_bool()? != (total as usize > rows.len())
+        {
+            return None;
+        }
+        let token = |value: &Value, allowed: &[&'static str]| {
+            let value = value.as_str()?;
+            allowed.iter().copied().find(|token| *token == value)
+        };
+        let mut parsed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let host = row["host"]
+                .as_str()
+                .filter(|host| {
+                    !host.is_empty()
+                        && host.len() <= 120
+                        && host
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'_'))
+                })
+                .map(str::to_owned);
+            let ip = row["ip"]
+                .as_str()
+                .and_then(|ip| ip.parse::<std::net::IpAddr>().ok())
+                .map(|ip| ip.to_string());
+            let port = row["port"]
+                .as_u64()
+                .and_then(|port| u16::try_from(port).ok())
+                .filter(|port| *port != 0);
+            parsed.push(ConnectionRow {
+                host,
+                ip,
+                port,
+                network: token(&row["network"], &["tcp", "udp", "other"])?,
+                route: token(&row["route"], &["direct", "blocked", "vpn", "unclassified"])?,
+            });
+        }
+        Some(Self {
+            total,
+            truncated: result["truncated"].as_bool()?,
+            rows: parsed,
+        })
+    }
 }
 
 impl ConnectionOverview {
@@ -175,6 +251,7 @@ pub enum Page {
     #[default]
     Profiles,
     Traffic,
+    Connections,
     Details,
     Diagnostics,
     Host,
@@ -192,6 +269,7 @@ impl Page {
             Self::Profiles,
             Self::Traffic,
             Self::Details,
+            Self::Connections,
             Self::Diagnostics,
             Self::Settings,
             Self::Activity,
@@ -209,6 +287,7 @@ impl Page {
         match self {
             Self::Profiles => "tui.profiles",
             Self::Traffic => "tui.traffic",
+            Self::Connections => "tui.connections",
             Self::Details => "tui.details",
             Self::Diagnostics => "tui.diagnostics",
             Self::Host => "tui.host",

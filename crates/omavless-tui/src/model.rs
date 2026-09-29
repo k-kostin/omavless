@@ -106,6 +106,7 @@ pub struct Observation {
 pub struct Snapshot {
     pub active_connections: Option<u32>,
     pub connection_overview: Option<crate::inspection::ConnectionOverview>,
+    pub connection_rows: Option<crate::inspection::ConnectionRows>,
     pub profile_details: Option<crate::inspection::ProfileDetails>,
     pub core_diagnostics: Option<crate::inspection::CoreDiagnostics>,
     pub capabilities: crate::inspection::Capabilities,
@@ -235,6 +236,7 @@ impl Snapshot {
         Ok(Self {
             active_connections: None,
             connection_overview: None,
+            connection_rows: None,
             profile_details: None,
             core_diagnostics: crate::inspection::CoreDiagnostics::parse(
                 &observed["result"]["coreDiagnostics"],

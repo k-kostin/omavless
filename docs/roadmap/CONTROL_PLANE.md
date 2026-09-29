@@ -1449,6 +1449,27 @@ method. It makes no route or Internet-protection claim and has no close action.
 The TUI prefers it only when advertised, otherwise retains the count-only read;
 neither method runs on a hidden page.
 
+### `runtime.connection_rows` (private T3 development)
+
+This separate exact-empty-params read is requested only while the terminal's
+Connections page is open. It uses the same owned PID/controller, 750-ms read
+deadline, pre/post observation, desired-state and revision fences as the two
+reads above. The response is bounded to at most 128 of 4096 owned-core rows,
+with explicit total, shown and truncated fields; unavailable is never shown
+as zero. Each row contains only a validated destination host and/or parsed IP,
+numeric port, TCP/UDP/other category and conservative
+DIRECT/REJECT/PROXY/unclassified category. Unknown or conflicting chains are
+unclassified. Process/source addresses, raw chain names, IDs, credentials and
+traffic payloads are discarded in Rust before IPC. Malformed controller data
+fails closed; no partial result is returned.
+
+Destinations remain **private**, unlike the aggregate overview: this method
+must not enter ordinary status, support exports or shareable diagnostics. The
+TUI brackets the result by the same instance and revision and discards it when
+the page is left. It has no filtering or close-connection mutation and does not
+prove that the rest of the system uses the same route. Installed and live T3
+acceptance is still pending.
+
 ### Existing details read in the TUI
 
 `profiles.details` remains the explicit same-user private method documented

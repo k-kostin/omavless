@@ -628,6 +628,56 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     let unknown = || tr("tui.metric_unavailable").to_owned();
     let boolean = |value: bool| tr(if value { "tui.yes" } else { "tui.no" }).to_owned();
     match app.page {
+        Page::Connections => {
+            let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
+            let Some(connections) = &s.connection_rows else {
+                lines.push(Line::from(tr("tui.metric_unavailable")));
+                return lines;
+            };
+            lines.push(field(
+                "tui.active_connections",
+                connections.total.to_string(),
+            ));
+            lines.push(field(
+                "tui.connection_rows_shown",
+                connections.rows.len().to_string(),
+            ));
+            if connections.truncated {
+                lines.push(Line::from(tr("tui.connection_rows_truncated")));
+            }
+            lines.push(Line::from(""));
+            if connections.rows.is_empty() {
+                lines.push(Line::from(tr("tui.connection_rows_empty")));
+            }
+            for row in &connections.rows {
+                let destination = row
+                    .host
+                    .as_deref()
+                    .or(row.ip.as_deref())
+                    .map(|destination| display(destination, 64))
+                    .unwrap_or_else(|| tr("tui.metric_unavailable").to_owned());
+                let endpoint = row
+                    .port
+                    .map_or(destination.clone(), |port| format!("{destination}:{port}"));
+                lines.push(Line::from(format!(
+                    "{} · {} · {}",
+                    endpoint,
+                    row.network,
+                    tr(match row.route {
+                        "direct" => "tui.connection_route_direct",
+                        "blocked" => "tui.connection_route_blocked",
+                        "vpn" => "tui.connection_route_vpn",
+                        _ => "tui.connection_unclassified",
+                    })
+                )));
+                if row.host.is_some()
+                    && let Some(ip) = &row.ip
+                {
+                    lines.push(Line::from(format!("  {}", display(ip, 64))));
+                }
+            }
+            lines
+        }
         Page::Traffic => {
             let mut lines = vec![
                 field(

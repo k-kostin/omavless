@@ -408,6 +408,12 @@ prints raw core log lines, and zero counts do not establish a healthy connection
 This is development scope, not T3 acceptance: installed EN/RU terminal review,
 live owner-restart behavior and the remaining connections/route/traffic/log
 work retain their own tests and evidence before promotion.
+An additional explicit Connections page can read a bounded private destination
+list from the owned core, with total/shown/truncated indicators and conservative
+route categories. It is loaded only on that page, never in background status or
+support output; it cannot close connections. This is still not proof of the
+whole-system route, and installed narrow-terminal plus stale-owner review
+remains required.
 The saved-override subview uses the separate explicit private
 `routing.custom_rules.list` payload. It discards opaque editor IDs and labels
 these as configured rules rather than loaded core policy; it has no edit/delete

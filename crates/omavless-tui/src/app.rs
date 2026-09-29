@@ -64,6 +64,14 @@ pub enum Action {
 }
 
 impl App {
+    fn leave_private_connections(&mut self, next: crate::inspection::Page) {
+        if self.page == crate::inspection::Page::Connections
+            && next != crate::inspection::Page::Connections
+            && let Some(snapshot) = &mut self.snapshot
+        {
+            snapshot.connection_rows = None;
+        }
+    }
     pub fn new(locale: Locale) -> Self {
         Self {
             jobs_enabled: false,
@@ -322,6 +330,7 @@ impl App {
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             if key.code == KeyCode::Char(',') {
+                self.leave_private_connections(crate::inspection::Page::Settings);
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
                 self.operator_query.clear();
@@ -342,9 +351,11 @@ impl App {
             }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
-            self.page = self
+            let next = self
                 .page
                 .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
+            self.leave_private_connections(next);
+            self.page = next;
             self.inspection_scroll = 0;
             self.operator_query.clear();
             return Action::Refresh;
@@ -477,7 +488,7 @@ impl App {
                 KeyCode::Home => self.inspection_scroll = 0,
                 KeyCode::End => self.inspection_scroll = u16::MAX,
                 KeyCode::Esc => {
-                    self.page = if matches!(
+                    let next = if matches!(
                         self.page,
                         crate::inspection::Page::Host
                             | crate::inspection::Page::Rules
@@ -488,6 +499,8 @@ impl App {
                     } else {
                         crate::inspection::Page::Profiles
                     };
+                    self.leave_private_connections(next);
+                    self.page = next;
                     self.operator_query.clear();
                     return Action::Refresh;
                 }
