@@ -87,6 +87,10 @@ conditional kernel mutation and crash tests, root enrollment/IPC/service/boot
 ordering, package upgrade/removal, runtime and Mihomo mark integration, DNS and
 firewall coexistence, and the [K1 host/physical matrix](../roadmap/KILL_SWITCH.md).
 Existing round-trip/packet evidence stays attached to its tested heads.
+The separate [VM kernel-capability gate](K1_KERNEL_CAPABILITIES.md) exercises
+namespace IDs/cookies, conditional generations, handle deletion and atomic
+rollback inside a disposable namespace. It does not authenticate receipts or
+resolve orphan disposition, module lifetime or production namespace provenance.
 
 ## Deterministic coverage
 

@@ -17,6 +17,8 @@ use std::{
 
 const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
+#[path = "support/capability.rs"]
+mod capability;
 #[path = "support/packet.rs"]
 mod packet;
 const DIAGNOSTIC: &str = "K1_NFT_SYNTHETIC_READBACK=";
@@ -172,7 +174,13 @@ impl Scratch {
 }
 impl Drop for Scratch {
     fn drop(&mut self) {
-        for name in ["input.json", "stdout", "stderr", "packet.py"] {
+        for name in [
+            "input.json",
+            "stdout",
+            "stderr",
+            "packet.py",
+            "capability.py",
+        ] {
             let _ = fs::remove_file(self.0.join(name));
         }
         let _ = fs::remove_dir(&self.0);
