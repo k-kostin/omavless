@@ -7,10 +7,16 @@ use std::net::IpAddr;
 
 const MAX_ROWS: usize = 128;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ConnectionRows {
     total: usize,
     rows: Vec<Value>,
+}
+
+impl std::fmt::Debug for ConnectionRows {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectionRows([private])")
+    }
 }
 
 pub(crate) fn validate(request: &Value) -> Result<(), MutationProtocolError> {
@@ -174,6 +180,8 @@ mod tests {
         for secret in ["secret-id", "private-node", "/private/app"] {
             assert!(!result.to_string().contains(secret));
         }
+        let private = extract(&payload).unwrap();
+        assert!(!format!("{private:?}").contains("example.org"));
     }
 
     #[test]
