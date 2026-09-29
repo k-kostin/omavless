@@ -472,6 +472,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.transaction.uid()
     }
 
+    /// The inactive T4 scheduler derives its private journal scope from the
+    /// committed owner itself, never from client or timer-supplied paths or a
+    /// guessed generation. Admission still rechecks the marker under lock.
+    pub(crate) fn scheduled_journal_scope(
+        &self,
+    ) -> Result<(crate::cutover::CutoverPaths, u32, u64), NativeOwnerError> {
+        let fence = self
+            .required_ownership
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if fence.phase != OwnershipPhase::Rust || !self.rust_ownership_available() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok((
+            self.transaction.cutover_paths().clone(),
+            self.transaction.uid(),
+            fence.generation,
+        ))
+    }
+
     pub(crate) fn rust_ownership_available(&self) -> bool {
         self.required_ownership.is_some_and(|fence| {
             fence.phase == OwnershipPhase::Rust

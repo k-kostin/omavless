@@ -252,6 +252,78 @@ fn write_attempt_locked(
     Ok(())
 }
 
+fn history_for_start(
+    previous: Option<&WireAttempt>,
+    expected_generation: u64,
+    current_instance: &str,
+) -> Result<Option<AttemptHistory>, AttemptError> {
+    if previous.is_some_and(|attempt| attempt.owner_generation != expected_generation) {
+        return Err(AttemptError::OwnershipUnavailable);
+    }
+    match previous {
+        Some(attempt) if attempt.state == WireState::Started => {
+            Err(if attempt.instance_id == current_instance {
+                AttemptError::AttemptInProgress
+            } else {
+                AttemptError::AttemptUncertain
+            })
+        }
+        Some(attempt) => Ok(Some(AttemptHistory {
+            last_attempt_at_secs: attempt.finished_at_secs.ok_or(AttemptError::InvalidState)?,
+            consecutive_failures: attempt.consecutive_failures,
+        })),
+        None => Ok(None),
+    }
+}
+
+fn require_due(
+    schedule: RefreshSchedule,
+    history: Option<AttemptHistory>,
+    now_secs: u64,
+    owner: OwnerFence,
+) -> Result<(), AttemptError> {
+    match plan_refresh(schedule, history, now_secs, owner)
+        .map_err(|_| AttemptError::InvalidState)?
+    {
+        ScheduleDecision::Due => Ok(()),
+        ScheduleDecision::WaitUntil(due) => Err(AttemptError::WaitUntil(due)),
+        ScheduleDecision::Off => Err(AttemptError::ScheduleOff),
+        ScheduleDecision::StaleOwner => Err(AttemptError::StaleOwner),
+    }
+}
+
+/// Read-only advisory preflight before reserving the native batch owner.
+/// Admission repeats every check under the same lock before writing Started.
+/// No provider snapshot, operation ID or fetch is created for Off/not-due.
+pub fn preflight_attempt(
+    paths: &CutoverPaths,
+    uid: u32,
+    current_instance: &str,
+    now_secs: u64,
+    owner: OwnerFence,
+) -> Result<u64, AttemptError> {
+    if !valid_instance(current_instance) {
+        return Err(AttemptError::InvalidInstance);
+    }
+    if !owner.matches() {
+        return Err(AttemptError::StaleOwner);
+    }
+    let _lock = locked_owner(paths, uid, owner.expected_generation).map_err(preference_error)?;
+    let preference =
+        read_preference_locked(paths, uid, owner.expected_generation).map_err(preference_error)?;
+    if preference.schedule == RefreshSchedule::Off {
+        return Err(AttemptError::ScheduleOff);
+    }
+    let previous = read_attempt_locked(paths, uid)?;
+    let history = history_for_start(
+        previous.as_ref(),
+        owner.expected_generation,
+        current_instance,
+    )?;
+    require_due(preference.schedule, history, now_secs, owner)?;
+    Ok(preference.revision)
+}
+
 /// Read a bounded same-user summary. An unfinished attempt from an older
 /// daemon instance is uncertain; no automatic retry is permitted.
 pub fn read_attempt(
@@ -307,34 +379,12 @@ pub fn begin_attempt_for_batch(
         return Err(AttemptError::ScheduleOff);
     }
     let previous = read_attempt_locked(paths, uid)?;
-    if previous
-        .as_ref()
-        .is_some_and(|attempt| attempt.owner_generation != owner.expected_generation)
-    {
-        return Err(AttemptError::OwnershipUnavailable);
-    }
-    let history = match previous.as_ref() {
-        Some(attempt) if attempt.state == WireState::Started => {
-            return Err(if attempt.instance_id == current_instance {
-                AttemptError::AttemptInProgress
-            } else {
-                AttemptError::AttemptUncertain
-            });
-        }
-        Some(attempt) => Some(AttemptHistory {
-            last_attempt_at_secs: attempt.finished_at_secs.ok_or(AttemptError::InvalidState)?,
-            consecutive_failures: attempt.consecutive_failures,
-        }),
-        None => None,
-    };
-    match plan_refresh(preference.schedule, history, now_secs, owner)
-        .map_err(|_| AttemptError::InvalidState)?
-    {
-        ScheduleDecision::Due => {}
-        ScheduleDecision::WaitUntil(due) => return Err(AttemptError::WaitUntil(due)),
-        ScheduleDecision::Off => return Err(AttemptError::ScheduleOff),
-        ScheduleDecision::StaleOwner => return Err(AttemptError::StaleOwner),
-    }
+    let history = history_for_start(
+        previous.as_ref(),
+        owner.expected_generation,
+        current_instance,
+    )?;
+    require_due(preference.schedule, history, now_secs, owner)?;
     let sequence = previous
         .as_ref()
         .map_or(Some(1), |attempt| attempt.sequence.checked_add(1))
