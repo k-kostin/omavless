@@ -65,6 +65,8 @@ pub(super) struct BatchScheduler {
     scheduled_sequence: AtomicU64,
     #[cfg(test)]
     pub(super) fail_next_spawn: AtomicBool,
+    #[cfg(test)]
+    pub(super) panic_after_scheduled_finish: AtomicBool,
 }
 
 #[allow(dead_code)] // inactive until a separately reviewed supervised worker exists
@@ -78,6 +80,8 @@ pub(crate) enum ScheduledOnceError {
     Owner(native_coordinator::NativeOwnerError),
     Work(BatchWorkError),
     StepNotAuthorized,
+    DispatcherUnavailable,
+    SpawnFailed,
     AbortUncertain,
     CompletionUncertain,
 }
@@ -216,6 +220,22 @@ impl ScheduledBatchAttempt {
         self.settle(owner, now_secs)
     }
 
+    /// A shutdown may have already minted the exact failure receipt while
+    /// revoking the active worker. Consume that receipt instead of treating a
+    /// second abort's NotFound as proof of an uncertain batch. If no terminal
+    /// receipt exists, abort only this ticket; any failure stays Started.
+    pub(crate) fn abort_or_settle<H: lifecycle::LifecycleHost>(
+        self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+        now_secs: u64,
+    ) -> ScheduledResult<AttemptSnapshot> {
+        if owner.subscription_batch_receipt(&self.batch_ticket).is_ok() {
+            self.settle(owner, now_secs)
+        } else {
+            self.abort(owner, now_secs)
+        }
+    }
+
     fn settle<H: lifecycle::LifecycleHost>(
         self,
         owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
@@ -248,6 +268,29 @@ struct Supervisor {
     dispatcher: Arc<Mutex<RuntimeDispatcher>>,
     ticket: Option<NativeBatchTicket>,
 }
+
+/// The inactive scheduled worker owns its attempt until an exact owner
+/// completion consumes it. On spawn failure, pre-commit panic or shutdown,
+/// this guard runs only after any dispatcher guard has been dropped. If it
+/// cannot obtain/settle an exact receipt, durable Started remains blocked.
+struct ScheduledSupervisor {
+    dispatcher: Arc<Mutex<RuntimeDispatcher>>,
+    attempt: Option<ScheduledBatchAttempt>,
+    finished_at_secs: u64,
+}
+
+impl Drop for ScheduledSupervisor {
+    fn drop(&mut self) {
+        let Some(attempt) = self.attempt.take() else {
+            return;
+        };
+        if let Ok(mut dispatcher) = self.dispatcher.lock()
+            && let RuntimeDispatcher::Native(owner) = &mut *dispatcher
+        {
+            let _ = owner.scheduled_abort_or_settle(attempt, self.finished_at_secs);
+        }
+    }
+}
 impl Drop for Supervisor {
     fn drop(&mut self) {
         if let Some(ticket) = self.ticket.take()
@@ -267,7 +310,29 @@ pub(crate) struct ScheduledAdmissionGuard<'a> {
     _worker: std::sync::MutexGuard<'a, Option<thread::JoinHandle<()>>>,
 }
 
+#[allow(dead_code)] // inactive one-shot seam, constructed by synthetic tests
+pub(crate) struct ScheduledOnceInputs<'a> {
+    pub(crate) dispatcher: &'a Arc<Mutex<RuntimeDispatcher>>,
+    pub(crate) pool: &'a remote_fetch::RemoteFetchPool,
+    pub(crate) instance: &'a str,
+    pub(crate) started_at_secs: u64,
+    pub(crate) finished_at_secs: u64,
+    pub(crate) finished_at_millis: u64,
+}
+
 impl BatchScheduler {
+    #[cfg(test)]
+    pub(super) fn is_stopping(&self) -> bool {
+        self.stopping.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(super) fn worker_finished(&self) -> bool {
+        self.worker
+            .lock()
+            .is_ok_and(|worker| worker.as_ref().is_none_or(thread::JoinHandle::is_finished))
+    }
+
     /// Reserve manual/scheduled admission before taking the owner lock. An
     /// active manual worker or shutdown refuses immediately; a completed
     /// handle may be joined later by the normal dispatch path.
@@ -287,6 +352,139 @@ impl BatchScheduler {
             scheduler: self,
             _worker: worker,
         })
+    }
+
+    /// Inactive one-shot worker composition. There is deliberately no daemon,
+    /// timer, IPC or CLI caller. The transport is injected only by synthetic
+    /// tests at this checkpoint. Admission uses the same worker slot and lock
+    /// order as manual batches; ownership is released before spawn so a failed
+    /// spawn cannot deadlock while dropping its supervisor.
+    #[allow(dead_code)]
+    pub(crate) fn start_scheduled_once<T, G>(
+        &self,
+        inputs: ScheduledOnceInputs<'_>,
+        transport: T,
+        mut next_record_id: G,
+    ) -> ScheduledResult<()>
+    where
+        T: BudgetedSubscriptionTransport + Send + 'static,
+        G: FnMut() -> String + Send + 'static,
+    {
+        let mut reservation = self.reserve_scheduled()?;
+        if let Some(previous) = reservation._worker.take() {
+            let _ = previous.join();
+        }
+        let attempt = {
+            let mut dispatcher_guard = inputs
+                .dispatcher
+                .lock()
+                .map_err(|_| ScheduledOnceError::DispatcherUnavailable)?;
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher_guard else {
+                return Err(ScheduledOnceError::DispatcherUnavailable);
+            };
+            owner.scheduled_admit(
+                &reservation,
+                inputs.pool,
+                inputs.instance,
+                inputs.started_at_secs,
+            )?
+        };
+        let supervisor = ScheduledSupervisor {
+            dispatcher: Arc::clone(inputs.dispatcher),
+            attempt: Some(attempt),
+            finished_at_secs: inputs.finished_at_secs,
+        };
+        let stopping = Arc::clone(&self.stopping);
+        #[cfg(test)]
+        let panic_after_finish = self
+            .panic_after_scheduled_finish
+            .swap(false, Ordering::AcqRel);
+        #[cfg(not(test))]
+        let panic_after_finish = false;
+        let handle = self
+            .spawn(move || {
+                run_scheduled_once(
+                    supervisor,
+                    &stopping,
+                    &transport,
+                    &mut next_record_id,
+                    inputs.finished_at_millis,
+                    panic_after_finish,
+                );
+            })
+            .map_err(|_| ScheduledOnceError::SpawnFailed)?;
+        *reservation._worker = Some(handle);
+        Ok(())
+    }
+}
+
+fn run_scheduled_once<T, G>(
+    mut supervisor: ScheduledSupervisor,
+    stopping: &AtomicBool,
+    transport: &T,
+    next_record_id: &mut G,
+    finished_at_millis: u64,
+    panic_after_finish: bool,
+) where
+    T: BudgetedSubscriptionTransport,
+    G: FnMut() -> String,
+{
+    loop {
+        if stopping.load(Ordering::Acquire) {
+            return;
+        }
+        {
+            let Ok(mut dispatcher) = supervisor.dispatcher.lock() else {
+                return;
+            };
+            let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                return;
+            };
+            let Some(attempt) = supervisor.attempt.as_mut() else {
+                return;
+            };
+            if owner.scheduled_progress(attempt).is_err() {
+                return;
+            }
+        }
+        if stopping.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(attempt) = supervisor.attempt.as_mut() else {
+            return;
+        };
+        let step = attempt.step(transport, next_record_id);
+        match step {
+            Ok(BatchWorkStep::Busy) => thread::sleep(Duration::from_millis(20)),
+            Ok(BatchWorkStep::Advanced) => {}
+            Ok(BatchWorkStep::Ready) | Err(_) => {
+                let Ok(mut dispatcher) = supervisor.dispatcher.lock() else {
+                    return;
+                };
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    return;
+                };
+                if stopping.load(Ordering::Acquire) {
+                    return;
+                }
+                let Some(attempt) = supervisor.attempt.take() else {
+                    return;
+                };
+                // The exact terminal receipt and journal settlement happen
+                // while this one serialized owner is held. If either is
+                // uncertain, Started remains a durable no-retry blocker.
+                let _ = owner.scheduled_finish(
+                    attempt,
+                    finished_at_millis,
+                    supervisor.finished_at_secs,
+                );
+                drop(dispatcher);
+                if panic_after_finish {
+                    panic!("synthetic scheduled post-completion failure");
+                }
+                return;
+            }
+        }
     }
 }
 
