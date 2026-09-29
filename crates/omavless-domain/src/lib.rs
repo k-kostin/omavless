@@ -11,3 +11,7 @@ pub mod routing;
 pub mod store;
 pub mod subscription;
 pub mod subscription_feed;
+
+// Experimental plaintext framing only; deliberately absent from product builds.
+#[cfg(test)]
+mod backup_payload_candidate;
