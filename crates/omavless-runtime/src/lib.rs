@@ -2875,7 +2875,6 @@ mod tests {
             "subscriptions.probe",
             "status.get",
         ] {
-            assert!(is_semantic_lifecycle_method(method));
             assert_eq!(
                 server
                     .dispatch(&make_request("after", method, json!({})).unwrap())
@@ -3355,6 +3354,7 @@ mod tests {
             "connection.disconnect",
             "routing.set_mode",
         ] {
+            assert!(is_semantic_lifecycle_method(method));
             assert_eq!(
                 semantic_lifecycle_timeout(method),
                 Some(Duration::from_secs(120))
