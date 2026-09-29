@@ -465,6 +465,32 @@ impl LongOperationRegistry {
             .ok_or(LongOperationError::NotFound)
     }
 
+    /// Exact internal capability; never retarget cancellation through an ID.
+    pub(crate) fn request_cancel_token(
+        &mut self,
+        token: LongOperationToken,
+        base_revision: u64,
+    ) -> Result<bool, LongOperationError> {
+        if let Some(record) = self
+            .active
+            .as_mut()
+            .filter(|record| record.token == token && record.base_revision == base_revision)
+        {
+            if record.cancellable {
+                record.cancel_requested = true;
+            }
+            return Ok(record.cancellable);
+        }
+        if self
+            .completed
+            .iter()
+            .any(|record| record.token == token && record.base_revision == base_revision)
+        {
+            return Ok(false);
+        }
+        Err(LongOperationError::NotFound)
+    }
+
     /// Atomically close cancellation before final owner admission/commit. If
     /// cancellation already won, the operation becomes terminal with no store
     /// effect. Otherwise later cancellation is rejected.

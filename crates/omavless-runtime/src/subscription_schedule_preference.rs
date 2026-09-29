@@ -151,6 +151,20 @@ pub fn set_preference(
         ScheduleError::InvalidAttemptHistory => PreferenceError::InvalidState,
     })?;
     let _lock = locked_owner(paths, uid, expected_generation)?;
+    set_preference_locked(paths, uid, expected_generation, expected_revision, schedule)
+}
+
+/// Caller holds the exact committed owner's migration lease continuously.
+pub(crate) fn set_preference_locked(
+    paths: &CutoverPaths,
+    uid: u32,
+    expected_generation: u64,
+    expected_revision: u64,
+    schedule: RefreshSchedule,
+) -> Result<PreferenceSnapshot, PreferenceError> {
+    schedule
+        .validate()
+        .map_err(|_| PreferenceError::IntervalOutOfRange)?;
     let current = read_locked(paths, uid, expected_generation)?;
     let stale_generation = current.owner_generation != expected_generation;
     // A previous native generation can only be rebound by an explicit Off
@@ -191,7 +205,8 @@ pub fn set_preference(
     if atomic_replace_private(&path, &payload, uid).is_err() {
         return Err(PreferenceError::WriteUncertain);
     }
-    let actual = read_locked(paths, uid, expected_generation)?;
+    let actual = read_locked(paths, uid, expected_generation)
+        .map_err(|_| PreferenceError::WriteUncertain)?;
     if actual.owner_generation != expected_generation
         || actual.revision != revision
         || actual.schedule != schedule

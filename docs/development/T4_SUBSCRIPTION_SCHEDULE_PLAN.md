@@ -307,3 +307,39 @@ are unchanged. In particular, wall-clock rollback after a committed receipt
 still refuses terminalization rather than fabricating a finish timestamp; the
 interrupted-attempt policy above remains pending. Physical suspend and installed
 host acceptance are not established by these arithmetic tests.
+
+## Inactive serialized Off and exact cancellation checkpoint
+
+The next Draft adds an unregistered `disable_scheduled` composition. It acquires
+the existing scheduler admission slot, dispatcher, then migration lease. That
+lease covers exact ownership/preference validation, durable Off publication and
+cancellation of the captured scheduled batch. The slot now retains the private
+batch ticket beside its join handle; manual subscription/provider/probe workers
+have no scheduled ticket. Cancellation checks instance, token and base revision,
+and cannot select another operation through a reused display/operation ID.
+
+A successful result confirms Off and separately reports whether cancellation
+was requested. It does not claim that an already admitted provider request has
+stopped. No join occurs in the Off transaction; the handle remains registered
+while its bounded request drains and the worker settles its exact receipt.
+Completion that obtained the owner first keeps its factual success. Off that
+obtained the owner first prevents a later scheduled commit. Neither case
+changes manual refresh semantics or the daemon-wide shutdown flag.
+
+Stale preference revisions and unsafe reads before publication leave the worker
+untouched. A post-publication `WriteUncertain` never returns successful Off:
+it requests cancellation of only the captured scheduled work where possible
+and inhibits new scheduled admission in this scheduler instance. A failed exact
+cancellation after confirmed publication also inhibits admission. A later
+private preference write cannot clear that local inhibition. Existing receipt
+rules still determine journal settlement; absent/uncertain receipts retain
+Started. This local inhibition is not durable recovery policy and does not
+resolve prior-instance Started or authorize automatic re-enable after restart.
+
+Synthetic tests cover no-worker Off, in-flight cancellation without waiting,
+stale and unsafe requests, preserved manual refresh, completion before Off,
+post-publication uncertainty, and stale/wrong-revision tickets against a
+successor. Existing scheduled spawn/panic/shutdown and commit-fence tests remain
+required. The test-only post-publication fault models an uncertain sync result;
+it is not a power-loss filesystem durability test. There is still no production
+caller, timer, IPC/UI control, real provider request or installed host change.
