@@ -4,7 +4,8 @@
 //!
 //! This is not an HTTP standard or a source of VPN health. The caller must pass
 //! only the final HTTP response; redirects and failed responses cannot supply
-//! usage. No transport, store, IPC, UI or scheduling path calls this module.
+//! usage. No production transport, store, IPC, UI or scheduling path calls
+//! the parser or consumes these values.
 
 pub const MAX_SUBSCRIPTION_USERINFO_BYTES: usize = 256;
 /// Last representable second of 9999-12-31 UTC. Later dates are not safely
