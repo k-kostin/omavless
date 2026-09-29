@@ -69,7 +69,7 @@ exact host evidence and limitations.
 ## Candidate and stable assembly
 
 The optional fourth argument `--candidate` selects only the checked-in Cargo
-RC version, rendered in Arch's compatible `0.9.0rc1` spelling for the current
+RC version, rendered in Arch's compatible `0.9.0rc2` spelling for the current
 source. The ordinary
 three-argument development package identity is unchanged. Stable versions and
 arbitrary version input are rejected by this RC path. Prefer the

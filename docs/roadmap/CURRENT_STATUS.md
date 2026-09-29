@@ -40,7 +40,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   private store was preserved and its broker enrollment restored. A preceding
   empty-account pass found and fixed false pre-activation VPN controls.
   A stopped-broker Connect refusal restored Disconnected/Rule without a false Full VPN claim.
-  In-flight negative/recovery coverage and final #270/#132 disposition remain.
+  A connected broker SIGKILL negative also retained the TUN/FD and refused a
+  mode change as `manual_recovery_required`, without a false Full VPN claim;
+  coordinated reboot restored clean Disconnected/Rule and original private data.
+  The [candidate disposition](../development/RC_090.md#managed-dns-and-mode-failure-disposition)
+  supersedes the legacy prompt scenario only for the mandatory managed 0.9 path.
+  RC2 is being rebuilt to include the corrected first-use frontend and the CLI
+  lifecycle-response fix from #384; final pins/installed update/CI are pending.
   #270/#132 are open; `main` remains at stable 0.8.2, while `rc/0.9.0` now
   includes #331. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the

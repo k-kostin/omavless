@@ -1,6 +1,6 @@
 # Native release and RC preparation
 
-Current development candidate: **0.9.0-rc.1**, not stable or marketplace-ready.
+Current development candidate: **0.9.0-rc.2**, not stable or marketplace-ready.
 The production pair has an owner-attended installed ARM64 cycle; agent-run
 public-download first use in an empty ARM64 account also passed. Remaining host
 negative/recovery and release gates are separate.
@@ -99,7 +99,7 @@ python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/pr
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. Current `0.9.0-rc.1` uses the no-flag assembler and `--candidate` packager;
+mode. Current `0.9.0-rc.2` uses the no-flag assembler and `--candidate` packager;
 stable sources require explicit `--stable`. The CI version projection recognizes
 only these two bounded forms and preserves Arch RC ordering; it never promotes
 an RC into stable. Absent RC bootstrap pins block provisioning, rather
@@ -112,8 +112,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.9.0rc1-1-ARCH.pkg.tar.zst`;
-- `omavless-0.9.0-rc.1-frontend.tar.xz`;
+- `omavless-0.9.0rc2-1-ARCH.pkg.tar.zst`;
+- `omavless-0.9.0-rc.2-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
@@ -192,8 +192,8 @@ non-writable-by-others parents and run:
 ```sh
 python3 packaging/release/pair-dns-frontend.py \
   /absolute/empty-output \
-  /absolute/reviewed/omavless-0.9.0rc1-1-ARCH.pkg.tar.zst \
-  /absolute/reviewed/omavless-dns-0.9.0rc1-1-ARCH.pkg.tar.zst \
+  /absolute/reviewed/omavless-0.9.0rc2-1-ARCH.pkg.tar.zst \
+  /absolute/reviewed/omavless-dns-0.9.0rc2-1-ARCH.pkg.tar.zst \
   FULL_FRONTEND_COMMIT_SHA APP_PACKAGE_SHA256 DNS_PACKAGE_SHA256 \
   --arch ARCH
 ```
