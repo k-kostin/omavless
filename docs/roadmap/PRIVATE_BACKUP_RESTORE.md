@@ -1,0 +1,110 @@
+# T4 private backup and restore proposal
+
+Status: security/product design candidate, **not implemented or approved for
+activation**. This document creates no backup command, IPC method, picker,
+archive format, scheduler, or restore authority. A backup file contains reusable
+VPN credentials and subscription bearer URLs; it is not a support report.
+
+## User task and scope
+
+The user goal is to move or recover their own profiles, subscriptions and
+routing preferences without copying runtime ownership to another machine.
+Backup targets the currently committed private configuration; Restore targets
+the whole chosen backup after explicit preview and confirmation. These are
+mutations of private data, not Connect, Full Quit, package installation, or
+service repair. The management entry may be a TUI/Settings navigation action;
+opening it must have no file or VPN effect. The final confirmation must name
+the existing destination as being replaced, never silently merge into it.
+
+A first version should contain only an allowlisted, versioned portable payload:
+the validated private `profiles.json` and the bounded routing template needed
+to reconstruct its configuration. This includes the credentials, subscription
+URLs and settings in that store. It must not include `desired.json`, ownership
+markers, transaction journals, controller secrets, generated Mihomo config,
+core binaries, service/unit enablement, host paths, TUN/routes, caches, logs or
+shareable diagnostics. A restored installation starts with desired state Off;
+the user separately chooses whether to connect. Future schedule preferences
+and other persistent extensions need an explicit schema/version decision rather
+than being captured by a wildcard directory archive.
+
+## Threat and authority boundary
+
+- A portable product backup must be authenticated and encrypted before it is
+  written to a user-selected destination. There is no silent plaintext export
+  or cloud upload. Specify the interoperable envelope, KDF/AEAD parameters,
+  passphrase policy and recovery behavior in a later cryptographic review; do
+  not invent a home-grown cipher or treat file mode `0600` as encryption.
+- The passphrase must not enter argv, environment variables, logs, shell history
+  or shareable diagnostics. Wrong passphrase and corrupt/unsupported backups
+  get fixed, non-oracular public errors. Losing the passphrase is unrecoverable;
+  the UI must say so before backup creation.
+- The Rust runtime remains the only owner of its source store and restore
+  mutation. QML/TUI may request a fixed semantic operation, not arbitrary
+  file read/write, shell execution or privileged host control. A separately
+  reviewed design must choose how bounded encrypted bytes and a destination
+  cross the same-user boundary without widening the general IPC protocol.
+- Refuse unsafe source/destination paths, symlinks, wrong ownership and
+  unexpected hard-link targets. Create backup files exclusively with private
+  permissions, synchronize bytes and parent directory, and do not overwrite an
+  existing backup by default. The envelope uses fixed member names and sizes;
+  never extract paths from an archive into the filesystem. A bounded,
+  non-compressed v1 is preferable to an unbounded decompressor.
+- Do not export private material into Git, issue comments, support snapshots,
+  screenshots, telemetry, clipboard or ordinary stdout. Backups are private
+  user data even when encrypted. Sanitized tests use synthetic records only.
+
+## Consistency and restore admission
+
+Backup must snapshot one committed generation of the store and template under
+the existing ownership/mutation lease. A concurrent profile edit or subscription
+refresh cannot produce a mixed pair; the operation either captures a consistent
+pair or fails. Backup itself does not quiesce or reconnect an active VPN.
+
+Restore is a separate, high-risk operation. Admit it only when the current
+native owner is verified, its VPN is disconnected and owned TUN/core cleanup is
+confirmed, background mutations are drained, and no ownership/transaction or
+unknown-outcome recovery barrier is present. An active or uncertain state is a
+clear refusal, not permission to stop a foreign VPN or change routing. Check
+instance/revision again at commit time; a preview is never a reservation.
+
+Authenticate and bound the complete archive before any mutation. Validate its
+version, exact member set, size and private-store/routing semantics against the
+installed Rust owner. Reject incompatible future schemas rather than dropping
+records, silently migrating unknown fields or generating an untestable config.
+The preview should show only bounded private local facts (for example counts,
+compatibility and that existing data will be replaced), not links or bearer
+URLs. It must distinguish “backup readable” from “restore admissible now.”
+
+Prepare a complete candidate before replacing any live files. Multi-file
+replacement needs an explicit durable transaction with exact-old-byte rollback
+and startup recovery; sequential atomic renames alone are insufficient. On
+success, verify both new committed files and leave desired state Off. On a
+recoverable failure, verify exact previous bytes and previous disconnected
+state. Ambiguous I/O or incomplete compensation becomes manual recovery with
+both copies preserved; never claim success, delete the last good data, or
+autoconnect. Do not silently overwrite an existing valid store during first-run
+setup merely because a backup was supplied.
+
+## Acceptance before activation
+
+1. Pure synthetic fixtures: wrong passphrase, tampering, truncation, duplicate
+   or unknown members, oversized payload, incompatible schema, malformed store,
+   invalid template, and no plaintext leakage through errors or diagnostics.
+2. Filesystem/transaction fixtures: symlink/hard-link and wrong-owner refusal;
+   existing destination untouched; concurrent revision change; interruption at
+   every prepare/commit/rollback step; exact-byte recovery or explicit manual
+   recovery. No tests use a real profile or the owner's backup.
+3. Product states: no backup, valid backup, incompatible backup, connected,
+   disconnected, pending mutation and uncertain ownership. Confirm the target,
+   replacement effect and Off-after-restore semantics in English and Russian.
+   Rendered review is separate from handler tests; no current UI is claimed.
+4. Exact-head Try Omarchy restore to a fresh installation with synthetic data,
+   then verify records and Off state. Arch and future NixOS portability require
+   their own package/host checks; host-specific state is never smuggled into the
+   portable payload. A physical-PC pass is needed only for a concrete
+   hardware-specific behavior, not for the pure archive format.
+
+Open decisions before implementation: cryptographic format and passphrase UX;
+private byte-transfer/destination API; portable template policy; whether a
+later version can offer an explicit non-destructive import/merge; and precise
+transaction-journal layout. None is settled by this proposal.
