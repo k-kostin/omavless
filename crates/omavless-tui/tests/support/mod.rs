@@ -70,6 +70,10 @@ pub fn response(request: Read) -> Value {
                 {"host":null,"ip":"192.0.2.2","port":53,"network":"udp","route":"direct"}
             ],"instanceId":"fixture-runtime"
         }),
+        Read::RouteCheck(target) => json!({
+            "version":1,"query":target.as_str(),"source":"custom","outcome":"vpn",
+            "ruleType":"DOMAIN","rulePayload":"example.invalid","target":"PROXY"
+        }),
         Read::Observation => json!({
             "schemaVersion":1,"scope":"local_runtime_observation","instanceId":"fixture-runtime",
             "transition":null,"availability":"observed",

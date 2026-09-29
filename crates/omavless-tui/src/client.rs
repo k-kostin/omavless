@@ -18,6 +18,7 @@ pub enum Read {
     Connections,
     ConnectionOverview,
     ConnectionRows,
+    RouteCheck(crate::route_inspection::Target),
     ProfileDetails(ProfileTarget),
 }
 
@@ -66,6 +67,7 @@ impl Read {
             Self::Connections => "runtime.connections",
             Self::ConnectionOverview => "runtime.connection_overview",
             Self::ConnectionRows => "runtime.connection_rows",
+            Self::RouteCheck(_) => "routing.check",
             Self::ProfileDetails(_) => "profiles.details",
         }
     }
@@ -73,6 +75,7 @@ impl Read {
         match self {
             Self::Hello => json!({"versions":[1]}),
             Self::ProfileDetails(target) => json!({"profileId": target.as_str()}),
+            Self::RouteCheck(target) => json!({"query": target.as_str()}),
             _ => json!({}),
         }
     }
@@ -96,6 +99,15 @@ pub fn load_page_for(
     page: crate::inspection::Page,
     selected: Option<&str>,
 ) -> Result<Snapshot, ReadError> {
+    load_page_for_route(read, page, selected, None).map(|(snapshot, _)| snapshot)
+}
+
+pub fn load_page_for_route(
+    read: &mut impl FnMut(Read) -> Result<Value, ReadError>,
+    page: crate::inspection::Page,
+    selected: Option<&str>,
+    route: Option<&crate::route_inspection::Request>,
+) -> Result<(Snapshot, Option<crate::route_inspection::Status>), ReadError> {
     use crate::inspection::{
         Capabilities, CustomRules, Diagnostics, HostSupport, Page, ProfileDetails, Providers,
         Rules, Traffic,
@@ -170,6 +182,25 @@ pub fn load_page_for(
         None
     };
     let connections = connection_method.and_then(|method| read(method).ok());
+    let route_status = route.map(|request| {
+        if page != Page::RouteCheck || !methods.iter().any(|m| m == "routing.check") {
+            return crate::route_inspection::Status::Unsupported;
+        }
+        let Some(revision) = meta["revision"].as_u64() else {
+            return crate::route_inspection::Status::Unavailable;
+        };
+        if !request.matches(instance, revision) || meta["result"]["instanceId"] != instance {
+            return crate::route_inspection::Status::Unavailable;
+        }
+        let target = request.target();
+        match read(Read::RouteCheck(target)) {
+            Ok(value) => crate::route_inspection::Result::parse(&value, target, revision).map_or(
+                crate::route_inspection::Status::Unavailable,
+                crate::route_inspection::Status::Observed,
+            ),
+            Err(_) => crate::route_inspection::Status::Unavailable,
+        }
+    });
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
@@ -216,5 +247,5 @@ pub fn load_page_for(
             _ => {}
         }
     }
-    Ok(snapshot)
+    Ok((snapshot, route_status))
 }

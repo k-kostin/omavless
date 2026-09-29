@@ -442,6 +442,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.diagnostic_keys"
             } else if app.page == crate::inspection::Page::Host {
                 "tui.host_keys"
+            } else if app.page == crate::inspection::Page::RouteCheck {
+                "tui.route_check_keys"
             } else if matches!(
                 app.page,
                 crate::inspection::Page::Connections
@@ -706,6 +708,59 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 {
                     lines.push(Line::from(format!("  {}", display(ip, 64))));
                 }
+            }
+            lines
+        }
+        Page::RouteCheck => {
+            use crate::route_inspection::{Outcome, Source, Status};
+            let mut lines = vec![
+                Line::from(tr("tui.route_check_scope")),
+                Line::from(""),
+                field("tui.route_check_query", display(&app.route_query, 80)),
+                Line::from(tr(if app.route_editing {
+                    "tui.route_check_editing"
+                } else {
+                    "tui.route_check_instruction"
+                })),
+                Line::from(""),
+            ];
+            match &app.route_result {
+                Some(Status::Observed(result)) => {
+                    let outcome = match result.outcome {
+                        Outcome::Vpn => "tui.connection_route_vpn",
+                        Outcome::Direct => "tui.connection_route_direct",
+                        Outcome::Block => "tui.connection_route_blocked",
+                        Outcome::Unknown => "tui.connection_unclassified",
+                    };
+                    let source = match result.source {
+                        Source::Mode => "tui.route_source_mode",
+                        Source::Custom => "tui.route_source_custom",
+                        Source::Live => "tui.route_source_live",
+                        Source::Disconnected => "tui.route_source_disconnected",
+                    };
+                    lines.push(field("tui.route_check_result", tr(outcome).to_owned()));
+                    lines.push(field("tui.route_check_source", tr(source).to_owned()));
+                    if !result.rule_type.is_empty() {
+                        lines.push(field(
+                            "tui.route_check_rule",
+                            display(&result.rule_type, 80),
+                        ));
+                    }
+                    if !result.rule_payload.is_empty() {
+                        lines.push(field(
+                            "tui.route_check_match",
+                            display(&result.rule_payload, 80),
+                        ));
+                    }
+                }
+                Some(Status::Unavailable) => {
+                    lines.push(Line::from(tr("tui.route_check_unavailable")))
+                }
+                Some(Status::Unsupported) => {
+                    lines.push(Line::from(tr("tui.route_check_unsupported")))
+                }
+                Some(Status::InvalidInput) => lines.push(Line::from(tr("tui.route_check_invalid"))),
+                None => lines.push(Line::from(tr("tui.route_check_empty"))),
             }
             lines
         }
