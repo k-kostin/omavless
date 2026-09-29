@@ -2171,6 +2171,25 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
     call_with_timeout(paths, method, params, IO_TIMEOUT)
 }
 
+#[must_use]
+pub fn is_semantic_lifecycle_method(method: &str) -> bool {
+    matches!(
+        method,
+        "connection.connect" | "connection.disconnect" | "routing.set_mode"
+    )
+}
+
+fn semantic_lifecycle_timeout(method: &str) -> Option<Duration> {
+    is_semantic_lifecycle_method(method).then_some(Duration::from_secs(120))
+}
+
+/// Semantic CLI lifecycle commands can wait for the bounded host transition.
+/// A lost reply is still an unknown outcome, never permission to retry blindly.
+pub fn call_semantic_lifecycle(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> {
+    let timeout = semantic_lifecycle_timeout(method).ok_or(RuntimeError::Protocol)?;
+    call_with_timeout(paths, method, params, timeout)
+}
+
 /// Fixed frontend mutation client wait. Transport failure may occur after apply:
 /// callers must retain the same instance, revision and operation, never retry
 /// with a newly generated operation ID.
@@ -3326,6 +3345,32 @@ mod tests {
         assert_eq!(call_plugin_action(&paths, json!({"instanceId":hello["result"]["instanceId"],"operationId":"plugin-disconnect","expectedRevision":applied["revision"],"action":"disconnect"})).unwrap()["ok"], true);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn semantic_lifecycle_wait_is_bounded_and_method_specific() {
+        for method in [
+            "connection.connect",
+            "connection.disconnect",
+            "routing.set_mode",
+        ] {
+            assert!(is_semantic_lifecycle_method(method));
+            assert_eq!(
+                semantic_lifecycle_timeout(method),
+                Some(Duration::from_secs(120))
+            );
+        }
+        for method in ["status.get", "profiles.import", "plugin.action", "unknown"] {
+            assert!(!is_semantic_lifecycle_method(method));
+            assert_eq!(semantic_lifecycle_timeout(method), None);
+        }
+        let root = temporary_base("semantic-lifecycle-missing");
+        let missing = RuntimePaths::below(&root);
+        assert_eq!(
+            call_semantic_lifecycle(&missing, "status.get", json!({})),
+            Err(RuntimeError::Protocol)
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

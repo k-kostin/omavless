@@ -475,6 +475,9 @@ The frontend-specific CLI waits up to 120 seconds for a bounded response and
 reports transport loss as outcome unknown, never as rollback. Exact mappings,
 success schema and retry semantics are in
 [`R5_NATIVE_PLUGIN_ACTIONS.md`](../testing/R5_NATIVE_PLUGIN_ACTIONS.md).
+The direct semantic CLI's connect/disconnect/mode calls use the same bounded
+client wait: a lost reply can follow a committed host transition, so exit 73
+requires a fresh status check before another action, never an automatic retry.
 
 ### Fresh local runtime observation (v1)
 
