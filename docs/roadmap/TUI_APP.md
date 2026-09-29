@@ -410,7 +410,8 @@ live owner-restart behavior and the remaining connections/route/traffic/log
 work retain their own tests and evidence before promotion.
 An additional explicit Connections page can read a bounded private destination
 list from the owned core, with total/shown/truncated indicators and conservative
-route categories. It is loaded only on that page, never in background status or
+route categories. Search filters only the current received bounded snapshot;
+it never sends a search term to the core. It is loaded only on that page, never in background status or
 support output; it cannot close connections. This is still not proof of the
 whole-system route, and installed narrow-terminal plus stale-owner review
 remains required.

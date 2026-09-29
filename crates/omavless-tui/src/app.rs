@@ -285,7 +285,8 @@ impl App {
         if self.searching {
             let operator = matches!(
                 self.page,
-                crate::inspection::Page::Rules
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
                     | crate::inspection::Page::Providers
                     | crate::inspection::Page::CustomRules
             );
@@ -396,7 +397,8 @@ impl App {
             }
             if matches!(
                 self.page,
-                crate::inspection::Page::Rules
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
                     | crate::inspection::Page::Providers
                     | crate::inspection::Page::CustomRules
             ) && key.kind == KeyEventKind::Press

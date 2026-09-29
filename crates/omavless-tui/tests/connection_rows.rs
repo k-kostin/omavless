@@ -129,3 +129,18 @@ fn leaving_explicit_page_drops_private_destination_snapshot() {
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(app.snapshot.as_ref().unwrap().connection_rows.is_none());
 }
+
+#[test]
+fn search_filters_only_the_received_private_snapshot() {
+    let now = Instant::now();
+    let mut app = App::new(Locale::En);
+    app.page = Page::Connections;
+    app.accept(load_page(&mut |r| Ok(read(r)), Page::Connections), now);
+    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for character in "example".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    let screen = render(&app, now, 70);
+    assert!(screen.contains("example.invalid"));
+    assert!(!screen.contains("192.0.2.2"));
+}
