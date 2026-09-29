@@ -371,6 +371,87 @@ fn diagnostics_shows_only_typed_log_classifications_not_private_lines() {
 }
 
 #[test]
+fn doctor_facts_distinguish_last_known_state_from_unavailable_observation() {
+    let now = Instant::now();
+    for locale in [Locale::En, Locale::Ru] {
+        let mut app = App::new(locale);
+        app.page = Page::Diagnostics;
+        app.accept(
+            load_page(&mut |read| Ok(support::response(read)), Page::Diagnostics),
+            now,
+        );
+        let observed = render_at(&app, now, 100, 40);
+        assert!(observed.contains(locale.text("tui.doctor_scope")));
+        assert!(observed.contains(locale.text("tui.doctor_requested")));
+        assert!(observed.contains(locale.text("tui.doctor_last_actual")));
+        assert!(observed.contains(locale.text("tui.doctor_profile_match")));
+        assert!(observed.contains(locale.text("tui.doctor_inventory_scope")));
+        assert!(observed.contains(locale.text("tui.health")));
+
+        let mut unavailable = App::new(locale);
+        unavailable.page = Page::Diagnostics;
+        unavailable.accept(
+            load_page(
+                &mut |read| {
+                    let mut value = support::response(read);
+                    if read == Read::Observation {
+                        value["result"]["availability"] = json!("unavailable");
+                        value["result"]["facts"] = serde_json::Value::Null;
+                    }
+                    Ok(value)
+                },
+                Page::Diagnostics,
+            ),
+            now,
+        );
+        let unknown = render_at(&unavailable, now, 100, 40);
+        assert!(unknown.contains(locale.text("tui.doctor_last_actual")));
+        assert!(unknown.contains(locale.text("tui.metric_unavailable")));
+        assert!(!unknown.contains("private://"));
+    }
+}
+
+#[test]
+fn doctor_last_known_labels_cover_transitions_without_network_verdict() {
+    let now = Instant::now();
+    for (actual, key) in [
+        ("disconnected", "tui.doctor_disconnected"),
+        ("starting", "tui.doctor_starting"),
+        ("connected", "tui.doctor_connected"),
+        ("reconnecting", "tui.doctor_reconnecting"),
+        ("stopping", "tui.doctor_stopping"),
+        ("failed", "tui.doctor_failed"),
+        ("manualRecoveryRequired", "tui.doctor_recovery"),
+    ] {
+        for locale in [Locale::En, Locale::Ru] {
+            let mut app = App::new(locale);
+            app.page = Page::Diagnostics;
+            app.accept(
+                load_page(
+                    &mut |read| {
+                        let mut value = support::response(read);
+                        if matches!(read, Read::Snapshot | Read::Observation) {
+                            value["result"]["lastKnownActual"] = json!(actual);
+                        }
+                        if read == Read::Observation {
+                            value["result"]["manualRecoveryRequired"] =
+                                json!(actual == "manualRecoveryRequired");
+                        }
+                        Ok(value)
+                    },
+                    Page::Diagnostics,
+                ),
+                now,
+            );
+            let screen = render_at(&app, now, 100, 40);
+            assert!(screen.contains(locale.text(key)), "{actual} {locale:?}");
+            assert!(screen.contains(locale.text("tui.health")));
+            assert!(!screen.contains("Missing translation"));
+        }
+    }
+}
+
+#[test]
 fn saved_rule_overrides_are_private_page_local_and_not_mistaken_for_loaded_rules() {
     let now = Instant::now();
     let mut app = App::new(Locale::En);

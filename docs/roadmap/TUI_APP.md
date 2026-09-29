@@ -399,9 +399,15 @@ The first `omavless doctor` slice is a read-only projection of one native
 a TUN-scope inventory, never an ownership proof) and an
 explicit `networkHealth: not_tested`; last-known actual state and an observed
 core/TUN are not proof of routes, DNS or Internet. It neither reads profiles nor
-performs a probe or repair. A later TUI view may present the same facts, but
-must preserve unknown/unavailable states and must not turn this into an
-aggregate VPN-health verdict.
+performs a probe or repair. The stacked T3 Diagnostics candidate presents the
+same bounded categories from its existing `runtime.observation` read: requested
+connection, last-known state, requested-profile match and core/controller/TUN
+inventory. It performs no new IPC read or probe. An unavailable observation
+leaves the profile/core facts unknown; a last-known Connected label is
+explicitly not verification. TUN inventory does not prove ownership, routes or
+protection, and the screen retains the Internet/DNS-not-tested warning. This
+is not an aggregate VPN-health verdict. Synthetic EN/RU terminal review is not
+installed live-runtime acceptance.
 
 The stacked T3 core-hint candidate retains at most 24 fixed category tokens
 from the latest owned core's warning/error stream in memory. The Diagnostics
