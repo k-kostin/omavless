@@ -66,7 +66,7 @@ impl WirePreference {
     }
 }
 
-fn locked_owner(
+pub(crate) fn locked_owner(
     paths: &CutoverPaths,
     uid: u32,
     expected_generation: u64,
@@ -85,7 +85,8 @@ fn locked_owner(
     Ok(lock)
 }
 
-fn read_locked(
+/// Caller must hold the migration lock returned by `locked_owner`.
+pub(crate) fn read_locked(
     paths: &CutoverPaths,
     uid: u32,
     generation: u64,
