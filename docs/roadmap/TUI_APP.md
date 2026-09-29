@@ -394,6 +394,15 @@ Natural TUI homes for deeper capabilities:
 - bounded local application/core logs;
 - read-only doctor/health report.
 
+The first `omavless doctor` slice is a read-only projection of one native
+`runtime.observation` response. It emits only fixed local-fact enums (including
+a TUN-scope inventory, never an ownership proof) and an
+explicit `networkHealth: not_tested`; last-known actual state and an observed
+core/TUN are not proof of routes, DNS or Internet. It neither reads profiles nor
+performs a probe or repair. A later TUI view may present the same facts, but
+must preserve unknown/unavailable states and must not turn this into an
+aggregate VPN-health verdict.
+
 The stacked T3 core-hint candidate retains at most 24 fixed category tokens
 from the latest owned core's warning/error stream in memory. The Diagnostics
 page shows only the most recent eight with sequence numbers; raw log lines,
