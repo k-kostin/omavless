@@ -130,7 +130,7 @@ impl LocalBus {
     }
 }
 
-fn authenticate(socket: &gio::Socket) -> Result<gio::DBusConnection, Error> {
+pub(super) fn authenticate(socket: &gio::Socket) -> Result<gio::DBusConnection, Error> {
     let stream = socket.connection_factory_create_connection();
     let cancel = gio::Cancellable::new();
     let timer_cancel = cancel.clone();
@@ -186,11 +186,11 @@ pub(super) fn fixed_directory(uid: u32) -> Result<File, Error> {
     Ok(directory)
 }
 
-fn directory_flags() -> OFlag {
+pub(super) fn directory_flags() -> OFlag {
     OFlag::O_PATH | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
 }
 
-fn validate_directory(directory: &File, uid: u32, private: bool) -> Result<(), Error> {
+pub(super) fn validate_directory(directory: &File, uid: u32, private: bool) -> Result<(), Error> {
     let meta = directory
         .metadata()
         .map_err(|_| Error::IdentityUnverified)?;

@@ -11,6 +11,7 @@ repository.workspace = true
 default = []
 gio-observation = ["dep:gio", "dep:nix"]
 auth-sender-probe = ["gio-observation", "nix/socket", "nix/uio"]
+manager-continuity-probe = ["gio-observation"]
 
 [dependencies]
 gio = { version = "0.22.10", optional = true }
@@ -31,6 +32,11 @@ required-features = ["gio-observation"]
 name = "omavless-s1-auth-sender-probe"
 path = "src/auth_sender_check.rs"
 required-features = ["auth-sender-probe"]
+
+[[bin]]
+name = "omavless-s1-manager-continuity-probe"
+path = "src/manager_continuity_check.rs"
+required-features = ["manager-continuity-probe"]
 
 [lints]
 workspace = true

@@ -11,6 +11,11 @@ mod auth_sender;
 #[cfg(feature = "auth-sender-probe")]
 pub use auth_sender::{AuthSenderProbe, probe_auth_sender_read_only};
 
+#[cfg(feature = "manager-continuity-probe")]
+mod manager_continuity;
+#[cfg(feature = "manager-continuity-probe")]
+pub use manager_continuity::probe_manager_continuity_read_only;
+
 #[cfg(feature = "gio-observation")]
 mod gio_host;
 #[cfg(feature = "gio-observation")]

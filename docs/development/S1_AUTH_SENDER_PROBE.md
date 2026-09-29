@@ -95,3 +95,8 @@ A future GIO integration may use a separately reviewed bounded AUTH exchange
 followed by `BEGIN`, then GDBus on the already-authenticated stream. That would
 replace GIO's authentication path and requires its own compatibility tests;
 this probe intentionally stops before that integration.
+
+A separate [manager continuity diagnostic](S1_MANAGER_CONTINUITY_PROBE.md)
+compares the system-manager scalar MainPID observation with the fixed user
+private socket's kernel peer. It also remains unverified and does not close
+the broker, process-trust or activation-environment proof gaps.
