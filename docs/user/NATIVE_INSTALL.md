@@ -4,7 +4,7 @@ This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-o
 0.9 RC development branches have a different requirement: a version-matched
 `omavless` + `omavless-dns` package pair, separate administrator enrollment
 for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
-selection before Rust activation. The 0.9 frontend's pins and any matching
+selection before Rust activation. The 0.9 frontend's pinned `v0.9.0-rc.1`
 prerelease assets are for RC validation, not a supported upgrade until the
 formal fresh-install and remaining host gates pass. It treats an already
 registered package, leftover
@@ -13,7 +13,7 @@ fresh machine to overwrite; inspect that state separately. Do not
 apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the
 [managed DNS distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
 for the current development status.
-For the unpublished 0.9 candidate, a clean removal may preserve private
+For the prerelease 0.9 candidate, a clean removal may preserve private
 profiles and the selected pair while revoking the privileged broker
 registration. On reinstall, **Restore DNS enrollment** is a separate attended
 step, not a second package install or a VPN connection. It refuses residual or

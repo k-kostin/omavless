@@ -6,8 +6,11 @@ Status: active delivery ledger; stable release updated 2026-09-22.
 the accepted T2 MVP and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
 excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
-published 0.8.2 tags/assets are unchanged. Main remains frozen at the submitted marketplace SHA until
-another explicit owner instruction, including for documentation-only changes.
+Draft #331 contains the reviewed managed-DNS release pair but is not yet
+integrated into RC. Immutable `v0.9.0-rc.1` assets are validation-only, not
+stable publication. Published 0.8.2 tags/assets are unchanged. Main remains
+frozen at the submitted marketplace SHA until another explicit owner instruction,
+including for documentation-only changes.
 
 **Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
 promoted from the reviewed prerelease without changing its tag or asset bytes.
@@ -365,7 +368,7 @@ passwordless implementation. These are concrete checkpoints, not blanket RC
 readiness. Versioned packaging and the remaining host/security decision stay
 explicit in the linked RC ledger.
 
-The unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) now has both native
+The original, then-unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) has both native
 architecture builds and offline artifact/identity checks. Its [package record](docs/testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md)
 separates artifact preparation from public release. The local ARM64 package and
 common frontend subsequently passed [attended replacement/restoration](docs/testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md).

@@ -1,6 +1,6 @@
 # Managed DNS pair: release-distribution contract (proposal)
 
-Status: proposed for 0.9 review, **not approved for normal installation**.
+Status: `v0.9.0-rc.1` validation-only prerelease, **not approved for normal installation**.
 Draft #302 proves a combined app/UI source and an installed x86_64 VM
 diagnostic; Draft #303 builds experimental pair packages on both native
 architectures. A later stacked draft stages a separate `omavless-dns` package
@@ -78,9 +78,10 @@ runtime unit and absent `Meta` TUN, rechecked immediately before pacman.
 A missing executable alone is not fresh-install evidence; ambiguous or damaged
 ownership is manual attention, not an implicit repair/upgrade.
 The RC frontend now has exact hashes for both architecture packages in
-`runtime-release.json` and `dns-release.json`. These are validation-only
-prerelease pins; they do not prove that the corresponding GitHub assets are
-published or that a clean download-to-activation path passed. An
+`runtime-release.json` and `dns-release.json`. The immutable assets were
+published and anonymously download-verified. The ARM64 same-account public
+download-to-activation rehearsal passed with qualified old-marker recovery;
+the fresh-account GUI-button path remains separate. An
 already installed but incomplete app receives bounded setup guidance; a
 connected native owner retains explicit Disconnect even when setup discovery
 needs attention. The isolated x86_64
