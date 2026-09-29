@@ -291,7 +291,12 @@ atomically replaced and directory-fsynced. It contains only schema/policy
 version, enrolled UID, generation, armed state and fixed-policy flags. It has
 no profile ID, endpoint, hostname, URI, password, key or subscription URL.
 
-Missing state means fresh/disarmed. Normal disarm retains a durable
+Missing state means fresh/disarmed only after kernel table absence is verified.
+It cannot prove that an interrupted arm left no rules: a stale proven-owned
+table requires reconciliation, and foreign/unreadable facts require refusal.
+The inactive [root-state foundation](../development/K1_ROOT_STATE.md) implements
+only marker persistence, not a service or kernel ownership receipt.
+Normal disarm retains a durable
 closed-generation fence in the same record, even when no table remains. Future
 arms require a strictly greater generation; exhaustion never wraps. Recovery
 and upgrade must preserve this fence rather than silently recycling generations.

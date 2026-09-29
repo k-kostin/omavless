@@ -3,8 +3,10 @@
 This candidate implements the first bounded part of
 [K1 slice 1](../roadmap/KILL_SWITCH.md#10-k1-implementation-slices).
 `omavless-netguard` is a library with no executable and no production dependent.
-It performs no socket, filesystem, subprocess, service, firewall or package
-operation. No installed behavior or advertised capability changes. Python is
+The original protocol/planner performs no I/O. The separate inactive
+[root-state adapter](K1_ROOT_STATE.md) now supplies filesystem persistence;
+it has no production caller, provisioning, service or firewall execution.
+No installed behavior or advertised capability changes. Python is
 neither an implementation nor an oracle for this new feature.
 
 ## Fixed protocol
@@ -68,10 +70,11 @@ future arm; it never wraps to zero. Corrupt state cannot reset the floor or admi
 a fresh generation. The fence is part of the same symbolic durable marker,
 avoiding an unproven two-file atomicity claim.
 
-This models durable effects and restart inputs; it does not implement disk
-persistence. The future root store must enforce atomic replacement/fsync and
-reject corrupt/newer/unsafe records, preserving the fence during upgrades and
-recovery. `Missing` is a fresh-install observation, not a normal disarm outcome.
+The planner models durable effects and restart inputs. The separate inactive
+[root store](K1_ROOT_STATE.md) implements atomic replacement/fsync and rejects
+corrupt/newer/unsafe records. Its integration with verified kernel ownership,
+upgrades and recovery is still pending.
+`Missing` is a fresh-install observation, not a normal disarm outcome.
 An administrator deleting/resetting trusted state is outside this replay
 guarantee; a future recovery/enrollment lifecycle must not silently reset its
 generation namespace. Unknown/corrupt generations require reviewed explicit
