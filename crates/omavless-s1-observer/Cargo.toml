@@ -12,6 +12,7 @@ default = []
 gio-observation = ["dep:gio", "dep:nix"]
 auth-sender-probe = ["gio-observation", "nix/socket", "nix/uio"]
 manager-continuity-probe = ["gio-observation"]
+peer-lifetime-tests = ["dep:nix", "nix/socket"]
 
 [dependencies]
 gio = { version = "0.22.10", optional = true }
