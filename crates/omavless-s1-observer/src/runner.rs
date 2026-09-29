@@ -87,7 +87,9 @@ fn pin_root_executable(path: &Path) -> Result<File, RunnerError> {
         };
         let final_component = names.peek().is_none();
         let flags = if final_component {
-            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
+            // A wrong root-owned FIFO/device must not block before its type
+            // can be refused by fstat. O_NONBLOCK is inert on regular ELF.
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
         } else {
             OFlag::O_PATH | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
         };
