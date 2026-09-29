@@ -139,6 +139,69 @@ unresolved; the normal runtime does not build or call the optional GIO helper.
 No privileged helper is needed for this scope. NixOS needs its own adapter and
 generation/session acceptance; Arch/Omarchy evidence cannot establish it.
 
+### Per-field recovery candidate (stacked, not installed)
+
+`app_proxy::fields` addresses a limitation of the earlier two-surface lease:
+one GSettings operation may update only some of its 16 fields. It models the
+fixed 16 desktop keys and 10 manager variables individually. Each field intent
+is marked before an effect is returned; confirmation requires a fresh complete
+readback in which exactly that field changed. On compensation, only fields
+whose intent was marked may be either original or intended, and they are
+restored in reverse order. Every never-attempted field must remain original.
+Unexpected third values, changed defaults/locks, stale owner or an unconfirmed
+effect refuse progress. Synthetic tests cover every partial-apply boundary and
+both outcomes of an uncertain write, without touching the host.
+
+This is a **pure in-memory planner**, not the production recovery solution.
+Its 26 intent bits and pending field still need a durable private journal,
+crash/reopen tests, exact host readback and owner takeover proof before any
+adapter may execute its effects. The previous two-surface journal is not
+silently reinterpreted as a per-field record. App proxy remains unavailable.
+
+The stacked field-journal candidate adds that private intent persistence in a
+fixed `app-proxy-fields` child of a trusted private root (pre-created 0700;
+symlinks refuse). Its version-2 record uses fixed basenames,
+0600 files, exclusive locking, a durable write-before-effect sequence and exact
+previous-record comparison from the existing storage layer. It keeps all 26
+attempted bits, the pending field and each field's expected original/intended
+side. Reopening refuses to continue applying; it allows only compensation
+after a complete fresh observation under the same binding. Tests restart at
+every partial-apply boundary, exercise both outcomes of a lost confirmation,
+and check storage failure, foreign fields, stale binding and malformed state.
+
+This remains an unregistered library, not App proxy availability. The version-1
+two-surface journal is **not** auto-migrated or deleted. Production code still
+needs a proved native-owner takeover, session/broker provenance, per-key typed
+host adapter, complete readback and installed crash/new-app acceptance. In
+particular a new daemon cannot simply reuse the old instance ID to open either
+journal. Both private journal formats remain isolated development checkpoints.
+
+### Inactive takeover admission candidate
+
+`app_proxy::takeover` is a pure refusal-first model stacked after the field
+journal. It returns a compensation-transfer *plan*, never a host effect or a
+rewritten binding. It accepts only an exact private record identity and
+sequence, distinct monotonic native-owner generations, matching UID/boot/session
+and verified manager, bus, settings-profile and shared-activation scope.
+It additionally requires an exact graceful handoff receipt saying the old
+workers were joined and all asynchronous effects settled. Missing/released
+records, unknown predecessor state, changed scope or a stale receipt refuse.
+An ordinary crash does **not** produce that receipt, so the model intentionally
+does not authorize automatic crash takeover.
+
+All these inputs are supplied by a future trusted coordinator; constructing a
+Rust receipt or comparing two snapshots does not prove the operating-system
+facts. The current read-only observer verifies identities within one read but
+does not carry manager/bus incarnation, settings backend/profile selection or
+broker provenance into a transferable proof. A future storage slice would
+need to atomically record the new binding and incremented sequence under the
+same private journal lock, preserving every original value, attempted bit and
+pending effect. It must reject uncertain publication and stale predecessor
+handles. A future installed-VM gate must prove actual old-worker quiescence,
+session/broker provenance, and exact partial-write restoration. No production
+caller, automatic transfer, S1 availability or network change follows from
+this model.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the
