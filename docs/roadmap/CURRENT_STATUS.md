@@ -6,10 +6,10 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.0 managed-DNS candidate:** [Draft #331](https://github.com/k-kostin/omavless/pull/331)
-  integrates Draft #295 and its stacked delivery work through #316: the fixed
-  DNS broker/core pair, exact package admission, explicit enrollment, and
-  guided two-package first use. The supported candidate refuses a new Connect
+- **0.9.0 managed-DNS candidate:** [#331](https://github.com/k-kostin/omavless/pull/331)
+  merged into RC at `67b5f21`, integrating #295 and its stacked delivery work
+  through #316: the fixed DNS broker/core pair, exact package admission,
+  explicit enrollment and guided two-package first use. The supported candidate refuses a new Connect
   when the managed pair is absent; the shipped legacy path's cancelled-DNS
   defect [#132](https://github.com/k-kostin/omavless/issues/132) remains open.
   See the [distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
@@ -37,12 +37,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
   completed the real Required components GUI path: pinned public downloads,
   package installation, DNS enrollment, onboarding and the usable
   disconnected/Rule panel, with no profiles or automatic VPN. The original
-  private store was preserved and its broker enrollment restored. A preceding empty-account pass
-  found and fixed false pre-activation VPN controls.
+  private store was preserved and its broker enrollment restored. A preceding
+  empty-account pass found and fixed false pre-activation VPN controls.
   A stopped-broker Connect refusal restored Disconnected/Rule without a false Full VPN claim.
-  In-flight negative/recovery coverage and final
-  #270/#132 disposition remain. #270/#132 are open; main and
-  rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
+  In-flight negative/recovery coverage and final #270/#132 disposition remain.
+  #270/#132 are open; `main` remains at stable 0.8.2, while `rc/0.9.0` now
+  includes #331. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the
   [RC ledger](../development/RC_090.md). Missing protocol fixtures are not
   represented as PASS.
