@@ -460,7 +460,8 @@ Later management candidates:
 
 - subscription automatic refresh schedules;
 - provider quota/usage/expiry metadata under strict bounds;
-- private-state backup/restore;
+- private-state backup/restore under the inactive
+  [security/product proposal](PRIVATE_BACKUP_RESTORE.md);
 - reconnect after suspend/network transitions under a separate inactive
   [recovery proposal](NETWORK_TRANSITION_RECOVERY.md);
 - batch latency workflows;
