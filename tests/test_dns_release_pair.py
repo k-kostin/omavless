@@ -60,7 +60,11 @@ class DnsReleasePairTests(unittest.TestCase):
         path.write_text(value)
 
     def git(self, *args):
-        return subprocess.check_output(['git', '-C', str(self.repo), *args], stderr=subprocess.DEVNULL)
+        # Keep Git from detaching auto-maintenance while this disposable repo is
+        # being removed by TemporaryDirectory cleanup.
+        return subprocess.check_output(
+            ['git', '-c', 'gc.auto=0', '-C', str(self.repo), *args],
+            stderr=subprocess.DEVNULL)
 
     def commit(self):
         self.git('add', '.')
