@@ -10,7 +10,15 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 
 cargo fmt --all -- --check
-cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved
+# This fixture forks a helper holding an inherited flock and tests a fixed
+# cleanup budget. Running it beside unrelated process-heavy tests can spend
+# that budget on scheduler contention, not the owned-group cleanup under test.
+# Keep every assertion and run this one case separately, once, below.
+cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+cargo test --locked -p omavless-runtime --lib \
+  core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
+  --exact --test-threads=1
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated
