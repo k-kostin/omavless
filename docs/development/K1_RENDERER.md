@@ -72,6 +72,52 @@ packet matrix, then the separately reviewed executor/root receipt service. The
 complete K1 host matrix and mandatory physical NIC/suspend/boot gates remain
 open. Main/RC 0.9 and the user's installed network are unchanged.
 
+### Opt-in installed nft round-trip harness
+
+`crates/omavless-netguard/tests/nft_namespace.rs` supplies an ignored integration
+gate. Ordinary workspace tests exercise only its pure refusal/response checks
+and private scratch-file behavior; they do not invoke nft or unshare.
+
+Inside a disposable development VM with `/usr/bin/nft` and `/usr/bin/unshare`:
+
+```sh
+OMAVLESS_K1_NFT_VM=1 cargo test -p omavless-netguard --locked \
+  --test nft_namespace nft_json_roundtrip_in_disposable_vm -- --ignored --exact
+```
+
+The parent launches a child user+network namespace, maps only the current user
+to namespace root and clears ambient environment. Before every nft command, the
+child reads its real parent's namespace identity from procfs, checks it matches
+the launch receipt, proves its own namespace differs, and requires the complete
+`/proc/net/dev` inventory to contain exactly loopback. No bridge, veth, physical
+interface, route or uplink is created. Refused namespace creation/access is a
+failed/unavailable gate; there is no sudo fallback, sysctl change or execution
+in the parent namespace. The VM opt-in is an operator assertion, not automatic
+virtual-machine detection; run this only in the delegated development VM.
+
+For Emergency and Full, it checks/applies the fixed JSON, reads actual numeric
+scoped table output, verifies foreign-without-receipt and same-created-object
+policy, rejects duplicate creation and checks unchanged readback. Only after
+successful exclusive create and verified readback does it delete that fixture
+table. Test-only identity does not implement production receipt persistence.
+Any earlier failure exits the namespace; it does not delete a parent table or
+adopt a same-name host table. Both ignored test entry points require explicit
+launch data; accidentally running all ignored tests does not run host nft.
+
+Input/output scratch directories are exclusive mode 0700, files mode 0600;
+known files are removed on normal return/unwind. SIGKILL can leave a bounded
+synthetic scratch directory. Tool runs have a 15-second deadline and bounded
+retained output. Output contains only fixed progress stages and pass/failure;
+raw tool stderr and ruleset bytes are not printed. A failed outer run reports
+the last allowlisted stage; zero tests executed cannot count as success.
+
+Installed execution is pending. Actual nft normalization may fail the current
+strict classifier; fix only captured, reviewed equivalent forms. An isolated
+round-trip PASS would establish JSON/kernel compatibility and create refusal,
+not packet confidentiality, DHCP/IPv6 completeness, Mihomo marks, root-service
+durability or the full K1 matrix. The next packet gate needs separate isolated
+peer namespaces; none is added by this harness.
+
 Source basis: [upstream nft manual](https://netfilter.org/projects/nftables/manpage.html)
 defines create versus add, hooks and marks; [libnftables JSON schema](https://man.archlinux.org/man/libnftables-json.5.en)
 defines command/object/handle/expression shape. Both inspected September 29, 2026.
