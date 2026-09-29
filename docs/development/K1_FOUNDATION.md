@@ -110,13 +110,13 @@ IPv6 neighbor discovery followed by drop-all output. It contains no generic
 established-flow, UID, LAN, physical-interface or DNS exemption. Emergency
 policy permits only loopback before drop-all.
 
-This is deliberately **not executable nft syntax**. A complete rule renderer
-still needs concrete package-owned mark/TUN constants, hook priorities, exact
-DHCP/ND address/port/type/hop-limit predicates, atomic replace semantics and
-foreign-firewall interaction review. A symbolic rule name does not prove that
-an actual DHCP/ND exception is narrow or that a marked resolver works.
+The symbolic policy remains separate from the [offline renderer candidate](K1_RENDERER.md).
+That candidate now supplies fixed JSON create syntax, reserved constants, narrow
+link predicates and a bounded ownership-aware readback classifier. Installed
+syntax/readback, complete link maintenance, atomic replace semantics and
+foreign-firewall interaction still need review. No marked resolver is proven.
 
-Next: review and implement that renderer plus a fake/injected adapter before
+Next: validate that renderer in isolation and add a fake/injected executor before
 root installation. Then add bounded framed Unix transport with deadlines,
 SO_PEERCRED/enrollment and root file safety, locking, durable state parsing,
 atomic nft application/readback, fixed console recovery, package/boot ordering

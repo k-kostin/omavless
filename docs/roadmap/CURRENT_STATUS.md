@@ -8,7 +8,9 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 - **K1 offline foundation candidate, September 29:** a separate Rust library adds
   bounded fixed messages, acknowledged helper transactions and symbolic policy
-  tests. It has no runtime caller, firewall I/O or installed protection. See
+  tests. The [offline renderer candidate](../development/K1_RENDERER.md) adds
+  fixed JSON creation and strict readback; it has no runtime caller, firewall I/O
+  or installed protection. See
   [scope and remaining renderer/security/host gates](../development/K1_FOUNDATION.md).
   This does not join the 0.9 release lane or complete K1.
 
