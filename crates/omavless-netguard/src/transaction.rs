@@ -6,8 +6,12 @@ use crate::protocol::{ErrorCode, Health, Mode, POLICY_VERSION, Protection, Reque
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Marker {
+    /// Fresh installation only. A completed disarm must retain Closed instead.
     Missing,
     Armed(u64),
+    /// Durable high-water fence: this and every older generation are retired.
+    /// Never remove/reset this record as part of normal disarm or restart.
+    Closed(u64),
     /// Includes corrupt, unsupported, unsafe or unreadable existing state.
     Invalid,
 }
@@ -15,9 +19,14 @@ pub enum Marker {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Table {
     Absent,
-    Verified(Policy),
-    /// Includes missing observation and an unexpected owned-table shape.
-    Unknown,
+    /// Both package ownership and the complete current policy were proven.
+    OwnedVerified(Policy),
+    /// Ownership was proven independently, but the policy needs reconciliation.
+    OwnedUnrecognized,
+    /// A table with the fixed name exists without valid ownership proof.
+    Foreign,
+    /// Includes failed, partial or unavailable table/ownership observations.
+    Unreadable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,10 +37,13 @@ pub struct Observation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Effect {
-    InstallAtomic(Policy),
+    /// Must fail if any table appeared after the observed absence.
+    CreateTableAtomic(Policy),
+    /// Must revalidate the same proven ownership before atomic replacement.
+    ReplaceOwnedTableAtomic(Policy),
     VerifyTable(Policy),
     PersistArmedDurably(u64),
-    RemoveMarkerDurably,
+    PersistClosedDurably(u64),
     DeleteOwnedTableAtomic,
     VerifyTableAbsent,
 }
@@ -93,11 +105,13 @@ fn status(protection: Protection, health: Health) -> Response {
 
 pub fn observe(observation: Observation) -> Response {
     match (observation.marker, observation.table) {
-        (Marker::Missing, Table::Absent) => status(Protection::Disarmed {}, Health::Verified),
-        (Marker::Armed(generation), Table::Verified(Policy::FullVpn)) => {
+        (Marker::Missing | Marker::Closed(_), Table::Absent) => {
+            status(Protection::Disarmed {}, Health::Verified)
+        }
+        (Marker::Armed(generation), Table::OwnedVerified(Policy::FullVpn)) => {
             status(Protection::Armed { generation }, Health::Verified)
         }
-        (Marker::Invalid, Table::Verified(Policy::Emergency)) => {
+        (Marker::Invalid, Table::OwnedVerified(Policy::Emergency)) => {
             status(Protection::Emergency {}, Health::ManualRecoveryRequired)
         }
         _ => Response::Error {
@@ -115,6 +129,7 @@ pub fn plan(request: Request, observation: Observation) -> Result<Transaction, E
     if observation.marker == Marker::Invalid {
         return Err(ErrorCode::ManualRecoveryRequired);
     }
+    require_observed_ownership(observation.table)?;
     match request {
         Request::Arm {
             generation,
@@ -123,11 +138,14 @@ pub fn plan(request: Request, observation: Observation) -> Result<Transaction, E
             if matches!(observation.marker, Marker::Armed(current) if current != generation) {
                 return Err(ErrorCode::GenerationConflict);
             }
+            if matches!(observation.marker, Marker::Closed(closed) if generation <= closed) {
+                return Err(ErrorCode::GenerationConflict);
+            }
             // Reinstall/verify even an idempotent retry: cached success is not
             // fresh evidence that a root-owned table still exists.
             Ok(Transaction::new(
                 vec![
-                    Effect::InstallAtomic(Policy::FullVpn),
+                    install_effect(observation.table, Policy::FullVpn)?,
                     Effect::VerifyTable(Policy::FullVpn),
                     Effect::PersistArmedDurably(generation),
                 ],
@@ -136,11 +154,11 @@ pub fn plan(request: Request, observation: Observation) -> Result<Transaction, E
         }
         Request::Disarm { generation } => {
             if observation.marker != Marker::Armed(generation) {
-                // Lost disarm acknowledgement is safe to retry only if both
-                // marker and owned table are already absent.
+                // A retry confirms only the exact durably closed generation.
+                // Missing state cannot prove that a disarm ever happened.
                 if observation
                     == (Observation {
-                        marker: Marker::Missing,
+                        marker: Marker::Closed(generation),
                         table: Table::Absent,
                     })
                 {
@@ -148,41 +166,69 @@ pub fn plan(request: Request, observation: Observation) -> Result<Transaction, E
                 }
                 return Err(ErrorCode::GenerationConflict);
             }
-            Ok(disarm())
+            Ok(disarm(generation, observation.table))
         }
         Request::Status {} => unreachable!(),
     }
 }
 
-fn disarm() -> Transaction {
-    Transaction::new(
-        vec![
-            Effect::RemoveMarkerDurably,
-            Effect::DeleteOwnedTableAtomic,
-            Effect::VerifyTableAbsent,
-        ],
-        status(Protection::Disarmed {}, Health::Verified),
-    )
+fn disarm(generation: u64, table: Table) -> Transaction {
+    let mut steps = vec![Effect::PersistClosedDurably(generation)];
+    steps.extend(remove_owned_table(table));
+    Transaction::new(steps, status(Protection::Disarmed {}, Health::Verified))
 }
 
 /// Root/internal startup only; deliberately absent from the wire request enum.
 /// The helper lock must cover snapshot, reconciliation and final observation.
-pub fn reconcile(marker: Marker) -> Transaction {
-    match marker {
-        Marker::Missing => disarm(),
+pub fn reconcile(observation: Observation) -> Result<Transaction, ErrorCode> {
+    require_observed_ownership(observation.table)?;
+    Ok(match observation.marker {
+        Marker::Missing | Marker::Closed(_) => Transaction::new(
+            remove_owned_table(observation.table),
+            status(Protection::Disarmed {}, Health::Verified),
+        ),
         Marker::Armed(generation) => Transaction::new(
             vec![
-                Effect::InstallAtomic(Policy::FullVpn),
+                install_effect(observation.table, Policy::FullVpn)?,
                 Effect::VerifyTable(Policy::FullVpn),
             ],
             status(Protection::Armed { generation }, Health::Verified),
         ),
         Marker::Invalid => Transaction::new(
             vec![
-                Effect::InstallAtomic(Policy::Emergency),
+                install_effect(observation.table, Policy::Emergency)?,
                 Effect::VerifyTable(Policy::Emergency),
             ],
             status(Protection::Emergency {}, Health::ManualRecoveryRequired),
         ),
+    })
+}
+
+fn require_observed_ownership(table: Table) -> Result<(), ErrorCode> {
+    match table {
+        Table::Absent | Table::OwnedVerified(_) | Table::OwnedUnrecognized => Ok(()),
+        Table::Foreign | Table::Unreadable => Err(ErrorCode::ManualRecoveryRequired),
+    }
+}
+
+fn install_effect(table: Table, policy: Policy) -> Result<Effect, ErrorCode> {
+    match table {
+        Table::Absent => Ok(Effect::CreateTableAtomic(policy)),
+        Table::OwnedVerified(_) | Table::OwnedUnrecognized => {
+            Ok(Effect::ReplaceOwnedTableAtomic(policy))
+        }
+        Table::Foreign | Table::Unreadable => Err(ErrorCode::ManualRecoveryRequired),
+    }
+}
+
+/// Called only after ownership admission. The future executor must revalidate
+/// ownership immediately before deletion; the fixed table name is not proof.
+fn remove_owned_table(table: Table) -> Vec<Effect> {
+    match table {
+        Table::Absent => vec![Effect::VerifyTableAbsent],
+        Table::OwnedVerified(_) | Table::OwnedUnrecognized => {
+            vec![Effect::DeleteOwnedTableAtomic, Effect::VerifyTableAbsent]
+        }
+        Table::Foreign | Table::Unreadable => unreachable!("ownership admission required"),
     }
 }
