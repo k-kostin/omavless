@@ -6,6 +6,7 @@ members = [
   "crates/omavless-parity",
   "crates/omavless-profile",
   "crates/omavless-runtime",
+  "crates/omavless-s1-observer",
   "crates/omavless-store",
   "crates/omavless-tui",
 ]

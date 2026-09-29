@@ -1,0 +1,317 @@
+// SPDX-License-Identifier: MIT
+
+use crate::{Error, Observation, Provenance, project_manager_environment};
+use gio::glib::{self, prelude::ToVariant};
+use gio::prelude::*;
+use omavless_runtime::app_proxy::codec::{
+    DesktopEntry, DesktopKey, DesktopSnapshot, DesktopValue, Override,
+};
+
+const MANAGER: &str = "org.freedesktop.systemd1";
+const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
+const MANAGER_IFACE: &str = "org.freedesktop.systemd1.Manager";
+const DBUS: &str = "org.freedesktop.DBus";
+const DBUS_PATH: &str = "/org/freedesktop/DBus";
+const DBUS_TIMEOUT_MS: i32 = 1500;
+const MAX_MANAGER_REPLY: usize = 256 * 1024;
+
+const SCHEMAS: [(&str, &str, usize); 5] = [
+    ("org.gnome.system.proxy", "/system/proxy/", 4),
+    ("org.gnome.system.proxy.http", "/system/proxy/http/", 6),
+    ("org.gnome.system.proxy.https", "/system/proxy/https/", 2),
+    ("org.gnome.system.proxy.ftp", "/system/proxy/ftp/", 2),
+    ("org.gnome.system.proxy.socks", "/system/proxy/socks/", 2),
+];
+
+pub(super) fn observe() -> Result<Observation, Error> {
+    // The default schema/backend is used only when the caller has not replaced
+    // it via the process environment. This is still not session provenance.
+    if std::env::var_os("GSETTINGS_SCHEMA_DIR").is_some()
+        || std::env::var_os("GSETTINGS_BACKEND").is_some()
+    {
+        return Err(Error::UnsupportedBackend);
+    }
+    let source = gio::SettingsSchemaSource::default().ok_or(Error::UnsupportedSchema)?;
+    let schemas = validate_schemas(&source)?;
+    let bus = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
+        .map_err(|_| Error::ManagerUnavailable)?;
+    let owner = manager_owner(&bus)?;
+    let uid = owner_uid(&bus, &owner)?;
+    if uid != nix::unistd::Uid::current().as_raw() {
+        return Err(Error::IdentityUnverified);
+    }
+
+    let desktop = read_desktop(&schemas)?;
+    let manager = read_manager_environment(&bus, &owner)?;
+    if manager_owner(&bus)? != owner || owner_uid(&bus, &owner)? != uid {
+        return Err(Error::OwnerChanged);
+    }
+    let desktop_again = read_desktop(&schemas)?;
+    let manager_again = read_manager_environment(&bus, &owner)?;
+    if manager_owner(&bus)? != owner || owner_uid(&bus, &owner)? != uid {
+        return Err(Error::OwnerChanged);
+    }
+    if desktop != desktop_again || manager != manager_again {
+        return Err(Error::IncompleteObservation);
+    }
+    Ok(Observation {
+        desktop,
+        manager,
+        provenance: Provenance::Unverified,
+    })
+}
+
+fn validate_schemas(source: &gio::SettingsSchemaSource) -> Result<Vec<gio::SettingsSchema>, Error> {
+    let mut schemas = Vec::with_capacity(SCHEMAS.len());
+    for (id, path, key_count) in SCHEMAS {
+        let schema = source.lookup(id, true).ok_or(Error::UnsupportedSchema)?;
+        if schema.id() != id || schema.path().as_deref() != Some(path) {
+            return Err(Error::UnsupportedSchema);
+        }
+        if schema.list_keys().len() != key_count {
+            return Err(Error::UnsupportedSchema);
+        }
+        schemas.push(schema);
+    }
+    // Verify every expected key before any Settings object is constructed.
+    for key in DesktopKey::ALL {
+        let (schema_id, name, signature) = key.schema_key_type();
+        let schema = schemas
+            .iter()
+            .find(|schema| schema.id() == schema_id)
+            .ok_or(Error::UnsupportedSchema)?;
+        if !schema.has_key(name) {
+            return Err(Error::UnsupportedSchema);
+        }
+        let schema_key = schema.key(name);
+        if schema_key.value_type().as_str() != signature {
+            return Err(Error::UnsupportedSchema);
+        }
+        verify_range(key, &schema_key)?;
+    }
+    Ok(schemas)
+}
+
+fn verify_range(key: DesktopKey, schema_key: &gio::SettingsSchemaKey) -> Result<(), Error> {
+    let range = schema_key.range();
+    let (kind, bounds) = range
+        .get::<(String, glib::Variant)>()
+        .ok_or(Error::UnsupportedSchema)?;
+    match key {
+        DesktopKey::Mode => {
+            let choices = bounds
+                .get::<Vec<String>>()
+                .ok_or(Error::UnsupportedSchema)?;
+            if kind != "enum" || choices != ["none", "manual", "auto"] {
+                return Err(Error::UnsupportedSchema);
+            }
+        }
+        DesktopKey::HttpPort
+        | DesktopKey::HttpsPort
+        | DesktopKey::FtpPort
+        | DesktopKey::SocksPort => {
+            if kind != "range" || bounds.get::<(i32, i32)>() != Some((0, 65535)) {
+                return Err(Error::UnsupportedSchema);
+            }
+        }
+        _ => {
+            if kind != "type" {
+                return Err(Error::UnsupportedSchema);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_desktop(schemas: &[gio::SettingsSchema]) -> Result<DesktopSnapshot, Error> {
+    read_desktop_with_backend(schemas, None, true)
+}
+
+fn read_desktop_with_backend(
+    schemas: &[gio::SettingsSchema],
+    backend: Option<&gio::SettingsBackend>,
+    require_dconf: bool,
+) -> Result<DesktopSnapshot, Error> {
+    let settings: Vec<_> = schemas
+        .iter()
+        .map(|schema| gio::Settings::new_full(schema, backend, None))
+        .collect();
+    // GIO's explicit backend is a private implementation detail; an unknown
+    // backend cannot establish the same layered GSettings semantics.
+    if require_dconf
+        && settings.iter().any(|setting| {
+            setting
+                .backend()
+                .is_none_or(|backend| backend.type_().name() != "DConfSettingsBackend")
+        })
+    {
+        return Err(Error::UnsupportedBackend);
+    }
+    let mut entries = Vec::with_capacity(DesktopKey::ALL.len());
+    for key in DesktopKey::ALL {
+        let (schema_id, name, _) = key.schema_key_type();
+        let index = schemas
+            .iter()
+            .position(|schema| schema.id() == schema_id)
+            .ok_or(Error::UnsupportedSchema)?;
+        let schema_key = schemas[index].key(name);
+        let setting = &settings[index];
+        let effective = setting.value(name);
+        let default = setting
+            .default_value(name)
+            .ok_or(Error::UnsupportedSchema)?;
+        let user = setting.user_value(name);
+        if !schema_key.range_check(&effective)
+            || !schema_key.range_check(&default)
+            || user.as_ref().is_some_and(|v| !schema_key.range_check(v))
+        {
+            return Err(Error::InvalidValue);
+        }
+        entries.push(DesktopEntry {
+            key,
+            effective: typed_value(key, &effective)?,
+            default: typed_value(key, &default)?,
+            user: match user {
+                Some(value) => Override::Present(typed_value(key, &value)?),
+                None => Override::Absent,
+            },
+            writable: setting.is_writable(name),
+        });
+    }
+    DesktopSnapshot::capture(entries).map_err(|_| Error::InvalidValue)
+}
+
+fn typed_value(key: DesktopKey, variant: &glib::Variant) -> Result<DesktopValue, Error> {
+    match key.schema_key_type().2 {
+        "s" => variant
+            .get::<String>()
+            .map(DesktopValue::String)
+            .ok_or(Error::InvalidValue),
+        "b" => variant
+            .get::<bool>()
+            .map(DesktopValue::Bool)
+            .ok_or(Error::InvalidValue),
+        "i" => variant
+            .get::<i32>()
+            .map(DesktopValue::Int)
+            .ok_or(Error::InvalidValue),
+        "as" => variant
+            .get::<Vec<String>>()
+            .map(DesktopValue::Strings)
+            .ok_or(Error::InvalidValue),
+        _ => Err(Error::UnsupportedSchema),
+    }
+}
+
+fn dbus_call(
+    bus: &gio::DBusConnection,
+    destination: &str,
+    path: &str,
+    interface: &str,
+    method: &str,
+    params: &glib::Variant,
+) -> Result<glib::Variant, Error> {
+    bus.call_sync(
+        Some(destination),
+        path,
+        interface,
+        method,
+        Some(params),
+        None,
+        gio::DBusCallFlags::NONE,
+        DBUS_TIMEOUT_MS,
+        None::<&gio::Cancellable>,
+    )
+    .map_err(|_| Error::ManagerUnavailable)
+}
+
+fn manager_owner(bus: &gio::DBusConnection) -> Result<String, Error> {
+    let reply = dbus_call(
+        bus,
+        DBUS,
+        DBUS_PATH,
+        DBUS,
+        "GetNameOwner",
+        &(MANAGER,).to_variant(),
+    )?;
+    let (owner,) = reply.get::<(String,)>().ok_or(Error::ManagerUnavailable)?;
+    if !owner.starts_with(':') || owner.len() > 255 {
+        return Err(Error::IdentityUnverified);
+    }
+    Ok(owner)
+}
+
+fn owner_uid(bus: &gio::DBusConnection, owner: &str) -> Result<u32, Error> {
+    let reply = dbus_call(
+        bus,
+        DBUS,
+        DBUS_PATH,
+        DBUS,
+        "GetConnectionUnixUser",
+        &(owner,).to_variant(),
+    )?;
+    reply
+        .get::<(u32,)>()
+        .map(|value| value.0)
+        .ok_or(Error::IdentityUnverified)
+}
+
+fn read_manager_environment(
+    bus: &gio::DBusConnection,
+    owner: &str,
+) -> Result<omavless_runtime::app_proxy::codec::EnvironmentSnapshot, Error> {
+    let reply = dbus_call(
+        bus,
+        owner,
+        MANAGER_PATH,
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        &(MANAGER_IFACE, "Environment").to_variant(),
+    )?;
+    if reply.size() > MAX_MANAGER_REPLY {
+        return Err(Error::IncompleteObservation);
+    }
+    let (value,) = reply
+        .get::<(glib::Variant,)>()
+        .ok_or(Error::ManagerUnavailable)?;
+    let assignments = value
+        .get::<Vec<String>>()
+        .ok_or(Error::ManagerUnavailable)?;
+    project_manager_environment(&assignments)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires public gsettings-desktop-schemas package"]
+    fn installed_schema_supports_typed_memory_override() {
+        let source = gio::SettingsSchemaSource::default().unwrap();
+        let schemas = validate_schemas(&source).unwrap();
+        let memory = gio::memory_settings_backend_new();
+        let first = read_desktop_with_backend(&schemas, Some(&memory), false).unwrap();
+        let mode = &first.entries()[0];
+        assert!(matches!(mode.user, Override::Absent));
+        let setting = gio::Settings::new_full(&schemas[0], Some(&memory), None);
+        assert!(setting.set_value("mode", &"none".to_variant()).is_ok());
+        let second = read_desktop_with_backend(&schemas, Some(&memory), false).unwrap();
+        assert!(matches!(
+            &second.entries()[0].user,
+            Override::Present(DesktopValue::String(value)) if value == "none"
+        ));
+        assert_eq!(second.entries()[0].effective, second.entries()[0].default);
+    }
+
+    #[test]
+    #[ignore = "requires an installed Omarchy GSettings backend; reads no setting values"]
+    fn installed_default_backend_is_the_supported_dconf_type() {
+        let source = gio::SettingsSchemaSource::default().unwrap();
+        let schemas = validate_schemas(&source).unwrap();
+        let setting = gio::Settings::new_full(&schemas[0], None::<&gio::SettingsBackend>, None);
+        assert_eq!(
+            setting.backend().unwrap().type_().name(),
+            "DConfSettingsBackend"
+        );
+    }
+}
