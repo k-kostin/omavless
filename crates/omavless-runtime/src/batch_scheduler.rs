@@ -385,7 +385,17 @@ fn run(
                     owner.batch_stop();
                 }
                 match work {
-                    BatchWork::Subscription { job, .. } => owner.batch_finish(job),
+                    BatchWork::Subscription { job, .. } => {
+                        if let Err(error) = owner.batch_finish(job) {
+                            // The exact operation remains queryable through the
+                            // owner registry. No automatic journal/timer is
+                            // registered yet; never invent a success here.
+                            eprintln!(
+                                "OmaVLESS batch terminal receipt unavailable: {:?}",
+                                error.stable_code()
+                            );
+                        }
+                    }
                     BatchWork::Provider { job, transport } => {
                         owner.provider_finish(job, &transport)
                     }

@@ -38,6 +38,7 @@ impl NativeProviderRefresh {
         NativeBatchTicket {
             instance: self.instance.clone(),
             token: self.token,
+            subscription_base_revision: None,
         }
     }
     pub fn step<T: RuleProviderTransport>(

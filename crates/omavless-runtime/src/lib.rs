@@ -423,7 +423,13 @@ trait NativeRuntimeOwner: Send {
         native_coordinator::NativeOwnerError,
     >;
     fn batch_progress(&mut self, job: &native_coordinator::NativeSubscriptionBatch) -> bool;
-    fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
+    fn batch_finish(
+        &mut self,
+        job: native_coordinator::NativeSubscriptionBatch,
+    ) -> std::result::Result<
+        native_coordinator::NativeBatchCompletionReceipt,
+        native_coordinator::NativeOwnerError,
+    >;
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
     fn provider_preflight(
@@ -910,8 +916,15 @@ where
                 .is_ok()
     }
 
-    fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch) {
-        let _ = self
+    fn batch_finish(
+        &mut self,
+        job: native_coordinator::NativeSubscriptionBatch,
+    ) -> std::result::Result<
+        native_coordinator::NativeBatchCompletionReceipt,
+        native_coordinator::NativeOwnerError,
+    > {
+        let ticket = job.supervisor_ticket();
+        let completion = self
             .owner
             .batch_coordinator()
             .complete_subscription_batch(job, || {
@@ -921,6 +934,19 @@ where
                     .as_millis()
                     .min(u128::from(u64::MAX)) as u64
             });
+        // A worker failure can still be a proved terminal cancellation/failure.
+        // The owner-minted receipt, not Result<()> and not an IPC projection,
+        // is the future automatic journal's completion authority.
+        match self
+            .owner
+            .batch_coordinator()
+            .subscription_batch_receipt(&ticket)
+        {
+            Ok(receipt) => Ok(receipt),
+            Err(_) => Err(completion
+                .err()
+                .unwrap_or(native_coordinator::NativeOwnerError::Invariant)),
+        }
     }
 
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket) {

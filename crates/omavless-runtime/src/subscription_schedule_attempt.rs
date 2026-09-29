@@ -5,6 +5,9 @@
 //! another daemon instance is uncertain and never becomes an automatic retry.
 
 use crate::cutover::CutoverPaths;
+use crate::native_coordinator::{
+    NativeBatchCompletionReceipt, NativeBatchOutcome, NativeBatchTicket,
+};
 use crate::subscription_schedule_plan::{
     AttemptHistory, OwnerFence, RefreshSchedule, ScheduleDecision, plan_refresh,
 };
@@ -18,7 +21,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 const FILE_NAME: &str = "subscription-refresh-attempt.json";
-const SCHEMA_VERSION: u8 = 1;
+const SCHEMA_VERSION: u8 = 2;
 const MAX_BYTES: u64 = 768;
 const MAX_INSTANCE_BYTES: usize = 128;
 
@@ -39,8 +42,10 @@ pub enum AttemptError {
     ClockRegressed,
     CounterExhausted,
     WriteUncertain,
+    OutcomeUncertain,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttemptOutcome {
     Success,
@@ -52,7 +57,10 @@ pub enum AttemptState {
     StartedInCurrentInstance,
     UncertainFromPreviousInstance,
     Succeeded,
+    Empty,
     Failed,
+    Cancelled,
+    Superseded,
 }
 
 /// The private instance string is deliberately absent from this read projection.
@@ -74,6 +82,7 @@ pub struct AttemptTicket {
     owner_generation: u64,
     preference_revision: u64,
     owner_revision: u64,
+    batch_sequence: u64,
     instance_id: String,
 }
 
@@ -82,7 +91,10 @@ pub struct AttemptTicket {
 enum WireState {
     Started,
     Succeeded,
+    Empty,
     Failed,
+    Cancelled,
+    Superseded,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -93,6 +105,7 @@ struct WireAttempt {
     preference_revision: u64,
     sequence: u64,
     owner_revision: u64,
+    batch_sequence: u64,
     completed_owner_revision: Option<u64>,
     instance_id: String,
     started_at_secs: u64,
@@ -107,6 +120,7 @@ impl WireAttempt {
             || self.owner_generation == 0
             || self.preference_revision == 0
             || self.sequence == 0
+            || self.batch_sequence == 0
             || u64::from(self.consecutive_failures) > self.sequence
             || !valid_instance(&self.instance_id)
         {
@@ -119,17 +133,21 @@ impl WireAttempt {
                 if self
                     .finished_at_secs
                     .is_some_and(|finished| finished >= self.started_at_secs)
-                    && self
-                        .completed_owner_revision
-                        .is_some_and(|revision| revision >= self.owner_revision)
+                    && self.owner_revision.checked_add(1) == self.completed_owner_revision
                     && self.consecutive_failures == 0 => {}
-            WireState::Failed
+            WireState::Empty
+                if self
+                    .finished_at_secs
+                    .is_some_and(|finished| finished >= self.started_at_secs)
+                    && self.completed_owner_revision == Some(self.owner_revision)
+                    && self.consecutive_failures == 0 => {}
+            WireState::Failed | WireState::Cancelled | WireState::Superseded
                 if self
                     .finished_at_secs
                     .is_some_and(|finished| finished >= self.started_at_secs)
                     && self
                         .completed_owner_revision
-                        .is_some_and(|revision| revision == self.owner_revision)
+                        .is_some_and(|revision| revision >= self.owner_revision)
                     && self.consecutive_failures > 0 => {}
             _ => return Err(AttemptError::InvalidState),
         }
@@ -143,7 +161,10 @@ impl WireAttempt {
             }
             WireState::Started => AttemptState::UncertainFromPreviousInstance,
             WireState::Succeeded => AttemptState::Succeeded,
+            WireState::Empty => AttemptState::Empty,
             WireState::Failed => AttemptState::Failed,
+            WireState::Cancelled => AttemptState::Cancelled,
+            WireState::Superseded => AttemptState::Superseded,
         };
         AttemptSnapshot {
             sequence: self.sequence,
@@ -255,18 +276,22 @@ pub fn read_attempt(
 /// Persist the attempt before a future worker performs network I/O. This
 /// inactive API still requires its future caller to hold the serialized owner
 /// while obtaining and rechecking the supplied owner revision.
-pub fn begin_attempt(
+pub fn begin_attempt_for_batch(
     paths: &CutoverPaths,
     uid: u32,
-    current_instance: &str,
+    batch: &NativeBatchTicket,
     expected_preference_revision: u64,
     now_secs: u64,
     owner: OwnerFence,
 ) -> Result<AttemptTicket, AttemptError> {
+    let current_instance = batch.instance();
     if !valid_instance(current_instance) {
         return Err(AttemptError::InvalidInstance);
     }
-    if !owner.matches() {
+    if !owner.matches()
+        || batch.base_revision() != Some(owner.current_revision)
+        || batch.sequence() == 0
+    {
         return Err(AttemptError::StaleOwner);
     }
     let _lock = locked_owner(paths, uid, owner.expected_generation).map_err(preference_error)?;
@@ -323,6 +348,7 @@ pub fn begin_attempt(
         preference_revision: preference.revision,
         sequence,
         owner_revision: owner.current_revision,
+        batch_sequence: batch.sequence(),
         completed_owner_revision: None,
         instance_id: current_instance.to_owned(),
         started_at_secs: now_secs,
@@ -336,36 +362,40 @@ pub fn begin_attempt(
         owner_generation: next.owner_generation,
         preference_revision: next.preference_revision,
         owner_revision: next.owner_revision,
+        batch_sequence: next.batch_sequence,
         instance_id: next.instance_id,
     })
 }
 
-/// Terminalize only the exact live attempt. A success means the future owner
-/// already proved the corresponding refresh commit; this helper cannot prove
-/// that by itself and has no production caller.
-pub fn finish_attempt(
+/// Terminalize only the exact live attempt with a receipt minted by its owner.
+/// A prior-instance start or uncertain post-rename write cannot be completed
+/// by guessing an outcome. No timer or production caller is registered yet.
+pub fn finish_attempt_with_receipt(
     paths: &CutoverPaths,
     uid: u32,
     ticket: AttemptTicket,
-    outcome: AttemptOutcome,
+    receipt: NativeBatchCompletionReceipt,
     now_secs: u64,
     owner: OwnerFence,
 ) -> Result<AttemptSnapshot, AttemptError> {
     if !owner.matches()
         || owner.expected_generation != ticket.owner_generation
-        || owner.current_revision < ticket.owner_revision
-        || (outcome == AttemptOutcome::Failure && owner.current_revision != ticket.owner_revision)
+        || receipt.instance() != ticket.instance_id
+        || receipt.sequence() != ticket.batch_sequence
+        || receipt.base_revision() != ticket.owner_revision
+        || receipt.completed_revision() < ticket.owner_revision
+        || owner.current_revision < receipt.completed_revision()
     {
         return Err(AttemptError::StaleOwner);
+    }
+    if receipt.outcome() == NativeBatchOutcome::Uncertain {
+        return Err(AttemptError::OutcomeUncertain);
     }
     let _lock = locked_owner(paths, uid, owner.expected_generation).map_err(preference_error)?;
     let preference =
         read_preference_locked(paths, uid, owner.expected_generation).map_err(preference_error)?;
-    if preference.owner_generation != ticket.owner_generation
-        || preference.revision != ticket.preference_revision
-        || preference.schedule == RefreshSchedule::Off
-    {
-        return Err(AttemptError::PreferenceChanged);
+    if preference.owner_generation != ticket.owner_generation {
+        return Err(AttemptError::OwnershipUnavailable);
     }
     let mut attempt = read_attempt_locked(paths, uid)?.ok_or(AttemptError::StaleTicket)?;
     if attempt.state != WireState::Started
@@ -373,6 +403,7 @@ pub fn finish_attempt(
         || attempt.owner_generation != ticket.owner_generation
         || attempt.preference_revision != ticket.preference_revision
         || attempt.owner_revision != ticket.owner_revision
+        || attempt.batch_sequence != ticket.batch_sequence
         || attempt.instance_id != ticket.instance_id
     {
         return Err(AttemptError::StaleTicket);
@@ -380,23 +411,96 @@ pub fn finish_attempt(
     if now_secs < attempt.started_at_secs {
         return Err(AttemptError::ClockRegressed);
     }
-    attempt.state = match outcome {
-        AttemptOutcome::Success => {
+    let superseded = preference.revision != ticket.preference_revision
+        || preference.schedule == RefreshSchedule::Off;
+    attempt.state = match receipt.outcome() {
+        NativeBatchOutcome::Committed => {
+            if ticket.owner_revision.checked_add(1) != Some(receipt.completed_revision()) {
+                return Err(AttemptError::StaleOwner);
+            }
             attempt.consecutive_failures = 0;
             WireState::Succeeded
         }
-        AttemptOutcome::Failure => {
+        NativeBatchOutcome::Empty => {
+            if receipt.completed_revision() != ticket.owner_revision {
+                return Err(AttemptError::StaleOwner);
+            }
+            attempt.consecutive_failures = 0;
+            WireState::Empty
+        }
+        NativeBatchOutcome::Cancelled | NativeBatchOutcome::Failed => {
             attempt.consecutive_failures = attempt
                 .consecutive_failures
                 .checked_add(1)
                 .ok_or(AttemptError::CounterExhausted)?;
-            WireState::Failed
+            if superseded {
+                WireState::Superseded
+            } else if receipt.outcome() == NativeBatchOutcome::Cancelled {
+                WireState::Cancelled
+            } else {
+                WireState::Failed
+            }
         }
+        NativeBatchOutcome::Uncertain => unreachable!("uncertain checked before lock"),
     };
     attempt.finished_at_secs = Some(now_secs);
-    attempt.completed_owner_revision = Some(owner.current_revision);
+    attempt.completed_owner_revision = Some(receipt.completed_revision());
     write_attempt_locked(paths, uid, &attempt)?;
     Ok(attempt.snapshot(&ticket.instance_id))
+}
+
+#[cfg(test)]
+fn begin_attempt(
+    paths: &CutoverPaths,
+    uid: u32,
+    current_instance: &str,
+    expected_preference_revision: u64,
+    now_secs: u64,
+    owner: OwnerFence,
+) -> Result<AttemptTicket, AttemptError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_BATCH: AtomicU64 = AtomicU64::new(1);
+    let batch = NativeBatchTicket::synthetic(
+        current_instance,
+        NEXT_BATCH.fetch_add(1, Ordering::Relaxed),
+        owner.current_revision,
+    );
+    begin_attempt_for_batch(
+        paths,
+        uid,
+        &batch,
+        expected_preference_revision,
+        now_secs,
+        owner,
+    )
+}
+
+#[cfg(test)]
+fn finish_attempt(
+    paths: &CutoverPaths,
+    uid: u32,
+    ticket: AttemptTicket,
+    outcome: AttemptOutcome,
+    now_secs: u64,
+    owner: OwnerFence,
+) -> Result<AttemptSnapshot, AttemptError> {
+    let batch = NativeBatchTicket::synthetic(
+        &ticket.instance_id,
+        ticket.batch_sequence,
+        ticket.owner_revision,
+    );
+    let (kind, completed_revision) = match outcome {
+        AttemptOutcome::Success => (NativeBatchOutcome::Empty, ticket.owner_revision),
+        AttemptOutcome::Failure => (NativeBatchOutcome::Failed, owner.current_revision),
+    };
+    finish_attempt_with_receipt(
+        paths,
+        uid,
+        ticket,
+        NativeBatchCompletionReceipt::synthetic(&batch, completed_revision, kind),
+        now_secs,
+        owner,
+    )
 }
 
 #[cfg(test)]
@@ -475,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn off_is_inert_and_success_waits_full_interval() {
+    fn off_is_inert_and_empty_success_waits_full_interval() {
         let fixture = Fixture::new();
         assert_eq!(
             begin_attempt(&fixture.paths, fixture.uid, "daemon-1", 0, 100, OWNER).err(),
@@ -528,7 +632,7 @@ mod tests {
             OWNER,
         )
         .unwrap();
-        assert_eq!(result.state, AttemptState::Succeeded);
+        assert_eq!(result.state, AttemptState::Empty);
         assert_eq!(result.sequence, 1);
         assert_eq!(result.consecutive_failures, 0);
         assert_eq!(
@@ -680,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn preference_and_owner_fences_block_completion_without_rewriting_history() {
+    fn preference_change_does_not_hide_an_already_proven_empty_result() {
         let fixture = Fixture::new();
         let revision = fixture.enable();
         assert_eq!(
@@ -707,7 +811,6 @@ mod tests {
             OWNER,
         )
         .unwrap();
-        let before = fs::read(fixture.path()).unwrap();
         set_preference(
             &fixture.paths,
             fixture.uid,
@@ -725,15 +828,289 @@ mod tests {
                 110,
                 OWNER,
             )
-            .err(),
-            Some(AttemptError::PreferenceChanged)
+            .unwrap()
+            .state,
+            AttemptState::Empty
         );
-        assert_eq!(fs::read(fixture.path()).unwrap(), before);
         assert_eq!(
             read_preference(&fixture.paths, fixture.uid, GENERATION)
                 .unwrap()
                 .schedule,
             RefreshSchedule::Off
+        );
+    }
+
+    #[test]
+    fn cancelled_batch_terminalizes_and_uses_bounded_retry() {
+        let fixture = Fixture::new();
+        let revision = fixture.enable();
+        let ticket = begin_attempt(
+            &fixture.paths,
+            fixture.uid,
+            "daemon-1",
+            revision,
+            100,
+            OWNER,
+        )
+        .unwrap();
+        let batch = NativeBatchTicket::synthetic(
+            &ticket.instance_id,
+            ticket.batch_sequence,
+            ticket.owner_revision,
+        );
+        let result = finish_attempt_with_receipt(
+            &fixture.paths,
+            fixture.uid,
+            ticket,
+            NativeBatchCompletionReceipt::synthetic(&batch, 7, NativeBatchOutcome::Cancelled),
+            120,
+            OWNER,
+        )
+        .unwrap();
+        assert_eq!(result.state, AttemptState::Cancelled);
+        assert_eq!(result.consecutive_failures, 1);
+        assert_eq!(
+            begin_attempt(
+                &fixture.paths,
+                fixture.uid,
+                "daemon-1",
+                revision,
+                419,
+                OWNER
+            )
+            .err(),
+            Some(AttemptError::WaitUntil(420))
+        );
+    }
+
+    #[test]
+    fn off_then_cancel_marks_superseded_and_explicit_reenable_remains_fenced() {
+        let fixture = Fixture::new();
+        let revision = fixture.enable();
+        let ticket = begin_attempt(
+            &fixture.paths,
+            fixture.uid,
+            "daemon-1",
+            revision,
+            100,
+            OWNER,
+        )
+        .unwrap();
+        let batch = NativeBatchTicket::synthetic(
+            &ticket.instance_id,
+            ticket.batch_sequence,
+            ticket.owner_revision,
+        );
+        let off = set_preference(
+            &fixture.paths,
+            fixture.uid,
+            GENERATION,
+            revision,
+            RefreshSchedule::Off,
+        )
+        .unwrap();
+        let result = finish_attempt_with_receipt(
+            &fixture.paths,
+            fixture.uid,
+            ticket,
+            NativeBatchCompletionReceipt::synthetic(&batch, 7, NativeBatchOutcome::Cancelled),
+            120,
+            OWNER,
+        )
+        .unwrap();
+        assert_eq!(result.state, AttemptState::Superseded);
+        assert_eq!(result.consecutive_failures, 1);
+        assert_eq!(
+            begin_attempt(
+                &fixture.paths,
+                fixture.uid,
+                "daemon-1",
+                off.revision,
+                500,
+                OWNER
+            )
+            .err(),
+            Some(AttemptError::ScheduleOff)
+        );
+        let enabled = set_preference(
+            &fixture.paths,
+            fixture.uid,
+            GENERATION,
+            off.revision,
+            RefreshSchedule::Every {
+                interval_secs: INTERVAL,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            begin_attempt(
+                &fixture.paths,
+                fixture.uid,
+                "daemon-1",
+                enabled.revision,
+                419,
+                OWNER
+            )
+            .err(),
+            Some(AttemptError::WaitUntil(420))
+        );
+    }
+
+    #[test]
+    fn unrelated_owner_revision_and_exact_receipt_identity() {
+        let fixture = Fixture::new();
+        let revision = fixture.enable();
+        let ticket = begin_attempt(
+            &fixture.paths,
+            fixture.uid,
+            "daemon-1",
+            revision,
+            100,
+            OWNER,
+        )
+        .unwrap();
+        let batch = NativeBatchTicket::synthetic(
+            &ticket.instance_id,
+            ticket.batch_sequence,
+            ticket.owner_revision,
+        );
+        let wrong = NativeBatchTicket::synthetic("daemon-1", ticket.batch_sequence + 1, 7);
+        let before = fs::read(fixture.path()).unwrap();
+        let advanced = OwnerFence {
+            expected_revision: 8,
+            current_revision: 8,
+            ..OWNER
+        };
+        assert_eq!(
+            finish_attempt_with_receipt(
+                &fixture.paths,
+                fixture.uid,
+                AttemptTicket {
+                    sequence: ticket.sequence,
+                    owner_generation: ticket.owner_generation,
+                    preference_revision: ticket.preference_revision,
+                    owner_revision: ticket.owner_revision,
+                    batch_sequence: ticket.batch_sequence,
+                    instance_id: ticket.instance_id.clone(),
+                },
+                NativeBatchCompletionReceipt::synthetic(&wrong, 8, NativeBatchOutcome::Failed),
+                120,
+                advanced,
+            )
+            .err(),
+            Some(AttemptError::StaleOwner)
+        );
+        assert_eq!(fs::read(fixture.path()).unwrap(), before);
+        let result = finish_attempt_with_receipt(
+            &fixture.paths,
+            fixture.uid,
+            ticket,
+            NativeBatchCompletionReceipt::synthetic(&batch, 8, NativeBatchOutcome::Failed),
+            120,
+            advanced,
+        )
+        .unwrap();
+        assert_eq!(result.state, AttemptState::Failed);
+    }
+
+    #[test]
+    fn committed_receipt_requires_the_exact_single_revision_advance() {
+        let fixture = Fixture::new();
+        let revision = fixture.enable();
+        let ticket = begin_attempt(
+            &fixture.paths,
+            fixture.uid,
+            "daemon-1",
+            revision,
+            100,
+            OWNER,
+        )
+        .unwrap();
+        let batch = NativeBatchTicket::synthetic(
+            &ticket.instance_id,
+            ticket.batch_sequence,
+            ticket.owner_revision,
+        );
+        let before = fs::read(fixture.path()).unwrap();
+        let advanced = OwnerFence {
+            expected_revision: 8,
+            current_revision: 8,
+            ..OWNER
+        };
+        let wrong =
+            NativeBatchCompletionReceipt::synthetic(&batch, 7, NativeBatchOutcome::Committed);
+        let same_ticket = AttemptTicket {
+            sequence: ticket.sequence,
+            owner_generation: ticket.owner_generation,
+            preference_revision: ticket.preference_revision,
+            owner_revision: ticket.owner_revision,
+            batch_sequence: ticket.batch_sequence,
+            instance_id: ticket.instance_id.clone(),
+        };
+        assert_eq!(
+            finish_attempt_with_receipt(
+                &fixture.paths,
+                fixture.uid,
+                same_ticket,
+                wrong,
+                120,
+                advanced,
+            )
+            .err(),
+            Some(AttemptError::StaleOwner)
+        );
+        assert_eq!(fs::read(fixture.path()).unwrap(), before);
+        let committed = finish_attempt_with_receipt(
+            &fixture.paths,
+            fixture.uid,
+            ticket,
+            NativeBatchCompletionReceipt::synthetic(&batch, 8, NativeBatchOutcome::Committed),
+            120,
+            advanced,
+        )
+        .unwrap();
+        assert_eq!(committed.state, AttemptState::Succeeded);
+        assert_eq!(committed.consecutive_failures, 0);
+    }
+
+    #[test]
+    fn uncertain_store_write_never_becomes_failed_or_retriable() {
+        let fixture = Fixture::new();
+        let revision = fixture.enable();
+        let ticket = begin_attempt(
+            &fixture.paths,
+            fixture.uid,
+            "daemon-1",
+            revision,
+            100,
+            OWNER,
+        )
+        .unwrap();
+        let batch = NativeBatchTicket::synthetic(
+            &ticket.instance_id,
+            ticket.batch_sequence,
+            ticket.owner_revision,
+        );
+        let before = fs::read(fixture.path()).unwrap();
+        assert_eq!(
+            finish_attempt_with_receipt(
+                &fixture.paths,
+                fixture.uid,
+                ticket,
+                NativeBatchCompletionReceipt::synthetic(&batch, 7, NativeBatchOutcome::Uncertain),
+                120,
+                OWNER,
+            )
+            .err(),
+            Some(AttemptError::OutcomeUncertain)
+        );
+        assert_eq!(fs::read(fixture.path()).unwrap(), before);
+        assert_eq!(
+            read_attempt(&fixture.paths, fixture.uid, GENERATION, "daemon-2")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::UncertainFromPreviousInstance
         );
     }
 
@@ -781,7 +1158,8 @@ mod tests {
             preference_revision: revision,
             sequence: u64::MAX,
             owner_revision: OWNER.current_revision,
-            completed_owner_revision: Some(OWNER.current_revision),
+            batch_sequence: 1,
+            completed_owner_revision: Some(OWNER.current_revision + 1),
             instance_id: "daemon-1".into(),
             started_at_secs: 100,
             finished_at_secs: Some(110),
@@ -835,6 +1213,7 @@ mod tests {
             preference_revision: revision,
             sequence: u64::from(u32::MAX),
             owner_revision: OWNER.current_revision,
+            batch_sequence: 1,
             completed_owner_revision: Some(OWNER.current_revision),
             instance_id: "daemon-1".into(),
             started_at_secs: 100,

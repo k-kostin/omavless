@@ -78,3 +78,37 @@ The current daemon instance string is a process-ID/time identifier, not proof
 that a worker is still running. Production activation must check an in-memory
 worker registry as well as the durable journal, and must either establish a
 fresh per-start identity or conservatively classify a collision as uncertain.
+
+## Stacked batch receipt and terminalization checkpoint
+
+An additional inactive Draft binds a journal start to an owner-minted
+subscription batch ticket: daemon instance, private operation token and exact
+base revision. Its version-2 private journal stores only the numeric token,
+not the client operation ID, URL or provider identity. The serialized owner
+can mint a typed terminal receipt only from the matching registry token. This
+distinguishes an actual committed refresh, an empty batch with no store write,
+an accepted cancellation, an ordinary failure and an uncertain store write.
+The runtime adapter now returns that typed receipt to its batch scheduler and
+reports a missing terminal receipt using only a fixed error code. There is no
+automatic journal consumer yet; the current manual batch registry remains
+the source of status for existing callers.
+
+The journal consumes the exact receipt and marks a cancellation or failure
+after an Off/preference change as superseded. A cancellation with an unchanged
+preference has its own terminal state. These non-success outcomes use the
+bounded retry backoff, so an explicit re-enable cannot create an immediate
+fetch loop. A factual committed or empty result remains factual even if the
+preference changed before the journal write. A failed batch after an unrelated
+owner revision can also be terminalized from its receipt. A post-rename
+uncertain store write remains an unfinished, blocked attempt: no failure,
+success or retry is inferred. A prior-instance unfinished attempt likewise
+remains uncertain and requires a separate reviewed recovery policy.
+
+This is still a contract, not activation. Before any background GET or timer,
+the scheduled owner must coordinate batch admission, durable journal start,
+worker registration, result receipt and durable terminal write under the
+authoritative serialized owner. A failure between a committed store write and
+its journal write must block automatic replay rather than guess completion.
+The future UI must expose only bounded privacy-safe states and provide an
+explicit reviewed way to resolve interrupted attempts. No host/VM network
+state is changed by this checkpoint.
