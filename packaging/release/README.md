@@ -1,13 +1,14 @@
 # Native release and RC preparation
 
 Current development candidate: **0.9.0-rc.1**, not stable or marketplace-ready.
-The production pair has an owner-attended installed ARM64 cycle; clean
-public-download first use and remaining host failure gates are separate.
+The production pair has an owner-attended installed ARM64 cycle; agent-run
+public-download first use in an empty ARM64 account also passed. Remaining host
+negative/recovery and release gates are separate.
 Use the default RC assembler (no `--stable` flag). This is preparation, not RC
 acceptance: DNS/#132 and exact-package installed gates remain open.
-The proposed [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+The [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
 tracks the separate companion package, enrollment, upgrade/removal and firewall
-work still missing from this single-package assembler. The separate
+requirements beyond this single-package assembler. The separate
 [`pair-dns-frontend.py`](pair-dns-frontend.py) checks an already built RC app,
 production DNS companion and newer frontend together; neither is a public
 installer.

@@ -5,8 +5,9 @@ This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-o
 `omavless` + `omavless-dns` package pair, separate administrator enrollment
 for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
 selection before Rust activation. The 0.9 frontend's pinned `v0.9.0-rc.1`
-prerelease assets are for RC validation, not a supported upgrade until the
-formal fresh-install and remaining host gates pass. It treats an already
+prerelease assets are for RC validation, not a supported upgrade: the ARM64
+fresh-account GUI path passed, but negative/recovery and release gates remain.
+It treats an already
 registered package, leftover
 user runtime unit or `Meta` TUN as an existing/ambiguous installation, not a
 fresh machine to overwrite; inspect that state separately. Do not

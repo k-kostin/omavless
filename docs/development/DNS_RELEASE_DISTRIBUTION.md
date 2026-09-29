@@ -79,9 +79,11 @@ A missing executable alone is not fresh-install evidence; ambiguous or damaged
 ownership is manual attention, not an implicit repair/upgrade.
 The RC frontend now has exact hashes for both architecture packages in
 `runtime-release.json` and `dns-release.json`. The immutable assets were
-published and anonymously download-verified. The ARM64 same-account public
-download-to-activation rehearsal passed with qualified old-marker recovery;
-the fresh-account GUI-button path remains separate. An
+published and anonymously download-verified. An ARM64 account with an empty
+private home completed the real GUI-button path with both packages initially
+absent: public pinned downloads, installation, DNS enrollment, onboarding and
+disconnected/Rule controls. The original account's store/enrollment were
+restored afterward. This does not close the negative/recovery gates. An
 already installed but incomplete app receives bounded setup guidance; a
 connected native owner retains explicit Disconnect even when setup discovery
 needs attention. The isolated x86_64
