@@ -33,10 +33,22 @@ pub struct ReceiptStore {
 
 impl ReceiptStore {
     pub fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
-        Ok(Self {
-            root: RootStateStore::open_fixed(enrolled_uid)?,
+        Ok(Self::from_root(RootStateStore::open_fixed(enrolled_uid)?))
+    }
+
+    /// Moves the existing lock owner; never opens another FD or reacquires flock.
+    pub(crate) fn from_root(root: RootStateStore) -> Self {
+        Self {
+            root,
             poisoned: false,
-        })
+        }
+    }
+
+    pub(crate) fn root(&mut self) -> Result<&mut RootStateStore, StateError> {
+        if self.poisoned {
+            return Err(StateError::UnsafeOrUnreadable);
+        }
+        Ok(&mut self.root)
     }
 
     /// Missing is only a safely observed missing file, not absent nft state.
@@ -89,7 +101,7 @@ impl ReceiptStore {
         self.publish_with(expected, next, |_| Ok(()))
     }
 
-    fn publish_with(
+    pub(crate) fn publish_with(
         &mut self,
         expected: ReceiptRead,
         next: Receipt,

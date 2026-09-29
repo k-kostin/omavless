@@ -6,6 +6,10 @@ the [kernel capability experiment](K1_KERNEL_CAPABILITIES.md). It adds only
 `KernelPort`, service, package hook, network or firewall operation is added.
 K1 remains unavailable. A stored receipt never becomes ownership authority.
 
+The later [shared-lock context](K1_LOCKED_STATE.md) composes both writers with
+synthetic kernel effects under this same lock and adds strict transaction phases.
+It does not provide a production port, provenance or interrupted-state recovery.
+
 The follow-on [crash/orphan disposition proposal](K1_CRASH_DISPOSITION.md)
 documents remaining authority gaps and conservative review requirements, with
 test-only counterexamples. It adds no automatic recovery or ownership adoption.
@@ -22,9 +26,9 @@ revalidated against its pinned parent before observations and publication.
 
 The same nonblocking exclusive directory `flock` used by `RootStateStore`
 serializes both adapters. A second marker/receipt adapter cannot open during
-the first one's lifetime. Future combined coordination needs a reviewed common
-lock owner; it must not drop and reacquire the lock between kernel and storage
-steps. No such integration is provided here.
+the first one's lifetime. Combined coordination must retain one common lock
+owner without dropping and reacquiring it between kernel and storage steps.
+The later shared-lock candidate does this for synthetic transactions only.
 
 Only three fixed leaves are used:
 
