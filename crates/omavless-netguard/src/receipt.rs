@@ -45,6 +45,26 @@ pub struct Receipt {
 }
 
 impl Receipt {
+    pub fn operation(self) -> u64 {
+        self.operation
+    }
+
+    pub(crate) fn transaction_record(
+        enrolled_uid: u32,
+        epoch: HostEpoch,
+        operation: u64,
+        state: ReceiptState,
+    ) -> Result<Self, DecodeError> {
+        let record = Self {
+            enrolled_uid,
+            epoch,
+            operation,
+            state,
+        };
+        // Reuse all wire invariants, including nonzero epochs/operation/handles.
+        decode(&record.encode()?)
+    }
+
     pub fn state(self) -> ReceiptState {
         self.state
     }

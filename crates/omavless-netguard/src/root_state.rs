@@ -228,7 +228,7 @@ impl RootStateStore {
         self.persist_inner(expected, next, |_| Ok(()))
     }
 
-    fn persist_inner(
+    pub(crate) fn persist_inner(
         &mut self,
         expected: Marker,
         next: Marker,

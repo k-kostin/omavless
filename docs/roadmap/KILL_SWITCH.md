@@ -19,6 +19,9 @@ not a root executor or a working host kill switch.
 An [inactive receipt assessment](../development/K1_RECEIPT_ADMISSION.md) now
 models bounded receipt decoding and uncertain-outcome refusal. It supplies no
 kernel ownership authority, receipt storage adapter or automatic orphan recovery.
+The subsequent [shared-lock transaction candidate](../development/K1_LOCKED_STATE.md)
+combines durable marker/receipt writes with synthetic kernel effects and strict
+pending-phase refusal. It provides no production ownership or recovery adapter.
 
 ## 1. Decision summary
 

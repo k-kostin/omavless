@@ -4,6 +4,7 @@
 //! authenticate peers, serialize transactions and verify every acknowledged effect.
 
 pub mod coordinator;
+pub mod locked_state;
 pub mod nft;
 pub mod policy;
 pub mod protocol;
