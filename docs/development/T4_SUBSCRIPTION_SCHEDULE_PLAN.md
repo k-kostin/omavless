@@ -217,3 +217,68 @@ reviewed manual disposition for prior-instance Started, trusted clock and
 timer/suspend handling, privacy-safe UI/IPC controls, and installed host
 acceptance. A generic injected transport seam is not authorization to call it
 from the daemon before those gates are resolved.
+
+## Prior-instance Started disposition: owner decision pending
+
+This section is a **proposal, not an implemented recovery action or approval
+to activate T4**. A `Started` journal entry left by another daemon instance,
+or left after a possible post-rename store write without a durable terminal
+receipt, cannot be classified by the next process. Store revision, profile
+contents, timestamps and a fresh provider response cannot prove whether that
+specific earlier attempt committed. It remains `UncertainFromPreviousInstance`
+and blocks all automatic admission, regardless of the saved interval or how
+much wall-clock time passes. Existing manual refresh is a separate operation,
+not a replay or a terminal receipt for the old attempt.
+
+The recommended recovery candidate, subject to explicit owner/product review,
+is **acknowledge uncertainty, turn the schedule Off, then require a separate
+explicit re-enable**. Acknowledgment would record a distinct
+`UncertainAcknowledged` state, not `Succeeded`, `Empty` or `Failed`; it would
+never reuse the interrupted batch ticket or perform a provider GET. It must be
+available only to a same-user, authoritative Rust owner after a clear manual
+confirmation, with no background or silent confirmation path. The confirmation
+must exact-match the journal sequence, original daemon instance, batch token,
+owner generation/revision and preference revision observed when the prompt was
+shown. A stale prompt, still-running current-instance worker, active batch,
+ownership transition, changed preference or replaced journal must refuse.
+
+Two private files cannot be atomically replaced as one filesystem transaction.
+The proposed fail-closed order under the serialized owner and shared migration
+lock is: revalidate those exact fences; persist a new Off preference revision;
+then persist the distinct acknowledgment tied to that Off revision. A failure
+or crash after Off but before acknowledgment leaves `Started` blocked and the
+schedule Off. A failed/uncertain acknowledgment write must not be called a
+successful disposition. A failure while persisting Off must not write an
+acknowledgment. A later enable action must separately compare the new Off
+revision and acknowledged sequence; it must not cause an immediate GET merely
+because the old interval elapsed. A conservative candidate is a fresh full
+interval measured from that explicit re-enable, with clock rollback or overflow
+remaining blocked. The exact restart timing and whether a manual refresh may
+clear the pending warning require owner approval before schema or writer code.
+
+Other choices remain visible for review: permanent block until explicit
+reinstall/recovery is safe but leaves poor usability; a dedicated operator
+reconciliation workflow could provide stronger evidence if it is designed and
+tested. Automatically converting Started to success/failure, deleting the
+journal, inferring a result from store revision/mtime, or offering a one-click
+"retry now" are **not** acceptable: they guess an outcome or allow an
+unacknowledged duplicate fetch. Changing the interval or toggling Off alone
+must not silently clear the uncertainty.
+
+Privacy-safe UI copy should say, for example, “Automatic refresh paused: the
+previous attempt's result is unknown” / “Автообновление приостановлено:
+результат предыдущей попытки неизвестен”. The detail view may show only bounded
+state, time and a generic explanation; it must not include subscription URLs,
+profile names, response bodies or raw errors. Any future acknowledgment
+control should clearly state that it does not roll back or verify profile
+changes and that automatic refresh remains Off until separately enabled.
+
+Before implementation, synthetic negative tests must cover the exact stale
+fences above; no authorization from a read-only projection; simultaneous
+manual/scheduled work; a crash or injected write failure at each step of the
+Off-then-ack sequence; post-rename uncertainty; concurrent enable/disable;
+malformed, symlinked, wrong-owner/mode or replaced private records; clock
+rollback/overflow; restart after partial disposition; and proof that no old
+batch is replayed or GET starts before a separately accepted re-enable delay.
+Only after the owner accepts the policy should a new schema, writer, semantic
+IPC/UI and installed-host acceptance be designed and reviewed independently.
