@@ -92,3 +92,7 @@ boundary; authenticated system-bus and manager-owner identities; PID lifetime an
 namespace binding; broker/launcher activation transport proof; supported session
 selection (including multiple graphical sessions); fresh effect-time continuity;
 and the separate recovery, foreign-writer, listener and new-app-consumption gates.
+
+The [admission-chain design](S1_ADMISSION_CHAIN.md) maps these remaining edges
+and adds a synthetic-only socket-peer pidfd contract, including the inherited
+listener counterexample. It does not upgrade this observer's provenance.
