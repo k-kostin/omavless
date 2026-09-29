@@ -6,6 +6,10 @@ only a strict bounded receipt decoder and pure consistency/refusal matrix in
 writer, nft renderer/executor, helper/service/socket, package or host mutation.
 The marker and coordinator behavior are unchanged. K1 remains unavailable.
 
+The follow-on [inactive receipt store](K1_RECEIPT_STORE.md) supplies a separate
+fixed-path filesystem prerequisite and deterministic publication fault tests.
+It does not change this module's pure consistency or ownership boundaries.
+
 ## Identity and evidence boundaries
 
 The candidate record is a flat JSON object, at most 2048 bytes, with exactly

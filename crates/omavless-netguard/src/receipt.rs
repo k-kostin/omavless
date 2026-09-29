@@ -4,7 +4,7 @@
 //! No result converts to `TrustedTableIdentity`, acknowledges an effect, changes
 //! a generation marker, or authorizes mutation. The future adapter must establish
 //! durable provenance, canonical host-netns lifetime and conditional execution.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const MAX_RECEIPT_BYTES: usize = 2048;
 
@@ -48,6 +48,32 @@ impl Receipt {
     pub fn state(self) -> ReceiptState {
         self.state
     }
+
+    pub(crate) fn enrolled_uid(self) -> u32 {
+        self.enrolled_uid
+    }
+
+    pub(crate) fn encode(self) -> Result<Vec<u8>, DecodeError> {
+        let (phase, table_handle) = match self.state {
+            ReceiptState::PendingCreate => ("pending_create", 0),
+            ReceiptState::Live { handle } => ("live", handle),
+            ReceiptState::PendingReplace { old_handle } => ("pending_replace", old_handle),
+            ReceiptState::PendingDelete { old_handle } => ("pending_delete", old_handle),
+            ReceiptState::Retired => ("retired", 0),
+        };
+        serde_json::to_vec(&Record {
+            version: 1,
+            enrolled_uid: self.enrolled_uid,
+            boot: self.epoch.boot,
+            host_netns_epoch: self.epoch.namespace_epoch,
+            netns_device: self.epoch.namespace_device,
+            netns_inode: self.epoch.namespace_inode,
+            operation: self.operation,
+            phase: phase.into(),
+            table_handle,
+        })
+        .map_err(|_| DecodeError::Invalid)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,7 +83,7 @@ pub enum DecodeError {
 
 // Deliberately flat: derived struct decoding rejects duplicate fields. The
 // explicit leading-object check also refuses Serde's positional-array form.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u32,
@@ -108,9 +134,9 @@ pub fn decode(bytes: &[u8]) -> Result<Receipt, DecodeError> {
     })
 }
 
-/// Synthetic evidence vocabulary, not a filesystem reader. Durable means a
-/// future trusted adapter has verified storage, publication and directory lock
-/// binding; simply calling `decode` cannot establish it.
+/// Evidence vocabulary, not itself a filesystem reader. The separate inactive
+/// store verifies storage, publication and directory lock binding; synthetic
+/// callers may model those facts. Simply calling `decode` cannot establish them.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReceiptRead {
     Missing,

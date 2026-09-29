@@ -99,6 +99,15 @@ pub struct RootStateStore {
 }
 
 impl RootStateStore {
+    /// Shared inactive receipt adapter uses the same pinned-directory lock.
+    pub(crate) fn receipt_directory(&self) -> Result<(&File, (u32, u32), u32), StateError> {
+        if self.poisoned {
+            return Err(StateError::UnsafeOrUnreadable);
+        }
+        self.bound()?;
+        Ok((&self.dir, self.owner, self.enrolled_uid))
+    }
+
     /// Only production path; never creates directories. Enrollment must come
     /// from separately verified root configuration, not a peer-supplied UID.
     pub fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
