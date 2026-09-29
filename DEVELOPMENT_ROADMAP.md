@@ -1304,6 +1304,9 @@ strict unsupported-activation refusal. The private durable journal records
 intent before effects and refuses ambiguous restart state. Real host adapters,
 per-field partial-write recovery, trusted owner/session takeover, core/listener
 admission, UWSM/D-Bus restoration, IPC/UI and installed gates remain.
+The [read-only observation checkpoint](docs/development/S1_HOST_OBSERVATION.md)
+defines an isolated GIO helper and pending fake-host matrix; actual bus/session
+provenance is still an implementation gate, not a verified host capability.
 
 Preserve/restore exact prior proxy state transactionally. On Omarchy cover both
 desktop proxy state and systemd/UWSM user-manager environment; on standalone
