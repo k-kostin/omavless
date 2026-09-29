@@ -1,8 +1,8 @@
 //! Inactive shared-lock transaction composition, exercised with synthetic ports.
 //! No production caller or provenance provider exists. Receipts cannot turn an
 //! untrusted orphan into an owned table. There is deliberately no recovery API.
-use crate::coordinator::{KernelPort, KernelSnapshot};
-use crate::nft::TrustedTableIdentity;
+use crate::effect_port::{EffectIdentity, EffectPort, EffectSnapshot};
+
 use crate::policy::Policy;
 use crate::protocol::{ErrorCode, Request, Response};
 use crate::receipt::{
@@ -35,7 +35,7 @@ enum Point {
 struct Snapshot {
     marker: Marker,
     receipt: ReceiptRead,
-    kernel: KernelSnapshot,
+    kernel: EffectSnapshot,
 }
 
 /// Owns both records through exactly one pinned-directory lock. Construction
@@ -60,7 +60,7 @@ impl LockedState {
 
     /// Namespace and port facts remain independently supplied proof obligations,
     /// not evidence this adapter can authenticate. No production port exists.
-    pub fn request<K: KernelPort>(
+    pub fn request<K: EffectPort>(
         &mut self,
         request: Request,
         namespace: NamespaceObservation,
@@ -69,7 +69,7 @@ impl LockedState {
         self.request_with(request, namespace, kernel, |_| Ok(()))
     }
 
-    fn snapshot<K: KernelPort>(&mut self, kernel: &mut K) -> Result<Snapshot, ErrorCode> {
+    fn snapshot<K: EffectPort>(&mut self, kernel: &mut K) -> Result<Snapshot, ErrorCode> {
         let marker = self
             .receipts
             .root()
@@ -135,7 +135,7 @@ impl LockedState {
         if stable { Ok(uid) } else { Err(REFUSED) }
     }
 
-    fn request_with<K: KernelPort>(
+    fn request_with<K: EffectPort>(
         &mut self,
         request: Request,
         namespace: NamespaceObservation,
@@ -219,7 +219,7 @@ impl LockedState {
                         let observed = kernel.observe().map_err(|_| REFUSED)?;
                         if !identity_in_epoch(identity, epoch)
                             || observed
-                                != (KernelSnapshot {
+                                != (EffectSnapshot {
                                     table: Table::OwnedVerified(policy),
                                     identity: Some(identity),
                                 })
@@ -235,7 +235,7 @@ impl LockedState {
                             .delete_owned(state.kernel.identity.ok_or(REFUSED)?)
                             .map_err(|_| REFUSED)?;
                         checkpoint(Point::KernelReturned)?;
-                        let absent = KernelSnapshot {
+                        let absent = EffectSnapshot {
                             table: Table::Absent,
                             identity: None,
                         };
@@ -326,7 +326,7 @@ impl LockedState {
     }
 }
 
-fn identity_in_epoch(identity: TrustedTableIdentity, epoch: HostEpoch) -> bool {
+fn identity_in_epoch(identity: EffectIdentity, epoch: HostEpoch) -> bool {
     identity.boot == epoch.boot
         && identity.netns_inode == epoch.namespace_inode
         && identity.table_handle != 0
@@ -335,7 +335,7 @@ fn identity_in_epoch(identity: TrustedTableIdentity, epoch: HostEpoch) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coordinator::KernelError;
+    use crate::effect_port::EffectError;
     use crate::protocol::{Health, Mode, Protection};
     use std::fs::{self, File};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
@@ -349,7 +349,7 @@ mod tests {
         namespace_inode: 4,
     };
     const NS: NamespaceObservation = NamespaceObservation::Canonical(EPOCH);
-    const ID: TrustedTableIdentity = TrustedTableIdentity {
+    const ID: EffectIdentity = EffectIdentity {
         boot: [1; 16],
         netns_inode: 4,
         table_handle: 5,
@@ -359,11 +359,11 @@ mod tests {
         mode: Mode::Full,
     };
     const DISARM: Request = Request::Disarm { generation: 7 };
-    const ABSENT: KernelSnapshot = KernelSnapshot {
+    const ABSENT: EffectSnapshot = EffectSnapshot {
         table: Table::Absent,
         identity: None,
     };
-    const LIVE: KernelSnapshot = KernelSnapshot {
+    const LIVE: EffectSnapshot = EffectSnapshot {
         table: Table::OwnedVerified(Policy::FullVpn),
         identity: Some(ID),
     };
@@ -413,7 +413,7 @@ mod tests {
     }
 
     struct Kernel {
-        current: KernelSnapshot,
+        current: EffectSnapshot,
         parent: PathBuf,
         effects: usize,
         fail_after_effect: bool,
@@ -436,7 +436,7 @@ mod tests {
         fn lock_held(&self) {
             assert!(matches!(open_fixture(&self.parent), Err(StateError::Busy)));
         }
-        fn finish_effect(&mut self, next: KernelSnapshot) -> Result<(), KernelError> {
+        fn finish_effect(&mut self, next: EffectSnapshot) -> Result<(), EffectError> {
             self.lock_held();
             // The pending record is already published while this effect runs.
             let record = receipt::decode(
@@ -452,18 +452,18 @@ mod tests {
             self.effects += 1;
             self.current = next;
             if self.fail_after_effect {
-                Err(KernelError::UnavailableOrUncertain)
+                Err(EffectError::UnavailableOrUncertain)
             } else {
                 Ok(())
             }
         }
     }
-    impl KernelPort for Kernel {
-        fn observe(&mut self) -> Result<KernelSnapshot, KernelError> {
+    impl EffectPort for Kernel {
+        fn observe(&mut self) -> Result<EffectSnapshot, EffectError> {
             self.lock_held();
             self.observes += 1;
             if self.drift_at == Some(self.observes) {
-                self.current = KernelSnapshot {
+                self.current = EffectSnapshot {
                     table: Table::Foreign,
                     identity: None,
                 };
@@ -473,28 +473,28 @@ mod tests {
             }
             Ok(self.current)
         }
-        fn create_if_absent(&mut self, _: Policy) -> Result<TrustedTableIdentity, KernelError> {
+        fn create_if_absent(&mut self, _: Policy) -> Result<EffectIdentity, EffectError> {
             assert_eq!(self.current, ABSENT);
             self.finish_effect(LIVE)?;
             Ok(ID)
         }
         fn replace_owned(
             &mut self,
-            identity: TrustedTableIdentity,
+            identity: EffectIdentity,
             _: Policy,
-        ) -> Result<TrustedTableIdentity, KernelError> {
+        ) -> Result<EffectIdentity, EffectError> {
             assert_eq!(self.current.identity, Some(identity));
-            let replacement = TrustedTableIdentity {
+            let replacement = EffectIdentity {
                 table_handle: identity.table_handle + 1,
                 ..identity
             };
-            self.finish_effect(KernelSnapshot {
+            self.finish_effect(EffectSnapshot {
                 table: Table::OwnedVerified(Policy::FullVpn),
                 identity: Some(replacement),
             })?;
             Ok(replacement)
         }
-        fn delete_owned(&mut self, identity: TrustedTableIdentity) -> Result<(), KernelError> {
+        fn delete_owned(&mut self, identity: EffectIdentity) -> Result<(), EffectError> {
             assert_eq!(self.current.identity, Some(identity));
             // Closed intent is durable before deletion starts.
             let bytes = fs::read(self.parent.join("omavless-netguard/armed-v1.json")).unwrap();
@@ -510,6 +510,46 @@ mod tests {
             panic!("missing receipt")
         };
         record
+    }
+
+    #[test]
+    fn kernel_success_does_not_publish_a_terminal_receipt() {
+        for kind in 0..3 {
+            let f = Fixture::new();
+            let mut s = f.state();
+            let mut k = Kernel::new(&f);
+            if kind != 0 {
+                s.request(ARM, NS, &mut k).unwrap();
+            }
+            let request = if kind == 2 { DISARM } else { ARM };
+            let expected = match kind {
+                0 => ReceiptState::PendingCreate,
+                1 => ReceiptState::PendingReplace { old_handle: 5 },
+                _ => ReceiptState::PendingDelete { old_handle: 5 },
+            };
+            let mut returned = false;
+            s.request_with(request, NS, &mut k, |point| {
+                if point == Point::KernelReturned {
+                    returned = true;
+                    let bytes = f.bytes().1.unwrap();
+                    assert_eq!(receipt::decode(&bytes).unwrap().state(), expected);
+                    assert!(matches!(f.root(), Err(StateError::Busy)));
+                    // A successful kernel return cannot finish the operation:
+                    // independent readback and marker persistence still follow.
+                    return Err(REFUSED);
+                }
+                Ok(())
+            })
+            .unwrap_err();
+            assert!(returned);
+            assert_eq!(record(&s).state(), expected);
+            drop(s);
+            let bytes = f.bytes();
+            let effects = k.effects;
+            assert_eq!(f.state().request(request, NS, &mut k), Err(REFUSED));
+            assert_eq!(f.bytes(), bytes);
+            assert_eq!(k.effects, effects);
+        }
     }
 
     #[test]
@@ -663,7 +703,7 @@ mod tests {
             };
             match kind {
                 0 | 4 => {
-                    k.current = KernelSnapshot {
+                    k.current = EffectSnapshot {
                         table: Table::Foreign,
                         identity: None,
                     }
