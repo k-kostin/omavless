@@ -2,7 +2,7 @@
 use crate::{
     app::{App, Confirmation},
     browsing,
-    model::{Mode, ReadError, Status, display},
+    model::{Actual, Mode, ReadError, Status, display},
 };
 use ratatui::{
     Frame,
@@ -932,6 +932,32 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         Page::Diagnostics => {
             let facts = s.observation.facts.as_ref();
             let mut lines = vec![
+                Line::from(tr("tui.doctor_scope")),
+                field(
+                    "tui.doctor_requested",
+                    boolean(s.observation.desired.connected),
+                ),
+                field(
+                    "tui.doctor_last_actual",
+                    tr(match s.observation.last_known_actual {
+                        Actual::Disconnected => "tui.doctor_disconnected",
+                        Actual::Starting => "tui.doctor_starting",
+                        Actual::Connected => "tui.doctor_connected",
+                        Actual::Reconnecting => "tui.doctor_reconnecting",
+                        Actual::Stopping => "tui.doctor_stopping",
+                        Actual::Failed => "tui.doctor_failed",
+                        Actual::ManualRecoveryRequired => "tui.doctor_recovery",
+                    })
+                    .into(),
+                ),
+                field(
+                    "tui.doctor_profile_match",
+                    facts
+                        .map(|f| boolean(f.desired_profile_matches_owned))
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.doctor_inventory_scope")),
+                Line::from(""),
                 field("tui.core", "Mihomo".into()),
                 field(
                     "tui.core_running",
