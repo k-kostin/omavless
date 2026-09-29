@@ -19,6 +19,8 @@ const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
 #[path = "support/capability.rs"]
 mod capability;
+#[path = "support/owner.rs"]
+mod owner;
 #[path = "support/packet.rs"]
 mod packet;
 const DIAGNOSTIC: &str = "K1_NFT_SYNTHETIC_READBACK=";
@@ -180,6 +182,7 @@ impl Drop for Scratch {
             "stderr",
             "packet.py",
             "capability.py",
+            "owner.py",
         ] {
             let _ = fs::remove_file(self.0.join(name));
         }
