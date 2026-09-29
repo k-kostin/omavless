@@ -291,6 +291,11 @@ mod tests {
     #[test]
     fn absent_optional_header_clears_claim_in_same_candidate() {
         let prior = bound(&store(3));
+        assert!(matches!(
+            bind_usage_to_refresh_candidate(&prior, ID, URL, 2, 0, None),
+            Err(UsageStoreError::SubscriptionChanged)
+        ));
+        assert!(read_provider_usage(&prior, ID).unwrap().is_some());
         let cleared = bind_usage_to_refresh_candidate(&prior, ID, URL, 1, 0, None).unwrap();
         let value: Value = serde_json::from_slice(cleared.payload()).unwrap();
         assert!(value["subscriptions"][0].get(FIELD).is_none());
