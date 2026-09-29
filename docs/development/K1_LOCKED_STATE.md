@@ -3,7 +3,7 @@
 This candidate follows [owner/persist lifetime evidence](K1_OWNER_LIFETIME.md)
 and the [durable receipt store](K1_RECEIPT_STORE.md). `LockedState` composes the
 existing marker writer, receipt writer and transaction planner with a synthetic
-`KernelPort`. It adds no production caller, executor, authenticated socket,
+[`EffectPort`](K1_EFFECT_PORT.md). It adds no production caller, executor, authenticated socket,
 service, provisioning or activation. K1 remains unavailable.
 
 ## One lock and strict admission
@@ -31,11 +31,11 @@ reconciliation model. There is no reconciliation or emergency-recovery entry.
 
 The namespace observation and kernel identity are still **independent input
 proof obligations**, supplied only by synthetic tests here. This context cannot
-authenticate either. Receipt consistency never creates `TrustedTableIdentity`.
-The abstract port remains unimplemented in production; its future durable
-identity/executor contract must be reviewed alongside this context before any
-real integration. In particular, two production receipt writers must not be
-introduced to satisfy the older port's durability contract.
+authenticate either. Receipt consistency never creates kernel ownership.
+The separate effect-only port remains unimplemented in production. It has no
+marker/receipt writer responsibility: this context alone owns persistence.
+The older coordinator and its receipt-writing port remain separate, with no
+blanket adapter. A real namespace/session/provenance adapter remains required.
 
 ## Transaction ordering
 
