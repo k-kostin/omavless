@@ -36,9 +36,45 @@ preference to the current generation; enabling it then needs a second explicit
 choice against the returned revision. The setter has no socket, CLI or QML
 registration.
 
-The persisted file contains only schema, owner generation, preference revision
-and interval. There is no URL, profile ID or attempt result. Before enabling a
-timer, the next implementation must add durable attempt-begin/outcome history
-and crash/restart disposition, bind scheduler admission to the serialized owner
-revision, share the existing four-provider fetch permits, and recheck state
-before commit. This checkpoint has no provider request or installed behavior.
+The persisted preference file contains only schema, owner generation, preference
+revision and interval. There is no URL, profile ID or attempt result. Before
+enabling a timer, later implementation must bind scheduler admission to the
+serialized owner revision, share the existing four-provider fetch permits and
+recheck state before commit. This checkpoint has no provider request or
+installed behavior.
+
+## Stacked private attempt journal checkpoint
+
+The next Draft adds an inactive, single-record private
+subscription-refresh-attempt.json journal. Its start record is written before
+any future provider fetch. It carries only schema, owner generation/revision,
+preference revision, monotonic attempt sequence, daemon instance, timestamps,
+consecutive failure count and fixed outcome. It contains no subscription URL,
+profile ID, endpoint, response or raw failure detail. The same shared migration
+lock and exact committed Rust generation protect reads and writes; the file
+must be owned by the user, regular, non-symlinked and mode 0600.
+
+The journal composes the existing planner at admission: Off refuses, a successful
+attempt waits the selected interval, and failure uses bounded exponential
+backoff. An unfinished attempt blocks another start in the current instance.
+When a new daemon instance sees an unfinished start, its read projection says
+uncertain and automatic retry remains blocked. No guessed failure or success is
+published after a crash. Completing an attempt requires the in-memory ticket
+from its exact start, unchanged preference revision and a fresh supplied owner
+fence. A failed write is reported as uncertain, never as a confirmed result.
+Malformed, oversized, duplicate-key or unsafe files also block.
+
+The journal is not yet a production scheduler or a proof that a provider commit
+succeeded. Its owner-revision input must come from the authoritative serialized
+owner. A future executor must atomically coordinate its operation identity,
+global fetch permit, cancellation, provider deadline, final store commit and
+terminal journal publication under that owner. In particular, it must define
+manual disposition of interrupted attempts and uncertain file writes before
+enabling any timer, CLI, IPC or QML control. Restart or wall-clock changes cannot
+be treated as evidence of a completed refresh. No live GET, VM network action or
+installed behavior occurs in this checkpoint.
+
+The current daemon instance string is a process-ID/time identifier, not proof
+that a worker is still running. Production activation must check an in-memory
+worker registry as well as the durable journal, and must either establish a
+fresh per-start identity or conservatively classify a collision as uncertain.
