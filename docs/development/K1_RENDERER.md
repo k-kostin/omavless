@@ -43,6 +43,13 @@ after removing positive handles and optional schema-1 metadata. Unknown flags,
 extra rules, a changed hook/priority/policy or a missing terminal rule cannot
 produce verified policy. This intentionally narrow vocabulary may reject a
 semantically equivalent nft version's output until that version is reviewed.
+The installed nft 1.1.7 result removes redundant leading `meta nfproto`
+predicates from the six IP-specific maintenance rules. The classifier therefore
+also compares against a second fixed full-policy template with those six
+predicates absent. It does not strip or normalize any incoming predicate:
+remaining IP payloads, addresses, ports, hop limit, ICMP type/code, order and
+actions must match exactly. Other omissions, extra accept expressions, wrong
+families and unmeasured partial elision remain unrecognized.
 
 Name, comment and policy equality do **not** establish ownership. The caller must
 supply a `TrustedTableIdentity` from the future root adapter's independently
@@ -113,16 +120,29 @@ launch data; accidentally running all ignored tests does not run host nft.
 Input/output scratch directories are exclusive mode 0700, files mode 0600;
 known files are removed on normal return/unwind. SIGKILL can leave a bounded
 synthetic scratch directory. Tool runs have a 15-second deadline and bounded
-retained output. Output contains only fixed progress stages and pass/failure;
-raw tool stderr and ruleset bytes are not printed. A failed outer run reports
-the last allowlisted stage; zero tests executed cannot count as success.
+retained output. By default output contains only fixed progress stages and
+pass/failure; raw tool stderr and ruleset bytes are not printed. A failed outer
+run reports the last allowlisted stage; zero tests executed cannot count as
+success. An explicit `OMAVLESS_K1_NFT_DEBUG_SYNTHETIC=1` additionally forwards one
+bounded JSON record on classification mismatch: only the fixed synthetic table
+just created in the proven child namespace. It never lists a parent ruleset or
+forwards arbitrary child output/stderr. This supports reviewing actual kernel
+normalization without weakening the classifier speculatively.
 
-Installed execution is pending. Actual nft normalization may fail the current
-strict classifier; fix only captured, reviewed equivalent forms. An isolated
-round-trip PASS would establish JSON/kernel compatibility and create refusal,
+On September 29, 2026, the delegated x86_64 development VM passed the installed
+round-trip with nft 1.1.7: Emergency and Full check/create/readback, independent
+receipt classification, duplicate-create refusal with unchanged rules, cleanup,
+and unchanged parent namespace identity. Tested harness binary SHA-256:
+`e2b8bc278ee5d2a56676e7ed5987f8a58e396ab233b8408222eb3ce30e1b61dc`.
+The first readback attempt correctly refused Full until its redundant-family
+elision was captured and reviewed; `tests/fixtures/nft-1.1.7-full.json` retains
+only that synthetic table as a regression fixture. The physical PC ran no nft.
+
+This isolated PASS establishes JSON/kernel compatibility and create refusal,
 not packet confidentiality, DHCP/IPv6 completeness, Mihomo marks, root-service
-durability or the full K1 matrix. The next packet gate needs separate isolated
-peer namespaces; none is added by this harness.
+durability or the full K1 matrix. Other nft versions remain unverified. The next
+packet gate needs separate isolated peer namespaces; none is added by this
+harness.
 
 Source basis: [upstream nft manual](https://netfilter.org/projects/nftables/manpage.html)
 defines create versus add, hooks and marks; [libnftables JSON schema](https://man.archlinux.org/man/libnftables-json.5.en)

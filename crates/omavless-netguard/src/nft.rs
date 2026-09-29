@@ -98,6 +98,21 @@ fn objects(policy: Policy) -> Vec<Value> {
     result
 }
 
+// nft 1.1.7's installed numeric readback omits the redundant leading nfproto
+// matches in our six IP-payload-specific rules. Build a SECOND fixed expected
+// template, not a normalizer over untrusted input: every address, protocol,
+// constraint, action and rule position must still match in full. The retained
+// ip/ip6 payloads imply exactly the omitted IPv4/IPv6 family dependency.
+fn kernel_objects(policy: Policy) -> Vec<Value> {
+    let mut result = objects(policy);
+    if policy == Policy::FullVpn {
+        for rule in &mut result[5..11] {
+            rule["rule"]["expr"].as_array_mut().unwrap().remove(0);
+        }
+    }
+    result
+}
+
 /// One create-if-absent transaction. Replace/delete require a future locked,
 /// ownership-verifying executor and deliberately have no renderer here.
 pub fn render_create(policy: Policy) -> Vec<u8> {
@@ -266,7 +281,7 @@ pub fn classify_readback(
         }
     }
     for policy in [Policy::FullVpn, Policy::Emergency] {
-        if *entries == objects(policy) {
+        if *entries == objects(policy) || *entries == kernel_objects(policy) {
             return Table::OwnedVerified(policy);
         }
     }

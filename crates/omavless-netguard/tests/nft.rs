@@ -207,3 +207,86 @@ fn no_subset_or_injected_object_can_masquerade_as_full_readback() {
         Table::Unreadable
     );
 }
+
+#[test]
+fn fixed_kernel_family_elision_preserves_all_other_constraints() {
+    let mut value = readback(Policy::FullVpn);
+    // Metainfo shifts object indexes by one. The six known maintenance rules
+    // retain their protocol-specific IP payloads, only nfproto is redundant.
+    for entry in &mut value["nftables"].as_array_mut().unwrap()[6..12] {
+        entry["rule"]["expr"].as_array_mut().unwrap().remove(0);
+    }
+    assert_eq!(classify(&value), Table::OwnedVerified(Policy::FullVpn));
+    let encoded = serde_json::to_vec(&value).unwrap();
+    assert_eq!(classify_readback(&encoded, BOOT, 42, None), Table::Foreign);
+
+    for (pointer, replacement) in [
+        ("/nftables/6/rule/expr/0/match/right", json!("0.0.0.0")),
+        (
+            "/nftables/6/rule/expr/0/match/left/payload/protocol",
+            json!("ip6"),
+        ),
+        ("/nftables/6/rule/expr/1/match/right", json!(53)),
+        ("/nftables/7/rule/expr/0/match/right/prefix/len", json!(0)),
+        ("/nftables/8/rule/expr/2/match/right", json!(64)),
+        ("/nftables/9/rule/expr/3/match/right", json!(128)),
+        ("/nftables/10/rule/expr/3/match/right", json!(1)),
+        ("/nftables/11/rule/expr/1/match/right/prefix/len", json!(0)),
+    ] {
+        let mut changed = value.clone();
+        *changed.pointer_mut(pointer).unwrap() = replacement;
+        assert_eq!(classify(&changed), Table::OwnedUnrecognized, "{pointer}");
+    }
+    for index in 6..12 {
+        let mut missing = value.clone();
+        missing["nftables"][index]["rule"]["expr"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+        assert_eq!(classify(&missing), Table::OwnedUnrecognized);
+        let mut added = value.clone();
+        added["nftables"][index]["rule"]["expr"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"accept":null}));
+        assert_eq!(classify(&added), Table::OwnedUnrecognized);
+    }
+    // Unmeasured partial elision is not generalized into a predicate stripper.
+    let mut mixed = readback(Policy::FullVpn);
+    mixed["nftables"][6]["rule"]["expr"]
+        .as_array_mut()
+        .unwrap()
+        .remove(0);
+    assert_eq!(classify(&mixed), Table::OwnedUnrecognized);
+}
+
+#[test]
+fn captured_nft_1_1_7_synthetic_readback_requires_independent_receipt() {
+    // Captured in a new loopback-only child netns in the development VM, not
+    // from a host ruleset. All addresses and rules are compiled test literals.
+    let bytes = include_bytes!("fixtures/nft-1.1.7-full.json");
+    let identity = TrustedTableIdentity {
+        table_handle: 4,
+        ..receipt()
+    };
+    assert_eq!(
+        classify_readback(bytes, BOOT, 42, Some(identity)),
+        Table::OwnedVerified(Policy::FullVpn)
+    );
+    assert_eq!(classify_readback(bytes, BOOT, 42, None), Table::Foreign);
+    assert_eq!(
+        classify_readback(bytes, BOOT, 42, Some(receipt())),
+        Table::Foreign
+    );
+    let mut changed: Value = serde_json::from_slice(bytes).unwrap();
+    changed["nftables"][2]["chain"]["policy"] = json!("accept");
+    assert_eq!(
+        classify_readback(
+            &serde_json::to_vec(&changed).unwrap(),
+            BOOT,
+            42,
+            Some(identity)
+        ),
+        Table::OwnedUnrecognized
+    );
+}

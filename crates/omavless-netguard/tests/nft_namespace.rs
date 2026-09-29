@@ -17,6 +17,26 @@ use std::{
 
 const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
+const DIAGNOSTIC: &str = "K1_NFT_SYNTHETIC_READBACK=";
+
+// Only explicitly requested, bounded JSON from this harness's newly created
+// fixture is forwarded. Never forward command stderr or arbitrary child output.
+fn synthetic_diagnostic(enabled: bool, bytes: &[u8]) -> Option<String> {
+    if !enabled || bytes.len() as u64 > LIMIT {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut candidates = text.lines().filter_map(|s| s.strip_prefix(DIAGNOSTIC));
+    let candidate = candidates.next()?;
+    if candidates.next().is_some() {
+        return None;
+    }
+    let value: Value = serde_json::from_str(candidate).ok()?;
+    if value.as_object()?.len() != 1 || !value.get("nftables")?.is_array() {
+        return None;
+    }
+    serde_json::to_string(&value).ok()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NamespaceIdentity {
@@ -245,6 +265,7 @@ fn nft_json_roundtrip_in_disposable_vm() {
     );
     let parent_fd = File::open("/proc/self/ns/net").expect("pin parent namespace");
     let parent = fd_identity(&parent_fd).expect("parent namespace identity");
+    let diagnostic = std::env::var("OMAVLESS_K1_NFT_DEBUG_SYNTHETIC").is_ok_and(|v| v == "1");
     let mut command = Command::new("/usr/bin/unshare");
     command
         .env_clear()
@@ -255,6 +276,9 @@ fn nft_json_roundtrip_in_disposable_vm() {
         .args(["--user", "--map-root-user", "--net", "--"])
         .arg(std::env::current_exe().expect("test executable"))
         .args(["--ignored", "--exact", "nft_roundtrip_child", "--nocapture"]);
+    if diagnostic {
+        command.env("OMAVLESS_K1_NFT_DEBUG_SYNTHETIC", "1");
+    }
     let result = run(
         command,
         Stdio::from(parent_fd.try_clone().expect("parent namespace fd clone")),
@@ -269,6 +293,9 @@ fn nft_json_roundtrip_in_disposable_vm() {
         parent
     );
     let result = result.expect("isolated child launch unavailable");
+    if let Some(json) = synthetic_diagnostic(diagnostic, &result.bytes) {
+        println!("{DIAGNOSTIC}{json}");
+    }
     assert!(
         child_result(result.success, &result.bytes).is_ok(),
         "isolated nft gate failed at stage: {}",
@@ -364,8 +391,17 @@ fn nft_roundtrip_child() {
             nft::classify_readback(&list.bytes, [1; 16], namespace, None),
             Table::Foreign
         );
+        let observed = nft::classify_readback(&list.bytes, [1; 16], namespace, Some(receipt));
+        if observed != Table::OwnedVerified(policy)
+            && std::env::var("OMAVLESS_K1_NFT_DEBUG_SYNTHETIC").is_ok_and(|v| v == "1")
+        {
+            // This dump is solely the fixed synthetic table created above in a
+            // fresh loopback-only namespace, never a preexisting host ruleset.
+            guard.check().expect("diagnostic isolation required");
+            println!("{DIAGNOSTIC}{}", serde_json::to_string(&value).unwrap());
+        }
         assert_eq!(
-            nft::classify_readback(&list.bytes, [1; 16], namespace, Some(receipt)),
+            observed,
             Table::OwnedVerified(policy),
             "installed readback differs from candidate; no protection claim"
         );
@@ -488,6 +524,25 @@ fn failed_missing_or_duplicate_child_receipt_cannot_pass() {
         "create"
     );
     assert_eq!(last_stage(b"arbitrary stderr\n"), "launch");
+}
+
+#[test]
+fn diagnostics_require_opt_in_and_one_bounded_json_record() {
+    let record = format!("ignored\n{DIAGNOSTIC}{{\"nftables\":[]}}\n");
+    assert_eq!(
+        synthetic_diagnostic(true, record.as_bytes()),
+        Some("{\"nftables\":[]}".into())
+    );
+    assert_eq!(synthetic_diagnostic(false, record.as_bytes()), None);
+    for bad in [
+        record.repeat(2),
+        format!("{DIAGNOSTIC}not json"),
+        format!("{DIAGNOSTIC}{{\"nftables\":null}}"),
+        "stderr".into(),
+        "x".repeat(LIMIT as usize + 1),
+    ] {
+        assert_eq!(synthetic_diagnostic(true, bad.as_bytes()), None);
+    }
 }
 
 #[test]
