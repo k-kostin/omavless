@@ -1471,6 +1471,12 @@ the page is left. It has no filtering or close-connection mutation and does not
 prove that the rest of the system uses the same route. Installed and live T3
 acceptance is still pending.
 
+The [inactive close admission model](../development/T3_CLOSE_ADMISSION.md)
+tests private owner-memory identity, opaque confirmation and stale/replay refusal
+without changing this read or adding a mutation. Its valid-confirmation outcome
+is still refusal: core ID non-reuse or atomic conditional-close semantics must be
+verified separately before any executable close permit or transport exists.
+
 ### Existing details read in the TUI
 
 `profiles.details` remains the explicit same-user private method documented
