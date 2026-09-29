@@ -25,9 +25,13 @@ not reads of manager/activation environment or private proxy settings.
 
 It connects to the pinned `/run/user/UID/systemd/private` socket, compares its
 kernel peer with the scalar MainPID and current UID, and keeps that socket open
-without sending AUTH, Hello or methods to it. It rechecks MainPID, bounded procfs
-start time and canonical endpoint identities. It closes the system socket directly
-instead of performing an unbounded synchronous flush/close operation.
+without sending AUTH, Hello or methods to it. It also retains a kernel
+`SO_PEERPIDFD` handle to that connected endpoint, requires close-on-exec, and
+polls it nonblocking before and after the scalar/endpoint rechecks. An
+unsupported kernel or unavailable handle refuses; there is no numeric-PID
+fallback. It rechecks MainPID, bounded procfs start time and canonical endpoint
+identities. It closes the system socket directly instead of performing an
+unbounded synchronous flush/close operation.
 
 The successful output is only `manager_continuity=observed_unverified`; refusal
 prints `manager_continuity=refused` and exits nonzero. Arguments are rejected.
@@ -47,11 +51,11 @@ accepts root/same-euid peers, not an independently proven manager identity.
 Root-controlled endpoints prevent ordinary same-user pathname replacement, under
 the assumption of trusted kernel, mount namespace and root-controlled system
 services. This diagnostic does **not** authenticate the actual system-bus AUTH
-writer or systemd name-owner credentials, prove an unmodified executable, bind
-namespaces/session/UWSM, or use pidfds. Procfs start-time comparisons detect
-observed changes, not ABA, a same-tick PID reuse, a compromised process or atomic
-continuity. `SO_PEERCRED` may identify an inherited listener creator, not the
-process serving its accepted connections. A successful match is therefore not
+writer or systemd name-owner credentials, prove an unmodified executable, or
+bind namespaces/session/UWSM. The retained pidfd narrows numeric PID-reuse
+races, but its poll is only a point-in-time liveness check. `SO_PEERCRED` and
+`SO_PEERPIDFD` may identify an inherited listener creator, not the process
+serving its accepted connections. A successful match is therefore not
 an application-security boundary and cannot authorize writes. It describes only
 observations made during this invocation; it does not eliminate a final-check-to-use
 race or promise that the process is still alive after the function returns.
@@ -94,5 +98,7 @@ selection (including multiple graphical sessions); fresh effect-time continuity;
 and the separate recovery, foreign-writer, listener and new-app-consumption gates.
 
 The [admission-chain design](S1_ADMISSION_CHAIN.md) maps these remaining edges
-and adds a synthetic-only socket-peer pidfd contract, including the inherited
-listener counterexample. It does not upgrade this observer's provenance.
+and includes the inherited-listener counterexample. This diagnostic now uses
+that narrow kernel-lifetime primitive for its private manager endpoint; it does
+not promote the endpoint's observed creator into a trusted writer or upgrade
+the observer's provenance.

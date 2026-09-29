@@ -11,7 +11,7 @@ repository.workspace = true
 default = []
 gio-observation = ["dep:gio", "dep:nix"]
 auth-sender-probe = ["gio-observation", "nix/socket", "nix/uio"]
-manager-continuity-probe = ["gio-observation"]
+manager-continuity-probe = ["gio-observation", "nix/socket"]
 peer-lifetime-tests = ["dep:nix", "nix/socket"]
 
 [dependencies]

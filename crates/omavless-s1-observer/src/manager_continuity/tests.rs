@@ -32,6 +32,7 @@ struct Fake {
     pids: VecDeque<Result<u32, Error>>,
     starts: VecDeque<u64>,
     peer: (u32, u32),
+    alive: VecDeque<Result<(), Error>>,
     checks: VecDeque<Result<(), Error>>,
     calls: Vec<&'static str>,
 }
@@ -41,6 +42,7 @@ impl Default for Fake {
             pids: [Ok(42), Ok(42)].into(),
             starts: [100, 100].into(),
             peer: (42, 1000),
+            alive: [Ok(()), Ok(())].into(),
             checks: [Ok(()), Ok(())].into(),
             calls: vec![],
         }
@@ -62,6 +64,10 @@ impl Facts for Fake {
         self.calls.push("peer");
         Ok(self.peer)
     }
+    fn peer_alive_now(&mut self) -> Result<(), Error> {
+        self.calls.push("pidfd");
+        self.alive.pop_front().unwrap()
+    }
     fn revalidate_endpoints(&mut self) -> Result<(), Error> {
         self.calls.push("endpoint");
         self.checks.pop_front().unwrap()
@@ -75,7 +81,8 @@ fn observes_only_scalar_peer_lifetimes_and_endpoints() {
     assert_eq!(
         fake.calls,
         [
-            "scalar", "lifetime", "peer", "endpoint", "scalar", "lifetime", "endpoint"
+            "scalar", "lifetime", "peer", "pidfd", "endpoint", "scalar", "lifetime", "endpoint",
+            "pidfd"
         ]
     );
 }
@@ -137,6 +144,16 @@ fn counterfeit_peer_restarts_and_endpoint_changes_refuse() {
         };
         assert_eq!(observe(&mut fake, 1000), Err(Error::OwnerChanged));
     }
+    for alive in [
+        [Err(Error::IdentityUnverified), Ok(())],
+        [Ok(()), Err(Error::IdentityUnverified)],
+    ] {
+        let mut fake = Fake {
+            alive: alive.into(),
+            ..Fake::default()
+        };
+        assert_eq!(observe(&mut fake, 1000), Err(Error::IdentityUnverified));
+    }
 }
 
 #[test]
@@ -171,6 +188,9 @@ fn held_endpoint_rejects_symlinks_wrong_owners_and_replacements() {
     let credentials = socket.credentials().unwrap();
     assert_eq!(credentials.unix_pid().unwrap(), std::process::id() as i32);
     assert_eq!(credentials.unix_user().unwrap(), uid);
+    let pin = UnverifiedManagerPin::capture(&socket).unwrap();
+    assert_eq!(pin.require_alive_now(), Ok(()));
+    assert!(UnverifiedManagerPin::capture(&listener).is_err());
     // This is listener identity only, not proof of who serves future bytes.
     drop(socket);
     drop(replacement);

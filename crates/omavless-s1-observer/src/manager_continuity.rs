@@ -3,9 +3,12 @@
 use crate::{Error, local_bus};
 use gio::glib::{self, prelude::ToVariant};
 use gio::prelude::*;
-use nix::fcntl::{OFlag, open, openat};
+use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl, open, openat};
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+use nix::sys::socket::{UnixAddr, getpeername, getsockopt, sockopt::PeerPidfd};
 use nix::sys::stat::Mode;
 use std::fs::File;
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
@@ -94,10 +97,38 @@ struct Lifetime {
     pid: u32,
     start: u64,
 }
+
+// The kernel handle pins the connected socket's recorded peer process, not
+// necessarily the process that later writes on an inherited listener.
+struct UnverifiedManagerPin(OwnedFd);
+impl UnverifiedManagerPin {
+    fn capture(socket: &impl AsFd) -> Result<Self, Error> {
+        getpeername::<UnixAddr>(socket.as_fd().as_raw_fd())
+            .map_err(|_| Error::IdentityUnverified)?;
+        let fd = getsockopt(socket, PeerPidfd).map_err(|_| Error::IdentityUnverified)?;
+        let flags = fcntl(&fd, FcntlArg::F_GETFD).map_err(|_| Error::IdentityUnverified)?;
+        if flags & FdFlag::FD_CLOEXEC.bits() == 0 {
+            return Err(Error::IdentityUnverified);
+        }
+        let pin = Self(fd);
+        pin.require_alive_now()?;
+        Ok(pin)
+    }
+
+    fn require_alive_now(&self) -> Result<(), Error> {
+        let mut fds = [PollFd::new(self.0.as_fd(), PollFlags::POLLIN)];
+        match poll(&mut fds, PollTimeout::ZERO).map_err(|_| Error::IdentityUnverified)? {
+            0 if fds[0].revents().is_some_and(|events| events.is_empty()) => Ok(()),
+            _ => Err(Error::IdentityUnverified),
+        }
+    }
+}
+
 trait Facts {
     fn main_pid(&mut self) -> Result<u32, Error>;
     fn lifetime(&mut self, pid: u32) -> Result<Lifetime, Error>;
     fn private_peer(&mut self) -> Result<(u32, u32), Error>;
+    fn peer_alive_now(&mut self) -> Result<(), Error>;
     fn revalidate_endpoints(&mut self) -> Result<(), Error>;
 }
 fn observe(facts: &mut impl Facts, uid: u32) -> Result<(), Error> {
@@ -113,11 +144,13 @@ fn observe(facts: &mut impl Facts, uid: u32) -> Result<(), Error> {
     if peer != first || peer_uid != uid {
         return Err(Error::IdentityUnverified);
     }
+    facts.peer_alive_now()?;
     facts.revalidate_endpoints()?;
     if facts.main_pid()? != first || facts.lifetime(first)? != lifetime {
         return Err(Error::OwnerChanged);
     }
-    facts.revalidate_endpoints()
+    facts.revalidate_endpoints()?;
+    facts.peer_alive_now()
 }
 
 struct Host {
@@ -125,6 +158,7 @@ struct Host {
     endpoints: Endpoints,
     connection: gio::DBusConnection,
     private_socket: Option<gio::Socket>,
+    private_peer_pin: Option<UnverifiedManagerPin>,
 }
 impl Facts for Host {
     fn main_pid(&mut self) -> Result<u32, Error> {
@@ -151,6 +185,7 @@ impl Facts for Host {
     }
     fn private_peer(&mut self) -> Result<(u32, u32), Error> {
         let socket = local_bus::connect_endpoint(&self.endpoints.private)?;
+        let pin = UnverifiedManagerPin::capture(&socket)?;
         let credentials = socket
             .credentials()
             .map_err(|_| Error::IdentityUnverified)?;
@@ -164,8 +199,15 @@ impl Facts for Host {
             .unix_user()
             .map_err(|_| Error::IdentityUnverified)?;
         // Keep the connection alive; send no AUTH, Hello or method on it.
+        self.private_peer_pin = Some(pin);
         self.private_socket = Some(socket);
         Ok((pid, uid))
+    }
+    fn peer_alive_now(&mut self) -> Result<(), Error> {
+        self.private_peer_pin
+            .as_ref()
+            .ok_or(Error::IdentityUnverified)?
+            .require_alive_now()
     }
     fn revalidate_endpoints(&mut self) -> Result<(), Error> {
         let fresh = Endpoints::open(self.uid)?;
@@ -194,6 +236,7 @@ pub fn probe_manager_continuity_read_only() -> Result<(), Error> {
         endpoints,
         connection,
         private_socket: None,
+        private_peer_pin: None,
     };
     let result = observe(&mut host, uid);
     // No raw GIO error or identity is exposed by the check binary.
