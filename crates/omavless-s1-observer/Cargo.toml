@@ -1,0 +1,25 @@
+[package]
+name = "omavless-s1-observer"
+description = "Opt-in, read-only GIO App proxy observation helper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+gio-observation = ["dep:gio", "dep:nix"]
+
+[dependencies]
+gio = { version = "0.22.10", optional = true }
+nix = { version = "0.30", features = ["user"], optional = true }
+omavless-runtime = { path = "../omavless-runtime", default-features = false }
+
+[[bin]]
+name = "omavless-s1-observer"
+path = "src/main.rs"
+required-features = ["gio-observation"]
+
+[lints]
+workspace = true

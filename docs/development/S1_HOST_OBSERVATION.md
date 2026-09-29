@@ -1,9 +1,10 @@
 # S1 host observation admission checkpoint
 
-Design checkpoint, 2026-09-29; **not an implemented adapter**. This narrows the
-next slice of the [S1 foundation](S1_PROXY_FOUNDATION.md). There is no host call,
-new dependency, executable, IPC method or feature enablement in this checkpoint.
-Do not infer installed-host support from the existing pure codecs.
+The original design checkpoint, 2026-09-29, narrowed the next slice of the
+[S1 foundation](S1_PROXY_FOUNDATION.md). The first opt-in read-only GIO candidate
+is recorded in [S1 read-only observer](S1_READ_ONLY_OBSERVER.md). It is not a
+production adapter, session-provenance proof or feature enablement. Do not infer
+installed-host support from the existing pure codecs or that candidate.
 
 ## Why the command-line shortcut is insufficient
 
@@ -25,8 +26,8 @@ switch the user's settings backend/profile/schema search path to make reads pass
 
 Use a separately built, unprivileged Rust/GIO observation helper, isolated from
 the normal runtime's dependency graph. Packaging/CI must explicitly opt into its
-GIO dependency. A missing helper is `unsupported`, not a fallback path. This is
-a proposed build boundary, not a binary currently shipped by OmaVLESS.
+GIO dependency. A missing helper is `unsupported`, not a fallback path. The
+candidate helper is source-only and is not in an OmaVLESS package.
 
 The helper has one fixed read operation, no configurable schema/key/address and
 no write/reset/import verbs. A parent runner enforces an absolute executable
