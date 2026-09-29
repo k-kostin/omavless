@@ -1293,15 +1293,17 @@ slice.
 
 ### S1 — App proxy without TUN
 
-State: **pure Rust transaction foundation in development; product unavailable**.
+State: **Rust transaction/codec/journal foundation in development; product unavailable**.
 
 The [S1 foundation](docs/development/S1_PROXY_FOUNDATION.md) provides a bounded
 exact-state lease for desktop and user-manager proxy settings, per-write
-readback and foreign-change-safe compensation. It has no production caller,
-host effects or durable journal. Versioned private codecs now preserve complete
+readback and foreign-change-safe compensation. It has no production caller or
+live host effects. Versioned private codecs preserve complete
 allowlisted desktop overrides/defaults and absent/empty manager variables, with
-strict unsupported-activation refusal. Real host adapters, core/listener admission,
-UWSM/D-Bus restoration, persistence, IPC/UI and installed gates remain.
+strict unsupported-activation refusal. The private durable journal records
+intent before effects and refuses ambiguous restart state. Real host adapters,
+per-field partial-write recovery, trusted owner/session takeover, core/listener
+admission, UWSM/D-Bus restoration, IPC/UI and installed gates remain.
 
 Preserve/restore exact prior proxy state transactionally. On Omarchy cover both
 desktop proxy state and systemd/UWSM user-manager environment; on standalone
