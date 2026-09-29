@@ -13,12 +13,17 @@ gio-observation = ["dep:gio", "dep:nix"]
 
 [dependencies]
 gio = { version = "0.22.10", optional = true }
-nix = { version = "0.30", features = ["user"], optional = true }
+nix = { version = "0.30", features = ["fs", "poll", "process", "signal", "user"], optional = true }
 omavless-runtime = { path = "../omavless-runtime", default-features = false }
 
 [[bin]]
 name = "omavless-s1-observer"
 path = "src/main.rs"
+required-features = ["gio-observation"]
+
+[[bin]]
+name = "omavless-s1-observer-check"
+path = "src/check.rs"
 required-features = ["gio-observation"]
 
 [lints]

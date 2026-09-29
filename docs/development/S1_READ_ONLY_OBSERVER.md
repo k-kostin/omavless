@@ -34,6 +34,22 @@ enforce a total timeout and reap the child. The helper's private length-framed
 stdout is never a diagnostic; do not invoke it from an interactive shell to
 inspect real settings or copy its output into an issue.
 
+This opt-in source checkpoint adds `observe_via_fixed_runner` and a
+disposable-VM-only `omavless-s1-observer-check` executable. The runner opens the
+fixed `/usr/lib/omavless/omavless-s1-observer` path through checked root-owned,
+non-writable, non-symlink ancestors, verifies a regular single-link executable
+ELF without setuid/setgid bits, then executes its pinned descriptor with only
+`--private-observe-v1`. Client input cannot select the path or arguments. The
+helper is not installed by this source checkpoint; normal package/runtime/IPC
+still has no caller. The runner limits stdout, privately drains bounded stderr,
+enforces a 15-second total observation deadline, and kills/reaps its own child
+process group on failure. A descendant holding a pipe cannot extend the wait.
+It rejects nonzero exit or malformed output without a partial observation.
+The optional check prints only `observer=unverified`, `observer=unavailable`, or
+`observer=refused`; all successful data remains private and write admission
+still refuses. Loader override variables are removed before launch and the
+helper refuses GIO module/profile overrides.
+
 The pure tests cover selected environment preservation/rejection, exact framed
 decode and unconditional write refusal. Opt-in GIO tests use the installed
 public schema with an in-memory backend for absent/equal-default override and
@@ -41,7 +57,9 @@ inspect only the backend type, without reading user proxy values. They are
 ignored by default because CI images need not ship GNOME schemas. No current
 host proxy values, VM settings or live connection are part of this checkpoint.
 
-Remaining work: fixed parent runner and fake-process failure matrix; verified
-session/activation provenance on an isolated Omarchy VM; complete installed
-snapshot behavior; per-key journaled effects and restoration; new-app
-consumption. The separately documented NixOS adapter remains unimplemented.
+The runner's fake-process matrix covers normal framed success, malformed frame,
+nonzero exit, stdout/stderr overflow, timeout, an inherited-pipe descendant,
+and unsafe executable path refusal. It does not establish installed identity,
+session/activation provenance, complete installed snapshot behavior, per-key
+journaled effects/restoration, or new-app consumption. The separately documented
+NixOS adapter remains unimplemented.

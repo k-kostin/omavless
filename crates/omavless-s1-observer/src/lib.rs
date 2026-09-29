@@ -8,6 +8,10 @@ use std::fmt;
 
 #[cfg(feature = "gio-observation")]
 mod gio_host;
+#[cfg(feature = "gio-observation")]
+mod runner;
+#[cfg(feature = "gio-observation")]
+pub use runner::{RunnerError, observe_via_fixed_runner};
 
 const MAGIC: &[u8; 8] = b"OMAS1OBS";
 const MAX_FRAME: usize = 2 * 16 * 1024 + 32;
@@ -223,7 +227,7 @@ mod tests {
         );
     }
 
-    fn synthetic_observation() -> Observation {
+    pub(crate) fn synthetic_observation() -> Observation {
         let desktop = codec::DesktopSnapshot::capture(
             codec::DesktopKey::ALL
                 .into_iter()
