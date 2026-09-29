@@ -1,12 +1,13 @@
 # OmaVLESS installation, updates and recovery
 
-This guide covers the **0.8.2 native release** on Arch/Omarchy. The unpublished
+This guide covers the **0.8.2 native release** on Arch/Omarchy. The validation-only
 0.9 RC development branches have a different requirement: a version-matched
 `omavless` + `omavless-dns` package pair, separate administrator enrollment
 for the fixed DNS broker, and a stopped/disconnected runtime for managed-pair
-selection before Rust activation. Their guided two-package installer remains
-unavailable until both immutable download pins are published and the formal
-fresh-install gate passes. It treats an already registered package, leftover
+selection before Rust activation. The 0.9 frontend's pins and any matching
+prerelease assets are for RC validation, not a supported upgrade until the
+formal fresh-install and remaining host gates pass. It treats an already
+registered package, leftover
 user runtime unit or `Meta` TUN as an existing/ambiguous installation, not a
 fresh machine to overwrite; inspect that state separately. Do not
 apply the 0.8.2 stock-Mihomo steps below to a 0.9 candidate; see the

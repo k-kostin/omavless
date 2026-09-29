@@ -28,20 +28,25 @@ history. GitHub's actual main/PR state is authoritative for publication.
   ingress; restricting the exception to the TUN peer source did not work because
   return packets have remote source addresses. The allowances were removed.
 
-- **Remaining RC gates:** The production release pair has not passed the formal
-  owner-attended ARM64 cycle in #316. Fresh ARM64 setup, complete negative and
-  in-flight failure acceptance, reviewed firewall guidance, immutable published
-  package assets and bootstrap pins also remain. #270/#132 are open; main and
+- **Remaining RC gates:** The production release pair passed an owner-attended
+  ARM64 Full VPN/DNS/HTTPS/mode cycle and core-crash containment at the exact
+  locally installed package identity; the user observed no separate DNS/route
+  password dialogs during runtime transitions. Fresh public-download setup,
+  complete negative and in-flight failure acceptance, reviewed firewall guidance
+  and final immutable asset verification remain. Both architecture pins are
+  prepared for a validation-only prerelease, not stable publication. #270/#132
+  are open; main and
   rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the
   [RC ledger](../development/RC_090.md). Missing protocol fixtures are not
   represented as PASS.
 
-- **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
+- **0.9.0-rc.1 installed on Try Omarchy ARM64, not stable-published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
   combined tests passed; the common frontend matches both build records. See
   [artifact identities and remaining attended gate](../testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md).
-  No public pins/assets or main changes. The exact local ARM64 package and common
+  Prerelease pins are prepared; public-download acceptance and main changes remain
+  separate. The exact local ARM64 package and common
   frontend passed attended replacement, private-state preservation and original
   Routing/profile restoration. New [DNS authorization evidence](../testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md)
   reproduces #132: cancelled DNS prompts leave an incorrect connected claim.

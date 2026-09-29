@@ -1,7 +1,8 @@
 # Native release and RC preparation
 
-Current development candidate: **0.9.0-rc.1**, unpublished. A disposable VM
-has only an agent-run diagnostic installation, not final installed acceptance.
+Current development candidate: **0.9.0-rc.1**, not stable or marketplace-ready.
+The production pair has an owner-attended installed ARM64 cycle; clean
+public-download first use and remaining host failure gates are separate.
 Use the default RC assembler (no `--stable` flag). This is preparation, not RC
 acceptance: DNS/#132 and exact-package installed gates remain open.
 The proposed [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
@@ -100,8 +101,8 @@ The assembler requires a clean exact Git head and the matching explicit version
 mode. Current `0.9.0-rc.1` uses the no-flag assembler and `--candidate` packager;
 stable sources require explicit `--stable`. The CI version projection recognizes
 only these two bounded forms and preserves Arch RC ordering; it never promotes
-an RC into stable. Empty RC bootstrap pins block public provisioning, rather
-than falling back to 0.8.2 or inventing unpublished asset hashes.
+an RC into stable. Absent RC bootstrap pins block provisioning, rather
+than falling back to 0.8.2 or inventing asset hashes.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
 No private/untracked file, backend.py, test, agent skill or legacy uninstall

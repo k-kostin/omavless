@@ -77,8 +77,10 @@ requires an absent application and DNS package registration, absent user
 runtime unit and absent `Meta` TUN, rechecked immediately before pacman.
 A missing executable alone is not fresh-install evidence; ambiguous or damaged
 ownership is manual attention, not an implicit repair/upgrade.
-The current `runtime-release.json` and `dns-release.json` intentionally have
-**empty** package maps, so the public download path remains unavailable. An
+The RC frontend now has exact hashes for both architecture packages in
+`runtime-release.json` and `dns-release.json`. These are validation-only
+prerelease pins; they do not prove that the corresponding GitHub assets are
+published or that a clean download-to-activation path passed. An
 already installed but incomplete app receives bounded setup guidance; a
 connected native owner retains explicit Disconnect even when setup discovery
 needs attention. The isolated x86_64
@@ -86,8 +88,8 @@ needs attention. The isolated x86_64
 used local offline asset transfer in place of unpublished GitHub downloads.
 It is not a marketplace install or formal owner-attended acceptance. The
 offline frontend triple assembler now checks two reviewed archives and the
-committed frontend against the common package source. Immutable published
-assets, authenticated delivery and exact bootstrap pins are still absent;
+committed frontend against the common package source. Immutable asset delivery
+and clean guided acceptance are separate gates;
 an offline caller-supplied hash is not release authenticity.
 
 ## Replacement, removal and firewall

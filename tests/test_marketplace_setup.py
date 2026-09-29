@@ -2,12 +2,11 @@
 """0.9 first-run composition with synthetic boundaries only.
 
 No test invokes pacman, sudo, systemd, a network client, or a private store.
-The committed RC metadata is deliberately unprovisioned until release assets
-have independently verified immutable hashes.
 """
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -67,13 +66,33 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
 
-    def test_committed_rc_pins_are_unpublished_on_both_architectures(self):
+    def test_committed_rc_pair_pins_match_on_both_architectures(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
+        records = {}
         for filename in ("runtime-release.json", "dns-release.json"):
             metadata = json.loads((ROOT / "plugin" / filename).read_text())
-            self.assertEqual(metadata, {"schemaVersion": 1,
-                                        "version": manifest["version"], "packages": {}})
+            self.assertEqual(metadata["schemaVersion"], 1)
+            self.assertEqual(metadata["version"], manifest["version"])
+            self.assertEqual(set(metadata["packages"]), {"aarch64", "x86_64"})
+            records[filename] = metadata
+            shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
         self.assertEqual(manifest["version"], VERSION)
+        app = records["runtime-release.json"]["packages"]
+        dns = records["dns-release.json"]["packages"]
+        for arch in ("aarch64", "x86_64"):
+            self.assertEqual(app[arch]["sourceCommit"], dns[arch]["sourceCommit"])
+            self.assertEqual(app[arch]["sourceCommit"],
+                             "b739ac6a279981ffde3586d5e70e44a6be43ba70")
+            self.assertNotEqual(app[arch]["sha256"], dns[arch]["sha256"])
+            for filename in ("runtime-release.json", "dns-release.json"):
+                shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
+            result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout,
+                             f'{VERSION}\t{arch}\t{app[arch]["sha256"]}\t'
+                             f'{dns[arch]["sha256"]}\t{app[arch]["sourceCommit"]}\n')
+            self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                             "needs_package\n")
         self.pins()
         for arch in ("aarch64", "x86_64"):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
