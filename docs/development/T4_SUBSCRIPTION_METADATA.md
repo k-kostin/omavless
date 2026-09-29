@@ -1,8 +1,8 @@
 # T4 subscription usage metadata foundation
 
-Status: inactive parser and pure store-model candidates. They do not change
-current subscription fetching, production storage, IPC, UI, scheduling,
-routing, or VPN behavior.
+Status: inactive parser, transport-extraction and pure store-model candidates. Current refresh
+still consumes only the body; no metadata enters storage, IPC, UI or scheduling,
+and routing/VPN behavior is unchanged.
 
 `Subscription-Userinfo` is a de facto provider response header, not an HTTP or
 Mihomo networking guarantee. The official MetaCubeXD project describes its
@@ -24,7 +24,7 @@ provider assertions. In particular `total=0`, an expiry of zero, and an expiry
 in the past are not interpreted as unlimited service, valid access, or VPN
 health. No raw value is included in errors, ordinary diagnostics, or `Debug`.
 
-The follow-up loopback-only test uses the current locked `ureq` 3.4.0 client and
+The follow-up loopback-only tests use the current locked `ureq` 3.4.0 client and
 its existing redirect-disabled agent configuration. Two differently cased
 `Subscription-Userinfo` response lines remain two values under `get_all` and
 under `headers().iter()`; they are not silently folded into one value. The
@@ -33,7 +33,10 @@ metadata is ignored, and only the separately requested final `200` contributes
 usage. A malformed optional usage header still leaves the existing production
 feed fetch and decode successful. These synthetic tests contact only a bound
 loopback listener; they do not observe a real provider or prove future caller
-composition.
+composition. An additional body-plus-optional-usage transport seam parses only
+the final accepted response, preserving the existing body-only caller. Invalid,
+non-UTF-8 and duplicate usage values become unavailable metadata rather than
+failing a usable feed; no production store or presentation consumes the value.
 
 Before active integration, keep using all header values, not a single-value
 `get`; bind only the final accepted response after every validated redirect.
