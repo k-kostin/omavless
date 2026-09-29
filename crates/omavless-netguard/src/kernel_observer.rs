@@ -27,6 +27,12 @@ const REFUSE: ObservationError = ObservationError::UnavailableOrUncertain;
 /// Only presence of the fixed table in the calling thread's namespace.
 /// Present tables remain untrusted, including apparently empty/owner tables.
 /// This deliberately cannot be supplied to `LockedState` or `EffectPort`.
+///
+/// ```compile_fail
+/// use omavless_netguard::{effect_port::EffectPort, kernel_observer::LocalTablePresence};
+/// fn effect_adapter(_: impl EffectPort) {}
+/// effect_adapter(LocalTablePresence::Absent);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LocalTablePresence {
     Absent,

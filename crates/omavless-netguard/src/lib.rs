@@ -1,4 +1,4 @@
-//! Inactive K1 foundation: no socket, process, privilege or firewall execution.
+//! Inactive K1 candidates: no production caller, installation or firewall mutation.
 //! The root-state adapter is not installed or called by production runtime.
 //! No production runtime depends on this crate. A future host adapter must
 //! authenticate peers, serialize transactions and verify every acknowledged effect.
