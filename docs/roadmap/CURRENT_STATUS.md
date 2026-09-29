@@ -1,209 +1,41 @@
 # Current delivery status
 
-Updated 2026-09-28. This is the compact current-state entry point; the detailed
+Updated 2026-09-29. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **September 28 distribution continuation:** Drafts #305–#315 stage a
-  production-name DNS companion, release-only runtime selector, exact
-  version-matched two-package dependency, first-use frontend, offline
-  artifact pairing and separate stopped-broker start/re-enrollment actions.
-  Both-arch package CI and frontend checks pass. A disposable clean x86_64 VM
-  verified the corrected first-use order (pair selection before Rust cutover),
-  stopped-broker recovery/refusal and installed offline package pair; see the
-  bounded [fresh-setup record](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md).
-  In the same VM, a responsive subscription server passed proxy HTTPS but
-  its TUN route was blocked by default-deny UFW. A temporary `Meta` rule
-  scoped to the local destination restored the built-in HTTPS check and IP/DNS-name
-  HTTPS; Rule/Direct/Full VPN, a second responsive server and Disconnect then
-  passed in this agent-run diagnostic. The rule was removed; see
-  [Draft #313](https://github.com/k-kostin/omavless/pull/313) and the
-  [sanitized network record](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md).
-  Draft #314 adds the reversible firewall prerequisite to EN/RU first-use
-  messaging without changing firewall policy. Later agent-run active-lease
-  checks confirmed both direct guard refusal and an aborted ALPM removal
-  transaction before package changes. System DNS readbacks returned to their
-  exact pre-connect values after Disconnect; see the
-  [bounded removal/restoration record](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md).
-  Draft #315 also fences the automatic first-use package path against an
-  already registered package, leftover user runtime unit or `Meta` TUN;
-  ambiguous ownership is manual attention, not an implicit upgrade.
-  Release pin maps remain empty; authenticated GitHub download/marketplace
-  installation, ARM64 fresh setup and formal owner-attended host gates remain
-  open. No main/RC merge or publication authorization follows from this work.
+- **0.9.0 managed-DNS candidate:** Draft #295 and its stacked delivery work
+  through [#316](https://github.com/k-kostin/omavless/pull/316) add the fixed
+  DNS broker/core pair, exact package admission, explicit enrollment, and
+  guided two-package first use. The supported candidate refuses a new Connect
+  when the managed pair is absent; the shipped legacy path's cancelled-DNS
+  defect [#132](https://github.com/k-kostin/omavless/issues/132) remains open.
+  See the [distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
+  for the security and upgrade decisions.
 
-- **Mandatory managed-DNS admission is a Draft 0.9 candidate, not a release
-  claim:** `dev/dns-required-connect` adds an effect-free pre-admission before
-  new Connect, connected server/mode replacement and active profile quiesce.
-  An unselected or subsequently invalidated pair in a running owner refuses
-  with a localized fixed code; invalid startup discovery fails host creation.
-  Explicit Disconnect remains available and no existing owner is stopped on this
-  refusal. Local Python/QML checks and serialized Rust checks passed. An
-  installed PC-VM diagnostic on the combined DNS/UI source confirmed
-  effect-free refusal while disconnected, preserved active connection on mode
-  and server-change refusal, and available Disconnect. A separately screened
-  reachable private profile passed proxy and TUN HTTPS with a temporary narrow
-  VM-only UFW exception; see the exact [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
-  Combined Draft #302 passed all four CI jobs and its exact application/frontend
-  bytes passed an installed PC-VM update, private-state preservation, screened
-  working-server proxy/TUN HTTPS, Rule → Global → Rule widget transitions and
-  clean Disconnect. The VM-only narrow UFW exception was removed afterward.
-  Formal owner-attended gates and reviewed delivery/firewall behavior remain
-  open; the [distribution proposal](../development/DNS_RELEASE_DISTRIBUTION.md)
-  bounds the latter without claiming implementation. Main and RC are unchanged.
+- **Installed evidence:** The experimental ARM64 pair passed an owner-attended
+  Full VPN/DNS/HTTPS/release cycle without recurring DNS dialogs. The isolated
+  x86_64 PC VM passed agent-run release-pair first use, live modes and server
+  change, resolved restoration, core/broker crash containment, active and
+  quarantined package-removal refusal, and proven-empty removal/re-enrollment.
+  Exact identities, failures and limits remain in the [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md),
+  [fresh-setup](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md),
+  [network](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md) and
+  [removal](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md) reports. Those tests
+  used temporary VM-only firewall allowances. Default-deny UFW blocked TUN
+  ingress; restricting the exception to the TUN peer source did not work because
+  return packets have remote source addresses. The allowances were removed.
 
-- **September 28 PC-VM continuation, still experimental:** the DNS work is
-  stacked as Draft #295 (broker/core foundation), #298 (explicit root enrollment
-  and durable local pair selection), and #299 (safe bundled-template preparation).
-  The corresponding installed x86_64 pair retained private profiles across a
-  VM reboot, then passed an agent-run managed Connect, verified owned-core
-  SIGKILL with DNS/TUN release, and clean Disconnected/Rule restoration. A
-  stopped-broker Connect was rejected without a false Connected claim; the
-  deliberately preserved socket required documented empty-state inspection
-  and manual socket-only cleanup before service restart. #299 source
-  `841c223cffaf7d47b671fd7183ce45c82303ccbd` has local Python/QML/Rust
-  checks and x86_64/ARM64 package CI passing. The separate Draft UI #296/#297
-  branches render a neutral mode transition in an installed VM widget;
-  source-level combined DNS+UI tests and `qmllint` pass at local composition
-  `a6b6967c961a9eb142201b378f8d2f50348b07f1`.
-  Exact heads and boundaries are in the [PC evidence](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
-  and [UI Draft PR #297](https://github.com/k-kostin/omavless/pull/297). Main and RC
-  are unchanged. Formal owner-attended negative/host acceptance, default-path
-  #132 disposition, reviewed distribution and firewall behavior remain open;
-  this is not a 0.9.0 release-ready claim.
-
-- **DNS installed experimental checkpoint, not released/default:** #295 passed
-  an attended ARM64 Full VPN connect/HTTPS/disconnect with real resolved readback
-  and owner-confirmed absence of recurring DNS dialogs. Exact pair and limitations:
-  [September 25 host evidence](../testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md).
-  A real-host GetLink escaping mismatch was fixed without relaxing target checks.
-  Cross-UID denial/non-TUN rejection passed. Core death released broker-held DNS/TUN
-  state; its first crash runner incorrectly counted the intentionally pinned
-  zombie leader as a live core before explicit cleanup. That runner needs
-  correction/repetition, not premature reaping. A later attended root-helper SIGKILL
-  retained the original TUN/journal/FD; restart and actual ALPM upgrade refused
-  retained state. Owner reboot established an empty new epoch without forced
-  cleanup. Original package/template/profile/Routing, DNS and HTTPS were restored;
-  two earlier ordinary Connect failures remain unexplained, not erased by a
-  later unchanged-binary success. Removal, mode/negative gates, runner adaptation and
-  distribution remain open. #270/#132 and Draft #295 stay open; main/RC unchanged.
-  The subsequent mode/removal attempt stopped at its authorization barrier
-  before runtime start; the ARM VM is now disconnected with the experimental
-  package installed, not in that earlier restored state. Continue using the
-  [PC handoff](../development/RC_090_PC_CONTINUATION_2026-09-25.md), which transfers
-  the development branch without promoting main or RC.
-  On the PC, a later [x86_64 pre-install checkpoint](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
-  built the pinned experimental pair and passed isolated production-tag core
-  probes after correcting a namespace-only reverse-path-filter test assumption.
-  The subsequent installed PC-VM cycles reached Connected with a held DNS lease,
-  but TUN-bound HTTPS timed out on tested XHTTP and WebSocket profiles. Attended
-  cleanup restored Disconnected/Rule with no TUN, held descriptor or recovery.
-  The outer PC's active V2RayN TUN is an unresolved egress confounder, not a
-  proven cause. A subsequent disconnected-VM, no-TUN profile HTTPS screen
-  found four working WebSocket profiles among 35 subscription records; two
-  passed individual repeat checks. Thus the earlier three failed connected
-  profiles do not establish a blanket guest-network outage. This screen is not
-  TUN or DNS-broker acceptance: a repeat-passing server still needs the
-  attended Full VPN/mode/cleanup gate. Subsequent attended attempts with one
-  repeat-passing WebSocket record confirmed core-proxy HTTPS while three
-  independent TUN-bound HTTPS targets timed out. Guest public/fake-IP routes
-  pointed to `Meta` and both TUN RX/TX counters moved; an unbound HTTPS request
-  also timed out. Connected `Meta.rp_filter=2` does not support a simple strict
-  reverse-filter explanation. Disconnect and Rule restoration remained clean. The remaining
-  fixed-IP diagnostic also timed out with DNS bypassed; the private core
-  controller showed no `Tun` tracker during that request, although `Meta`
-  counters moved and the same connected core's local proxy completed HTTPS.
-  A subsequent VM-only A/B isolated the cause: the guest's default-deny UFW
-  blocked TUN ingress. A temporary, interface-specific UFW allowance made an
-  independent DIRECT-only TUN probe pass, and the pinned installed OmaVLESS
-  pair then passed fixed-IP and public HTTPS through `Meta`, core `Tun` tracker
-  observation, mode transitions, Disconnect and original-Rule restoration.
-  The temporary rule was removed and the VM returned to Disconnected/Rule with
-  no TUN, held broker descriptor or recovery. This is agent-attended diagnostic
-  evidence, not the policy's human-attended acceptance or a permanent firewall
-  solution. PC mode/DNS acceptance, firewall integration review and the other
-  RC gates remain open; no release claim follows. A narrower VM-only follow-up
-  identified the actual TUN peer source (`198.18.0.2`) and proved that an
-  inbound Meta allowance restricted to that peer and local TUN address also
-  passes installed Full VPN HTTPS, modes and cleanup. That temporary rule was
-  removed. This is agent-attended diagnostic evidence for the tested IPv4
-  flow, not a default firewall design or the owner's formal acceptance.
-  A corrected installed core-death runner also passed one agent-attended PC-VM
-  diagnostic: pidfd-targeted SIGKILL, expected pinned zombie but no live group
-  members, broker DNS/TUN release and separately confirmed Disconnect/Rule
-  restoration. The owner's formal core-crash gate remains open before main.
-  The PC VM also confirmed actual ALPM removal refusal while a managed lease
-  was active: the package, broker digest, connection and held FD survived the
-  aborted transaction; separate Disconnect restored Disconnected/Rule and
-  released the lease. A later empty-state ordinary removal and pinned-archive
-  reinstall passed, but the restarted service refused a preserved stale socket
-  until exact empty-state inspection and explicit socket-only unlink; it then
-  started with FDstore zero. The source ALPM guard now refuses such a node before
-  removal/replacement; the guard change was subsequently built and installed
-  from a pinned x86_64 archive, then its real ALPM stale-socket refusal and
-  explicit clean recovery passed in the isolated VM.
-  Quarantined-state removal was still open at that checkpoint; reviewed
-  distribution and owner-attended acceptance remain open.
-  A subsequent PC-VM root-broker SIGKILL retained the original TUN, private
-  journal and systemd FD store; explicit restart and real ALPM removal both
-  refused without clearing them. Coordinated VM reboot established an empty
-  epoch, and the agent restored the original disconnected Rule mode with
-  profiles preserved. This is x86_64 agent-attended diagnostic evidence, not
-  the formal owner-attended promotion gate or #132 closure.
-  An additional installed PC-VM negative rejected a forged non-TUN descriptor
-  without a lease, and a managed Connect with the broker deliberately stopped
-  returned refusal while fresh actual/desired state stayed Disconnected/Rule
-  with no TUN, FD or recovery. The broker was restored from a proven empty
-  stale-socket state. These do not establish legacy authorization cancellation
-  or every in-flight failure path.
-  An unrelated CI auxiliary-core cleanup timeout was widened while preserving
-  bounded whole-group proof; its runtime-fix head passed the full local Rust
-  suite and all three CI jobs. The resulting unpublished x86_64 application
-  package was installed in the isolated VM with exact binary/package hashes,
-  while profiles, subscription, Disconnected/Rule/startup-Off state, TUN0 and
-  broker FDstore0 were preserved. A subsequent agent-attended PC-VM diagnostic
-  on the new application bytes passed managed Full VPN TUN-bound HTTPS, mode
-  sequence, DNS release and restoration to Disconnected/Rule. The temporary
-  narrow UFW exception was removed afterward. The paired frontend was then
-  installed from its inspected same-source archive while disconnected; file
-  content matched, plugin validation passed and original profiles/Rule/startup
-  Off survived. This is not a fresh-install, UI or owner-attended promotion gate.
-
-- **Earlier DNS foundation/integration evidence:** the original
-  [Rust DNS transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
-  adds an effect-free failure/cancellation model, strict draft broker requests
-  and isolated TUN-reuse evidence. That foundation added no runtime consumer.
-  The initial opt-in composition below changed no installed binary,
-  policy or running helper service; the separately attended host checkpoint is above.
-  Follow-up [reference research and an isolated real-core experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
-  confirm unchanged-TUN reload avoids repeated DNS calls in the tested fixture,
-  while changed-TUN reload and shutdown retain them. Target remains no recurring
-  prompts after explicit enrollment, with one scoped prompt as fallback. Neither
-  the helper nor a production reload optimization was installed at that checkpoint.
-  A [review-only core adapter](../../tests/core_dns_adapter/README.md) now builds
-  and passes 11 isolated DNS-owner checks, including FD teardown and old-core
-  refusal. It is not a shipped core fork or helper; privileged lease/restore,
-  package review and attended integration remain open.
-  [FD authority evidence](../development/DNS_TUN_AUTHORITY.md) retains the broader
-  restricted-consumer experiment, but the selected narrower candidate keeps
-  routes in Mihomo and passes its real single-queue TUN FD to a DNS-only broker.
-  New uninstalled Rust crates test kernel admission, credentialed descriptor
-  transfer and real private-bus resolved messages. Actual Go/Rust interop and
-  whole-core namespace readiness/refusal/loss tests pass; synthetic replies are
-  not actual DNS acceptance. [Systemd FD-store evidence](../development/DNS_FDSTORE.md)
-  supplies a crash-retention mechanism, not a late-D-Bus completion fence.
-  The [uninstalled broker composition](../../crates/omavless-dns-broker/README.md)
-  now implements fixed root admission, enrolled-UID socket ACL, pristine-policy
-  checks, durable intent, verified FD retention and serialized DNS apply/reset.
-  [Real namespace composition tests](../../tests/DNS_BROKER_COMPOSITION.md)
-  cover late writes and ownership drift without host DNS changes. Managed-mode
-  runtime readiness requires actual broker Ready; legacy remains the default.
-  A separately staged local package preserves the stock core/runtime and has
-  an ALPM refusal guard for active/unknown leases; it never auto-enrolls or starts.
-  That offline evidence alone did not establish installed service acceptance or
-  #270 closure. Use the current installed checkpoint above for subsequent results.
+- **Remaining RC gates:** The production release pair has not passed the formal
+  owner-attended ARM64 cycle in #316. Fresh ARM64 setup, complete negative and
+  in-flight failure acceptance, reviewed firewall guidance, immutable published
+  package assets and bootstrap pins also remain. #270/#132 are open; main and
+  rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
+  native #135 disposition and available XHTTP V0 evidence stay recorded in the
+  [RC ledger](../development/RC_090.md). Missing protocol fixtures are not
+  represented as PASS.
 
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
