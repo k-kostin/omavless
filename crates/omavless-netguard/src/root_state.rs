@@ -116,6 +116,15 @@ impl RootStateStore {
         Self::open_under(parent, (0, 0), enrolled_uid)
     }
 
+    #[cfg(test)]
+    pub(crate) fn open_test_parent(
+        parent: File,
+        owner: (u32, u32),
+        enrolled_uid: u32,
+    ) -> Result<Self, StateError> {
+        Self::open_under(parent, owner, enrolled_uid)
+    }
+
     fn open_under(parent: File, owner: (u32, u32), enrolled_uid: u32) -> Result<Self, StateError> {
         if enrolled_uid == 0 {
             return Err(StateError::UnsafeOrUnreadable);
@@ -166,6 +175,16 @@ impl RootStateStore {
             return Marker::Invalid;
         }
         self.read().unwrap_or(Marker::Invalid)
+    }
+
+    /// Coordinator-only admission distinguishes a decoded invalid document
+    /// from a failed/unsafe storage read. The latter cannot authorize even an
+    /// emergency table mutation from a possibly lost directory lock.
+    pub(crate) fn checked_marker(&self) -> Result<Marker, StateError> {
+        if self.poisoned {
+            return Err(StateError::UnsafeOrUnreadable);
+        }
+        self.read()
     }
 
     fn read(&self) -> Result<Marker, StateError> {
