@@ -1318,6 +1318,11 @@ state through core/runtime failure; explicit disconnect disarms it. Deliver as
 separate privileged protocol/service/runtime/acceptance slices, not as a large
 Python-plugin addition.
 
+The September 29 [offline foundation candidate](docs/development/K1_FOUNDATION.md)
+adds strict fixed messages, helper transactions and a symbolic policy model with
+deterministic crash tests. No production caller, executable nft renderer, root
+service or installed protection exists in that slice; all K1 host gates remain.
+
 ### X0 / X1 — core backend abstraction and optional Xray
 
 State: **deferred until Rust runtime and a real compatibility need**.

@@ -4,6 +4,11 @@ Status: accepted K0 threat model and host-integration contract, 2026-08-28.
 This document makes K1 implementation-ready. It does not install a helper,
 change nftables, alter routes or advertise a working kill switch.
 
+September 29 development candidate: the [offline foundation](../development/K1_FOUNDATION.md)
+adds strict fixed protocol, acknowledged helper transactions and symbolic policy
+tests. It has no executable/production caller or nft renderer. K1 implementation,
+host acceptance and product availability remain incomplete.
+
 ## 1. Decision summary
 
 K1 is an opt-in, **Full VPN only** kill switch enforced by a separately
