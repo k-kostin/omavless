@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 //! Executable design for ONE feed/usage candidate. Compiled only by tests.
-//! This has no production entry point, store writer, network call or IPC.
+//! This has no production entry point, network call or IPC. The nested
+//! transaction tests use the existing atomic writer on synthetic temp stores.
+
+mod transaction;
 
 use crate::subscription_transport::FetchedSubscription;
 use omavless_domain::private_store::{
