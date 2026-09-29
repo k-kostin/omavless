@@ -109,6 +109,7 @@ pub struct Snapshot {
     pub connection_rows: Option<crate::inspection::ConnectionRows>,
     pub profile_details: Option<crate::inspection::ProfileDetails>,
     pub core_diagnostics: Option<crate::inspection::CoreDiagnostics>,
+    pub core_log_hints: Option<crate::inspection::CoreLogHints>,
     pub capabilities: crate::inspection::Capabilities,
     pub traffic: Option<crate::inspection::Traffic>,
     pub diagnostics: Option<crate::inspection::Diagnostics>,
@@ -240,6 +241,9 @@ impl Snapshot {
             profile_details: None,
             core_diagnostics: crate::inspection::CoreDiagnostics::parse(
                 &observed["result"]["coreDiagnostics"],
+            ),
+            core_log_hints: crate::inspection::CoreLogHints::parse(
+                &observed["result"]["coreLogHints"],
             ),
             capabilities: crate::inspection::Capabilities::default(),
             traffic: None,
