@@ -28,6 +28,9 @@ pub(super) fn observe() -> Result<Observation, Error> {
     // it via the process environment. This is still not session provenance.
     if std::env::var_os("GSETTINGS_SCHEMA_DIR").is_some()
         || std::env::var_os("GSETTINGS_BACKEND").is_some()
+        || std::env::var_os("GIO_EXTRA_MODULES").is_some()
+        || std::env::var_os("GIO_MODULE_DIR").is_some()
+        || std::env::var_os("DCONF_PROFILE").is_some()
     {
         return Err(Error::UnsupportedBackend);
     }

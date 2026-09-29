@@ -2,8 +2,10 @@
 
 The original design checkpoint, 2026-09-29, narrowed the next slice of the
 [S1 foundation](S1_PROXY_FOUNDATION.md). The first opt-in read-only GIO candidate
-is recorded in [S1 read-only observer](S1_READ_ONLY_OBSERVER.md). It is not a
-production adapter, session-provenance proof or feature enablement. Do not infer
+is recorded in [S1 read-only observer](S1_READ_ONLY_OBSERVER.md). Its optional
+fixed-path parent runner has a synthetic process-failure matrix; installed
+identity and host observation remain separate gates. It is not a production
+adapter, session-provenance proof or feature enablement. Do not infer
 installed-host support from the existing pure codecs or that candidate.
 
 ## Why the command-line shortcut is insufficient
@@ -104,7 +106,10 @@ on a controlled VM. Record only sanitized capability/results, not snapshots.
 New-app consumption and restoration/crash acceptance belong to later writable
 adapter gates; observation-only evidence cannot close S1. NixOS remains separate.
 
-Existing executable codec tests already cover absent/empty, equal-default and
-locked overrides, completeness, bounds, malformed documents and unsupported
-activation classes. They cannot verify helper timeout, installed GIO semantics
-or D-Bus provenance. Do not label the table above PASS on their strength.
+The optional runner's synthetic process tests cover the missing/unsafe helper,
+bad exit, timeout, oversized output, malformed frame and inherited-pipe cases.
+These tests do not prove an installed package or trusted bus. Existing executable
+codec tests already cover absent/empty, equal-default and locked overrides,
+completeness, bounds, malformed documents and unsupported activation classes.
+Neither test set verifies installed GIO semantics or D-Bus provenance. Do not
+label the whole table above PASS on their strength.
