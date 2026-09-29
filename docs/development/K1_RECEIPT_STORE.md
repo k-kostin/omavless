@@ -6,6 +6,10 @@ the [kernel capability experiment](K1_KERNEL_CAPABILITIES.md). It adds only
 `KernelPort`, service, package hook, network or firewall operation is added.
 K1 remains unavailable. A stored receipt never becomes ownership authority.
 
+The follow-on [crash/orphan disposition proposal](K1_CRASH_DISPOSITION.md)
+documents remaining authority gaps and conservative review requirements, with
+test-only counterexamples. It adds no automatic recovery or ownership adoption.
+
 ## Fixed trust boundary
 
 `ReceiptStore::open_fixed(enrolled_uid)` opens the existing
