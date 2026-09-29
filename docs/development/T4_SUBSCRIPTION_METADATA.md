@@ -65,12 +65,14 @@ required before release, especially if downgrade to an older runtime remains
 supported.
 
 The current canonical store parser uses `serde_json::Value`, which does not
-preserve duplicate JSON member occurrences. This inactive model validates the
-resulting bounded value and suppresses malformed shapes, but it does not prove
-that a hand-edited document had no duplicate `providerUsageV1` keys. Before
-activation, decide whether to reject duplicate members at the private-store
-boundary or require a canonical re-read of writer-produced bytes; do not
-advertise this model as strict raw-JSON duplicate detection.
+preserve duplicate JSON member occurrences. The inactive usage model now runs
+a bounded, recursive raw-JSON pass *before* that parser: repeated decoded keys
+at any depth, including escaped-equivalent and Unicode keys, return only the
+fixed `InvalidStore` category. This check is local to optional usage read and
+candidate composition; it does not change the production private-store reader
+or reject an otherwise usable subscription feed. A future fetch caller must
+continue to discard optional metadata errors without failing a successful
+feed. The raw-duplicate gate is covered by synthetic tests, not host data.
 
 This is a new T4 feature, not an R-stage migration. The established Rust feed
 transport remains the production owner; there is no Python parity or host

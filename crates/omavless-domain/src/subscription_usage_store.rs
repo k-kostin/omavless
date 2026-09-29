@@ -8,11 +8,93 @@
 
 use crate::private_store::{MAX_PRIVATE_STORE_BYTES, parse_private_store};
 use crate::subscription_metadata::{MAX_EXPIRY_UNIX_SECONDS, SubscriptionUsage};
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::fmt;
 
 const FIELD: &str = "providerUsageV1";
 const DIGEST_DOMAIN: &[u8] = b"omavless.provider-usage-url.v1\0";
+
+/// Validate member identity before `serde_json::Value` can collapse repeated
+/// keys. Deserialization supplies decoded keys, so JSON escapes and Unicode
+/// spelling variants cannot bypass the comparison. This is deliberately local
+/// to the inactive optional-usage model; the legacy store reader is unchanged.
+struct NoDuplicateMembers;
+
+impl<'de> Deserialize<'de> for NoDuplicateMembers {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(NoDuplicateMembersVisitor)
+    }
+}
+
+struct NoDuplicateMembersVisitor;
+
+impl<'de> Visitor<'de> for NoDuplicateMembersVisitor {
+    type Value = NoDuplicateMembers;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON value without duplicate members")
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_string<E: serde::de::Error>(self, _: String) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+        while sequence.next_element::<NoDuplicateMembers>()?.is_some() {}
+        Ok(NoDuplicateMembers)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut keys = HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if !keys.insert(key) {
+                return Err(serde::de::Error::custom("duplicate_json_member"));
+            }
+            map.next_value::<NoDuplicateMembers>()?;
+        }
+        Ok(NoDuplicateMembers)
+    }
+}
+
+fn reject_duplicate_members(input: &str) -> Result<(), UsageStoreError> {
+    if input.len() > MAX_PRIVATE_STORE_BYTES {
+        return Err(UsageStoreError::InvalidStore);
+    }
+    serde_json::from_str::<NoDuplicateMembers>(input)
+        .map(|_| ())
+        .map_err(|_| UsageStoreError::InvalidStore)
+}
 
 /// Fixed error categories; no stored URL, metadata or profile identity is
 /// retained by the error.
@@ -77,6 +159,7 @@ pub fn read_provider_usage(
     input: &str,
     subscription_id: &str,
 ) -> Result<Option<PrivateUsageClaim>, UsageStoreError> {
+    reject_duplicate_members(input)?;
     parse_private_store(input).map_err(|_| UsageStoreError::InvalidStore)?;
     let root: Value = serde_json::from_str(input).map_err(|_| UsageStoreError::InvalidStore)?;
     let Some(record) = subscription_record(&root, subscription_id) else {
@@ -138,6 +221,7 @@ pub fn bind_usage_to_refresh_candidate(
     observed_at_unix_seconds: u64,
     usage: Option<SubscriptionUsage>,
 ) -> Result<PrivateUsageCandidate, UsageStoreError> {
+    reject_duplicate_members(candidate)?;
     parse_private_store(candidate).map_err(|_| UsageStoreError::InvalidStore)?;
     let mut document: Value =
         serde_json::from_str(candidate).map_err(|_| UsageStoreError::InvalidStore)?;
@@ -383,6 +467,75 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn repeated_raw_members_are_rejected_before_value_can_collapse_them() {
+        let original = store(3);
+        let nested = original.replacen("\"keep\":true", "\"keep\":true,\"keep\":false", 1);
+        let in_array = original.replacen("[1,2]", "[{\"item\":1,\"item\":2}]", 1);
+        let escaped = original.replacen("\"version\":3", "\"version\":3,\"\\u0076ersion\":3", 1);
+        let unicode = format!(
+            "{},\"é\":1,\"\\u00e9\":2}}",
+            &original[..original.len() - 1]
+        );
+        let valid_metadata = bound(&original);
+        let metadata =
+            valid_metadata.replacen("\"upload\": 12", "\"upload\": 12, \"upload\": 13", 1);
+        assert_ne!(nested, original);
+        assert_ne!(in_array, original);
+        assert_ne!(escaped, original);
+        assert_ne!(metadata, valid_metadata);
+        for input in [&nested, &in_array, &escaped, &unicode, &metadata] {
+            assert!(
+                parse_private_store(input).is_ok(),
+                "legacy parser is unchanged"
+            );
+            assert!(matches!(
+                read_provider_usage(input, ID),
+                Err(UsageStoreError::InvalidStore)
+            ));
+            assert!(matches!(
+                bind_usage_to_refresh_candidate(input, ID, URL, 1, 0, None),
+                Err(UsageStoreError::InvalidStore)
+            ));
+        }
+        assert!(read_provider_usage(&original, ID).unwrap().is_none());
+        assert!(
+            read_provider_usage(&bound(&original), ID)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn raw_duplicate_check_keeps_old_store_shape_and_bounds_private_errors() {
+        for version in [1, 2, 3] {
+            let original = store(version);
+            let written = bound(&original);
+            assert!(read_provider_usage(&written, ID).unwrap().is_some());
+            let duplicate = format!(
+                "{},\"private-marker\":1,\"private-marker\":2}}",
+                &original[..original.len() - 1]
+            );
+            let error = read_provider_usage(&duplicate, ID).err().unwrap();
+            assert_eq!(error, UsageStoreError::InvalidStore);
+            assert!(!format!("{error:?}").contains("private-marker"));
+            assert!(matches!(
+                bind_usage_to_refresh_candidate(&duplicate, ID, URL, 1, 0, None),
+                Err(UsageStoreError::InvalidStore)
+            ));
+        }
+        let too_large = format!("{}{}", store(3), " ".repeat(MAX_PRIVATE_STORE_BYTES));
+        assert!(matches!(
+            read_provider_usage(&too_large, ID),
+            Err(UsageStoreError::InvalidStore)
+        ));
+        let mut mixed: Value = serde_json::from_str(&store(3)).unwrap();
+        mixed["unknown"] = json!([null, true, false, 1.25, "é", {"nested": []}]);
+        let mixed = mixed.to_string();
+        assert!(read_provider_usage(&mixed, ID).unwrap().is_none());
+        assert!(bind_usage_to_refresh_candidate(&mixed, ID, URL, 1, 0, None).is_ok());
     }
 
     #[test]
