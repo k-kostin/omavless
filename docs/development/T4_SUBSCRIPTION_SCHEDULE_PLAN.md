@@ -185,3 +185,35 @@ deadlock. The worker takes only `dispatcher` between transport steps, never
 then joins. Panic before a proved terminal receipt may abort the exact active
 token, but a panic after a possible store write must leave Started uncertain
 unless the same owner can still mint and durably settle its exact receipt.
+
+## Stacked supervised synthetic one-shot checkpoint
+
+The next Draft composes the inactive one-shot with the existing BatchScheduler
+worker slot. It has **no production caller, timer, IPC method, CLI, provider GET
+or package/host effect**. Only deterministic tests inject a synthetic
+transport. Admission reserves `worker` before the serialized dispatcher,
+persists Started, releases dispatcher, then spawns and stores the join handle
+before releasing the worker reservation. A failed spawn drops the captured
+supervisor only after dispatcher is unlocked; it aborts and settles the exact
+ticket without trying to re-lock an owner already held by admission.
+
+Before each transport step the worker rechecks the exact owner, preference and
+Started record through the owner. Transport runs outside dispatcher. Shutdown
+revokes the active owner ticket, releases admission/dispatcher locks and joins
+the worker; a returned in-flight result cannot commit afterward. The worker
+guard settles a proved shutdown receipt or aborts only its own active ticket.
+A panic before commit does the same if the owner remains available. A panic
+after completed receipt/journal publication cannot erase the factual success.
+If ownership, the receipt or the journal write becomes uncertain, Started
+remains durable and blocks another automatic attempt across daemon instances.
+
+Synthetic tests cover successful commit, spawn refusal, panic before/after
+completion, stop/join during an in-flight step, Off after fetch admission,
+manual/scheduled admission conflict, owner revocation and failed journal
+settlement after store commit. They do not prove real provider timing or a
+network transition. Activation still requires an owner-serialized preference
+setter that persists Off and cancels the exact active scheduled token, a
+reviewed manual disposition for prior-instance Started, trusted clock and
+timer/suspend handling, privacy-safe UI/IPC controls, and installed host
+acceptance. A generic injected transport seam is not authorization to call it
+from the daemon before those gates are resolved.

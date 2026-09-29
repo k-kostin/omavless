@@ -432,6 +432,37 @@ trait NativeRuntimeOwner: Send {
     >;
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
+    fn scheduled_admit(
+        &mut self,
+        guard: &batch_scheduler::ScheduledAdmissionGuard<'_>,
+        pool: &remote_fetch::RemoteFetchPool,
+        instance: &str,
+        now_secs: u64,
+    ) -> std::result::Result<
+        batch_scheduler::ScheduledBatchAttempt,
+        batch_scheduler::ScheduledOnceError,
+    >;
+    fn scheduled_progress(
+        &mut self,
+        attempt: &mut batch_scheduler::ScheduledBatchAttempt,
+    ) -> std::result::Result<(), batch_scheduler::ScheduledOnceError>;
+    fn scheduled_finish(
+        &mut self,
+        attempt: batch_scheduler::ScheduledBatchAttempt,
+        now_millis: u64,
+        now_secs: u64,
+    ) -> std::result::Result<
+        subscription_schedule_attempt::AttemptSnapshot,
+        batch_scheduler::ScheduledOnceError,
+    >;
+    fn scheduled_abort_or_settle(
+        &mut self,
+        attempt: batch_scheduler::ScheduledBatchAttempt,
+        now_secs: u64,
+    ) -> std::result::Result<
+        subscription_schedule_attempt::AttemptSnapshot,
+        batch_scheduler::ScheduledOnceError,
+    >;
     fn provider_preflight(
         &mut self,
         request: &Value,
@@ -958,6 +989,68 @@ where
 
     fn batch_stop(&mut self) {
         let _ = self.owner.batch_coordinator().stop_batch_operations();
+    }
+
+    fn scheduled_admit(
+        &mut self,
+        guard: &batch_scheduler::ScheduledAdmissionGuard<'_>,
+        pool: &remote_fetch::RemoteFetchPool,
+        instance: &str,
+        now_secs: u64,
+    ) -> std::result::Result<
+        batch_scheduler::ScheduledBatchAttempt,
+        batch_scheduler::ScheduledOnceError,
+    > {
+        if !self.owner.rust_ownership_available() {
+            return Err(batch_scheduler::ScheduledOnceError::Owner(
+                native_coordinator::NativeOwnerError::OwnershipUnavailable,
+            ));
+        }
+        if !self.batch_initialized {
+            self.owner
+                .batch_coordinator()
+                .initialize_batch_operations(instance)
+                .map_err(batch_scheduler::ScheduledOnceError::Owner)?;
+            self.batch_initialized = true;
+        }
+        guard.admit_scheduled_once(self.owner.batch_coordinator(), pool, instance, now_secs)
+    }
+
+    fn scheduled_progress(
+        &mut self,
+        attempt: &mut batch_scheduler::ScheduledBatchAttempt,
+    ) -> std::result::Result<(), batch_scheduler::ScheduledOnceError> {
+        if !self.owner.rust_ownership_available() {
+            return Err(batch_scheduler::ScheduledOnceError::Owner(
+                native_coordinator::NativeOwnerError::OwnershipUnavailable,
+            ));
+        }
+        // Attempt progress also checks the exact preference/journal under the
+        // migration lock before it authorizes the next synthetic transport step.
+        attempt.progress(self.owner.batch_coordinator())
+    }
+
+    fn scheduled_finish(
+        &mut self,
+        attempt: batch_scheduler::ScheduledBatchAttempt,
+        now_millis: u64,
+        now_secs: u64,
+    ) -> std::result::Result<
+        subscription_schedule_attempt::AttemptSnapshot,
+        batch_scheduler::ScheduledOnceError,
+    > {
+        attempt.finish(self.owner.batch_coordinator(), now_millis, now_secs)
+    }
+
+    fn scheduled_abort_or_settle(
+        &mut self,
+        attempt: batch_scheduler::ScheduledBatchAttempt,
+        now_secs: u64,
+    ) -> std::result::Result<
+        subscription_schedule_attempt::AttemptSnapshot,
+        batch_scheduler::ScheduledOnceError,
+    > {
+        attempt.abort_or_settle(self.owner.batch_coordinator(), now_secs)
     }
 
     fn revision(&self) -> u64 {
@@ -4478,6 +4571,104 @@ mod tests {
         calls: std::cell::Cell<usize>,
     }
 
+    struct T4NoNetworkTransport;
+
+    impl subscription_transport::SubscriptionTransport for T4NoNetworkTransport {
+        fn fetch(
+            &self,
+            _url: &str,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            Err(subscription_transport::SubscriptionTransportError::Unavailable)
+        }
+    }
+
+    impl subscription_batch_work::BudgetedSubscriptionTransport for T4NoNetworkTransport {
+        fn fetch_with_budget(
+            &self,
+            url: &str,
+            _budget: Duration,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            subscription_transport::SubscriptionTransport::fetch(self, url)
+        }
+    }
+
+    fn t4_worker_server(base: &Path) -> (RuntimeServer, CutoverPaths, u32) {
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let (owner, cutover, _) = native_owner_fixture(base);
+        let uid = fs::metadata(base).unwrap().uid();
+        set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(owner, T4NoNetworkTransport);
+        (server, cutover, uid)
+    }
+
+    fn wait_t4_attempt(
+        server: &RuntimeServer,
+        cutover: &CutoverPaths,
+        uid: u32,
+        expected: subscription_schedule_attempt::AttemptState,
+    ) {
+        // Reading the journal takes the migration lock. Polling it while the
+        // worker commits can spuriously cause a Busy failure, so first wait
+        // for the worker to finish without touching any owner state.
+        wait_t4_worker_finished(server);
+        assert_eq!(
+            subscription_schedule_attempt::read_attempt(cutover, uid, 1, &server.instance_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            expected
+        );
+    }
+
+    fn start_t4_worker<T>(
+        server: &RuntimeServer,
+        transport: T,
+    ) -> std::result::Result<(), batch_scheduler::ScheduledOnceError>
+    where
+        T: subscription_batch_work::BudgetedSubscriptionTransport + Send + 'static,
+    {
+        server.batch_scheduler.start_scheduled_once(
+            batch_scheduler::ScheduledOnceInputs {
+                dispatcher: &server.dispatcher,
+                pool: &server.remote_fetches,
+                instance: &server.instance_id,
+                started_at_secs: 100,
+                finished_at_secs: 120,
+                finished_at_millis: 20_000,
+            },
+            transport,
+            || "20000000-0000-4000-8000-000000000001".to_owned(),
+        )
+    }
+
+    fn wait_t4_worker_finished(server: &RuntimeServer) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !server.batch_scheduler.worker_finished() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "T4 worker did not finish"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     impl subscription_batch_work::BudgetedSubscriptionTransport for T4SyntheticTransport {
         fn fetch_with_budget(
             &self,
@@ -5075,6 +5266,251 @@ mod tests {
             assert_eq!(transport.calls.get(), 0);
             fs::remove_dir_all(base).unwrap();
         }
+    }
+
+    #[test]
+    fn t4_supervised_one_shot_registers_and_settles_before_releasing_worker_slot() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-supervised-success");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        start_t4_worker(
+            &server,
+            T4SyntheticTransport {
+                calls: std::cell::Cell::new(0),
+            },
+        )
+        .unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Succeeded);
+        assert_ne!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        server.batch_scheduler.stop(&server.dispatcher);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_spawn_refusal_terminalizes_without_provider_io() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-supervised-spawn-refusal");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        server
+            .batch_scheduler
+            .fail_next_spawn
+            .store(true, Ordering::Release);
+        assert_eq!(
+            start_t4_worker(
+                &server,
+                T4SyntheticTransport {
+                    calls: std::cell::Cell::new(0),
+                },
+            ),
+            Err(batch_scheduler::ScheduledOnceError::SpawnFailed)
+        );
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Failed);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_panicked_transport_aborts_exact_token_and_blocks_immediate_retry() {
+        use crate::subscription_schedule_attempt::{AttemptError, AttemptState, read_attempt};
+        let base = temporary_base("t4-supervised-panic");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        start_t4_worker(&server, PanickingBatchTransport).unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Failed);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        assert_eq!(
+            start_t4_worker(
+                &server,
+                T4SyntheticTransport {
+                    calls: std::cell::Cell::new(0),
+                }
+            ),
+            Err(batch_scheduler::ScheduledOnceError::Attempt(
+                AttemptError::WaitUntil(420)
+            ))
+        );
+        assert_eq!(
+            read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::Failed
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_panic_after_exact_completion_cannot_erase_success() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-post-panic");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        server
+            .batch_scheduler
+            .panic_after_scheduled_finish
+            .store(true, Ordering::Release);
+        start_t4_worker(
+            &server,
+            T4SyntheticTransport {
+                calls: std::cell::Cell::new(0),
+            },
+        )
+        .unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Succeeded);
+        server.batch_scheduler.stop(&server.dispatcher);
+        assert_ne!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        assert_eq!(
+            subscription_schedule_attempt::read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::Succeeded
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_stop_revokes_inflight_and_joins_before_return() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-supervised-stop");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let server = Arc::new(server);
+        let stopping = Arc::clone(&server);
+        let shutdown = thread::spawn(move || {
+            stopping.batch_scheduler.stop(&stopping.dispatcher);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !server.batch_scheduler.is_stopping() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!shutdown.is_finished(), "stop must join the in-flight step");
+        release_tx.send(()).unwrap();
+        shutdown.join().unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Failed);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_off_after_fetch_start_and_manual_batch_race_do_not_commit() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-supervised-off");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "manual")["error"]["code"],
+            "busy"
+        );
+        set_preference(&cutover, uid, 1, 1, RefreshSchedule::Off).unwrap();
+        release_tx.send(()).unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Superseded);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_revoked_owner_keeps_started_blocked_across_instance() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-revoked-worker");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        release_tx.send(()).unwrap();
+        wait_t4_worker_finished(&server);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        write_marker(&cutover, OwnershipPhase::Rust, 1);
+        assert_eq!(
+            subscription_schedule_attempt::read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::UncertainFromPreviousInstance
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_supervised_post_commit_journal_failure_never_infers_retry() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-journal-fail");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let journal = cutover
+            .state_directory
+            .join("subscription-refresh-attempt.json");
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o400)).unwrap();
+        release_tx.send(()).unwrap();
+        wait_t4_worker_finished(&server);
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o600)).unwrap();
+        // The committed store is factual, but the durable journal could not
+        // prove that fact. Its prior-instance Started state blocks replay.
+        assert_ne!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        assert_eq!(
+            subscription_schedule_attempt::read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::UncertainFromPreviousInstance
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
