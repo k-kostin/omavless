@@ -5,6 +5,7 @@
 //! transaction tests use the existing atomic writer on synthetic temp stores.
 
 mod batch;
+mod mutation;
 mod transaction;
 
 use crate::subscription_transport::FetchedSubscription;
