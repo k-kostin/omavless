@@ -23,13 +23,24 @@ provider assertions. In particular `total=0`, an expiry of zero, and an expiry
 in the past are not interpreted as unlimited service, valid access, or VPN
 health. No raw value is included in errors, ordinary diagnostics, or `Debug`.
 
-Before any active transport integration, separately review how the HTTP library
-exposes duplicate headers after each manually validated redirect. Only the
-final accepted response may contribute metadata, and invalid metadata must
-never turn a usable subscription feed into a failed refresh or a connection
-error. Decide private-store retention and expiry presentation under a later
-contract, including staleness after refresh, deletion, and server clock skew.
-Do not expose per-account usage in shareable support output.
+The follow-up loopback-only test uses the current locked `ureq` 3.4.0 client and
+its existing redirect-disabled agent configuration. Two differently cased
+`Subscription-Userinfo` response lines remain two values under `get_all` and
+under `headers().iter()`; they are not silently folded into one value. The
+pure parser rejects the latter iterator as a duplicate. A `302` response's
+metadata is ignored, and only the separately requested final `200` contributes
+usage. A malformed optional usage header still leaves the existing production
+feed fetch and decode successful. These synthetic tests contact only a bound
+loopback listener; they do not observe a real provider or prove future caller
+composition.
+
+Before active integration, keep using all header values, not a single-value
+`get`; bind only the final accepted response after every validated redirect.
+The metadata parser's error must remain non-fatal to a usable subscription
+feed rather than becoming a refresh or connection error. Decide private-store
+retention and expiry presentation under a later contract, including staleness
+after refresh, deletion, and server clock skew. Do not expose per-account usage
+in shareable support output.
 
 This is a new T4 feature, not an R-stage migration. The established Rust feed
 transport remains the production owner; there is no Python parity or host
