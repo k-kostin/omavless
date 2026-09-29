@@ -19,8 +19,8 @@ marker and an nft command's exit code are not ownership evidence.
 Before each effect the coordinator re-reads marker, table and identity. Create
 requires proved absence. Replace/delete pass the exact independently proven
 identity to a future atomic conditional executor. Create/replace must return
-the newly published receipt identity; subsequent readback must match that
-identity and the complete expected policy. Persistence is acknowledged only
+the newly durably published receipt identity before success; subsequent readback
+must match that identity and the complete expected policy. Persistence is acknowledged only
 after the real store write and readback. Closed is durably written before any
 delete; Armed is written only after policy verification. Final success requires
 a fresh marker/table/identity observation matching the transaction response.
@@ -35,6 +35,12 @@ decoded invalid-state emergency, and refusal when storage is unsafe or rebound.
 They inject storage changes during the kernel observation, including before
 create and during final status, to verify the second marker read. These
 tests establish orchestration behavior only, not kernel enforcement.
+
+Kernel commit and filesystem receipt publication are separate durability
+boundaries, not one atomic commit. A crash between them must remain uncertain;
+the receipt must be durably published before the kernel port reports success.
+The [inactive receipt assessment](K1_RECEIPT_ADMISSION.md) models this refusal
+boundary without furnishing an ownership authority or changing this coordinator.
 
 The missing root adapter must independently solve durable table-receipt
 publication, uncertain create/replace/delete outcomes, same-boot/netns/table

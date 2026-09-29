@@ -31,9 +31,10 @@ impl KernelSnapshot {
 }
 
 /// The future root-only implementation must make each mutation conditional on
-/// the supplied exact identity (or verified absence), atomically publish its
-/// independent ownership receipt, and report uncertainty as an error. A bare
-/// successful command exit is never sufficient; the coordinator re-observes.
+/// the supplied exact identity (or verified absence), durably publish its
+/// independent ownership receipt before success, and report uncertainty as an
+/// error. Kernel commit and filesystem publication are not one atomic commit.
+/// A bare successful command exit is insufficient; the coordinator re-observes.
 pub trait KernelPort {
     fn observe(&mut self) -> Result<KernelSnapshot, KernelError>;
     fn create_if_absent(&mut self, policy: Policy) -> Result<TrustedTableIdentity, KernelError>;
