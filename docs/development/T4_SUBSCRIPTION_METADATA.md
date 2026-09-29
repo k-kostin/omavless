@@ -37,10 +37,10 @@ composition.
 Before active integration, keep using all header values, not a single-value
 `get`; bind only the final accepted response after every validated redirect.
 The metadata parser's error must remain non-fatal to a usable subscription
-feed rather than becoming a refresh or connection error. Decide private-store
-retention and expiry presentation under a later contract, including staleness
-after refresh, deletion, and server clock skew. Do not expose per-account usage
-in shareable support output.
+feed rather than becoming a refresh or connection error. The proposed
+[presentation contract](T4_SUBSCRIPTION_PRESENTATION.md) records the separate
+retention and UI decisions still required; it does not activate the feature.
+Do not expose per-account usage in shareable support output.
 
 This is a new T4 feature, not an R-stage migration. The established Rust feed
 transport remains the production owner; there is no Python parity or host
