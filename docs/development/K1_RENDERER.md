@@ -85,14 +85,20 @@ OMAVLESS_K1_NFT_VM=1 cargo test -p omavless-netguard --locked \
   --test nft_namespace nft_json_roundtrip_in_disposable_vm -- --ignored --exact
 ```
 
-The parent launches a child user+network namespace, maps only the current user
-to namespace root and clears ambient environment. Before every nft command, the
-child reads its real parent's namespace identity from procfs, checks it matches
-the launch receipt, proves its own namespace differs, and requires the complete
+The parent pins its network namespace with an open file descriptor, then launches
+a child user+network namespace, maps only the current user to namespace root and
+clears ambient environment. It passes a duplicated namespace descriptor as stdin
+plus its recorded device/inode identity. Before every nft command, the child
+fstats that retained descriptor, verifies its kernel `net:[inode]` label and exact
+launch identity, proves its own namespace differs, and requires the complete
 `/proc/net/dev` inventory to contain exactly loopback. No bridge, veth, physical
 interface, route or uplink is created. Refused namespace creation/access is a
 failed/unavailable gate; there is no sudo fallback, sysctl change or execution
-in the parent namespace. The VM opt-in is an operator assertion, not automatic
+in the parent namespace. The parent rechecks both its retained descriptor and its
+current namespace after the child returns, including failure returns. This
+avoids reliance on an immediate PPID or cross-user-namespace proc access; the
+first installed attempt refused at that old isolation guard before any nft call.
+The VM opt-in is an operator assertion, not automatic
 virtual-machine detection; run this only in the delegated development VM.
 
 For Emergency and Full, it checks/applies the fixed JSON, reads actual numeric

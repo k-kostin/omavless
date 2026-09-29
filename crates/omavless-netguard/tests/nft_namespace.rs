@@ -5,7 +5,10 @@ use serde_json::Value;
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    },
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -15,10 +18,31 @@ use std::{
 const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
 
-fn parent_pid(status: &str) -> Option<u32> {
-    let mut values = status.lines().filter_map(|s| s.strip_prefix("PPid:"));
-    let value = values.next()?.trim().parse::<u32>().ok()?;
-    (value > 1 && values.next().is_none()).then_some(value)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NamespaceIdentity {
+    dev: u64,
+    ino: u64,
+}
+
+fn namespace_label(label: &str, identity: NamespaceIdentity) -> bool {
+    label == format!("net:[{}]", identity.ino)
+}
+
+fn fd_identity(fd: &File) -> Result<NamespaceIdentity, &'static str> {
+    let metadata = fd.metadata().map_err(|_| "namespace_fstat_failed")?;
+    let identity = NamespaceIdentity {
+        dev: metadata.dev(),
+        ino: metadata.ino(),
+    };
+    let label = fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd()))
+        .map_err(|_| "namespace_kind_unavailable")?;
+    if !label
+        .to_str()
+        .is_some_and(|label| namespace_label(label, identity))
+    {
+        return Err("not_network_namespace_fd");
+    }
+    Ok(identity)
 }
 
 fn only_loopback(dev: &str) -> bool {
@@ -44,9 +68,15 @@ fn only_loopback(dev: &str) -> bool {
             .all(|n| n.parse::<u64>().is_ok())
 }
 
-fn isolated(current: u64, parent: u64, claimed_parent: u64, dev: &str) -> bool {
-    current != 0
-        && parent != 0
+fn isolated(
+    current: NamespaceIdentity,
+    parent: NamespaceIdentity,
+    claimed_parent: NamespaceIdentity,
+    dev: &str,
+) -> bool {
+    current.ino != 0
+        && parent.ino != 0
+        && current.dev == parent.dev
         && current != parent
         && parent == claimed_parent
         && only_loopback(dev)
@@ -63,26 +93,26 @@ fn bounded_read(path: &Path) -> Result<Vec<u8>, &'static str> {
     Ok(bytes)
 }
 
-fn namespace_guard(claimed_parent: u64) -> Result<u64, &'static str> {
-    let current = fs::metadata("/proc/self/ns/net")
-        .map_err(|_| "namespace_unavailable")?
-        .ino();
-    let status = bounded_read(Path::new("/proc/self/status"))?;
-    let pid = parent_pid(std::str::from_utf8(&status).map_err(|_| "invalid_parent")?)
-        .ok_or("invalid_parent")?;
-    let parent = fs::metadata(format!("/proc/{pid}/ns/net"))
-        .map_err(|_| "parent_namespace_unavailable")?
-        .ino();
-    let dev = bounded_read(Path::new("/proc/net/dev"))?;
-    if !isolated(
-        current,
-        parent,
-        claimed_parent,
-        std::str::from_utf8(&dev).map_err(|_| "invalid_interfaces")?,
-    ) {
-        return Err("isolation_refused");
+struct NamespaceGuard {
+    parent_fd: File,
+    claimed_parent: NamespaceIdentity,
+}
+impl NamespaceGuard {
+    fn check(&self) -> Result<u64, &'static str> {
+        let current =
+            fd_identity(&File::open("/proc/self/ns/net").map_err(|_| "namespace_unavailable")?)?;
+        let parent = fd_identity(&self.parent_fd)?;
+        let dev = bounded_read(Path::new("/proc/net/dev"))?;
+        if !isolated(
+            current,
+            parent,
+            self.claimed_parent,
+            std::str::from_utf8(&dev).map_err(|_| "invalid_interfaces")?,
+        ) {
+            return Err("isolation_refused");
+        }
+        Ok(current.ino)
     }
-    Ok(current)
 }
 
 struct Scratch(PathBuf);
@@ -124,10 +154,10 @@ struct Output {
     success: bool,
     bytes: Vec<u8>,
 }
-fn run(mut command: Command) -> Result<Output, &'static str> {
+fn run(mut command: Command, stdin: Stdio) -> Result<Output, &'static str> {
     let scratch = Scratch::new()?;
     command
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(scratch.create("stdout")?)
         .stderr(scratch.create("stderr")?);
     let mut child = command.spawn().map_err(|_| "tool_unavailable")?;
@@ -166,11 +196,11 @@ fn run(mut command: Command) -> Result<Output, &'static str> {
     })
 }
 
-fn nft_command(parent: u64, args: &[&str]) -> Result<Output, &'static str> {
-    namespace_guard(parent)?;
+fn nft_command(guard: &NamespaceGuard, args: &[&str]) -> Result<Output, &'static str> {
+    guard.check()?;
     let mut command = Command::new("/usr/bin/nft");
     command.env_clear().env("LC_ALL", "C").args(args);
-    run(command)
+    run(command, Stdio::null())
 }
 
 fn child_result(success: bool, bytes: &[u8]) -> Result<(), &'static str> {
@@ -213,25 +243,32 @@ fn nft_json_roundtrip_in_disposable_vm() {
         std::env::var("OMAVLESS_K1_NFT_VM").is_ok_and(|v| v == "1"),
         "VM opt-in required"
     );
-    let parent = fs::metadata("/proc/self/ns/net")
-        .expect("namespace observation")
-        .ino();
+    let parent_fd = File::open("/proc/self/ns/net").expect("pin parent namespace");
+    let parent = fd_identity(&parent_fd).expect("parent namespace identity");
     let mut command = Command::new("/usr/bin/unshare");
     command
         .env_clear()
-        .env("OMAVLESS_K1_NFT_PARENT", parent.to_string())
+        .env("OMAVLESS_K1_NFT_PARENT_DEV", parent.dev.to_string())
+        .env("OMAVLESS_K1_NFT_PARENT_INO", parent.ino.to_string())
         .env("OMAVLESS_K1_NFT_CHILD", "1")
         .env("LC_ALL", "C")
         .args(["--user", "--map-root-user", "--net", "--"])
         .arg(std::env::current_exe().expect("test executable"))
         .args(["--ignored", "--exact", "nft_roundtrip_child", "--nocapture"]);
-    let result = run(command).expect("isolated child launch unavailable");
+    let result = run(
+        command,
+        Stdio::from(parent_fd.try_clone().expect("parent namespace fd clone")),
+    );
     assert_eq!(
-        fs::metadata("/proc/self/ns/net")
-            .expect("namespace observation")
-            .ino(),
+        fd_identity(&parent_fd).expect("pinned parent identity"),
         parent
     );
+    assert_eq!(
+        fd_identity(&File::open("/proc/self/ns/net").expect("namespace observation"))
+            .expect("current namespace identity"),
+        parent
+    );
+    let result = result.expect("isolated child launch unavailable");
     assert!(
         child_result(result.success, &result.bytes).is_ok(),
         "isolated nft gate failed at stage: {}",
@@ -246,12 +283,29 @@ fn nft_roundtrip_child() {
         std::env::var("OMAVLESS_K1_NFT_CHILD").is_ok_and(|v| v == "1"),
         "child opt-in required"
     );
-    let parent = std::env::var("OMAVLESS_K1_NFT_PARENT")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .expect("parent identity required");
+    let parent = NamespaceIdentity {
+        dev: std::env::var("OMAVLESS_K1_NFT_PARENT_DEV")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .expect("parent device required"),
+        ino: std::env::var("OMAVLESS_K1_NFT_PARENT_INO")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .expect("parent inode required"),
+    };
+    // stdin carries a pinned namespace descriptor, not data or a selectable path.
+    // Duplicate it so subsequent nft children can independently have null stdin.
+    let guard = NamespaceGuard {
+        parent_fd: File::from(
+            std::io::stdin()
+                .as_fd()
+                .try_clone_to_owned()
+                .expect("inherited namespace fd"),
+        ),
+        claimed_parent: parent,
+    };
     println!("K1_NFT_STAGE=isolation");
-    let namespace = namespace_guard(parent).expect("child isolation required");
+    let namespace = guard.check().expect("child isolation required");
     // Test-only boot receipt. The namespace is freshly created by this harness;
     // production root receipt issuance/persistence is deliberately not exercised.
     for policy in [Policy::Emergency, Policy::FullVpn] {
@@ -265,21 +319,21 @@ fn nft_roundtrip_child() {
         let input = input.to_str().expect("fixed ASCII scratch");
         println!("K1_NFT_STAGE=check");
         assert!(
-            nft_command(parent, &["--json", "--check", "--file", input])
+            nft_command(&guard, &["--json", "--check", "--file", input])
                 .expect("nft check unavailable")
                 .success,
             "nft check refused"
         );
         println!("K1_NFT_STAGE=create");
         assert!(
-            nft_command(parent, &["--json", "--file", input])
+            nft_command(&guard, &["--json", "--file", input])
                 .expect("nft create unavailable")
                 .success,
             "nft create refused"
         );
         println!("K1_NFT_STAGE=readback");
         let list = nft_command(
-            parent,
+            &guard,
             &[
                 "--json",
                 "--handle",
@@ -317,13 +371,13 @@ fn nft_roundtrip_child() {
         );
         println!("K1_NFT_STAGE=duplicate");
         assert!(
-            !nft_command(parent, &["--json", "--file", input])
+            !nft_command(&guard, &["--json", "--file", input])
                 .expect("duplicate create unavailable")
                 .success,
             "duplicate create unexpectedly accepted"
         );
         let after = nft_command(
-            parent,
+            &guard,
             &[
                 "--json",
                 "--handle",
@@ -343,7 +397,7 @@ fn nft_roundtrip_child() {
         println!("K1_NFT_STAGE=cleanup");
         // Test fixture cleanup only, after independent create and exact readback.
         assert!(
-            nft_command(parent, &["delete", "table", "inet", "omavless_netguard"])
+            nft_command(&guard, &["delete", "table", "inet", "omavless_netguard"])
                 .unwrap()
                 .success,
             "fixture cleanup failed"
@@ -356,7 +410,8 @@ const LO: &str = "Inter-| Receive | Transmit\n face |bytes packets errs drop fif
 
 #[test]
 fn isolation_refuses_parent_namespace_extra_interfaces_and_bad_proc_facts() {
-    assert!(isolated(20, 10, 10, LO));
+    let id = |ino| NamespaceIdentity { dev: 4, ino };
+    assert!(isolated(id(20), id(10), id(10), LO));
     for (current, parent, claimed, dev) in [
         (10, 10, 10, LO),
         (20, 10, 11, LO),
@@ -364,17 +419,58 @@ fn isolation_refuses_parent_namespace_extra_interfaces_and_bad_proc_facts() {
         (0, 10, 10, LO),
         (20, 10, 10, ""),
     ] {
-        assert!(!isolated(current, parent, claimed, dev));
+        assert!(!isolated(id(current), id(parent), id(claimed), dev));
     }
     assert!(!only_loopback(&format!(
         "{LO}eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
     )));
     assert!(!only_loopback(&LO.replace("lo:", "eth0:")));
     assert!(!only_loopback(&LO.replace("0 0 0 0", "bad")));
-    assert_eq!(parent_pid("Name:\ttest\nPPid:\t42\n"), Some(42));
-    for bad in ["PPid: 1", "PPid: 0", "PPid: 42\nPPid: 43", "PPid: +x"] {
-        assert_eq!(parent_pid(bad), None);
+    assert!(!isolated(
+        id(20),
+        NamespaceIdentity { dev: 5, ino: 10 },
+        id(10),
+        LO
+    ));
+    assert!(!isolated(
+        id(20),
+        id(10),
+        NamespaceIdentity { dev: 5, ino: 10 },
+        LO
+    ));
+    assert!(namespace_label("net:[10]", id(10)));
+    for bad in [
+        "user:[10]",
+        "ipc:[10]",
+        "net:[11]",
+        "/tmp/net:[10]",
+        "net:[10] (deleted)",
+    ] {
+        assert!(!namespace_label(bad, id(10)));
     }
+}
+
+#[test]
+fn pinned_fd_identity_survives_clone_and_rejects_non_namespace_files() {
+    let original = File::open("/proc/self/ns/net").unwrap();
+    let expected = fd_identity(&original).unwrap();
+    let clone = original.try_clone().unwrap();
+    assert_eq!(fd_identity(&clone), Ok(expected));
+    drop(original);
+    assert_eq!(fd_identity(&clone), Ok(expected));
+    let guard = NamespaceGuard {
+        parent_fd: clone,
+        claimed_parent: expected,
+    };
+    assert_eq!(guard.check(), Err("isolation_refused"));
+    assert_eq!(
+        fd_identity(&File::open("/dev/null").unwrap()),
+        Err("not_network_namespace_fd")
+    );
+    assert_eq!(
+        fd_identity(&File::open("/proc/self/ns/user").unwrap()),
+        Err("not_network_namespace_fd")
+    );
 }
 
 #[test]
