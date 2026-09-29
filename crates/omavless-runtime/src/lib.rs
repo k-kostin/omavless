@@ -35,6 +35,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub mod app_proxy;
 pub mod auxiliary_core;
 mod batch_scheduler;
 #[cfg(test)]
