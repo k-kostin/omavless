@@ -1432,6 +1432,45 @@ closing, filtering or arbitrary controller forwarding. TUI traffic reads also
 fence the result to the current instance/revision and show unavailable when
 that context cannot be established.
 
+### `runtime.connection_overview` (T3 development)
+
+This additional exact-empty-params read retains `runtime.connections` unchanged
+for older clients. The owned-core `/connections` response is projected inside
+the Rust host to a small, versioned aggregate: total (0..4096), TCP/UDP/other
+network counts, and conservative DIRECT/REJECT/PROXY/unclassified chain counts.
+Each category set must sum to total. Unknown chains are **unclassified**, never
+assumed VPN. No connection ID, destination, hostname, process, profile name,
+raw chain, per-connection transfer or query-controlled filter crosses IPC.
+Malformed or oversized controller data yields unavailable, not a partial zero.
+
+The read shares the same authenticated owned PID/controller, 750-ms deadline,
+pre/post fresh observation, desired-state and revision fences as the count-only
+method. It makes no route or Internet-protection claim and has no close action.
+The TUI prefers it only when advertised, otherwise retains the count-only read;
+neither method runs on a hidden page.
+
+### `runtime.connection_rows` (private T3 development)
+
+This separate exact-empty-params read is requested only while the terminal's
+Connections page is open. It uses the same owned PID/controller, 750-ms read
+deadline, pre/post observation, desired-state and revision fences as the two
+reads above. The response is bounded to at most 128 of 4096 owned-core rows,
+with explicit total, shown and truncated fields; unavailable is never shown
+as zero. Each row contains only a validated destination host and/or parsed IP,
+numeric port, TCP/UDP/other category and conservative
+DIRECT/REJECT/PROXY/unclassified category. Unknown or conflicting chains are
+unclassified. Process/source addresses, raw chain names, IDs, credentials and
+traffic payloads are discarded in Rust before IPC. Malformed row, network or
+chain structure fails closed for the whole response; unsafe destination fields
+are omitted from their individual row rather than echoed or guessed.
+
+Destinations remain **private**, unlike the aggregate overview: this method
+must not enter ordinary status, support exports or shareable diagnostics. The
+TUI brackets the result by the same instance and revision and discards it when
+the page is left. It has no filtering or close-connection mutation and does not
+prove that the rest of the system uses the same route. Installed and live T3
+acceptance is still pending.
+
 ### Existing details read in the TUI
 
 `profiles.details` remains the explicit same-user private method documented

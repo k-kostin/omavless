@@ -2,7 +2,7 @@
 use crate::{
     app::{App, Confirmation},
     browsing,
-    model::{Mode, ReadError, Status, display},
+    model::{Actual, Mode, ReadError, Status, display},
 };
 use ratatui::{
     Frame,
@@ -438,11 +438,35 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.subscription_page_keys"
             } else if app.page == crate::inspection::Page::Settings {
                 "tui.settings_keys"
+            } else if app.page == crate::inspection::Page::Diagnostics {
+                "tui.diagnostic_keys"
+            } else if app.page == crate::inspection::Page::Host {
+                "tui.host_keys"
+            } else if app.page == crate::inspection::Page::RouteCheck {
+                "tui.route_check_keys"
+            } else if matches!(
+                app.page,
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
+            ) {
+                "tui.operator_keys"
             } else {
                 "tui.inspection_keys"
             })),
             Line::from(tr(if app.notice.is_empty() {
-                if app.page == crate::inspection::Page::Settings {
+                if app.searching
+                    && matches!(
+                        app.page,
+                        crate::inspection::Page::Connections
+                            | crate::inspection::Page::Rules
+                            | crate::inspection::Page::Providers
+                            | crate::inspection::Page::CustomRules
+                    )
+                {
+                    "tui.operator_search_exit"
+                } else if app.page == crate::inspection::Page::Settings {
                     "tui.settings_local"
                 } else if app.page == crate::inspection::Page::Subscriptions
                     || app.page == crate::inspection::Page::Jobs
@@ -608,43 +632,235 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     let unknown = || tr("tui.metric_unavailable").to_owned();
     let boolean = |value: bool| tr(if value { "tui.yes" } else { "tui.no" }).to_owned();
     match app.page {
-        Page::Traffic => vec![
-            field(
-                "tui.upload_rate",
-                app.traffic_rates
-                    .map(|(u, _)| format!("{}/s", bytes(u)))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.download_rate",
-                app.traffic_rates
-                    .map(|(_, d)| format!("{}/s", bytes(d)))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.upload_total",
-                s.traffic
-                    .as_ref()
-                    .map(|t| bytes(t.upload))
-                    .unwrap_or_else(unknown),
-            ),
-            field(
-                "tui.download_total",
-                s.traffic
-                    .as_ref()
-                    .map(|t| bytes(t.download))
-                    .unwrap_or_else(unknown),
-            ),
-            Line::from(tr("tui.traffic_scope")),
-            Line::from(tr("tui.traffic_reset")),
-            field(
+        Page::Connections => {
+            let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
+            let Some(connections) = &s.connection_rows else {
+                lines.push(Line::from(tr("tui.metric_unavailable")));
+                return lines;
+            };
+            lines.push(field(
                 "tui.active_connections",
-                s.active_connections
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(unknown),
-            ),
-            Line::from(tr("tui.connection_count_scope")),
-        ],
+                connections.total.to_string(),
+            ));
+            lines.push(field(
+                "tui.connection_rows_shown",
+                connections.rows.len().to_string(),
+            ));
+            let query = app.operator_query.to_ascii_lowercase();
+            let matches: Vec<_> = connections
+                .rows
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row
+                            .host
+                            .as_deref()
+                            .is_some_and(|host| host.to_ascii_lowercase().contains(&query))
+                        || row.ip.as_deref().is_some_and(|ip| ip.contains(&query))
+                        || row
+                            .port
+                            .is_some_and(|port| port.to_string().contains(&query))
+                        || row.network.contains(&query)
+                        || row.route.contains(&query)
+                })
+                .collect();
+            if !query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+                lines.push(field("tui.matching_rows", matches.len().to_string()));
+            }
+            if connections.truncated {
+                lines.push(Line::from(tr("tui.connection_rows_truncated")));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if connections.rows.is_empty() {
+                    "tui.connection_rows_empty"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            for row in matches {
+                let destination = row
+                    .host
+                    .as_deref()
+                    .or(row.ip.as_deref())
+                    .map(|destination| display(destination, 64))
+                    .unwrap_or_else(|| tr("tui.metric_unavailable").to_owned());
+                let endpoint = row
+                    .port
+                    .map_or(destination.clone(), |port| format!("{destination}:{port}"));
+                lines.push(Line::from(format!(
+                    "{} · {} · {}",
+                    endpoint,
+                    row.network,
+                    tr(match row.route {
+                        "direct" => "tui.connection_route_direct",
+                        "blocked" => "tui.connection_route_blocked",
+                        "vpn" => "tui.connection_route_vpn",
+                        _ => "tui.connection_unclassified",
+                    })
+                )));
+                if row.host.is_some()
+                    && let Some(ip) = &row.ip
+                {
+                    lines.push(Line::from(format!("  {}", display(ip, 64))));
+                }
+            }
+            lines
+        }
+        Page::RouteCheck => {
+            use crate::route_inspection::{Outcome, Source, Status};
+            let mut lines = vec![
+                Line::from(tr("tui.route_check_scope")),
+                Line::from(""),
+                field("tui.route_check_query", display(&app.route_query, 80)),
+                Line::from(tr(if app.route_editing {
+                    "tui.route_check_editing"
+                } else {
+                    "tui.route_check_instruction"
+                })),
+                Line::from(""),
+            ];
+            match &app.route_result {
+                Some(Status::Observed(result)) => {
+                    let outcome = match result.outcome {
+                        Outcome::Vpn => "tui.connection_route_vpn",
+                        Outcome::Direct => "tui.connection_route_direct",
+                        Outcome::Block => "tui.connection_route_blocked",
+                        Outcome::Unknown => "tui.connection_unclassified",
+                    };
+                    let source = match result.source {
+                        Source::Mode => "tui.route_source_mode",
+                        Source::Custom => "tui.route_source_custom",
+                        Source::Live => "tui.route_source_live",
+                        Source::Disconnected => "tui.route_source_disconnected",
+                    };
+                    lines.push(field("tui.route_check_result", tr(outcome).to_owned()));
+                    lines.push(field("tui.route_check_source", tr(source).to_owned()));
+                    if !result.rule_type.is_empty() {
+                        lines.push(field(
+                            "tui.route_check_rule",
+                            display(&result.rule_type, 80),
+                        ));
+                    }
+                    if !result.rule_payload.is_empty() {
+                        lines.push(field(
+                            "tui.route_check_match",
+                            display(&result.rule_payload, 80),
+                        ));
+                    }
+                }
+                Some(Status::Unavailable) => {
+                    lines.push(Line::from(tr("tui.route_check_unavailable")))
+                }
+                Some(Status::Unsupported) => {
+                    lines.push(Line::from(tr("tui.route_check_unsupported")))
+                }
+                Some(Status::InvalidInput) => lines.push(Line::from(tr("tui.route_check_invalid"))),
+                None => lines.push(Line::from(tr("tui.route_check_empty"))),
+            }
+            lines
+        }
+        Page::Traffic => {
+            let mut lines = vec![
+                field(
+                    "tui.upload_rate",
+                    app.traffic_rates
+                        .map(|(u, _)| format!("{}/s", bytes(u)))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.download_rate",
+                    app.traffic_rates
+                        .map(|(_, d)| format!("{}/s", bytes(d)))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.upload_total",
+                    s.traffic
+                        .as_ref()
+                        .map(|t| bytes(t.upload))
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.download_total",
+                    s.traffic
+                        .as_ref()
+                        .map(|t| bytes(t.download))
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.traffic_scope")),
+                Line::from(tr("tui.traffic_reset")),
+                field(
+                    "tui.active_connections",
+                    s.active_connections
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.connection_count_scope")),
+            ];
+            if let Some(overview) = s.connection_overview {
+                lines.push(Line::from(""));
+                lines.push(Line::from(tr("tui.connection_categories_scope")));
+                lines.push(field(
+                    "tui.connection_network_counts",
+                    format!(
+                        "TCP {} · UDP {} · {} {}",
+                        overview.tcp,
+                        overview.udp,
+                        tr("tui.connection_other"),
+                        overview.other_network
+                    ),
+                ));
+                lines.push(field(
+                    "tui.connection_outcome_counts",
+                    format!(
+                        "DIRECT {} · REJECT {} · PROXY {} · {} {}",
+                        overview.direct,
+                        overview.blocked,
+                        overview.vpn,
+                        tr("tui.connection_unclassified"),
+                        overview.unclassified
+                    ),
+                ));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.traffic_history_scope")));
+            let samples = app.traffic_history.recent(now).count();
+            if samples == 0 {
+                lines.push(Line::from(tr("tui.traffic_history_unavailable")));
+            } else {
+                lines.push(field("tui.traffic_history_samples", samples.to_string()));
+                for (upload, label) in [
+                    (true, "tui.upload_history"),
+                    (false, "tui.download_history"),
+                ] {
+                    let graph = app
+                        .traffic_history
+                        .sparkline(now, upload)
+                        .unwrap_or_default();
+                    let peak = app.traffic_history.peak(now, upload).unwrap_or_default();
+                    lines.push(
+                        Line::from(format!(
+                            "{}: {}  ({}: {}/s)",
+                            tr(label),
+                            graph,
+                            tr("tui.traffic_history_peak"),
+                            bytes(peak)
+                        ))
+                        .style(if upload {
+                            Style::default().fg(app.palette.accent)
+                        } else {
+                            Style::default().fg(app.palette.foreground)
+                        }),
+                    );
+                }
+            }
+            lines
+        }
         Page::Details => {
             let p = s
                 .metadata
@@ -715,7 +931,33 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         }
         Page::Diagnostics => {
             let facts = s.observation.facts.as_ref();
-            vec![
+            let mut lines = vec![
+                Line::from(tr("tui.doctor_scope")),
+                field(
+                    "tui.doctor_requested",
+                    boolean(s.observation.desired.connected),
+                ),
+                field(
+                    "tui.doctor_last_actual",
+                    tr(match s.observation.last_known_actual {
+                        Actual::Disconnected => "tui.doctor_disconnected",
+                        Actual::Starting => "tui.doctor_starting",
+                        Actual::Connected => "tui.doctor_connected",
+                        Actual::Reconnecting => "tui.doctor_reconnecting",
+                        Actual::Stopping => "tui.doctor_stopping",
+                        Actual::Failed => "tui.doctor_failed",
+                        Actual::ManualRecoveryRequired => "tui.doctor_recovery",
+                    })
+                    .into(),
+                ),
+                field(
+                    "tui.doctor_profile_match",
+                    facts
+                        .map(|f| boolean(f.desired_profile_matches_owned))
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.doctor_inventory_scope")),
+                Line::from(""),
                 field("tui.core", "Mihomo".into()),
                 field(
                     "tui.core_running",
@@ -755,9 +997,287 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                         .map(|d| d.providers.to_string())
                         .unwrap_or_else(unknown),
                 ),
-                Line::from(tr("tui.health")),
-                Line::from(tr("tui.no_killswitch")),
+                Line::from(""),
+                Line::from(tr("tui.core_log_scope")),
+                field(
+                    "tui.core_log_dns",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.dns.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_tls",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.tls.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_timeout",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.timeout.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_connection",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.connection.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_other",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.other.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_oversized",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| d.oversized.to_string())
+                        .unwrap_or_else(unknown),
+                ),
+                field(
+                    "tui.core_log_incomplete",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| boolean(d.incomplete))
+                        .unwrap_or_else(unknown),
+                ),
+            ];
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.core_log_recent")));
+            if let Some(hints) = &s.core_log_hints {
+                if hints.items.is_empty() {
+                    lines.push(Line::from(tr("tui.core_log_no_recent")));
+                }
+                for hint in hints.items.iter().rev().take(8).rev() {
+                    let key = match hint.category {
+                        "dns" => "tui.core_log_dns",
+                        "tls" => "tui.core_log_tls",
+                        "timeout" => "tui.core_log_timeout",
+                        "connection" => "tui.core_log_connection",
+                        "other" => "tui.core_log_other",
+                        "oversized" => "tui.core_log_oversized",
+                        _ => "tui.metric_unavailable",
+                    };
+                    lines.push(Line::from(format!("#{} {}", hint.sequence, tr(key))));
+                }
+                if hints.incomplete {
+                    lines.push(Line::from(tr("tui.core_log_incomplete")));
+                }
+            } else {
+                lines.push(Line::from(tr("tui.metric_unavailable")));
+            }
+            lines.push(Line::from(tr("tui.core_log_recent_scope")));
+            lines.push(Line::from(tr("tui.health")));
+            lines.push(Line::from(tr("tui.no_killswitch")));
+            lines.push(Line::from(tr("tui.diagnostic_drilldown")));
+            lines
+        }
+        Page::Host => {
+            let Some(host) = &s.host_support else {
+                return vec![Line::from(tr("tui.metric_unavailable"))];
+            };
+            let state = |value: Option<bool>| value.map_or_else(unknown, boolean);
+            vec![
+                Line::from(tr("tui.host_scope")),
+                Line::from(""),
+                field("tui.host_core_installed", state(host.core_installed)),
+                field("tui.host_core_capabilities", state(host.core_capabilities)),
+                field("tui.host_tun_device", state(host.tun_device)),
+                Line::from(""),
+                field("tui.host_runtime_loaded", state(host.runtime_unit_loaded)),
+                field("tui.host_runtime_active", state(host.runtime_unit_active)),
+                field("tui.host_runtime_enabled", state(host.runtime_unit_enabled)),
+                Line::from(""),
+                field("tui.host_store", state(host.store_present)),
+                field("tui.host_template", state(host.template_present)),
+                field("tui.host_config", state(host.generated_config_present)),
+                field(
+                    "tui.host_runtime_unit",
+                    state(host.package_runtime_unit_present),
+                ),
+                field(
+                    "tui.host_login_unit",
+                    state(host.package_login_unit_present),
+                ),
+                Line::from(""),
+                Line::from(tr("tui.host_limit")),
             ]
+        }
+        Page::Rules => {
+            let Some(rules) = &s.rules else {
+                return vec![Line::from(tr("tui.metric_unavailable"))];
+            };
+            let query = app.operator_query.to_lowercase();
+            let matches: Vec<_> = rules
+                .items
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row.kind.to_lowercase().contains(&query)
+                        || row.payload.to_lowercase().contains(&query)
+                        || row.target.to_lowercase().contains(&query)
+                })
+                .collect();
+            let mut lines = vec![
+                Line::from(tr("tui.rules_scope")),
+                field("tui.loaded_total", rules.total.to_string()),
+                field("tui.loaded_projection", rules.items.len().to_string()),
+                field("tui.matching_rows", matches.len().to_string()),
+            ];
+            if rules.truncated {
+                lines.push(Line::from(tr("tui.backend_truncated")));
+            }
+            if !app.operator_query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if rules.total == 0 {
+                    "tui.no_loaded_rules"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            const DISPLAY_LIMIT: usize = 120;
+            for row in matches.iter().take(DISPLAY_LIMIT) {
+                lines.push(Line::from(format!(
+                    "{} [{}] {}",
+                    display(&row.kind, 80),
+                    row.target,
+                    display(&row.payload, 512)
+                )));
+            }
+            if matches.len() > DISPLAY_LIMIT {
+                lines.push(Line::from(tr("tui.refine_rule_filter")));
+            }
+            lines
+        }
+        Page::Providers => {
+            let Some(providers) = &s.providers else {
+                return vec![Line::from(tr("tui.metric_unavailable"))];
+            };
+            let query = app.operator_query.to_lowercase();
+            let matches: Vec<_> = providers
+                .items
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row.name.to_lowercase().contains(&query)
+                        || row.behavior.to_lowercase().contains(&query)
+                        || row.status.contains(&query)
+                })
+                .collect();
+            let mut lines = vec![
+                Line::from(tr("tui.providers_scope")),
+                field("tui.loaded_total", providers.total.to_string()),
+                field("tui.loaded_projection", providers.items.len().to_string()),
+                field("tui.matching_rows", matches.len().to_string()),
+            ];
+            if providers.truncated {
+                lines.push(Line::from(tr("tui.backend_truncated")));
+            }
+            if !app.operator_query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if providers.total == 0 {
+                    "tui.no_loaded_providers"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            const DISPLAY_LIMIT: usize = 60;
+            for row in matches.iter().take(DISPLAY_LIMIT) {
+                let count = row.rule_count.map_or_else(unknown, |n| n.to_string());
+                lines.push(
+                    Line::from(display(&row.name, 160))
+                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                );
+                lines.push(Line::from(format!(
+                    "  {} · {} · {}: {count}",
+                    display(&row.behavior, 80),
+                    tr(match row.status {
+                        "loaded" => "tui.provider_loaded",
+                        "empty" => "tui.provider_empty",
+                        _ => "tui.provider_unknown",
+                    }),
+                    tr("tui.provider_rules")
+                )));
+                lines.push(field(
+                    "tui.provider_updated",
+                    if row.updated_at.is_empty() {
+                        unknown()
+                    } else {
+                        display(&row.updated_at, 80)
+                    },
+                ));
+                lines.push(field("tui.provider_refreshable", boolean(row.refreshable)));
+                lines.push(Line::from(""));
+            }
+            if matches.len() > DISPLAY_LIMIT {
+                lines.push(Line::from(tr("tui.refine_provider_filter")));
+            }
+            lines
+        }
+        Page::CustomRules => {
+            let Some(custom) = &s.custom_rules else {
+                return vec![Line::from(tr("tui.metric_unavailable"))];
+            };
+            let query = app.operator_query.to_lowercase();
+            let matches: Vec<_> = custom
+                .items
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row.value.to_lowercase().contains(&query)
+                        || row.kind.contains(&query)
+                        || row.action.to_lowercase().contains(&query)
+                })
+                .collect();
+            let mut lines = vec![
+                Line::from(tr("tui.custom_rules_scope")),
+                field("tui.configured_total", custom.items.len().to_string()),
+                field("tui.matching_rows", matches.len().to_string()),
+            ];
+            if !app.operator_query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if custom.items.is_empty() {
+                    "tui.no_custom_rules"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            const DISPLAY_LIMIT: usize = 80;
+            for row in matches.iter().take(DISPLAY_LIMIT) {
+                lines.push(Line::from(format!(
+                    "{} → {} · {}",
+                    row.kind, row.action, row.value
+                )));
+            }
+            if matches.len() > DISPLAY_LIMIT {
+                lines.push(Line::from(tr("tui.refine_custom_filter")));
+            }
+            lines
         }
         Page::Subscriptions => {
             let mut lines = vec![Line::from(tr("tui.subscription_scope"))];

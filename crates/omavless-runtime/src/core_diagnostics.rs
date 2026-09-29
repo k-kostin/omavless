@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -15,6 +16,7 @@ use std::time::Duration;
 const MAX_LINE: usize = 4096;
 const DRAIN_READS: usize = 16;
 const IDLE: Duration = Duration::from_millis(10);
+const HINT_CAPACITY: usize = 24;
 
 #[derive(Clone, Copy)]
 enum Counter {
@@ -29,9 +31,75 @@ enum Counter {
     SetupPermission,
 }
 
+impl Counter {
+    fn token(self) -> &'static str {
+        match self {
+            Self::Dns => "dns",
+            Self::Tls => "tls",
+            Self::Timeout => "timeout",
+            Self::Connection => "connection",
+            Self::OtherWarning => "other",
+            Self::Oversized => "oversized",
+            Self::TunSetup => "tun_setup",
+            Self::FirewallSetup => "firewall_setup",
+            Self::SetupPermission => "setup_permission",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Hint {
+    sequence: u32,
+    category: Counter,
+}
+
+struct HintRing {
+    values: [Option<Hint>; HINT_CAPACITY],
+    next: usize,
+    count: usize,
+    sequence: u32,
+}
+
+impl Default for HintRing {
+    fn default() -> Self {
+        Self {
+            values: [None; HINT_CAPACITY],
+            next: 0,
+            count: 0,
+            sequence: 0,
+        }
+    }
+}
+
+impl HintRing {
+    fn push(&mut self, category: Counter) {
+        if self.sequence == u32::MAX {
+            self.values = [None; HINT_CAPACITY];
+            self.next = 0;
+            self.count = 0;
+            self.sequence = 0;
+        }
+        self.sequence = self.sequence.saturating_add(1);
+        self.values[self.next] = Some(Hint {
+            sequence: self.sequence,
+            category,
+        });
+        self.next = (self.next + 1) % HINT_CAPACITY;
+        self.count = (self.count + 1).min(HINT_CAPACITY);
+    }
+
+    fn ordered(&self) -> Vec<Hint> {
+        let start = (self.next + HINT_CAPACITY - self.count) % HINT_CAPACITY;
+        (0..self.count)
+            .filter_map(|offset| self.values[(start + offset) % HINT_CAPACITY])
+            .collect()
+    }
+}
+
 #[derive(Default)]
 struct Counts {
     values: [AtomicU32; 9],
+    hints: Mutex<HintRing>,
     read_failed: AtomicBool,
     finished: AtomicBool,
     incomplete: AtomicBool,
@@ -43,6 +111,37 @@ impl Counts {
             self.values[counter as usize].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
                 Some(v.saturating_add(1))
             });
+    }
+
+    fn record_hint(&self, category: Counter) {
+        if let Ok(mut hints) = self.hints.lock() {
+            hints.push(category);
+        } else {
+            self.incomplete.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Fixed classifications of recent warning/error lines. No raw text, host,
+/// URI, profile, timestamp, or destination survives the collector.
+pub struct CoreLogHints {
+    hints: Vec<Hint>,
+    incomplete: bool,
+}
+
+impl CoreLogHints {
+    pub(crate) fn projection(value: Option<Self>) -> serde_json::Value {
+        use serde_json::json;
+        json!({
+            "schemaVersion":1,
+            "scope":"latest_owned_core_log_categories",
+            "availability":if value.is_some() {"observed"} else {"unavailable"},
+            "items":value.as_ref().map(|v| v.hints.iter().map(|hint| {
+                json!({"sequence":hint.sequence,"category":hint.category.token()})
+            }).collect::<Vec<_>>()),
+            "incomplete":value.map(|v| v.incomplete),
+            "interpretation":"log_hints_not_health",
+        })
     }
 }
 
@@ -110,6 +209,20 @@ impl DiagnosticReader {
             setup_permission: value(Counter::SetupPermission),
         }
     }
+
+    pub(crate) fn hints(&self) -> CoreLogHints {
+        match self.0.hints.lock() {
+            Ok(hints) => CoreLogHints {
+                hints: hints.ordered(),
+                incomplete: self.0.incomplete.load(Ordering::Relaxed)
+                    || self.0.read_failed.load(Ordering::Relaxed),
+            },
+            Err(_) => CoreLogHints {
+                hints: Vec::new(),
+                incomplete: true,
+            },
+        }
+    }
 }
 
 // Deliberately not Debug/Serialize. Oversized lines are discarded in full,
@@ -140,8 +253,10 @@ impl Lines {
     fn finish(&mut self, counts: &Counts) {
         if self.oversized {
             counts.increment(Counter::Oversized);
+            counts.record_hint(Counter::Oversized);
         } else if let Some(category) = classify(&self.bytes) {
             counts.increment(category);
+            counts.record_hint(category);
             classify_setup(&self.bytes, counts);
         }
         self.bytes.fill(0);
@@ -496,5 +611,33 @@ mod tests {
         }
         assert!(reader.snapshot().finished);
         assert_eq!(reader.snapshot().connection_errors, 1);
+    }
+
+    #[test]
+    fn recent_hint_ring_is_bounded_ordered_and_never_contains_log_payloads() {
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        for index in 0..40 {
+            let line = format!(
+                "level=warning msg=DNS resolve failed private-token-{index} at 192.0.2.1\n"
+            );
+            lines.push(line.as_bytes(), &counts);
+        }
+        let view = DiagnosticReader(Arc::new(counts));
+        let projected = CoreLogHints::projection(Some(view.hints()));
+        let items = projected["items"].as_array().unwrap();
+        assert_eq!(items.len(), HINT_CAPACITY);
+        assert_eq!(items[0]["sequence"], 17);
+        assert_eq!(items[23]["sequence"], 40);
+        assert!(items.iter().all(|item| item["category"] == "dns"));
+        assert_eq!(projected["interpretation"], "log_hints_not_health");
+        let encoded = projected.to_string();
+        for private in ["private-token", "192.0.2.1", "failed at"] {
+            assert!(!encoded.contains(private));
+        }
+        assert!(encoded.len() < 1600);
+        let absent = CoreLogHints::projection(None);
+        assert_eq!(absent["availability"], "unavailable");
+        assert!(absent["items"].is_null());
     }
 }

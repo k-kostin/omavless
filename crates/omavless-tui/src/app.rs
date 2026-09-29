@@ -18,6 +18,7 @@ pub struct App {
     pub palette: crate::theme::Palette,
     pub page: crate::inspection::Page,
     pub traffic_rates: Option<(u64, u64)>,
+    pub traffic_history: crate::traffic_history::History,
     pub inspection_scroll: u16,
     pub snapshot: Option<Snapshot>,
     pub sampled_at: Option<Instant>,
@@ -28,6 +29,14 @@ pub struct App {
     /// Latest attempt per subscription in this window, not persisted/provider history.
     pub subscription_attempts: std::collections::BTreeMap<String, &'static str>,
     pub query: String,
+    /// Local filter for the currently visible bounded rules/providers snapshot.
+    pub operator_query: String,
+    /// UI-private and discarded when leaving the route-check page.
+    pub route_query: String,
+    pub route_editing: bool,
+    pub route_request: Option<crate::route_inspection::Request>,
+    pub route_result: Option<crate::route_inspection::Status>,
+    route_context: Option<crate::route_inspection::Request>,
     pub favorites_only: bool,
     pub searching: bool,
     pub help: bool,
@@ -61,6 +70,40 @@ pub enum Action {
 }
 
 impl App {
+    /// Discard a completed page read after navigation/selection moved. In
+    /// particular, a late private Connections reply must not re-enter the
+    /// snapshot after leaving that page.
+    pub fn accept_for(
+        &mut self,
+        page: crate::inspection::Page,
+        selected: Option<&str>,
+        result: Result<Snapshot, ReadError>,
+        started: Instant,
+    ) -> bool {
+        if self.page != page || self.selected.as_deref() != selected {
+            return false;
+        }
+        self.accept(result, started);
+        true
+    }
+
+    fn leave_private_connections(&mut self, next: crate::inspection::Page) {
+        if self.page == crate::inspection::Page::Connections
+            && next != crate::inspection::Page::Connections
+            && let Some(snapshot) = &mut self.snapshot
+        {
+            snapshot.connection_rows = None;
+        }
+        if self.page == crate::inspection::Page::RouteCheck
+            && next != crate::inspection::Page::RouteCheck
+        {
+            self.route_query.clear();
+            self.route_editing = false;
+            self.route_request = None;
+            self.route_result = None;
+            self.route_context = None;
+        }
+    }
     pub fn new(locale: Locale) -> Self {
         Self {
             jobs_enabled: false,
@@ -70,6 +113,7 @@ impl App {
             palette: crate::theme::Palette::default(),
             page: crate::inspection::Page::Profiles,
             traffic_rates: None,
+            traffic_history: crate::traffic_history::History::default(),
             inspection_scroll: 0,
             snapshot: None,
             sampled_at: None,
@@ -79,6 +123,12 @@ impl App {
             subscription_selection_moved: false,
             subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
+            operator_query: String::new(),
+            route_query: String::new(),
+            route_editing: false,
+            route_request: None,
+            route_result: None,
+            route_context: None,
             favorites_only: false,
             searching: false,
             help: false,
@@ -139,6 +189,7 @@ impl App {
                             && old.revision == next.revision
                     })
                     .and_then(|old| next.traffic.as_ref()?.rates(old.traffic.as_ref()?));
+                self.traffic_history.observe(self.traffic_rates, started);
                 let changed = self
                     .accepted
                     .as_ref()
@@ -146,6 +197,11 @@ impl App {
                 if changed {
                     self.selected_subscription = None;
                     self.subscription_attempts.clear();
+                }
+                if self.accepted.as_ref().is_some_and(|(id, revision)| {
+                    *id != next.metadata.instance_id || *revision != next.revision
+                }) {
+                    self.route_result = None;
                 }
                 if self
                     .selected_subscription
@@ -186,6 +242,8 @@ impl App {
                     self.activity.record(Event::ReadFailed(error), started);
                 }
                 self.traffic_rates = None;
+                self.traffic_history.clear();
+                self.route_result = None;
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -215,6 +273,27 @@ impl App {
     pub fn update_palette(&mut self, palette: crate::theme::Palette) {
         self.settings.update_palette(palette);
         self.palette = self.settings.palette();
+    }
+    pub fn accept_route(
+        &mut self,
+        target: Option<crate::route_inspection::Target>,
+        status: Option<crate::route_inspection::Status>,
+        at: Instant,
+    ) {
+        if self.page == crate::inspection::Page::RouteCheck
+            && target.is_some()
+            && self.route_context.as_ref().is_some_and(|request| {
+                Some(request.target()) == target
+                    && self
+                        .accepted
+                        .as_ref()
+                        .is_some_and(|(instance, revision)| request.matches(instance, *revision))
+            })
+            && self.snapshot.is_some()
+            && self.sampled_at == Some(at)
+        {
+            self.route_result = status;
+        }
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
         self.key_at(key, Instant::now())
@@ -268,22 +347,86 @@ impl App {
             return Action::None;
         }
         if self.searching {
+            let operator = matches!(
+                self.page,
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
+            );
+            let query = if operator {
+                &mut self.operator_query
+            } else {
+                &mut self.query
+            };
             match key.code {
                 KeyCode::Esc | KeyCode::Enter => self.searching = false,
                 KeyCode::Backspace => {
-                    self.query.pop();
-                    self.selected = None;
+                    query.pop();
+                    if operator {
+                        self.inspection_scroll = 0;
+                    } else {
+                        self.selected = None;
+                    }
                 }
                 KeyCode::Char(c)
                     if !key
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                         && !c.is_control()
-                        && self.query.chars().count() < 80 =>
+                        && query.chars().count() < 80 =>
                 {
-                    self.query
-                        .push_str(&crate::model::display(&c.to_string(), 1));
-                    self.selected = None;
+                    query.push_str(&crate::model::display(&c.to_string(), 1));
+                    if operator {
+                        self.inspection_scroll = 0;
+                    } else {
+                        self.selected = None;
+                    }
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
+        if self.route_editing {
+            match key.code {
+                KeyCode::Esc => self.route_editing = false,
+                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                    self.route_editing = false;
+                    let Some(target) = crate::route_inspection::Target::new(&self.route_query)
+                    else {
+                        self.route_context = None;
+                        self.route_request = None;
+                        self.route_result = Some(crate::route_inspection::Status::InvalidInput);
+                        return Action::None;
+                    };
+                    if self.fresh(now)
+                        && let Some(snapshot) = &self.snapshot
+                    {
+                        let request = crate::route_inspection::Request::new(
+                            target,
+                            snapshot.metadata.instance_id.clone(),
+                            snapshot.revision,
+                        );
+                        self.route_context = Some(request.clone());
+                        self.route_request = Some(request);
+                        self.route_result = None;
+                        return Action::Refresh;
+                    }
+                    self.route_context = None;
+                    self.route_request = None;
+                    self.route_result = Some(crate::route_inspection::Status::Unavailable);
+                }
+                KeyCode::Backspace => {
+                    self.route_query.pop();
+                }
+                KeyCode::Char(c)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && c.is_ascii_graphic()
+                        && self.route_query.len() < 256 =>
+                {
+                    self.route_query.push(c)
                 }
                 _ => {}
             }
@@ -297,8 +440,10 @@ impl App {
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             if key.code == KeyCode::Char(',') {
+                self.leave_private_connections(crate::inspection::Page::Settings);
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
+                self.operator_query.clear();
                 return Action::None;
             }
             if self.page == crate::inspection::Page::Settings
@@ -316,13 +461,88 @@ impl App {
             }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
-            self.page = self
+            let next = self
                 .page
                 .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
+            self.leave_private_connections(next);
+            self.page = next;
             self.inspection_scroll = 0;
+            self.operator_query.clear();
             return Action::Refresh;
         }
         if self.page != crate::inspection::Page::Profiles {
+            if self.page == crate::inspection::Page::RouteCheck
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && key.code == KeyCode::Char('/')
+            {
+                // As soon as input changes, the previous result is no longer
+                // visibly tied to the displayed destination.
+                self.route_result = None;
+                self.route_context = None;
+                self.route_request = None;
+                self.route_editing = true;
+                return Action::None;
+            }
+            if self.page == crate::inspection::Page::Diagnostics
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('H') => {
+                        self.page = crate::inspection::Page::Host;
+                        self.inspection_scroll = 0;
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('R') => {
+                        self.page = crate::inspection::Page::Rules;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('P') => {
+                        self.page = crate::inspection::Page::Providers;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('C') => {
+                        self.page = crate::inspection::Page::CustomRules;
+                        self.inspection_scroll = 0;
+                        self.operator_query.clear();
+                        return Action::Refresh;
+                    }
+                    _ => {}
+                }
+            }
+            if matches!(
+                self.page,
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
+                    | crate::inspection::Page::Providers
+                    | crate::inspection::Page::CustomRules
+            ) && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    KeyCode::Char('/') => {
+                        self.searching = true;
+                        return Action::None;
+                    }
+                    KeyCode::Char('c') => {
+                        self.operator_query.clear();
+                        self.inspection_scroll = 0;
+                        return Action::None;
+                    }
+                    _ => {}
+                }
+            }
             if self.page == crate::inspection::Page::Jobs
                 && key.kind == KeyEventKind::Press
                 && !key
@@ -394,7 +614,21 @@ impl App {
                 KeyCode::Home => self.inspection_scroll = 0,
                 KeyCode::End => self.inspection_scroll = u16::MAX,
                 KeyCode::Esc => {
-                    self.page = crate::inspection::Page::Profiles;
+                    let next = if matches!(
+                        self.page,
+                        crate::inspection::Page::Host
+                            | crate::inspection::Page::Rules
+                            | crate::inspection::Page::Providers
+                            | crate::inspection::Page::CustomRules
+                            | crate::inspection::Page::RouteCheck
+                    ) {
+                        crate::inspection::Page::Diagnostics
+                    } else {
+                        crate::inspection::Page::Profiles
+                    };
+                    self.leave_private_connections(next);
+                    self.page = next;
+                    self.operator_query.clear();
                     return Action::Refresh;
                 }
                 _ => {}
