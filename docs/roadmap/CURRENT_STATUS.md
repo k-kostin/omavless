@@ -6,6 +6,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **K1 offline foundation candidate, September 29:** a separate Rust library adds
+  bounded fixed messages, acknowledged helper transactions and symbolic policy
+  tests. It has no runtime caller, firewall I/O or installed protection. See
+  [scope and remaining renderer/security/host gates](../development/K1_FOUNDATION.md).
+  This does not join the 0.9 release lane or complete K1.
+
 - **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
   combined tests passed; the common frontend matches both build records. See
