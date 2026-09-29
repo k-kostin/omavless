@@ -109,7 +109,7 @@ fn run_client(
     let (request, requests) = mpsc::sync_channel::<(
         inspection::Page,
         Option<String>,
-        Option<route_inspection::Target>,
+        Option<route_inspection::Request>,
     )>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
@@ -117,14 +117,14 @@ fn run_client(
         .spawn(move || {
             while let Ok((page, selected, route)) = requests.recv() {
                 let started = Instant::now();
+                let result = client::load_page_for_route(
+                    &mut read,
+                    page,
+                    selected.as_deref(),
+                    route.as_ref(),
+                );
                 if results
-                    .send((
-                        started,
-                        page,
-                        selected.clone(),
-                        route,
-                        client::load_page_for_route(&mut read, page, selected.as_deref(), route),
-                    ))
+                    .send((started, page, selected.clone(), route, result))
                     .is_err()
                 {
                     break;
@@ -225,7 +225,11 @@ fn run_client(
             match result {
                 Ok((snapshot, route_status)) => {
                     if app.accept_for(page, selected.as_deref(), Ok(snapshot), started) {
-                        app.accept_route(route, route_status, started);
+                        app.accept_route(
+                            route.as_ref().map(route_inspection::Request::target),
+                            route_status,
+                            started,
+                        );
                     }
                 }
                 Err(error) => {
@@ -244,7 +248,7 @@ fn run_client(
         if !pending
             && now >= due
             && request
-                .try_send((app.page, app.selected.clone(), app.route_request))
+                .try_send((app.page, app.selected.clone(), app.route_request.clone()))
                 .is_ok()
         {
             app.route_request = None;

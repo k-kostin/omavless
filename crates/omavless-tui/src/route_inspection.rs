@@ -33,6 +33,33 @@ impl Target {
     }
 }
 
+/// One explicit user request, bound to the currently observed owner before
+/// any private query can be dispatched. Never serialized or debug-printed.
+#[derive(Clone)]
+pub struct Request {
+    target: Target,
+    instance: String,
+    revision: u64,
+}
+
+impl Request {
+    pub fn new(target: Target, instance: String, revision: u64) -> Self {
+        Self {
+            target,
+            instance,
+            revision,
+        }
+    }
+
+    pub fn target(&self) -> Target {
+        self.target
+    }
+
+    pub fn matches(&self, instance: &str, revision: u64) -> bool {
+        self.instance == instance && self.revision == revision
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Vpn,

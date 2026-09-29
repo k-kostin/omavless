@@ -6,7 +6,7 @@ use omavless_tui::{
     client::{Read, load_page, load_page_for_route},
     i18n::Locale,
     inspection::Page,
-    route_inspection::{Outcome, Result as RouteResult, Source, Status, Target},
+    route_inspection::{Outcome, Request, Result as RouteResult, Source, Status, Target},
     view,
 };
 use ratatui::{
@@ -78,6 +78,7 @@ fn parser_accepts_only_exact_query_revision_and_consistent_bounded_outcome() {
 #[test]
 fn one_shot_client_checks_only_when_requested_and_fences_the_owner() {
     let target = Target::new("example.invalid").unwrap();
+    let route_request = Request::new(target, "fixture-runtime".into(), 7);
     let mut reads = Vec::new();
     let (snapshot, route) = load_page_for_route(
         &mut |request| {
@@ -93,7 +94,7 @@ fn one_shot_client_checks_only_when_requested_and_fences_the_owner() {
         },
         Page::RouteCheck,
         None,
-        Some(target),
+        Some(&route_request),
     )
     .unwrap();
     assert_eq!(snapshot.revision, 7);
@@ -122,10 +123,46 @@ fn one_shot_client_checks_only_when_requested_and_fences_the_owner() {
         &mut |request| Ok(support::response(request)),
         Page::RouteCheck,
         None,
-        Some(target),
+        Some(&route_request),
     )
     .unwrap();
     assert!(matches!(route, Some(Status::Unsupported)));
+}
+
+#[test]
+fn owner_or_revision_change_prevents_private_route_dispatch() {
+    let target = Target::new("example.invalid").unwrap();
+    let request = Request::new(target, "fixture-runtime".into(), 7);
+    for changed in [Read::Hello, Read::Snapshot] {
+        let mut reads = Vec::new();
+        let read_result = load_page_for_route(
+            &mut |read| {
+                reads.push(read);
+                let mut response = support::response(read);
+                if read == Read::Capabilities {
+                    response["result"]["methods"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!("routing.check"));
+                }
+                if read == changed {
+                    match changed {
+                        Read::Hello => response["result"]["instanceId"] = json!("new-runtime"),
+                        Read::Snapshot => response["revision"] = json!(8),
+                        _ => unreachable!(),
+                    }
+                }
+                Ok(response)
+            },
+            Page::RouteCheck,
+            None,
+            Some(&request),
+        );
+        assert!(!reads.contains(&Read::RouteCheck(target)));
+        // The synthetic observation still belongs to the prior owner/revision,
+        // so the aggregate read fails after refusing to send the private query.
+        assert!(read_result.is_err());
+    }
 }
 
 #[test]
@@ -144,11 +181,12 @@ fn input_result_and_navigation_are_private_and_do_not_mutate_runtime() {
         }
         assert_eq!(key(&mut app, KeyCode::Enter, at), Action::Refresh);
         let request = app.route_request.take().unwrap();
-        assert_eq!(request.as_str(), "example.invalid");
+        assert_eq!(request.target().as_str(), "example.invalid");
         assert!(render(&app, at).contains("example.invalid"));
+        let target = request.target();
         let result =
-            RouteResult::parse(&support::response(Read::RouteCheck(request)), request, 7).unwrap();
-        app.accept_route(Some(request), Some(Status::Observed(result)), at);
+            RouteResult::parse(&support::response(Read::RouteCheck(target)), target, 7).unwrap();
+        app.accept_route(Some(target), Some(Status::Observed(result)), at);
         assert!(matches!(app.route_result, Some(Status::Observed(_))));
         assert!(!render(&app, at).contains("Missing translation"));
         assert!(render_size(&app, at, 70, 24).contains("example.invalid"));
@@ -157,7 +195,7 @@ fn input_result_and_navigation_are_private_and_do_not_mutate_runtime() {
         assert!(matches!(app.route_result, Some(Status::Observed(_))));
         assert_eq!(key(&mut app, KeyCode::Char('/'), at), Action::None);
         assert!(app.route_result.is_none());
-        app.accept_route(Some(request), Some(Status::Unavailable), at);
+        app.accept_route(Some(target), Some(Status::Unavailable), at);
         assert!(app.route_result.is_none());
         assert_eq!(key(&mut app, KeyCode::Esc, at), Action::None);
         assert_eq!(key(&mut app, KeyCode::Esc, at), Action::Refresh);

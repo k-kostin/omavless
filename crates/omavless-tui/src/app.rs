@@ -34,9 +34,9 @@ pub struct App {
     /// UI-private and discarded when leaving the route-check page.
     pub route_query: String,
     pub route_editing: bool,
-    pub route_request: Option<crate::route_inspection::Target>,
+    pub route_request: Option<crate::route_inspection::Request>,
     pub route_result: Option<crate::route_inspection::Status>,
-    route_context: Option<(crate::route_inspection::Target, String, u64)>,
+    route_context: Option<crate::route_inspection::Request>,
     pub favorites_only: bool,
     pub searching: bool,
     pub help: bool,
@@ -282,13 +282,13 @@ impl App {
     ) {
         if self.page == crate::inspection::Page::RouteCheck
             && target.is_some()
-            && self
-                .route_context
-                .as_ref()
-                .is_some_and(|(active, instance, revision)| {
-                    Some(*active) == target
-                        && self.accepted.as_ref() == Some(&(instance.clone(), *revision))
-                })
+            && self.route_context.as_ref().is_some_and(|request| {
+                Some(request.target()) == target
+                    && self
+                        .accepted
+                        .as_ref()
+                        .is_some_and(|(instance, revision)| request.matches(instance, *revision))
+            })
             && self.snapshot.is_some()
             && self.sampled_at == Some(at)
         {
@@ -402,12 +402,13 @@ impl App {
                     if self.fresh(now)
                         && let Some(snapshot) = &self.snapshot
                     {
-                        self.route_context = Some((
+                        let request = crate::route_inspection::Request::new(
                             target,
                             snapshot.metadata.instance_id.clone(),
                             snapshot.revision,
-                        ));
-                        self.route_request = Some(target);
+                        );
+                        self.route_context = Some(request.clone());
+                        self.route_request = Some(request);
                         self.route_result = None;
                         return Action::Refresh;
                     }
