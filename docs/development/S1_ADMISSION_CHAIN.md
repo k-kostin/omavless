@@ -27,7 +27,7 @@ shell command, environment import or arbitrary IPC is justified by this design.
 | Edge | Required evidence | Current status |
 | --- | --- | --- |
 | Fixed system endpoint → system manager | Root-controlled endpoint plus actual authenticated systemd owner and stable lifetime in intended namespaces | #364 pins endpoint and reads MainPID; owner/writer proof remains open |
-| System manager → real user manager | Fixed user@UID.service identity, kernel process lifetime and matching private peer; no activation | Scalar/peer/start-time observations only; no production handle binding |
+| System manager → real user manager | Fixed user@UID.service identity, kernel process lifetime and matching private peer; no activation | Scalar/peer/start-time observations plus a retained endpoint-creator pidfd in the opt-in diagnostic; still no trusted writer or production handle binding |
 | Local user bus → actual broker writer | Bounded AUTH with kernel sender credentials and lifetime captured with the response | #357 obtains SCM_CREDENTIALS; numeric PID-to-lifetime race remains |
 | Broker → launcher → same manager | Independently trusted broker/launcher lifetimes and source-compatible regular connection on this bus, with manager owner matching the anchored manager | Source design only; self-reported bus credentials cannot bootstrap trust |
 | User manager → intended desktop scope | Root-anchored supported login/session and reviewed UWSM launch relationship; multi-session refusal or explicit consent policy | Open |
