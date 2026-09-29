@@ -1460,8 +1460,9 @@ as zero. Each row contains only a validated destination host and/or parsed IP,
 numeric port, TCP/UDP/other category and conservative
 DIRECT/REJECT/PROXY/unclassified category. Unknown or conflicting chains are
 unclassified. Process/source addresses, raw chain names, IDs, credentials and
-traffic payloads are discarded in Rust before IPC. Malformed controller data
-fails closed; no partial result is returned.
+traffic payloads are discarded in Rust before IPC. Malformed row, network or
+chain structure fails closed for the whole response; unsafe destination fields
+are omitted from their individual row rather than echoed or guessed.
 
 Destinations remain **private**, unlike the aggregate overview: this method
 must not enter ordinary status, support exports or shareable diagnostics. The
