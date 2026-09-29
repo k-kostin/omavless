@@ -254,6 +254,9 @@ impl SubscriptionTransport for HttpsSubscriptionTransport {
 mod tests {
     use super::*;
     use omavless_domain::subscription_feed::decode_subscription_feed;
+    use omavless_domain::subscription_metadata::{
+        SubscriptionMetadataError, parse_final_subscription_userinfo,
+    };
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
@@ -346,6 +349,120 @@ mod tests {
         assert_eq!(decode_subscription_feed(body).unwrap().counts().accepted, 1);
         let requests = worker.join().unwrap();
         assert!(requests[1].starts_with("GET /next HTTP/1.1\r\n"));
+    }
+
+    #[test]
+    fn ureq_preserves_duplicate_usage_header_fields_for_future_admission() {
+        let (url, worker) = server(vec![response(
+            "200 OK",
+            "Subscription-Userinfo: upload=1;download=2;total=3\r\nsubscription-userinfo: upload=4;download=5;total=6\r\n",
+            PROFILE.as_bytes(),
+        )]);
+        let transport = HttpsSubscriptionTransport::new();
+        let response = transport.agent.get(&url).call().unwrap();
+        let values: Vec<_> = response
+            .headers()
+            .get_all("subscription-userinfo")
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect();
+        assert_eq!(
+            values.len(),
+            2,
+            "ureq folded or dropped a duplicate usage header"
+        );
+        assert_eq!(values[0], "upload=1;download=2;total=3");
+        assert_eq!(values[1], "upload=4;download=5;total=6");
+        assert!(matches!(
+            parse_final_subscription_userinfo(
+                response.status().as_u16(),
+                response
+                    .headers()
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.to_str().unwrap()))
+            ),
+            Err(SubscriptionMetadataError::DuplicateHeader)
+        ));
+        assert_eq!(worker.join().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn only_final_redirect_response_supplies_optional_usage() {
+        let (url, worker) = server(vec![
+            response(
+                "302 Found",
+                "Location: /next\r\nSubscription-Userinfo: upload=9;download=9;total=9\r\n",
+                b"",
+            ),
+            response(
+                "200 OK",
+                "Subscription-Userinfo: upload=1;download=2;total=3\r\n",
+                PROFILE.as_bytes(),
+            ),
+        ]);
+        let transport = HttpsSubscriptionTransport::new();
+        let redirected = transport.agent.get(&url).call().unwrap();
+        assert_eq!(redirected.status().as_u16(), 302);
+        assert!(
+            parse_final_subscription_userinfo(
+                redirected.status().as_u16(),
+                redirected
+                    .headers()
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.to_str().unwrap()))
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        let location = redirected
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let final_url =
+            HttpsSubscriptionTransport::redirect_url(&Url::parse(&url).unwrap(), location).unwrap();
+        let final_response = transport.agent.get(final_url.as_str()).call().unwrap();
+        let final_usage = parse_final_subscription_userinfo(
+            final_response.status().as_u16(),
+            final_response
+                .headers()
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.to_str().unwrap())),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(final_usage.upload_bytes, 1);
+        assert_eq!(final_usage.download_bytes, 2);
+        assert_eq!(final_usage.total_bytes, 3);
+        assert_eq!(worker.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn unusable_optional_usage_does_not_fail_a_usable_feed() {
+        let headers = "Subscription-Userinfo: upload=invalid;download=2;total=3\r\n";
+        let (url, worker) = server(vec![
+            response("200 OK", headers, PROFILE.as_bytes()),
+            response("200 OK", headers, PROFILE.as_bytes()),
+        ]);
+        let transport = HttpsSubscriptionTransport::new();
+        let response = transport.agent.get(&url).call().unwrap();
+        assert!(matches!(
+            parse_final_subscription_userinfo(
+                response.status().as_u16(),
+                response
+                    .headers()
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.to_str().unwrap()))
+            ),
+            Err(SubscriptionMetadataError::InvalidNumber)
+        ));
+        // Production transport currently ignores optional usage metadata. A
+        // future caller must preserve this fail-open feed behavior.
+        let body = transport.fetch(&url).unwrap();
+        assert_eq!(decode_subscription_feed(body).unwrap().counts().accepted, 1);
+        assert_eq!(worker.join().unwrap().len(), 2);
     }
 
     #[test]
