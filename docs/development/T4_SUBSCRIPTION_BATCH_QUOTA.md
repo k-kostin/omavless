@@ -7,8 +7,9 @@ uses this code.
 The batch candidate reuses the established all-member refresh snapshot and
 planner. It validates raw store members before JSON normalization, captures all
 subscription IDs and URLs privately, and rejects a missing, extra, reordered
-or stale member before returning any replacement. Every fetched feed is decoded
-before the planner runs. A single synthetic ID source spans all feeds, and the
+or stale member before returning any replacement. Every fetched feed and the
+aggregate private-byte bound are validated before consuming generated IDs or
+calling the clock. A single synthetic ID source spans all feeds, and the
 planner gives every accepted member its actual common monotonic refresh token.
 
 Old usage claims are removed from the in-memory candidate before feed size

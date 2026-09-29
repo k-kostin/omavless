@@ -83,8 +83,10 @@ fn compose_batch(
             .ok_or(Error::Store(PrivateStoreError::InvalidShape))?
             .remove("providerUsageV1");
     }
-    let mut updates = Vec::with_capacity(fetched.len());
-    let mut usages = Vec::with_capacity(fetched.len());
+    // Admit every feed and the aggregate private-byte bound before consuming
+    // any owner-generated ID. A late invalid provider must not spend IDs for
+    // an all-or-nothing batch that can never be published.
+    let mut decoded = Vec::with_capacity(fetched.len());
     let mut retained_bytes = 0_usize;
     for fetched in fetched {
         let feed = decode_subscription_feed(fetched.body).map_err(Error::Feed)?;
@@ -92,6 +94,11 @@ fn compose_batch(
             .checked_add(feed.private_payload_bytes())
             .filter(|bytes| *bytes <= MAX_PRIVATE_STORE_BYTES)
             .ok_or(Error::Store(PrivateStoreError::TooLarge))?;
+        decoded.push((feed, fetched.usage));
+    }
+    let mut updates = Vec::with_capacity(decoded.len());
+    let mut usages = Vec::with_capacity(decoded.len());
+    for (feed, usage) in decoded {
         let skipped = feed.counts().skipped;
         updates.push(SubscriptionRefreshBatchEntries {
             entries: feed.into_private_entries(&mut *next_id),
@@ -99,7 +106,7 @@ fn compose_batch(
         });
         usages.push(match retention {
             Retention::Discard => None,
-            Retention::ModelPrivatePersistence => fetched.usage,
+            Retention::ModelPrivatePersistence => usage,
         });
     }
     let (feed_candidate, counts) =
@@ -307,6 +314,33 @@ fn any_stale_member_or_incomplete_feed_set_refuses_the_whole_candidate() {
     let duplicate = input.replacen("\"version\":3", "\"version\":3,\"version\":3", 1);
     assert!(BatchSnapshot::capture(&duplicate).is_err());
     assert!(build(&duplicate, &input, responses(), Retention::Discard).is_err());
+}
+
+#[test]
+fn late_invalid_feed_does_not_consume_ids_or_clock() {
+    let input = batch_store();
+    let mut feeds = responses();
+    feeds[1].body = omavless_domain::subscription_feed::PrivateSubscriptionBody::from_bytes(
+        b"invalid-feed".to_vec(),
+    )
+    .unwrap();
+    let mut id_calls = 0;
+    assert!(matches!(
+        compose_batch(
+            &input,
+            BatchSnapshot::capture(&input).unwrap(),
+            feeds,
+            || panic!("clock called for rejected batch"),
+            100,
+            Retention::Discard,
+            &mut || {
+                id_calls += 1;
+                format!("10000000-0000-4000-8000-{id_calls:012}")
+            },
+        ),
+        Err(Error::Feed(_))
+    ));
+    assert_eq!(id_calls, 0);
 }
 
 #[test]
