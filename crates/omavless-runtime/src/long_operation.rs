@@ -76,6 +76,17 @@ impl std::error::Error for LongOperationError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LongOperationToken(u64);
 
+impl LongOperationToken {
+    pub(crate) const fn sequence(self) -> u64 {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn synthetic(sequence: u64) -> Self {
+        Self(sequence)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartOutcome {
     Started(LongOperationToken),
@@ -160,6 +171,23 @@ impl Default for LongOperationRegistry {
 }
 
 impl LongOperationRegistry {
+    /// Owner-only terminal projection by an unforgeable in-memory token. This
+    /// cannot be queried with an IPC operation ID and cannot select a later
+    /// operation that reused the same human-visible ID.
+    pub(crate) fn terminal_by_token(
+        &self,
+        token: LongOperationToken,
+    ) -> Option<(LongOperationState, u64, usize, Option<StableErrorCode>)> {
+        self.completed
+            .iter()
+            .find(|record| record.token == token)
+            .and_then(|record| {
+                record
+                    .outcome_revision
+                    .map(|revision| (record.state, revision, record.total, record.error))
+            })
+    }
+
     pub fn new(instance_id: &str, limit: usize) -> Result<Self, LongOperationError> {
         if limit == 0 || limit > MAX_COMPLETED_OPERATION_LIMIT {
             return Err(LongOperationError::InvalidBounds);

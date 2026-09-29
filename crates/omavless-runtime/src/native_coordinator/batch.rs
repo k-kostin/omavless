@@ -9,6 +9,7 @@ use crate::long_operation::{
     CommitFence, DEFAULT_COMPLETED_OPERATION_LIMIT, LongOperationError, LongOperationRegistry,
     LongOperationToken, StartOutcome,
 };
+use crate::long_operation_protocol::LongOperationState;
 use crate::long_operation_protocol::{
     parse_operation_cancel, parse_operation_get, parse_refresh_all_start,
 };
@@ -53,6 +54,91 @@ impl ActiveCancellation {
 pub struct NativeBatchTicket {
     pub(super) instance: String,
     pub(super) token: LongOperationToken,
+    pub(super) subscription_base_revision: Option<u64>,
+}
+
+impl NativeBatchTicket {
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance
+    }
+
+    pub(crate) fn sequence(&self) -> u64 {
+        self.token.sequence()
+    }
+
+    pub(crate) fn base_revision(&self) -> Option<u64> {
+        self.subscription_base_revision
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(instance: &str, sequence: u64, base_revision: u64) -> Self {
+        Self {
+            instance: instance.to_owned(),
+            token: LongOperationToken::synthetic(sequence),
+            subscription_base_revision: Some(base_revision),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeBatchOutcome {
+    Committed,
+    Empty,
+    Cancelled,
+    Failed,
+    /// An atomic store replacement may have happened before a sync error.
+    /// Never infer failure or retry from this result.
+    Uncertain,
+}
+
+/// Minted only by the serialized owner after a terminal registry transition.
+/// A receipt is specific to one daemon instance and one batch token; it
+/// contains no provider identity, response, URL or profile data.
+pub struct NativeBatchCompletionReceipt {
+    instance: String,
+    sequence: u64,
+    base_revision: u64,
+    completed_revision: u64,
+    outcome: NativeBatchOutcome,
+}
+
+impl NativeBatchCompletionReceipt {
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance
+    }
+
+    pub(crate) fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub(crate) fn base_revision(&self) -> u64 {
+        self.base_revision
+    }
+
+    pub(crate) fn completed_revision(&self) -> u64 {
+        self.completed_revision
+    }
+
+    pub fn outcome(&self) -> NativeBatchOutcome {
+        self.outcome
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(
+        ticket: &NativeBatchTicket,
+        completed_revision: u64,
+        outcome: NativeBatchOutcome,
+    ) -> Self {
+        Self {
+            instance: ticket.instance.clone(),
+            sequence: ticket.sequence(),
+            base_revision: ticket
+                .base_revision()
+                .expect("synthetic subscription ticket"),
+            completed_revision,
+            outcome,
+        }
+    }
 }
 
 /// Private, non-cloneable worker capability minted by one owner instance.
@@ -72,6 +158,7 @@ impl NativeSubscriptionBatch {
         NativeBatchTicket {
             instance: self.instance.clone(),
             token: self.token,
+            subscription_base_revision: Some(self.base_revision),
         }
     }
 
@@ -97,6 +184,55 @@ impl NativeSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    /// Read an exact terminal batch result under the owner lock. The caller
+    /// must keep the ticket from admission; an arbitrary status projection or
+    /// a successful `Result<()>` is not proof that a store commit occurred.
+    pub fn subscription_batch_receipt(
+        &self,
+        ticket: &NativeBatchTicket,
+    ) -> Result<NativeBatchCompletionReceipt, NativeOwnerError> {
+        let state = self
+            .batch
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if state.instance != ticket.instance {
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::NotFound,
+            ));
+        }
+        let (terminal, completed_revision, total, error) =
+            state.registry.terminal_by_token(ticket.token).ok_or(
+                NativeOwnerError::LongOperation(LongOperationError::NotFound),
+            )?;
+        let base_revision = ticket
+            .base_revision()
+            .ok_or(NativeOwnerError::LongOperation(
+                LongOperationError::NotFound,
+            ))?;
+        if completed_revision < base_revision {
+            return Err(NativeOwnerError::Invariant);
+        }
+        let outcome = match terminal {
+            LongOperationState::Succeeded if total == 0 => NativeBatchOutcome::Empty,
+            LongOperationState::Succeeded => NativeBatchOutcome::Committed,
+            LongOperationState::Cancelled => NativeBatchOutcome::Cancelled,
+            LongOperationState::Failed
+                if error == Some(StableErrorCode::ManualRecoveryRequired) =>
+            {
+                NativeBatchOutcome::Uncertain
+            }
+            LongOperationState::Failed => NativeBatchOutcome::Failed,
+            _ => return Err(NativeOwnerError::Invariant),
+        };
+        Ok(NativeBatchCompletionReceipt {
+            instance: ticket.instance.clone(),
+            sequence: ticket.sequence(),
+            base_revision,
+            completed_revision,
+            outcome,
+        })
+    }
+
     /// Bind once to the actual runtime instance, never a request-provided ID.
     /// Live registration remains absent; production must use the gated owner.
     pub fn initialize_batch_operations(&mut self, instance: &str) -> Result<(), NativeOwnerError> {
