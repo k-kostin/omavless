@@ -4565,6 +4565,10 @@ mod tests {
         let transport = T4SyntheticTransport {
             calls: std::cell::Cell::new(0),
         };
+        assert_eq!(
+            attempt.step(&transport, &mut || panic!("unadmitted provider step")),
+            Err(batch_scheduler::ScheduledOnceError::StepNotAuthorized)
+        );
         let permits: Vec<_> = (0..4).map(|_| pool.try_acquire().unwrap()).collect();
         attempt.progress(owner.batch_coordinator()).unwrap();
         assert_eq!(
@@ -4577,6 +4581,7 @@ mod tests {
         );
         assert_eq!(transport.calls.get(), 0);
         drop(permits);
+        attempt.progress(owner.batch_coordinator()).unwrap();
         assert_eq!(
             attempt
                 .step(&transport, &mut || {
@@ -4712,6 +4717,7 @@ mod tests {
             .unwrap()
             .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
             .unwrap();
+        attempt.progress(owner.batch_coordinator()).unwrap();
         assert!(attempt.cancel(owner.batch_coordinator()).unwrap());
         let transport = T4SyntheticTransport {
             calls: std::cell::Cell::new(0),
@@ -4808,6 +4814,134 @@ mod tests {
     }
 
     #[test]
+    fn t4_synthetic_off_or_preference_change_after_fetch_refuses_atomic_commit() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        for new_schedule in [
+            RefreshSchedule::Off,
+            RefreshSchedule::Every {
+                interval_secs: 7 * 60 * 60,
+            },
+        ] {
+            let base = temporary_base("t4-off-after-fetch");
+            let (mut owner, cutover, _) = native_owner_fixture(&base);
+            let uid = fs::metadata(&base).unwrap().uid();
+            let before = fs::read(base.join("config/profiles.json")).unwrap();
+            owner
+                .batch_coordinator()
+                .initialize_batch_operations("synthetic-instance")
+                .unwrap();
+            let preference = set_preference(
+                &cutover,
+                uid,
+                1,
+                0,
+                RefreshSchedule::Every {
+                    interval_secs: 6 * 60 * 60,
+                },
+            )
+            .unwrap();
+            let scheduler = batch_scheduler::BatchScheduler::default();
+            let pool = remote_fetch::RemoteFetchPool::default();
+            let mut attempt = scheduler
+                .reserve_scheduled()
+                .unwrap()
+                .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+                .unwrap();
+            let transport = T4SyntheticTransport {
+                calls: std::cell::Cell::new(0),
+            };
+            attempt.progress(owner.batch_coordinator()).unwrap();
+            assert_eq!(
+                attempt
+                    .step(&transport, &mut || {
+                        "20000000-0000-4000-8000-000000000001".to_owned()
+                    })
+                    .unwrap(),
+                subscription_batch_work::BatchWorkStep::Ready
+            );
+            assert_eq!(transport.calls.get(), 1);
+            set_preference(&cutover, uid, 1, preference.revision, new_schedule).unwrap();
+            assert_eq!(
+                attempt
+                    .finish(owner.batch_coordinator(), 20_000, 120)
+                    .unwrap()
+                    .state,
+                AttemptState::Superseded
+            );
+            assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+            assert_eq!(owner.revision(), 0);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
+    fn t4_synthetic_unsafe_preference_before_commit_keeps_attempt_uncertain() {
+        use crate::batch_scheduler::ScheduledOnceError;
+        use crate::subscription_schedule_attempt::{AttemptError, AttemptState, read_attempt};
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-unsafe-preference");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        let mut attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+            .unwrap();
+        let transport = T4SyntheticTransport {
+            calls: std::cell::Cell::new(0),
+        };
+        attempt.progress(owner.batch_coordinator()).unwrap();
+        assert_eq!(
+            attempt
+                .step(&transport, &mut || {
+                    "20000000-0000-4000-8000-000000000001".to_owned()
+                })
+                .unwrap(),
+            subscription_batch_work::BatchWorkStep::Ready
+        );
+        fs::write(
+            cutover
+                .state_directory
+                .join("subscription-refresh-preference.json"),
+            b"{",
+        )
+        .unwrap();
+        assert_eq!(
+            attempt.finish(owner.batch_coordinator(), 20_000, 120),
+            Err(ScheduledOnceError::Attempt(AttemptError::OutcomeUncertain))
+        );
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        assert_eq!(
+            read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::UncertainFromPreviousInstance
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn t4_synthetic_reservation_refuses_a_running_manual_batch() {
         let base = temporary_base("t4-synthetic-manual-busy");
         let (owner, _, _) = native_owner_fixture(&base);
@@ -4837,6 +4971,110 @@ mod tests {
         );
         drop(server);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_next_step_rechecks_off_preference_revision_owner_and_marker() {
+        use crate::batch_scheduler::ScheduledOnceError;
+        use crate::subscription_schedule_attempt::AttemptError;
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        for scenario in ["off", "preference", "owner_revision", "marker"] {
+            let base = temporary_base("t4-next-step");
+            let (mut owner, cutover, _) = native_owner_fixture(&base);
+            let uid = fs::metadata(&base).unwrap().uid();
+            owner
+                .batch_coordinator()
+                .initialize_batch_operations("synthetic-instance")
+                .unwrap();
+            let enabled = set_preference(
+                &cutover,
+                uid,
+                1,
+                0,
+                RefreshSchedule::Every {
+                    interval_secs: 6 * 60 * 60,
+                },
+            )
+            .unwrap();
+            let scheduler = batch_scheduler::BatchScheduler::default();
+            let pool = remote_fetch::RemoteFetchPool::default();
+            let mut attempt = scheduler
+                .reserve_scheduled()
+                .unwrap()
+                .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+                .unwrap();
+            let transport = T4SyntheticTransport {
+                calls: std::cell::Cell::new(0),
+            };
+            let permits: Vec<_> = (0..4).map(|_| pool.try_acquire().unwrap()).collect();
+            attempt.progress(owner.batch_coordinator()).unwrap();
+            assert_eq!(
+                attempt
+                    .step(&transport, &mut || panic!("busy step generated an ID"))
+                    .unwrap(),
+                subscription_batch_work::BatchWorkStep::Busy
+            );
+            match scenario {
+                "off" => {
+                    set_preference(&cutover, uid, 1, enabled.revision, RefreshSchedule::Off)
+                        .unwrap();
+                }
+                "preference" => {
+                    set_preference(
+                        &cutover,
+                        uid,
+                        1,
+                        enabled.revision,
+                        RefreshSchedule::Every {
+                            interval_secs: 7 * 60 * 60,
+                        },
+                    )
+                    .unwrap();
+                }
+                "owner_revision" => {
+                    let changed = owner
+                        .batch_coordinator()
+                        .execute_profile(
+                            &make_request(
+                                "unrelated",
+                                "profiles.favorite",
+                                json!({"operationId":"unrelated", "profileId":PROFILE_ID,
+                                    "enabled":true, "expectedRevision":0}),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                    assert!(matches!(
+                        changed,
+                        native_coordinator::NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+                    ));
+                }
+                "marker" => write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2),
+                _ => unreachable!(),
+            }
+            let result = attempt.progress(owner.batch_coordinator());
+            assert!(
+                matches!(
+                    (&result, scenario),
+                    (
+                        Err(ScheduledOnceError::Attempt(AttemptError::PreferenceChanged)),
+                        "off" | "preference"
+                    ) | (
+                        Err(ScheduledOnceError::Attempt(AttemptError::StaleOwner)),
+                        "owner_revision"
+                    ) | (Err(ScheduledOnceError::Owner(_)), "marker")
+                ),
+                "scenario={scenario}, result={result:?}"
+            );
+            drop(permits);
+            assert_eq!(
+                attempt.step(&transport, &mut || panic!("refused step generated an ID")),
+                Err(ScheduledOnceError::StepNotAuthorized)
+            );
+            assert_eq!(transport.calls.get(), 0);
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]

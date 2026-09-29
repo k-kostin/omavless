@@ -86,6 +86,12 @@ pub struct AttemptTicket {
     instance_id: String,
 }
 
+impl AttemptTicket {
+    pub(crate) fn preference_revision(&self) -> u64 {
+        self.preference_revision
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 enum WireState {
@@ -343,6 +349,50 @@ pub fn read_attempt(
         return Err(AttemptError::OwnershipUnavailable);
     }
     Ok(Some(attempt.snapshot(current_instance)))
+}
+
+/// Revalidate an already admitted scheduled batch immediately before its next
+/// provider step. The caller holds the serialized native owner while supplying
+/// its *current* revision; this does not authorize a later store commit. An
+/// intervening Off, preference edit, owner mutation, marker change or journal
+/// replacement refuses further work. A future live worker must additionally
+/// couple Off cancellation and commit under the owner/migration locks.
+pub fn check_attempt_before_step(
+    paths: &CutoverPaths,
+    uid: u32,
+    ticket: &AttemptTicket,
+    owner: OwnerFence,
+) -> Result<(), AttemptError> {
+    if !owner.matches()
+        || owner.expected_generation != ticket.owner_generation
+        || owner.current_revision != ticket.owner_revision
+    {
+        return Err(AttemptError::StaleOwner);
+    }
+    let _lock = locked_owner(paths, uid, owner.expected_generation).map_err(preference_error)?;
+    let preference =
+        read_preference_locked(paths, uid, owner.expected_generation).map_err(preference_error)?;
+    if preference.owner_generation != ticket.owner_generation {
+        return Err(AttemptError::OwnershipUnavailable);
+    }
+    if preference.revision != ticket.preference_revision {
+        return Err(AttemptError::PreferenceChanged);
+    }
+    if preference.schedule == RefreshSchedule::Off {
+        return Err(AttemptError::ScheduleOff);
+    }
+    let attempt = read_attempt_locked(paths, uid)?.ok_or(AttemptError::StaleTicket)?;
+    if attempt.state != WireState::Started
+        || attempt.sequence != ticket.sequence
+        || attempt.owner_generation != ticket.owner_generation
+        || attempt.preference_revision != ticket.preference_revision
+        || attempt.owner_revision != ticket.owner_revision
+        || attempt.batch_sequence != ticket.batch_sequence
+        || attempt.instance_id != ticket.instance_id
+    {
+        return Err(AttemptError::StaleTicket);
+    }
+    Ok(())
 }
 
 /// Persist the attempt before a future worker performs network I/O. This
