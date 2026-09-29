@@ -68,6 +68,7 @@ pub mod native_coordinator;
 pub mod native_dispatch;
 pub mod native_host;
 pub mod native_probe_resolver;
+pub mod network_transition_plan;
 mod onboarding_protocol;
 pub mod owner;
 pub mod plugin_action;

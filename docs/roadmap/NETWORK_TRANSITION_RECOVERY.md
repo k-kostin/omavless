@@ -2,6 +2,13 @@
 
 Status: inactive design candidate. No event subscriber, timer, IPC method,
 retry worker, route/DNS write or host-network behavior is implemented here.
+An inactive pure Rust `network_transition_plan` now encodes the conservative
+per-hint decision and deterministic counterexamples. Its `CandidateOnce` is
+advisory, not a connection authorization or proof that a durable no-attempt
+receipt exists. No production caller uses the model.
+The tentative pure-model window is three monotonic seconds of quiet after the
+latest hint, expiring after 60 seconds; host event-source and boot-epoch design
+remain unselected, so these bounds are not yet a product behavior promise.
 This is distinct from the existing bounded **process-start** reconciliation in
 `lifecycle.rs` / `connection_transaction.rs`. It does not make resume or network
 changes a second unconditional startup path.
