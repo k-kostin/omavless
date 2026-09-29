@@ -117,6 +117,7 @@ fn run() -> Result<(), CliError> {
         println!("  routing rules                    private custom-rule editor list");
         println!("  plugin snapshot                  private UI metadata; not live health");
         println!("  runtime observation              fresh local facts; not VPN connectivity");
+        println!("  doctor                           bounded local facts; network not tested");
         println!("  runtime traffic                  owned TUN counters, or unavailable");
         println!("  plugin target                    read committed launcher target only");
         println!(
@@ -441,6 +442,13 @@ fn run() -> Result<(), CliError> {
         return RuntimeServer::bind_current(paths)
             .and_then(|server| server.serve_until(&stop))
             .map_err(|error| CliError::Message(error.to_string()));
+    }
+    if arguments == ["doctor"] {
+        let response =
+            call(&paths, "runtime.observation", json!({})).map_err(|error| error.to_string())?;
+        let report = omavless_runtime::doctor::project(&response)?;
+        println!("{report}");
+        return Ok(());
     }
     let (method, params) = if arguments == ["hello"] {
         ("system.hello", json!({"versions": [1]}))
