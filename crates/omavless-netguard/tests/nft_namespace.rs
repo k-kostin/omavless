@@ -19,6 +19,8 @@ const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
 #[path = "support/capability.rs"]
 mod capability;
+#[path = "support/observer.rs"]
+mod observer;
 #[path = "support/owner.rs"]
 mod owner;
 #[path = "support/packet.rs"]
@@ -155,10 +157,8 @@ impl Scratch {
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "clock_failed")?
             .as_nanos();
-        let path = PathBuf::from(format!(
-            "/tmp/omavless-k1-nft-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("omavless-k1-nft-{}-{nonce}", std::process::id()));
         fs::DirBuilder::new()
             .mode(0o700)
             .create(&path)

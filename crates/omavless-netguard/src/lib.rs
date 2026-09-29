@@ -5,6 +5,8 @@
 
 pub mod coordinator;
 pub mod effect_port;
+#[cfg(target_os = "linux")]
+pub mod kernel_observer;
 pub mod locked_state;
 pub mod nft;
 pub mod policy;
