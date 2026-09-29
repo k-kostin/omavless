@@ -29,3 +29,9 @@ cannot be upgraded to durable product success. Old coordinator tests remain
 unchanged. These are deterministic composition checks, not kernel or host
 acceptance. Persistent orphan provenance, canonical namespace/subsystem
 continuity and the full K1 host matrix remain open.
+
+The later [read-only kernel observer](K1_KERNEL_OBSERVER.md) validates bounded
+fixed-table metadata exchanges in the calling namespace. It deliberately
+returns only local absence/untrusted presence and cannot implement this effect
+port or supply identity; canonical namespace/socket binding, complete policy
+readback and independent ownership remain explicit gates.
