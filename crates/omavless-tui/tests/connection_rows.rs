@@ -128,6 +128,10 @@ fn leaving_explicit_page_drops_private_destination_snapshot() {
     assert!(app.snapshot.as_ref().unwrap().connection_rows.is_some());
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(app.snapshot.as_ref().unwrap().connection_rows.is_none());
+    let late = load_page(&mut |r| Ok(read(r)), Page::Connections);
+    assert!(!app.accept_for(Page::Connections, None, late, now));
+    assert!(app.snapshot.as_ref().unwrap().connection_rows.is_none());
+    assert!(!render(&app, now, 70).contains("example.invalid"));
 }
 
 #[test]

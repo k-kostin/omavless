@@ -64,6 +64,23 @@ pub enum Action {
 }
 
 impl App {
+    /// Discard a completed page read after navigation/selection moved. In
+    /// particular, a late private Connections reply must not re-enter the
+    /// snapshot after leaving that page.
+    pub fn accept_for(
+        &mut self,
+        page: crate::inspection::Page,
+        selected: Option<&str>,
+        result: Result<Snapshot, ReadError>,
+        started: Instant,
+    ) -> bool {
+        if self.page != page || self.selected.as_deref() != selected {
+            return false;
+        }
+        self.accept(result, started);
+        true
+    }
+
     fn leave_private_connections(&mut self, next: crate::inspection::Page) {
         if self.page == crate::inspection::Page::Connections
             && next != crate::inspection::Page::Connections
