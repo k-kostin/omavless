@@ -48,20 +48,58 @@ transaction. Acknowledgement is an adapter contract, not proof of real host I/O.
 - Arm: atomically install the fixed Full VPN policy, verify it, durably persist
   the generation, acknowledge armed. An exact retry reinstalls and re-verifies;
   a different generation cannot replace an armed generation.
-- Disarm: require the matching armed generation, durably remove its marker,
-  atomically delete the owned table, verify absence. A retry with both marker
-  and table absent confirms disarmed; a missing marker with a surviving table
-  requires internal reconciliation rather than trusting a caller generation.
+- Disarm: require the matching armed generation, durably replace its marker
+  with `Closed(generation)`, atomically delete a proven-owned table when present,
+  then verify absence. A retry confirms only that exact closed generation with
+  an absent table. Missing state cannot serve as a successful disarm receipt.
 - Root/internal restart: restore a valid armed marker's policy; remove stale
-  owned policy for a missing marker; install emergency restrictive policy and
-  retain the recovery requirement for invalid/unreadable/newer state.
+  proven-owned policy for a missing/closed marker while retaining any closed
+  fence; install emergency restrictive policy and retain the recovery requirement
+  for invalid/unreadable/newer state, only when table ownership permits it.
+
+### Closed-generation fence
+
+`Closed(N)` permanently retires generation N and every lower value. A later
+`arm` must use a strictly greater generation; only an already armed generation
+permits an exact arm retry. Thus `Arm(7) → Disarm(7) → delayed Arm(7)` refuses
+even after helper restart. The floor survives interrupted table deletion and a
+failed successor arm. `Closed(u64::MAX)` exhausts the space and refuses every
+future arm; it never wraps to zero. Corrupt state cannot reset the floor or admit
+a fresh generation. The fence is part of the same symbolic durable marker,
+avoiding an unproven two-file atomicity claim.
+
+This models durable effects and restart inputs; it does not implement disk
+persistence. The future root store must enforce atomic replacement/fsync and
+reject corrupt/newer/unsafe records, preserving the fence during upgrades and
+recovery. `Missing` is a fresh-install observation, not a normal disarm outcome.
+An administrator deleting/resetting trusted state is outside this replay
+guarantee; a future recovery/enrollment lifecycle must not silently reset its
+generation namespace. Unknown/corrupt generations require reviewed explicit
+recovery, never automatic reuse.
+
+### Table ownership admission
+
+The helper now accepts a complete `Observation` for restart as well as requests.
+The fixed table name alone is insufficient ownership proof. Its symbolic table
+taxonomy is: absent; proven-owned with verified policy; proven-owned with an
+unrecognized policy; foreign; or unreadable/incomplete. Only absent or
+proven-owned tables admit a mutation plan. Foreign/unreadable observations
+refuse arm, disarm and reconciliation, including invalid-marker emergencies.
+Such refusal makes no claim that restrictive rules were installed or connectivity
+is protected; it preserves the foreign/unknown table and reports recovery.
+
+Create and replace are distinct effects: create must fail on a table that
+appeared after observed absence, while replacement/deletion must revalidate the
+same independent ownership proof immediately before the atomic operation.
+The future executor owns concrete ownership evidence, locking, race detection
+and readback. A local enum or successful fake acknowledgement is not that proof.
 
 The runtime is a separate owner: it must persist desired connected only after
 verified arm, and persist desired disconnected plus verify core cleanup before
 disarm. The library does not accept caller-supplied runtime/core observations and
-does not implement that coordination yet. Generations must be durably unique
+does not implement that coordination yet. Generations must be durably monotonic
 across runtime connection attempts; a future transport must serialize requests
-and not permit delayed requests to reuse a generation. No production connection
+and the helper must persist the closed-generation fence. No production connection
 or confidentiality guarantee is inferred from this pure helper model.
 
 ## Symbolic policy and remaining security work
@@ -94,8 +132,9 @@ Credential-free tests cover accepted fixed messages, malformed/duplicate/unknown
 fields at every schema level, escaped duplicate keys, integer/size/UTF-8/depth
 boundaries, truncation, unsupported versions and safe errors. Transaction tests
 inject crashes before/after each arm/disarm effect, reconstruct from durable
-marker facts, test stale generations, poisoned acknowledgements, retries and
-invalid-state emergency behavior. They simulate effects in memory; they are not
+marker/table facts, test stale generations, poisoned acknowledgements, retries,
+closed-generation replay after restart, exhaustion, corruption, foreign/unknown
+ownership refusal and invalid-state emergency behavior. They simulate effects in memory; they are not
 kernel crash, reboot, filesystem durability or installed VM evidence.
 
 Run `cargo test -p omavless-netguard --locked`, `cargo fmt --all -- --check` and
