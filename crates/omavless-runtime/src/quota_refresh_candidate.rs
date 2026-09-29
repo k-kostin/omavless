@@ -4,6 +4,7 @@
 //! This has no production entry point, network call or IPC. The nested
 //! transaction tests use the existing atomic writer on synthetic temp stores.
 
+mod batch;
 mod transaction;
 
 use crate::subscription_transport::FetchedSubscription;
