@@ -15,8 +15,8 @@ writability. An absent override is distinct from an empty override or an
 override equal to the default. Two full reads must agree.
 
 The helper queries the systemd user manager's typed `Environment` property over
-the local session bus. It pins that query to the manager's unique bus owner,
-verifies the owner's UID equals the process UID before and after the two passes,
+the fixed local user bus described below. It pins that query to the manager's unique bus owner,
+verifies same-user kernel peer and manager identity before and after the two passes,
 bounds the complete reply, and projects only the ten fixed case-sensitive proxy
 variable names. Duplicates and malformed selected assignments refuse. Unrelated
 environment entries are discarded before serialization. The two full manager
@@ -63,3 +63,50 @@ and unsafe executable path refusal. It does not establish installed identity,
 session/activation provenance, complete installed snapshot behavior, per-key
 journaled effects/restoration, or new-app consumption. The separately documented
 NixOS adapter remains unimplemented.
+
+## Fixed local bus continuity candidate
+
+The next inactive slice opens only `/run/user/<effective-uid>/bus`; root or
+mismatched real/effective UIDs refuse. Root-owned ancestors must be directories
+without group/other write access, the runtime directory must be same-user 0700,
+and the endpoint must be a same-user single-link socket. Every component is
+opened without following symlinks. An `O_PATH` descriptor pins the socket inode;
+GIO connects through its Linux `/proc/self/fd` path and constructs a dedicated
+D-Bus connection over that socket, never ambient session-bus discovery.
+
+Before authentication, kernel credentials must identify a same-user positive
+PID with a readable nonzero `/proc` start time. Authentication accepts EXTERNAL
+only, with a three-second cancellation deadline; socket connection has a
+two-second timeout. The existing parent still bounds the entire helper to
+15 seconds. Fixed read calls use `NO_AUTO_START` and 1.5-second reply deadlines.
+The complete credentials reply is typed and size-bounded; missing, duplicate,
+foreign or wrongly typed UID/PID fields refuse. Unknown credential fields are
+discarded privately, not treated as additional authority.
+
+Bus `GetId`, manager unique owner, manager UID/PID/start time and kernel peer
+PID/start time must remain equal across both reads. The canonical directory and
+socket inode are reopened and compared at each checkpoint. No partial values
+survive a failed check. `XDG_RUNTIME_DIR` must match the fixed directory, and an
+explicit `DBUS_SESSION_BUS_ADDRESS` must be the exact fixed `unix:path` address;
+other spellings, fallback lists and transports refuse. This also prevents
+ambient dconf bus redirection without changing the process environment.
+
+These are **within-observation continuity checks**, not a transferable host
+scope. PID/start-time comparisons are conservative observations, not pidfd
+capabilities or protection against a malicious same-user bus/process. In
+particular the socket-activation creator PID is not assumed to identify the
+broker worker. The helper does not authenticate the manager executable,
+broker-launch controller, activation scope, login session or settings profile.
+It neither accepts nor manufactures shared-activation authority. Successful
+private frames remain version 1 with `Unverified` provenance; they deliberately
+do not serialize these temporary identities. `admit_writes` still refuses
+unconditionally, including for a separate dbus-daemon.
+
+Synthetic tests use temporary Unix sockets and a native GDBus fake driver:
+pinned-socket replacement, kernel peer rejection, unsafe endpoint/directory,
+ambient redirection, EXTERNAL handshake/Hello, silent-auth timeout, typed
+credential faults, owner/bus changes, failed/disconnected replies and the
+no-auto-start flag. The fake same-user manager is explicitly not trusted as
+systemd. No real manager environment, desktop setting, private profile, VM or
+host session is used by these tests. Installed exact-head endpoint/backend
+acceptance, broker provenance and all writable recovery gates remain pending.

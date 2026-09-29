@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use crate::local_bus::{LocalBus, call as dbus_call};
 use crate::{Error, Observation, Provenance, project_manager_environment};
 use gio::glib::{self, prelude::ToVariant};
 use gio::prelude::*;
@@ -7,12 +8,8 @@ use omavless_runtime::app_proxy::codec::{
     DesktopEntry, DesktopKey, DesktopSnapshot, DesktopValue, Override,
 };
 
-const MANAGER: &str = "org.freedesktop.systemd1";
 const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
 const MANAGER_IFACE: &str = "org.freedesktop.systemd1.Manager";
-const DBUS: &str = "org.freedesktop.DBus";
-const DBUS_PATH: &str = "/org/freedesktop/DBus";
-const DBUS_TIMEOUT_MS: i32 = 1500;
 const MAX_MANAGER_REPLY: usize = 256 * 1024;
 
 const SCHEMAS: [(&str, &str, usize); 5] = [
@@ -36,24 +33,14 @@ pub(super) fn observe() -> Result<Observation, Error> {
     }
     let source = gio::SettingsSchemaSource::default().ok_or(Error::UnsupportedSchema)?;
     let schemas = validate_schemas(&source)?;
-    let bus = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
-        .map_err(|_| Error::ManagerUnavailable)?;
-    let owner = manager_owner(&bus)?;
-    let uid = owner_uid(&bus, &owner)?;
-    if uid != nix::unistd::Uid::current().as_raw() {
-        return Err(Error::IdentityUnverified);
-    }
+    let bus = LocalBus::connect()?;
 
     let desktop = read_desktop(&schemas)?;
-    let manager = read_manager_environment(&bus, &owner)?;
-    if manager_owner(&bus)? != owner || owner_uid(&bus, &owner)? != uid {
-        return Err(Error::OwnerChanged);
-    }
+    let manager = read_manager_environment(&bus.connection, bus.manager_owner())?;
+    bus.revalidate()?;
     let desktop_again = read_desktop(&schemas)?;
-    let manager_again = read_manager_environment(&bus, &owner)?;
-    if manager_owner(&bus)? != owner || owner_uid(&bus, &owner)? != uid {
-        return Err(Error::OwnerChanged);
-    }
+    let manager_again = read_manager_environment(&bus.connection, bus.manager_owner())?;
+    bus.revalidate()?;
     if desktop != desktop_again || manager != manager_again {
         return Err(Error::IncompleteObservation);
     }
@@ -204,59 +191,6 @@ fn typed_value(key: DesktopKey, variant: &glib::Variant) -> Result<DesktopValue,
             .ok_or(Error::InvalidValue),
         _ => Err(Error::UnsupportedSchema),
     }
-}
-
-fn dbus_call(
-    bus: &gio::DBusConnection,
-    destination: &str,
-    path: &str,
-    interface: &str,
-    method: &str,
-    params: &glib::Variant,
-) -> Result<glib::Variant, Error> {
-    bus.call_sync(
-        Some(destination),
-        path,
-        interface,
-        method,
-        Some(params),
-        None,
-        gio::DBusCallFlags::NONE,
-        DBUS_TIMEOUT_MS,
-        None::<&gio::Cancellable>,
-    )
-    .map_err(|_| Error::ManagerUnavailable)
-}
-
-fn manager_owner(bus: &gio::DBusConnection) -> Result<String, Error> {
-    let reply = dbus_call(
-        bus,
-        DBUS,
-        DBUS_PATH,
-        DBUS,
-        "GetNameOwner",
-        &(MANAGER,).to_variant(),
-    )?;
-    let (owner,) = reply.get::<(String,)>().ok_or(Error::ManagerUnavailable)?;
-    if !owner.starts_with(':') || owner.len() > 255 {
-        return Err(Error::IdentityUnverified);
-    }
-    Ok(owner)
-}
-
-fn owner_uid(bus: &gio::DBusConnection, owner: &str) -> Result<u32, Error> {
-    let reply = dbus_call(
-        bus,
-        DBUS,
-        DBUS_PATH,
-        DBUS,
-        "GetConnectionUnixUser",
-        &(owner,).to_variant(),
-    )?;
-    reply
-        .get::<(u32,)>()
-        .map(|value| value.0)
-        .ok_or(Error::IdentityUnverified)
 }
 
 fn read_manager_environment(

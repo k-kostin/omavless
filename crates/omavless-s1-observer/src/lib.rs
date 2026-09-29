@@ -9,6 +9,8 @@ use std::fmt;
 #[cfg(feature = "gio-observation")]
 mod gio_host;
 #[cfg(feature = "gio-observation")]
+mod local_bus;
+#[cfg(feature = "gio-observation")]
 mod runner;
 #[cfg(feature = "gio-observation")]
 pub use runner::{RunnerError, observe_via_fixed_runner};

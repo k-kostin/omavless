@@ -71,6 +71,11 @@ provenance remains unsupported even if both snapshots decode successfully.
 Implementation must first demonstrate peer/owner/session validation in a fake
 bus and controlled VM, without accepting client-supplied provenance claims.
 
+The stacked [fixed local bus continuity candidate](S1_READ_ONLY_OBSERVER.md#fixed-local-bus-continuity-candidate)
+now pins the fixed socket and validates kernel peer plus typed bus/manager
+continuity in synthetic tests. It does not prove session or shared-activation
+provenance, and its temporary evidence cannot authorize writes or takeover.
+
 [UWSM documents](https://github.com/Vladimir-csp/uwsm#concepts-and-features)
 that dbus-broker reuses the systemd environment, while the separate reference
 dbus-daemon environment cannot unset variables. **Separate dbus-daemon is
