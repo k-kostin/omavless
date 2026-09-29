@@ -3,6 +3,7 @@ members = [
   "crates/omavless-control-protocol",
   "crates/omavless-domain",
   "crates/omavless-mihomo",
+  "crates/omavless-netguard",
   "crates/omavless-parity",
   "crates/omavless-profile",
   "crates/omavless-runtime",

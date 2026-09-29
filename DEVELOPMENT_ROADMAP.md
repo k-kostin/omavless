@@ -1331,6 +1331,12 @@ state through core/runtime failure; explicit disconnect disarms it. Deliver as
 separate privileged protocol/service/runtime/acceptance slices, not as a large
 Python-plugin addition.
 
+The September 29 [offline foundation candidate](docs/development/K1_FOUNDATION.md)
+adds strict fixed messages, helper transactions and a symbolic policy model with
+deterministic crash tests. The [offline renderer candidate](docs/development/K1_RENDERER.md)
+adds fixed create JSON and ownership-aware readback. No production caller, nft
+executor, root service or installed protection exists; all K1 host gates remain.
+
 ### X0 / X1 — core backend abstraction and optional Xray
 
 State: **deferred until Rust runtime and a real compatibility need**.
