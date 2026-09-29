@@ -2511,17 +2511,10 @@ mod tests {
     }
 
     fn temporary_base(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = env::temp_dir().join(format!(
-            "omavless-runtime-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        let mut builder = fs::DirBuilder::new();
-        builder.mode(0o700).create(&base).unwrap();
-        base
+        // The control socket is nested below this directory. Keep the fixture
+        // short even when TMPDIR lives in a user's home directory.
+        let short_label: String = label.chars().take(12).collect();
+        crate::test_temp::directory(&short_label).unwrap()
     }
 
     #[test]
