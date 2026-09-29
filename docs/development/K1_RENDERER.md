@@ -144,6 +144,11 @@ durability or the full K1 matrix. Other nft versions remain unverified. The next
 packet gate needs separate isolated peer namespaces; none is added by this
 harness.
 
+A subsequent [packet-policy harness](K1_PACKET_GATE.md) instead keeps both veth
+ends in the same isolated child and observes the receiver at link level. It
+never creates a peer in the parent namespace; that bounded gate has its own
+explicit opt-in and evidence limits.
+
 Source basis: [upstream nft manual](https://netfilter.org/projects/nftables/manpage.html)
 defines create versus add, hooks and marks; [libnftables JSON schema](https://man.archlinux.org/man/libnftables-json.5.en)
 defines command/object/handle/expression shape. Both inspected September 29, 2026.

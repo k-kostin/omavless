@@ -10,6 +10,9 @@ tests. An [offline fixed renderer candidate](../development/K1_RENDERER.md) now
 adds JSON creation and strict readback with independently supplied ownership
 facts; it has no executor or production caller. K1 implementation,
 host acceptance and product availability remain incomplete.
+The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
+tests synthetic egress and near-miss exceptions without a production service;
+its results do not replace this contract's host/physical acceptance matrix.
 
 ## 1. Decision summary
 
