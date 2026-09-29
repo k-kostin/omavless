@@ -28,12 +28,13 @@ Panel {
   // native owner gate remains authoritative; no legacy controls are exposed
   // when the application is missing or ownership has not been committed.
   // nativeOwner can also mean a read-only failure surface after launcher exit
-  // 71, including a MISSING binary. Only the independent target probe admits
-  // the normal application, never that presentation flag alone.
+  // 71, including a missing binary. The bounded setup inventory must override
+  // that presentation flag when it proves the application is absent.
   // An existing native owner must retain Disconnect/Full Quit even when a
   // companion or selection needs attention. Only the absent/unactivated app
   // uses the unavailable-profile setup shell.
-  readonly property bool bootstrapRequired: setupPage.state !== "ready" && !vless.nativeOwner
+  readonly property bool bootstrapRequired: setupPage.state !== "ready"
+    && (setupPage.appMissing || !vless.nativeOwner)
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
   property string page: "main"

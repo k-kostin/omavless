@@ -15,6 +15,7 @@ Item {
   property string locale: "en"
   property var facts: ({state:"checking", coreInstalled:null})
   readonly property string state: facts.state
+  readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool needsAttention: SetupState.needsAttention(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   property bool panelOpen: false
