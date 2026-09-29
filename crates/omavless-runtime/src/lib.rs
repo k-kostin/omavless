@@ -9,6 +9,9 @@
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
 
+#[cfg(test)]
+mod quota_refresh_candidate;
+
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg, OFlag};
 use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
