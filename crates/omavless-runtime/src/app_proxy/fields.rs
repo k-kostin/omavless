@@ -28,7 +28,7 @@ impl Field {
             .chain(EnvironmentKey::ALL.into_iter().map(Self::UserManager))
     }
 
-    fn index(self) -> usize {
+    pub(super) fn index(self) -> usize {
         Self::all()
             .position(|field| field == self)
             .expect("fixed field")
@@ -101,7 +101,7 @@ impl State {
         }
     }
 
-    fn with(&self, field: Field, replacement: Value) -> Result<Self, Error> {
+    pub(super) fn with(&self, field: Field, replacement: Value) -> Result<Self, Error> {
         let mut next = self.clone();
         match (field, replacement) {
             (Field::Desktop(key), Value::Desktop(entry)) if entry.key == key => {
@@ -140,14 +140,15 @@ pub struct Effect {
 /// The single pending field must be durably recorded before an adapter acts.
 /// A readback may be a mixture of original/intended values only for attempted
 /// fields. Third values and changes to unattempted fields always refuse.
+#[derive(Clone)]
 pub struct Planner {
-    owner: Owner,
-    original: State,
-    intended: State,
-    expected: State,
-    attempted: [bool; FIELD_COUNT],
-    pending: Option<Field>,
-    phase: Phase,
+    pub(super) owner: Owner,
+    pub(super) original: State,
+    pub(super) intended: State,
+    pub(super) expected: State,
+    pub(super) attempted: [bool; FIELD_COUNT],
+    pub(super) pending: Option<Field>,
+    pub(super) phase: Phase,
 }
 
 impl Planner {
@@ -276,4 +277,4 @@ impl Planner {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

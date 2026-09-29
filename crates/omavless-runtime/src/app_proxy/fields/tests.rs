@@ -9,7 +9,7 @@ fn owner() -> Owner {
     }
 }
 
-fn states() -> (State, State) {
+pub(crate) fn states() -> (State, State) {
     let mut original_desktop = Vec::new();
     let mut target_desktop = Vec::new();
     for key in DesktopKey::ALL {

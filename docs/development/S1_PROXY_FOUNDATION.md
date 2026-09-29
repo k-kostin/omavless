@@ -152,6 +152,24 @@ crash/reopen tests, exact host readback and owner takeover proof before any
 adapter may execute its effects. The previous two-surface journal is not
 silently reinterpreted as a per-field record. App proxy remains unavailable.
 
+The stacked field-journal candidate adds that private intent persistence in a
+fixed `app-proxy-fields` child of a trusted private root (pre-created 0700;
+symlinks refuse). Its version-2 record uses fixed basenames,
+0600 files, exclusive locking, a durable write-before-effect sequence and exact
+previous-record comparison from the existing storage layer. It keeps all 26
+attempted bits, the pending field and each field's expected original/intended
+side. Reopening refuses to continue applying; it allows only compensation
+after a complete fresh observation under the same binding. Tests restart at
+every partial-apply boundary, exercise both outcomes of a lost confirmation,
+and check storage failure, foreign fields, stale binding and malformed state.
+
+This remains an unregistered library, not App proxy availability. The version-1
+two-surface journal is **not** auto-migrated or deleted. Production code still
+needs a proved native-owner takeover, session/broker provenance, per-key typed
+host adapter, complete readback and installed crash/new-app acceptance. In
+particular a new daemon cannot simply reuse the old instance ID to open either
+journal. Both private journal formats remain isolated development checkpoints.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the
