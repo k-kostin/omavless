@@ -32,6 +32,8 @@ must not be confused:
   Rust ownership cutover and rollback contract.
 - [`TUI_APP.md`](TUI_APP.md) — selected Rust + Ratatui full application client,
   UI responsibilities and T2+ delivery phases.
+- [`NETWORK_TRANSITION_RECOVERY.md`](NETWORK_TRANSITION_RECOVERY.md) — inactive
+  T4 proposal for fenced suspend/network-change recovery.
 - [`GUI_RESEARCH.md`](GUI_RESEARCH.md) — G1 candidates, huacnlee/GPUI references,
   semantic-client boundary, dependency risks and staged evaluation gates;
   research direction, not GUI implementation or adoption approval.
