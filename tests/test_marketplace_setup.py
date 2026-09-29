@@ -102,7 +102,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
         content = json.loads(dns.read_text())
         content["packages"]["x86_64"]["sourceCommit"] = "d" * 40
         dns.write_text(json.dumps(content))
-        self.assertNotEqual(self.run_shell("release_fields").returncode, 0)
+        self.assertNotEqual(self.run_shell('uname() { echo x86_64; }; release_fields').returncode, 0)
 
     def test_malformed_or_linked_metadata_never_reaches_install(self):
         self.pins(app="a" * 64, dns="c" * 64)
