@@ -11,3 +11,5 @@ pub mod routing;
 pub mod store;
 pub mod subscription;
 pub mod subscription_feed;
+pub mod subscription_metadata;
+pub mod subscription_usage_store;
