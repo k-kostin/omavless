@@ -64,6 +64,31 @@ pub enum Action {
 }
 
 impl App {
+    /// Discard a completed page read after navigation/selection moved. In
+    /// particular, a late private Connections reply must not re-enter the
+    /// snapshot after leaving that page.
+    pub fn accept_for(
+        &mut self,
+        page: crate::inspection::Page,
+        selected: Option<&str>,
+        result: Result<Snapshot, ReadError>,
+        started: Instant,
+    ) -> bool {
+        if self.page != page || self.selected.as_deref() != selected {
+            return false;
+        }
+        self.accept(result, started);
+        true
+    }
+
+    fn leave_private_connections(&mut self, next: crate::inspection::Page) {
+        if self.page == crate::inspection::Page::Connections
+            && next != crate::inspection::Page::Connections
+            && let Some(snapshot) = &mut self.snapshot
+        {
+            snapshot.connection_rows = None;
+        }
+    }
     pub fn new(locale: Locale) -> Self {
         Self {
             jobs_enabled: false,
@@ -277,7 +302,8 @@ impl App {
         if self.searching {
             let operator = matches!(
                 self.page,
-                crate::inspection::Page::Rules
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
                     | crate::inspection::Page::Providers
                     | crate::inspection::Page::CustomRules
             );
@@ -322,6 +348,7 @@ impl App {
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             if key.code == KeyCode::Char(',') {
+                self.leave_private_connections(crate::inspection::Page::Settings);
                 self.page = crate::inspection::Page::Settings;
                 self.inspection_scroll = 0;
                 self.operator_query.clear();
@@ -342,9 +369,11 @@ impl App {
             }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
-            self.page = self
+            let next = self
                 .page
                 .next(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
+            self.leave_private_connections(next);
+            self.page = next;
             self.inspection_scroll = 0;
             self.operator_query.clear();
             return Action::Refresh;
@@ -385,7 +414,8 @@ impl App {
             }
             if matches!(
                 self.page,
-                crate::inspection::Page::Rules
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
                     | crate::inspection::Page::Providers
                     | crate::inspection::Page::CustomRules
             ) && key.kind == KeyEventKind::Press
@@ -477,7 +507,7 @@ impl App {
                 KeyCode::Home => self.inspection_scroll = 0,
                 KeyCode::End => self.inspection_scroll = u16::MAX,
                 KeyCode::Esc => {
-                    self.page = if matches!(
+                    let next = if matches!(
                         self.page,
                         crate::inspection::Page::Host
                             | crate::inspection::Page::Rules
@@ -488,6 +518,8 @@ impl App {
                     } else {
                         crate::inspection::Page::Profiles
                     };
+                    self.leave_private_connections(next);
+                    self.page = next;
                     self.operator_query.clear();
                     return Action::Refresh;
                 }

@@ -444,7 +444,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.host_keys"
             } else if matches!(
                 app.page,
-                crate::inspection::Page::Rules
+                crate::inspection::Page::Connections
+                    | crate::inspection::Page::Rules
                     | crate::inspection::Page::Providers
                     | crate::inspection::Page::CustomRules
             ) {
@@ -456,7 +457,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 if app.searching
                     && matches!(
                         app.page,
-                        crate::inspection::Page::Rules
+                        crate::inspection::Page::Connections
+                            | crate::inspection::Page::Rules
                             | crate::inspection::Page::Providers
                             | crate::inspection::Page::CustomRules
                     )
@@ -628,6 +630,85 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     let unknown = || tr("tui.metric_unavailable").to_owned();
     let boolean = |value: bool| tr(if value { "tui.yes" } else { "tui.no" }).to_owned();
     match app.page {
+        Page::Connections => {
+            let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
+            let Some(connections) = &s.connection_rows else {
+                lines.push(Line::from(tr("tui.metric_unavailable")));
+                return lines;
+            };
+            lines.push(field(
+                "tui.active_connections",
+                connections.total.to_string(),
+            ));
+            lines.push(field(
+                "tui.connection_rows_shown",
+                connections.rows.len().to_string(),
+            ));
+            let query = app.operator_query.to_ascii_lowercase();
+            let matches: Vec<_> = connections
+                .rows
+                .iter()
+                .filter(|row| {
+                    query.is_empty()
+                        || row
+                            .host
+                            .as_deref()
+                            .is_some_and(|host| host.to_ascii_lowercase().contains(&query))
+                        || row.ip.as_deref().is_some_and(|ip| ip.contains(&query))
+                        || row
+                            .port
+                            .is_some_and(|port| port.to_string().contains(&query))
+                        || row.network.contains(&query)
+                        || row.route.contains(&query)
+                })
+                .collect();
+            if !query.is_empty() || app.searching {
+                lines.push(field(
+                    "tui.operator_filter",
+                    display(&app.operator_query, 80),
+                ));
+                lines.push(field("tui.matching_rows", matches.len().to_string()));
+            }
+            if connections.truncated {
+                lines.push(Line::from(tr("tui.connection_rows_truncated")));
+            }
+            lines.push(Line::from(""));
+            if matches.is_empty() {
+                lines.push(Line::from(tr(if connections.rows.is_empty() {
+                    "tui.connection_rows_empty"
+                } else {
+                    "tui.no_operator_matches"
+                })));
+            }
+            for row in matches {
+                let destination = row
+                    .host
+                    .as_deref()
+                    .or(row.ip.as_deref())
+                    .map(|destination| display(destination, 64))
+                    .unwrap_or_else(|| tr("tui.metric_unavailable").to_owned());
+                let endpoint = row
+                    .port
+                    .map_or(destination.clone(), |port| format!("{destination}:{port}"));
+                lines.push(Line::from(format!(
+                    "{} · {} · {}",
+                    endpoint,
+                    row.network,
+                    tr(match row.route {
+                        "direct" => "tui.connection_route_direct",
+                        "blocked" => "tui.connection_route_blocked",
+                        "vpn" => "tui.connection_route_vpn",
+                        _ => "tui.connection_unclassified",
+                    })
+                )));
+                if row.host.is_some()
+                    && let Some(ip) = &row.ip
+                {
+                    lines.push(Line::from(format!("  {}", display(ip, 64))));
+                }
+            }
+            lines
+        }
         Page::Traffic => {
             let mut lines = vec![
                 field(

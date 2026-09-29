@@ -111,6 +111,12 @@ pub trait LifecycleHost {
     ) -> Result<crate::connection_overview::ConnectionOverview, HostStepError> {
         Err(HostStepError::Observation)
     }
+    fn active_connection_rows(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_rows::ConnectionRows, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.
     /// Existing hosts remain unsupported until they explicitly implement it.
     fn fresh_observation(

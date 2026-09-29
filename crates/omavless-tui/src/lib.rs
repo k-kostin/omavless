@@ -216,7 +216,7 @@ fn run_client(
             due = now;
         }
         if let Ok((started, page, selected, result)) = receive.try_recv() {
-            app.accept(result, started);
+            app.accept_for(page, selected.as_deref(), result, started);
             pending = false;
             due = if page == app.page && selected == app.selected {
                 now + Duration::from_secs(3)

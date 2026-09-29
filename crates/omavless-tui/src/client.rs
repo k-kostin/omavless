@@ -17,6 +17,7 @@ pub enum Read {
     HostSupport,
     Connections,
     ConnectionOverview,
+    ConnectionRows,
     ProfileDetails(ProfileTarget),
 }
 
@@ -64,6 +65,7 @@ impl Read {
             Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
             Self::ConnectionOverview => "runtime.connection_overview",
+            Self::ConnectionRows => "runtime.connection_rows",
             Self::ProfileDetails(_) => "profiles.details",
         }
     }
@@ -156,14 +158,17 @@ pub fn load_page_for(
     // Extra reads are bracketed by metadata and observation from the same owner.
     // Failure means unavailable, never zero; unrelated connection facts survive.
     let extra = method.and_then(|m| read(m).ok());
-    let connection_method =
-        if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
-            Some(Read::ConnectionOverview)
-        } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections") {
-            Some(Read::Connections)
-        } else {
-            None
-        };
+    let connection_method = if page == Page::Connections
+        && methods.iter().any(|m| m == "runtime.connection_rows")
+    {
+        Some(Read::ConnectionRows)
+    } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
+        Some(Read::ConnectionOverview)
+    } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections") {
+        Some(Read::Connections)
+    } else {
+        None
+    };
     let connections = connection_method.and_then(|method| read(method).ok());
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
@@ -183,6 +188,9 @@ pub fn load_page_for(
             }
             Some(Read::Connections) => {
                 snapshot.active_connections = crate::inspection::connection_count(&value);
+            }
+            Some(Read::ConnectionRows) => {
+                snapshot.connection_rows = crate::inspection::ConnectionRows::parse(&value);
             }
             _ => {}
         }

@@ -35,6 +35,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub mod auxiliary_core;
 mod batch_scheduler;
 mod connection_overview;
+mod connection_rows;
 mod connection_test;
 pub mod connection_transaction;
 mod connections_summary;
@@ -271,6 +272,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.traffic",
     "runtime.connections",
     "runtime.connection_overview",
+    "runtime.connection_rows",
     "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
@@ -373,6 +375,10 @@ trait NativeRuntimeOwner: Send {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_rows(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -699,6 +705,12 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.connection_overview(request)
+    }
+    fn connection_rows(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_rows(request)
     }
     fn runtime_observation(
         &mut self,
@@ -2105,6 +2117,7 @@ fn dispatch_native(
         | "runtime.traffic"
         | "runtime.connections"
         | "runtime.connection_overview"
+        | "runtime.connection_rows"
         | "diagnostics.setup"
             if runtime_ownership =>
         {
@@ -2116,6 +2129,8 @@ fn dispatch_native(
                 owner.connections(request)?
             } else if method == "runtime.connection_overview" {
                 owner.connection_overview(request)?
+            } else if method == "runtime.connection_rows" {
+                owner.connection_rows(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -2413,6 +2428,15 @@ mod tests {
                 vpn: 2,
                 unclassified: 0,
             })
+        }
+        fn active_connection_rows(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_rows::ConnectionRows, HostStepError> {
+            self.fresh_observation(desired)?;
+            connection_rows::extract(&json!({"connections":[
+                {"id":"private-id","metadata":{"host":"example.invalid","destinationIP":"203.0.113.8","destinationPort":443,"network":"tcp","process":"/private/app"},"chains":["private-node","PROXY"]}
+            ]})).ok_or(HostStepError::Observation)
         }
         fn fresh_observation(
             &mut self,
@@ -3705,7 +3729,7 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(11)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(15)).unwrap());
         let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
         let empty = call(&paths, "runtime.connections", json!({})).unwrap();
         assert_eq!(empty["result"]["availability"], "unavailable");
@@ -3713,6 +3737,8 @@ mod tests {
         let empty_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
         assert_eq!(empty_overview["result"]["availability"], "unavailable");
         assert!(empty_overview["result"]["total"].is_null());
+        let empty_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(empty_rows["result"]["availability"], "unavailable");
         let connect=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
         assert_eq!(connect["ok"], true);
         let sample = call(&paths, "runtime.connections", json!({})).unwrap();
@@ -3738,6 +3764,14 @@ mod tests {
             overview["result"]["outcome"],
             json!({"direct":1,"blocked":0,"vpn":2,"unclassified":0})
         );
+        let rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(rows["ok"], true);
+        assert_eq!(rows["revision"], connect["revision"]);
+        assert_eq!(rows["result"]["instanceId"], hello["result"]["instanceId"]);
+        assert_eq!(rows["result"]["rows"][0]["host"], "example.invalid");
+        for private in ["private-id", "private-node", "/private/app"] {
+            assert!(!rows.to_string().contains(private));
+        }
         assert!(encode_response(&sample).unwrap().len() < 512);
         for secret in [
             PROFILE_ID,
@@ -3766,6 +3800,14 @@ mod tests {
         .unwrap();
         assert_eq!(invalid_overview["error"]["code"], "invalid_argument");
         assert!(!invalid_overview.to_string().contains("private-token"));
+        let invalid_rows = call(
+            &paths,
+            "runtime.connection_rows",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid_rows["error"]["code"], "invalid_argument");
+        assert!(!invalid_rows.to_string().contains("private-token"));
         let down = call(
             &paths,
             "connection.disconnect",
@@ -3778,6 +3820,8 @@ mod tests {
         assert_eq!(stale["error"]["code"], "capability_unavailable");
         let stale_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
         assert_eq!(stale_overview["error"]["code"], "capability_unavailable");
+        let stale_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(stale_rows["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

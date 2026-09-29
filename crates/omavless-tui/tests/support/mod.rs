@@ -62,6 +62,14 @@ pub fn response(request: Read) -> Value {
             "outcome":{"direct":1,"blocked":0,"vpn":2,"unclassified":0},
             "instanceId":"fixture-runtime"
         }),
+        Read::ConnectionRows => json!({
+            "schemaVersion":1,"scope":"owned_core_private_connection_rows","availability":"observed",
+            "total":2,"shown":2,"truncated":false,
+            "rows":[
+                {"host":"example.invalid","ip":"203.0.113.8","port":443,"network":"tcp","route":"vpn"},
+                {"host":null,"ip":"192.0.2.2","port":53,"network":"udp","route":"direct"}
+            ],"instanceId":"fixture-runtime"
+        }),
         Read::Observation => json!({
             "schemaVersion":1,"scope":"local_runtime_observation","instanceId":"fixture-runtime",
             "transition":null,"availability":"observed",
