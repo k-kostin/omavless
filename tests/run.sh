@@ -12,7 +12,9 @@ python3 -m unittest -v \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \
   "$here/test_frontend_pair.py" \
+  "$here/test_dns_release_pair.py" \
   "$here/test_installed_native_acceptance.py" \
+  "$here/test_installed_dns_broker_acceptance.py" \
   "$here/test_installed_native_domain.py" \
   "$here/test_installed_native_bridge.py" \
   "$here/test_installed_native_package.py" \
@@ -21,6 +23,17 @@ python3 -m unittest -v \
   "$here/test_native_service_acceptance.py" \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \
+  "$here/test_dns_tun_namespace_probe.py" \
+  "$here/test_dns_tun_authority_probe.py" \
+  "$here/test_dns_tun_lease_probe.py" \
+  "$here/test_dns_fdstore_probe.py" \
+  "$here/test_dns_core_namespace_probe.py" \
+  "$here/test_dns_core_ownership_probe.py" \
+  "$here/test_dns_core_packet_probe.py" \
+  "$here/test_dns_core_broker_probe.py" \
+  "$here/test_dns_broker_composition_probe.py" \
+  "$here/dns_broker_host/test_unit.py" \
+  "$here/dns_broker_host/package/test_package.py" \
   "$here/test_staged_native_unit_acceptance.py" \
   "$here/test_control_protocol_parity.py" \
   "$here/test_profile_classification_parity.py" \
@@ -64,6 +77,8 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-qr.js"
   node "$here/test-native-editor.js"
   node "$here/test-native-presentation.js"
+  node "$here/test-native-mode-transition.js"
+  node "$here/test-native-action-transitions.js"
   node "$here/test-traffic-reference.js"
   node "$here/test-native-traffic.js"
   node "$here/test-native-ping.js"

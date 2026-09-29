@@ -454,8 +454,9 @@ mod tests {
             crate::desired::RoutingMode::Global,
             "Synthetic".into(),
         );
-        assert!(!expected.ready(
+        assert!(!expected.ready_for_pid(
             &controller.root.join("mihomo.sock"),
+            std::process::id(),
             Instant::now() + Duration::from_secs(1)
         ));
         assert!(controller.puts.lock().unwrap().is_empty());

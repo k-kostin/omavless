@@ -66,6 +66,7 @@ pub enum ProfileTransactionError {
     Busy,
     NotFound,
     InvalidArgument,
+    DnsPairRequired,
     Conflict,
     Store,
     TransitionFailedRestored,
@@ -79,6 +80,7 @@ impl ProfileTransactionError {
             Self::Busy => StableErrorCode::Busy,
             Self::NotFound => StableErrorCode::NotFound,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
+            Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
             Self::Conflict => StableErrorCode::Conflict,
             Self::Store => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
@@ -93,6 +95,7 @@ impl fmt::Display for ProfileTransactionError {
             Self::Busy => "Another OmaVLESS operation is active",
             Self::NotFound => "Requested profile was not found",
             Self::InvalidArgument => "Profile mutation is not permitted",
+            Self::DnsPairRequired => "Set up the managed DNS pair before restarting this profile",
             Self::Conflict => "Profile store changed concurrently",
             Self::Store => "Profile store transaction failed",
             Self::TransitionFailedRestored => "Profile transition failed and was restored",
@@ -141,6 +144,7 @@ pub(crate) fn store_error(error: ProfileMutationCommitError) -> ProfileTransacti
 fn lifecycle_error(error: LifecycleError) -> ProfileTransactionError {
     match error {
         LifecycleError::InvalidRequest => ProfileTransactionError::InvalidArgument,
+        LifecycleError::DnsPairRequired => ProfileTransactionError::DnsPairRequired,
         LifecycleError::State => ProfileTransactionError::Store,
         LifecycleError::ManualRecoveryRequired => ProfileTransactionError::ManualRecoveryRequired,
         LifecycleError::TransitionFailedRestored => {

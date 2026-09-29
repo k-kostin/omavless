@@ -1,8 +1,17 @@
 # Native release and RC preparation
 
-Current development candidate: **0.9.0-rc.1**, unpublished and uninstalled.
+Current development candidate: **0.9.0-rc.1**, not stable or marketplace-ready.
+The production pair has an owner-attended installed ARM64 cycle; agent-run
+public-download first use in an empty ARM64 account also passed. Remaining host
+negative/recovery and release gates are separate.
 Use the default RC assembler (no `--stable` flag). This is preparation, not RC
 acceptance: DNS/#132 and exact-package installed gates remain open.
+The [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+tracks the separate companion package, enrollment, upgrade/removal and firewall
+requirements beyond this single-package assembler. The separate
+[`pair-dns-frontend.py`](pair-dns-frontend.py) checks an already built RC app,
+production DNS companion and newer frontend together; neither is a public
+installer.
 
 Public **0.8.2** is stable and immutable; its
 [release](https://github.com/k-kostin/omavless/releases/tag/v0.8.2) and
@@ -93,8 +102,8 @@ The assembler requires a clean exact Git head and the matching explicit version
 mode. Current `0.9.0-rc.1` uses the no-flag assembler and `--candidate` packager;
 stable sources require explicit `--stable`. The CI version projection recognizes
 only these two bounded forms and preserves Arch RC ordering; it never promotes
-an RC into stable. Empty RC bootstrap pins block public provisioning, rather
-than falling back to 0.8.2 or inventing unpublished asset hashes.
+an RC into stable. Absent RC bootstrap pins block provisioning, rather
+than falling back to 0.8.2 or inventing asset hashes.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
 No private/untracked file, backend.py, test, agent skill or legacy uninstall
@@ -169,6 +178,49 @@ The tool never builds, executes the ELF, installs packages, accesses the private
 store, controls services, downloads, creates tags, uploads or publishes. Actual
 published pins, clean guided E2E and owner release/marketplace approval remain
 separate gates even when offline pairing succeeds.
+
+## Offline managed-DNS RC triple
+
+The 0.9 RC requires **both** exact-version packages. The historical
+single-package `pair-frontend.py` is not sufficient for that release. After
+reviewing each architecture's app and production-name `omavless-dns` CI
+archives, copy them into a private directory outside Git and record their
+full SHA-256 hashes and the common package-source commit. From a clean
+descendant frontend commit, create an empty private output directory under
+non-writable-by-others parents and run:
+
+```sh
+python3 packaging/release/pair-dns-frontend.py \
+  /absolute/empty-output \
+  /absolute/reviewed/omavless-0.9.0rc1-1-ARCH.pkg.tar.zst \
+  /absolute/reviewed/omavless-dns-0.9.0rc1-1-ARCH.pkg.tar.zst \
+  FULL_FRONTEND_COMMIT_SHA APP_PACKAGE_SHA256 DNS_PACKAGE_SHA256 \
+  --arch ARCH
+```
+
+`ARCH` is `x86_64` or `aarch64`; omitting `--arch` defaults to the inspection
+host's own architecture. This is offline archive inspection, not emulation or
+execution of a foreign-architecture binary. The tool checks both archive
+hashes before parsing, the application's fixed payload and exact companion
+dependency, the DNS package's fixed
+member list, root-owned regular file modes, metadata, source receipt, pinned
+upstream/patch identities, payload hashes, native ELF architecture and
+privileged script/unit bytes against the committed source. It requires one
+common package source, unchanged runtime/build inputs between that source and
+the frontend, and matching **both** bootstrap pins when pins are populated.
+Empty maps are recorded as `bootstrapPins: empty`, not called install-ready.
+The output is the original two packages, a committed-blob frontend archive,
+`managed-dns-pair.json` and `SHA256SUMS`; the record explicitly states
+`publication: unpublished-candidate` and
+`publishedDownloadVerified: false`.
+
+For each architecture, retain CI/build provenance and an independent package
+review. The tool's caller-supplied hashes are not signatures; it cannot prove
+that a GitHub release has these bytes, that CDN delivery succeeds, that the
+installed pair works or that the owner accepted the RC. Publish immutable
+assets and populate exact frontend pins only under the separate release
+authorization and after the remaining installed/owner gates. Never reuse a
+pin from one source, version or architecture for another.
 
 ## Release gates and deliberate stop
 

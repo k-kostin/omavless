@@ -74,6 +74,7 @@ fn recovery_error(error: ConnectionTransactionError) -> ProductionOwnerError {
         ConnectionTransactionError::RecoveryFailed => ProductionOwnerError::RecoveryFailed,
         ConnectionTransactionError::NotFound
         | ConnectionTransactionError::InvalidArgument
+        | ConnectionTransactionError::DnsPairRequired
         | ConnectionTransactionError::Conflict
         | ConnectionTransactionError::Store
         | ConnectionTransactionError::TransitionFailedRestored => {

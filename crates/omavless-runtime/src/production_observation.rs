@@ -394,7 +394,12 @@ fn active_config_matches(
     else {
         return Ok(false);
     };
-    if !ConfigReadiness::new(mode, profile.name().to_owned()).ready_for_pid(
+    let Some(expected) =
+        ConfigReadiness::from_generated_config(mode, profile.name().to_owned(), &active)
+    else {
+        return Ok(false);
+    };
+    if !expected.ready_for_pid(
         controller_path,
         core_pid,
         Instant::now() + CONTROLLER_TIMEOUT,

@@ -36,13 +36,13 @@ CLASSES = {'vless-xhttp':'vless', 'vless-encryption':'vless', 'vless-reality-pq'
            'hysteria2-udp-restricted':'hysteria2', 'tuic-v5':'tuic'}
 MODES = {'default','auto','packet-up','stream-up','stream-one'}
 PUBLIC_ERRORS = {'invalid_request','unsupported_version','unknown_method','invalid_argument',
-    'permission_denied','capability_unavailable','conflict','busy','not_found','core_rejected',
+    'permission_denied','capability_unavailable','dns_pair_required','conflict','busy','not_found','core_rejected',
     'subscription_unavailable','transition_failed_restored','manual_recovery_required',
     'daemon_restarting','internal_error'}
 # Only a definitive refusal or an explicitly restored transaction permits a
 # separately attended cleanup. Internal/core failures can leave uncertain state.
 DEFINITE_REFUSALS = {'invalid_request','unsupported_version','unknown_method','invalid_argument',
-    'permission_denied','capability_unavailable','conflict','busy','not_found',
+    'permission_denied','capability_unavailable','dns_pair_required','conflict','busy','not_found',
     'transition_failed_restored'}
 PUBLIC_FAILURES = PUBLIC_ERRORS | {'fixture_unavailable','fixture_changed','runtime_changed',
     'owned_runtime_not_verified','restore_mismatch','service_ownership','tun_ownership',

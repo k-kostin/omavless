@@ -11,6 +11,7 @@ use crate::core::OwnedCore;
 use crate::core_readiness::ConfigReadiness;
 use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost, NativeLocalObservation};
+use crate::managed_pair::ManagedPair;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
 use omavless_domain::private_store::parse_private_store;
 use omavless_mihomo::observation::{processes_named_strict, tun_interface_count_strict};
@@ -23,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(20);
-const START_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_PATH_BYTES: usize = 4096;
@@ -42,6 +42,8 @@ pub struct NativeHostPaths {
     pub active_config: PathBuf,
     pub staged_config: PathBuf,
     pub controller_socket: PathBuf,
+    managed_pair: Option<ManagedPair>,
+    require_managed_pair: bool,
 }
 
 impl NativeHostPaths {
@@ -62,6 +64,8 @@ impl NativeHostPaths {
             active_config: config_directory.join("config.yaml"),
             staged_config: config_directory.join(".config.candidate.yaml"),
             controller_socket: runtime_directory.join("mihomo.sock"),
+            managed_pair: None,
+            require_managed_pair: false,
             config_directory,
             runtime_directory,
             proc_root,
@@ -83,14 +87,23 @@ impl NativeHostPaths {
             return Err(HostStepError::Prepare);
         }
         let config = home.join(".config/omavless");
-        Ok(Self::new(
-            resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?,
+        let managed_pair = ManagedPair::detect(&config, nix::unistd::getuid().as_raw())?;
+        let core = if let Some(pair) = managed_pair.as_ref() {
+            pair.core_path().to_path_buf()
+        } else {
+            resolve_core(&home, env::var_os("OMAVLESS_MIHOMO"), env::var_os("PATH"))?
+        };
+        let mut paths = Self::new(
+            core,
             config.clone(),
             config,
             runtime_directory.to_path_buf(),
             PathBuf::from("/proc"),
             PathBuf::from("/sys/class/net"),
-        ))
+        );
+        paths.managed_pair = managed_pair;
+        paths.require_managed_pair = true;
+        Ok(paths)
     }
 }
 
@@ -622,7 +635,18 @@ impl LifecycleHost for NativeLifecycleHost {
         Some((pid, Sha256::digest(config).into()))
     }
     fn validate_startup(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        self.connection_preflight()?;
         crate::startup_validation::validate(&self.paths, self.uid, desired)
+    }
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        if !self.paths.require_managed_pair {
+            return Ok(());
+        }
+        self.paths
+            .managed_pair
+            .as_ref()
+            .ok_or(HostStepError::Prepare)?
+            .verify()
     }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
         let (own_pid, own_running, controller_ready) = match self.core.as_mut() {
@@ -657,6 +681,10 @@ impl LifecycleHost for NativeLifecycleHost {
     }
 
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError> {
+        self.connection_preflight()?;
+        if let Some(pair) = &self.paths.managed_pair {
+            pair.verify()?;
+        }
         if !self.auxiliary.mutation_safe() {
             return Err(HostStepError::Prepare);
         }
@@ -695,6 +723,11 @@ impl LifecycleHost for NativeLifecycleHost {
                 desired.mode.as_str(),
             )
             .map_err(|_| HostStepError::Prepare)?;
+        let readiness = ConfigReadiness::from_generated_config(desired.mode, profile_name, &config)
+            .ok_or(HostStepError::Prepare)?;
+        if self.paths.managed_pair.is_some() && !readiness.managed_dns() {
+            return Err(HostStepError::Prepare);
+        }
         atomic_replace_private(&self.paths.staged_config, config.as_bytes(), self.uid)
             .map_err(|_| HostStepError::Prepare)?;
         if validate_config(
@@ -709,7 +742,7 @@ impl LifecycleHost for NativeLifecycleHost {
             return Err(HostStepError::Prepare);
         }
         self.profile_id = Some(desired.profile_id.clone());
-        self.readiness = Some(ConfigReadiness::new(desired.mode, profile_name));
+        self.readiness = Some(readiness);
         Ok(())
     }
 
@@ -747,7 +780,7 @@ impl LifecycleHost for NativeLifecycleHost {
         .map_err(|_| HostStepError::Start)?;
         self.core_diagnostics = Some(core.diagnostic_reader());
         let expected = self.readiness.as_ref().ok_or(HostStepError::Start)?;
-        let ready = core.wait_configured(START_TIMEOUT, expected);
+        let ready = core.wait_configured(expected.startup_timeout(), expected);
         let private_controller = ready.is_ok()
             && core.pid().is_some_and(|pid| {
                 crate::controller_permissions::secure_owned(
@@ -790,8 +823,12 @@ impl LifecycleHost for NativeLifecycleHost {
         if !self.ping_slot.revoke() {
             return Err(HostStepError::Stop);
         }
+        let timeout = self
+            .readiness
+            .as_ref()
+            .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
         if let Some(mut core) = self.core.take()
-            && core.stop(STOP_TIMEOUT).is_err()
+            && core.stop(timeout).is_err()
         {
             self.core = Some(core);
             return Err(HostStepError::Stop);
@@ -824,7 +861,11 @@ impl Drop for NativeLifecycleHost {
         // ordinary stop/start instead refuse if synchronous reaping is unproven.
         let _ = self.ping_slot.revoke();
         if let Some(mut core) = self.core.take() {
-            let _ = core.stop(STOP_TIMEOUT);
+            let timeout = self
+                .readiness
+                .as_ref()
+                .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
+            let _ = core.stop(timeout);
         }
         let _ = self.remove_controller();
         let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);
@@ -881,6 +922,19 @@ mod tests {
         );
         let host = NativeLifecycleHost::new(paths, uid).unwrap();
         (root, host)
+    }
+
+    #[test]
+    fn managed_pair_required_host_refuses_legacy_path_before_staging() {
+        let (root, mut host) = observation_fixture();
+        host.paths.require_managed_pair = true;
+        assert_eq!(host.connection_preflight(), Err(HostStepError::Prepare));
+        assert_eq!(
+            host.prepare(&DesiredState::default()),
+            Err(HostStepError::Prepare)
+        );
+        assert!(!host.paths.staged_config.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -6,8 +6,11 @@ Status: active delivery ledger; stable release updated 2026-09-22.
 the accepted T2 MVP and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
 excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
-published 0.8.2 tags/assets are unchanged. Main remains frozen at the submitted marketplace SHA until
-another explicit owner instruction, including for documentation-only changes.
+Draft #331 contains the reviewed managed-DNS release pair but is not yet
+integrated into RC. Immutable `v0.9.0-rc.1` assets are validation-only, not
+stable publication. Published 0.8.2 tags/assets are unchanged. Main remains
+frozen at the submitted marketplace SHA until another explicit owner instruction,
+including for documentation-only changes.
 
 **Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
 promoted from the reviewed prerelease without changing its tag or asset bytes.
@@ -365,7 +368,7 @@ passwordless implementation. These are concrete checkpoints, not blanket RC
 readiness. Versioned packaging and the remaining host/security decision stay
 explicit in the linked RC ledger.
 
-The unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) now has both native
+The original, then-unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) has both native
 architecture builds and offline artifact/identity checks. Its [package record](docs/testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md)
 separates artifact preparation from public release. The local ARM64 package and
 common frontend subsequently passed [attended replacement/restoration](docs/testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md).
@@ -373,6 +376,44 @@ That installed head also reproduced #132: cancelling resolved authorization
 leaves a connected claim with DNS unconfigured. DNS/security remains a real
 implementation blocker, not a password-entry checkbox. Stable promotion and
 main still require separate owner authorization.
+
+September 25 preparation adds an [offline Rust DNS transaction/framing model](docs/development/DNS_TRANSACTION_FOUNDATION.md)
+and an isolated-kernel TUN-reuse probe without changing the installed runtime.
+This advances DNS-1 conformance, not prompt elimination: core DNS-off integration
+and real managed-link authority remain prerequisites for #270 host acceptance.
+The [follow-up reference/real-core research](docs/development/DNS_AUTHORIZATION_RESEARCH.md)
+records the owner's no-recurring-prompts target, one-authorization fallback and
+verified unchanged-TUN reload behavior in an isolated synthetic namespace. It
+does not close #270 or replace actual helper/restore/lifecycle acceptance.
+The [review-only core adapter](tests/core_dns_adapter/README.md) subsequently
+builds and passes isolated DNS-off/default/reload/FD checks; stock-core refusal
+also passes. No installed core, helper, OS policy or release changed. Secure
+lease/restore and reviewed production distribution remain required.
+The [FD authority follow-up](docs/development/DNS_TUN_AUTHORITY.md) proves a
+restricted-consumer candidate and explains why a bare TUN FD is insufficient.
+It is not an installed host helper or closure of DNS-0/#270.
+The narrower follow-up retains Mihomo route ownership and admits its actual
+single-queue TUN FD into a DNS-only broker. Uninstalled Rust channel/kernel/
+resolved boundaries, Go interop and whole-core namespace tests now exercise
+real framing, descriptors and readiness; [FD-store mechanics](docs/development/DNS_FDSTORE.md)
+also pass independently. Unknown D-Bus outcomes must remain quarantined across
+process death. The next [uninstalled composition checkpoint](crates/omavless-dns-broker/README.md)
+adds actual fixed root admission, socket ACL, reserved-baseline checks,
+journal/FD-store ordering and DNS apply/reset. Its
+[namespace integration](tests/DNS_BROKER_COMPOSITION.md) exercises actual Rust
+boundaries, late writes and ownership drift; managed runtime readiness waits
+for broker acknowledgement. The subsequent
+[installed ARM64 checkpoint](docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
+passed Full VPN/DNS/HTTPS/clean release without recurring DNS dialogs after
+explicit installation. It also exposed a corrected GetLink path-encoding bug
+and a crash-runner counting error: the waitable zombie intentionally pins its
+process group until explicit cleanup, so observation must not reap it early.
+Later root-helper SIGKILL
+retained its original TUN/journal/FD; restart and real ALPM upgrade refused that
+state. Coordinated reboot cleared the old epoch; original Routing/DNS/HTTPS were
+restored after two unexplained ordinary Connect failures on unchanged code. Installed
+removal, mode/negative gates, runner adaptation and distribution remain open;
+#270 is not closed or generally released by this installed checkpoint.
 
 Review these three issues against current native main and record an
 implement/defer/reject decision with a bounded scope and applicable gates.

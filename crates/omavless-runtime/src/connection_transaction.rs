@@ -27,6 +27,7 @@ pub enum ConnectionTransactionError {
     Busy,
     NotFound,
     InvalidArgument,
+    DnsPairRequired,
     Conflict,
     Store,
     TransitionFailedRestored,
@@ -41,6 +42,7 @@ impl ConnectionTransactionError {
             Self::Busy => StableErrorCode::Busy,
             Self::NotFound => StableErrorCode::NotFound,
             Self::InvalidArgument => StableErrorCode::InvalidArgument,
+            Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
             Self::Conflict => StableErrorCode::Conflict,
             Self::Store => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
@@ -56,6 +58,7 @@ impl fmt::Display for ConnectionTransactionError {
             Self::Busy => "Another OmaVLESS operation is active",
             Self::NotFound => "Requested profile was not found",
             Self::InvalidArgument => "Connection request is invalid",
+            Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
             Self::Conflict => "Connection state changed concurrently",
             Self::Store => "Connection metadata update failed",
             Self::TransitionFailedRestored => "Connection transition failed and was restored",
@@ -90,6 +93,7 @@ fn store_error(error: PrivateStoreWriteError) -> ConnectionTransactionError {
 fn lifecycle_error(error: LifecycleError) -> ConnectionTransactionError {
     match error {
         LifecycleError::InvalidRequest => ConnectionTransactionError::InvalidArgument,
+        LifecycleError::DnsPairRequired => ConnectionTransactionError::DnsPairRequired,
         LifecycleError::State => ConnectionTransactionError::Store,
         LifecycleError::TransitionFailedRestored => {
             ConnectionTransactionError::TransitionFailedRestored

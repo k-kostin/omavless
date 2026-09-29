@@ -129,6 +129,8 @@ class LocalArchPackageTests(unittest.TestCase):
         archive, = self.build.glob('omavless-0.8.0rc1-1-*.pkg.tar.zst')
         metadata = subprocess.check_output(['bsdtar', '-xOf', str(archive), '.PKGINFO'], text=True)
         self.assertIn('pkgver = 0.8.0rc1-1\n', metadata)
+        self.assertIn('depend = omavless-dns=0.8.0rc1-1\n', metadata)
+        self.assertNotIn('depend = mihomo\n', metadata)
         if shutil.which('vercmp'):
             self.assertLess(int(subprocess.check_output(['vercmp', '0.8.0rc1', '0.8.0'])), 0)
 

@@ -1,9 +1,10 @@
 # Scoped native DNS authorization — #270 / #132
 
-Decision candidate, 2026-09-24, for RC development only. **Not a passwordless
-implementation or installed policy.** Main, startup Off and OS policy unchanged.
-This is a required RC investigation, not permission to hide an unfinished host
-gate by closing a triage issue. See [RC scope](../development/RC_090.md).
+Decision and implementation contract for RC development, started 2026-09-24.
+An explicit, default-off **experimental** package and paired runtime have since
+been installed and exercised in disposable ARM64 and x86_64 Omarchy VMs. This is
+not normal distribution, default behavior, a main-branch change or release
+approval. See the [current status](CURRENT_STATUS.md) and [RC scope](../development/RC_090.md).
 
 ## Evidence and the actual missing boundary
 
@@ -76,6 +77,14 @@ or privileged policy changes are justified by this finding.
 
 ## Alternatives and decision
 
+Owner clarification, September 25: target one explicit helper enrollment and
+no recurring DNS prompts. A single scoped authorization per transition is an
+acceptable fallback, not the preferred result. The
+[reference comparison and real-core namespace experiment](../development/DNS_AUTHORIZATION_RESEARCH.md)
+separate broad permission grants, avoiding needless TUN restarts and grouping
+effects behind one authorization. The installed Omarchy DNS Provider command
+changes global/physical-link settings and is not our VPN helper API.
+
 | Approach | Decision | Reason |
 | --- | --- | --- |
 | Four resolved actions allowed for the account | Reject | Any same-user program gains those effects on unrelated links. |
@@ -89,8 +98,10 @@ Do not silently install an experimental wrapper/core fork merely to complete
 this issue. First obtain an explicit, version-tested way for Mihomo to relinquish
 resolved management while retaining TUN routing and packet DNS handling. Options
 are an upstream-supported configuration capability or a separately reviewed core
-adapter/package. Without that prerequisite, prompt-free implementation is blocked,
-not solved by a polkit snippet. A separately owned root core service is another
+adapter/package. Without that prerequisite, the selected exclusive-writer broker
+integration is blocked; this is not a claim that all prompt-reduction approaches
+require transferring DNS ownership. A broad polkit grant can suppress prompts
+but does not meet this contract. A separately owned root core service is another
 architecture, not a small exception to the current user-service model.
 
 ## Preferred host contract
@@ -120,11 +131,15 @@ and successful DNS setup is not fail-closed egress protection.
    No caller-supplied interface name, IP/DNS server, routing domain, shell, path,
    unit, rule, UID or command. DNS values derive only from the validated fixed
    tunnel policy, never a provider profile. Policy updates require package review.
-5. Bound strict versioned frames (8 KiB, duplicate/unknown-field rejection),
+5. Bound strict versioned semantic frames (8 KiB, duplicate/unknown-field rejection),
    same-user admission, per-lease serialization and generation fencing; opaque
    operation identifiers prevent duplicate effects. Public responses contain
    fixed codes/booleans, not DNS values, private interface/endpoint metadata or
    raw D-Bus errors. Root-owned state is bounded, atomic and credential-free.
+   The unpublished core-to-broker FD handoff is a separate fixed eight-byte
+   SOCK_SEQPACKET channel with exact ancillary-right counts and per-packet
+   kernel credentials; see its [contract/corpus](../../crates/omavless-dns-channel/README.md).
+   It is not NDJSON, a generic privileged API, or a deployed protocol change.
 6. Broker calls resolved's typed D-Bus methods directly; no shell or client
    resolvectl execution. Read each property back. Commit the DNS lease only after
    all required values match for the same link incarnation. The runtime cannot
@@ -141,6 +156,12 @@ and successful DNS setup is not fail-closed egress protection.
 - Partial failure: restore only the captured settings on the *same* managed link,
   verify readback, then report restored failure. If ownership changed or cleanup
   cannot be proved, report manual recovery; never overwrite another manager.
+- Snapshot capture must establish original configuration semantics, not just
+  effective values. Resolved's `DefaultRoute` boolean hides automatic versus
+  explicit policy, and whole-link revert resets more than the three DNS fields.
+  Refuse an ambiguous baseline before writes; initial broker-owned pristine-link
+  scope and exact restoration need their own proof. See the
+  [source-backed constraint](../development/DNS_AUTHORIZATION_RESEARCH.md#snapshot-restoration-is-not-just-three-effective-properties).
 - Disconnect: release/verify managed-link DNS while identity still exists, then
   destroy the owned tunnel. Link disappearance is a distinct verified outcome;
   never run a delayed revert against a reused name/index.
@@ -167,11 +188,16 @@ and successful DNS setup is not fail-closed egress protection.
 | DNS-2, Rust lifecycle | Typed DNS readiness/rollback integrated with native owner | Delayed/rejected/partial DNS cannot publish success; no duplicate effects or speculative mode confirmation. |
 | DNS-3, installed acceptance | Explicit enrollment then repeated supported operations | Attended no-extra-prompt connect/mode/disconnect, failed/cancelled setup, recovery and exact package/frontend identities. |
 
-These are concrete unimplemented slices, not newly finished roadmap stages.
-#270 owns the investigation; #132 owns the original cancellation truthfulness
-requirement. Old Python PR #135 is historical evidence, not an implementation
-vehicle for the broker. Native UI can improve pending/unknown presentation
-independently, but cannot turn absent DNS proof into a successful transition.
+DNS-0's reviewed exclusive-writer core adapter and descriptor handoff, DNS-1's
+experimental package and DNS-2's managed-readiness path have implementation and
+installed evidence. The exact source/VM identities and remaining negative gates
+are in the [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md).
+They are not completed production/distribution stages: the legacy stock-core
+path remains the default and still reproduces #132. #270 owns the scoped host
+integration; #132 owns cancellation truthfulness. Old Python PR #135 is
+historical evidence, not an implementation vehicle for the broker. Native UI
+can improve pending/unknown presentation, but cannot turn absent DNS proof into
+a successful transition.
 
 Try Omarchy is valid for ordinary broker/parser/package/lifecycle gates. Require
 a physical host only for identified suspend, physical-interface or system-policy
@@ -186,16 +212,85 @@ Probe IPv4/IPv6 and ordinary/system DNS separately; external HTTPS alone proves
 neither resolved restoration nor absence of DNS leakage.
 
 **Current outcome:** reject the broad rule and speculative route workarounds;
-select this gated broker direction. #270/RC host closure remains open until the
-unresolved ownership mechanism and applicable acceptance are explicitly resolved.
-No installed policy, prompt elimination or DNS-cancellation fix is claimed here.
+continue the gated, single-owner broker direction. Disposable-VM installed tests
+now establish positive managed DNS readiness and several crash/removal/refusal
+boundaries; they do not establish normal distribution, the remaining negative
+matrix, the owner's formal acceptance, legacy #132 closure or RC readiness.
 
-## Next-session boundary
+September 25 no-authorization preparation: the separate
+[offline Rust transaction/framing foundation](../development/DNS_TRANSACTION_FOUNDATION.md)
+executes the failure/cancellation/readback contract without any production
+dependency or host writer. An isolated unprivileged user+network namespace
+experiment demonstrates same-name/index TUN reuse while the old FD is open;
+the old FD detects detachment but does not make a resolved write atomic.
+The existing core's FD path also retains teardown DNS calls. These concrete
+results narrow DNS-0; they do not close its lease/ownership prerequisites or
+turn DNS-1 preparation into installed prompt-free support.
+The [review-only core patch](../../tests/core_dns_adapter/README.md) now supplies
+compiled DNS-off/default/reload/FD evidence in isolated namespaces and refuses
+the unpatched core. It advances the core-mechanism part of DNS-0, not approved
+distribution, production routing evidence, secure lease or installed closure.
 
-Offline work can validate the fixed protocol/failure model and review the core
-adapter options. It cannot prove prompt-free host operations, cancelled/late
-authorization, cleanup or a secure lease on a real TUN. Do not install a broker
-or a polkit rule while the owner is absent. The accepted native UI correction
-in #289 supersedes Python PR #135 as code, while #132 remains open. Retain this
-design candidate and its unresolved prerequisites rather than declaring the host
-gate complete merely because documentation/static checks pass.
+Further [kernel authority testing](../development/DNS_TUN_AUTHORITY.md) found
+that an inherited FD with no capabilities still permits owner/persistence
+changes. The restricted-consumer/root-route-owner experiment is retained as an
+alternative, not the next required implementation. Exact-core review and actual
+single-queue FD admission favor a narrower DNS-only broker receiving the core's
+actual attached TUN while Mihomo retains routes. A file-capability executable
+is not arbitrary CAP_NET_ADMIN code execution for its caller. No generic TUN
+mutation API was found in the pinned core; privileged administrators/managers
+are explicitly outside this scope. Do not broaden host ownership without need.
+
+Actual Rust kernel admission, credentialed descriptor-channel tests, real
+private-bus resolved-wire tests and namespace-local TCP/UDP passage provided
+offline boundaries before the later experimental VM installation.
+The reviewed core adapter waits for Applying → Ready and Release → Releasing →
+Released; only a live verified lease projects `omavless-dns-ready`. It was
+installed only as an explicit experimental core in disposable VMs, not shipped
+as the normal Mihomo path. The
+[broker composition candidate](../../crates/omavless-dns-broker/README.md) now
+combines a fixed root-service/enrollment admission, socket ACL, private journal,
+typed FD-store retention and actual DNS methods. Its private-bus/kernel tests
+exercise late writes, denied operations and ownership drift. Managed runtime
+readiness refuses missing/false broker acknowledgement; legacy DNS remains the
+default and a template flag is not enrollment consent. Real system-service
+crash retention and several ALPM lifecycle cases have since passed in disposable
+VMs. Reviewed normal distribution, remaining in-flight/negative cases and
+owner-attended pre-main acceptance remain gates.
+Readback of effective properties is still not permission to restore arbitrary state.
+
+## Promotion boundary
+
+Keep the experimental pair separate from normal installation until source and
+artifact provenance, explicit enrollment, persistent compatible core selection,
+upgrade/rollback and recovery are reviewed. Preserve the existing agent-attended
+VM observations separately from owner-attended acceptance. An opt-in broker
+cannot close the default legacy #132 path. The separate 0.9 candidate branch
+`dev/dns-required-connect` now requires the explicitly selected managed pair
+before admitting a new connection, connected server/mode switch or active
+profile quiesce. The guard runs before changing desired state or stopping the
+existing owner; explicit Disconnect and disconnected mode selection remain
+available. A running owner without the selected pair (or with a subsequently
+invalidated selection) returns the fixed `dns_pair_required` code and never
+starts the stock core as a supported new connection. Invalid pair discovery at
+owner startup still fails closed before IPC becomes available. This is
+source-level candidate behavior, not yet an installed or owner-accepted release
+path. Package delivery, enrollment UX, negative recovery, firewall policy and
+formal host acceptance remain gates. Do not add a broad polkit rule or silently
+select a patched core. The accepted native UI correction in #289 supersedes
+Python PR #135 as code, while #132 remains open.
+
+A subsequent dev-branch foundation adds a private per-user
+`managed-dns-selection` marker, separate from route templates and from the
+root-only broker enrollment. When present, the native runtime selects the fixed
+source-paired package core rather than an ambient `OMAVLESS_MIHOMO`/PATH result,
+pins the root-owned package receipt and core/broker hashes, and requires both
+managed flags in every generated connection. A missing/replaced pair or a
+template/preset that drops the flags fails closed instead of silently returning
+to legacy DNS ownership. The marker does **not** enroll a UID, enable a system
+unit, change firewall policy or create a supported release path by itself.
+Separate Draft branches now implement explicit enrollment/revocation and a
+create-only bundled-template preparation step. They do not automatically
+authorize the root service, repair custom templates, alter firewall policy or
+constitute normal distribution. Until the mandatory-path candidate and those
+flows pass their remaining gates, #132 remains open for the shipped legacy path.

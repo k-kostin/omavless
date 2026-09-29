@@ -1,0 +1,35 @@
+# Local, opt-in fixture only. Render with stage.py; no downloads or builds here.
+pkgname=omavless-dns-experimental
+pkgver=0.9.0rc1
+pkgrel=1
+pkgdesc='Experimental fixed-purpose OmaVLESS DNS broker/core acceptance fixture'
+arch=('@ARCH@')
+license=('MIT' 'GPL-3.0-only' 'GPL-3.0-or-later')
+depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'bash' 'coreutils')
+options=('!strip' '!debug')
+noextract=('corresponding-source.tar.xz')
+install=omavless-dns-experimental.install
+source=('omavless-dns-broker' 'mihomo' 'omavless-dns-broker.service'
+        'package-guard' 'omavless-dns-experimental.hook'
+        'omavless-dns-experimental.install' 'reviewed-inputs.json'
+        'source-receipt.json' 'corresponding-source.tar.xz'
+        'mihomo.LICENSE' 'sing-tun.LICENSE' 'omavless.LICENSE')
+sha256sums=('@BROKER_SHA@' '@CORE_SHA@' '@UNIT_SHA@' '@GUARD_SHA@'
+            '@HOOK_SHA@' '@INSTALL_SHA@' '@MANIFEST_SHA@'
+            '@SOURCE_RECEIPT_SHA@' '@SOURCE_SHA@'
+            '@MIHOMO_LICENSE_SHA@' '@SING_TUN_LICENSE_SHA@'
+            '@OMAVLESS_LICENSE_SHA@')
+
+package() {
+  install -Dm755 "$srcdir/omavless-dns-broker" "$pkgdir/usr/lib/omavless/omavless-dns-broker"
+  install -Dm755 "$srcdir/mihomo" "$pkgdir/usr/lib/omavless-dns-experimental/mihomo"
+  install -Dm755 "$srcdir/package-guard" "$pkgdir/usr/lib/omavless-dns-experimental/package-guard"
+  install -Dm644 "$srcdir/omavless-dns-broker.service" "$pkgdir/usr/lib/systemd/system/omavless-dns-broker.service"
+  install -Dm644 "$srcdir/omavless-dns-experimental.hook" "$pkgdir/usr/share/libalpm/hooks/omavless-dns-experimental.hook"
+  install -Dm644 "$srcdir/reviewed-inputs.json" "$pkgdir/usr/share/omavless-dns-experimental/reviewed-inputs.json"
+  install -Dm644 "$srcdir/source-receipt.json" "$pkgdir/usr/share/omavless-dns-experimental/source-receipt.json"
+  install -Dm644 "$srcdir/corresponding-source.tar.xz" "$pkgdir/usr/share/omavless-dns-experimental/corresponding-source.tar.xz"
+  install -Dm644 "$srcdir/mihomo.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns-experimental/mihomo.LICENSE"
+  install -Dm644 "$srcdir/sing-tun.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns-experimental/sing-tun.LICENSE"
+  install -Dm644 "$srcdir/omavless.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns-experimental/omavless.LICENSE"
+}

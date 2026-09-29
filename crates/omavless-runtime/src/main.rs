@@ -122,6 +122,9 @@ fn run() -> Result<(), CliError> {
         println!(
             "  cutover activate                 explicit disconnected native ownership transition"
         );
+        println!(
+            "  dns-pair status|prepare-template|select\n                                  inspect or opt in to the reviewed pair while stopped"
+        );
         println!("  plugin connect INSTANCE REVISION OPERATION PROFILE rule|global|direct");
         println!("  plugin disconnect INSTANCE REVISION OPERATION");
         println!(
@@ -187,6 +190,23 @@ fn run() -> Result<(), CliError> {
         println!(
             "                                  explicit private client-only helpers; input through stdin"
         );
+        return Ok(());
+    }
+    if arguments.first().is_some_and(|arg| arg == "dns-pair") {
+        let outcome = match arguments.as_slice() {
+            [_, command] if command == "status" => {
+                omavless_runtime::managed_selection::status_current()
+            }
+            [_, command] if command == "select" => {
+                omavless_runtime::managed_selection::select_current()
+            }
+            [_, command] if command == "prepare-template" => {
+                omavless_runtime::managed_selection::prepare_template_current()
+            }
+            _ => return Err("Invalid DNS pair command".into()),
+        }
+        .map_err(|error| error.to_string())?;
+        println!("{outcome}");
         return Ok(());
     }
     if arguments.first().is_some_and(|arg| arg == "plugin")

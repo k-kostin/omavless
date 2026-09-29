@@ -16,7 +16,7 @@ ColumnLayout {
   readonly property bool appMissing: SetupState.appMissing(facts)
   readonly property bool coreMissing: facts.coreInstalled === false
   readonly property string action: SetupState.missingAction(facts)
-  readonly property var focusTargets: [installButton, prepareButton, retryButton, checkButton, guideButton]
+  readonly property var focusTargets: [installButton, prepareButton, restoreButton, retryButton, checkButton, guideButton]
   signal installRequested(string action)
   signal checkRequested()
   signal terminalClosed()
@@ -42,8 +42,8 @@ ColumnLayout {
       Button {
         id: installButton
         Layout.fillWidth: true
-        text: card.tr(card.appMissing ? (card.coreMissing ? "install_all" : "install_app") : "install_core")
-        visible: card.action !== ""
+        text: card.tr(card.coreMissing ? "install_all" : "install_app")
+        visible: card.appMissing && card.action === "install"
         enabled: visible && !card.busy && !card.terminalOpened
         opacity: enabled ? 1 : 0.45
         bordered: true; focusable: true
@@ -64,15 +64,29 @@ ColumnLayout {
       spacing: Style.space(10)
       PlainText { Layout.fillWidth: true; text: card.tr("prepare_title"); font.family: Style.font.family; font.pixelSize: Style.font.body; color: Color.foreground; wrapMode: Text.Wrap }
       PlainText { Layout.fillWidth: true; text: card.tr(card.facts.coreInstalled === null && card.facts.state === "ready" ? "needs_attention" : card.facts.state); font.family: Style.font.family; font.pixelSize: Style.font.caption; color: Color.foreground; wrapMode: Text.Wrap }
-      Button {
-        id: prepareButton
+      RowLayout {
         Layout.fillWidth: true
-        text: card.tr("prepare")
-        visible: card.facts.state === "needs_activation"
-        enabled: visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
-        opacity: enabled ? 1 : 0.45
-        bordered: true; focusable: true
-        onClicked: card.installRequested("install")
+        spacing: Style.space(8)
+        visible: card.facts.state === "needs_activation" || card.facts.state === "needs_selection" || card.facts.state === "needs_broker_stopped"
+        Button {
+          id: prepareButton
+          Layout.fillWidth: true
+          text: card.tr(card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_broker_stopped" ? "start_broker" : "prepare")
+          enabled: parent.visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
+          opacity: enabled ? 1 : 0.45
+          bordered: true; focusable: true
+          onClicked: card.installRequested(card.action)
+        }
+        Button {
+          id: restoreButton
+          Layout.fillWidth: true
+          text: card.tr("restore_enrollment")
+          visible: card.facts.state === "needs_broker_stopped"
+          enabled: visible && card.facts.coreInstalled === true && !card.busy && !card.terminalOpened
+          opacity: enabled ? 1 : 0.45
+          bordered: true; focusable: true
+          onClicked: card.installRequested("restore-enrollment")
+        }
       }
     }
   }

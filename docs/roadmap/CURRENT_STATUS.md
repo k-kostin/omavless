@@ -1,16 +1,58 @@
 # Current delivery status
 
-Updated 2026-09-25. This is the compact current-state entry point; the detailed
+Updated 2026-09-29. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
+- **0.9.0 managed-DNS candidate:** [Draft #331](https://github.com/k-kostin/omavless/pull/331)
+  integrates Draft #295 and its stacked delivery work through #316: the fixed
+  DNS broker/core pair, exact package admission, explicit enrollment, and
+  guided two-package first use. The supported candidate refuses a new Connect
+  when the managed pair is absent; the shipped legacy path's cancelled-DNS
+  defect [#132](https://github.com/k-kostin/omavless/issues/132) remains open.
+  See the [distribution contract](../development/DNS_RELEASE_DISTRIBUTION.md)
+  for the security and upgrade decisions.
+
+- **Installed evidence:** The experimental ARM64 pair passed an owner-attended
+  Full VPN/DNS/HTTPS/release cycle without recurring DNS dialogs. The isolated
+  x86_64 PC VM passed agent-run release-pair first use, live modes and server
+  change, resolved restoration, core/broker crash containment, active and
+  quarantined package-removal refusal, and proven-empty removal/re-enrollment.
+  Exact identities, failures and limits remain in the [PC record](../testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md),
+  [fresh-setup](../testing/DNS_RELEASE_VM_FRESH_SETUP_2026-09-28.md),
+  [network](../testing/DNS_RELEASE_VM_NETWORK_2026-09-28.md) and
+  [removal](../testing/DNS_RELEASE_VM_REMOVAL_2026-09-28.md) reports. Those tests
+  used temporary VM-only firewall allowances. Default-deny UFW blocked TUN
+  ingress; restricting the exception to the TUN peer source did not work because
+  return packets have remote source addresses. The allowances were removed.
+
+- **Remaining RC gates:** The production release pair passed an owner-attended
+  ARM64 Full VPN/DNS/HTTPS/mode cycle and core-crash containment at the exact
+  locally installed package identity; the user observed no separate DNS/route
+  password dialogs during runtime transitions. The immutable validation-only
+  `v0.9.0-rc.1` packages/frontend were anonymously downloaded and hash-verified.
+  An ARM64 account with an empty private home and both system packages removed
+  completed the real Required components GUI path: pinned public downloads,
+  package installation, DNS enrollment, onboarding and the usable
+  disconnected/Rule panel, with no profiles or automatic VPN. The original
+  private store was preserved and its broker enrollment restored. A preceding empty-account pass
+  found and fixed false pre-activation VPN controls.
+  A stopped-broker Connect refusal restored Disconnected/Rule without a false Full VPN claim.
+  In-flight negative/recovery coverage and final
+  #270/#132 disposition remain. #270/#132 are open; main and
+  rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
+  native #135 disposition and available XHTTP V0 evidence stay recorded in the
+  [RC ledger](../development/RC_090.md). Missing protocol fixtures are not
+  represented as PASS.
+
+- **Historical #292 preparation before public validation assets:** #292 aligns the candidate
   version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
   combined tests passed; the common frontend matches both build records. See
   [artifact identities and remaining attended gate](../testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md).
-  No public pins/assets or main changes. The exact local ARM64 package and common
+  The prerelease pins were prepared but not publicly downloaded at this
+  earlier checkpoint; the later result is recorded above. The exact local ARM64 package and common
   frontend passed attended replacement, private-state preservation and original
   Routing/profile restoration. New [DNS authorization evidence](../testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md)
   reproduces #132: cancelled DNS prompts leave an incorrect connected claim.

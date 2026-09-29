@@ -122,6 +122,12 @@ pub trait LifecycleHost {
     fn validate_startup(&mut self, _desired: &DesiredState) -> Result<(), HostStepError> {
         Err(HostStepError::Prepare)
     }
+    /// Read-only admission before persisting a new connected intent or
+    /// stopping an already connected owner. In particular, a missing DNS pair
+    /// must never turn a server/mode switch into a failed rollback.
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        Ok(())
+    }
     fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError>;
     fn prepare(&mut self, desired: &DesiredState) -> Result<(), HostStepError>;
     fn start_prepared(&mut self) -> Result<(), HostStepError>;
@@ -133,6 +139,7 @@ pub trait LifecycleHost {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleError {
     InvalidRequest,
+    DnsPairRequired,
     State,
     TransitionFailedRestored,
     RecoveryFailed,
@@ -144,6 +151,7 @@ impl LifecycleError {
     pub const fn stable_code(self) -> StableErrorCode {
         match self {
             Self::InvalidRequest => StableErrorCode::InvalidArgument,
+            Self::DnsPairRequired => StableErrorCode::DnsPairRequired,
             Self::State => StableErrorCode::InternalError,
             Self::TransitionFailedRestored => StableErrorCode::TransitionFailedRestored,
             Self::RecoveryFailed => StableErrorCode::CoreRejected,
@@ -156,6 +164,7 @@ impl fmt::Display for LifecycleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::InvalidRequest => "Connection request is invalid",
+            Self::DnsPairRequired => "Set up the managed DNS pair before connecting",
             Self::State => "Connection state could not be updated",
             Self::TransitionFailedRestored => "Connection transition failed and was restored",
             Self::RecoveryFailed => "Connection recovery failed",
@@ -384,6 +393,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         current: &DesiredState,
         target: DesiredState,
     ) -> Result<LifecycleOutcome, LifecycleError> {
+        self.host
+            .connection_preflight()
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         let attempted = DesiredState {
             generation: Self::next_generation(current.generation, 1)?,
             ..target
@@ -469,6 +481,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             ..current
         };
 
+        self.host
+            .connection_preflight()
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         self.actual = ActualState::Starting;
         if self.host.prepare(&armed).is_err() {
             self.discard_or_manual()?;
@@ -644,6 +659,9 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
             self.actual = ActualState::ManualRecoveryRequired;
             return Err(LifecycleError::ManualRecoveryRequired);
         }
+        self.host
+            .connection_preflight()
+            .map_err(|_| LifecycleError::DnsPairRequired)?;
         self.actual = ActualState::Stopping;
         if self.host.stop_owned().is_err() || self.host.discard_prepared().is_err() {
             self.actual = ActualState::ManualRecoveryRequired;
@@ -779,6 +797,7 @@ mod tests {
         calls: Vec<&'static str>,
         observation: OwnedObservation,
         fail_prepare: bool,
+        fail_connection_preflight: bool,
         fail_observe_once: bool,
         fail_start: bool,
         remaining_start_failures: usize,
@@ -797,6 +816,7 @@ mod tests {
                 calls: Vec::new(),
                 observation: empty(),
                 fail_prepare: false,
+                fail_connection_preflight: false,
                 fail_observe_once: false,
                 fail_start: false,
                 remaining_start_failures: 0,
@@ -812,6 +832,13 @@ mod tests {
     }
 
     impl LifecycleHost for FakeHost {
+        fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+            if self.fail_connection_preflight {
+                self.calls.push("preflight-denied");
+                return Err(HostStepError::Prepare);
+            }
+            Ok(())
+        }
         fn observe(&mut self, _desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
             self.calls.push("observe");
             if std::mem::take(&mut self.fail_observe_once) {
@@ -979,6 +1006,77 @@ mod tests {
         let changed = executor.connect("profile-b", RoutingMode::Global).unwrap();
         assert_eq!(changed.generation, 3);
         assert_eq!(desired(&executor).mode, RoutingMode::Global);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_new_connect_without_intent_or_host_effects() {
+        let (root, mut executor) = executor(
+            "pair-connect-denied",
+            FakeHost {
+                fail_connection_preflight: true,
+                ..FakeHost::default()
+            },
+        );
+        let before = desired(&executor);
+        assert_eq!(
+            executor.connect("opaque-id", RoutingMode::Rule),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Disconnected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_switch_and_mode_change_without_stopping_owned_core() {
+        let (root, mut executor) = executor("pair-switch-denied", FakeHost::default());
+        executor.connect("profile-a", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().calls.clear();
+        executor.host_mut().fail_connection_preflight = true;
+        assert_eq!(
+            executor.connect("profile-b", RoutingMode::Global),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.set_mode(RoutingMode::Direct),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
+        executor.host_mut().calls.clear();
+        assert_eq!(
+            executor.disconnect().unwrap().actual,
+            ActualState::Disconnected
+        );
+        assert_eq!(
+            executor.host().calls,
+            ["observe", "stop", "discard", "observe"]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_pair_refuses_active_profile_quiesce_before_stop() {
+        let (root, mut executor) = executor("pair-rename-denied", FakeHost::default());
+        executor.connect("profile-a", RoutingMode::Rule).unwrap();
+        let before = desired(&executor);
+        executor.host_mut().calls.clear();
+        executor.host_mut().fail_connection_preflight = true;
+        assert_eq!(
+            executor.quiesce_profile_preserving_desired("profile-a"),
+            Err(LifecycleError::DnsPairRequired)
+        );
+        assert_eq!(desired(&executor), before);
+        assert_eq!(executor.actual(), ActualState::Connected);
+        assert_eq!(executor.host().calls, ["observe", "preflight-denied"]);
         fs::remove_dir_all(root).unwrap();
     }
 
