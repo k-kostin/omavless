@@ -31,6 +31,12 @@ pub struct App {
     pub query: String,
     /// Local filter for the currently visible bounded rules/providers snapshot.
     pub operator_query: String,
+    /// UI-private and discarded when leaving the route-check page.
+    pub route_query: String,
+    pub route_editing: bool,
+    pub route_request: Option<crate::route_inspection::Target>,
+    pub route_result: Option<crate::route_inspection::Status>,
+    route_context: Option<(crate::route_inspection::Target, String, u64)>,
     pub favorites_only: bool,
     pub searching: bool,
     pub help: bool,
@@ -88,6 +94,15 @@ impl App {
         {
             snapshot.connection_rows = None;
         }
+        if self.page == crate::inspection::Page::RouteCheck
+            && next != crate::inspection::Page::RouteCheck
+        {
+            self.route_query.clear();
+            self.route_editing = false;
+            self.route_request = None;
+            self.route_result = None;
+            self.route_context = None;
+        }
     }
     pub fn new(locale: Locale) -> Self {
         Self {
@@ -109,6 +124,11 @@ impl App {
             subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
             operator_query: String::new(),
+            route_query: String::new(),
+            route_editing: false,
+            route_request: None,
+            route_result: None,
+            route_context: None,
             favorites_only: false,
             searching: false,
             help: false,
@@ -178,6 +198,11 @@ impl App {
                     self.selected_subscription = None;
                     self.subscription_attempts.clear();
                 }
+                if self.accepted.as_ref().is_some_and(|(id, revision)| {
+                    *id != next.metadata.instance_id || *revision != next.revision
+                }) {
+                    self.route_result = None;
+                }
                 if self
                     .selected_subscription
                     .as_ref()
@@ -218,6 +243,7 @@ impl App {
                 }
                 self.traffic_rates = None;
                 self.traffic_history.clear();
+                self.route_result = None;
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -247,6 +273,27 @@ impl App {
     pub fn update_palette(&mut self, palette: crate::theme::Palette) {
         self.settings.update_palette(palette);
         self.palette = self.settings.palette();
+    }
+    pub fn accept_route(
+        &mut self,
+        target: Option<crate::route_inspection::Target>,
+        status: Option<crate::route_inspection::Status>,
+        at: Instant,
+    ) {
+        if self.page == crate::inspection::Page::RouteCheck
+            && target.is_some()
+            && self
+                .route_context
+                .as_ref()
+                .is_some_and(|(active, instance, revision)| {
+                    Some(*active) == target
+                        && self.accepted.as_ref() == Some(&(instance.clone(), *revision))
+                })
+            && self.snapshot.is_some()
+            && self.sampled_at == Some(at)
+        {
+            self.route_result = status;
+        }
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
         self.key_at(key, Instant::now())
@@ -340,6 +387,50 @@ impl App {
             }
             return Action::None;
         }
+        if self.route_editing {
+            match key.code {
+                KeyCode::Esc => self.route_editing = false,
+                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                    self.route_editing = false;
+                    let Some(target) = crate::route_inspection::Target::new(&self.route_query)
+                    else {
+                        self.route_context = None;
+                        self.route_request = None;
+                        self.route_result = Some(crate::route_inspection::Status::InvalidInput);
+                        return Action::None;
+                    };
+                    if self.fresh(now)
+                        && let Some(snapshot) = &self.snapshot
+                    {
+                        self.route_context = Some((
+                            target,
+                            snapshot.metadata.instance_id.clone(),
+                            snapshot.revision,
+                        ));
+                        self.route_request = Some(target);
+                        self.route_result = None;
+                        return Action::Refresh;
+                    }
+                    self.route_context = None;
+                    self.route_request = None;
+                    self.route_result = Some(crate::route_inspection::Status::Unavailable);
+                }
+                KeyCode::Backspace => {
+                    self.route_query.pop();
+                }
+                KeyCode::Char(c)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        && c.is_ascii_graphic()
+                        && self.route_query.len() < 256 =>
+                {
+                    self.route_query.push(c)
+                }
+                _ => {}
+            }
+            return Action::None;
+        }
         // Local presentation controls never submit a command or clear a
         // pending/unknown outcome. Modal/search handlers above retain priority.
         if key.kind == KeyEventKind::Press
@@ -379,6 +470,21 @@ impl App {
             return Action::Refresh;
         }
         if self.page != crate::inspection::Page::Profiles {
+            if self.page == crate::inspection::Page::RouteCheck
+                && key.kind == KeyEventKind::Press
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && key.code == KeyCode::Char('/')
+            {
+                // As soon as input changes, the previous result is no longer
+                // visibly tied to the displayed destination.
+                self.route_result = None;
+                self.route_context = None;
+                self.route_request = None;
+                self.route_editing = true;
+                return Action::None;
+            }
             if self.page == crate::inspection::Page::Diagnostics
                 && key.kind == KeyEventKind::Press
                 && !key
@@ -513,6 +619,7 @@ impl App {
                             | crate::inspection::Page::Rules
                             | crate::inspection::Page::Providers
                             | crate::inspection::Page::CustomRules
+                            | crate::inspection::Page::RouteCheck
                     ) {
                         crate::inspection::Page::Diagnostics
                     } else {

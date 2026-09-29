@@ -60,6 +60,17 @@ Settings work without a reachable runtime and never clear pending/unknown action
 state, change OS/plugin preferences, persist files or invoke extra IPC. This is
 the T2 presentation-settings entry point, not new VPN configuration management.
 
+The stacked T3 route-inspector candidate adds a one-shot private `routing.check`
+page to the operator workspace. `/` opens input for one domain or IP address;
+Enter submits only that explicit query through the existing authenticated
+runtime read adapter. The response is shown only when its query, owner instance
+and revision still match the submitted context. Leaving the page clears the
+query and result; ordinary polling never repeats the route check. An unavailable
+live observation remains unavailable, not an inferred route. This is a policy
+inspection, not an Internet/DNS health test. No history, debug output or
+shareable report records the private query or matched rule. Synthetic EN/RU
+terminal and protocol tests do not replace exact-head installed TUI review.
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with

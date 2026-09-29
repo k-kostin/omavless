@@ -10,6 +10,7 @@ pub mod inspection;
 pub mod job_ui;
 pub mod jobs;
 pub mod model;
+pub mod route_inspection;
 pub mod settings;
 pub mod theme;
 pub mod traffic_history;
@@ -105,19 +106,24 @@ fn run_client(
                 .map_err(|_| "Could not initialize terminal signal handling")?,
         );
     }
-    let (request, requests) = mpsc::sync_channel::<(inspection::Page, Option<String>)>(1);
+    let (request, requests) = mpsc::sync_channel::<(
+        inspection::Page,
+        Option<String>,
+        Option<route_inspection::Target>,
+    )>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while let Ok((page, selected)) = requests.recv() {
+            while let Ok((page, selected, route)) = requests.recv() {
                 let started = Instant::now();
                 if results
                     .send((
                         started,
                         page,
                         selected.clone(),
-                        client::load_page_for(&mut read, page, selected.as_deref()),
+                        route,
+                        client::load_page_for_route(&mut read, page, selected.as_deref(), route),
                     ))
                     .is_err()
                 {
@@ -215,16 +221,33 @@ fn run_client(
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, page, selected, result)) = receive.try_recv() {
-            app.accept_for(page, selected.as_deref(), result, started);
+        if let Ok((started, page, selected, route, result)) = receive.try_recv() {
+            match result {
+                Ok((snapshot, route_status)) => {
+                    if app.accept_for(page, selected.as_deref(), Ok(snapshot), started) {
+                        app.accept_route(route, route_status, started);
+                    }
+                }
+                Err(error) => {
+                    app.accept_for(page, selected.as_deref(), Err(error), started);
+                }
+            }
             pending = false;
-            due = if page == app.page && selected == app.selected {
+            due = if app.route_request.is_some() {
+                now
+            } else if page == app.page && selected == app.selected {
                 now + Duration::from_secs(3)
             } else {
                 now
             };
         }
-        if !pending && now >= due && request.try_send((app.page, app.selected.clone())).is_ok() {
+        if !pending
+            && now >= due
+            && request
+                .try_send((app.page, app.selected.clone(), app.route_request))
+                .is_ok()
+        {
+            app.route_request = None;
             pending = true;
         }
         terminal

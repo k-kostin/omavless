@@ -258,6 +258,7 @@ pub enum Page {
     Rules,
     Providers,
     CustomRules,
+    RouteCheck,
     Settings,
     Activity,
     Subscriptions,
@@ -277,6 +278,7 @@ impl Page {
             Self::Rules,
             Self::Providers,
             Self::CustomRules,
+            Self::RouteCheck,
             Self::Jobs,
             Self::Subscriptions,
         ];
@@ -294,6 +296,7 @@ impl Page {
             Self::Rules => "tui.rules",
             Self::Providers => "tui.providers",
             Self::CustomRules => "tui.custom_rules",
+            Self::RouteCheck => "tui.route_check",
             Self::Settings => "tui.settings",
             Self::Activity => "tui.activity",
             Self::Subscriptions => "tui.subscriptions",
