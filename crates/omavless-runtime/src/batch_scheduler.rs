@@ -13,7 +13,7 @@ use crate::subscription_batch_work::BatchWorkStep;
 use crate::subscription_batch_work::{BatchWorkError, BudgetedSubscriptionTransport};
 use crate::subscription_schedule_attempt::{
     AttemptError, AttemptSnapshot, AttemptTicket, begin_attempt_for_batch,
-    finish_attempt_with_receipt, preflight_attempt,
+    check_attempt_before_step, finish_attempt_with_receipt, preflight_attempt,
 };
 use crate::subscription_schedule_plan::OwnerFence;
 use std::sync::atomic::AtomicU64;
@@ -77,6 +77,7 @@ pub(crate) enum ScheduledOnceError {
     Attempt(AttemptError),
     Owner(native_coordinator::NativeOwnerError),
     Work(BatchWorkError),
+    StepNotAuthorized,
     AbortUncertain,
     CompletionUncertain,
 }
@@ -95,6 +96,7 @@ pub(crate) struct ScheduledBatchAttempt {
     paths: cutover::CutoverPaths,
     uid: u32,
     generation: u64,
+    step_authorized: bool,
 }
 
 #[allow(dead_code)] // no live scheduler/IPC registration in this checkpoint
@@ -124,16 +126,40 @@ impl ScheduledBatchAttempt {
     /// that lock before calling step. The shared pool is supplied by the same
     /// runtime instance as manual fetches; a new pool would break the limit.
     pub(crate) fn progress<H: lifecycle::LifecycleHost>(
-        &self,
+        &mut self,
         owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
     ) -> ScheduledResult<()> {
+        self.step_authorized = false;
+        let (paths, uid, generation) = owner
+            .scheduled_journal_scope()
+            .map_err(ScheduledOnceError::Owner)?;
+        if generation != self.generation || uid != self.uid || paths != self.paths {
+            return Err(ScheduledOnceError::Attempt(AttemptError::StaleOwner));
+        }
+        check_attempt_before_step(
+            &self.paths,
+            self.uid,
+            &self.journal_ticket,
+            OwnerFence {
+                expected_generation: self.generation,
+                current_generation: generation,
+                expected_revision: self
+                    .batch_ticket
+                    .base_revision()
+                    .ok_or(ScheduledOnceError::CompletionUncertain)?,
+                current_revision: owner.revision(),
+            },
+        )
+        .map_err(ScheduledOnceError::Attempt)?;
         owner
             .publish_subscription_batch_progress(
                 self.job
                     .as_ref()
                     .ok_or(ScheduledOnceError::CompletionUncertain)?,
             )
-            .map_err(ScheduledOnceError::Owner)
+            .map_err(ScheduledOnceError::Owner)?;
+        self.step_authorized = true;
+        Ok(())
     }
 
     pub(crate) fn step<T, G>(
@@ -145,6 +171,9 @@ impl ScheduledBatchAttempt {
         T: BudgetedSubscriptionTransport,
         G: FnMut() -> String,
     {
+        if !std::mem::take(&mut self.step_authorized) {
+            return Err(ScheduledOnceError::StepNotAuthorized);
+        }
         self.job
             .as_mut()
             .ok_or(ScheduledOnceError::CompletionUncertain)?
@@ -165,7 +194,12 @@ impl ScheduledBatchAttempt {
             .job
             .take()
             .ok_or(ScheduledOnceError::CompletionUncertain)?;
-        let _completion = owner.complete_subscription_batch(job, || now_millis);
+        let _completion = owner.complete_scheduled_subscription_batch(
+            job,
+            self.generation,
+            self.journal_ticket.preference_revision(),
+            || now_millis,
+        );
         self.settle(owner, now_secs)
     }
 
@@ -332,6 +366,7 @@ impl ScheduledAdmissionGuard<'_> {
             paths,
             uid,
             generation,
+            step_authorized: false,
         })
     }
 }

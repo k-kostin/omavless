@@ -22,6 +22,8 @@ use crate::subscription_batch_work::{
 use crate::subscription_mutation::{
     commit_subscription_refresh_batch, snapshot_subscription_refresh_batch,
 };
+use crate::subscription_schedule_plan::RefreshSchedule;
+use crate::subscription_schedule_preference::read_locked as read_schedule_preference_locked;
 use omavless_domain::private_store::{
     SubscriptionRefreshBatchEntries, SubscriptionRefreshBatchSnapshot,
 };
@@ -505,6 +507,24 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
+    /// The automatic batch is allowed to commit only if its exact preference
+    /// remains enabled while the same migration lock protects the store write.
+    /// Off/preference changes after a fetch produce no store replacement.
+    pub fn complete_scheduled_subscription_batch<N: FnOnce() -> u64>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        expected_generation: u64,
+        expected_preference_revision: u64,
+        now_millis: N,
+    ) -> Result<(), NativeOwnerError> {
+        self.complete_subscription_batch_with_store_and_schedule(
+            job,
+            now_millis,
+            commit_subscription_refresh_batch,
+            Some((expected_generation, expected_preference_revision)),
+        )
+    }
+
     // Fixed production store function above; the seam permits deterministic
     // post-rename failures in tests without a client-selected writer or path.
     pub(super) fn complete_subscription_batch_with_store<N, F>(
@@ -512,6 +532,26 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+    ) -> Result<(), NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+    {
+        self.complete_subscription_batch_with_store_and_schedule(job, now_millis, commit, None)
+    }
+
+    fn complete_subscription_batch_with_store_and_schedule<N, F>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now_millis: N,
+        commit: F,
+        schedule: Option<(u64, u64)>,
     ) -> Result<(), NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -535,7 +575,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .registry
                 .advance(token, completed)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis, commit);
+            let outcome =
+                self.commit_subscription_batch_work(&mut state, job, now_millis, commit, schedule);
             state.active = None;
             match outcome {
                 Ok(true) => state
@@ -562,6 +603,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+        schedule: Option<(u64, u64)>,
     ) -> Result<bool, NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -578,6 +620,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }
         let prepared = job.work.into_prepared().map_err(batch_work_error)?;
         let _lock = self.batch_lock()?;
+        if let Some((generation, preference_revision)) = schedule {
+            if self.required_ownership.map(|fence| fence.generation) != Some(generation) {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            // batch_lock already holds the migration lock and proved this
+            // exact committed owner. Do not reacquire it here.
+            let preference = read_schedule_preference_locked(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+            )
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+            if preference.owner_generation != generation {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            if preference.revision != preference_revision
+                || preference.schedule == RefreshSchedule::Off
+            {
+                return Err(NativeOwnerError::Coordinator(
+                    CoordinatorError::RevisionConflict,
+                ));
+            }
+        }
         if self.revision() != job.base_revision {
             return Err(NativeOwnerError::Coordinator(
                 CoordinatorError::RevisionConflict,

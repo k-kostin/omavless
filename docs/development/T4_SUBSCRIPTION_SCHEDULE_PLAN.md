@@ -142,3 +142,46 @@ timing, or a manual disposition for prior-instance Started records. Dropping
 the one-shot handle is not terminalization; it blocks later automatic retries.
 Those boundaries must be implemented and accepted before background execution
 can be enabled, even if this synthetic checkpoint is green.
+
+## Stacked pre-step and commit-fence checkpoint
+
+The next inactive Draft tightens the one-shot seam without activating a timer,
+worker, IPC method or provider GET. Each synthetic provider step now requires a
+fresh owner-locked admission token: the exact committed generation, current
+owner revision, enabled preference revision and durable Started identity are
+re-read before progress. The token is consumed by exactly one step, including
+a Busy step, so a subsequent step cannot silently reuse an earlier check.
+This reduces avoidable work after sequential Off, preference, marker or owner
+changes; it is not a promise that an Off write cannot race an already admitted
+in-flight request.
+
+More importantly, scheduled completion now checks the exact enabled
+preference inside the existing migration-lock section that fences and commits
+the store. If Off or another preference revision was published before that
+section, the fetched result cannot update profiles. If a preference read is
+unsafe/ambiguous, no store write occurs and the durable Started record remains
+blocked rather than being labelled a retryable failure. Synthetic tests cover
+Off/changed preference after a completed fetch, malformed preference before
+commit, no provider I/O after sequential pre-step refusal, and prior-instance
+uncertainty. Manual refresh uses its unchanged completion path.
+
+This is deliberately a smaller safety slice, **not supervised execution**.
+The scheduler still has no registered scheduled worker handle. A future Draft
+must couple the persisted Off setter with exact active-token cancellation
+under the serialized owner; register and join a supervised worker with safe
+spawn/panic/shutdown lock order; consume the exact owner receipt before
+registry eviction; retain Started on absent/uncertain receipt; and prove
+interleavings with manual batches. Until those gates and an explicit manual
+disposition for prior-instance Started are complete, no live timer or network
+path may call this seam.
+
+The next worker composition must preserve `scheduler.worker → dispatcher`
+admission order, release `dispatcher` before spawning, and register the handle
+in `scheduler.worker` before releasing that reservation. A failed spawn must
+recover the not-yet-run attempt and terminalize it only after no dispatcher
+guard is held; dropping a captured supervisor while holding that guard would
+deadlock. The worker takes only `dispatcher` between transport steps, never
+`scheduler.worker`; shutdown revokes under the owner, releases both locks and
+then joins. Panic before a proved terminal receipt may abort the exact active
+token, but a panic after a possible store write must leave Started uncertain
+unless the same owner can still mint and durably settle its exact receipt.
