@@ -8,5 +8,6 @@ pub mod nft;
 pub mod policy;
 pub mod protocol;
 pub mod receipt;
+pub mod receipt_store;
 pub mod root_state;
 pub mod transaction;
