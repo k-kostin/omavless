@@ -112,3 +112,33 @@ its journal write must block automatic replay rather than guess completion.
 The future UI must expose only bounded privacy-safe states and provide an
 explicit reviewed way to resolve interrupted attempts. No host/VM network
 state is changed by this checkpoint.
+
+## Stacked inactive one-shot scheduler composition checkpoint
+
+The next Draft adds a private one-shot seam on the existing BatchScheduler,
+without registering any timer, IPC method or production caller. It is exercised
+only with synthetic transports and private temporary fixtures. Read-only
+preflight checks Off, interval/backoff, owner generation and an unfinished
+attempt before reserving a batch operation. The scheduler admission guard is
+acquired before the serialized owner, matching manual dispatch lock order.
+The journal path, user ID and ownership generation are derived from that
+owner, never supplied by a timer or client. The serialized owner then creates
+an internal operation ID and batch ticket. The durable Started record is
+rechecked and written before the first transport step; if that write fails,
+the owner operation is aborted without a fetch. The attempt retains a clone
+of the runtime-supplied shared four-permit fetch pool, so waiting for capacity
+does not perform a provider request. The worker check and transport step are
+separate calls: a future supervisor must release the owner lock around I/O.
+
+Synthetic tests cover default Off without an owner reservation, durable start
+before the first fetch, exhausted shared permits without provider I/O,
+successful owner receipt and journal completion, cancellation before fetch,
+Off/abort supersession, an unrelated owner-revision race that refuses a late
+refresh commit, and an interrupted attempt that remains uncertain across daemon
+instances. A running manual batch also refuses the scheduled reservation.
+This seam intentionally does not claim live worker registration, shutdown
+joining, panic/spawn-failure recovery, suspend/network
+timing, or a manual disposition for prior-instance Started records. Dropping
+the one-shot handle is not terminalization; it blocks later automatic retries.
+Those boundaries must be implemented and accepted before background execution
+can be enabled, even if this synthetic checkpoint is green.

@@ -10,6 +10,15 @@ use crate::provider_refresh::{
     UnixRuleProviderTransport,
 };
 use crate::subscription_batch_work::BatchWorkStep;
+use crate::subscription_batch_work::{BatchWorkError, BudgetedSubscriptionTransport};
+use crate::subscription_schedule_attempt::{
+    AttemptError, AttemptSnapshot, AttemptTicket, begin_attempt_for_batch,
+    finish_attempt_with_receipt, preflight_attempt,
+};
+use crate::subscription_schedule_plan::OwnerFence;
+use std::sync::atomic::AtomicU64;
+
+type ScheduledResult<T> = std::result::Result<T, ScheduledOnceError>;
 
 pub(super) const METHODS: &[&str] = &[
     "subscriptions.refresh_all",
@@ -53,8 +62,150 @@ impl BatchWork {
 pub(super) struct BatchScheduler {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
     stopping: Arc<AtomicBool>,
+    scheduled_sequence: AtomicU64,
     #[cfg(test)]
     pub(super) fail_next_spawn: AtomicBool,
+}
+
+#[allow(dead_code)] // inactive until a separately reviewed supervised worker exists
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScheduledOnceError {
+    Stopping,
+    WorkerBusy,
+    CounterExhausted,
+    Protocol,
+    Attempt(AttemptError),
+    Owner(native_coordinator::NativeOwnerError),
+    Work(BatchWorkError),
+    AbortUncertain,
+    CompletionUncertain,
+}
+
+/// Inactive, one-shot composition seam. No timer, IPC, socket or production
+/// caller exists. Dropping it is NOT proof of failure: its durable Started
+/// entry conservatively blocks future automatic attempts until reviewed.
+#[must_use = "finish or abort under the serialized owner; a lost attempt remains uncertain"]
+#[allow(dead_code)] // inactive composition seam, exercised by synthetic tests
+pub(crate) struct ScheduledBatchAttempt {
+    job: Option<NativeSubscriptionBatch>,
+    batch_ticket: NativeBatchTicket,
+    operation_id: String,
+    journal_ticket: AttemptTicket,
+    pool: remote_fetch::RemoteFetchPool,
+    paths: cutover::CutoverPaths,
+    uid: u32,
+    generation: u64,
+}
+
+#[allow(dead_code)] // no live scheduler/IPC registration in this checkpoint
+impl ScheduledBatchAttempt {
+    /// Owner-side cancellation is keyed to this private scheduler operation,
+    /// never to a client-provided ID. The registry decides whether it still
+    /// precedes the commit fence.
+    pub(crate) fn cancel<H: lifecycle::LifecycleHost>(
+        &self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+    ) -> ScheduledResult<bool> {
+        let request = make_request(
+            "scheduled-cancel",
+            "operations.cancel",
+            json!({
+                "instanceId": self.batch_ticket.instance(),
+                "operationId": self.operation_id,
+            }),
+        )
+        .map_err(|_| ScheduledOnceError::Protocol)?;
+        owner
+            .cancel_subscription_batch(&request)
+            .map_err(ScheduledOnceError::Owner)
+    }
+
+    /// The caller performs this check under the serialized owner, then drops
+    /// that lock before calling step. The shared pool is supplied by the same
+    /// runtime instance as manual fetches; a new pool would break the limit.
+    pub(crate) fn progress<H: lifecycle::LifecycleHost>(
+        &self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+    ) -> ScheduledResult<()> {
+        owner
+            .publish_subscription_batch_progress(
+                self.job
+                    .as_ref()
+                    .ok_or(ScheduledOnceError::CompletionUncertain)?,
+            )
+            .map_err(ScheduledOnceError::Owner)
+    }
+
+    pub(crate) fn step<T, G>(
+        &mut self,
+        transport: &T,
+        next_record_id: &mut G,
+    ) -> ScheduledResult<BatchWorkStep>
+    where
+        T: BudgetedSubscriptionTransport,
+        G: FnMut() -> String,
+    {
+        self.job
+            .as_mut()
+            .ok_or(ScheduledOnceError::CompletionUncertain)?
+            .step(transport, &self.pool, next_record_id)
+            .map_err(ScheduledOnceError::Work)
+    }
+
+    /// The owner may return an error after a proved terminal failure or
+    /// cancellation. Only its exact typed terminal receipt settles the
+    /// journal; an absent receipt leaves Started uncertain.
+    pub(crate) fn finish<H: lifecycle::LifecycleHost>(
+        mut self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+        now_millis: u64,
+        now_secs: u64,
+    ) -> ScheduledResult<AttemptSnapshot> {
+        let job = self
+            .job
+            .take()
+            .ok_or(ScheduledOnceError::CompletionUncertain)?;
+        let _completion = owner.complete_subscription_batch(job, || now_millis);
+        self.settle(owner, now_secs)
+    }
+
+    /// For failed worker launch before any fetch. A failed abort cannot be
+    /// converted into a guessed result or automatic retry.
+    pub(crate) fn abort<H: lifecycle::LifecycleHost>(
+        self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+        now_secs: u64,
+    ) -> ScheduledResult<AttemptSnapshot> {
+        owner
+            .abort_subscription_batch(self.batch_ticket.clone())
+            .map_err(|_| ScheduledOnceError::AbortUncertain)?;
+        self.settle(owner, now_secs)
+    }
+
+    fn settle<H: lifecycle::LifecycleHost>(
+        self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+        now_secs: u64,
+    ) -> ScheduledResult<AttemptSnapshot> {
+        let receipt = owner
+            .subscription_batch_receipt(&self.batch_ticket)
+            .map_err(|_| ScheduledOnceError::CompletionUncertain)?;
+        let revision = owner.revision();
+        finish_attempt_with_receipt(
+            &self.paths,
+            self.uid,
+            self.journal_ticket,
+            receipt,
+            now_secs,
+            OwnerFence {
+                expected_generation: self.generation,
+                current_generation: self.generation,
+                expected_revision: revision,
+                current_revision: revision,
+            },
+        )
+        .map_err(ScheduledOnceError::Attempt)
+    }
 }
 
 // Runs even when a worker unwinds. Does not format or retain a panic payload.
@@ -71,6 +222,117 @@ impl Drop for Supervisor {
         {
             owner.batch_abort(ticket);
         }
+    }
+}
+
+/// Reservation must be acquired before the serialized owner, matching manual
+/// dispatch lock order. It is released before any transport step.
+#[allow(dead_code)]
+pub(crate) struct ScheduledAdmissionGuard<'a> {
+    scheduler: &'a BatchScheduler,
+    _worker: std::sync::MutexGuard<'a, Option<thread::JoinHandle<()>>>,
+}
+
+impl BatchScheduler {
+    /// Reserve manual/scheduled admission before taking the owner lock. An
+    /// active manual worker or shutdown refuses immediately; a completed
+    /// handle may be joined later by the normal dispatch path.
+    #[allow(dead_code)]
+    pub(crate) fn reserve_scheduled(&self) -> ScheduledResult<ScheduledAdmissionGuard<'_>> {
+        let worker = self
+            .worker
+            .lock()
+            .map_err(|_| ScheduledOnceError::WorkerBusy)?;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ScheduledOnceError::Stopping);
+        }
+        if worker.as_ref().is_some_and(|handle| !handle.is_finished()) {
+            return Err(ScheduledOnceError::WorkerBusy);
+        }
+        Ok(ScheduledAdmissionGuard {
+            scheduler: self,
+            _worker: worker,
+        })
+    }
+}
+
+impl ScheduledAdmissionGuard<'_> {
+    /// Inactive synthetic admission seam. The caller now holds the serialized
+    /// owner after this guard, preserving manual dispatch lock order. No
+    /// transport is called here. A future integration still needs supervised
+    /// worker registration and interrupted-attempt UI.
+    #[allow(dead_code)]
+    pub(crate) fn admit_scheduled_once<H: lifecycle::LifecycleHost>(
+        &self,
+        owner: &mut native_coordinator::OfflineNativeCoordinator<H>,
+        pool: &remote_fetch::RemoteFetchPool,
+        instance: &str,
+        now_secs: u64,
+    ) -> ScheduledResult<ScheduledBatchAttempt> {
+        if self.scheduler.stopping.load(Ordering::Acquire) {
+            return Err(ScheduledOnceError::Stopping);
+        }
+        let (paths, uid, generation) = owner
+            .scheduled_journal_scope()
+            .map_err(ScheduledOnceError::Owner)?;
+        let revision = owner.revision();
+        let fence = OwnerFence {
+            expected_generation: generation,
+            current_generation: generation,
+            expected_revision: revision,
+            current_revision: revision,
+        };
+        let preference_revision = preflight_attempt(&paths, uid, instance, now_secs, fence)
+            .map_err(ScheduledOnceError::Attempt)?;
+        let old_sequence = self
+            .scheduler
+            .scheduled_sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| ScheduledOnceError::CounterExhausted)?;
+        let operation_id = format!("scheduled-refresh-{:016x}", old_sequence + 1);
+        let request = make_request(
+            "scheduled-refresh",
+            "subscriptions.refresh_all",
+            json!({
+                "instanceId": instance,
+                "operationId": operation_id,
+                "expectedRevision": revision,
+            }),
+        )
+        .map_err(|_| ScheduledOnceError::Protocol)?;
+        let job = owner
+            .start_subscription_batch(&request)
+            .map_err(ScheduledOnceError::Owner)?
+            .ok_or(ScheduledOnceError::Protocol)?;
+        let batch_ticket = job.supervisor_ticket();
+        let journal_ticket = match begin_attempt_for_batch(
+            &paths,
+            uid,
+            &batch_ticket,
+            preference_revision,
+            now_secs,
+            fence,
+        ) {
+            Ok(ticket) => ticket,
+            Err(error) => {
+                owner
+                    .abort_subscription_batch(batch_ticket)
+                    .map_err(|_| ScheduledOnceError::AbortUncertain)?;
+                return Err(ScheduledOnceError::Attempt(error));
+            }
+        };
+        Ok(ScheduledBatchAttempt {
+            job: Some(job),
+            batch_ticket,
+            operation_id,
+            journal_ticket,
+            pool: pool.clone(),
+            paths,
+            uid,
+            generation,
+        })
     }
 }
 

@@ -4474,6 +4474,371 @@ mod tests {
         }
     }
 
+    struct T4SyntheticTransport {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl subscription_batch_work::BudgetedSubscriptionTransport for T4SyntheticTransport {
+        fn fetch_with_budget(
+            &self,
+            _url: &str,
+            _budget: Duration,
+        ) -> std::result::Result<
+            omavless_domain::subscription_feed::PrivateSubscriptionBody,
+            subscription_transport::SubscriptionTransportError,
+        > {
+            self.calls.set(self.calls.get() + 1);
+            omavless_domain::subscription_feed::PrivateSubscriptionBody::from_bytes(
+                b"vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Synthetic".to_vec(),
+            )
+            .map_err(|_| subscription_transport::SubscriptionTransportError::Unavailable)
+        }
+    }
+
+    #[test]
+    fn t4_synthetic_once_is_off_by_default_and_checks_before_owner_reservation() {
+        use crate::batch_scheduler::ScheduledOnceError;
+        use crate::subscription_schedule_attempt::{AttemptError, read_attempt};
+        let base = temporary_base("t4-synthetic-off");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        assert!(matches!(
+            scheduler.reserve_scheduled().unwrap().admit_scheduled_once(
+                owner.batch_coordinator(),
+                &pool,
+                "synthetic-instance",
+                100,
+            ),
+            Err(ScheduledOnceError::Attempt(AttemptError::ScheduleOff))
+        ));
+        assert_eq!(
+            read_attempt(&cutover, uid, 1, "synthetic-instance").unwrap(),
+            None
+        );
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_once_persists_start_before_shared_permit_and_settles_receipt() {
+        use crate::subscription_schedule_attempt::{AttemptState, read_attempt};
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-synthetic-commit");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        let mut attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+            .unwrap();
+        assert_eq!(
+            read_attempt(&cutover, uid, 1, "synthetic-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::StartedInCurrentInstance
+        );
+        let transport = T4SyntheticTransport {
+            calls: std::cell::Cell::new(0),
+        };
+        let permits: Vec<_> = (0..4).map(|_| pool.try_acquire().unwrap()).collect();
+        attempt.progress(owner.batch_coordinator()).unwrap();
+        assert_eq!(
+            attempt
+                .step(&transport, &mut || {
+                    "20000000-0000-4000-8000-000000000001".to_owned()
+                })
+                .unwrap(),
+            subscription_batch_work::BatchWorkStep::Busy
+        );
+        assert_eq!(transport.calls.get(), 0);
+        drop(permits);
+        assert_eq!(
+            attempt
+                .step(&transport, &mut || {
+                    "20000000-0000-4000-8000-000000000001".to_owned()
+                })
+                .unwrap(),
+            subscription_batch_work::BatchWorkStep::Ready
+        );
+        assert_eq!(transport.calls.get(), 1);
+        let finished = attempt
+            .finish(owner.batch_coordinator(), 20_000, 120)
+            .unwrap();
+        assert_eq!(finished.state, AttemptState::Succeeded);
+        let journal = fs::read_to_string(
+            cutover
+                .state_directory
+                .join("subscription-refresh-attempt.json"),
+        )
+        .unwrap();
+        for private in [
+            "vless://",
+            "private.example",
+            "subscription-token",
+            "Synthetic",
+        ] {
+            assert!(!journal.contains(private));
+        }
+        assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_abort_after_off_is_superseded_and_lost_attempt_stays_uncertain() {
+        use crate::subscription_schedule_attempt::{AttemptState, read_attempt};
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-synthetic-abort");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        let enabled = set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        let attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+            .unwrap();
+        set_preference(&cutover, uid, 1, enabled.revision, RefreshSchedule::Off).unwrap();
+        assert_eq!(
+            attempt.abort(owner.batch_coordinator(), 120).unwrap().state,
+            AttemptState::Superseded
+        );
+        let off = set_preference(
+            &cutover,
+            uid,
+            1,
+            enabled.revision + 1,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let lost = scheduler.reserve_scheduled().unwrap().admit_scheduled_once(
+            owner.batch_coordinator(),
+            &pool,
+            "synthetic-instance",
+            419,
+        );
+        assert!(matches!(
+            lost,
+            Err(batch_scheduler::ScheduledOnceError::Attempt(
+                subscription_schedule_attempt::AttemptError::WaitUntil(420)
+            ))
+        ));
+        let attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 420)
+            .unwrap();
+        assert_eq!(off.revision, enabled.revision + 2);
+        drop(attempt);
+        owner.batch_coordinator().stop_batch_operations().unwrap();
+        assert_eq!(
+            read_attempt(&cutover, uid, 1, "successor-instance")
+                .unwrap()
+                .unwrap()
+                .state,
+            AttemptState::UncertainFromPreviousInstance
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_cancel_before_fetch_terminalizes_without_provider_io() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-synthetic-cancel");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        let mut attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+            .unwrap();
+        assert!(attempt.cancel(owner.batch_coordinator()).unwrap());
+        let transport = T4SyntheticTransport {
+            calls: std::cell::Cell::new(0),
+        };
+        assert_eq!(
+            attempt.step(&transport, &mut || panic!(
+                "cancelled attempt generated a profile ID"
+            ),),
+            Err(batch_scheduler::ScheduledOnceError::Work(
+                subscription_batch_work::BatchWorkError::Cancelled,
+            ))
+        );
+        assert_eq!(transport.calls.get(), 0);
+        assert_eq!(
+            attempt
+                .finish(owner.batch_coordinator(), 20_000, 120)
+                .unwrap()
+                .state,
+            AttemptState::Cancelled
+        );
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_owner_revision_race_records_failure_without_late_refresh_commit() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        use crate::subscription_schedule_plan::RefreshSchedule;
+        use crate::subscription_schedule_preference::set_preference;
+        let base = temporary_base("t4-synthetic-revision");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        owner
+            .batch_coordinator()
+            .initialize_batch_operations("synthetic-instance")
+            .unwrap();
+        set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            RefreshSchedule::Every {
+                interval_secs: 6 * 60 * 60,
+            },
+        )
+        .unwrap();
+        let scheduler = batch_scheduler::BatchScheduler::default();
+        let pool = remote_fetch::RemoteFetchPool::default();
+        let mut attempt = scheduler
+            .reserve_scheduled()
+            .unwrap()
+            .admit_scheduled_once(owner.batch_coordinator(), &pool, "synthetic-instance", 100)
+            .unwrap();
+        let transport = T4SyntheticTransport {
+            calls: std::cell::Cell::new(0),
+        };
+        attempt.progress(owner.batch_coordinator()).unwrap();
+        assert_eq!(
+            attempt
+                .step(&transport, &mut || {
+                    "20000000-0000-4000-8000-000000000001".to_owned()
+                })
+                .unwrap(),
+            subscription_batch_work::BatchWorkStep::Ready
+        );
+        let changed = owner
+            .batch_coordinator()
+            .execute_profile(
+                &make_request(
+                    "unrelated",
+                    "profiles.favorite",
+                    json!({"operationId":"unrelated", "profileId":PROFILE_ID,
+                        "enabled":true, "expectedRevision":0}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            changed,
+            native_coordinator::NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+        ));
+        assert_eq!(owner.revision(), 1);
+        assert_eq!(
+            attempt
+                .finish(owner.batch_coordinator(), 20_000, 120)
+                .unwrap()
+                .state,
+            AttemptState::Failed
+        );
+        let store: Value =
+            serde_json::from_slice(&fs::read(base.join("config/profiles.json")).unwrap()).unwrap();
+        assert_eq!(store["subscriptions"][0]["updatedAt"], 7);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_synthetic_reservation_refuses_a_running_manual_batch() {
+        let base = temporary_base("t4-synthetic-manual-busy");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "manual")["ok"],
+            true
+        );
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(
+            server.batch_scheduler.reserve_scheduled(),
+            Err(batch_scheduler::ScheduledOnceError::WorkerBusy)
+        ));
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            wait_batch(&server, "manual")["result"]["operation"]["state"],
+            "succeeded"
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn batch_socket_ack_retry_and_cancel_do_not_wait_for_network() {
         let base = temporary_base("batch-socket");
