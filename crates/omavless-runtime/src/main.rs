@@ -9,7 +9,7 @@ use omavless_runtime::semantic_cli::{
     parse_semantic_read,
 };
 use omavless_runtime::store_preflight::current_store_preflight;
-use omavless_runtime::{RuntimePaths, RuntimeServer, call};
+use omavless_runtime::{RuntimeError, RuntimePaths, RuntimeServer, call, call_semantic_lifecycle};
 use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
@@ -40,9 +40,17 @@ enum CliError {
     Message(String),
     DesktopCancelled,
     ActionOutcomeUnknown,
+    SemanticOutcomeUnknown,
     ActionNotAdmitted,
     LoginSkip,
     LoginFailure(String),
+}
+
+fn semantic_lifecycle_error(error: RuntimeError) -> CliError {
+    match error {
+        RuntimeError::Protocol | RuntimeError::Io => CliError::SemanticOutcomeUnknown,
+        _ => CliError::Message(error.to_string()),
+    }
 }
 
 impl From<String> for CliError {
@@ -542,6 +550,11 @@ fn run() -> Result<(), CliError> {
     let response = if method == "plugin.action" {
         omavless_runtime::call_plugin_action(&paths, params)
             .map_err(|_| CliError::ActionOutcomeUnknown)?
+    } else if matches!(
+        method,
+        "connection.connect" | "connection.disconnect" | "routing.set_mode"
+    ) {
+        call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?
     };
@@ -579,6 +592,10 @@ fn main() -> ExitCode {
             );
             ExitCode::from(73)
         }
+        Err(CliError::SemanticOutcomeUnknown) => {
+            eprintln!("OmaVLESS action outcome is unknown; inspect status before another action");
+            ExitCode::from(73)
+        }
         Err(CliError::ActionNotAdmitted) => {
             eprintln!("OmaVLESS action was not submitted; review the input before retrying");
             ExitCode::from(74)
@@ -587,5 +604,30 @@ fn main() -> ExitCode {
             eprintln!("{message}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_lifecycle_transport_error_requires_status_reconciliation() {
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Protocol),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::Io),
+            CliError::SemanticOutcomeUnknown
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::SocketUnavailable),
+            CliError::Message(_)
+        ));
+        assert!(matches!(
+            semantic_lifecycle_error(RuntimeError::PermissionDenied),
+            CliError::Message(_)
+        ));
     }
 }
