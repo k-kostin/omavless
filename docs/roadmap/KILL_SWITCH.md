@@ -16,6 +16,9 @@ its results do not replace this contract's host/physical acceptance matrix.
 The later [inactive transaction coordinator](../development/K1_COORDINATOR.md)
 connects the planner and durable marker using a synthetic kernel port; it is
 not a root executor or a working host kill switch.
+An [inactive receipt assessment](../development/K1_RECEIPT_ADMISSION.md) now
+models bounded receipt decoding and uncertain-outcome refusal. It supplies no
+kernel ownership authority, receipt storage adapter or automatic orphan recovery.
 
 ## 1. Decision summary
 
