@@ -59,20 +59,45 @@ impl BatchWork {
 }
 
 #[derive(Default)]
+struct WorkerSlot {
+    handle: Option<thread::JoinHandle<()>>,
+    scheduled: Option<NativeBatchTicket>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScheduleOffError {
+    DispatcherUnavailable,
+    AdmissionUnavailable,
+    Owner(native_coordinator::NativeOwnerError),
+    Preference(crate::subscription_schedule_preference::PreferenceError),
+    CancellationUncertain(native_coordinator::NativeOwnerError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScheduleOffResult {
+    pub(crate) preference: crate::subscription_schedule_preference::PreferenceSnapshot,
+    pub(crate) cancellation_requested: bool,
+}
+
+#[derive(Default)]
 pub(super) struct BatchScheduler {
-    worker: Mutex<Option<thread::JoinHandle<()>>>,
+    worker: Mutex<WorkerSlot>,
+    scheduled_inhibited: AtomicBool,
     stopping: Arc<AtomicBool>,
     scheduled_sequence: AtomicU64,
     #[cfg(test)]
     pub(super) fail_next_spawn: AtomicBool,
     #[cfg(test)]
     pub(super) panic_after_scheduled_finish: AtomicBool,
+    #[cfg(test)]
+    pub(super) fail_next_off_after_publish: AtomicBool,
 }
 
 #[allow(dead_code)] // inactive until a separately reviewed supervised worker exists
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScheduledOnceError {
     Stopping,
+    AdmissionUncertain,
     WorkerBusy,
     CounterExhausted,
     Protocol,
@@ -307,7 +332,7 @@ impl Drop for Supervisor {
 #[allow(dead_code)]
 pub(crate) struct ScheduledAdmissionGuard<'a> {
     scheduler: &'a BatchScheduler,
-    _worker: std::sync::MutexGuard<'a, Option<thread::JoinHandle<()>>>,
+    _worker: std::sync::MutexGuard<'a, WorkerSlot>,
 }
 
 #[allow(dead_code)] // inactive one-shot seam, constructed by synthetic tests
@@ -328,9 +353,12 @@ impl BatchScheduler {
 
     #[cfg(test)]
     pub(super) fn worker_finished(&self) -> bool {
-        self.worker
-            .lock()
-            .is_ok_and(|worker| worker.as_ref().is_none_or(thread::JoinHandle::is_finished))
+        self.worker.lock().is_ok_and(|worker| {
+            worker
+                .handle
+                .as_ref()
+                .is_none_or(thread::JoinHandle::is_finished)
+        })
     }
 
     /// Reserve manual/scheduled admission before taking the owner lock. An
@@ -345,7 +373,14 @@ impl BatchScheduler {
         if self.stopping.load(Ordering::Acquire) {
             return Err(ScheduledOnceError::Stopping);
         }
-        if worker.as_ref().is_some_and(|handle| !handle.is_finished()) {
+        if self.scheduled_inhibited.load(Ordering::Acquire) {
+            return Err(ScheduledOnceError::AdmissionUncertain);
+        }
+        if worker
+            .handle
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+        {
             return Err(ScheduledOnceError::WorkerBusy);
         }
         Ok(ScheduledAdmissionGuard {
@@ -371,9 +406,10 @@ impl BatchScheduler {
         G: FnMut() -> String + Send + 'static,
     {
         let mut reservation = self.reserve_scheduled()?;
-        if let Some(previous) = reservation._worker.take() {
+        if let Some(previous) = reservation._worker.handle.take() {
             let _ = previous.join();
         }
+        reservation._worker.scheduled = None;
         let attempt = {
             let mut dispatcher_guard = inputs
                 .dispatcher
@@ -389,6 +425,7 @@ impl BatchScheduler {
                 inputs.started_at_secs,
             )?
         };
+        let scheduled = attempt.batch_ticket.clone();
         let supervisor = ScheduledSupervisor {
             dispatcher: Arc::clone(inputs.dispatcher),
             attempt: Some(attempt),
@@ -413,8 +450,45 @@ impl BatchScheduler {
                 );
             })
             .map_err(|_| ScheduledOnceError::SpawnFailed)?;
-        *reservation._worker = Some(handle);
+        reservation._worker.handle = Some(handle);
+        reservation._worker.scheduled = Some(scheduled);
         Ok(())
+    }
+
+    /// Inactive, synthetic-only Off entry point. Cancellation is cooperative;
+    /// success confirms durable Off, never completion of an in-flight request.
+    #[allow(dead_code)]
+    pub(crate) fn disable_scheduled(
+        &self,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        expected_revision: u64,
+    ) -> std::result::Result<ScheduleOffResult, ScheduleOffError> {
+        let worker = self
+            .worker
+            .lock()
+            .map_err(|_| ScheduleOffError::AdmissionUnavailable)?;
+        let mut dispatcher = dispatcher
+            .lock()
+            .map_err(|_| ScheduleOffError::DispatcherUnavailable)?;
+        let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+            return Err(ScheduleOffError::DispatcherUnavailable);
+        };
+        let result = owner.scheduled_disable(
+            expected_revision,
+            worker.scheduled.as_ref(),
+            #[cfg(test)]
+            self.fail_next_off_after_publish
+                .swap(false, Ordering::AcqRel),
+        );
+        if matches!(
+            result,
+            Err(ScheduleOffError::Preference(
+                crate::subscription_schedule_preference::PreferenceError::WriteUncertain
+            )) | Err(ScheduleOffError::CancellationUncertain(_))
+        ) {
+            self.scheduled_inhibited.store(true, Ordering::Release);
+        }
+        result
     }
 }
 
@@ -758,9 +832,10 @@ impl BatchScheduler {
         if let Some(work) = work {
             // A new job can only be admitted after its predecessor terminalized
             // under the owner mutex. The predecessor has no remaining I/O.
-            if let Some(previous) = worker.take() {
+            if let Some(previous) = worker.handle.take() {
                 let _ = previous.join();
             }
+            worker.scheduled = None;
             let supervisor = Supervisor {
                 dispatcher: Arc::clone(dispatcher),
                 ticket: Some(work.ticket()),
@@ -770,7 +845,7 @@ impl BatchScheduler {
             match self.spawn(move || {
                 run(work, supervisor, &stopping, &pool);
             }) {
-                Ok(handle) => *worker = Some(handle),
+                Ok(handle) => worker.handle = Some(handle),
                 // Failed spawn drops the captured supervisor, terminalizing the
                 // admitted operation without a detached/lost private payload.
                 Err(_) => {
@@ -798,7 +873,8 @@ impl BatchScheduler {
                 owner.batch_stop();
                 auxiliary = owner.auxiliary_slot();
             }
-            worker.take()
+            worker.scheduled = None;
+            worker.handle.take()
         } else {
             None
         };

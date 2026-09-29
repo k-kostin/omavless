@@ -4075,6 +4075,35 @@ mod tests {
     }
 
     #[test]
+    fn schedule_off_ticket_cannot_cancel_a_successor_or_wrong_revision() {
+        let (root, path, mut owner) = batch_fixture("off-exact-ticket");
+        let before = fs::read(&path).unwrap();
+        let first = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "first"))
+            .unwrap()
+            .unwrap();
+        let stale = first.supervisor_ticket();
+        owner
+            .abort_subscription_batch(first.supervisor_ticket())
+            .unwrap();
+        drop(first);
+        let mut next = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "next"))
+            .unwrap()
+            .unwrap();
+        assert!(owner.cancel_exact_subscription_ticket(&stale).is_err());
+        let mut wrong = next.supervisor_ticket();
+        wrong.subscription_base_revision = Some(999);
+        assert!(owner.cancel_exact_subscription_ticket(&wrong).is_err());
+        assert_eq!(batch_status(&owner, "next")["cancelRequested"], false);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        run_batch(&owner, &mut next);
+        owner.complete_subscription_batch(next, || 20).unwrap();
+        assert_eq!(batch_status(&owner, "next")["state"], "succeeded");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn batch_owner_supervisor_reclaims_lost_worker_without_revoking_successor() {
         let (root, path, mut owner) = batch_fixture("batch-lost-worker");
         let before = fs::read(&path).unwrap();

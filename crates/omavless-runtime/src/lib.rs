@@ -433,6 +433,12 @@ trait NativeRuntimeOwner: Send {
     >;
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
+    fn scheduled_disable(
+        &mut self,
+        expected_revision: u64,
+        ticket: Option<&native_coordinator::NativeBatchTicket>,
+        #[cfg(test)] uncertain_after_publish: bool,
+    ) -> std::result::Result<batch_scheduler::ScheduleOffResult, batch_scheduler::ScheduleOffError>;
     fn scheduled_admit(
         &mut self,
         guard: &batch_scheduler::ScheduledAdmissionGuard<'_>,
@@ -990,6 +996,25 @@ where
 
     fn batch_stop(&mut self) {
         let _ = self.owner.batch_coordinator().stop_batch_operations();
+    }
+
+    fn scheduled_disable(
+        &mut self,
+        expected_revision: u64,
+        ticket: Option<&native_coordinator::NativeBatchTicket>,
+        #[cfg(test)] uncertain_after_publish: bool,
+    ) -> std::result::Result<batch_scheduler::ScheduleOffResult, batch_scheduler::ScheduleOffError>
+    {
+        #[cfg(test)]
+        if uncertain_after_publish {
+            return self
+                .owner
+                .batch_coordinator()
+                .disable_subscription_schedule_uncertain(expected_revision, ticket);
+        }
+        self.owner
+            .batch_coordinator()
+            .disable_subscription_schedule(expected_revision, ticket)
     }
 
     fn scheduled_admit(
@@ -5267,6 +5292,231 @@ mod tests {
             assert_eq!(transport.calls.get(), 0);
             fs::remove_dir_all(base).unwrap();
         }
+    }
+
+    #[test]
+    fn t4_serialized_off_cancels_inflight_without_waiting_or_committing() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-owner-off");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let off = server
+            .batch_scheduler
+            .disable_scheduled(&server.dispatcher, 1)
+            .unwrap();
+        assert!(off.cancellation_requested);
+        assert_eq!(
+            off.preference.schedule,
+            subscription_schedule_plan::RefreshSchedule::Off
+        );
+        assert_eq!(off.preference.revision, 2);
+        assert!(!server.batch_scheduler.worker_finished());
+        assert!(!server.batch_scheduler.is_stopping());
+        assert!(matches!(
+            server.batch_scheduler.reserve_scheduled(),
+            Err(batch_scheduler::ScheduledOnceError::WorkerBusy)
+        ));
+        release_tx.send(()).unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Superseded);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        let again = server
+            .batch_scheduler
+            .disable_scheduled(&server.dispatcher, 2)
+            .unwrap();
+        assert!(!again.cancellation_requested);
+        assert_eq!(again.preference, off.preference);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_serialized_off_uncertain_publication_cancels_and_inhibits_new_work() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-off-uncertain");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let before = fs::read(base.join("config/profiles.json")).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        server
+            .batch_scheduler
+            .fail_next_off_after_publish
+            .store(true, Ordering::Release);
+        assert_eq!(
+            server
+                .batch_scheduler
+                .disable_scheduled(&server.dispatcher, 1),
+            Err(batch_scheduler::ScheduleOffError::Preference(
+                subscription_schedule_preference::PreferenceError::WriteUncertain
+            ))
+        );
+        release_tx.send(()).unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Superseded);
+        assert_eq!(fs::read(base.join("config/profiles.json")).unwrap(), before);
+        // Even a later private enable does not clear this runtime's uncertainty.
+        subscription_schedule_preference::set_preference(
+            &cutover,
+            uid,
+            1,
+            2,
+            subscription_schedule_plan::RefreshSchedule::Every {
+                interval_secs: 21600,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            server.batch_scheduler.reserve_scheduled(),
+            Err(batch_scheduler::ScheduledOnceError::AdmissionUncertain)
+        ));
+        assert!(!server.batch_scheduler.is_stopping());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_serialized_off_leaves_manual_inflight_refresh_running() {
+        let base = temporary_base("t4-off-manual");
+        let (owner, cutover, _) = native_owner_fixture(&base);
+        let uid = fs::metadata(&base).unwrap().uid();
+        subscription_schedule_preference::set_preference(
+            &cutover,
+            uid,
+            1,
+            0,
+            subscription_schedule_plan::RefreshSchedule::Every {
+                interval_secs: 21600,
+            },
+        )
+        .unwrap();
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        );
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "manual-off")["ok"],
+            true
+        );
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let off = server
+            .batch_scheduler
+            .disable_scheduled(&server.dispatcher, 1)
+            .unwrap();
+        assert!(!off.cancellation_requested);
+        release_tx.send(()).unwrap();
+        wait_t4_worker_finished(&server);
+        assert_eq!(
+            batch_call(&server, "operations.get", "manual-off")["result"]["operation"]["state"],
+            "succeeded"
+        );
+        assert!(
+            subscription_schedule_attempt::read_attempt(&cutover, uid, 1, &server.instance_id)
+                .unwrap()
+                .is_none()
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_serialized_off_stale_choice_has_no_cancellation_effect() {
+        use crate::subscription_schedule_attempt::AttemptState;
+        let base = temporary_base("t4-owner-off-stale");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        start_t4_worker(
+            &server,
+            BlockingTransport {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            },
+        )
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            server
+                .batch_scheduler
+                .disable_scheduled(&server.dispatcher, 0),
+            Err(batch_scheduler::ScheduleOffError::Preference(
+                subscription_schedule_preference::PreferenceError::RevisionConflict
+            ))
+        );
+        let preference_path = cutover
+            .state_directory
+            .join("subscription-refresh-preference.json");
+        fs::set_permissions(&preference_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            server
+                .batch_scheduler
+                .disable_scheduled(&server.dispatcher, 1),
+            Err(batch_scheduler::ScheduleOffError::Preference(
+                subscription_schedule_preference::PreferenceError::UnsafeState
+            ))
+        );
+        fs::set_permissions(&preference_path, fs::Permissions::from_mode(0o600)).unwrap();
+        release_tx.send(()).unwrap();
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Succeeded);
+        let off = server
+            .batch_scheduler
+            .disable_scheduled(&server.dispatcher, 1)
+            .unwrap();
+        assert!(!off.cancellation_requested);
+        wait_t4_attempt(&server, &cutover, uid, AttemptState::Succeeded);
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn t4_serialized_off_without_worker_persists_and_blocks_admission() {
+        let base = temporary_base("t4-owner-off-empty");
+        let (server, cutover, uid) = t4_worker_server(&base);
+        let off = server
+            .batch_scheduler
+            .disable_scheduled(&server.dispatcher, 1)
+            .unwrap();
+        assert!(!off.cancellation_requested);
+        assert_eq!(
+            subscription_schedule_preference::read_preference(&cutover, uid, 1).unwrap(),
+            off.preference
+        );
+        assert!(
+            subscription_schedule_attempt::read_attempt(&cutover, uid, 1, &server.instance_id)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            start_t4_worker(&server, T4NoNetworkTransport),
+            Err(batch_scheduler::ScheduledOnceError::Attempt(
+                subscription_schedule_attempt::AttemptError::ScheduleOff
+            ))
+        );
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

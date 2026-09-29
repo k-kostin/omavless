@@ -186,6 +186,127 @@ impl NativeSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    /// Inactive Off transaction. The caller holds scheduler admission and the
+    /// dispatcher; this lease spans preference publication and exact cancel.
+    pub(crate) fn disable_subscription_schedule(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    {
+        self.disable_subscription_schedule_with(
+            expected_revision,
+            scheduled,
+            crate::subscription_schedule_preference::set_preference_locked,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disable_subscription_schedule_uncertain(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    {
+        self.disable_subscription_schedule_with(
+            expected_revision,
+            scheduled,
+            |paths, uid, generation, revision, schedule| {
+                crate::subscription_schedule_preference::set_preference_locked(
+                    paths, uid, generation, revision, schedule,
+                )?;
+                Err(crate::subscription_schedule_preference::PreferenceError::WriteUncertain)
+            },
+        )
+    }
+
+    fn disable_subscription_schedule_with<F>(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+        write: F,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    where
+        F: FnOnce(
+            &crate::cutover::CutoverPaths,
+            u32,
+            u64,
+            u64,
+            RefreshSchedule,
+        ) -> Result<
+            crate::subscription_schedule_preference::PreferenceSnapshot,
+            crate::subscription_schedule_preference::PreferenceError,
+        >,
+    {
+        use crate::batch_scheduler::{ScheduleOffError, ScheduleOffResult};
+        use crate::subscription_schedule_preference::PreferenceError;
+        let _lock = self.batch_lock().map_err(ScheduleOffError::Owner)?;
+        let generation = self
+            .required_ownership
+            .ok_or(ScheduleOffError::Owner(
+                NativeOwnerError::OwnershipUnavailable,
+            ))?
+            .generation;
+        let result = write(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            generation,
+            expected_revision,
+            RefreshSchedule::Off,
+        );
+        // Only a confirmed publication or an uncertain write permits touching
+        // the captured worker. Stale/unsafe requests have no cancellation effect.
+        if result
+            .as_ref()
+            .is_err_and(|error| *error != PreferenceError::WriteUncertain)
+        {
+            return Err(ScheduleOffError::Preference(result.unwrap_err()));
+        }
+        let cancellation = scheduled
+            .map(|ticket| self.cancel_exact_subscription_ticket(ticket))
+            .transpose();
+        let preference = result.map_err(ScheduleOffError::Preference)?;
+        let cancellation_requested = cancellation
+            .map_err(ScheduleOffError::CancellationUncertain)?
+            .unwrap_or(false);
+        Ok(ScheduleOffResult {
+            preference,
+            cancellation_requested,
+        })
+    }
+
+    pub(super) fn cancel_exact_subscription_ticket(
+        &mut self,
+        ticket: &NativeBatchTicket,
+    ) -> Result<bool, NativeOwnerError> {
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if state.instance != ticket.instance || ticket.base_revision().is_none() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let base_revision = ticket.base_revision().ok_or(NativeOwnerError::Invariant)?;
+        if let Some((token, flag)) = state.active.as_ref() {
+            if *token != ticket.token || !matches!(flag, ActiveCancellation::Subscription(_)) {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            let accepted = state
+                .registry
+                .request_cancel_token(ticket.token, base_revision)
+                .map_err(NativeOwnerError::LongOperation)?;
+            if accepted {
+                flag.request();
+            }
+            Ok(accepted)
+        } else {
+            state
+                .registry
+                .request_cancel_token(ticket.token, base_revision)
+                .map_err(NativeOwnerError::LongOperation)
+        }
+    }
+
     /// Read an exact terminal batch result under the owner lock. The caller
     /// must keep the ticket from admission; an arbitrary status projection or
     /// a successful `Result<()>` is not proof that a store commit occurred.
