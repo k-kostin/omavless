@@ -108,3 +108,40 @@ Open decisions before implementation: cryptographic format and passphrase UX;
 private byte-transfer/destination API; portable template policy; whether a
 later version can offer an explicit non-destructive import/merge; and precise
 transaction-journal layout. None is settled by this proposal.
+
+## Test-only inner payload framing candidate
+
+The `omavless-domain` test-only `backup_payload_candidate` module explores one
+bounded inner payload representation. It is excluded from non-test builds and
+has no runtime caller, file handling, credentials, cryptography or IPC surface.
+Its plaintext output is **not a backup** and must never be saved as one.
+
+The experimental framing is eight literal bytes `OVTESTP1`, then two big-endian
+u32 lengths, then exact store bytes followed by exact template bytes. Member
+identity and order are implicit: only those two members exist; no path names,
+compression, recursive containers or optional extensions are admitted. Empty
+members, unknown magic/version, individual sizes above the existing 5-MiB store
+and 2-MiB template limits, truncation and any trailing bytes are rejected before
+returning borrowed slices. This is not a stable interoperable format commitment.
+
+Seven synthetic tests cover an independently hand-authored wire fixture, every
+truncation, appended/duplicate container data, mutated magic, malicious lengths,
+exact limits and fixed private-data-free errors. A deliberate negative-security
+test proves that content tampering and malformed member semantics can still
+pass framing: structural decode is **not authentication or restore validation**.
+No decoded private type implements Debug, Display, Clone or serialization.
+Borrowed slices avoid a decoder plaintext copy but provide no zeroization claim.
+
+This narrower gate does not select an AEAD/KDF library or parameters. Before
+adding encryption, review the interoperable outer format, authenticated header
+coverage, unique nonce/salt generation and RNG failure, bounded KDF resource
+policy, passphrase encoding/UX, memory cleanup, dependency advisories and
+independent known-answer/interoperability evidence. Authentication must finish
+before inner semantic parsing or preview. Public wrong-passphrase/corruption
+errors must remain fixed; this framing test makes no timing-oracle guarantee.
+
+Strict current-schema store validation (including duplicate/unknown members),
+portable-template policy, consistent owner snapshot, private byte transfer,
+exclusive destination publication, disconnected restore admission and durable
+multi-file recovery are still required. No filesystem/VM/host/UI acceptance,
+production activation or completed backup/restore feature is claimed.

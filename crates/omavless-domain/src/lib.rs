@@ -13,3 +13,7 @@ pub mod subscription;
 pub mod subscription_feed;
 pub mod subscription_metadata;
 pub mod subscription_usage_store;
+
+// Experimental plaintext framing only; deliberately absent from product builds.
+#[cfg(test)]
+mod backup_payload_candidate;
