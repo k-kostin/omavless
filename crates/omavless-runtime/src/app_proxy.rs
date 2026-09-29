@@ -12,6 +12,8 @@
 
 use std::fmt;
 
+pub mod codec;
+
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
