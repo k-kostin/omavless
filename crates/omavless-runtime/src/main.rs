@@ -9,7 +9,10 @@ use omavless_runtime::semantic_cli::{
     parse_semantic_read,
 };
 use omavless_runtime::store_preflight::current_store_preflight;
-use omavless_runtime::{RuntimeError, RuntimePaths, RuntimeServer, call, call_semantic_lifecycle};
+use omavless_runtime::{
+    RuntimeError, RuntimePaths, RuntimeServer, call, call_semantic_lifecycle,
+    is_semantic_lifecycle_method,
+};
 use serde_json::json;
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::flag;
@@ -550,10 +553,7 @@ fn run() -> Result<(), CliError> {
     let response = if method == "plugin.action" {
         omavless_runtime::call_plugin_action(&paths, params)
             .map_err(|_| CliError::ActionOutcomeUnknown)?
-    } else if matches!(
-        method,
-        "connection.connect" | "connection.disconnect" | "routing.set_mode"
-    ) {
+    } else if is_semantic_lifecycle_method(method) {
         call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?

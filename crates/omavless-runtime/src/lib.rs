@@ -2171,12 +2171,16 @@ pub fn call(paths: &RuntimePaths, method: &str, params: Value) -> Result<Value> 
     call_with_timeout(paths, method, params, IO_TIMEOUT)
 }
 
-fn semantic_lifecycle_timeout(method: &str) -> Option<Duration> {
+#[must_use]
+pub fn is_semantic_lifecycle_method(method: &str) -> bool {
     matches!(
         method,
         "connection.connect" | "connection.disconnect" | "routing.set_mode"
     )
-    .then_some(Duration::from_secs(120))
+}
+
+fn semantic_lifecycle_timeout(method: &str) -> Option<Duration> {
+    is_semantic_lifecycle_method(method).then_some(Duration::from_secs(120))
 }
 
 /// Semantic CLI lifecycle commands can wait for the bounded host transition.
@@ -2871,6 +2875,7 @@ mod tests {
             "subscriptions.probe",
             "status.get",
         ] {
+            assert!(is_semantic_lifecycle_method(method));
             assert_eq!(
                 server
                     .dispatch(&make_request("after", method, json!({})).unwrap())
@@ -3356,6 +3361,7 @@ mod tests {
             );
         }
         for method in ["status.get", "profiles.import", "plugin.action", "unknown"] {
+            assert!(!is_semantic_lifecycle_method(method));
             assert_eq!(semantic_lifecycle_timeout(method), None);
         }
         let root = temporary_base("semantic-lifecycle-missing");
