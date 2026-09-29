@@ -110,3 +110,8 @@ no-auto-start flag. The fake same-user manager is explicitly not trusted as
 systemd. No real manager environment, desktop setting, private profile, VM or
 host session is used by these tests. Installed exact-head endpoint/backend
 acceptance, broker provenance and all writable recovery gates remain pending.
+
+The separate opt-in [AUTH sender probe](S1_AUTH_SENDER_PROBE.md) investigates
+socket-activation provenance using kernel credentials on an authentication
+response. It does not replace this observer's GIO handshake or establish
+shared-activation authority.

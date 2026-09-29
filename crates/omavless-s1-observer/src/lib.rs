@@ -6,6 +6,11 @@
 use omavless_runtime::app_proxy::{Snapshot, codec};
 use std::fmt;
 
+#[cfg(feature = "auth-sender-probe")]
+mod auth_sender;
+#[cfg(feature = "auth-sender-probe")]
+pub use auth_sender::{AuthSenderProbe, probe_auth_sender_read_only};
+
 #[cfg(feature = "gio-observation")]
 mod gio_host;
 #[cfg(feature = "gio-observation")]

@@ -160,7 +160,7 @@ fn authenticate(socket: &gio::Socket) -> Result<gio::DBusConnection, Error> {
     Ok(connection)
 }
 
-fn fixed_directory(uid: u32) -> Result<File, Error> {
+pub(super) fn fixed_directory(uid: u32) -> Result<File, Error> {
     let mut directory = File::from(
         open(Path::new("/"), directory_flags(), Mode::empty())
             .map_err(|_| Error::IdentityUnverified)?,
@@ -204,7 +204,7 @@ fn validate_directory(directory: &File, uid: u32, private: bool) -> Result<(), E
     Ok(())
 }
 
-fn validate_environment(
+pub(super) fn validate_environment(
     runtime: &str,
     xdg: Option<&std::ffi::OsStr>,
     address: Option<&std::ffi::OsStr>,
@@ -220,7 +220,7 @@ fn validate_environment(
     Ok(())
 }
 
-fn pin_endpoint(directory: &File, uid: u32) -> Result<File, Error> {
+pub(super) fn pin_endpoint(directory: &File, uid: u32) -> Result<File, Error> {
     let endpoint = File::from(
         openat(
             directory,
@@ -237,7 +237,7 @@ fn pin_endpoint(directory: &File, uid: u32) -> Result<File, Error> {
     Ok(endpoint)
 }
 
-fn connect_endpoint(endpoint: &File) -> Result<gio::Socket, Error> {
+pub(super) fn connect_endpoint(endpoint: &File) -> Result<gio::Socket, Error> {
     let socket = gio::Socket::new(
         gio::SocketFamily::Unix,
         gio::SocketType::Stream,
@@ -274,7 +274,7 @@ fn peer_identity(socket: &gio::Socket, uid: u32) -> Result<(u32, u64), Error> {
     Ok((pid, process_start(pid, uid)?))
 }
 
-fn process_start(pid: u32, uid: u32) -> Result<u64, Error> {
+pub(super) fn process_start(pid: u32, uid: u32) -> Result<u64, Error> {
     if pid == 0 {
         return Err(Error::IdentityUnverified);
     }
