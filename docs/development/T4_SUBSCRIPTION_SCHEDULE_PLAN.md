@@ -21,3 +21,24 @@ permits, cancellation/shutdown, provider failure handling, and privacy-safe
 status. Installed ARM64 integration must check explicit enable/disable,
 disconnect and ownership races; physical suspend/network transition behavior
 requires its own host evidence. None of those gates is claimed here.
+
+## Stacked private preference checkpoint
+
+The next Draft adds an inactive, private `subscription-refresh-preference.json`
+beside the ownership marker. A missing file means Off. Only an explicit call to
+the new Rust setter may enable a 6-hour to 7-day interval. It acquires the
+shared migration lock, proves the exact committed Rust generation, compares a
+monotonic preference revision, and publishes a complete `0600` replacement.
+Reads reject malformed, oversized, symlinked, public or wrong-generation state.
+An ownership transition cannot silently resume a schedule saved by a prior
+generation. An explicit Off choice with revision zero rebinds a valid stale
+preference to the current generation; enabling it then needs a second explicit
+choice against the returned revision. The setter has no socket, CLI or QML
+registration.
+
+The persisted file contains only schema, owner generation, preference revision
+and interval. There is no URL, profile ID or attempt result. Before enabling a
+timer, the next implementation must add durable attempt-begin/outcome history
+and crash/restart disposition, bind scheduler admission to the serialized owner
+revision, share the existing four-provider fetch permits, and recheck state
+before commit. This checkpoint has no provider request or installed behavior.
