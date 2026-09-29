@@ -69,6 +69,7 @@ impl NativeSubscriptionProbe {
         NativeBatchTicket {
             instance: self.instance.clone(),
             token: self.token,
+            subscription_base_revision: None,
         }
     }
     #[must_use]
