@@ -76,6 +76,17 @@ impl std::error::Error for LongOperationError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LongOperationToken(u64);
 
+impl LongOperationToken {
+    pub(crate) const fn sequence(self) -> u64 {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn synthetic(sequence: u64) -> Self {
+        Self(sequence)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartOutcome {
     Started(LongOperationToken),
@@ -160,6 +171,23 @@ impl Default for LongOperationRegistry {
 }
 
 impl LongOperationRegistry {
+    /// Owner-only terminal projection by an unforgeable in-memory token. This
+    /// cannot be queried with an IPC operation ID and cannot select a later
+    /// operation that reused the same human-visible ID.
+    pub(crate) fn terminal_by_token(
+        &self,
+        token: LongOperationToken,
+    ) -> Option<(LongOperationState, u64, usize, Option<StableErrorCode>)> {
+        self.completed
+            .iter()
+            .find(|record| record.token == token)
+            .and_then(|record| {
+                record
+                    .outcome_revision
+                    .map(|revision| (record.state, revision, record.total, record.error))
+            })
+    }
+
     pub fn new(instance_id: &str, limit: usize) -> Result<Self, LongOperationError> {
         if limit == 0 || limit > MAX_COMPLETED_OPERATION_LIMIT {
             return Err(LongOperationError::InvalidBounds);
@@ -435,6 +463,32 @@ impl LongOperationRegistry {
                 token: record.token,
             })
             .ok_or(LongOperationError::NotFound)
+    }
+
+    /// Exact internal capability; never retarget cancellation through an ID.
+    pub(crate) fn request_cancel_token(
+        &mut self,
+        token: LongOperationToken,
+        base_revision: u64,
+    ) -> Result<bool, LongOperationError> {
+        if let Some(record) = self
+            .active
+            .as_mut()
+            .filter(|record| record.token == token && record.base_revision == base_revision)
+        {
+            if record.cancellable {
+                record.cancel_requested = true;
+            }
+            return Ok(record.cancellable);
+        }
+        if self
+            .completed
+            .iter()
+            .any(|record| record.token == token && record.base_revision == base_revision)
+        {
+            return Ok(false);
+        }
+        Err(LongOperationError::NotFound)
     }
 
     /// Atomically close cancellation before final owner admission/commit. If

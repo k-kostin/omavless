@@ -105,11 +105,18 @@ pub struct Observation {
 #[derive(Clone)]
 pub struct Snapshot {
     pub active_connections: Option<u32>,
+    pub connection_overview: Option<crate::inspection::ConnectionOverview>,
+    pub connection_rows: Option<crate::inspection::ConnectionRows>,
     pub profile_details: Option<crate::inspection::ProfileDetails>,
     pub core_diagnostics: Option<crate::inspection::CoreDiagnostics>,
+    pub core_log_hints: Option<crate::inspection::CoreLogHints>,
     pub capabilities: crate::inspection::Capabilities,
     pub traffic: Option<crate::inspection::Traffic>,
     pub diagnostics: Option<crate::inspection::Diagnostics>,
+    pub rules: Option<crate::inspection::Rules>,
+    pub providers: Option<crate::inspection::Providers>,
+    pub custom_rules: Option<crate::inspection::CustomRules>,
+    pub host_support: Option<crate::inspection::HostSupport>,
     pub inspection_available: (bool, bool),
     pub actions_available: bool,
     pub revision: u64,
@@ -229,13 +236,22 @@ impl Snapshot {
         }
         Ok(Self {
             active_connections: None,
+            connection_overview: None,
+            connection_rows: None,
             profile_details: None,
             core_diagnostics: crate::inspection::CoreDiagnostics::parse(
                 &observed["result"]["coreDiagnostics"],
             ),
+            core_log_hints: crate::inspection::CoreLogHints::parse(
+                &observed["result"]["coreLogHints"],
+            ),
             capabilities: crate::inspection::Capabilities::default(),
             traffic: None,
             diagnostics: None,
+            rules: None,
+            providers: None,
+            custom_rules: None,
+            host_support: None,
             inspection_available: (false, false),
             actions_available: false,
             revision,

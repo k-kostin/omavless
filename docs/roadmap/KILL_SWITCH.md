@@ -4,6 +4,25 @@ Status: accepted K0 threat model and host-integration contract, 2026-08-28.
 This document makes K1 implementation-ready. It does not install a helper,
 change nftables, alter routes or advertise a working kill switch.
 
+September 29 development candidate: the [offline foundation](../development/K1_FOUNDATION.md)
+adds strict fixed protocol, acknowledged helper transactions and symbolic policy
+tests. An [offline fixed renderer candidate](../development/K1_RENDERER.md) now
+adds JSON creation and strict readback with independently supplied ownership
+facts; it has no executor or production caller. K1 implementation,
+host acceptance and product availability remain incomplete.
+The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
+tests synthetic egress and near-miss exceptions without a production service;
+its results do not replace this contract's host/physical acceptance matrix.
+The later [inactive transaction coordinator](../development/K1_COORDINATOR.md)
+connects the planner and durable marker using a synthetic kernel port; it is
+not a root executor or a working host kill switch.
+An [inactive receipt assessment](../development/K1_RECEIPT_ADMISSION.md) now
+models bounded receipt decoding and uncertain-outcome refusal. It supplies no
+kernel ownership authority, receipt storage adapter or automatic orphan recovery.
+The subsequent [shared-lock transaction candidate](../development/K1_LOCKED_STATE.md)
+combines durable marker/receipt writes with synthetic kernel effects and strict
+pending-phase refusal. It provides no production ownership or recovery adapter.
+
 ## 1. Decision summary
 
 K1 is an opt-in, **Full VPN only** kill switch enforced by a separately
@@ -135,8 +154,10 @@ temporary lockout, not a leak.
 1. Persist desired disconnected.
 2. Stop the owned core and verify service/process/TUN/controller cleanup.
 3. Ask NetGuard to disarm the matching generation.
-4. NetGuard removes the persistent armed marker, atomically deletes only its
-   own nftables table, verifies absence, then reports disarmed.
+4. NetGuard durably replaces the armed marker with a closed-generation fence,
+   atomically deletes only its proven-owned nftables table, verifies absence,
+   then reports disarmed. That generation and every older generation can never
+   arm again, including after restart.
 5. Publish disconnected/disarmed.
 
 If core cleanup or disarm cannot be verified, return
@@ -199,7 +220,11 @@ performed intentionally in a terminal.
 NetGuard owns only `inet omavless_netguard`. Every change is constructed from a
 compiled/audited template and committed as one nftables transaction. It never
 uses `flush ruleset`, rewrites `/etc/nftables.conf` or adopts another firewall's
-table.
+table. Observations distinguish proven absence, independently proven ownership
+(verified or unrecognized policy), foreign ownership and unreadable/incomplete
+facts. Foreign/unreadable tables refuse normal and restart mutations; a fixed
+name alone never authorizes replace/delete. Create must refuse a raced table,
+and replace/delete must revalidate ownership before committing.
 
 The output policy is route-independent and evaluated late enough that an
 unmarked physical path cannot be accepted merely by an earlier base chain.
@@ -275,9 +300,20 @@ atomically replaced and directory-fsynced. It contains only schema/policy
 version, enrolled UID, generation, armed state and fixed-policy flags. It has
 no profile ID, endpoint, hostname, URI, password, key or subscription URL.
 
-Missing state means disarmed. An existing malformed/newer armed document is
-treated as emergency protected state: install the most restrictive fixed
-policy and require explicit recovery rather than assuming disconnected.
+Missing state means fresh/disarmed only after kernel table absence is verified.
+It cannot prove that an interrupted arm left no rules: a stale proven-owned
+table requires reconciliation, and foreign/unreadable facts require refusal.
+The inactive [root-state foundation](../development/K1_ROOT_STATE.md) implements
+only marker persistence, not a service or kernel ownership receipt.
+Normal disarm retains a durable
+closed-generation fence in the same record, even when no table remains. Future
+arms require a strictly greater generation; exhaustion never wraps. Recovery
+and upgrade must preserve this fence rather than silently recycling generations.
+An existing malformed/newer document requires emergency handling: install the
+most restrictive fixed policy only if the table is absent or proven-owned,
+then report emergency protection and require explicit recovery. Foreign or
+unreadable table facts refuse mutation and report recovery without claiming
+protection. Neither case is assumed disconnected.
 
 ### Boot ordering
 
@@ -322,8 +358,12 @@ The root package provides one console command equivalent to:
 sudo omavless-netguard recover
 ```
 
-It requires a terminal/admin decision, deletes only the dedicated OmaVLESS
-table and root armed state, verifies both are absent and prints bounded status.
+It requires a terminal/admin decision, deletes only the proven-owned dedicated
+OmaVLESS table and clears armed intent, retaining any known closed-generation
+fence. It verifies table/armed-intent absence and prints bounded status.
+If the generation cannot be trusted, renewed arm requires separately reviewed
+enrollment/generation recovery; simply deleting invalid state must not silently
+re-admit previously delayed requests.
 It accepts no shell fragment, nft expression, path, table name, interface,
 address or command. Recovery intentionally restores direct connectivity and is
 therefore never invoked automatically by QML or the unprivileged runtime.

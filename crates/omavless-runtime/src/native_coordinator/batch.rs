@@ -9,6 +9,7 @@ use crate::long_operation::{
     CommitFence, DEFAULT_COMPLETED_OPERATION_LIMIT, LongOperationError, LongOperationRegistry,
     LongOperationToken, StartOutcome,
 };
+use crate::long_operation_protocol::LongOperationState;
 use crate::long_operation_protocol::{
     parse_operation_cancel, parse_operation_get, parse_refresh_all_start,
 };
@@ -21,6 +22,8 @@ use crate::subscription_batch_work::{
 use crate::subscription_mutation::{
     commit_subscription_refresh_batch, snapshot_subscription_refresh_batch,
 };
+use crate::subscription_schedule_plan::RefreshSchedule;
+use crate::subscription_schedule_preference::read_locked as read_schedule_preference_locked;
 use omavless_domain::private_store::{
     SubscriptionRefreshBatchEntries, SubscriptionRefreshBatchSnapshot,
 };
@@ -53,6 +56,91 @@ impl ActiveCancellation {
 pub struct NativeBatchTicket {
     pub(super) instance: String,
     pub(super) token: LongOperationToken,
+    pub(super) subscription_base_revision: Option<u64>,
+}
+
+impl NativeBatchTicket {
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance
+    }
+
+    pub(crate) fn sequence(&self) -> u64 {
+        self.token.sequence()
+    }
+
+    pub(crate) fn base_revision(&self) -> Option<u64> {
+        self.subscription_base_revision
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(instance: &str, sequence: u64, base_revision: u64) -> Self {
+        Self {
+            instance: instance.to_owned(),
+            token: LongOperationToken::synthetic(sequence),
+            subscription_base_revision: Some(base_revision),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeBatchOutcome {
+    Committed,
+    Empty,
+    Cancelled,
+    Failed,
+    /// An atomic store replacement may have happened before a sync error.
+    /// Never infer failure or retry from this result.
+    Uncertain,
+}
+
+/// Minted only by the serialized owner after a terminal registry transition.
+/// A receipt is specific to one daemon instance and one batch token; it
+/// contains no provider identity, response, URL or profile data.
+pub struct NativeBatchCompletionReceipt {
+    instance: String,
+    sequence: u64,
+    base_revision: u64,
+    completed_revision: u64,
+    outcome: NativeBatchOutcome,
+}
+
+impl NativeBatchCompletionReceipt {
+    pub(crate) fn instance(&self) -> &str {
+        &self.instance
+    }
+
+    pub(crate) fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub(crate) fn base_revision(&self) -> u64 {
+        self.base_revision
+    }
+
+    pub(crate) fn completed_revision(&self) -> u64 {
+        self.completed_revision
+    }
+
+    pub fn outcome(&self) -> NativeBatchOutcome {
+        self.outcome
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(
+        ticket: &NativeBatchTicket,
+        completed_revision: u64,
+        outcome: NativeBatchOutcome,
+    ) -> Self {
+        Self {
+            instance: ticket.instance.clone(),
+            sequence: ticket.sequence(),
+            base_revision: ticket
+                .base_revision()
+                .expect("synthetic subscription ticket"),
+            completed_revision,
+            outcome,
+        }
+    }
 }
 
 /// Private, non-cloneable worker capability minted by one owner instance.
@@ -72,6 +160,7 @@ impl NativeSubscriptionBatch {
         NativeBatchTicket {
             instance: self.instance.clone(),
             token: self.token,
+            subscription_base_revision: Some(self.base_revision),
         }
     }
 
@@ -97,6 +186,176 @@ impl NativeSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    /// Inactive Off transaction. The caller holds scheduler admission and the
+    /// dispatcher; this lease spans preference publication and exact cancel.
+    pub(crate) fn disable_subscription_schedule(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    {
+        self.disable_subscription_schedule_with(
+            expected_revision,
+            scheduled,
+            crate::subscription_schedule_preference::set_preference_locked,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disable_subscription_schedule_uncertain(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    {
+        self.disable_subscription_schedule_with(
+            expected_revision,
+            scheduled,
+            |paths, uid, generation, revision, schedule| {
+                crate::subscription_schedule_preference::set_preference_locked(
+                    paths, uid, generation, revision, schedule,
+                )?;
+                Err(crate::subscription_schedule_preference::PreferenceError::WriteUncertain)
+            },
+        )
+    }
+
+    fn disable_subscription_schedule_with<F>(
+        &mut self,
+        expected_revision: u64,
+        scheduled: Option<&NativeBatchTicket>,
+        write: F,
+    ) -> Result<crate::batch_scheduler::ScheduleOffResult, crate::batch_scheduler::ScheduleOffError>
+    where
+        F: FnOnce(
+            &crate::cutover::CutoverPaths,
+            u32,
+            u64,
+            u64,
+            RefreshSchedule,
+        ) -> Result<
+            crate::subscription_schedule_preference::PreferenceSnapshot,
+            crate::subscription_schedule_preference::PreferenceError,
+        >,
+    {
+        use crate::batch_scheduler::{ScheduleOffError, ScheduleOffResult};
+        use crate::subscription_schedule_preference::PreferenceError;
+        let _lock = self.batch_lock().map_err(ScheduleOffError::Owner)?;
+        let generation = self
+            .required_ownership
+            .ok_or(ScheduleOffError::Owner(
+                NativeOwnerError::OwnershipUnavailable,
+            ))?
+            .generation;
+        let result = write(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            generation,
+            expected_revision,
+            RefreshSchedule::Off,
+        );
+        // Only a confirmed publication or an uncertain write permits touching
+        // the captured worker. Stale/unsafe requests have no cancellation effect.
+        if result
+            .as_ref()
+            .is_err_and(|error| *error != PreferenceError::WriteUncertain)
+        {
+            return Err(ScheduleOffError::Preference(result.unwrap_err()));
+        }
+        let cancellation = scheduled
+            .map(|ticket| self.cancel_exact_subscription_ticket(ticket))
+            .transpose();
+        let preference = result.map_err(ScheduleOffError::Preference)?;
+        let cancellation_requested = cancellation
+            .map_err(ScheduleOffError::CancellationUncertain)?
+            .unwrap_or(false);
+        Ok(ScheduleOffResult {
+            preference,
+            cancellation_requested,
+        })
+    }
+
+    pub(super) fn cancel_exact_subscription_ticket(
+        &mut self,
+        ticket: &NativeBatchTicket,
+    ) -> Result<bool, NativeOwnerError> {
+        let state = self
+            .batch
+            .as_mut()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if state.instance != ticket.instance || ticket.base_revision().is_none() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let base_revision = ticket.base_revision().ok_or(NativeOwnerError::Invariant)?;
+        if let Some((token, flag)) = state.active.as_ref() {
+            if *token != ticket.token || !matches!(flag, ActiveCancellation::Subscription(_)) {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            let accepted = state
+                .registry
+                .request_cancel_token(ticket.token, base_revision)
+                .map_err(NativeOwnerError::LongOperation)?;
+            if accepted {
+                flag.request();
+            }
+            Ok(accepted)
+        } else {
+            state
+                .registry
+                .request_cancel_token(ticket.token, base_revision)
+                .map_err(NativeOwnerError::LongOperation)
+        }
+    }
+
+    /// Read an exact terminal batch result under the owner lock. The caller
+    /// must keep the ticket from admission; an arbitrary status projection or
+    /// a successful `Result<()>` is not proof that a store commit occurred.
+    pub fn subscription_batch_receipt(
+        &self,
+        ticket: &NativeBatchTicket,
+    ) -> Result<NativeBatchCompletionReceipt, NativeOwnerError> {
+        let state = self
+            .batch
+            .as_ref()
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if state.instance != ticket.instance {
+            return Err(NativeOwnerError::LongOperation(
+                LongOperationError::NotFound,
+            ));
+        }
+        let (terminal, completed_revision, total, error) =
+            state.registry.terminal_by_token(ticket.token).ok_or(
+                NativeOwnerError::LongOperation(LongOperationError::NotFound),
+            )?;
+        let base_revision = ticket
+            .base_revision()
+            .ok_or(NativeOwnerError::LongOperation(
+                LongOperationError::NotFound,
+            ))?;
+        if completed_revision < base_revision {
+            return Err(NativeOwnerError::Invariant);
+        }
+        let outcome = match terminal {
+            LongOperationState::Succeeded if total == 0 => NativeBatchOutcome::Empty,
+            LongOperationState::Succeeded => NativeBatchOutcome::Committed,
+            LongOperationState::Cancelled => NativeBatchOutcome::Cancelled,
+            LongOperationState::Failed
+                if error == Some(StableErrorCode::ManualRecoveryRequired) =>
+            {
+                NativeBatchOutcome::Uncertain
+            }
+            LongOperationState::Failed => NativeBatchOutcome::Failed,
+            _ => return Err(NativeOwnerError::Invariant),
+        };
+        Ok(NativeBatchCompletionReceipt {
+            instance: ticket.instance.clone(),
+            sequence: ticket.sequence(),
+            base_revision,
+            completed_revision,
+            outcome,
+        })
+    }
+
     /// Bind once to the actual runtime instance, never a request-provided ID.
     /// Live registration remains absent; production must use the gated owner.
     pub fn initialize_batch_operations(&mut self, instance: &str) -> Result<(), NativeOwnerError> {
@@ -369,6 +628,24 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         )
     }
 
+    /// The automatic batch is allowed to commit only if its exact preference
+    /// remains enabled while the same migration lock protects the store write.
+    /// Off/preference changes after a fetch produce no store replacement.
+    pub fn complete_scheduled_subscription_batch<N: FnOnce() -> u64>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        expected_generation: u64,
+        expected_preference_revision: u64,
+        now_millis: N,
+    ) -> Result<(), NativeOwnerError> {
+        self.complete_subscription_batch_with_store_and_schedule(
+            job,
+            now_millis,
+            commit_subscription_refresh_batch,
+            Some((expected_generation, expected_preference_revision)),
+        )
+    }
+
     // Fixed production store function above; the seam permits deterministic
     // post-rename failures in tests without a client-selected writer or path.
     pub(super) fn complete_subscription_batch_with_store<N, F>(
@@ -376,6 +653,26 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+    ) -> Result<(), NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+    {
+        self.complete_subscription_batch_with_store_and_schedule(job, now_millis, commit, None)
+    }
+
+    fn complete_subscription_batch_with_store_and_schedule<N, F>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now_millis: N,
+        commit: F,
+        schedule: Option<(u64, u64)>,
     ) -> Result<(), NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -399,7 +696,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .registry
                 .advance(token, completed)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis, commit);
+            let outcome =
+                self.commit_subscription_batch_work(&mut state, job, now_millis, commit, schedule);
             state.active = None;
             match outcome {
                 Ok(true) => state
@@ -426,6 +724,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+        schedule: Option<(u64, u64)>,
     ) -> Result<bool, NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -442,6 +741,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         }
         let prepared = job.work.into_prepared().map_err(batch_work_error)?;
         let _lock = self.batch_lock()?;
+        if let Some((generation, preference_revision)) = schedule {
+            if self.required_ownership.map(|fence| fence.generation) != Some(generation) {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            // batch_lock already holds the migration lock and proved this
+            // exact committed owner. Do not reacquire it here.
+            let preference = read_schedule_preference_locked(
+                self.transaction.cutover_paths(),
+                self.transaction.uid(),
+                generation,
+            )
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;
+            if preference.owner_generation != generation {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            if preference.revision != preference_revision
+                || preference.schedule == RefreshSchedule::Off
+            {
+                return Err(NativeOwnerError::Coordinator(
+                    CoordinatorError::RevisionConflict,
+                ));
+            }
+        }
         if self.revision() != job.base_revision {
             return Err(NativeOwnerError::Coordinator(
                 CoordinatorError::RevisionConflict,

@@ -1293,7 +1293,20 @@ slice.
 
 ### S1 — App proxy without TUN
 
-State: **design retained; implementation after Rust runtime ownership**.
+State: **Rust transaction/codec/journal foundation in development; product unavailable**.
+
+The [S1 foundation](docs/development/S1_PROXY_FOUNDATION.md) provides a bounded
+exact-state lease for desktop and user-manager proxy settings, per-write
+readback and foreign-change-safe compensation. It has no production caller or
+live host effects. Versioned private codecs preserve complete
+allowlisted desktop overrides/defaults and absent/empty manager variables, with
+strict unsupported-activation refusal. The private durable journal records
+intent before effects and refuses ambiguous restart state. Real host adapters,
+per-field partial-write recovery, trusted owner/session takeover, core/listener
+admission, UWSM/D-Bus restoration, IPC/UI and installed gates remain.
+The [read-only observation checkpoint](docs/development/S1_HOST_OBSERVATION.md)
+defines an isolated GIO helper and pending fake-host matrix; actual bus/session
+provenance is still an implementation gate, not a verified host capability.
 
 Preserve/restore exact prior proxy state transactionally. On Omarchy cover both
 desktop proxy state and systemd/UWSM user-manager environment; on standalone
@@ -1317,6 +1330,12 @@ Initial scope remains opt-in Full VPN only. Protection follows desired tunnel
 state through core/runtime failure; explicit disconnect disarms it. Deliver as
 separate privileged protocol/service/runtime/acceptance slices, not as a large
 Python-plugin addition.
+
+The September 29 [offline foundation candidate](docs/development/K1_FOUNDATION.md)
+adds strict fixed messages, helper transactions and a symbolic policy model with
+deterministic crash tests. The [offline renderer candidate](docs/development/K1_RENDERER.md)
+adds fixed create JSON and ownership-aware readback. No production caller, nft
+executor, root service or installed protection exists; all K1 host gates remain.
 
 ### X0 / X1 — core backend abstraction and optional Xray
 

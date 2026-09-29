@@ -15,7 +15,9 @@ mod onboarding;
 mod probe;
 mod provider;
 mod startup;
-pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
+pub use batch::{
+    NativeBatchCompletionReceipt, NativeBatchOutcome, NativeBatchTicket, NativeSubscriptionBatch,
+};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 
@@ -470,6 +472,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.transaction.uid()
     }
 
+    /// The inactive T4 scheduler derives its private journal scope from the
+    /// committed owner itself, never from client or timer-supplied paths or a
+    /// guessed generation. Admission still rechecks the marker under lock.
+    pub(crate) fn scheduled_journal_scope(
+        &self,
+    ) -> Result<(crate::cutover::CutoverPaths, u32, u64), NativeOwnerError> {
+        let fence = self
+            .required_ownership
+            .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        if fence.phase != OwnershipPhase::Rust || !self.rust_ownership_available() {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        Ok((
+            self.transaction.cutover_paths().clone(),
+            self.transaction.uid(),
+            fence.generation,
+        ))
+    }
+
     pub(crate) fn rust_ownership_available(&self) -> bool {
         self.required_ownership.is_some_and(|fence| {
             fence.phase == OwnershipPhase::Rust
@@ -737,6 +758,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             let mut result = crate::runtime_observation::project(&desired, actual, observation);
             result["coreDiagnostics"] = serde_json::json!(owner.host_mut().core_diagnostics());
+            result["coreLogHints"] = crate::core_diagnostics::CoreLogHints::projection(
+                owner.host_mut().core_log_hints(),
+            );
             Ok(result)
         })
     }
@@ -792,6 +816,63 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             Ok(crate::connections_summary::project(count))
+        })
+    }
+
+    pub(crate) fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> Result<Value, NativeOwnerError> {
+        crate::connection_overview::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let overview = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_overview(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connection_overview::project(overview))
+        })
+    }
+
+    pub(crate) fn connection_rows(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
+        crate::connection_rows::validate(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let rows = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_rows(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connection_rows::project(rows))
         })
     }
 
@@ -3623,10 +3704,15 @@ mod tests {
         let mut request = batch_request("subscriptions.refresh_all", "batch-1");
         request["params"]["expectedRevision"] = json!(1);
         let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+        let ticket = job.supervisor_ticket();
         run_batch(&owner, &mut job);
         owner.publish_subscription_batch_progress(&job).unwrap();
         assert_eq!(batch_status(&owner, "batch-1")["progress"]["completed"], 1);
         owner.complete_subscription_batch(job, || 20).unwrap();
+        assert_eq!(
+            owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+            NativeBatchOutcome::Committed
+        );
         assert_eq!(owner.revision(), 2);
         assert_eq!(batch_status(&owner, "batch-1")["state"], "succeeded");
         assert_eq!(batch_status(&owner, "batch-1")["outcomeRevision"], 2);
@@ -3654,6 +3740,7 @@ mod tests {
                 .start_subscription_batch(&batch_request("subscriptions.refresh_all", "cancel"))
                 .unwrap()
                 .unwrap();
+            let ticket = job.supervisor_ticket();
             if prepared {
                 run_batch(&owner, &mut job);
             }
@@ -3680,6 +3767,10 @@ mod tests {
                     .is_err()
             );
             assert_eq!(batch_status(&owner, "cancel")["state"], "cancelled");
+            assert_eq!(
+                owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+                NativeBatchOutcome::Cancelled
+            );
             assert_eq!(owner.revision(), 1);
             assert_eq!(fs::read(&path).unwrap(), before);
             assert!(
@@ -3705,6 +3796,7 @@ mod tests {
             .start_subscription_batch(&batch_request("subscriptions.refresh_all", "stale"))
             .unwrap()
             .unwrap();
+        let ticket = job.supervisor_ticket();
         run_batch(&owner, &mut job);
         let request = OwnerRequest::new(
             OwnerAction::Disconnect,
@@ -3722,6 +3814,9 @@ mod tests {
         );
         assert_eq!(owner.revision(), 3);
         assert_eq!(batch_status(&owner, "stale")["state"], "failed");
+        let receipt = owner.subscription_batch_receipt(&ticket).unwrap();
+        assert_eq!(receipt.outcome(), NativeBatchOutcome::Failed);
+        assert_eq!(receipt.completed_revision(), 3);
         assert_eq!(fs::read(&path).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
@@ -3780,11 +3875,16 @@ mod tests {
             .start_subscription_batch(&batch_request("subscriptions.refresh_all", "empty"))
             .unwrap()
             .unwrap();
+        let ticket = job.supervisor_ticket();
         owner
             .complete_subscription_batch(job, || panic!("empty batch read clock"))
             .unwrap();
         assert_eq!(owner.revision(), 0);
         assert_eq!(batch_status(&owner, "empty")["state"], "succeeded");
+        assert_eq!(
+            owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+            NativeBatchOutcome::Empty
+        );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
         fs::remove_dir_all(root).unwrap();
@@ -3891,6 +3991,7 @@ mod tests {
             let (root, path, mut owner) = batch_fixture("batch-uncertain-write");
             let request = batch_request("subscriptions.refresh_all", "uncertain");
             let mut job = owner.start_subscription_batch(&request).unwrap().unwrap();
+            let ticket = job.supervisor_ticket();
             run_batch(&owner, &mut job);
             let before = fs::read(&path).unwrap();
             let revision = owner.revision();
@@ -3915,6 +4016,10 @@ mod tests {
             assert_eq!(after != before, after_replace);
             assert_eq!(owner.revision(), revision);
             assert!(owner.transaction.blocked());
+            assert_eq!(
+                owner.subscription_batch_receipt(&ticket).unwrap().outcome(),
+                NativeBatchOutcome::Uncertain
+            );
             assert_eq!(
                 batch_status(&owner, "uncertain")["error"]["code"],
                 "manual_recovery_required"
@@ -4026,6 +4131,35 @@ mod tests {
         assert_eq!(batch_status(&owner, "concurrent")["state"], "cancelled");
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn schedule_off_ticket_cannot_cancel_a_successor_or_wrong_revision() {
+        let (root, path, mut owner) = batch_fixture("off-exact-ticket");
+        let before = fs::read(&path).unwrap();
+        let first = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "first"))
+            .unwrap()
+            .unwrap();
+        let stale = first.supervisor_ticket();
+        owner
+            .abort_subscription_batch(first.supervisor_ticket())
+            .unwrap();
+        drop(first);
+        let mut next = owner
+            .start_subscription_batch(&batch_request("subscriptions.refresh_all", "next"))
+            .unwrap()
+            .unwrap();
+        assert!(owner.cancel_exact_subscription_ticket(&stale).is_err());
+        let mut wrong = next.supervisor_ticket();
+        wrong.subscription_base_revision = Some(999);
+        assert!(owner.cancel_exact_subscription_ticket(&wrong).is_err());
+        assert_eq!(batch_status(&owner, "next")["cancelRequested"], false);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        run_batch(&owner, &mut next);
+        owner.complete_subscription_batch(next, || 20).unwrap();
+        assert_eq!(batch_status(&owner, "next")["state"], "succeeded");
         fs::remove_dir_all(root).unwrap();
     }
 
