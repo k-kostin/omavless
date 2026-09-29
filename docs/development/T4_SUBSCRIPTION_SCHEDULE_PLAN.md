@@ -282,3 +282,28 @@ rollback/overflow; restart after partial disposition; and proof that no old
 batch is replayed or GET starts before a separately accepted re-enable delay.
 Only after the owner accepts the policy should a new schema, writer, semantic
 IPC/UI and installed-host acceptance be designed and reviewed independently.
+
+## Inactive clock-continuity arithmetic checkpoint
+
+The independent pure `subscription_schedule_clock::assess_elapsed` helper
+compares caller-supplied wall and elapsed whole-second samples. It performs no
+clock reads and has no runtime caller. Missing anchors, explicit restart,
+resume or unknown continuity, either clock regressing, unequal deltas and
+unrepresentable deadlines refuse. Matching deltas may return an advisory wait
+or elapsed result; they do not prove trusted time or authorize a refresh.
+
+`SameProcess` is an explicit caller assumption of uninterrupted clock provenance,
+not an identity check or a suspend detector. Exact delta equality is deliberately
+conservative; real sample bracketing, drift tolerance, clock-source selection and
+host resume detection remain separate adapter decisions. This stateless helper
+does not clear a prior refusal or reseed an anchor. A future owner must retain
+unresolved discontinuity rather than infer recovery from a later matching pair.
+
+Synthetic tests cover delay boundaries, absent anchors, repeated discontinuity,
+clock steps and integer limits. There is no journal/preference schema change,
+terminal timestamp repair, Started disposition, re-enable timing decision,
+timer, IPC/UI, provider request or host effect. Existing planner/journal callers
+are unchanged. In particular, wall-clock rollback after a committed receipt
+still refuses terminalization rather than fabricating a finish timestamp; the
+interrupted-attempt policy above remains pending. Physical suspend and installed
+host acceptance are not established by these arithmetic tests.
