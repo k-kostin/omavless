@@ -73,3 +73,8 @@ manual disposition of interrupted attempts and uncertain file writes before
 enabling any timer, CLI, IPC or QML control. Restart or wall-clock changes cannot
 be treated as evidence of a completed refresh. No live GET, VM network action or
 installed behavior occurs in this checkpoint.
+
+The current daemon instance string is a process-ID/time identifier, not proof
+that a worker is still running. Production activation must check an in-memory
+worker registry as well as the durable journal, and must either establish a
+fresh per-start identity or conservatively classify a collision as uncertain.
