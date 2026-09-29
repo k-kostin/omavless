@@ -184,19 +184,11 @@ pub fn set_preference(
         return Err(PreferenceError::InvalidState);
     }
     let path = paths.state_directory.join(FILE_NAME);
-    // A post-rename sync failure may have committed the new bytes. Read back
-    // rather than telling the caller to blindly retry with the old revision.
+    // A post-rename sync failure may have published the new bytes without
+    // proving durability. Do not claim a confirmed preference or invite a
+    // blind retry with the old revision after any write failure.
     if atomic_replace_private(&path, &payload, uid).is_err() {
-        return match read_locked(paths, uid, expected_generation) {
-            Ok(actual)
-                if actual.owner_generation == expected_generation
-                    && actual.revision == revision
-                    && actual.schedule == schedule =>
-            {
-                Ok(actual)
-            }
-            _ => Err(PreferenceError::WriteUncertain),
-        };
+        return Err(PreferenceError::WriteUncertain);
     }
     let actual = read_locked(paths, uid, expected_generation)?;
     if actual.owner_generation != expected_generation
