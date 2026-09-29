@@ -119,3 +119,9 @@ publication must restore both old feed and old usage together or retain the
 existing recovery barrier. Batch refresh needs equivalent all-member composition;
 this single-feed model does not implement batch, new subscription, URL-edit,
 UI/IPC exposure, or a live worker. Those are explicit activation gates.
+
+The subsequent [test-only transaction adapter](T4_SUBSCRIPTION_QUOTA_TRANSACTION.md)
+now passes this complete candidate to the real private atomic writer in isolated
+synthetic stores. Exact original-byte restoration, stale-byte refusal, unsafe
+publication/compensation and final readback are executable checks. This does
+not resolve downgrade retention or register a production quota path.
