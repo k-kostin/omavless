@@ -116,9 +116,10 @@ under the owner/migration lease. Its native generation, global revision,
 cancellation and lifecycle compensation checks must surround that one commit.
 No metadata write may follow a separately committed feed. Failed or uncertain
 publication must restore both old feed and old usage together or retain the
-existing recovery barrier. Batch refresh needs equivalent all-member composition;
-this single-feed model does not implement batch, new subscription, URL-edit,
-UI/IPC exposure, or a live worker. Those are explicit activation gates.
+existing recovery barrier. The separate
+[test-only all-member candidate](T4_SUBSCRIPTION_BATCH_QUOTA.md) models batch
+composition; neither model implements new-subscription, URL-edit, UI/IPC
+exposure, or a live worker. Those remain explicit activation gates.
 
 The subsequent [test-only transaction adapter](T4_SUBSCRIPTION_QUOTA_TRANSACTION.md)
 now passes this complete candidate to the real private atomic writer in isolated
