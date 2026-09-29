@@ -246,6 +246,56 @@ impl CoreDiagnostics {
     }
 }
 
+#[derive(Clone)]
+pub struct CoreLogHint {
+    pub sequence: u32,
+    pub category: &'static str,
+}
+
+#[derive(Clone)]
+pub struct CoreLogHints {
+    pub items: Vec<CoreLogHint>,
+    pub incomplete: bool,
+}
+
+impl CoreLogHints {
+    pub fn parse(value: &Value) -> Option<Self> {
+        if value["schemaVersion"] != 1
+            || value["scope"] != "latest_owned_core_log_categories"
+            || value["availability"] != "observed"
+            || value["interpretation"] != "log_hints_not_health"
+        {
+            return None;
+        }
+        let raw = value["items"]
+            .as_array()
+            .filter(|items| items.len() <= 24)?;
+        let mut items = Vec::with_capacity(raw.len());
+        let mut previous = 0;
+        for item in raw {
+            let sequence = u32::try_from(item["sequence"].as_u64()?).ok()?;
+            if sequence <= previous {
+                return None;
+            }
+            previous = sequence;
+            let category = match item["category"].as_str()? {
+                "dns" => "dns",
+                "tls" => "tls",
+                "timeout" => "timeout",
+                "connection" => "connection",
+                "other" => "other",
+                "oversized" => "oversized",
+                _ => return None,
+            };
+            items.push(CoreLogHint { sequence, category });
+        }
+        Some(Self {
+            items,
+            incomplete: value["incomplete"].as_bool()?,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Page {
     #[default]

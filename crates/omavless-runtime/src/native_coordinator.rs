@@ -737,6 +737,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             let mut result = crate::runtime_observation::project(&desired, actual, observation);
             result["coreDiagnostics"] = serde_json::json!(owner.host_mut().core_diagnostics());
+            result["coreLogHints"] = crate::core_diagnostics::CoreLogHints::projection(
+                owner.host_mut().core_log_hints(),
+            );
             Ok(result)
         })
     }

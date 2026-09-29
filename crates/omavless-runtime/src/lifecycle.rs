@@ -79,6 +79,10 @@ pub trait LifecycleHost {
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
         None
     }
+    /// Recent fixed category tokens only; raw owned-core lines never cross IPC.
+    fn core_log_hints(&self) -> Option<crate::core_diagnostics::CoreLogHints> {
+        None
+    }
     /// Bounded, read-only setup/service/file facts; no core execution or probe.
     fn support_facts(&self, _connected: bool) -> Option<HostSupportFacts> {
         None

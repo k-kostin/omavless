@@ -414,6 +414,9 @@ impl LifecycleHost for NativeLifecycleHost {
             .as_ref()
             .map(|reader| reader.snapshot())
     }
+    fn core_log_hints(&self) -> Option<crate::core_diagnostics::CoreLogHints> {
+        self.core_diagnostics.as_ref().map(|reader| reader.hints())
+    }
     fn support_facts(&self, connected: bool) -> Option<crate::lifecycle::HostSupportFacts> {
         Some(crate::support_diagnostics::collect_host(
             &self.paths,

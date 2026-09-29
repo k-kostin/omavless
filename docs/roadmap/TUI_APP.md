@@ -394,6 +394,14 @@ Natural TUI homes for deeper capabilities:
 - bounded local application/core logs;
 - read-only doctor/health report.
 
+The stacked T3 core-hint candidate retains at most 24 fixed category tokens
+from the latest owned core's warning/error stream in memory. The Diagnostics
+page shows only the most recent eight with sequence numbers; raw log lines,
+destinations, profile names and timestamps do not cross IPC. Categories are
+diagnostic hints, never a connection or internet-health verdict. Missing or
+stale runtime data stays unavailable. This is a bounded operator view, not a
+general raw-log export, and installed EN/RU rendering remains a separate gate.
+
 The bar may show compact summaries but need not duplicate full tables.
 
 The first T3 development slice is a read-only operator view for the existing

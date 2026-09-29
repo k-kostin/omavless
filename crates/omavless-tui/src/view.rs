@@ -931,7 +931,7 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         }
         Page::Diagnostics => {
             let facts = s.observation.facts.as_ref();
-            vec![
+            let mut lines = vec![
                 field("tui.core", "Mihomo".into()),
                 field(
                     "tui.core_running",
@@ -1022,10 +1022,36 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                         .map(|d| boolean(d.incomplete))
                         .unwrap_or_else(unknown),
                 ),
-                Line::from(tr("tui.health")),
-                Line::from(tr("tui.no_killswitch")),
-                Line::from(tr("tui.diagnostic_drilldown")),
-            ]
+            ];
+            lines.push(Line::from(""));
+            lines.push(Line::from(tr("tui.core_log_recent")));
+            if let Some(hints) = &s.core_log_hints {
+                if hints.items.is_empty() {
+                    lines.push(Line::from(tr("tui.core_log_no_recent")));
+                }
+                for hint in hints.items.iter().rev().take(8).rev() {
+                    let key = match hint.category {
+                        "dns" => "tui.core_log_dns",
+                        "tls" => "tui.core_log_tls",
+                        "timeout" => "tui.core_log_timeout",
+                        "connection" => "tui.core_log_connection",
+                        "other" => "tui.core_log_other",
+                        "oversized" => "tui.core_log_oversized",
+                        _ => "tui.metric_unavailable",
+                    };
+                    lines.push(Line::from(format!("#{} {}", hint.sequence, tr(key))));
+                }
+                if hints.incomplete {
+                    lines.push(Line::from(tr("tui.core_log_incomplete")));
+                }
+            } else {
+                lines.push(Line::from(tr("tui.metric_unavailable")));
+            }
+            lines.push(Line::from(tr("tui.core_log_recent_scope")));
+            lines.push(Line::from(tr("tui.health")));
+            lines.push(Line::from(tr("tui.no_killswitch")));
+            lines.push(Line::from(tr("tui.diagnostic_drilldown")));
+            lines
         }
         Page::Host => {
             let Some(host) = &s.host_support else {
