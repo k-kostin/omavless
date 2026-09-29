@@ -794,6 +794,7 @@ dependencies = [
 name = "omavless-netguard"
 version = "0.9.0-rc.1"
 dependencies = [
+ "nix",
  "serde",
  "serde_json",
 ]
