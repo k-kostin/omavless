@@ -121,6 +121,12 @@ existing recovery barrier. The separate
 composition; neither model implements new-subscription, URL-edit, UI/IPC
 exposure, or a live worker. Those remain explicit activation gates.
 
+The separate [test-only mutation/erasure slice](T4_SUBSCRIPTION_MUTATION_ERASURE.md)
+shows why the current body-only URL edit is not enough for a private claim:
+URL A → B → A with a repeated refresh token can make preserved bytes readable
+again. It models physical erasure in the same atomic publication. No production
+URL-edit path is wired to this candidate, and downgrade policy remains open.
+
 The subsequent [test-only transaction adapter](T4_SUBSCRIPTION_QUOTA_TRANSACTION.md)
 now passes this complete candidate to the real private atomic writer in isolated
 synthetic stores. Exact original-byte restoration, stale-byte refusal, unsafe
