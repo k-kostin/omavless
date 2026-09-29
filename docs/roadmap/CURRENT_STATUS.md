@@ -34,10 +34,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   password dialogs during runtime transitions. The immutable validation-only
   `v0.9.0-rc.1` packages/frontend were anonymously downloaded and hash-verified.
   ARM64 same-account first use installed both from those public pins and completed
-  graphical onboarding, with preserved prior-account markers handled explicitly;
-  the actual Required components button was not clicked. A stopped-broker
-  Connect refusal restored Disconnected/Rule without a false Full VPN claim.
-  Fresh-account GUI setup, in-flight negative/recovery coverage and final
+  graphical onboarding, with preserved prior-account markers handled explicitly.
+  A separate empty-account GUI pass clicked Required components, completed
+  enrollment/activation against the installed pair, and reached disconnected/Rule
+  with no profiles; it found and fixed a false pre-activation VPN-controls display.
+  These are complementary runs, not one blank-machine end-to-end installation.
+  A stopped-broker Connect refusal restored Disconnected/Rule without a false Full VPN claim.
+  Combined blank-machine setup, in-flight negative/recovery coverage and final
   #270/#132 disposition remain. #270/#132 are open; main and
   rc/0.9.0 have not received these Drafts. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the
