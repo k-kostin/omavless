@@ -15,6 +15,7 @@ use std::fmt;
 pub mod codec;
 pub mod fields;
 pub mod journal;
+pub mod takeover;
 
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024;
 

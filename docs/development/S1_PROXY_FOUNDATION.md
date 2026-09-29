@@ -170,6 +170,32 @@ host adapter, complete readback and installed crash/new-app acceptance. In
 particular a new daemon cannot simply reuse the old instance ID to open either
 journal. Both private journal formats remain isolated development checkpoints.
 
+### Inactive takeover admission candidate
+
+`app_proxy::takeover` is a pure refusal-first model stacked after the field
+journal. It returns a compensation-transfer *plan*, never a host effect or a
+rewritten binding. It accepts only an exact private record identity and
+sequence, distinct monotonic native-owner generations, matching UID/boot/session
+and verified manager, bus, settings-profile and shared-activation scope.
+It additionally requires an exact graceful handoff receipt saying the old
+workers were joined and all asynchronous effects settled. Missing/released
+records, unknown predecessor state, changed scope or a stale receipt refuse.
+An ordinary crash does **not** produce that receipt, so the model intentionally
+does not authorize automatic crash takeover.
+
+All these inputs are supplied by a future trusted coordinator; constructing a
+Rust receipt or comparing two snapshots does not prove the operating-system
+facts. The current read-only observer verifies identities within one read but
+does not carry manager/bus incarnation, settings backend/profile selection or
+broker provenance into a transferable proof. A future storage slice would
+need to atomically record the new binding and incremented sequence under the
+same private journal lock, preserving every original value, attempted bit and
+pending effect. It must reject uncertain publication and stale predecessor
+handles. A future installed-VM gate must prove actual old-worker quiescence,
+session/broker provenance, and exact partial-write restoration. No production
+caller, automatic transfer, S1 availability or network change follows from
+this model.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the
