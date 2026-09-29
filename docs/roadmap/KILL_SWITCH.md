@@ -13,6 +13,9 @@ host acceptance and product availability remain incomplete.
 The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
 tests synthetic egress and near-miss exceptions without a production service;
 its results do not replace this contract's host/physical acceptance matrix.
+The later [inactive transaction coordinator](../development/K1_COORDINATOR.md)
+connects the planner and durable marker using a synthetic kernel port; it is
+not a root executor or a working host kill switch.
 
 ## 1. Decision summary
 
