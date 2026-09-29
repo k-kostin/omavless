@@ -6,6 +6,11 @@ An inactive pure Rust `network_transition_plan` now encodes the conservative
 per-hint decision and deterministic counterexamples. Its `CandidateOnce` is
 advisory, not a connection authorization or proof that a durable no-attempt
 receipt exists. No production caller uses the model.
+The [test-only recovery receipt protocol](../development/T4_RECOVERY_ATTEMPT_RECEIPT.md)
+now exercises durable-reservation ordering, exact boot/owner fencing and
+uncertain-write refusal against an abstract crash-surviving store. It never
+initializes from absence or rearms after restart; real storage/provisioning and
+event/coordinator composition remain activation gates.
 The tentative pure-model window is three monotonic seconds of quiet after the
 latest hint, expiring after 60 seconds; host event-source and boot-epoch design
 remain unselected, so these bounds are not yet a product behavior promise.
