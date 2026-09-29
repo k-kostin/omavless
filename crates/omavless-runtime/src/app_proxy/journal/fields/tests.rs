@@ -3,7 +3,7 @@ use super::*;
 use crate::app_proxy::fields::tests::states;
 use crate::app_proxy::journal::storage::{Checkpoint, RECORD};
 use std::fs;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -17,7 +17,15 @@ impl Temp {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(path.join(FIELD_DIRECTORY))
+            .unwrap();
         Self(path)
+    }
+
+    fn record(&self) -> PathBuf {
+        self.0.join(FIELD_DIRECTORY).join(RECORD)
     }
 }
 impl Drop for Temp {
@@ -77,11 +85,7 @@ fn durable_partial_apply_reopens_only_for_reverse_compensation_at_every_field() 
             assert_eq!(recovered.phase(), Phase::Released);
             assert_eq!(current, original);
             assert_eq!(
-                fs::metadata(temp.0.join(RECORD))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
+                fs::metadata(temp.record()).unwrap().permissions().mode() & 0o777,
                 0o600
             );
         }
@@ -95,7 +99,7 @@ fn mismatch_and_foreign_state_preserve_the_durable_record() {
     let mut journal =
         FieldJournal::create(&temp.0, binding(), original.clone(), intended.clone()).unwrap();
     let effect = journal.begin_next(binding(), &original).unwrap().unwrap();
-    let unchanged = fs::read(temp.0.join(RECORD)).unwrap();
+    let unchanged = fs::read(temp.record()).unwrap();
     drop(journal);
     let mut wrong = binding();
     wrong.owner_generation += 1;
@@ -116,7 +120,7 @@ fn mismatch_and_foreign_state_preserve_the_durable_record() {
         recovered.begin_restore(binding(), &future),
         Err(Error::Planner(crate::app_proxy::Error::ForeignChange))
     );
-    assert_eq!(fs::read(temp.0.join(RECORD)).unwrap(), unchanged);
+    assert_eq!(fs::read(temp.record()).unwrap(), unchanged);
     // The attempted field may still be original; the saved intent remains.
     assert_ne!(effect.replacement, original.value(effect.field));
     recovered.begin_restore(binding(), &original).unwrap();
@@ -147,7 +151,7 @@ fn wrong_record_version_or_noncanonical_state_cannot_reopen() {
     let journal = FieldJournal::create(&temp.0, binding(), original, intended).unwrap();
     assert!(!format!("{journal:?}").contains("synthetic"));
     drop(journal);
-    let path = temp.0.join(RECORD);
+    let path = temp.record();
     let initial = fs::read(&path).unwrap();
     let mut record: serde_json::Value = serde_json::from_slice(&initial).unwrap();
     record["version"] = serde_json::json!(1);
@@ -162,5 +166,31 @@ fn wrong_record_version_or_noncanonical_state_cannot_reopen() {
     assert!(matches!(
         FieldJournal::open(&temp.0, binding()),
         Err(Error::Invalid)
+    ));
+}
+
+#[test]
+fn fixed_child_never_reuses_v1_record_or_follows_a_child_symlink() {
+    let (original, intended) = states();
+    let temp = Temp::new();
+    let v1 = temp.0.join(RECORD);
+    fs::write(&v1, b"untouched-v1-sentinel").unwrap();
+    fs::set_permissions(&v1, fs::Permissions::from_mode(0o600)).unwrap();
+    let journal =
+        FieldJournal::create(&temp.0, binding(), original.clone(), intended.clone()).unwrap();
+    assert_eq!(fs::read(&v1).unwrap(), b"untouched-v1-sentinel");
+    assert!(temp.record().exists());
+    drop(journal);
+
+    let temp = Temp::new();
+    fs::remove_dir(temp.0.join(FIELD_DIRECTORY)).unwrap();
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(temp.0.join("other"))
+        .unwrap();
+    symlink("other", temp.0.join(FIELD_DIRECTORY)).unwrap();
+    assert!(matches!(
+        FieldJournal::create(&temp.0, binding(), original, intended),
+        Err(Error::UnsafePath)
     ));
 }

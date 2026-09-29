@@ -12,6 +12,12 @@ use std::{fmt, path::Path};
 
 use fields::{Effect, FIELD_COUNT, Field, Planner, State};
 
+const FIELD_DIRECTORY: &str = "app-proxy-fields";
+
+fn field_directory(private_root: &Path) -> std::path::PathBuf {
+    private_root.join(FIELD_DIRECTORY)
+}
+
 pub struct FieldJournal {
     binding: Binding,
     planner: Planner,
@@ -22,10 +28,11 @@ pub struct FieldJournal {
 }
 
 impl FieldJournal {
-    /// `directory` is a trusted, already-private dedicated field-journal root.
-    /// The fixed storage basenames must never collide with a v1 journal.
+    /// `private_root` is a trusted private root. Its fixed
+    /// `app-proxy-fields` child must already exist as a private directory;
+    /// this API cannot accidentally open the v1 journal in the root itself.
     pub fn create(
-        directory: &Path,
+        private_root: &Path,
         binding: Binding,
         original: State,
         intended: State,
@@ -36,7 +43,7 @@ impl FieldJournal {
         let planner =
             Planner::prepare(binding.owner(), original, intended).map_err(Error::Planner)?;
         let persisted = encode(binding, &planner)?;
-        let storage = Storage::acquire(directory)?;
+        let storage = Storage::acquire(&field_directory(private_root))?;
         if storage.read()?.is_some() {
             return Err(Error::AlreadyExists);
         }
@@ -53,11 +60,11 @@ impl FieldJournal {
 
     /// Reopening never resumes applying or confirms an unknown write. Fresh
     /// complete observations may only enter conservative compensation.
-    pub fn open(directory: &Path, binding: Binding) -> Result<Self, Error> {
+    pub fn open(private_root: &Path, binding: Binding) -> Result<Self, Error> {
         if !binding.valid() {
             return Err(Error::BindingMismatch);
         }
-        let storage = Storage::acquire(directory)?;
+        let storage = Storage::acquire(&field_directory(private_root))?;
         let persisted = storage.read()?.ok_or(Error::Missing)?;
         let (recorded, planner) = decode(&persisted)?;
         if binding != recorded {

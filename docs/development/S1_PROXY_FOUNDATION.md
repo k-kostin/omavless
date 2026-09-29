@@ -153,7 +153,8 @@ adapter may execute its effects. The previous two-surface journal is not
 silently reinterpreted as a per-field record. App proxy remains unavailable.
 
 The stacked field-journal candidate adds that private intent persistence in a
-*separate trusted 0700 directory*. Its version-2 record uses fixed basenames,
+fixed `app-proxy-fields` child of a trusted private root (pre-created 0700;
+symlinks refuse). Its version-2 record uses fixed basenames,
 0600 files, exclusive locking, a durable write-before-effect sequence and exact
 previous-record comparison from the existing storage layer. It keeps all 26
 attempted bits, the pending field and each field's expected original/intended
