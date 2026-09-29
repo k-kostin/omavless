@@ -6,7 +6,9 @@ change nftables, alter routes or advertise a working kill switch.
 
 September 29 development candidate: the [offline foundation](../development/K1_FOUNDATION.md)
 adds strict fixed protocol, acknowledged helper transactions and symbolic policy
-tests. It has no executable/production caller or nft renderer. K1 implementation,
+tests. An [offline fixed renderer candidate](../development/K1_RENDERER.md) now
+adds JSON creation and strict readback with independently supplied ownership
+facts; it has no executor or production caller. K1 implementation,
 host acceptance and product availability remain incomplete.
 
 ## 1. Decision summary
