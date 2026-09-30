@@ -195,7 +195,14 @@ struct Output {
     success: bool,
     bytes: Vec<u8>,
 }
-fn run(mut command: Command, stdin: Stdio) -> Result<Output, &'static str> {
+fn run(command: Command, stdin: Stdio) -> Result<Output, &'static str> {
+    run_bounded(command, stdin, Duration::from_secs(15))
+}
+fn run_bounded(
+    mut command: Command,
+    stdin: Stdio,
+    timeout: Duration,
+) -> Result<Output, &'static str> {
     let scratch = Scratch::new()?;
     command
         .stdin(stdin)
@@ -213,7 +220,7 @@ fn run(mut command: Command, stdin: Stdio) -> Result<Output, &'static str> {
                 return Err("wait_failed");
             }
         }
-        if started.elapsed() > Duration::from_secs(15) {
+        if started.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
             return Err("tool_timeout");
