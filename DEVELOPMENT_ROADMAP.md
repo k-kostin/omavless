@@ -2,6 +2,16 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**0.9.5 development, 2026-09-30:** owner-selected `beta/0.9.5` starts from
+accepted `rc/0.9.0` at `a543a45c34dcc953ef2e9cd019499146f85ac2eb`.
+It carries selected, checked `dev/*` checkpoints and their reconciled docs;
+later `rc/0.9.5` freezes release scope. Keep 0.9.0 acceptance/artifacts intact.
+Start with the bounded T3 read-only operator workspace, preserving the new
+managed-DNS pair and CLI fixes. #375 is composition-audit evidence, not a
+wholesale merge vehicle: inactive T4/S1/K1 foundations are not working product
+features. See the [beta ledger](docs/development/BETA_095.md).
+No main update, public 0.9.5 assets or Marketplace change is authorized.
+
 **Development candidate, not a main update:** the next `rc/0.9.0` includes
 the accepted T2 MVP and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
@@ -129,8 +139,9 @@ Where older wording says Arch/AUR is the only future host,
 ### One source of truth
 
 `main` is the stable owner-approved release snapshot, including documentation.
-Daily work and roadmap updates live in `dev/*` PRs and named `rc/<version>`
-candidates; issues/PRs carry live status. No automatic docs-only main merges:
+Daily work and roadmap updates live in `dev/*` PRs, named `beta/<version>`
+development assemblies and scope-frozen `rc/<version>` candidates; issues/PRs
+carry live status. No automatic docs-only main merges:
 the September 22 decision supersedes the former standing permission. Every
 authorized main update includes the applicable roadmap/docs reconciliation;
 see the [release checklist](docs/roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
@@ -1410,8 +1421,10 @@ Keep outside active protocol/runtime work unless real demand/fixtures justify:
 
 ## 13. Branch and evidence policy
 
-Do not maintain permanent `alpha`/`beta` branches. Use narrow branches + Draft
-PRs; a temporary beta is only a named integration/soak assembly.
+Do not maintain permanent `alpha`/`beta` branches. Use narrow `dev/*` PRs,
+temporary versioned `beta/<version>` development/integration/soak assemblies
+and `rc/<version>` release scope freezes under the
+[canonical workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md).
 
 For every runtime or Rust migration PR record:
 

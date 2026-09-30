@@ -27,8 +27,10 @@ not replaced by this short entry point.
   command arguments or shareable output. No arbitrary privileged/shell IPC.
 - Preserve the owner's requested network state. Host authorization and recovery
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
-- New task branches use `dev/<topic>`; temporary release candidates use
-  `rc/<version>`. No permanent develop/rc lane or direct implementation on main.
+- New task branches use `dev/<topic>`; temporary development assemblies use
+  `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
+  Keep accepted `rc/0.9.0` separate from ongoing `beta/0.9.5` work. No permanent
+  develop/beta/rc lane or direct implementation on main.
   `main` is the stable release snapshot, including its documentation. Keep
   ongoing decisions/status in issues, PRs and the next candidate's docs.
 - Merge and release/marketplace publication need their own applicable owner

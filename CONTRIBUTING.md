@@ -26,10 +26,12 @@ an allowlisted frontend, not agent guidance, tests or developer tooling.
 
 ## Workflow
 
-Use a narrow `dev/<topic>` branch from current main and an early meaningful
-Draft PR. Optional kind prefixes include `dev/fix/<topic>` and
-`dev/docs/<topic>`. A temporary `rc/<version>` freezes a named integration
-candidate, not a second permanent product or a separate set of docs.
+Use a narrow `dev/<topic>` branch from the declared main or versioned candidate
+base and an early meaningful Draft PR. Optional kind prefixes include
+`dev/fix/<topic>` and `dev/docs/<topic>`. A temporary `beta/<version>` assembles
+selected development checkpoints; a later `rc/<version>` freezes release scope.
+Neither is a second permanent product or a separate set of docs. Ongoing
+0.9.5 work targets `beta/0.9.5`; accepted `rc/0.9.0` stays unchanged.
 Follow [the canonical workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) for ownership,
 exact-head gates, affected rechecks, merge approval and cleanup. Existing open
 branches need not be renamed for cosmetics. Published releases use immutable
@@ -37,7 +39,7 @@ version tags and an exact reviewed marketplace snapshot.
 
 Main is the stable release snapshot, documentation included. Docs-only PRs do
 not have automatic merge permission. Keep daily status in issues/PRs, include
-the next roadmap/docs revision in the named RC, and complete the workflow's
+the next roadmap/docs revision in the named beta/RC, and complete the workflow's
 release reconciliation checklist before an explicitly owner-authorized main update.
 
 ## Checks
