@@ -145,16 +145,33 @@ impl Host<'_> {
 }
 impl Effects for Host<'_> {
     fn recheck(&mut self) -> bool {
-        self.context.recheck().is_ok()
-            && self.resolved.recheck().is_ok()
-            && (!self.retained || self.retention.verify().is_ok())
+        use crate::diagnostic::{Refusal, report};
+        if let Err(error) = self.context.recheck() {
+            report(Refusal::Authority(error));
+            return false;
+        }
+        if let Err(error) = self.resolved.recheck() {
+            report(Refusal::Resolved(error));
+            return false;
+        }
+        if self.retained
+            && let Err(error) = self.retention.verify()
+        {
+            report(Refusal::Retention(error));
+            return false;
+        }
+        true
     }
 
     fn applied_policy_matches(&mut self) -> bool {
         self.baseline.as_ref().is_some_and(|baseline| {
-            self.resolved
-                .verify_policy_preserves_baseline(baseline)
-                .is_ok()
+            match self.resolved.verify_policy_preserves_baseline(baseline) {
+                Ok(()) => true,
+                Err(error) => {
+                    crate::diagnostic::report(crate::diagnostic::Refusal::ActivePolicy(error));
+                    false
+                }
+            }
         })
     }
 

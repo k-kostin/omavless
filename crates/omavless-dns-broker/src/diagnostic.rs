@@ -1,6 +1,8 @@
 //! Fixed admission diagnostics. Never accept bus/kernel text or client values.
+use crate::admission::Error as AdmissionError;
 use omavless_dns_channel::Error as ChannelError;
 use omavless_dns_resolved::Error as ResolvedError;
+use omavless_dns_retention::Error as RetentionError;
 use omavless_dns_tun::Error as TunError;
 use std::fmt;
 
@@ -9,6 +11,9 @@ pub(crate) enum Refusal {
     Tun(TunError),
     Resolved(ResolvedError),
     Baseline(ResolvedError),
+    Authority(AdmissionError),
+    Retention(RetentionError),
+    ActivePolicy(ResolvedError),
 }
 
 impl fmt::Display for Refusal {
@@ -18,13 +23,18 @@ impl fmt::Display for Refusal {
             Self::Tun(error) => write!(f, "DNS broker TUN refused: {error}"),
             Self::Resolved(error) => write!(f, "DNS broker resolver refused: {}", error.code()),
             Self::Baseline(error) => write!(f, "DNS broker baseline refused: {}", error.code()),
+            Self::Authority(error) => write!(f, "DNS broker authority recheck refused: {error}"),
+            Self::Retention(error) => write!(f, "DNS broker retention recheck refused: {error}"),
+            Self::ActivePolicy(error) => {
+                write!(f, "DNS broker active policy refused: {}", error.code())
+            }
         }
     }
 }
 
 pub(crate) fn report(refusal: Refusal) {
     // All payloads are closed enums without strings/IDs/paths. One message per
-    // rejected authenticated acquisition; no successful polling/idle log spam.
+    // rejected acquisition/recheck; no successful polling/idle log spam.
     eprintln!("{refusal}");
 }
 
@@ -71,8 +81,31 @@ mod tests {
         ] {
             messages.push(Refusal::Resolved(error).to_string());
             messages.push(Refusal::Baseline(error).to_string());
+            messages.push(Refusal::ActivePolicy(error).to_string());
         }
-        assert_eq!(messages.len(), 34);
+        for error in [
+            AdmissionError::Refused,
+            AdmissionError::InvalidEnrollment,
+            AdmissionError::BusUnavailable,
+            AdmissionError::InvalidReply,
+            AdmissionError::ServiceMismatch,
+        ] {
+            messages.push(Refusal::Authority(error).to_string());
+        }
+        for error in [
+            RetentionError::InvalidState,
+            RetentionError::InvalidDescriptor,
+            RetentionError::ManagerUnavailable,
+            RetentionError::InvalidReply,
+            RetentionError::PolicyMismatch,
+            RetentionError::ExistingStore,
+            RetentionError::RetentionUnconfirmed,
+            RetentionError::OutcomeUnknown,
+            RetentionError::RecoveryRequired,
+        ] {
+            messages.push(Refusal::Retention(error).to_string());
+        }
+        assert_eq!(messages.len(), 58);
         for message in messages {
             assert!(message.starts_with("DNS broker "));
             assert!(message.len() <= 160);

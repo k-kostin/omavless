@@ -59,7 +59,10 @@ pub fn serve() -> Result<(), Error> {
         context
             .set_deadline(Instant::now() + Duration::from_secs(5))
             .map_err(|_| Error::Unavailable)?;
-        context.recheck().map_err(|_| Error::RecoveryRequired)?;
+        context.recheck().map_err(|error| {
+            report(Refusal::Authority(error));
+            Error::RecoveryRequired
+        })?;
         access.recheck().map_err(|_| Error::AdmissionRefused)?;
         let mut session = match listener.accept() {
             Ok(session) => session,
