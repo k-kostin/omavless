@@ -103,7 +103,8 @@ These are bounded development checks, not external-provider interoperability
 or owner-attended release acceptance. The VM returned to Disconnected/Rule;
 the temporary firewall rule and synthetic subscription were removed.
 Unpublished ARM64 CI app/DNS artifacts were inspected offline for version,
-architecture and source consistency; ARM64 frontend pairing and installed
-review remain the sole unrun cross-architecture **beta** gate. Public pins,
+architecture and source consistency, then strictly paired with the same
+architecture-neutral frontend; installed ARM64 review remains the sole unrun
+cross-architecture **beta** gate. Public pins,
 guided fresh provisioning, real-provider positive maturity, RC scope freeze
 and release/Marketplace decisions remain later separate work.
