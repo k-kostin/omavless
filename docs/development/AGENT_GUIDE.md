@@ -191,8 +191,10 @@ the change.
   Preserve it during branch cleanup; never merge new work into it or use it as
   a mutable CI dependency. See [legacy retirement](../roadmap/LEGACY_RETIREMENT.md).
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
-  `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `rc/<version>` candidates
-  follow the canonical workflow; do not rename active/evidence branches just
+  `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
+  assemblies and `rc/<version>` release candidates follow the canonical
+  workflow; keep accepted `rc/0.9.0` separate from `beta/0.9.5` development.
+  Do not rename active/evidence branches just
   for cosmetics or commit implementation work directly to `main`.
 - Before creating a branch, inspect open PRs and recently updated remote
   branches for the same roadmap stage or subsystem. Continue or explicitly
@@ -208,7 +210,7 @@ the change.
 - Prepare agreed documentation-only updates in reviewed `dev/docs/*` PRs;
   readiness is not authorization to update `main`. The former automatic docs
   merge permission is revoked by the [2026-09-22 workflow decision](../roadmap/DEVELOPMENT_WORKFLOW.md#agreed-documentation-only-updates).
-  Current issues/PRs carry ongoing status; a named RC carries the next roadmap
+  Current issues/PRs carry ongoing status; the named beta/RC carries the next roadmap
   revision. Before an owner-authorized main update, reconcile and include all
   applicable roadmap, current-status, feature-contract and agent-rule changes.
   Do not leave accepted decisions stranded in a branch after publishing code.

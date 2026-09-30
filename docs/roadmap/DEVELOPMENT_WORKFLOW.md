@@ -1,6 +1,6 @@
 # OmaVLESS development workflow
 
-Status: repository workflow policy, updated 2026-09-22.
+Status: repository workflow policy, updated 2026-09-30.
 
 This workflow applies to current plugin work, incremental Python -> Rust
 migration, standalone Arch/NixOS packaging and later TUI work.
@@ -20,20 +20,33 @@ Do not maintain permanent `develop`, `rc`, `alpha` or `beta` branches. A normal 
 + Draft PR already expresses an alpha state. A cloud-ready Draft with local
 gates pending expresses the next maturity state.
 
-A temporary `rc/<version>` branch is allowed for a named release/integration
-candidate (for example `rc/0.8.0`). Record its exact constituent heads and pending
-gates. Assemble completed, independently checked roadmap checkpoints there,
-including their docs; do not collect every intermediate edit. During final
-acceptance, allow only fixes needed for that release, returned to owning PRs.
-It carries the same documentation and agent rules as main, not a separate
-user-facing tree. It is not a release tag or permission to merge/publish.
-Delete it after the release or recorded supersession. Existing `beta/<scope>`
-scratch work is grandfathered until safely retired, not a new branch convention.
+Owner-approved versioned stages, 2026-09-30:
+
+- `beta/<version>` is a temporary development/integration/soak assembly. Include
+  selected, independently checked checkpoints through scoped `dev/*` PRs and
+  record their exact source heads, adaptations and remaining host gates. It may
+  evolve in scope; it is not a public prerelease or a claim of release readiness.
+- `rc/<version>` freezes the selected scope for final release acceptance. Only
+  release fixes belong there, returned to owning PRs. Record artifact identities
+  and declared acceptance gates separately from development integration.
+- Declare each candidate's exact starting source: current main or an explicitly
+  selected accepted candidate. For 0.9.5, start `beta/0.9.5` from accepted
+  `rc/0.9.0` at `a543a45c34dcc953ef2e9cd019499146f85ac2eb`; leave that RC
+  unchanged. Later create `rc/0.9.5` from a selected, recorded beta head. Do not
+  divert 0.9.5 features into the accepted 0.9.0 candidate.
+
+Both stages carry the canonical documentation and agent rules, not separate
+user/developer trees. Reconcile those docs when integrating code. Neither stage
+is a release tag, authorizes public assets/marketplace, or permits a main update.
+Delete after release or recorded supersession under the cleanup rules below.
+Old unversioned `beta/<scope>` scratch branches are grandfathered evidence, not
+templates for new integration branches. There is no permanent develop/beta/RC.
 
 The owner-approved `archive/python-legacy` exception is a frozen full-repository
 snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
 reference and its tests, not a supported parallel release or development branch.
-Retain it during cleanup; new work still targets `main`. See the
+Retain it during cleanup; new work follows the selected development candidate
+and ultimately an owner-authorized main update. See the
 [retirement sequence](LEGACY_RETIREMENT.md).
 
 ## 2. Short-lived branch roles
@@ -88,7 +101,7 @@ retain their separate applicable authorization.
 
 Use narrow `dev/docs/*` PRs; run documentation/navigation checks and normal CI.
 Mark checked work ready when appropriate, but keep it outside main until the
-authorized update. Readiness and integration into RC do not mean publication.
+authorized update. Readiness and integration into beta or RC do not mean publication.
 Preserve canonical paths on every branch: main documents its released snapshot,
 the candidate documents the intended next snapshot, and issues/PRs expose the
 current queue. Do not put roadmap/agent rules exclusively in a separate branch.
@@ -176,6 +189,13 @@ acceptance. Keep unchecked list visible.
 
 Exact merge candidate passed declared cloud/parity/local gates, diff was
 re-reviewed after any rebase/fix and owner approval is given.
+
+### Beta-integrated / not released
+
+A selected checkpoint is included at recorded exact heads in `beta/<version>`.
+Combined checks and remaining installed gates are explicit. This is development
+integration, not a scope freeze, stage completion or public prerelease. Source
+PRs/evidence remain discoverable, including deliberately inactive foundations.
 
 ### RC-integrated / not released
 
@@ -394,6 +414,7 @@ Keep concepts separate:
 ```text
 main                 stable owner-approved release snapshot, docs included
 dev/<topic>          short-lived task branch + PR
+beta/<version>       temporary selected development/integration/soak assembly
 rc/<version>         temporary exact release candidate
 version tag          immutable project release
 marketplace snapshot exact reviewed plugin commit
@@ -452,8 +473,10 @@ hide them in a separate develop branch or ship them as runtime payload.
 Plugin/UI feature:
 
 ```text
-main -> dev/<topic> PR -> declared gates -> rc/<version> + reconciled docs
-     -> combined gates -> explicit owner main authorization -> main
+declared base -> dev/<topic> PR -> declared gates
+              -> optional beta/<version> + reconciled docs / combined checks
+              -> rc/<version> scope freeze + final release gates
+              -> explicit owner main authorization -> main
 ```
 
 Rust migration slice:

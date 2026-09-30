@@ -9,7 +9,8 @@ branch; they are not hidden only in a permanent develop/rc branch.
 
 Main's documentation belongs to its stable release snapshot. Current issues
 and PRs carry day-to-day status; checked `dev/docs/*` changes join the next named
-RC. Before any owner-authorized main update, apply the mandatory
+beta/RC. A versioned beta integrates development; a versioned RC freezes release
+scope. Both retain these canonical paths. Before any owner-authorized main update, apply the mandatory
 [release reconciliation checklist](../roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist)
 so roadmap, contracts, evidence and agent guidance are not left behind. Even
 documentation-only main updates require explicit owner authorization.
