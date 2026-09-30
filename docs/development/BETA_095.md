@@ -96,5 +96,7 @@ server and temporary VM-only firewall allowance. Installed T3 EN/RU/read-only
 concurrency and disconnected runtime-instance change were exercised; a connected
 stale-private-view case and T4 provider interoperability remain. This is not
 owner-attended release acceptance. The VM returned to Disconnected and its
-temporary firewall rule was removed. Public pins, ARM64 and the remaining
-integration gates above stay open.
+temporary firewall rule was removed. Unpublished ARM64 CI app/DNS artifacts
+were inspected offline for version, architecture and source consistency; no
+ARM64 installation or frontend pairing was tested. Public pins, ARM64 installed
+acceptance and the remaining integration gates above stay open.
