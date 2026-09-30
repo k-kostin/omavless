@@ -52,6 +52,43 @@ verified per-core-incarnation ID non-reuse or a core-side conditional close that
 atomically checks incarnation. Neither guarantee has been established here.
 The synthetic incarnation is a test input, not an implemented Mihomo guarantee.
 
+### Bundled-core source audit, September 30, 2026
+
+The corresponding source inside the paired x86_64 `omavless-dns` 0.9.5-beta.1
+package (package SHA-256
+`1e99069336b092a258f7040507ad0e0e23f3f631a9400160e649ddfc57fef027`)
+identifies Mihomo v1.19.31 at
+`ab405bad5beeeac8b003bb01f60f134f6df54471`. This is an audit of that
+specific bundled core, not a guarantee about later or system-installed cores:
+
+- `tunnel/statistic/tracker.go` creates both TCP and UDP tracker IDs through
+  `utils.NewUUIDV4()` and presents them as UUID strings.
+- `common/utils/uuid.go` fills the UUID from `crypto/rand.Read`, but does not
+  inspect its result. More importantly, neither this constructor nor the
+  tracker manager records all previously issued IDs to enforce non-reuse.
+- `tunnel/statistic/manager.go` stores trackers by ID; `Join` stores under that
+  key and `Leave` deletes by that key. The code does not establish a monotonic
+  per-core incarnation token or collision rejection.
+- `hub/route/connections.go` handles GET through `Snapshot()` and DELETE of
+  `/{id}` through a separate `Get(id)` followed by `Close()`. The DELETE accepts
+  no expected tracker incarnation and contains no atomic comparison with an
+  earlier GET result.
+
+Random UUIDs make accidental reuse improbable under normal conditions, but
+probability is not the per-incarnation non-reuse or atomic conditional-close
+*guarantee* required by this security-sensitive mutation. An extra owner-side
+GET, matching displayed destination, matching creation time or a short timeout
+does not close the intervening replacement window. The new synthetic ABA test
+records that even identical pre-DELETE readback yields no permit. Keep the
+existing read-only connections view; do not route a TUI button to Mihomo's
+DELETE endpoint or quietly treat this source audit as a passed activation gate.
+
+A future core-side solution needs an atomic conditional close tied to an
+opaque per-tracker incarnation (or a reviewed, enforceable non-reuse contract),
+with an explicit mismatch/not-found result and a matched-core package receipt.
+Its API, failure semantics, upstream/fork maintenance and installed privacy
+review are separate slices; none is implemented here.
+
 Before activation, separately review private action projection/wire parsing,
 owner-lock/shared operation-ID collision integration, trusted observations,
 monotonic clock/entropy acquisition, revocation/cancellation wiring, bounded
