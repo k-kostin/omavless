@@ -129,7 +129,7 @@ class PackageTests(unittest.TestCase):
         hook = (destination / "omavless-dns.hook").read_text()
         script = (destination / "omavless-dns.install").read_text()
         self.assertIn("pkgname=omavless-dns\n", recipe)
-        self.assertIn("pkgver=0.9.0rc2\n", recipe)
+        self.assertIn("pkgver=0.9.5beta1\n", recipe)
         self.assertIn("conflicts=('omavless-dns-experimental')", recipe)
         self.assertIn("/usr/lib/omavless-dns/mihomo", recipe)
         self.assertIn("/usr/lib/omavless-dns/omavless-dns-broker", unit)
@@ -152,6 +152,8 @@ class PackageTests(unittest.TestCase):
     def test_release_package_version_requires_matching_frontend_and_runtime(self):
         for version, expected in (("0.9.0-rc.1", "0.9.0rc1"),
                                   ("0.9.0-rc.12", "0.9.0rc12"),
+                                  ("0.9.5-beta.1", "0.9.5beta1"),
+                                  ("0.9.5-beta.12", "0.9.5beta12"),
                                   ("0.9.0", "0.9.0")):
             cargo = f'[workspace.package]\nversion = "{version}"\n'
             manifest = json.dumps({"version": version})
@@ -160,6 +162,9 @@ class PackageTests(unittest.TestCase):
             ('[workspace.package]\nversion = "0.9.0"\n', '{"version":"0.9.1"}'),
             ('[workspace.package]\nversion = "latest"\n', '{"version":"latest"}'),
             ('[workspace.package]\nversion = "0.9.0-rc.0"\n', '{"version":"0.9.0-rc.0"}'),
+            ('[workspace.package]\nversion = "0.9.5-beta.0"\n', '{"version":"0.9.5-beta.0"}'),
+            ('[workspace.package]\nversion = "0.9.5-beta.01"\n', '{"version":"0.9.5-beta.01"}'),
+            ('[workspace.package]\nversion = "0.9.5-alpha.1"\n', '{"version":"0.9.5-alpha.1"}'),
             ('not toml', '{"version":"0.9.0"}'),
         ):
             with self.assertRaises(stage.Refused):

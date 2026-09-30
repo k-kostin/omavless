@@ -252,7 +252,7 @@ def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha,
         if owner not in (0, os.getuid()) or inspection.fingerprint(path, owner)[0] != expected:
             raise ValueError('input hash')
     app_info = inspection.inspect_archive(app, arch)
-    if app_info['version'] != version.replace('-rc.', 'rc') + '-1':
+    if app_info['version'] != release.arch_version(version) + '-1':
         raise ValueError('app version')
     source = app_info['source']
     if not re.fullmatch(COMMIT, source):
@@ -267,7 +267,7 @@ def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha,
             or 'omavless-dns=' + app_info['version'] not in pkg.get('depend', [])
             or any('mihomo' in value for value in pkg.get('depend', []))):
         raise ValueError('app companion dependency')
-    dns_info = inspect_dns_archive(dns, version.replace('-rc.', 'rc'), arch, source)
+    dns_info = inspect_dns_archive(dns, release.arch_version(version), arch, source)
     tree_sha = pair.equivalent_inputs(root, source, frontend_source)
     pins = pin_state(root, frontend_source, version, arch, app_sha, dns_sha, source)
     inspection.safe_parents(output, os.getuid())
@@ -276,7 +276,7 @@ def assemble(root, output, app, dns, frontend_source, app_sha, dns_sha,
             or output == root or root in output.parents or any(output.iterdir())):
         raise ValueError('unsafe output')
     output.chmod(0o700)
-    package_version = version.replace('-rc.', 'rc') + '-1'
+    package_version = release.arch_version(version) + '-1'
     app_name = f'omavless-{package_version}-{arch}.pkg.tar.zst'
     dns_name = f'omavless-dns-{package_version}-{arch}.pkg.tar.zst'
     copy_verified(app, output / app_name, app_sha, inspection.ARCHIVE_LIMIT)

@@ -42,10 +42,18 @@ def checked_source(root, expected):
 
 def version(root, stable=False):
     value = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-    pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + ("" if stable else r"-rc\.[1-9][0-9]*")
+    pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + ("" if stable else r"-(?:rc|beta)\.[1-9][0-9]*")
     if not isinstance(value, str) or len(value) > 32 or not re.fullmatch(pattern, value):
         raise ValueError("candidate version required")
     return value
+
+
+def arch_version(value):
+    """Project a checked stable/RC/beta version; never accept arbitrary input."""
+    if (not isinstance(value, str) or len(value) > 32
+            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|beta)\.[1-9][0-9]*)?", value)):
+        raise ValueError("product version")
+    return value.replace("-rc.", "rc").replace("-beta.", "beta")
 
 
 def frontend(root, destination, expected, release_version, epoch):

@@ -12,8 +12,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
   scope freeze. The [#388](https://github.com/k-kostin/omavless/pull/388)
   T3 checkpoint preserves the original read-only chain, passes combined local
   checks and fixes a revoked-terminal cleanup panic. EN/RU synthetic terminal
-  rendering was inspected; exact installed T3 acceptance and honest beta package
-  assembly remain pending. T4/S1/K1 inactive
+  rendering was inspected. [#389](https://github.com/k-kostin/omavless/pull/389)
+  adds explicit transient provider usage/expiry reads in TUI; ordinary lists and
+  diagnostics exclude those private assertions. Source version is now
+  `0.9.5-beta.1`, with empty unpublished package pins rather than relabeled RC2
+  artifacts. Exact installed T3/T4 acceptance and beta package assembly remain
+  pending. Other T4/S1/K1 inactive
   foundations are not advertised as working features. The
   [beta ledger](../development/BETA_095.md) records selection and remaining gates.
   Accepted RC 0.9.0, stable main and Marketplace stay unchanged; new public

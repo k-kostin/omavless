@@ -26,10 +26,11 @@ def package_version(cargo_text, manifest_text):
     except (KeyError, TypeError, ValueError) as error:
         raise fixture.Refused("Product version metadata is invalid.") from error
     if (not isinstance(cargo_version, str) or cargo_version != frontend_version
-            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?",
+            or len(cargo_version) > 32
+            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-(?:rc|beta)\.[1-9][0-9]*)?",
                                 cargo_version)):
         raise fixture.Refused("Companion version does not match the frontend and runtime.")
-    return cargo_version.replace("-rc.", "rc")
+    return cargo_version.replace("-rc.", "rc").replace("-beta.", "beta")
 
 
 def stage(pair, architecture, revision, output):

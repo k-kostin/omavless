@@ -1,6 +1,6 @@
-# OmaVLESS 0.9.0-rc.2 — native frontend candidate
+# OmaVLESS 0.9.5-beta.1 — native frontend candidate
 
-This is a **release candidate**, not a marketplace update. It contains the
+This is a **development beta**, not a scope-frozen RC or marketplace update. It contains the
 Omarchy QML frontend for the matching Rust package; Python is not included.
 Use the accompanying `release-candidate.json` (single-source build) or
 `frontend-pair.json` (reviewed unchanged runtime, newer frontend), together with
@@ -11,19 +11,21 @@ This QML frontend is common to ARM64 and x86_64. Install the native package
 for your architecture from the recorded reviewed runtime source/version. A paired
 frontend can have a newer source commit only when the pairing record verifies
 unchanged runtime/build/package inputs; a matching version alone is insufficient.
-A `0.9.0-rc.2` version
+A `0.9.5-beta.1` version
 label alone does not mean this candidate has been published or accepted on both.
 
 ## Installation
 
-This validation RC has pinned public prerelease downloads for a matched
-`omavless` + `omavless-dns` package pair. It is not a supported stable upgrade.
-The panel can offer a guided fresh install after explicit consent; an existing
+This beta currently has **no public package pins**. Required components must
+report the release unavailable rather than download the older RC2 pair. Use
+the reviewed local exact-source `omavless` + `omavless-dns` package pair for
+developer acceptance. It is not a supported stable upgrade.
+Once separately authorized public pins exist, the panel can offer a guided fresh install after explicit consent; an existing
 or ambiguous installation requires the separate reviewed update/recovery path.
 It must never substitute the public 0.8.2 runtime or stock Mihomo for this pair.
 
 1. Read [native installation and recovery](docs/user/NATIVE_INSTALL.md).
-2. For a fresh account with neither package installed, use the panel's
+2. Only after public beta pins/downloads are verified, for a fresh account with neither package installed, use the panel's
    **Required components** action and confirm package installation, DNS
    enrollment and activation in the visible terminal. It verifies the pinned
    downloads before normal `pacman`; it does not connect automatically.

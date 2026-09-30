@@ -7,6 +7,8 @@ if [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   printf 'stable\t%s\n' "$1"
 elif [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]; then
   printf 'candidate\t%s\n' "${1/-rc./rc}"
+elif [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*$ ]]; then
+  printf 'candidate\t%s\n' "${1/-beta./beta}"
 else
   exit 2
 fi
