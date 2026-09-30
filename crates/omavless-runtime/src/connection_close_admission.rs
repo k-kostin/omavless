@@ -388,6 +388,24 @@ mod tests {
     }
 
     #[test]
+    fn identical_pre_delete_readback_cannot_exclude_a_later_aba_replacement() {
+        let (mut registry, observation, identity, request) = prepared();
+        // A second GET can return the original ID and metadata. The core may
+        // still remove that tracker and assign its ID to another tracker before
+        // a separate DELETE. No owner-side comparison can make those two HTTP
+        // operations atomic, even when every observed field is identical.
+        let matching_readback = identity.clone();
+        assert!(matching_readback == identity);
+        assert_eq!(
+            registry.confirm(&observation, &request, Some(&matching_readback), 1, 102),
+            Refusal::CoreIdentityGuaranteeMissing
+        );
+        assert!(registry.snapshot.as_ref().unwrap().rows.is_empty());
+        assert!(registry.pending.is_none());
+        assert_eq!(registry.receipts.len(), 1);
+    }
+
+    #[test]
     fn every_owner_context_component_is_fenced() {
         let changes: [fn(&mut Context); 11] = [
             |c| c.instance[0] += 1,
