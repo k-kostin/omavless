@@ -6,9 +6,17 @@ Status: active delivery ledger; stable release updated 2026-09-22.
 the accepted T2 MVP and reconciled workflow/triage documentation. Its
 [constituent ledger](docs/development/RC_090.md) records exact source PRs and
 excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
-Draft #331 contains the reviewed managed-DNS release pair but is not yet
-integrated into RC. Immutable `v0.9.0-rc.1` assets are validation-only, not
-stable publication. Published 0.8.2 tags/assets are unchanged. Main remains
+#331 integrated the reviewed managed-DNS release pair and guided setup into RC.
+The ARM64 connected broker-crash negative refused a mode change and recovered
+through the documented reboot boundary. RC2 includes the first-use UI and
+CLI-response corrections absent from the immutable RC1 assets, plus bounded
+DNS recovery diagnostics. Both architecture pairs are inspected; the final
+ARM64 installed update and managed-DNS lifecycle passed. The
+[RC ledger](docs/development/RC_090.md#final-rc2-artifact-and-acceptance-checkpoint)
+records exact identities, public-download status and the retained unexplained
+loaded-VM failure; it does not claim that diagnostic logging fixes that failure.
+See the [current DNS disposition](docs/development/RC_090.md#managed-dns-and-mode-failure-disposition).
+Published 0.8.2 tags/assets are unchanged. Main remains
 frozen at the submitted marketplace SHA until another explicit owner instruction,
 including for documentation-only changes.
 

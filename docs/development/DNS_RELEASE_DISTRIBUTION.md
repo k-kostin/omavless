@@ -1,11 +1,11 @@
-# Managed DNS pair: release-distribution contract (proposal)
+# Managed DNS pair: release-distribution contract
 
-Status: `v0.9.0-rc.1` validation-only prerelease, **not approved for normal installation**.
-Draft #302 proves a combined app/UI source and an installed x86_64 VM
-diagnostic; Draft #303 builds experimental pair packages on both native
-architectures. A later stacked draft stages a separate `omavless-dns` package
-candidate and a release-only runtime selector. Neither that uninstalled
-candidate nor the experimental manual enrollment is a public release path.
+Status: integrated into `rc/0.9.0` through #331; final RC2 pair inspection and
+installed ARM64 update passed, **not approved for stable publication**. Exact
+identities and remaining authority boundaries are in the
+[RC ledger](RC_090.md#final-rc2-artifact-and-acceptance-checkpoint).
+Immutable RC assets are validation inputs. The historical #302/#303 and delivery stack are now incorporated in
+the production-name pair, release-only selector and guided first-use path.
 The broker's security and host
 contracts remain in [DNS broker composition](../../tests/dns_broker_host/README.md)
 and [authorization research](DNS_AUTHORIZATION_RESEARCH.md).

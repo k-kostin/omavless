@@ -14,8 +14,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
-VERSION = "0.9.0-rc.1"
-PKGVER = "0.9.0rc1"
+VERSION = "0.9.0-rc.2"
+PKGVER = "0.9.0rc2"
 SOURCE = "b" * 40
 
 
@@ -82,7 +82,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
         for arch in ("aarch64", "x86_64"):
             self.assertEqual(app[arch]["sourceCommit"], dns[arch]["sourceCommit"])
             self.assertEqual(app[arch]["sourceCommit"],
-                             "b739ac6a279981ffde3586d5e70e44a6be43ba70")
+                             "0b0a2d0d3eb2b2685971e6b6bae5307e93d637ef")
             self.assertNotEqual(app[arch]["sha256"], dns[arch]["sha256"])
             for filename in ("runtime-release.json", "dns-release.json"):
                 shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
@@ -147,7 +147,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
     def test_existing_package_states_are_bounded_and_read_only(self):
         fixture = '''
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.0rc1-1'; }
+package_installed() { echo 'omavless 0.9.0rc2-1'; }
 pair_installed() { return 0; }
 system_broker_available() { return 0; }
 native_target() { echo rust; }
@@ -251,13 +251,13 @@ curl() {{
 }}
 package_info() {{
   if [[ "$1" == *'/omavless-dns-'* ]]; then
-    echo 'omavless-dns {'0.9.0rc1-1' if dns_package_ok else '0.8.2-1'}'
-  else echo 'omavless 0.9.0rc1-1'; fi
+    echo 'omavless-dns {'0.9.0rc2-1' if dns_package_ok else '0.8.2-1'}'
+  else echo 'omavless 0.9.0rc2-1'; fi
 }}
 app_archive_identity() {{ return {0 if app_identity_ok else 1}; }}
 dns_archive_identity() {{ return {0 if dns_identity_ok else 1}; }}
 package_install() {{ printf '%s\\n' "$1" "$2" > "$TEST_DIR/install-args"; touch "$TEST_DIR/installed"; }}
-package_installed() {{ [[ -f "$TEST_DIR/installed" ]] && echo 'omavless 0.9.0rc1-1'; }}
+package_installed() {{ [[ -f "$TEST_DIR/installed" ]] && echo 'omavless 0.9.0rc2-1'; }}
 pair_installed() {{ [[ -f "$TEST_DIR/installed" ]]; }}
 {boundary_override}
 install_package
@@ -315,7 +315,7 @@ install_package
         fixture = '''
 pair_installed() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.0rc1-1'; }
+package_installed() { echo 'omavless 0.9.0rc2-1'; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
@@ -354,7 +354,7 @@ pair_installed() { return 0; }
 system_broker_idle() { return 0; }
 broker_access_for_user() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.0rc1-1'; }
+package_installed() { echo 'omavless 0.9.0rc2-1'; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }
