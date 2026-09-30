@@ -23,7 +23,7 @@ Main and Marketplace remain held; a beta branch is not a published prerelease.
 ## Not activated by this selection
 
 T3 connection closing still lacks effect-time core identity guarantees. T4
-refresh/recovery/quota/backup foundations are inactive; backup framing is not
+automatic refresh/recovery/persistent quota/backup foundations are inactive; backup framing is not
 encryption. S1 still lacks trusted manager/writer admission and K1 lacks complete
 policy ownership/effect enforcement. Integrate those only through separately
 bounded decisions and gates; module presence is not product readiness.
@@ -62,6 +62,22 @@ terminal teardown, retains normal dropping and sanitized error handling, and
 does not catch rendering/IPC errors. A deterministic drop regression, all PTY
 scenarios and 400 revoked-PTY exits then pass. The temporary diagnostic hook was
 removed before committing. No runtime/network behavior changes for this fix.
+
+## First working T4 checkpoint
+
+[#389](https://github.com/k-kostin/omavless/pull/389), code head
+`c5318f87b976a7073e6bd7001f67766502061011`, adds an explicit `u` read for the
+selected TUI subscription. Strict optional provider counters and expiry are
+private, transient assertions, not connection health. No automatic fetch,
+persistent quota, subscription mutation or QML layout change is introduced.
+See the [owning contract](T4_SUBSCRIPTION_METADATA.md) for the detached HTTP,
+capacity, deadline, ownership/revision/URL fences and private projection.
+
+Local checks: 1,378 successful Rust executions (12 ignored), fmt/Clippy,
+11 PTY scenarios and parity; 494 developer tests (two expected skips), QML,
+300 EN/RU keys and plugin validation pass. Actual synthetic terminal rendering
+was inspected in EN/RU. GitHub test and both native package jobs pass. These are
+not installed beta or live provider evidence; those remain explicit gates.
 
 The source version is now **0.9.5-beta.1** (`0.9.5beta1-1` in Arch packages).
 Runtime, companion, manifest and setup version must agree. Beta/RC assembly is
