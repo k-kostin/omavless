@@ -9,7 +9,11 @@ history. GitHub's actual main/PR state is authoritative for publication.
 - **0.9.5 development:** owner-approved `beta/0.9.5` starts from accepted
   `rc/0.9.0` at `a543a45c34dcc953ef2e9cd019499146f85ac2eb`, not from the older
   #375 composition branch. Scoped `dev/*` PRs target beta; `rc/0.9.5` is a later
-  scope freeze. Begin with T3 read-only operator work. T4/S1/K1 inactive
+  scope freeze. The [#388](https://github.com/k-kostin/omavless/pull/388)
+  T3 checkpoint preserves the original read-only chain, passes combined local
+  checks and fixes a revoked-terminal cleanup panic. EN/RU synthetic terminal
+  rendering was inspected; exact installed T3 acceptance and honest beta package
+  assembly remain pending. T4/S1/K1 inactive
   foundations are not advertised as working features. The
   [beta ledger](../development/BETA_095.md) records selection and remaining gates.
   Accepted RC 0.9.0, stable main and Marketplace stay unchanged; new public

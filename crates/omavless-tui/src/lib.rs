@@ -10,8 +10,10 @@ pub mod inspection;
 pub mod job_ui;
 pub mod jobs;
 pub mod model;
+pub mod route_inspection;
 pub mod settings;
 pub mod theme;
+pub mod traffic_history;
 pub mod view;
 
 use app::{Action, App};
@@ -29,6 +31,37 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+/// Ratatui 0.30's Terminal destructor uses eprintln! if cursor restoration
+/// fails. After a PTY is revoked both that write and the destructor can panic.
+/// Contain only teardown here, not rendering/IPC failures; retain normal drops
+/// and the privacy-safe panic hook, without leaking the terminal with forget().
+struct TerminalGuard(Option<ratatui::DefaultTerminal>);
+
+fn drop_terminal_safely<T>(value: T) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(value)));
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if let Some(terminal) = self.0.take() {
+            drop_terminal_safely(terminal);
+        }
+    }
+}
+
+impl std::ops::Deref for TerminalGuard {
+    type Target = ratatui::DefaultTerminal;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("terminal owned until teardown")
+    }
+}
+
+impl std::ops::DerefMut for TerminalGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().expect("terminal owned until teardown")
+    }
+}
 
 /// Never reports rejected IPC data, private names, terminal escapes or paths.
 pub fn run(
@@ -71,7 +104,9 @@ fn run_client(
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
     }
-    let mut terminal = ratatui::try_init().map_err(|_| "Could not initialize OmaVLESS terminal")?;
+    let mut terminal = TerminalGuard(Some(
+        ratatui::try_init().map_err(|_| "Could not initialize OmaVLESS terminal")?,
+    ));
     // This entry point owns the CLI process. Never echo panic payloads/private
     // state or panic recursively while reporting to a revoked terminal.
     std::panic::set_hook(Box::new(|_| {
@@ -104,20 +139,25 @@ fn run_client(
                 .map_err(|_| "Could not initialize terminal signal handling")?,
         );
     }
-    let (request, requests) = mpsc::sync_channel::<(inspection::Page, Option<String>)>(1);
+    let (request, requests) = mpsc::sync_channel::<(
+        inspection::Page,
+        Option<String>,
+        Option<route_inspection::Request>,
+    )>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while let Ok((page, selected)) = requests.recv() {
+            while let Ok((page, selected, route)) = requests.recv() {
                 let started = Instant::now();
+                let result = client::load_page_for_route(
+                    &mut read,
+                    page,
+                    selected.as_deref(),
+                    route.as_ref(),
+                );
                 if results
-                    .send((
-                        started,
-                        page,
-                        selected.clone(),
-                        client::load_page_for(&mut read, page, selected.as_deref()),
-                    ))
+                    .send((started, page, selected.clone(), route, result))
                     .is_err()
                 {
                     break;
@@ -214,16 +254,37 @@ fn run_client(
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, page, selected, result)) = receive.try_recv() {
-            app.accept(result, started);
+        if let Ok((started, page, selected, route, result)) = receive.try_recv() {
+            match result {
+                Ok((snapshot, route_status)) => {
+                    if app.accept_for(page, selected.as_deref(), Ok(snapshot), started) {
+                        app.accept_route(
+                            route.as_ref().map(route_inspection::Request::target),
+                            route_status,
+                            started,
+                        );
+                    }
+                }
+                Err(error) => {
+                    app.accept_for(page, selected.as_deref(), Err(error), started);
+                }
+            }
             pending = false;
-            due = if page == app.page && selected == app.selected {
+            due = if app.route_request.is_some() {
+                now
+            } else if page == app.page && selected == app.selected {
                 now + Duration::from_secs(3)
             } else {
                 now
             };
         }
-        if !pending && now >= due && request.try_send((app.page, app.selected.clone())).is_ok() {
+        if !pending
+            && now >= due
+            && request
+                .try_send((app.page, app.selected.clone(), app.route_request.clone()))
+                .is_ok()
+        {
+            app.route_request = None;
             pending = true;
         }
         terminal
@@ -269,4 +330,27 @@ fn run_client(
     // Dropping channels stops workers after their current read. The CLI process
     // exits without joining a blocked terminal/backend read thread.
     Ok(())
+}
+
+#[cfg(test)]
+mod terminal_drop_tests {
+    use super::drop_terminal_safely;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn teardown_panic_is_contained_without_skipping_drop() {
+        struct PanickingDrop(Arc<AtomicUsize>);
+        impl Drop for PanickingDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                panic!("synthetic revoked terminal");
+            }
+        }
+        let drops = Arc::new(AtomicUsize::new(0));
+        drop_terminal_safely(PanickingDrop(drops.clone()));
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
 }

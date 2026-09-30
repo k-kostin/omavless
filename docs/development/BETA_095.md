@@ -11,7 +11,11 @@ Main and Marketplace remain held; a beta branch is not a published prerelease.
   CLI fixes, exact RC2 artifacts and acceptance; do not reopen unchanged gates.
 - First integration source: read-only T3 operator/doctor chain through #372,
   `dev/t3-doctor-view` at `95bf743a56d5e19aaf2102bbce8a8d9af88d14f2`.
-  Integration and installed acceptance are pending, not inherited from source CI.
+  [#388](https://github.com/k-kostin/omavless/pull/388) retains all 19 original
+  commits in merge `29b37b65cd1df5d6cf32e6859ea8c94acb3cfb10` on the accepted
+  base. All 35 files preserve the source added/deleted-line multisets; only diff
+  context/placement changes. No DNS/frontend/package boundary is reverted.
+  Installed acceptance is pending, not inherited from source CI.
 - #375 at `b012c98be82f800525975d3e2aa079a6696f724c` is an audit composition
   based on older RC source. Reuse owning feature branches, not its whole tree;
   replacing the accepted RC tree would lose later DNS/CLI fixes.
@@ -36,3 +40,30 @@ and read-only installed behavior. Preserve one runtime/core/TUN and Unix-only
 controller ownership. A local 0.9.5 package requires an honest version and exact
 runtime/DNS/frontend pair; never relabel RC2 pins as beta artifacts. Public
 assets, main promotion and Marketplace each require separate authorization.
+
+## First T3 checkpoint
+
+The workspace adds page-local, fenced read-only rules/providers, saved overrides,
+private connections, explicit one-shot route checks, volatile traffic history,
+fixed core-log hints and local doctor facts. It does not infer network health
+from inventory. Normal QML layout remains unchanged.
+
+Combined local checks at code head `e24f44f`: 494 developer tests (two expected
+skips), QML/Node contracts, 287 bounded EN/RU keys, 1,356 successful Rust test
+executions (12 ignored), 11 PTY scenarios, fmt/Clippy, parity and plugin validate
+pass. Actual terminal rendering of synthetic Connections/Diagnostics was inspected
+in EN/RU; small-view behavior has deterministic coverage, not installed acceptance.
+No private fixtures or captures are committed. Final-head CI is recorded in #388.
+
+One substantive integration finding is fixed: Ratatui 0.30's terminal destructor
+uses `eprintln!` when cursor restoration fails. With a revoked PTY/stderr, cleanup
+itself can panic (13 failures in 30 reproduced exits). `e24f44f` contains only
+terminal teardown, retains normal dropping and sanitized error handling, and
+does not catch rendering/IPC errors. A deterministic drop regression, all PTY
+scenarios and 400 revoked-PTY exits then pass. The temporary diagnostic hook was
+removed before committing. No runtime/network behavior changes for this fix.
+
+The source assembly still has the inherited RC2 version spelling and pins.
+It is **not** a built/published 0.9.5 package. Next gates are honest beta version
+and local exact managed runtime/DNS/frontend assembly, then installed T3 privacy,
+stale-owner, concurrent-client and EN/RU review before release scope freeze.

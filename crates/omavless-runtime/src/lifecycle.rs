@@ -79,6 +79,10 @@ pub trait LifecycleHost {
     fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
         None
     }
+    /// Recent fixed category tokens only; raw owned-core lines never cross IPC.
+    fn core_log_hints(&self) -> Option<crate::core_diagnostics::CoreLogHints> {
+        None
+    }
     /// Bounded, read-only setup/service/file facts; no core execution or probe.
     fn support_facts(&self, _connected: bool) -> Option<HostSupportFacts> {
         None
@@ -103,6 +107,18 @@ pub trait LifecycleHost {
         Err(HostStepError::Observation)
     }
     fn active_connection_count(&mut self, _desired: &DesiredState) -> Result<u32, HostStepError> {
+        Err(HostStepError::Observation)
+    }
+    fn active_connection_overview(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_overview::ConnectionOverview, HostStepError> {
+        Err(HostStepError::Observation)
+    }
+    fn active_connection_rows(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_rows::ConnectionRows, HostStepError> {
         Err(HostStepError::Observation)
     }
     /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.

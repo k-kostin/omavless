@@ -98,6 +98,83 @@ fn runtime_observation_cli_uses_fixed_read_and_rejects_extra_arguments() {
     assert_fixed_observation_read("runtime", "observation", "runtime.observation");
 }
 
+#[test]
+fn doctor_uses_one_fixed_read_and_discards_private_response_fields() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+        write_unary_frame,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let request =
+            decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap()).unwrap();
+        assert_eq!(request["method"], "runtime.observation");
+        assert_eq!(request["params"], serde_json::json!({}));
+        let response = success_response(
+            request["id"].as_str().unwrap(),
+            9,
+            serde_json::json!({
+                "schemaVersion":1,"scope":"local_runtime_observation",
+                "desired":{"connected":true,"profileId":"private-profile"},
+                "lastKnownActual":"connected","manualRecoveryRequired":false,
+                "availability":"unavailable","facts":null,
+                "transition":{"credential":"private-secret"}
+            }),
+        )
+        .unwrap();
+        write_unary_frame(
+            &mut stream,
+            &encode_response(&response).unwrap(),
+            FrameKind::Response,
+        )
+        .unwrap();
+    });
+    let output = isolated_command(&base).arg("doctor").output().unwrap();
+    worker.join().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["scope"], "local_read_only_doctor");
+    assert_eq!(report["localFacts"]["ownedCore"], "unknown");
+    assert_eq!(report["localFacts"]["tunScopeInventory"], "unknown");
+    assert_eq!(report["tunOwnership"], "not_proven");
+    assert_eq!(report["networkHealth"], "not_tested");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("private-"));
+    let invalid = isolated_command(&base)
+        .args(["doctor", "private-token"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&invalid.stderr).contains("private-token"));
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn doctor_without_runtime_is_read_only_and_unavailable() {
+    let base = runtime_base();
+    let output = isolated_command(&base).arg("doctor").output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"OmaVLESS runtime socket is unavailable\n");
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    fs::remove_dir_all(base).unwrap();
+}
+
 fn assert_fixed_observation_read(
     command: &'static str,
     action: &'static str,

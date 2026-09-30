@@ -418,6 +418,12 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     pub(crate) fn connections(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_connections(&mut self.coordinator, request)
     }
+    pub(crate) fn connection_overview(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connection_overview(&mut self.coordinator, request)
+    }
+    pub(crate) fn connection_rows(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connection_rows(&mut self.coordinator, request)
+    }
 
     pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {
         self.coordinator.diagnostic_snapshot()

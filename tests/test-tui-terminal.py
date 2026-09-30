@@ -113,7 +113,46 @@ class TerminalTests(unittest.TestCase):
     def test_runtime_unavailable_can_close(self):
         self.run_terminal(b"q", "unavailable")
 
+    def test_synthetic_operator_pages_are_reachable_without_runtime_or_actions(self):
+        master, slave = pty.openpty()
+        original = termios.tcgetattr(slave)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        child = subprocess.Popen([str(BINARY), "operator"], stdin=slave, stdout=slave,
+                                 stderr=slave, start_new_session=True,
+                                 env={**os.environ, "TERM": "xterm-256color", "OMAVLESS_LOCALE": "en"})
+        output = bytearray()
+
+        def wait_for(needle):
+            deadline = time.monotonic() + 5
+            while needle not in output and time.monotonic() < deadline:
+                if select.select([master], [], [], 0.1)[0]:
+                    output.extend(os.read(master, 65536))
+            self.assertIn(needle, output)
+
+        try:
+            wait_for(b"OmaVLESS")
+            os.write(master, b"\t\t\t")  # Profiles -> Traffic -> Details -> Connections.
+            wait_for(b"example.invalid")
+            os.write(master, b"\t")
+            wait_for(b"DNS-related")
+            self.assertNotIn(b"private://", output)
+            os.write(master, b"q")
+            self.assertEqual(child.wait(timeout=2), 0)
+            self.assertEqual(termios.tcgetattr(slave), original)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=2)
+            os.close(master)
+            os.close(slave)
+
     def test_real_terminal_teardown_cannot_leave_poll_spinning(self):
+        # Closing during Ratatui's cursor cleanup is a race. Exercise it more
+        # than once; a destructor panic (101) is not an accepted shutdown.
+        for _ in range(8):
+            self.revoked_terminal_exit()
+
+    def revoked_terminal_exit(self):
         # Unlike merely signalling a live PTY, this revokes the actual terminal
         # before sending HUP. Regression for orphaned Crossterm poll after close.
         master, slave = pty.openpty()
