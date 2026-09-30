@@ -91,6 +91,10 @@ stale-owner, concurrent-client and EN/RU review before release scope freeze.
 
 The first [x86_64 Omarchy Dev VM beta checkpoint](../testing/BETA_095_PC_VM_2026-09-30.md)
 now covers an exact offline triple, disconnected package/frontend replacement,
-and installed read-only T3/T4 page behavior. It is agent-operated development
-evidence, not connected or owner-attended acceptance. Public pins, ARM64 and
-the remaining integration gates above stay open.
+and an agent-operated working Rule-mode TUN cycle with a responsive subscription
+server and temporary VM-only firewall allowance. Installed T3 EN/RU/read-only
+concurrency and disconnected runtime-instance change were exercised; a connected
+stale-private-view case and T4 provider interoperability remain. This is not
+owner-attended release acceptance. The VM returned to Disconnected and its
+temporary firewall rule was removed. Public pins, ARM64 and the remaining
+integration gates above stay open.
