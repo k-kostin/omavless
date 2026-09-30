@@ -20,6 +20,9 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [0.9.5-beta.1 x86_64 Omarchy Dev VM](BETA_095_PC_VM_2026-09-30.md):
+  exact offline triple, disconnected upgrade and installed T3/T4 read-side
+  smoke; connected and owner-attended gates remain open.
 - [0.9 managed-DNS release-pair VM migration](DNS_RELEASE_VM_MIGRATION_2026-09-28.md):
   exact-source x86_64 agent-run migration and DNS/TUN/HTTPS mode cycle; not a
   fresh installer or formal owner-attended gate.

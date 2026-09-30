@@ -88,3 +88,9 @@ built immutable beta assets are authorized, uploaded and verified.
 Version metadata is **not** a built/published package or acceptance. Next gates
 are local exact managed runtime/DNS/frontend assembly, then installed T3 privacy,
 stale-owner, concurrent-client and EN/RU review before release scope freeze.
+
+The first [x86_64 Omarchy Dev VM beta checkpoint](../testing/BETA_095_PC_VM_2026-09-30.md)
+now covers an exact offline triple, disconnected package/frontend replacement,
+and installed read-only T3/T4 page behavior. It is agent-operated development
+evidence, not connected or owner-attended acceptance. Public pins, ARM64 and
+the remaining integration gates above stay open.
