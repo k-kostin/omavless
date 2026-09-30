@@ -244,6 +244,28 @@ pub(crate) fn respond_to_connections<H: LifecycleHost>(
     }
 }
 
+pub(crate) fn respond_to_connection_overview<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.connection_overview(request) {
+        Ok(value) => success_response(id, owner.revision(), value),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
+pub(crate) fn respond_to_connection_rows<H: LifecycleHost>(
+    owner: &mut OfflineNativeCoordinator<H>,
+    request: &Value,
+) -> Result<Value, ProtocolError> {
+    let id = request["id"].as_str().unwrap_or("invalid");
+    match owner.connection_rows(request) {
+        Ok(value) => success_response(id, owner.revision(), value),
+        Err(error) => owner_error_response(id, owner.revision(), error),
+    }
+}
+
 /// Sensitive success payload, never an ordinary read projection.
 pub(crate) fn respond_to_profile_export<H: LifecycleHost>(
     owner: &mut OfflineNativeCoordinator<H>,

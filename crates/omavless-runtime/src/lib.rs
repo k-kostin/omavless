@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+mod connection_overview;
+mod connection_rows;
 mod connection_test;
 pub mod connection_transaction;
 mod connections_summary;
@@ -50,6 +52,7 @@ pub mod cutover_transaction;
 pub mod desired;
 pub mod desktop_helpers;
 mod diagnostic_read;
+pub mod doctor;
 pub mod fresh_setup;
 pub mod frontend_bridge;
 pub mod full_quit;
@@ -271,6 +274,8 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.connection_test",
     "runtime.traffic",
     "runtime.connections",
+    "runtime.connection_overview",
+    "runtime.connection_rows",
     "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
@@ -369,6 +374,14 @@ trait NativeRuntimeOwner: Send {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn connections(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_rows(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -689,6 +702,18 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.connections(request)
+    }
+    fn connection_overview(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_overview(request)
+    }
+    fn connection_rows(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_rows(request)
     }
     fn runtime_observation(
         &mut self,
@@ -2094,6 +2119,8 @@ fn dispatch_native(
         | "runtime.observation"
         | "runtime.traffic"
         | "runtime.connections"
+        | "runtime.connection_overview"
+        | "runtime.connection_rows"
         | "diagnostics.setup"
             if runtime_ownership =>
         {
@@ -2103,6 +2130,10 @@ fn dispatch_native(
                 owner.traffic(request)?
             } else if method == "runtime.connections" {
                 owner.connections(request)?
+            } else if method == "runtime.connection_overview" {
+                owner.connection_overview(request)?
+            } else if method == "runtime.connection_rows" {
+                owner.connection_rows(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -2403,6 +2434,31 @@ mod tests {
         ) -> std::result::Result<u32, HostStepError> {
             self.fresh_observation(desired)?;
             Ok(3)
+        }
+        fn active_connection_overview(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_overview::ConnectionOverview, HostStepError> {
+            self.fresh_observation(desired)?;
+            Ok(connection_overview::ConnectionOverview {
+                total: 3,
+                tcp: 2,
+                udp: 1,
+                other_network: 0,
+                direct: 1,
+                blocked: 0,
+                vpn: 2,
+                unclassified: 0,
+            })
+        }
+        fn active_connection_rows(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_rows::ConnectionRows, HostStepError> {
+            self.fresh_observation(desired)?;
+            connection_rows::extract(&json!({"connections":[
+                {"id":"private-id","metadata":{"host":"example.invalid","destinationIP":"203.0.113.8","destinationPort":443,"network":"tcp","process":"/private/app"},"chains":["private-node","PROXY"]}
+            ]})).ok_or(HostStepError::Observation)
         }
         fn fresh_observation(
             &mut self,
@@ -3721,11 +3777,16 @@ mod tests {
         let paths = RuntimePaths::below(&base.join("runtime"));
         let server =
             RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
-        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let worker = thread::spawn(move || server.serve(Some(15)).unwrap());
         let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
         let empty = call(&paths, "runtime.connections", json!({})).unwrap();
         assert_eq!(empty["result"]["availability"], "unavailable");
         assert!(empty["result"]["count"].is_null());
+        let empty_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(empty_overview["result"]["availability"], "unavailable");
+        assert!(empty_overview["result"]["total"].is_null());
+        let empty_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(empty_rows["result"]["availability"], "unavailable");
         let connect=call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"count-connect","expectedRevision":0})).unwrap();
         assert_eq!(connect["ok"], true);
         let sample = call(&paths, "runtime.connections", json!({})).unwrap();
@@ -3736,6 +3797,29 @@ mod tests {
             hello["result"]["instanceId"]
         );
         assert_eq!(sample["result"]["count"], 3);
+        let overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(overview["ok"], true);
+        assert_eq!(overview["revision"], connect["revision"]);
+        assert_eq!(
+            overview["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(
+            overview["result"]["network"],
+            json!({"tcp":2,"udp":1,"other":0})
+        );
+        assert_eq!(
+            overview["result"]["outcome"],
+            json!({"direct":1,"blocked":0,"vpn":2,"unclassified":0})
+        );
+        let rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(rows["ok"], true);
+        assert_eq!(rows["revision"], connect["revision"]);
+        assert_eq!(rows["result"]["instanceId"], hello["result"]["instanceId"]);
+        assert_eq!(rows["result"]["rows"][0]["host"], "example.invalid");
+        for private in ["private-id", "private-node", "/private/app"] {
+            assert!(!rows.to_string().contains(private));
+        }
         assert!(encode_response(&sample).unwrap().len() < 512);
         for secret in [
             PROFILE_ID,
@@ -3746,6 +3830,7 @@ mod tests {
             "controllerSocket",
         ] {
             assert!(!sample.to_string().contains(secret));
+            assert!(!overview.to_string().contains(secret));
         }
         let invalid = call(
             &paths,
@@ -3755,6 +3840,22 @@ mod tests {
         .unwrap();
         assert_eq!(invalid["error"]["code"], "invalid_argument");
         assert!(!invalid.to_string().contains("private-token"));
+        let invalid_overview = call(
+            &paths,
+            "runtime.connection_overview",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid_overview["error"]["code"], "invalid_argument");
+        assert!(!invalid_overview.to_string().contains("private-token"));
+        let invalid_rows = call(
+            &paths,
+            "runtime.connection_rows",
+            json!({"path":"private-token"}),
+        )
+        .unwrap();
+        assert_eq!(invalid_rows["error"]["code"], "invalid_argument");
+        assert!(!invalid_rows.to_string().contains("private-token"));
         let down = call(
             &paths,
             "connection.disconnect",
@@ -3765,6 +3866,10 @@ mod tests {
         write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
         let stale = call(&paths, "runtime.connections", json!({})).unwrap();
         assert_eq!(stale["error"]["code"], "capability_unavailable");
+        let stale_overview = call(&paths, "runtime.connection_overview", json!({})).unwrap();
+        assert_eq!(stale_overview["error"]["code"], "capability_unavailable");
+        let stale_rows = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        assert_eq!(stale_rows["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

@@ -13,6 +13,24 @@ fn main() {
             return Err(omavless_tui::model::ReadError::Unavailable);
         }
         let mut response = support::response(r);
+        // The operator scenario enables only synthetic read capabilities. It
+        // never exposes a mutation method or contacts a runtime socket.
+        if scenario == "operator" && r == omavless_tui::client::Read::Capabilities {
+            response["result"]["methods"] = serde_json::json!([
+                "ui.snapshot",
+                "runtime.observation",
+                "runtime.traffic",
+                "runtime.connection_overview",
+                "runtime.connection_rows",
+                "diagnostics.summary",
+                "diagnostics.rules",
+                "diagnostics.providers",
+                "diagnostics.export",
+                "routing.custom_rules.list",
+                "routing.check",
+                "profiles.details"
+            ]);
+        }
         if scenario == "subscriptions" && r == omavless_tui::client::Read::Snapshot {
             response["result"]["subscriptions"][0]["updatedAt"] =
                 serde_json::json!(1_790_000_000_000_u64);
@@ -27,6 +45,21 @@ fn main() {
             r,
             omavless_tui::client::Read::Snapshot | omavless_tui::client::Read::Observation
         ) {
+            if scenario == "operator" && r == omavless_tui::client::Read::Observation {
+                response["result"]["coreDiagnostics"] = serde_json::json!({
+                    "scope":"latest_owned_core_log_counts",
+                    "dnsErrors":2,"tlsErrors":1,"timeoutErrors":0,
+                    "connectionErrors":3,"otherWarnings":0,"oversizedLines":0,
+                    "readFailed":false,"incomplete":false,"finished":false
+                });
+                response["result"]["coreLogHints"] = serde_json::json!({
+                    "schemaVersion":1,"scope":"latest_owned_core_log_categories",
+                    "availability":"observed","interpretation":"log_hints_not_health",
+                    "items":[{"sequence":1,"category":"dns"},
+                             {"sequence":2,"category":"connection"}],
+                    "incomplete":false
+                });
+            }
             if scenario == "recovery" {
                 response["result"]["lastKnownActual"] = "manualRecoveryRequired".into();
                 if r == omavless_tui::client::Read::Observation {

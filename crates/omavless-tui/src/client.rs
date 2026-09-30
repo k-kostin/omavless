@@ -11,7 +11,14 @@ pub enum Read {
     Observation,
     Traffic,
     Diagnostics,
+    Rules,
+    Providers,
+    CustomRules,
+    HostSupport,
     Connections,
+    ConnectionOverview,
+    ConnectionRows,
+    RouteCheck(crate::route_inspection::Target),
     ProfileDetails(ProfileTarget),
 }
 
@@ -53,7 +60,14 @@ impl Read {
             Self::Observation => "runtime.observation",
             Self::Traffic => "runtime.traffic",
             Self::Diagnostics => "diagnostics.summary",
+            Self::Rules => "diagnostics.rules",
+            Self::Providers => "diagnostics.providers",
+            Self::CustomRules => "routing.custom_rules.list",
+            Self::HostSupport => "diagnostics.export",
             Self::Connections => "runtime.connections",
+            Self::ConnectionOverview => "runtime.connection_overview",
+            Self::ConnectionRows => "runtime.connection_rows",
+            Self::RouteCheck(_) => "routing.check",
             Self::ProfileDetails(_) => "profiles.details",
         }
     }
@@ -61,6 +75,7 @@ impl Read {
         match self {
             Self::Hello => json!({"versions":[1]}),
             Self::ProfileDetails(target) => json!({"profileId": target.as_str()}),
+            Self::RouteCheck(target) => json!({"query": target.as_str()}),
             _ => json!({}),
         }
     }
@@ -84,7 +99,19 @@ pub fn load_page_for(
     page: crate::inspection::Page,
     selected: Option<&str>,
 ) -> Result<Snapshot, ReadError> {
-    use crate::inspection::{Capabilities, Diagnostics, Page, ProfileDetails, Traffic};
+    load_page_for_route(read, page, selected, None).map(|(snapshot, _)| snapshot)
+}
+
+pub fn load_page_for_route(
+    read: &mut impl FnMut(Read) -> Result<Value, ReadError>,
+    page: crate::inspection::Page,
+    selected: Option<&str>,
+    route: Option<&crate::route_inspection::Request>,
+) -> Result<(Snapshot, Option<crate::route_inspection::Status>), ReadError> {
+    use crate::inspection::{
+        Capabilities, CustomRules, Diagnostics, HostSupport, Page, ProfileDetails, Providers,
+        Rules, Traffic,
+    };
     fn success(value: Value) -> Result<Value, ReadError> {
         // Production transport already validates bounded framing, envelope and ID.
         // Do not forward remote error strings to either the terminal or stderr.
@@ -127,6 +154,14 @@ pub fn load_page_for(
         Page::Diagnostics if methods.iter().any(|m| m == "diagnostics.summary") => {
             Some(Read::Diagnostics)
         }
+        Page::Rules if methods.iter().any(|m| m == "diagnostics.rules") => Some(Read::Rules),
+        Page::Providers if methods.iter().any(|m| m == "diagnostics.providers") => {
+            Some(Read::Providers)
+        }
+        Page::CustomRules if methods.iter().any(|m| m == "routing.custom_rules.list") => {
+            Some(Read::CustomRules)
+        }
+        Page::Host if methods.iter().any(|m| m == "diagnostics.export") => Some(Read::HostSupport),
         Page::Details if methods.iter().any(|m| m == "profiles.details") => {
             target.map(Read::ProfileDetails)
         }
@@ -135,12 +170,37 @@ pub fn load_page_for(
     // Extra reads are bracketed by metadata and observation from the same owner.
     // Failure means unavailable, never zero; unrelated connection facts survive.
     let extra = method.and_then(|m| read(m).ok());
-    let connections = if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections")
+    let connection_method = if page == Page::Connections
+        && methods.iter().any(|m| m == "runtime.connection_rows")
     {
-        read(Read::Connections).ok()
+        Some(Read::ConnectionRows)
+    } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
+        Some(Read::ConnectionOverview)
+    } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connections") {
+        Some(Read::Connections)
     } else {
         None
     };
+    let connections = connection_method.and_then(|method| read(method).ok());
+    let route_status = route.map(|request| {
+        if page != Page::RouteCheck || !methods.iter().any(|m| m == "routing.check") {
+            return crate::route_inspection::Status::Unsupported;
+        }
+        let Some(revision) = meta["revision"].as_u64() else {
+            return crate::route_inspection::Status::Unavailable;
+        };
+        if !request.matches(instance, revision) || meta["result"]["instanceId"] != instance {
+            return crate::route_inspection::Status::Unavailable;
+        }
+        let target = request.target();
+        match read(Read::RouteCheck(target)) {
+            Ok(value) => crate::route_inspection::Result::parse(&value, target, revision).map_or(
+                crate::route_inspection::Status::Unavailable,
+                crate::route_inspection::Status::Observed,
+            ),
+            Err(_) => crate::route_inspection::Status::Unavailable,
+        }
+    });
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
@@ -152,7 +212,19 @@ pub fn load_page_for(
         {
             return Err(ReadError::Changed);
         }
-        snapshot.active_connections = crate::inspection::connection_count(&value);
+        match connection_method {
+            Some(Read::ConnectionOverview) => {
+                snapshot.connection_overview = crate::inspection::ConnectionOverview::parse(&value);
+                snapshot.active_connections = snapshot.connection_overview.map(|o| o.total);
+            }
+            Some(Read::Connections) => {
+                snapshot.active_connections = crate::inspection::connection_count(&value);
+            }
+            Some(Read::ConnectionRows) => {
+                snapshot.connection_rows = crate::inspection::ConnectionRows::parse(&value);
+            }
+            _ => {}
+        }
     }
     snapshot.inspection_available = (
         methods.iter().any(|m| m == "runtime.traffic"),
@@ -165,11 +237,15 @@ pub fn load_page_for(
         match method {
             Some(Read::Traffic) => snapshot.traffic = Traffic::parse(&value),
             Some(Read::Diagnostics) => snapshot.diagnostics = Diagnostics::parse(&value),
+            Some(Read::Rules) => snapshot.rules = Rules::parse(&value),
+            Some(Read::Providers) => snapshot.providers = Providers::parse(&value),
+            Some(Read::CustomRules) => snapshot.custom_rules = CustomRules::parse(&value),
+            Some(Read::HostSupport) => snapshot.host_support = HostSupport::parse(&value),
             Some(Read::ProfileDetails(target)) => {
                 snapshot.profile_details = ProfileDetails::parse(&value, target);
             }
             _ => {}
         }
     }
-    Ok(snapshot)
+    Ok((snapshot, route_status))
 }

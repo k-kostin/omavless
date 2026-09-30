@@ -60,6 +60,17 @@ Settings work without a reachable runtime and never clear pending/unknown action
 state, change OS/plugin preferences, persist files or invoke extra IPC. This is
 the T2 presentation-settings entry point, not new VPN configuration management.
 
+The stacked T3 route-inspector candidate adds a one-shot private `routing.check`
+page to the operator workspace. `/` opens input for one domain or IP address;
+Enter submits only that explicit query through the existing authenticated
+runtime read adapter. The response is shown only when its query, owner instance
+and revision still match the submitted context. Leaving the page clears the
+query and result; ordinary polling never repeats the route check. An unavailable
+live observation remains unavailable, not an inferred route. This is a policy
+inspection, not an Internet/DNS health test. No history, debug output or
+shareable report records the private query or matched rule. Synthetic EN/RU
+terminal and protocol tests do not replace exact-head installed TUI review.
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with
@@ -383,7 +394,65 @@ Natural TUI homes for deeper capabilities:
 - bounded local application/core logs;
 - read-only doctor/health report.
 
+The first `omavless doctor` slice is a read-only projection of one native
+`runtime.observation` response. It emits only fixed local-fact enums (including
+a TUN-scope inventory, never an ownership proof) and an
+explicit `networkHealth: not_tested`; last-known actual state and an observed
+core/TUN are not proof of routes, DNS or Internet. It neither reads profiles nor
+performs a probe or repair. The stacked T3 Diagnostics candidate presents the
+same bounded categories from its existing `runtime.observation` read: requested
+connection, last-known state, requested-profile match and core/controller/TUN
+inventory. It performs no new IPC read or probe. An unavailable observation
+leaves the profile/core facts unknown; a last-known Connected label is
+explicitly not verification. TUN inventory does not prove ownership, routes or
+protection, and the screen retains the Internet/DNS-not-tested warning. This
+is not an aggregate VPN-health verdict. Synthetic EN/RU terminal review is not
+installed live-runtime acceptance.
+
+The stacked T3 core-hint candidate retains at most 24 fixed category tokens
+from the latest owned core's warning/error stream in memory. The Diagnostics
+page shows only the most recent eight with sequence numbers; raw log lines,
+destinations, profile names and timestamps do not cross IPC. Categories are
+diagnostic hints, never a connection or internet-health verdict. Missing or
+stale runtime data stays unavailable. This is a bounded operator view, not a
+general raw-log export, and installed EN/RU rendering remains a separate gate.
+
 The bar may show compact summaries but need not duplicate full tables.
+
+The first T3 development slice is a read-only operator view for the existing
+native `diagnostics.rules`, `diagnostics.providers` and `diagnostics.export`
+methods. It shows bounded, controller-projected loaded rows and typed local
+host setup facts. Search filters only rows received in the current bounded
+snapshot; a truncated projection is explicitly marked. Rules show categorical
+targets, not private chain names or proof of a request's route. Host file and
+service facts are not VPN, DNS or connectivity health claims. The view does not
+refresh providers, repair host setup, change routes or perform mutations.
+The Traffic page also keeps a volatile, 60-second window of valid consecutive
+TUN counter-rate samples in this TUI process. Its two small sparklines use
+relative per-direction scales and disappear after reset, stale data or a read
+failure; they do not represent continuous background monitoring.
+When the native runtime advertises the T3 connection overview, the same page
+shows only aggregate network/chain categories and preserves the older count-only
+read as a compatibility fallback. No individual destination or process is
+presented, and the categories do not prove all traffic's route.
+The Diagnostics page may show the already-existing Rust-owned, typed core-log
+classification counts with an incomplete-collection marker. It never reads or
+prints raw core log lines, and zero counts do not establish a healthy connection.
+
+This is development scope, not T3 acceptance: installed EN/RU terminal review,
+live owner-restart behavior and the remaining connections/route/traffic/log
+work retain their own tests and evidence before promotion.
+An additional explicit Connections page can read a bounded private destination
+list from the owned core, with total/shown/truncated indicators and conservative
+route categories. Search filters only the current received bounded snapshot;
+it never sends a search term to the core. It is loaded only on that page, never in background status or
+support output; it cannot close connections. This is still not proof of the
+whole-system route, and installed narrow-terminal plus stale-owner review
+remains required.
+The saved-override subview uses the separate explicit private
+`routing.custom_rules.list` payload. It discards opaque editor IDs and labels
+these as configured rules rather than loaded core policy; it has no edit/delete
+action or shareable output.
 
 ### T4
 

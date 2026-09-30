@@ -4,7 +4,7 @@ use omavless_tui::{
     app::{Action, App, FRESH_FOR},
     client::{Read, load_page},
     i18n::Locale,
-    inspection::{Diagnostics, Page, Traffic, bytes},
+    inspection::{CoreLogHints, Diagnostics, Page, Traffic, bytes},
     model::{ReadError, Status},
     view,
 };
@@ -250,4 +250,47 @@ fn english_russian_all_pages_resize_stale_and_private_field_exclusion() {
             assert!(!render(&a, now + FRESH_FOR, 100, 30).contains("42"));
         }
     }
+}
+
+#[test]
+fn recent_core_hints_are_private_bounded_categories_not_raw_logs() {
+    let now = Instant::now();
+    let mut value = json!({
+        "schemaVersion":1,"scope":"latest_owned_core_log_categories",
+        "availability":"observed","interpretation":"log_hints_not_health",
+        "items":[{"sequence":1,"category":"dns"},{"sequence":2,"category":"timeout"}],
+        "incomplete":false,"privateLine":"private://not-for-view"
+    });
+    assert_eq!(CoreLogHints::parse(&value).unwrap().items.len(), 2);
+    value["items"][1]["sequence"] = json!(1);
+    assert!(CoreLogHints::parse(&value).is_none());
+    value["items"][1]["sequence"] = json!(2);
+    value["items"][1]["category"] = json!("private://invalid");
+    assert!(CoreLogHints::parse(&value).is_none());
+    value["items"][1]["category"] = json!("timeout");
+
+    let mut app = App::new(Locale::En);
+    app.page = Page::Diagnostics;
+    app.accept(
+        load_page(
+            &mut |request| {
+                let mut response = support::response(request);
+                if request == Read::Observation {
+                    response["result"]["coreLogHints"] = value.clone();
+                }
+                Ok(response)
+            },
+            Page::Diagnostics,
+        ),
+        now,
+    );
+    let screen = render(&app, now, 100, 40);
+    assert!(screen.contains("Recent owned-core warning categories"));
+    assert!(screen.contains("#1 DNS-related log lines"));
+    assert!(screen.contains("#2 Timeout-related log lines"));
+    assert!(!screen.contains("private://"));
+    app.inspection_scroll = u16::MAX;
+    let compact = render(&app, now, 70, 24);
+    assert!(compact.contains("#2 Timeout-related log lines"));
+    assert!(!compact.contains("private://"));
 }
