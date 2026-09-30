@@ -58,7 +58,7 @@ All recognized present flag combinations remain untrusted. A separate normal
 test invokes the ignored child without its isolation context and verifies
 refusal before any observer socket is opened.
 
-The ignored integration test must run only in the delegated VM:
+The ignored absence integration test must run only in the delegated VM:
 
 ```sh
 OMAVLESS_K1_OBSERVER_VM=1 cargo test -p omavless-netguard --locked \
@@ -74,6 +74,28 @@ Only a fixed PASS category escapes the bounded child output; there is no sudo
 fallback. Shared test scratch now honors TMPDIR so tmpfs quota exhaustion need
 not masquerade as a storage implementation failure. Exact source and binary
 identities and VM result belong on the owning Draft PR.
+
+The separate opt-in **present-but-untrusted** gate uses the same disposable-VM
+boundary. After verifying a new loopback-only user/network namespace, it creates
+one fixed empty `inet omavless_netguard` table there, checks that two independent
+Rust observations say `PresentUntrusted`, then removes only that fixture and
+checks `Absent` again. The parent namespace identity is rechecked; no service,
+host firewall or production policy is changed. Run only in the delegated VM:
+
+```sh
+OMAVLESS_K1_OBSERVER_PRESENT_VM=1 cargo test -p omavless-netguard --locked \
+  --test nft_namespace observer::present_untrusted_observer_in_disposable_vm \
+  -- --ignored --exact --nocapture
+```
+
+Direct invocation of either ignored child must refuse before nft/socket I/O.
+This gate proves the current kernel's empty-table response can be parsed; it
+does not validate complete rules, chains, owner provenance or live K1 protection.
+
+The separate installed nft JSON round-trip also checks this Rust observer at
+each stage: absent before create, `PresentUntrusted` for both exact Emergency
+and Full policy-shaped fixtures, and absent after each fixture cleanup. Even a
+table whose rules match the offline renderer never acquires observer authority.
 
 Wire behavior is based on the
 [Linux v6.18 table and generation implementation](https://github.com/torvalds/linux/blob/v6.18/net/netfilter/nf_tables_api.c)
