@@ -18,6 +18,14 @@ recover the claim, the published file retains mode `0600`, and a downstream
 rejection restores the exact original bytes. They do **not** register a live
 mutation owner or prove host-authorized recovery.
 
+The same synthetic suite now exercises the existing delete path: it removes
+the subscription record, its managed profile and claim bytes, so adding the
+same record identity and URL later cannot revive old account metadata. An
+active-service deletion refuses before publication. The deleted candidate
+passes through one private atomic writer transaction and can restore the exact
+original bytes after a modeled downstream rejection. This is delete-path
+evidence only; it does not activate private quota persistence.
+
 Production activation still needs an owner-reviewed policy for all mutation
 paths, including delete, import, URL replacement and older-version downgrade.
 The owner must ensure the latest store is read under the proper lease, the old
