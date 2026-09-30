@@ -82,7 +82,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
         for arch in ("aarch64", "x86_64"):
             self.assertEqual(app[arch]["sourceCommit"], dns[arch]["sourceCommit"])
             self.assertEqual(app[arch]["sourceCommit"],
-                             "b739ac6a279981ffde3586d5e70e44a6be43ba70")
+                             "c8c39a60d12b8ca8ba2eedaa63abf0ab65f3a651")
             self.assertNotEqual(app[arch]["sha256"], dns[arch]["sha256"])
             for filename in ("runtime-release.json", "dns-release.json"):
                 shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
