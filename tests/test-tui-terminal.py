@@ -147,6 +147,12 @@ class TerminalTests(unittest.TestCase):
             os.close(slave)
 
     def test_real_terminal_teardown_cannot_leave_poll_spinning(self):
+        # Closing during Ratatui's cursor cleanup is a race. Exercise it more
+        # than once; a destructor panic (101) is not an accepted shutdown.
+        for _ in range(8):
+            self.revoked_terminal_exit()
+
+    def revoked_terminal_exit(self):
         # Unlike merely signalling a live PTY, this revokes the actual terminal
         # before sending HUP. Regression for orphaned Crossterm poll after close.
         master, slave = pty.openpty()

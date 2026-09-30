@@ -32,6 +32,37 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Ratatui 0.30's Terminal destructor uses eprintln! if cursor restoration
+/// fails. After a PTY is revoked both that write and the destructor can panic.
+/// Contain only teardown here, not rendering/IPC failures; retain normal drops
+/// and the privacy-safe panic hook, without leaking the terminal with forget().
+struct TerminalGuard(Option<ratatui::DefaultTerminal>);
+
+fn drop_terminal_safely<T>(value: T) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(value)));
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if let Some(terminal) = self.0.take() {
+            drop_terminal_safely(terminal);
+        }
+    }
+}
+
+impl std::ops::Deref for TerminalGuard {
+    type Target = ratatui::DefaultTerminal;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("terminal owned until teardown")
+    }
+}
+
+impl std::ops::DerefMut for TerminalGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().expect("terminal owned until teardown")
+    }
+}
+
 /// Never reports rejected IPC data, private names, terminal escapes or paths.
 pub fn run(
     read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
@@ -73,7 +104,9 @@ fn run_client(
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
     }
-    let mut terminal = ratatui::try_init().map_err(|_| "Could not initialize OmaVLESS terminal")?;
+    let mut terminal = TerminalGuard(Some(
+        ratatui::try_init().map_err(|_| "Could not initialize OmaVLESS terminal")?,
+    ));
     // This entry point owns the CLI process. Never echo panic payloads/private
     // state or panic recursively while reporting to a revoked terminal.
     std::panic::set_hook(Box::new(|_| {
@@ -297,4 +330,27 @@ fn run_client(
     // Dropping channels stops workers after their current read. The CLI process
     // exits without joining a blocked terminal/backend read thread.
     Ok(())
+}
+
+#[cfg(test)]
+mod terminal_drop_tests {
+    use super::drop_terminal_safely;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn teardown_panic_is_contained_without_skipping_drop() {
+        struct PanickingDrop(Arc<AtomicUsize>);
+        impl Drop for PanickingDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                panic!("synthetic revoked terminal");
+            }
+        }
+        let drops = Arc::new(AtomicUsize::new(0));
+        drop_terminal_safely(PanickingDrop(drops.clone()));
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
 }
