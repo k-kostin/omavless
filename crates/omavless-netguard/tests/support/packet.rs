@@ -6,7 +6,27 @@ const CHILD: &str = "packet::nft_packet_child";
 const PASS: &str = "K1_PACKET_CHILD_PASS";
 const OUT: &str = "k1out0";
 const PEER: &str = "k1peer0";
+const FOREIGN: &str = "omavless_k1_foreign_fixture";
 const FIXTURE: &str = include_str!("packet_fixture.py");
+
+// Two other base chains accept before and after the candidate's output hook.
+// An earlier accept must not bypass its later drop; a later accept must not
+// revive an already dropped packet. This is only a child-netns test fixture,
+// not an approximation of any particular installed host firewall.
+fn foreign_accept_commands() -> Vec<u8> {
+    let commands = vec![
+        json!({"create":{"table":{"family":"inet","name":FOREIGN}}}),
+        json!({"add":{"chain":{"family":"inet","table":FOREIGN,"name":"early",
+            "type":"filter","hook":"output","prio":0,"policy":"accept"}}}),
+        json!({"add":{"rule":{"family":"inet","table":FOREIGN,"chain":"early",
+            "expr":[{"accept":null}]}}}),
+        json!({"add":{"chain":{"family":"inet","table":FOREIGN,"name":"late",
+            "type":"filter","hook":"output","prio":400,"policy":"accept"}}}),
+        json!({"add":{"rule":{"family":"inet","table":FOREIGN,"chain":"late",
+            "expr":[{"accept":null}]}}}),
+    ];
+    serde_json::to_vec(&json!({"nftables": commands})).unwrap()
+}
 
 fn ip(base: &NamespaceGuard, args: &[&str]) -> Output {
     base.check_identity().expect("isolated namespace required");
@@ -165,6 +185,84 @@ impl PacketGuard {
             ),
             Table::OwnedVerified(policy)
         );
+    }
+    fn install_foreign_accepts(&self) {
+        let scratch = Scratch::new().unwrap();
+        scratch
+            .create("input.json")
+            .unwrap()
+            .write_all(&foreign_accept_commands())
+            .unwrap();
+        assert!(
+            self.command(
+                "/usr/bin/nft",
+                &[
+                    "--json",
+                    "--file",
+                    scratch.0.join("input.json").to_str().unwrap()
+                ]
+            )
+            .success,
+            "foreign fixture creation refused"
+        );
+    }
+    fn foreign_snapshot(&self) -> Value {
+        let readback = self.command(
+            "/usr/bin/nft",
+            &[
+                "--json",
+                "--handle",
+                "--numeric",
+                "--numeric-priority",
+                "list",
+                "table",
+                "inet",
+                FOREIGN,
+            ],
+        );
+        assert!(readback.success, "foreign fixture disappeared");
+        let value: Value = serde_json::from_slice(&readback.bytes).unwrap();
+        let objects = value["nftables"].as_array().unwrap();
+        assert!(
+            objects
+                .iter()
+                .any(|entry| entry["table"]["name"] == FOREIGN)
+        );
+        let chains: Vec<_> = objects
+            .iter()
+            .filter_map(|entry| entry.get("chain"))
+            .collect();
+        let rules: Vec<_> = objects
+            .iter()
+            .filter_map(|entry| entry.get("rule"))
+            .collect();
+        assert_eq!(chains.len(), 2);
+        assert_eq!(rules.len(), 2);
+        for (name, priority) in [("early", 0), ("late", 400)] {
+            assert!(chains.iter().any(|chain| {
+                chain["family"] == "inet"
+                    && chain["table"] == FOREIGN
+                    && chain["name"] == name
+                    && chain["type"] == "filter"
+                    && chain["hook"] == "output"
+                    && chain["prio"] == priority
+                    && chain["policy"] == "accept"
+            }));
+            assert!(rules.iter().any(|rule| {
+                rule["family"] == "inet"
+                    && rule["table"] == FOREIGN
+                    && rule["chain"] == name
+                    && rule["expr"] == json!([{"accept":null}])
+            }));
+        }
+        value
+    }
+    fn foreign_snapshot_exists(&self) -> bool {
+        self.command(
+            "/usr/bin/nft",
+            &["--json", "list", "table", "inet", FOREIGN],
+        )
+        .success
     }
     fn packets(&self, phase: &str) {
         self.check();
@@ -350,10 +448,16 @@ fn nft_packet_child() {
         );
     }
     println!("K1_PACKET_STAGE=baseline");
+    guard.install_foreign_accepts();
+    let foreign_before = guard.foreign_snapshot();
     guard.packets("baseline");
     println!("K1_PACKET_STAGE=full");
     guard.policy(Policy::FullVpn);
     guard.packets("full");
+    assert!(
+        guard.foreign_snapshot() == foreign_before,
+        "foreign fixture changed"
+    );
     println!("K1_PACKET_STAGE=interface");
     assert!(
         guard
@@ -362,6 +466,10 @@ fn nft_packet_child() {
     );
     guard.output = nft::TUN;
     guard.packets("interface");
+    assert!(
+        guard.foreign_snapshot() == foreign_before,
+        "foreign fixture changed"
+    );
     println!("K1_PACKET_STAGE=emergency");
     assert!(
         guard
@@ -373,6 +481,10 @@ fn nft_packet_child() {
     );
     guard.policy(Policy::Emergency);
     guard.packets("emergency");
+    assert!(
+        guard.foreign_snapshot() == foreign_before,
+        "foreign fixture changed"
+    );
     println!("K1_PACKET_STAGE=cleanup");
     assert!(
         guard
@@ -382,6 +494,16 @@ fn nft_packet_child() {
             )
             .success
     );
+    assert!(
+        guard.foreign_snapshot() == foreign_before,
+        "foreign fixture changed"
+    );
+    assert!(
+        guard
+            .command("/usr/bin/nft", &["delete", "table", "inet", FOREIGN])
+            .success
+    );
+    assert!(!guard.foreign_snapshot_exists());
     // Child exit reclaims both veth endpoints; no interface is ever moved out.
     println!("{PASS}");
 }
@@ -462,4 +584,25 @@ fn socket_fixture_self_checks_are_pure() {
         .arg("self-test");
     let result = run(command, Stdio::null()).unwrap();
     assert!(result.success && result.bytes == b"K1_PACKET_SELF_TEST_PASS\n");
+}
+
+#[test]
+fn coexistence_fixture_has_only_fixed_accept_chains() {
+    let value: Value = serde_json::from_slice(&foreign_accept_commands()).unwrap();
+    let entries = value["nftables"].as_array().unwrap();
+    assert_eq!(entries.len(), 5);
+    assert_eq!(entries[0]["create"]["table"]["name"], FOREIGN);
+    for (chain, priority, chain_index, rule_index) in [("early", 0, 1, 2), ("late", 400, 3, 4)] {
+        let header = &entries[chain_index]["add"]["chain"];
+        assert_eq!(header["family"], "inet");
+        assert_eq!(header["table"], FOREIGN);
+        assert_eq!(header["name"], chain);
+        assert_eq!(header["hook"], "output");
+        assert_eq!(header["prio"], priority);
+        assert_eq!(header["policy"], "accept");
+        let rule = &entries[rule_index]["add"]["rule"];
+        assert_eq!(rule["table"], FOREIGN);
+        assert_eq!(rule["chain"], chain);
+        assert_eq!(rule["expr"], json!([{"accept":null}]));
+    }
 }

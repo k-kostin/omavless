@@ -79,6 +79,18 @@ Mihomo socket marks or stock-firewall coexistence. Mark generation/socket
 coverage, interface ownership, root receipt durability and mandatory physical
 NIC/suspend/boot cases remain separate acceptance gates.
 
+The later stacked coexistence gate adds a second, **test-only** `inet` table
+inside the same disposable namespace. Its fixed output chains at priorities 0
+and 400 both accept packets, before and after the candidate's priority-300
+guard. The complete 53-vector positive-control/Full/TUN/Emergency sequence
+must still pass. The foreign table's full numeric readback must remain identical
+through candidate creation, the fixture's Emergency switch and removal; only
+then is the foreign fixture itself deleted. This checks that an earlier
+`accept` does not bypass a later K1 `drop`, and a later `accept` cannot revive
+a dropped packet, without a host firewall mutation. It does **not** exercise
+Omarchy's actual UFW/nftables rules, firewall reloads, conflicting drop
+policies or a production NetGuard.
+
 ## Evidence
 
 Ordinary workspace tests run only pure topology/route refusal checks, bounded
@@ -92,8 +104,20 @@ Initial topology refusal exposed iproute2's same-namespace reciprocal `link`
 names rather than `link_index`; both complete representations are now checked,
 while mixed, foreign, self-referential or changed identities are rejected.
 The expanded 53-vector gate requires its own exact-binary VM retest recorded
-on the owning Draft PR. No physical-PC packet/firewall test is authorized or
-claimed by this document.
+on the owning Draft PR. The later stacked run below repeats it with the
+additional coexistence fixture. No physical-PC packet/firewall test is
+authorized or claimed by this document.
+
+On September 30, 2026, the stacked foreign-accept coexistence gate passed in
+the x86_64 Omarchy development VM on kernel `7.2.5-3-omarchy`. The final tested
+binary SHA-256 was
+`b60111462525e4836efb12b76ca751fbb0c07983d5c7581c13faff125cd0329d`.
+All baseline/Full/interface/Emergency vector phases passed with fixed earlier
+and later accepting chains; the foreign table's numeric readback was unchanged
+after each candidate transition and after candidate removal. The test created
+no table or link in the parent namespace; its interface count remained two and
+no NetGuard service was active. This is synthetic base-chain coexistence in a
+child namespace, **not** stock-firewall integration or host K1 acceptance.
 
 Primary references inspected September 29, 2026:
 [Linux packet sockets](https://man7.org/linux/man-pages/man7/packet.7.html),
