@@ -1,0 +1,35 @@
+# Unpublished, offline normal-package candidate. Render only with stage.py.
+pkgname=omavless-dns
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='OmaVLESS managed DNS core and fixed-purpose broker'
+arch=('@ARCH@')
+license=('MIT' 'GPL-3.0-only' 'GPL-3.0-or-later')
+depends=('glibc' 'gcc-libs' 'systemd' 'libcap' 'bash' 'coreutils')
+conflicts=('omavless-dns-experimental')
+options=('!strip' '!debug')
+noextract=('corresponding-source.tar.xz')
+install=omavless-dns.install
+source=('omavless-dns-broker' 'mihomo' 'omavless-dns-broker.service'
+        'package-guard' 'omavless-dns.hook' 'omavless-dns.install'
+        'reviewed-inputs.json' 'source-receipt.json' 'corresponding-source.tar.xz'
+        'mihomo.LICENSE' 'sing-tun.LICENSE' 'omavless.LICENSE')
+sha256sums=('@BROKER_SHA@' '@CORE_SHA@' '@UNIT_SHA@' '@GUARD_SHA@'
+            '@HOOK_SHA@' '@INSTALL_SHA@' '@MANIFEST_SHA@'
+            '@SOURCE_RECEIPT_SHA@' '@SOURCE_SHA@'
+            '@MIHOMO_LICENSE_SHA@' '@SING_TUN_LICENSE_SHA@'
+            '@OMAVLESS_LICENSE_SHA@')
+
+package() {
+  install -Dm755 "$srcdir/omavless-dns-broker" "$pkgdir/usr/lib/omavless-dns/omavless-dns-broker"
+  install -Dm755 "$srcdir/mihomo" "$pkgdir/usr/lib/omavless-dns/mihomo"
+  install -Dm755 "$srcdir/package-guard" "$pkgdir/usr/lib/omavless-dns/package-guard"
+  install -Dm644 "$srcdir/omavless-dns-broker.service" "$pkgdir/usr/lib/systemd/system/omavless-dns-broker.service"
+  install -Dm644 "$srcdir/omavless-dns.hook" "$pkgdir/usr/share/libalpm/hooks/omavless-dns.hook"
+  install -Dm644 "$srcdir/reviewed-inputs.json" "$pkgdir/usr/share/omavless-dns/reviewed-inputs.json"
+  install -Dm644 "$srcdir/source-receipt.json" "$pkgdir/usr/share/omavless-dns/source-receipt.json"
+  install -Dm644 "$srcdir/corresponding-source.tar.xz" "$pkgdir/usr/share/omavless-dns/corresponding-source.tar.xz"
+  install -Dm644 "$srcdir/mihomo.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns/mihomo.LICENSE"
+  install -Dm644 "$srcdir/sing-tun.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns/sing-tun.LICENSE"
+  install -Dm644 "$srcdir/omavless.LICENSE" "$pkgdir/usr/share/licenses/omavless-dns/omavless.LICENSE"
+}

@@ -23,8 +23,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const STOP_BUDGET: Duration = Duration::from_millis(600);
-const DRAIN_BUDGET: Duration = Duration::from_millis(900);
+// Whole-group observation scans procfs twice after the leader exits. A short
+// subsecond deadline can falsely quarantine an already-stopped auxiliary core
+// on a saturated host/CI runner. Keep cleanup bounded, but allow scheduling
+// time for those completeness checks; a concurrent drainer gets a larger wait.
+const STOP_BUDGET: Duration = Duration::from_secs(3);
+const DRAIN_BUDGET: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryError {

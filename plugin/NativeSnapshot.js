@@ -187,7 +187,7 @@ function parseOperation(raw, job, kind) {
   try {
     var p = envelope(raw)
     if (!p || !job || !number(job.revision, 9007199254740991)) return null
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     function error(value) {
       return object(value, ["code", "message", "retryable"]) && codes.indexOf(value.code) >= 0
         && text(value.message, 512, false) && typeof value.retryable === "boolean"
@@ -589,7 +589,7 @@ function parseAction(raw, pending) {
       return {ok:true, revision:p.revision, code:""}
     }
     var e = p.error
-    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
+    var codes = ["invalid_request", "unsupported_version", "unknown_method", "invalid_argument", "not_found", "conflict", "busy", "permission_denied", "capability_unavailable", "dns_pair_required", "core_unavailable", "core_rejected", "subscription_unavailable", "timeout", "cancelled", "daemon_restarting", "internal_error", "manual_recovery_required", "transition_failed_restored"]
     if (p.ok !== false || !object(p, ["api", "version", "id", "ok", "revision", "error"])
         || !object(e, ["code", "message", "retryable"]) || codes.indexOf(e.code) < 0
         || typeof e.retryable !== "boolean" || !text(e.message, 512, false)) return null

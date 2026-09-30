@@ -78,4 +78,38 @@ test('foreign TUNs do not become our recovery state or connected device',()=>{
   }
   o.facts.managedTunCount=1;assert.equal(p.project(s,o,false).state,'unavailable');
 });
+test('desired mode is never confirmed by pending, unknown, stale or recovery state',()=>{
+  const {snapshot:s,observation:o}=fixture();
+  assert.equal(p.project(s,o,false).modeConfirmed,true);
+  for(const pending of [{action:'mode'},{action:'connect'},{action:'disconnect'}]) {
+    const result=p.project(s,o,false,pending,false);
+    assert.equal(result.modeConfirmed,false);assert.equal(result.mode,'global');
+  }
+  assert.equal(p.project(s,o,false,null,true).modeConfirmed,false);
+  for(const state of ['starting','reconnecting','stopping','failed','manualRecoveryRequired']) {
+    s.lastKnownActual=o.lastKnownActual=state;
+    assert.equal(p.project(s,o,false).modeConfirmed,false);
+  }
+  s.lastKnownActual=o.lastKnownActual='connected';o.revision++;
+  assert.equal(p.project(s,o,false).modeConfirmed,false);
+  assert.equal(p.project(s,null,false).modeConfirmed,false);
+});
+test('settled rollback confirms the restored mode, not the attempted desired mode',()=>{
+  const {snapshot:s,observation:o}=fixture();
+  s.desired.mode='direct';s.revision++;
+  assert.equal(p.project(s,o,false).modeConfirmed,false);
+  s.desired.mode=o.desired.mode='rule';o.revision=s.revision;
+  const result=p.project(s,o,false);assert.equal(result.mode,'rule');assert.equal(result.modeConfirmed,true);
+  assert.equal(result.dnsVerified,undefined);assert.equal(result.routesVerified,undefined);
+  s.lastKnownActual=o.lastKnownActual='disconnected';s.desired.connected=o.desired.connected=false;
+  Object.assign(o.facts,{ownedCoreRunning:false,visibleMihomoCount:0,visibleTunCount:0});
+  assert.equal(p.project(s,o,false).modeConfirmed,true); // saved disconnected preference only
+});
+test('production selector binds confirmation as well as desired mode without new actions',()=>{
+  const panel=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
+  assert(panel.includes('vless.nativeSnapshotFailed, vless.nativePending, vless.nativeOutcomeUnknown)'));
+  for(const mode of ['global','rule','direct']) {
+    assert(panel.includes('foreground: root.nativeView.modeConfirmed && root.nativeView.mode === "'+mode+'"'));
+  }
+});
 console.log('native presentation: '+n+' passed');

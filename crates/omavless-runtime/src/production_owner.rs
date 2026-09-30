@@ -74,6 +74,7 @@ fn recovery_error(error: ConnectionTransactionError) -> ProductionOwnerError {
         ConnectionTransactionError::RecoveryFailed => ProductionOwnerError::RecoveryFailed,
         ConnectionTransactionError::NotFound
         | ConnectionTransactionError::InvalidArgument
+        | ConnectionTransactionError::DnsPairRequired
         | ConnectionTransactionError::Conflict
         | ConnectionTransactionError::Store
         | ConnectionTransactionError::TransitionFailedRestored => {
@@ -405,7 +406,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
     pub(crate) fn runtime_observation(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         let mut response =
             crate::native_dispatch::respond_to_runtime_observation(&mut self.coordinator, request)?;
-        if response["ok"] == true {
+        if response["ok"] == true && request["method"] == "runtime.observation" {
             response["result"]["transition"] = serde_json::json!(self.transition());
         }
         Ok(response)
@@ -413,6 +414,9 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 
     pub(crate) fn traffic(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_traffic(&mut self.coordinator, request)
+    }
+    pub(crate) fn connections(&mut self, request: &Value) -> Result<Value, ProtocolError> {
+        crate::native_dispatch::respond_to_connections(&mut self.coordinator, request)
     }
 
     pub(crate) fn diagnostic_snapshot(&mut self) -> Result<Vec<String>, NativeOwnerError> {

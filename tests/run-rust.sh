@@ -10,7 +10,25 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 
 cargo fmt --all -- --check
-cargo test --workspace --locked
+# This fixture forks a helper holding an inherited flock and tests a fixed
+# cleanup budget. Running it beside unrelated process-heavy tests can spend
+# that budget on scheduler contention, not the owned-group cleanup under test.
+# Keep every assertion and run this one case separately, once, below.
+cargo test --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
+  --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn
+cargo test --locked -p omavless-runtime --lib \
+  core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
+  --exact --test-threads=1
+# These suites launch real private bus processes and assert short wire deadlines.
+# Concurrent fork/exec can also briefly inherit another test's flock descriptor
+# before CLOEXEC closes it, turning a malformed-journal test into an unrelated
+# ownership refusal. Serialize these fixtures, not production operations; their
+# explicit race/failure cases and all assertions remain enabled.
+cargo test --locked -p omavless-dns-broker -p omavless-dns-resolved -- --test-threads=1
+python3 tests/test-tui-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/fixture_preview"
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo check --locked -p omavless-runtime --features tui
+cargo test --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
+cargo clippy --locked -p omavless-runtime --features tui --all-targets -- -D warnings
 cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json

@@ -24,11 +24,14 @@ enum Counter {
     Connection,
     OtherWarning,
     Oversized,
+    TunSetup,
+    FirewallSetup,
+    SetupPermission,
 }
 
 #[derive(Default)]
 struct Counts {
-    values: [AtomicU32; 6],
+    values: [AtomicU32; 9],
     read_failed: AtomicBool,
     finished: AtomicBool,
     incomplete: AtomicBool,
@@ -57,6 +60,29 @@ pub struct CoreDiagnostics {
     read_failed: bool,
     finished: bool,
     incomplete: bool,
+    // Separate versioned diagnostic read; keep the existing observation shape
+    // byte-compatible with older frontend parsers.
+    #[serde(skip)]
+    tun_setup: u32,
+    #[serde(skip)]
+    firewall_setup: u32,
+    #[serde(skip)]
+    setup_permission: u32,
+}
+
+impl CoreDiagnostics {
+    pub(crate) fn setup_projection(value: Option<Self>) -> serde_json::Value {
+        use serde_json::json;
+        json!({"schemaVersion":1,"scope":"latest_owned_core_setup_log_hints",
+            "availability":if value.is_some() {"observed"} else {"unavailable"},
+            "counts":value.map(|v| json!({"tunSetup":v.tun_setup,
+                "firewallSetup":v.firewall_setup,"setupPermission":v.setup_permission,
+                "otherWarnings":v.other_warnings,"oversizedLines":v.oversized_lines})),
+            "incomplete":value.map(|v| v.incomplete || v.read_failed),
+            "finished":value.map(|v| v.finished),
+            "interpretation":"log_hints_not_cause_or_health",
+            "remediation":"inspect_host_setup_no_automatic_repair"})
+    }
 }
 
 #[derive(Clone, Default)]
@@ -79,6 +105,9 @@ impl DiagnosticReader {
             read_failed: self.0.read_failed.load(Ordering::Relaxed),
             finished,
             incomplete: self.0.incomplete.load(Ordering::Relaxed),
+            tun_setup: value(Counter::TunSetup),
+            firewall_setup: value(Counter::FirewallSetup),
+            setup_permission: value(Counter::SetupPermission),
         }
     }
 }
@@ -113,10 +142,28 @@ impl Lines {
             counts.increment(Counter::Oversized);
         } else if let Some(category) = classify(&self.bytes) {
             counts.increment(category);
+            classify_setup(&self.bytes, counts);
         }
         self.bytes.fill(0);
         self.bytes.clear();
         self.oversized = false;
+    }
+}
+
+fn classify_setup(line: &[u8], counts: &Counts) {
+    let has = |token: &[u8]| line.windows(token.len()).any(|part| part == token);
+    // Caller already required a warning/error/fatal record. Require TUN-start
+    // context before interpreting generic errno words; never prescribe repairs
+    // from a bare EEXIST, a destination name or a normal connection failure.
+    if !has(b"start tun listening error:") {
+        return;
+    }
+    counts.increment(Counter::TunSetup);
+    if has(b"initialize auto redirect:") && (has(b"nftables") || has(b"iptables")) {
+        counts.increment(Counter::FirewallSetup);
+    }
+    if has(b"operation not permitted") || has(b"permission denied") {
+        counts.increment(Counter::SetupPermission);
     }
 }
 
@@ -273,6 +320,66 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::time::Instant;
+
+    #[test]
+    fn setup_hints_require_tun_context_and_never_change_legacy_shape() {
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        for line in [
+            "level=error msg=Start TUN listening error: initialize auto redirect: missing nftables support: netlink receive: invalid argument\n",
+            "level=error msg=Start TUN listening error: operation not permitted private-secret\n",
+            "level=error msg=Start TUN listening error: initialize auto redirect: iptables permission denied\n",
+            "level=warning msg=EEXIST private-secret\n",
+            "level=warning msg=permission denied while reading private file\n",
+            "level=warning msg=connection refused nftables.invalid\n",
+            "level=info msg=Start TUN listening error: operation not permitted\n",
+        ] {
+            for chunk in line.as_bytes().chunks(3) {
+                lines.push(chunk, &counts);
+            }
+        }
+        let snapshot = DiagnosticReader(Arc::new(counts)).snapshot();
+        let legacy = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(legacy.as_object().unwrap().len(), 10);
+        assert_eq!(legacy["otherWarnings"], 5);
+        assert_eq!(legacy["connectionErrors"], 1);
+        let hints = CoreDiagnostics::setup_projection(Some(snapshot));
+        assert_eq!(hints["counts"]["tunSetup"], 3);
+        assert_eq!(hints["counts"]["firewallSetup"], 2);
+        assert_eq!(hints["counts"]["setupPermission"], 2);
+        assert_eq!(hints["interpretation"], "log_hints_not_cause_or_health");
+        let encoded = hints.to_string();
+        assert!(encoded.len() < 1024);
+        for secret in [
+            "private-secret",
+            "nftables.invalid",
+            "EEXIST",
+            "permission denied",
+        ] {
+            assert!(!encoded.contains(secret));
+        }
+        assert!(hints.get("healthy").is_none());
+        assert!(hints.get("cause").is_none());
+    }
+
+    #[test]
+    fn absent_capture_and_oversized_lines_do_not_fabricate_setup_evidence() {
+        let absent = CoreDiagnostics::setup_projection(None);
+        assert_eq!(absent["availability"], "unavailable");
+        assert!(absent["counts"].is_null());
+        assert!(absent["incomplete"].is_null());
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        lines.push(&vec![b'x'; MAX_LINE + 1], &counts);
+        lines.push(
+            b"level=error msg=Start TUN listening error: permission denied\n",
+            &counts,
+        );
+        let snapshot = DiagnosticReader(Arc::new(counts)).snapshot();
+        let hints = CoreDiagnostics::setup_projection(Some(snapshot));
+        assert_eq!(hints["counts"]["tunSetup"], 0);
+        assert_eq!(hints["counts"]["oversizedLines"], 1);
+    }
 
     #[test]
     fn categories_are_bounded_private_and_not_a_health_claim() {

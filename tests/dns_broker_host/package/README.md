@@ -1,0 +1,229 @@
+# Local experimental package fixture
+
+This is **not** the normal OmaVLESS package or release pipeline. No production
+installer, CI publication, marketplace flow, or default runtime selects it.
+It stages already-reviewed **local** binaries without downloading, compiling,
+installing, enabling, enrolling or connecting anything.
+The separate [release-distribution proposal](../../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
+lists the normal two-package/first-use/upgrade gates; this fixture does not
+silently acquire those properties.
+
+`build_pair.py` is a separate opt-in **offline review build**, not a normal
+release builder. It exports exact committed upstream and OmaVLESS source trees,
+applies pinned patches, runs focused production-tag Go tests, and builds the
+candidate core and broker. It does not install, activate or enroll either one.
+
+Package: `omavless-dns-experimental`, version `0.9.0rc1-1`, one explicit
+`aarch64` or `x86_64` architecture. The source receipt records an exact repository
+revision and SHA-256 for both binaries, the reviewed unit and lifecycle guards.
+Review the retained Mihomo/sing-tun patches and their pinned upstream sources
+before supplying a binary; matching a user-supplied hash alone is not a code
+review or signature/authenticity guarantee.
+
+## Offline source-pair review build
+
+Supply local Git object stores containing Mihomo
+`ab405bad5beeeac8b003bb01f60f134f6df54471` (`v1.19.31`) and sing-tun
+`b50ae28a1409c7bce8e96e6c6966cf57d8ace754` (`v0.4.24`). They can be
+dirty checkouts: the builder exports only the exact pinned commits, never
+their working files. Supply an absolute local Go executable and a new absolute
+private outside-Git output path. Resolve a distribution-provided Go symlink
+such as `/usr/bin/go` to its real executable first (`readlink -f /usr/bin/go`);
+the builder deliberately refuses a symlink as the toolchain identity. Invoke:
+
+```text
+python3 tests/dns_broker_host/package/build_pair.py \
+  --mihomo-git /absolute/local/mihomo-git \
+  --sing-tun-git /absolute/local/sing-tun-git \
+  --go /absolute/local/go \
+  --arch x86_64 \
+  --output /absolute/private/new-candidate
+```
+
+Use `--arch aarch64` on a native Linux aarch64 builder. The requested
+architecture must match both the host and the absolute local Go toolchain;
+the builder does not silently cross-compile or accept a mismatched receipt.
+
+The OmaVLESS checkout must be committed and clean. The build uses the full
+`mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
+alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
+`GOTOOLCHAIN=local`, `CGO_ENABLED=0`, locked Go/Cargo dependencies and the
+production `with_gvisor` tag. It vendors Go dependencies offline, then tests
+and builds from that vendored tree. A missing local dependency fails closed. Output
+contains both native-architecture binaries, the complete corresponding patched source archive,
+Mihomo/sing-tun licenses, and `source-receipt.json` with exact commits, patch
+hashes, toolchain and output hashes. The receipt is reproducibility evidence,
+not a signature, independent audit, permission to enroll, or proof of installed
+network behavior. The ARM64 path has source-level checks only until an exact
+native aarch64 output passes the same build, staging and installed gates.
+The separate native x86_64 and ARM64 CI jobs exercise the same pinned
+source-pair build and staging in disposable Arch build roots. Each hydrates
+locked Go/Cargo caches before the builder's offline phase, then uploads only
+an **experimental, uninstalled** architecture-specific package. A CI artifact
+is not enrollment, installed acceptance, normal distribution or release
+approval.
+
+The staging fixture below now requires the pair directory and includes this
+source archive, licenses and receipt in the experimental package. It is still
+not a normal release: source review, cross-architecture coverage, enrollment
+and installed failure-path acceptance remain separate gates.
+
+## Stage and inspect (ordinary user)
+
+Invoke `python3 tests/dns_broker_host/package/stage.py` with:
+
+- `--pair`: reviewed private directory containing both ELF64 binaries, complete
+  source archive, licenses and `source-receipt.json` from an offline pair build;
+- `--revision`: exact 40-character OmaVLESS source commit in that pair receipt;
+- `--arch`: `aarch64` or `x86_64`, checked against both ELF machine headers;
+- `--output`: a **new**, absolute, outside-Git build directory whose parent
+  already exists, is owned by the invoking user and is private (`0700`).
+
+The tool refuses symlinks, nonregular/unowned/hardlinked or oversized inputs,
+incorrect hashes and wrong architectures. It accepts only the exact bounded
+receipt schema and pinned upstream/patch identities. It does not print source
+paths or binary contents. All `PKGBUILD` sources are fixed local filenames with
+exact checksums; no mutable URL, `SKIP` checksum or network fetch exists. An
+incomplete staging directory is left for inspection, never automatically
+recursively erased. The receipt and source archive still require independent
+review; a self-reported hash is not a signature or proof of build provenance.
+The source archive is marked `noextract` in `PKGBUILD`: makepkg must copy it as
+source material, not unpack it over the candidate `mihomo` binary filename.
+
+After source review, an ordinary-user `makepkg` invocation can build the staged
+recipe without installing it. Inspect the archive's file list, `.PKGINFO`,
+`.INSTALL`, unit, hook and hashes before any separate owner-approved `pacman -U`
+in a visible terminal. Tests in this directory do not run makepkg or pacman.
+
+## Installed effects — explicit experimental installation only
+
+The archive installs only these fixed destinations:
+
+- `/usr/lib/omavless/omavless-dns-broker`;
+- `/usr/lib/omavless-dns-experimental/mihomo`;
+- `/usr/lib/omavless-dns-experimental/package-guard`;
+- `/usr/lib/systemd/system/omavless-dns-broker.service`;
+- `/usr/share/libalpm/hooks/omavless-dns-experimental.hook`;
+- `/usr/share/omavless-dns-experimental/reviewed-inputs.json`.
+- `/usr/share/omavless-dns-experimental/source-receipt.json` and
+  `corresponding-source.tar.xz`;
+- `/usr/share/licenses/omavless-dns-experimental/` with OmaVLESS, Mihomo and
+  sing-tun license texts.
+
+The package scriptlet sets
+`cap_net_bind_service,cap_net_admin,cap_net_raw=ep` **only** on that candidate
+Mihomo path. It does not replace `/usr/bin/mihomo`, the installed application,
+its config or frontend. No enrollment file is shipped and no service is enabled
+or started. The unit offers an explicit `WantedBy=multi-user.target` installation
+target, but neither the package nor the broker calls `systemctl enable`. Arch's
+ordinary systemd package hook may reload unit metadata; that
+is not activation. Verify actual capabilities before accepting enrollment:
+post-install scriptlet failure cannot be treated as an atomic installation abort.
+Do not grant the broker executable file capabilities; its root service's fixed
+capability bounding set is a different boundary.
+
+The dev-branch native runtime can also recognize a separate, private
+`~/.config/omavless/managed-dns-selection` file containing the exact fixed line
+`managed-dns-source-pair-v1` plus a final newline, owned by the user with mode
+`0600`. This is **not** written by the package and does not replace the
+administrator's root-only broker enrollment. It pins this source-paired core
+and broker receipt on runtime startup, and rejects a missing/replaced pair or
+a route template without both managed flags at connection preparation. It must
+be changed only while disconnected, followed by a deliberate user-runtime
+restart. A complete end-user setup and template-repair flow is still required;
+this manual marker is not a normal-user setup instruction.
+
+The broker now also has a **root-only, fixed-target development enrollment
+command**: `--enroll UID` creates an exact root-owned `0600` enrollment for
+one explicitly chosen nonzero numeric UID; `--revoke` removes only that file.
+Neither command starts/stops a service, edits DNS, touches a TUN or accepts a
+path or policy from the caller. The package's strict empty-state guard must
+pass first, and `Meta` must be absent. Existing enrollment, staging, an active
+broker, a held descriptor, any private journal entry or even a preserved socket
+refuses. The operator must verify the intended local UID before invoking a
+separately authorized root command. A failed/unknown outcome must be inspected
+before retry; the tool does not recover or delete an existing staging file.
+This is still an experimental administrator path, not frontend consent or a
+normal distribution workflow. It has not been enabled on a release package.
+
+For an isolated development VM only, after the exact package is installed and
+its guard reports an empty broker state, the explicit administrator sequence is
+`sudo /usr/lib/omavless/omavless-dns-broker --enroll "$(id -u)"`, followed by
+`sudo systemctl enable --now omavless-dns-broker.service`. Use the numeric UID
+of the intended desktop user, not root's UID. A separately stopped, disconnected
+user runtime with the byte-for-byte bundled default route template can then
+run `omavless dns-pair prepare-template` and `omavless dns-pair select`, in that
+order, before starting the runtime again. Template preparation creates one
+private, create-only `route-template.pre-managed-dns.yaml` backup, replaces
+only the exact bundled default and never rewrites custom or partly managed
+YAML. An already managed template is left unchanged. If the operation refuses
+or reports an unknown outcome, inspect the original, backup and staging file
+before retrying; do not delete them blindly. The template step changes no
+network settings while OmaVLESS is stopped. It is still a development-only
+operator path and not unattended plugin setup.
+
+`omavless dns-pair status` reports only the selected local pair, **not** live
+DNS health or full enrollment verification. The route template must already
+contain the two reviewed managed flags before selection. None of these steps installs a VPN
+profile, changes a firewall rule, or proves internet reachability. If any
+precondition fails, stop and inspect rather than editing the enrollment file or
+deleting a retained broker journal.
+
+## Replacement/removal gate
+
+The fixed read-only guard requires root, zero arguments, protected runtime
+directories, no private journal/staging/**any unknown entry**, and a loaded unit
+that systemd confirms inactive/dead with MainPID=0 and NFileDescriptorStore=0.
+It also refuses a remaining `control.sock` filesystem node, including a broken
+symlink. This prevents a nominally clean package transaction from leaving a
+socket that makes the replacement broker fail to bind.
+Missing properties, bus failure, timeout, failed/active service and unknown state
+refuse. It never emits observed property values or private content.
+
+The actual abort mechanism is an ALPM **PreTransaction** hook with `AbortOnFail`
+for this exact package's Upgrade/Remove. `.install` pre_upgrade/pre_remove call
+the same guard as defense in depth; their failure alone is not a reliable
+transaction-abort mechanism. This follows the [official ALPM hook contract](https://man.archlinux.org/man/alpm-hooks.5).
+
+The guard performs no stop/start, DNS reset, FD-store removal, journal unlink,
+enrollment change or forced recovery. The unit has no automatic start/restart
+path, so an ordinary user cannot race an inactive service into acquisition while
+the package is replaced. Root can override package hooks; root/CAP administrators
+are outside this ordinary-user boundary. Administrative force flags/disabled hooks
+must not be used as a recovery procedure.
+
+Before a clean replacement/removal, explicitly prove that the broker is
+inactive/dead with MainPID=0 and FD store 0, the root-only private journal is
+empty, the original resolver state was read back, and no core/TUN or live
+listener remains. If any fact is unknown, stop: the retained state needs the
+recovery boundary in the [host contract](../README.md). After those facts are
+independently established, an administrator may inspect the exact fixed socket
+node and interactively unlink **only** `/run/omavless-dns/control.sock` (for
+example, `sudo rm -i -- /run/omavless-dns/control.sock`), then rerun the guard
+before the normal package transaction. Do not delete the directory or journal,
+run `systemctl clean`, or add a blanket cleanup hook. The package itself leaves
+runtime and enrollment data untouched.
+
+The same stale-socket check applies to a manually stopped service: a plain
+`systemctl restart` can refuse to bind while the preserved socket node remains.
+Do not retry in a loop or delete it from an automatic unit hook. First prove
+the inactive/empty conditions above, then remove only that inspected node and
+start the service explicitly. An installed PC-VM stopped-service negative and
+manual restoration are recorded in the linked x86_64 evidence.
+
+## Installed evidence and remaining gates
+
+The [ARM64 record](../../../docs/testing/DNS_BROKER_TRY_OMARCHY_2026-09-25.md)
+and [x86_64 PC-VM record](../../../docs/testing/DNS_BROKER_PC_PREINSTALL_2026-09-27.md)
+now document explicit installation, capability readback, default-off behavior,
+enrolled access, a real managed DNS lease and positive release. Real ALPM
+transactions refused active-lease removal, crash-quarantined removal and an
+upgrade with retained state. Clean-state removal/reinstall passed; the rebuilt
+guard also refused a preserved stale socket before replacement, then allowed
+an explicitly proven clean recovery. These are exact experimental-package
+results, not normal release-distribution or blanket failure-path acceptance.
+
+Still open: release-reviewed enrollment/core selection and artifact delivery,
+full concurrent/in-flight negatives, firewall prerequisites, exact owner-attended
+pre-main acceptance and the default legacy #132 defect. The package alone does
+not close #270 or make 0.9.0 RC ready.
