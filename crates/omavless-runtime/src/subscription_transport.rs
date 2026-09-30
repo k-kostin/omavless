@@ -78,7 +78,7 @@ pub trait SubscriptionTransport {
 
 /// Private optional provider metadata from the final accepted response only.
 /// No Debug/Serialize: usage values may identify an account. This result is
-/// not consumed by the live refresh/store path yet.
+/// not consumed by ordinary refresh/store; only explicit private usage reads.
 pub struct FetchedSubscription {
     pub body: PrivateSubscriptionBody,
     pub usage: Option<SubscriptionUsage>,
@@ -176,7 +176,7 @@ impl HttpsSubscriptionTransport {
             .map(|fetched| fetched.body)
     }
 
-    /// Future quota integration seam. Current live refresh still consumes only
+    /// Private read seam. Current live refresh still consumes only
     /// the body through `fetch_with_budget` and never persists usage metadata.
     pub fn fetch_with_usage_with_budget(
         &self,

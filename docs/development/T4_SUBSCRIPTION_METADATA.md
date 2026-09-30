@@ -1,8 +1,45 @@
 # T4 subscription usage metadata foundation
 
-Status: inactive parser and transport-extraction candidate. Current refresh
-still consumes only the body; no metadata enters storage, IPC, UI or scheduling,
-and routing/VPN behavior is unchanged.
+Status: selected 0.9.5 beta implementation: explicit, transient private read.
+Ordinary refresh still consumes only the body. No usage enters storage,
+scheduling, ordinary status, support reports or the QML plugin.
+
+## First working slice: explicit provider information
+
+The TUI Subscriptions page uses `n/p` to select a subscription and `u` to
+request its provider information. This is navigation/read, not Connect or feed
+refresh. Opening the page, polling local state or choosing a row performs no
+provider request. The runtime resolves one saved opaque ID through the canonical
+private editor read, releases the owner/store lock for one bounded GET and
+revalidates revision, ownership and the exact URL before returning a claim.
+It shares the existing four-slot remote-fetch pool and three-second whole-request
+budget, including validated redirects/body consumption. The existing supported
+feed decoder must accept the body; arbitrary remote YAML/HTML cannot supply a
+claim. Failures use fixed `subscription_unavailable`/ownership/conflict codes,
+never provider-controlled prose.
+
+The explicit private `subscriptions.usage` v1 response has scope
+`private_provider_reported_usage`, `instanceId`, availability `reported` or
+`not_provided`, and optional usage. Upload/download/total counters and optional
+expiry use canonical bounded decimal strings, preserving u64 values without
+cross-client floating-point loss. It has no names, IDs, URL, raw header, endpoint,
+or reusable credentials. This is still private account information, not a
+shareable support projection.
+
+The client retains only the last explicit result on the selected page in this
+window. Leaving the page, changing selection, changing owner/revision, failed
+state reads or closing the TUI discards it. An older in-flight reply cannot
+replace a newer explicit request. It never persists into the store, window
+activity, diagnostics or ordinary lists. Therefore this slice needs no new
+store migration, downgrade erasure policy or second writer; the unresolved
+persistent quota candidates are deliberately excluded.
+
+EN/RU labels explicitly attribute values to the provider, not local measurement
+or VPN health. Remaining bytes use checked arithmetic and are suppressed for
+zero total, overflow or usage exceeding total. Zero/missing expiry is unavailable,
+not “never expires”; nonzero dates are unambiguous Gregorian UTC date/times,
+never an entitlement verdict/countdown. Private synthetic EN/RU terminal review
+and exact installed acceptance remain separate from deterministic tests.
 
 `Subscription-Userinfo` is a de facto provider response header, not an HTTP or
 Mihomo networking guarantee. The official MetaCubeXD project describes its
@@ -36,9 +73,10 @@ loopback listener; they do not observe a real provider or prove future caller
 composition. An additional body-plus-optional-usage transport seam parses only
 the final accepted response, preserving the existing body-only caller. Invalid,
 non-UTF-8 and duplicate usage values become unavailable metadata rather than
-failing a usable feed; no production store or presentation consumes the value.
+failing a usable feed. Only the explicit transient read presents the value;
+ordinary refresh discards it and no production store consumes it.
 
-Before active integration, keep using all header values, not a single-value
+Active extraction keeps using all header values, not a single-value
 `get`; bind only the final accepted response after every validated redirect.
 The metadata parser's error must remain non-fatal to a usable subscription
 feed rather than becoming a refresh or connection error. Decide private-store
@@ -48,6 +86,7 @@ in shareable support output.
 
 This is a new T4 feature, not an R-stage migration. The established Rust feed
 transport remains the production owner; there is no Python parity or host
-network effect in this inactive foundation. Deterministic parser tests are the
-applicable gate. Live provider interoperability and private UI review remain
-unrun and cannot be inferred from these tests.
+host networking configuration effect. Deterministic parser, transport, private
+socket and TUI state/render tests are applicable. Live provider interoperability
+and installed UI review cannot be inferred from those tests; record exact-head
+results in the owning beta PR without copying private counters.

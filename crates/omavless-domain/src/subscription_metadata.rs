@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Inactive, pure parser for the provider-defined `Subscription-Userinfo` field.
+//! Pure parser for the provider-defined `Subscription-Userinfo` field.
 //!
 //! This is not an HTTP standard or a source of VPN health. The caller must pass
 //! only the final HTTP response; redirects and failed responses cannot supply
-//! usage. No transport, store, IPC, UI or scheduling path calls this module.
+//! usage. Ordinary refresh discards these values; the explicit private usage
+//! read may present them without persistence or scheduling.
 
 pub const MAX_SUBSCRIPTION_USERINFO_BYTES: usize = 256;
 /// Last representable second of 9999-12-31 UTC. Later dates are not safely

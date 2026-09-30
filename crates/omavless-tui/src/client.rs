@@ -20,6 +20,7 @@ pub enum Read {
     ConnectionRows,
     RouteCheck(crate::route_inspection::Target),
     ProfileDetails(ProfileTarget),
+    SubscriptionUsage(ProfileTarget),
 }
 
 /// Fixed-size private target, never included in derived debug output.
@@ -69,6 +70,7 @@ impl Read {
             Self::ConnectionRows => "runtime.connection_rows",
             Self::RouteCheck(_) => "routing.check",
             Self::ProfileDetails(_) => "profiles.details",
+            Self::SubscriptionUsage(_) => "subscriptions.usage",
         }
     }
     pub fn params(self) -> Value {
@@ -76,6 +78,7 @@ impl Read {
             Self::Hello => json!({"versions":[1]}),
             Self::ProfileDetails(target) => json!({"profileId": target.as_str()}),
             Self::RouteCheck(target) => json!({"query": target.as_str()}),
+            Self::SubscriptionUsage(target) => json!({"subscriptionId": target.as_str()}),
             _ => json!({}),
         }
     }

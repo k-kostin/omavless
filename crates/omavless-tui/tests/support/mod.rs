@@ -53,6 +53,11 @@ pub fn response(request: Read) -> Value {
         Read::ProfileDetails(_) => {
             json!({"version":1,"protocol":"vless","transport":"xhttp","security":"reality","server":"fixture.invalid:443","sni":"fixture.invalid"})
         }
+        Read::SubscriptionUsage(_) => {
+            json!({"schemaVersion":1,"scope":"private_provider_reported_usage",
+            "instanceId":"fixture-runtime","availability":"reported","usage":{
+            "uploadBytes":"1073741824","downloadBytes":"2147483648","totalBytes":"10737418240","expiryUnixSeconds":"1893456000"}})
+        }
         Read::Connections => {
             json!({"schemaVersion":1,"scope":"owned_core_active_connection_count","availability":"observed","count":3,"instanceId":"fixture-runtime"})
         }

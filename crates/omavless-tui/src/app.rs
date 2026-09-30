@@ -26,6 +26,9 @@ pub struct App {
     pub selected: Option<String>,
     pub selected_subscription: Option<String>,
     pub subscription_selection_moved: bool,
+    pub usage_request: Option<crate::subscription_usage::Request>,
+    pub usage_result: Option<crate::subscription_usage::Status>,
+    usage_context: Option<crate::subscription_usage::Request>,
     /// Latest attempt per subscription in this window, not persisted/provider history.
     pub subscription_attempts: std::collections::BTreeMap<String, &'static str>,
     pub query: String,
@@ -88,6 +91,9 @@ impl App {
     }
 
     fn leave_private_connections(&mut self, next: crate::inspection::Page) {
+        if next != crate::inspection::Page::Subscriptions {
+            self.clear_usage();
+        }
         if self.page == crate::inspection::Page::Connections
             && next != crate::inspection::Page::Connections
             && let Some(snapshot) = &mut self.snapshot
@@ -121,6 +127,9 @@ impl App {
             selected: None,
             selected_subscription: None,
             subscription_selection_moved: false,
+            usage_request: None,
+            usage_result: None,
+            usage_context: None,
             subscription_attempts: std::collections::BTreeMap::new(),
             query: String::new(),
             operator_query: String::new(),
@@ -202,6 +211,7 @@ impl App {
                     *id != next.metadata.instance_id || *revision != next.revision
                 }) {
                     self.route_result = None;
+                    self.clear_usage();
                 }
                 if self
                     .selected_subscription
@@ -244,6 +254,7 @@ impl App {
                 self.traffic_rates = None;
                 self.traffic_history.clear();
                 self.route_result = None;
+                self.clear_usage();
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -297,6 +308,28 @@ impl App {
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
         self.key_at(key, Instant::now())
+    }
+    fn clear_usage(&mut self) {
+        self.usage_request = None;
+        self.usage_result = None;
+        self.usage_context = None;
+    }
+    pub fn accept_usage(
+        &mut self,
+        request: Option<&crate::subscription_usage::Request>,
+        status: Option<crate::subscription_usage::Status>,
+        at: Instant,
+    ) {
+        if self.page == crate::inspection::Page::Subscriptions
+            && self.sampled_at == Some(at)
+            && request.is_some_and(|request| {
+                self.selected_subscription.as_deref() == Some(request.target.as_str())
+                    && self.snapshot.as_ref().is_some_and(|s| request.matches(s))
+            })
+            && self.usage_context.as_ref() == request
+        {
+            self.usage_result = status;
+        }
     }
     pub fn key_at(&mut self, key: KeyEvent, now: Instant) -> Action {
         if key.kind == KeyEventKind::Release {
@@ -591,10 +624,33 @@ impl App {
                                 };
                                 self.selected_subscription = Some(rows[next].id.clone());
                                 self.subscription_selection_moved = true;
+                                self.clear_usage();
                             }
                         }
                     }
                     KeyCode::Char('s') => self.prepare_subscription(now),
+                    KeyCode::Char('u') if self.fresh(now) && !self.running && !self.unknown => {
+                        if let Some(snapshot) = &self.snapshot
+                            && snapshot.capabilities.subscription_usage
+                            && let Some(target) = self
+                                .selected_subscription
+                                .as_deref()
+                                .and_then(crate::client::ProfileTarget::new)
+                        {
+                            let request = crate::subscription_usage::Request::new(
+                                target,
+                                snapshot.metadata.instance_id.clone(),
+                                snapshot.revision,
+                            );
+                            if request.matches(snapshot) {
+                                self.usage_context = Some(request.clone());
+                                self.usage_request = Some(request);
+                                self.usage_result =
+                                    Some(crate::subscription_usage::Status::Loading);
+                                return Action::Refresh;
+                            }
+                        }
+                    }
                     KeyCode::Char('S') => {
                         self.prepare_job(crate::jobs::Kind::RefreshAll, None, now)
                     }

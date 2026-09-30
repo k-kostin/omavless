@@ -12,6 +12,7 @@ pub struct Capabilities {
     pub providers: bool,
     pub custom_rules: bool,
     pub subscription_refresh: bool,
+    pub subscription_usage: bool,
     pub profile_probe: bool,
     pub subscription_probe: bool,
     pub refresh_all: bool,
@@ -31,6 +32,7 @@ impl Capabilities {
             providers: has("diagnostics.providers"),
             custom_rules: has("routing.custom_rules.list"),
             subscription_refresh: has("subscriptions.refresh"),
+            subscription_usage: has("subscriptions.usage"),
             profile_probe: has("profiles.probe")
                 && has("profiles.probe_results")
                 && has("operations.get")
