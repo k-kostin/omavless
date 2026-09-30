@@ -90,7 +90,10 @@ fn attributes(mut bytes: &[u8], max: usize) -> Result<Vec<Option<&[u8]>>> {
         let length = usize::from(u16n(&bytes[..2])?);
         let raw_kind = u16n(&bytes[2..4])?;
         let kind = usize::from(raw_kind & 0x3fff);
-        require(raw_kind & 0x8000 == 0 && kind > 0 && kind <= max)?;
+        // Neither nested nor network-byte-order tagged attributes belong to
+        // this fixed response schema. Masking their type alone could silently
+        // reinterpret a future kernel field as one we understand.
+        require(raw_kind & 0xc000 == 0 && kind > 0 && kind <= max)?;
         require(length >= 4 && aligned(length) <= bytes.len() && values[kind].is_none())?;
         require(bytes[length..aligned(length)].iter().all(|v| *v == 0))?;
         values[kind] = Some(&bytes[4..length]);
@@ -436,6 +439,7 @@ mod tests {
             attribute(8, b""),
             attribute(1, TABLE),
             attribute(0x8001, b""),
+            attribute(0x4001, b""),
             vec![1, 2, 3],
         ] {
             let mut body = table_body(0, None);
