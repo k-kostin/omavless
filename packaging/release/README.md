@@ -1,7 +1,11 @@
-# Native release and RC preparation
+# Native release, beta and RC preparation
 
-Current development candidate: **0.9.0-rc.2**, not stable or marketplace-ready.
-The production pair has owner-attended ARM64 and separate x86_64 VM evidence;
+Current development version: **0.9.5-beta.1**, not stable or marketplace-ready.
+Its bootstrap pins are empty: no public beta downloads or clean first-use
+acceptance are implied. Build/inspect offline exact-source artifacts first.
+Do not relabel older RC archives or substitute their hashes into beta metadata.
+
+The separately accepted **0.9.0-rc.2** production pair has owner-attended ARM64 and separate x86_64 VM evidence;
 public-download first use in an empty ARM64 account also passed. Final RC2
 archives for both architectures are strictly inspected/pinned, and the final
 ARM64 installed update/lifecycle passed. See the
@@ -40,8 +44,9 @@ installed-release gates. It is not a stable-release acceptance claim.
 The build tuple is one reviewed source commit, locked Rust workspace version,
 prebuilt native ELF SHA-256, Arch package and matching native-only frontend.
 `Cargo.toml` supplies the product version; Cargo workspace members inherit it.
-Arch spells `0.8.0-rc.1` as `0.8.0rc1` (package release `1`), so it sorts before
-stable `0.8.0`. The candidate frontend manifest gets the exact Cargo spelling.
+Arch spells `0.9.5-beta.1` as `0.9.5beta1`, and `0.9.5-rc.1` as `0.9.5rc1`
+(package release `1`). Beta sorts before RC, which sorts before stable `0.9.5`.
+The candidate frontend manifest gets the exact Cargo spelling.
 This follows Arch's [pkgver restrictions](https://man.archlinux.org/man/PKGBUILD.5.en)
 and [version ordering](https://man.archlinux.org/man/vercmp.8.en); local tests
 also exercise `vercmp` when installed.
@@ -102,10 +107,10 @@ python3 packaging/release/build-candidate.py /absolute/empty-output /absolute/pr
 ```
 
 The assembler requires a clean exact Git head and the matching explicit version
-mode. Current `0.9.0-rc.2` uses the no-flag assembler and `--candidate` packager;
+mode. Beta/RC versions use the no-flag assembler and `--candidate` packager;
 stable sources require explicit `--stable`. The CI version projection recognizes
-only these two bounded forms and preserves Arch RC ordering; it never promotes
-an RC into stable. Absent RC bootstrap pins block provisioning, rather
+only stable and explicit positive beta/RC numbers, and preserves Arch ordering;
+it never promotes a prerelease into stable. Absent bootstrap pins block provisioning, rather
 than falling back to 0.8.2 or inventing asset hashes.
 It then builds the frontend from
 an allowlist of **committed regular Git blobs**, not a recursive worktree copy.
@@ -115,8 +120,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.9.0rc2-1-ARCH.pkg.tar.zst`;
-- `omavless-0.9.0-rc.2-frontend.tar.xz`;
+- `omavless-0.9.5beta1-1-ARCH.pkg.tar.zst`;
+- `omavless-0.9.5-beta.1-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;

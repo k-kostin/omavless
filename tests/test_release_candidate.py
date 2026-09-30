@@ -60,14 +60,14 @@ class ReleaseCandidateTests(unittest.TestCase):
         return target
 
     def test_native_source_manifest_version_and_lock_are_coherent(self):
-        self.assertEqual(RELEASE.version(ROOT), '0.9.0-rc.2')
+        self.assertEqual(RELEASE.version(ROOT), '0.9.5-beta.1')
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         versions = {p['version'] for p in lock['package'] if p['name'].startswith('omavless-')}
         self.assertEqual(versions, {RELEASE.version(ROOT)})
         self.assertEqual(json.loads((ROOT / 'manifest.json').read_text())['version'], RELEASE.version(ROOT))
         with self.assertRaises(ValueError):
             RELEASE.version(ROOT, stable=True)  # RC cannot masquerade as stable.
-        for invalid in ('0.8.0', '0.8.0-rc.0', '0.8.0-rc.1;false', '0.8.0-beta.1'):
+        for invalid in ('0.8.0', '0.8.0-rc.0', '0.8.0-rc.1;false', '0.8.0-beta.0'):
             (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{invalid}"\n')
             with self.assertRaises(ValueError):
                 RELEASE.version(self.repo)
@@ -89,6 +89,21 @@ class ReleaseCandidateTests(unittest.TestCase):
             self.assertEqual(archive.extractfile('omavless-frontend/install-frontend.sh').read(),
                              (ROOT / 'install.sh').read_bytes())
 
+    def test_beta_version_is_explicit_and_agrees_with_arch_projection(self):
+        for value in ('0.9.5-beta.1', '0.9.5-beta.12', '0.9.5-rc.1', '0.9.5'):
+            projected = RELEASE.arch_version(value)
+            result = subprocess.run(['bash', str(ROOT / 'packaging/release/version-mode.sh'), value],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.split('\t')[1].strip(), projected)
+            (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{value}"\n')
+            self.assertEqual(RELEASE.version(self.repo, stable='-' not in value), value)
+        for value in ('0.9.5-beta.0', '0.9.5-beta.01', '0.9.5-beta', '0.9.5-alpha.1',
+                      '0.9.5-beta.1+build', '0.9.5-beta.1\n', '0.9.5-beta.1;false',
+                      '1' * 33 + '.0.0', None):
+            with self.assertRaises(ValueError):
+                RELEASE.arch_version(value)
+
     def test_stable_mode_requires_exact_bounded_stable_version(self):
         for valid in ('0.8.0', '0.8.1', '1.2.34'):
             (self.repo / 'Cargo.toml').write_text(f'[workspace.package]\nversion = "{valid}"\n')
@@ -101,15 +116,18 @@ class ReleaseCandidateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 RELEASE.version(self.repo, stable=True)
 
-    def test_ci_projects_only_stable_and_explicit_rc_versions(self):
+    def test_ci_projects_only_stable_and_explicit_prerelease_versions(self):
         script=ROOT/'packaging/release/version-mode.sh'
         for value, expected in [('0.8.2','stable\t0.8.2\n'),
                                 ('0.9.0-rc.1','candidate\t0.9.0rc1\n'),
-                                ('0.9.0-rc.12','candidate\t0.9.0rc12\n')]:
+                                ('0.9.0-rc.12','candidate\t0.9.0rc12\n'),
+                                ('0.9.5-beta.1','candidate\t0.9.5beta1\n'),
+                                ('0.9.5-beta.12','candidate\t0.9.5beta12\n')]:
             result=subprocess.run(['bash',str(script),value],capture_output=True,text=True,check=False)
             self.assertEqual(result.returncode,0)
             self.assertEqual(result.stdout,expected)
-        for arguments in ([],['0.9.0','extra'],['latest'],['0.9.0-rc.0'],['0.9.0-beta.1'],
+        for arguments in ([],['0.9.0','extra'],['latest'],['0.9.0-rc.0'],['0.9.5-beta.0'],
+                          ['0.9.5-beta.01'],['0.9.5-beta.1+build'],['0.9.5-alpha.1'],
                           ['0.9.0;false'],['0.9.0\n'],['1'*33+'.0.0']):
             result=subprocess.run(['bash',str(script),*arguments],capture_output=True,text=True,check=False)
             self.assertEqual(result.returncode,2)

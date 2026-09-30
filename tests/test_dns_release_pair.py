@@ -78,6 +78,7 @@ class DnsReleasePairTests(unittest.TestCase):
         architecture = arch or os.uname().machine
         machine = binary_machine if binary_machine is not None else (
             62 if architecture == 'x86_64' else 183)
+        version = PAIR.release.arch_version(PAIR.release.version(self.repo))
         header = bytearray(20)
         header[:6] = b'\x7fELF\x02\x01'
         header[18:20] = machine.to_bytes(2, 'little')
@@ -88,16 +89,16 @@ class DnsReleasePairTests(unittest.TestCase):
         def archive_member(_path, name, _limit=8192, digest=False):
             if name == 'usr/bin/omavless' and digest:
                 return '1' * 64, bytes(header)
-            return (f'pkgname = omavless\npkgver = 0.9.0rc1-1\n'
-                    f'arch = {architecture}\ndepend = omavless-dns=0.9.0rc1-1\n').encode()
+            return (f'pkgname = omavless\npkgver = {version}-1\n'
+                    f'arch = {architecture}\ndepend = omavless-dns={version}-1\n').encode()
 
         with patch.object(PAIR.inspection, 'fingerprint', side_effect=fingerprint), \
              patch.object(PAIR.inspection, 'safe_parents'), \
              patch.object(PAIR.inspection, 'inspect_archive', return_value={
-                 'version': '0.9.0rc1-1', 'source': self.runtime,
+                 'version': version + '-1', 'source': self.runtime,
                  'binary': '1' * 64}), \
              patch.object(PAIR, 'inspect_dns_archive', return_value={
-                 'version': '0.9.0rc1-1', 'source': self.runtime,
+                 'version': version + '-1', 'source': self.runtime,
                  'coreSha256': '2' * 64, 'brokerSha256': '3' * 64,
                  'receiptSha256': '4' * 64}), \
              patch.object(PAIR, 'member', side_effect=archive_member):
@@ -111,6 +112,21 @@ class DnsReleasePairTests(unittest.TestCase):
         self.assertIn('usr/lib/omavless-dns/mihomo', members)
         self.assertNotIn('usr/lib/omavless-dns-experimental/mihomo', members)
         self.assertIn('usr/lib/omavless-dns/', members)
+
+    def test_beta_pair_keeps_version_source_and_unpublished_boundaries(self):
+        self.write('Cargo.toml', '[workspace.package]\nversion = "0.9.5-beta.1"\n')
+        self.write('manifest.json', '{"version":"0.9.5-beta.1"}')
+        for path in ('plugin/runtime-release.json', 'plugin/dns-release.json'):
+            self.write(path, json.dumps({'schemaVersion': 1, 'version': '0.9.5-beta.1', 'packages': {}}))
+        self.runtime = self.commit()
+        result = self.assembly()
+        self.assertEqual(result['version'], '0.9.5-beta.1')
+        self.assertEqual(result['bootstrapPins'], 'empty')
+        self.assertEqual(result['runtimeSourceCommit'], self.runtime)
+        self.assertFalse(result['publishedDownloadVerified'])
+        self.assertEqual(result['publication'], 'unpublished-candidate')
+        for name in ('omavless', 'omavless-dns'):
+            self.assertTrue((self.output / f'{name}-0.9.5beta1-1-{os.uname().machine}.pkg.tar.zst').is_file())
 
     def test_package_metadata_rejects_duplicate_identity(self):
         with self.assertRaises(ValueError):

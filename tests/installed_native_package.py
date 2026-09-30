@@ -200,9 +200,10 @@ def validate_build_identity(package, raw):
         require(".g" + identity["sourceCommit"][:12] + "-" in package["pkgver"], "build_identity")
     else:
         version = identity["productVersion"]
-        pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + (r"-rc\.[1-9][0-9]*" if schema == "2" else "")
+        pattern = r"[0-9]+\.[0-9]+\.[0-9]+" + (r"-(?:rc|beta)\.[1-9][0-9]*" if schema == "2" else "")
         require(len(version) <= 32 and re.fullmatch(pattern, version), "package_version")
-        require(package["pkgver"] == version.replace("-rc.", "rc") + "-1", "package_version")
+        require(package["pkgver"] == version.replace("-rc.", "rc").replace("-beta.", "beta") + "-1",
+                "package_version")
     return identity
 
 

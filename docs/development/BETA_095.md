@@ -63,7 +63,12 @@ does not catch rendering/IPC errors. A deterministic drop regression, all PTY
 scenarios and 400 revoked-PTY exits then pass. The temporary diagnostic hook was
 removed before committing. No runtime/network behavior changes for this fix.
 
-The source assembly still has the inherited RC2 version spelling and pins.
-It is **not** a built/published 0.9.5 package. Next gates are honest beta version
-and local exact managed runtime/DNS/frontend assembly, then installed T3 privacy,
+The source version is now **0.9.5-beta.1** (`0.9.5beta1-1` in Arch packages).
+Runtime, companion, manifest and setup version must agree. Beta/RC assembly is
+explicitly separate from stable; positive prerelease numbers and strict exact
+package/source/dependency checks apply. Bootstrap pins are empty, not reused
+RC2 hashes: guided public provisioning remains unavailable until independently
+built immutable beta assets are authorized, uploaded and verified.
+Version metadata is **not** a built/published package or acceptance. Next gates
+are local exact managed runtime/DNS/frontend assembly, then installed T3 privacy,
 stale-owner, concurrent-client and EN/RU review before release scope freeze.
