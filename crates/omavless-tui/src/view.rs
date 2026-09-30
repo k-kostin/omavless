@@ -434,6 +434,17 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Line::from(tr("tui.page_keys")),
             Line::from(tr(if app.page == crate::inspection::Page::Jobs {
                 "tui.job_keys"
+            } else if app.page == crate::inspection::Page::Subscriptions
+                && app
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.capabilities.subscription_usage)
+            {
+                if app.actions_enabled {
+                    "tui.subscription_usage_keys"
+                } else {
+                    "tui.subscription_usage_read_keys"
+                }
             } else if app.page == crate::inspection::Page::Subscriptions && app.actions_enabled {
                 "tui.subscription_page_keys"
             } else if app.page == crate::inspection::Page::Settings {
@@ -468,6 +479,13 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                     "tui.operator_search_exit"
                 } else if app.page == crate::inspection::Page::Settings {
                     "tui.settings_local"
+                } else if app.page == crate::inspection::Page::Subscriptions
+                    && app
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|s| s.capabilities.subscription_usage)
+                {
+                    "tui.usage_action_notice"
                 } else if app.page == crate::inspection::Page::Subscriptions
                     || app.page == crate::inspection::Page::Jobs
                 {
@@ -1280,7 +1298,11 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             lines
         }
         Page::Subscriptions => {
-            let mut lines = vec![Line::from(tr("tui.subscription_scope"))];
+            let mut lines = vec![Line::from(tr(if s.capabilities.subscription_usage {
+                "tui.subscription_usage_scope"
+            } else {
+                "tui.subscription_scope"
+            }))];
             if s.metadata.subscriptions.is_empty() {
                 lines.push(Line::from(tr("tui.no_subscriptions")));
             }
@@ -1331,6 +1353,55 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                         tr("tui.session_attempt"),
                         tr(attempt)
                     )));
+                }
+                if Some(&sub.id) == app.selected_subscription.as_ref() {
+                    use crate::subscription_usage::Status;
+                    match &app.usage_result {
+                        Some(Status::Reported(usage)) => {
+                            lines.push(Line::from(format!("  {}", tr("tui.usage_reported"))));
+                            for (key, value) in [
+                                ("tui.upload_history", usage.upload),
+                                ("tui.download_history", usage.download),
+                                ("tui.usage_total", usage.total),
+                            ] {
+                                lines.push(Line::from(format!(
+                                    "  {}: {}",
+                                    tr(key),
+                                    crate::inspection::bytes(value)
+                                )));
+                            }
+                            if let Some(remaining) = usage.remaining() {
+                                lines.push(Line::from(format!(
+                                    "  {}: {}",
+                                    tr("tui.usage_remaining"),
+                                    crate::inspection::bytes(remaining)
+                                )));
+                            }
+                            lines.push(Line::from(format!(
+                                "  {}: {}",
+                                tr("tui.usage_expiry"),
+                                usage
+                                    .expiry_utc
+                                    .as_deref()
+                                    .unwrap_or(tr("tui.metric_unavailable"))
+                            )));
+                            lines.push(Line::from(tr("tui.usage_private_notice")));
+                        }
+                        Some(Status::NotProvided) => {
+                            lines.push(Line::from(tr("tui.usage_not_provided")))
+                        }
+                        Some(Status::Unavailable) => {
+                            lines.push(Line::from(tr("tui.usage_unavailable")))
+                        }
+                        Some(Status::Unsupported) => {
+                            lines.push(Line::from(tr("tui.usage_unsupported")))
+                        }
+                        Some(Status::Loading) => lines.push(Line::from(tr("tui.usage_loading"))),
+                        None if app.usage_request.is_some() => {
+                            lines.push(Line::from(tr("tui.usage_loading")))
+                        }
+                        None => {}
+                    }
                 }
                 lines.push(Line::from(""));
             }

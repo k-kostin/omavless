@@ -28,6 +28,7 @@ fn main() {
                 "diagnostics.export",
                 "routing.custom_rules.list",
                 "routing.check",
+                "subscriptions.usage",
                 "profiles.details"
             ]);
         }

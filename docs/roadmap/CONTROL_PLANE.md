@@ -367,10 +367,24 @@ not activate the installed frontend or perform ownership cutover.
   `name` and bearer `url` and is therefore sensitive rather than an ordinary
   list/status response;
 - `subscriptions.refresh`, `subscriptions.refresh_all`;
+- `subscriptions.usage` — explicit private, transient provider-information read;
 - `subscriptions.test`;
 - `subscriptions.delete`.
 
 Classification alone never fetches arbitrary remote content.
+
+The 0.9.5 beta `subscriptions.usage` accepts exactly `{"subscriptionId": ID}`.
+One current-store URL is fetched under the existing bounded remote pool, outside
+owner/store locks, with ownership/revision/exact URL revalidation at completion.
+Only a final successful, supported feed response supplies optional numeric
+`Subscription-Userinfo` assertions. It does not refresh/save the feed or mutate
+VPN state. The private result has `schemaVersion:1`, scope
+`private_provider_reported_usage`, `instanceId`, `availability` (`reported` or
+`not_provided`), and `usage` (null or exact decimal-string `uploadBytes`,
+`downloadBytes`, `totalBytes`, nullable `expiryUnixSeconds`). No bearer URL,
+profile name, raw header or record ID is returned. Three seconds and the
+existing response/header/body bounds apply. Ordinary lists/status/support
+exclude usage. See the [transient privacy and presentation contract](../development/T4_SUBSCRIPTION_METADATA.md).
 
 `subscriptions.edit_input` accepts exactly `{"subscriptionId": ID}` with no
 mutation metadata or extra fields. It is advertised and served only while the

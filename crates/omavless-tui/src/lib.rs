@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod model;
 pub mod route_inspection;
 pub mod settings;
+pub mod subscription_usage;
 pub mod theme;
 pub mod traffic_history;
 pub mod view;
@@ -143,21 +144,26 @@ fn run_client(
         inspection::Page,
         Option<String>,
         Option<route_inspection::Request>,
+        Option<subscription_usage::Request>,
     )>(1);
     let (results, receive) = mpsc::sync_channel(1);
     thread::Builder::new()
         .name("tui-read".into())
         .spawn(move || {
-            while let Ok((page, selected, route)) = requests.recv() {
+            while let Ok((page, selected, route, usage)) = requests.recv() {
                 let started = Instant::now();
                 let result = client::load_page_for_route(
                     &mut read,
                     page,
                     selected.as_deref(),
                     route.as_ref(),
-                );
+                )
+                .and_then(|(snapshot, route_status)| {
+                    subscription_usage::load(&mut read, page, snapshot, usage.as_ref())
+                        .map(|(snapshot, usage_status)| (snapshot, route_status, usage_status))
+                });
                 if results
-                    .send((started, page, selected.clone(), route, result))
+                    .send((started, page, selected.clone(), route, usage, result))
                     .is_err()
                 {
                     break;
@@ -254,15 +260,16 @@ fn run_client(
             app.finish(outcome, now);
             due = now;
         }
-        if let Ok((started, page, selected, route, result)) = receive.try_recv() {
+        if let Ok((started, page, selected, route, usage, result)) = receive.try_recv() {
             match result {
-                Ok((snapshot, route_status)) => {
+                Ok((snapshot, route_status, usage_status)) => {
                     if app.accept_for(page, selected.as_deref(), Ok(snapshot), started) {
                         app.accept_route(
                             route.as_ref().map(route_inspection::Request::target),
                             route_status,
                             started,
                         );
+                        app.accept_usage(usage.as_ref(), usage_status, started);
                     }
                 }
                 Err(error) => {
@@ -270,7 +277,7 @@ fn run_client(
                 }
             }
             pending = false;
-            due = if app.route_request.is_some() {
+            due = if app.route_request.is_some() || app.usage_request.is_some() {
                 now
             } else if page == app.page && selected == app.selected {
                 now + Duration::from_secs(3)
@@ -281,10 +288,16 @@ fn run_client(
         if !pending
             && now >= due
             && request
-                .try_send((app.page, app.selected.clone(), app.route_request.clone()))
+                .try_send((
+                    app.page,
+                    app.selected.clone(),
+                    app.route_request.clone(),
+                    app.usage_request.clone(),
+                ))
                 .is_ok()
         {
             app.route_request = None;
+            app.usage_request = None;
             pending = true;
         }
         terminal
