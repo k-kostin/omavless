@@ -8,8 +8,13 @@ the accepted T2 MVP and reconciled workflow/triage documentation. Its
 excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
 #331 integrated the reviewed managed-DNS release pair and guided setup into RC.
 The ARM64 connected broker-crash negative refused a mode change and recovered
-through the documented reboot boundary. RC2 is being assembled to include the
-first-use UI and CLI-response corrections absent from the immutable RC1 assets.
+through the documented reboot boundary. RC2 includes the first-use UI and
+CLI-response corrections absent from the immutable RC1 assets, plus bounded
+DNS recovery diagnostics. Both architecture pairs are inspected; the final
+ARM64 installed update and managed-DNS lifecycle passed. The
+[RC ledger](docs/development/RC_090.md#final-rc2-artifact-and-acceptance-checkpoint)
+records exact identities, public-download status and the retained unexplained
+loaded-VM failure; it does not claim that diagnostic logging fixes that failure.
 See the [current DNS disposition](docs/development/RC_090.md#managed-dns-and-mode-failure-disposition).
 Published 0.8.2 tags/assets are unchanged. Main remains
 frozen at the submitted marketplace SHA until another explicit owner instruction,

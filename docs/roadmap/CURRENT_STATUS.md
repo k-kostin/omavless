@@ -1,6 +1,6 @@
 # Current delivery status
 
-Updated 2026-09-29. This is the compact current-state entry point; the detailed
+Updated 2026-09-30. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
@@ -28,7 +28,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   ingress; restricting the exception to the TUN peer source did not work because
   return packets have remote source addresses. The allowances were removed.
 
-- **Remaining RC gates:** The production release pair passed an owner-attended
+- **Managed-DNS RC acceptance:** The production release pair passed an owner-attended
   ARM64 Full VPN/DNS/HTTPS/mode cycle and core-crash containment at the exact
   locally installed package identity; the user observed no separate DNS/route
   password dialogs during runtime transitions. The immutable validation-only
@@ -45,8 +45,15 @@ history. GitHub's actual main/PR state is authoritative for publication.
   coordinated reboot restored clean Disconnected/Rule and original private data.
   The [candidate disposition](../development/RC_090.md#managed-dns-and-mode-failure-disposition)
   supersedes the legacy prompt scenario only for the mandatory managed 0.9 path.
-  RC2 is being rebuilt to include the corrected first-use frontend and the CLI
-  lifecycle-response fix from #384; final pins/installed update/CI are pending.
+  RC2 includes the corrected first-use frontend, the CLI lifecycle-response fix
+  from #384 and fixed-enum recovery diagnostics. Both final architecture pairs
+  are inspected/pinned. The installed final ARM64 pair passed Rule/Full VPN,
+  TUN-bound HTTPS/DNS, a 300-second health watch, direct CLI modes/Disconnect and
+  clean restoration. An earlier preliminary cycle under concurrent test load
+  entered quarantine; its cause remains unproven, not claimed fixed by logging.
+  Exact artifacts/public-download and CI results are in the
+  [final RC2 checkpoint](../development/RC_090.md#final-rc2-artifact-and-acceptance-checkpoint)
+  and #386. Stable promotion remains a separate owner decision.
   #270/#132 are open; `main` remains at stable 0.8.2, while `rc/0.9.0` now
   includes #331. The separately accepted #271/#272,
   native #135 disposition and available XHTTP V0 evidence stay recorded in the
@@ -90,7 +97,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   session-local language/theme settings (#283), the accepted T2 MVP (#284),
   the release-snapshot workflow (#276), and #270–272 triage docs (#273).
   See the [exact constituent ledger and release checklist](../development/RC_090.md).
-  The name is a planning label; released package version/assets and
+  The name is a planning label; stable release version/assets and
   stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
   Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
   targets that stable SHA and awaits external review, not RC verification.

@@ -1,11 +1,14 @@
 # Native release and RC preparation
 
 Current development candidate: **0.9.0-rc.2**, not stable or marketplace-ready.
-The production pair has an owner-attended installed ARM64 cycle; agent-run
-public-download first use in an empty ARM64 account also passed. Remaining host
-negative/recovery and release gates are separate.
-Use the default RC assembler (no `--stable` flag). This is preparation, not RC
-acceptance: DNS/#132 and exact-package installed gates remain open.
+The production pair has owner-attended ARM64 and separate x86_64 VM evidence;
+public-download first use in an empty ARM64 account also passed. Final RC2
+archives for both architectures are strictly inspected/pinned, and the final
+ARM64 installed update/lifecycle passed. See the
+[RC checkpoint](../../docs/development/RC_090.md#final-rc2-artifact-and-acceptance-checkpoint)
+for exact identities, public-download/CI results and retained limitations.
+Use the default RC assembler (no `--stable` flag). Assembly alone is not
+acceptance, stable promotion or permission to update Marketplace.
 The [managed-DNS release-distribution contract](../../docs/development/DNS_RELEASE_DISTRIBUTION.md)
 tracks the separate companion package, enrollment, upgrade/removal and firewall
 requirements beyond this single-package assembler. The separate

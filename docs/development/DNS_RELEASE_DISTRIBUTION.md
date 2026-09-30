@@ -1,8 +1,10 @@
 # Managed DNS pair: release-distribution contract
 
-Status: integrated into `rc/0.9.0` through #331; RC2 assembly pending,
-**not approved for stable publication**. Immutable RC1 assets are validation
-inputs. The historical #302/#303 and delivery stack are now incorporated in
+Status: integrated into `rc/0.9.0` through #331; final RC2 pair inspection and
+installed ARM64 update passed, **not approved for stable publication**. Exact
+identities and remaining authority boundaries are in the
+[RC ledger](RC_090.md#final-rc2-artifact-and-acceptance-checkpoint).
+Immutable RC assets are validation inputs. The historical #302/#303 and delivery stack are now incorporated in
 the production-name pair, release-only selector and guided first-use path.
 The broker's security and host
 contracts remain in [DNS broker composition](../../tests/dns_broker_host/README.md)
