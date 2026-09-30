@@ -90,6 +90,9 @@ probe and must not be mistaken for a positive proof here.
 An exact-head VM smoke may run only this read-only binary with sanitized output
 and remove its own temporary executable afterward. Record source/binary hashes.
 Missing endpoints or MainPID are unsupported, never reasons to start services.
+The [x86_64 Omarchy Dev VM smoke](../testing/S1_MANAGER_VM_2026-09-30.md)
+records one positive observation and conservative negative controls without
+upgrading `Provenance::Unverified` or write refusal.
 
 Before a writable S1 adapter, still required: reviewed trusted-process threat
 boundary; authenticated system-bus and manager-owner identities; PID lifetime and
