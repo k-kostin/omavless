@@ -26,6 +26,13 @@ passes through one private atomic writer transaction and can restore the exact
 original bytes after a modeled downstream rejection. This is delete-path
 evidence only; it does not activate private quota persistence.
 
+"Erasure" here means the newly published **current logical store** contains no
+claim field. Atomic replacement and exact rollback necessarily keep the prior
+bytes long enough to recover from failure. Filesystem snapshots, backups,
+previous inodes and storage-level remnants are outside these tests; this is not
+a secure-disk-erasure claim. A future retention and backup policy must account
+for those copies before persistent account metadata is enabled.
+
 Production activation still needs an owner-reviewed policy for all mutation
 paths, including delete, import, URL replacement and older-version downgrade.
 The owner must ensure the latest store is read under the proper lease, the old
