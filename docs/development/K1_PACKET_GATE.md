@@ -69,6 +69,26 @@ non-loopback vectors again, including the mark and interface exceptions.
 Only after strict readback of an exclusively created test policy may the
 harness delete that test table. No production ownership receipt is issued.
 
+The next opt-in child-namespace gate also installs a distinct foreign output
+table at priority 100, before the K1 priority 300 chain. Its only drop rule
+blocks non-loopback packets, including marked core-shaped traffic, while
+loopback remains available. The harness requires all 53 previously controlled
+non-loopback vectors to be blocked, the foreign table's numeric readback to
+stay unchanged, and K1's original Full behavior to return after deleting
+**only** the synthetic foreign blocker. This is an availability/conflict
+counterexample: a foreign firewall can make the VPN unusable. It does not show
+that K1 can override foreign root policy, or prove coexistence with Omarchy's
+actual firewall. The physical host ruleset is never touched by this test.
+
+The foreign-drop extension passed on September 30, 2026 in the disposable
+x86_64 Omarchy Dev VM (kernel `7.2.5-3-omarchy`), using exact test-binary
+SHA-256 `67724e983e6019a1a57bc84ba5fca569467333f317481baec9f744f3262ae1bf`.
+All 53 fixed vectors were controlled under the normal Full policy, blocked by
+the foreign drop including K1-marked traffic, and returned to the Full result
+after deleting only the child-namespace foreign drop table. The child exited
+successfully; no parent-namespace table, route or interface was modified. This
+is neither an installed NetGuard test nor actual Omarchy firewall acceptance.
+
 The 80 ms negative observation window is bounded and supported by positive
 controls on the identical fixture, not a proof about arbitrarily delayed or
 fragmented packets. Packets contain valid IP/transport checksums and synthetic

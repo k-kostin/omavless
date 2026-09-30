@@ -7,6 +7,7 @@ const PASS: &str = "K1_PACKET_CHILD_PASS";
 const OUT: &str = "k1out0";
 const PEER: &str = "k1peer0";
 const FOREIGN: &str = "omavless_k1_foreign_fixture";
+const FOREIGN_DROP: &str = "omavless_k1_foreign_drop_fixture";
 const FIXTURE: &str = include_str!("packet_fixture.py");
 
 // Two other base chains accept before and after the candidate's output hook.
@@ -24,6 +25,23 @@ fn foreign_accept_commands() -> Vec<u8> {
             "type":"filter","hook":"output","prio":400,"policy":"accept"}}}),
         json!({"add":{"rule":{"family":"inet","table":FOREIGN,"chain":"late",
             "expr":[{"accept":null}]}}}),
+    ];
+    serde_json::to_vec(&json!({"nftables": commands})).unwrap()
+}
+
+// A different firewall may block egress before NetGuard. This fixed child-only
+// table deliberately drops non-loopback output, including K1-marked traffic.
+// It tests availability interference, not a leak or compatibility promise.
+fn foreign_drop_commands() -> Vec<u8> {
+    let commands = vec![
+        json!({"create":{"table":{"family":"inet","name":FOREIGN_DROP}}}),
+        json!({"add":{"chain":{"family":"inet","table":FOREIGN_DROP,"name":"early_drop",
+            "type":"filter","hook":"output","prio":100,"policy":"accept"}}}),
+        json!({"add":{"rule":{"family":"inet","table":FOREIGN_DROP,"chain":"early_drop",
+        "expr":[
+            {"match":{"op":"!=","left":{"meta":{"key":"oifname"}},"right":"lo"}},
+            {"drop":null}
+        ]}}}),
     ];
     serde_json::to_vec(&json!({"nftables": commands})).unwrap()
 }
@@ -264,6 +282,67 @@ impl PacketGuard {
         )
         .success
     }
+    fn install_foreign_drop(&self) {
+        let scratch = Scratch::new().unwrap();
+        scratch
+            .create("input.json")
+            .unwrap()
+            .write_all(&foreign_drop_commands())
+            .unwrap();
+        assert!(
+            self.command(
+                "/usr/bin/nft",
+                &[
+                    "--json",
+                    "--file",
+                    scratch.0.join("input.json").to_str().unwrap()
+                ]
+            )
+            .success,
+            "foreign drop fixture creation refused"
+        );
+    }
+    fn foreign_drop_snapshot(&self) -> Value {
+        let readback = self.command(
+            "/usr/bin/nft",
+            &[
+                "--json",
+                "--handle",
+                "--numeric",
+                "--numeric-priority",
+                "list",
+                "table",
+                "inet",
+                FOREIGN_DROP,
+            ],
+        );
+        assert!(readback.success, "foreign drop fixture disappeared");
+        let value: Value = serde_json::from_slice(&readback.bytes).unwrap();
+        let objects = value["nftables"].as_array().unwrap();
+        assert!(
+            objects
+                .iter()
+                .any(|entry| entry["table"]["name"] == FOREIGN_DROP)
+        );
+        assert!(objects.iter().any(|entry| {
+            let chain = &entry["chain"];
+            chain["family"] == "inet"
+                && chain["table"] == FOREIGN_DROP
+                && chain["name"] == "early_drop"
+                && chain["type"] == "filter"
+                && chain["hook"] == "output"
+                && chain["prio"] == 100
+                && chain["policy"] == "accept"
+        }));
+        assert_eq!(
+            objects
+                .iter()
+                .filter(|entry| entry.get("rule").is_some())
+                .count(),
+            1
+        );
+        value
+    }
     fn packets(&self, phase: &str) {
         self.check();
         let scratch = Scratch::new().unwrap();
@@ -326,7 +405,14 @@ fn nft_packet_enforcement_in_disposable_vm() {
         .args(["--user", "--map-root-user", "--net", "--"])
         .arg(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", CHILD, "--nocapture"]);
-    let result = run(command, Stdio::from(parent_fd.try_clone().unwrap()));
+    // Six bounded 53-vector phases include negative capture windows; keep
+    // each tool call at 15 seconds but allow their isolated outer process to
+    // finish the whole fixed matrix.
+    let result = run_bounded(
+        command,
+        Stdio::from(parent_fd.try_clone().unwrap()),
+        Duration::from_secs(45),
+    );
     assert_eq!(fd_identity(&parent_fd).unwrap(), parent);
     assert_eq!(
         fd_identity(&File::open("/proc/self/ns/net").unwrap()).unwrap(),
@@ -341,6 +427,7 @@ fn nft_packet_enforcement_in_disposable_vm() {
         "addresses",
         "baseline",
         "full",
+        "foreign-drop",
         "interface",
         "emergency",
         "cleanup",
@@ -458,6 +545,30 @@ fn nft_packet_child() {
         guard.foreign_snapshot() == foreign_before,
         "foreign fixture changed"
     );
+    println!("K1_PACKET_STAGE=foreign-drop");
+    guard.install_foreign_drop();
+    let foreign_drop_before = guard.foreign_drop_snapshot();
+    guard.packets("foreign-drop");
+    assert!(
+        guard.foreign_drop_snapshot() == foreign_drop_before,
+        "foreign drop fixture changed"
+    );
+    assert!(
+        guard
+            .command("/usr/bin/nft", &["delete", "table", "inet", FOREIGN_DROP])
+            .success
+    );
+    assert!(
+        !guard
+            .command(
+                "/usr/bin/nft",
+                &["--json", "list", "table", "inet", FOREIGN_DROP]
+            )
+            .success
+    );
+    // Removal of only that foreign blocker restores K1's marked egress rule.
+    guard.packets("full");
+    assert!(guard.foreign_snapshot() == foreign_before);
     println!("K1_PACKET_STAGE=interface");
     assert!(
         guard
@@ -605,4 +716,25 @@ fn coexistence_fixture_has_only_fixed_accept_chains() {
         assert_eq!(rule["chain"], chain);
         assert_eq!(rule["expr"], json!([{"accept":null}]));
     }
+}
+
+#[test]
+fn foreign_drop_fixture_is_fixed_non_loopback_only() {
+    let value: Value = serde_json::from_slice(&foreign_drop_commands()).unwrap();
+    let entries = value["nftables"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["create"]["table"]["name"], FOREIGN_DROP);
+    let chain = &entries[1]["add"]["chain"];
+    assert_eq!(chain["family"], "inet");
+    assert_eq!(chain["table"], FOREIGN_DROP);
+    assert_eq!(chain["hook"], "output");
+    assert_eq!(chain["prio"], 100);
+    assert_eq!(chain["policy"], "accept");
+    assert_eq!(
+        entries[2]["add"]["rule"]["expr"],
+        json!([
+            {"match":{"op":"!=","left":{"meta":{"key":"oifname"}},"right":"lo"}},
+            {"drop":null}
+        ])
+    );
 }

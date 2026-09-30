@@ -314,7 +314,7 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "self-test":
         self_test()
-    elif mode in ("baseline", "full", "interface", "emergency"):
+    elif mode in ("baseline", "full", "foreign-drop", "interface", "emergency"):
         try:
             guard(mode)
             loopback(mode)
