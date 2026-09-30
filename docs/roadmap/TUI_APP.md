@@ -3,6 +3,11 @@
 Status: bounded T2 MVP accepted for RC, not a published stable package.
 Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
+The owner-selected 0.9.5 beta integrates the bounded read-only T3 chain through
+#372 on accepted managed-DNS RC 0.9.0; see the
+[beta checkpoint](../development/BETA_095.md#first-t3-checkpoint).
+Combined deterministic/synthetic checks do not complete installed T3 acceptance
+or publish a new package. QML's accepted layout and RC 0.9.0 remain unchanged.
 The dependent [T2b action candidate](../development/T2_CONNECTION_ACTIONS.md)
 adds explicit connection/mode confirmations; installed acceptance is a separate
 gate and neither checkpoint completes the MVP.
