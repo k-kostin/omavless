@@ -92,6 +92,11 @@ Direct invocation of either ignored child must refuse before nft/socket I/O.
 This gate proves the current kernel's empty-table response can be parsed; it
 does not validate complete rules, chains, owner provenance or live K1 protection.
 
+The separate installed nft JSON round-trip also checks this Rust observer at
+each stage: absent before create, `PresentUntrusted` for both exact Emergency
+and Full policy-shaped fixtures, and absent after each fixture cleanup. Even a
+table whose rules match the offline renderer never acquires observer authority.
+
 Wire behavior is based on the
 [Linux v6.18 table and generation implementation](https://github.com/torvalds/linux/blob/v6.18/net/netfilter/nf_tables_api.c)
 and [netlink framing semantics](https://man7.org/linux/man-pages/man7/netlink.7.html).

@@ -1,5 +1,6 @@
 //! Explicit VM-only integration harness. Ordinary workspace tests execute only
 //! pure refusal/response tests. No command is ever run in the parent netns.
+use omavless_netguard::kernel_observer::{LocalTablePresence, inspect_current_namespace};
 use omavless_netguard::{nft, policy::Policy, transaction::Table};
 use serde_json::Value;
 use std::{
@@ -353,6 +354,7 @@ fn nft_roundtrip_child() {
     };
     println!("K1_NFT_STAGE=isolation");
     let namespace = guard.check().expect("child isolation required");
+    assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
     // Test-only boot receipt. The namespace is freshly created by this harness;
     // production root receipt issuance/persistence is deliberately not exercised.
     for policy in [Policy::Emergency, Policy::FullVpn] {
@@ -377,6 +379,12 @@ fn nft_roundtrip_child() {
                 .expect("nft create unavailable")
                 .success,
             "nft create refused"
+        );
+        assert_eq!(guard.check().unwrap(), namespace);
+        assert_eq!(
+            inspect_current_namespace(),
+            Ok(LocalTablePresence::PresentUntrusted),
+            "a policy-shaped table is not observer ownership evidence"
         );
         println!("K1_NFT_STAGE=readback");
         let list = nft_command(
@@ -458,6 +466,8 @@ fn nft_roundtrip_child() {
                 .success,
             "fixture cleanup failed"
         );
+        assert_eq!(guard.check().unwrap(), namespace);
+        assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
     }
     println!("{PASS}");
 }
