@@ -329,8 +329,13 @@ Bounded offline Rust adapter only:
 - decode Base64URL + Qt `qCompress` with declared-size, compressed-stream and
   decompressed-size bounds;
 - pass a directly decoded native `.conf` through P4a/P4b unchanged;
-- later select exactly one explicit WG/AWG container from structured Amnezia
-  JSON keys;
+- the offline adapter selects exactly one explicit WG/AWG container from
+  structured Amnezia JSON only when `defaultContainer` names it, then passes
+  its nested `last_config.config` `.conf` through the same P4a/P4b parser;
+  duplicated connection settings in the surrounding JSON must agree with
+  that `.conf`, including root DNS. Conflicting settings are refused rather
+  than silently dropped. A validated sibling MTU may fill an omitted native
+  MTU (as in Amnezia's template), but cannot override an explicit one;
 - recognize signed Amnezia API/subscription guest keys and reject them with a
   credential-safe compatibility result rather than contacting the embedded
   provider service;
@@ -339,6 +344,11 @@ Bounded offline Rust adapter only:
 - never silently choose another protocol container.
 
 Native WG/AWG config remains first interoperable target.
+The structured-container adapter is backed by synthetic fixtures only; no
+runtime/UI activation or real-provider compatibility is implied. The accepted
+container and nested field names follow the
+[Amnezia importer at a pinned upstream commit](https://github.com/amnezia-vpn/amnezia-client/blob/398697c101d27d9d4fb2f9a25ebe7749925f0d61/client/core/controllers/selfhosted/importController.cpp)
+and its [container mapping](https://github.com/amnezia-vpn/amnezia-client/blob/398697c101d27d9d4fb2f9a25ebe7749925f0d61/client/core/utils/containers/containerUtils.cpp).
 
 ## Later Mihomo-native candidates
 
