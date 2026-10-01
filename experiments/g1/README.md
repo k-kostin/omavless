@@ -60,12 +60,14 @@ does not erase the prior inspected profile. Generated sample details remain
 resolvable after filtering or hiding the large list. These are synthetic
 keyboard interactions, not an accessibility or production acceptance claim.
 
-The Shell trial also offers three **synthetic** palette choices: dark, light,
+Both trials offer the same three **synthetic** palette inputs: dark, light,
 and a deliberately malformed palette. The last one must replace the *whole*
 palette with the standalone dark default, never leave mixed old/new colors.
-These controls do not read or modify Omarchy's real theme files. They exercise
-in-process presentation continuity, not filesystem watching or the direct
-Rust candidate's theme adapter.
+The direct Rust trial checks its copies against the Shell fixture in a test.
+The controls do not modify Omarchy's real theme files. The direct toolkit
+initialization may read the system theme before the trial explicitly applies
+its synthetic default; it then stops following system changes. These controls
+exercise in-process presentation continuity, not live theme-file watching.
 
 For deterministic visual review, the direct Rust trial accepts only
 `--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
