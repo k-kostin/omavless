@@ -96,6 +96,7 @@
   "tui.route_check_invalid":{"en":"Enter one valid domain or IP address, without a URL or interface.","ru":"Введите один корректный домен или IP-адрес, без URL или интерфейса."},
   "tui.route_check_unsupported":{"en":"This runtime does not support route checks.","ru":"Эта версия службы не поддерживает проверку маршрута."},
   "tui.connection_rows_scope":{"en":"Private local view of the owned core's current destinations. It does not prove all system traffic follows this route.","ru":"Приватный локальный список адресов соединений своего ядра. Он не доказывает маршрут всего трафика системы."},
+  "tui.connection_rows_loading":{"en":"Loading connections…","ru":"Загрузка соединений…"},
   "tui.connection_rows_shown":{"en":"Shown","ru":"Показано"},
   "tui.connection_rows_truncated":{"en":"Only the first 128 connections are shown.","ru":"Показаны только первые 128 соединений."},
   "tui.connection_rows_empty":{"en":"No active connections observed","ru":"Активных соединений не обнаружено"},
