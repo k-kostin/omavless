@@ -16,9 +16,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   adds explicit transient provider usage/expiry reads in TUI; ordinary lists and
   diagnostics exclude those private assertions. Source version is now
   `0.9.5-beta.1`, with empty unpublished package pins rather than relabeled RC2
-  artifacts. Exact installed T3/T4 acceptance and beta package assembly remain
-  pending. Other T4/S1/K1 inactive
-  foundations are not advertised as working features. The
+  artifacts. The exact x86_64 app/DNS/frontend beta triple passed bounded
+  installed T3 stale-private-row, two-client revision fence, EN/RU and synthetic
+  T4 provider-claim checks in an isolated Omarchy VM. ARM64 CI artifacts were
+  strictly paired offline with the reviewed frontend; installed ARM64 beta
+  review remains. External-provider positive evidence and public provisioning are
+  separate later gates. Other T4/S1/K1 inactive foundations are not advertised
+  as working features. The
   [beta ledger](../development/BETA_095.md) records selection and remaining gates.
   Accepted RC 0.9.0, stable main and Marketplace stay unchanged; new public
   0.9.5 artifacts need separate authorization.

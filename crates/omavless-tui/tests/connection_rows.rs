@@ -12,7 +12,7 @@ use omavless_tui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::{Value, json};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn read(request: Read) -> Value {
     let mut response = support::response(request);
@@ -85,6 +85,37 @@ fn stale_revision_or_changed_instance_refuses_rows() {
         );
         assert!(matches!(result, Err(ReadError::Changed)));
     }
+}
+
+#[test]
+fn changed_owner_drops_previously_rendered_private_rows() {
+    let now = Instant::now();
+    let mut app = App::new(Locale::En);
+    app.page = Page::Connections;
+    app.accept(load_page(&mut |r| Ok(read(r)), Page::Connections), now);
+    assert!(render(&app, now, 70).contains("example.invalid"));
+
+    // The new owner replies to the bracket reads, but a late Connections
+    // response still belongs to the previous owner. Refuse the whole refresh
+    // and erase the previously displayed private snapshot.
+    let changed = load_page(
+        &mut |r| {
+            let mut value = read(r);
+            match r {
+                Read::Hello | Read::Snapshot | Read::Observation => {
+                    value["result"]["instanceId"] = json!("replacement-runtime");
+                }
+                _ => {}
+            }
+            Ok(value)
+        },
+        Page::Connections,
+    );
+    assert!(matches!(changed, Err(ReadError::Changed)));
+    let later = now + Duration::from_millis(10);
+    app.accept(changed, later);
+    assert!(app.snapshot.is_none());
+    assert!(!render(&app, later, 70).contains("example.invalid"));
 }
 
 #[test]

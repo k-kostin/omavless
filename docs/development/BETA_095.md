@@ -85,6 +85,26 @@ explicitly separate from stable; positive prerelease numbers and strict exact
 package/source/dependency checks apply. Bootstrap pins are empty, not reused
 RC2 hashes: guided public provisioning remains unavailable until independently
 built immutable beta assets are authorized, uploaded and verified.
-Version metadata is **not** a built/published package or acceptance. Next gates
-are local exact managed runtime/DNS/frontend assembly, then installed T3 privacy,
-stale-owner, concurrent-client and EN/RU review before release scope freeze.
+Version metadata alone is **not** a built/published package or acceptance. The
+local exact managed runtime/DNS/frontend assembly and bounded installed x86_64
+T3/T4 beta checks are recorded below; the ARM64 installed counterpart is next.
+Release scope freeze and publication remain separate decisions.
+
+The [x86_64 Omarchy Dev VM beta checkpoint](../testing/BETA_095_PC_VM_2026-09-30.md)
+now covers an exact offline triple, disconnected package/frontend replacement,
+and an agent-operated working Rule-mode TUN cycle with a responsive subscription
+server and temporary VM-only firewall allowance. Installed T3 EN/RU/read-only
+concurrency, disconnected runtime-instance change, a nonempty private
+Connections row cleared by another client's Disconnect, and stale TUI Connect
+confirmation rejected after a second client's revision change passed. The
+installed T4 path displayed positive and absent synthetic provider claims in
+EN/RU, discarded them on URL/page/deletion changes, and preserved VPN Off.
+These are bounded development checks, not external-provider interoperability
+or owner-attended release acceptance. The VM returned to Disconnected/Rule;
+the temporary firewall rule and synthetic subscription were removed.
+Unpublished ARM64 CI app/DNS artifacts were inspected offline for version,
+architecture and source consistency, then strictly paired with the same
+architecture-neutral frontend; installed ARM64 review remains the sole unrun
+cross-architecture **beta** gate. Public pins,
+guided fresh provisioning, real-provider positive maturity, RC scope freeze
+and release/Marketplace decisions remain later separate work.
