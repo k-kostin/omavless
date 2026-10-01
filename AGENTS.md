@@ -29,6 +29,7 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
+  `rc/0.9.6` is a scope-frozen, not-yet-accepted successor.
   Current accepted candidate is `rc/0.9.5`; preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent
   develop/beta/rc lane or direct implementation on main.

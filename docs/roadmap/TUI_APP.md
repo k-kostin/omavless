@@ -1,6 +1,9 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: T2 MVP plus selected T3/T4 slices frozen in RC 0.9.5, not stable.
+Status: T2 MVP plus selected T3/T4 slices in accepted RC 0.9.5, not stable.
+Additional read-side TUI refinements are scope-frozen in the unaccepted
+[0.9.6 RC](../development/RC_096.md); no new action or security capability is
+enabled by this selection.
 Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
 The [RC 0.9.5 ledger](../development/RC_095.md) supersedes pending-beta wording

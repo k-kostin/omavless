@@ -42,12 +42,18 @@ Delete after release or recorded supersession under the cleanup rules below.
 Old unversioned `beta/<scope>` scratch branches are grandfathered evidence, not
 templates for new integration branches. There is no permanent develop/beta/RC.
 
-Selected candidate, 2026-10-01: accepted `rc/0.9.5` supersedes 0.9.0 after
+Selected acceptance, 2026-10-01: accepted `rc/0.9.5` supersedes 0.9.0 after
 the [public RC1 checkpoint](../development/RC_095.md#public-rc1-acceptance).
 Keep 0.9.0 branch/tags/assets intact as historical evidence; do not redirect
 their identities to 0.9.5. Future scoped work targets its explicitly selected
 candidate, not the superseded 0.9.0 lane. Acceptance and prerelease publication
 still do not authorize main, stable or Marketplace promotion.
+
+The later `rc/0.9.6` freezes the reviewed 0.9.6 beta scope at the owner's
+request. Its [RC ledger](../development/RC_096.md) keeps final artifact,
+public-download and clean-install gates explicit. Until those pass, 0.9.6 is
+RC-integrated but not the replacement *accepted* candidate; 0.9.5 RC1 remains
+immutable history.
 
 The owner-approved `archive/python-legacy` exception is a frozen full-repository
 snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
