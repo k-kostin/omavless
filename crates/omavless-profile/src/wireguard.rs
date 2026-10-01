@@ -3,7 +3,7 @@
 //! Strict, bounded WireGuard/AmneziaWG import primitives for the future Rust
 //! runtime.
 //!
-//! The current Python runtime does not call this module yet.  Keeping parsing,
+//! The production Rust runtime does not call this module yet. Keeping parsing,
 //! generation detection, private canonical state and Mihomo rendering together
 //! prevents a second parser from growing in the compatibility layer.
 
@@ -22,6 +22,8 @@ use serde::{Deserialize, Deserializer};
 use crate::profile_uri::{canonical_host, parse_endpoint};
 use crate::vless::HostKind;
 use crate::vless_canonical::sha256_hex;
+
+pub mod private_record;
 
 pub const MAX_WIREGUARD_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_VPN_LINK_BYTES: usize = 128 * 1024;
@@ -1327,6 +1329,168 @@ mod tests {
         format!(
             "[Interface]\nPrivateKey = {PRIVATE_KEY}\nAddress = 10.0.0.2/32, fd00::2/128\nDNS = 1.1.1.1, 2606:4700:4700::1111\nMTU = 1420\n\n[Peer]\nPublicKey = {PUBLIC_KEY}\nPresharedKey = {PSK}\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = [2001:db8::1]:51820\nPersistentKeepalive = 25\n"
         )
+    }
+
+    #[test]
+    fn private_records_restore_every_generation_without_losing_credentials_or_ranges() {
+        use private_record::parse_private_wireguard_record;
+        for config in [
+            standard(),
+            awg_base(""),
+            awg_base("S3 = 30\nS4 = 35\n"),
+            awg3(),
+            awg3().replace(
+                "[Peer]",
+                "RandomTrailers = true\nDisableCookies = false\n[Peer]",
+            ),
+        ] {
+            let original = parse_wireguard_config(&config).unwrap();
+            let encoded = original.private_record().unwrap();
+            let restored = parse_private_wireguard_record(encoded.expose_private_bytes()).unwrap();
+            assert_eq!(original.facts(), restored.facts());
+            assert!(original.subscription_identity() == restored.subscription_identity());
+            assert!(
+                original.render_mihomo_proxy("test", None)
+                    == restored.render_mihomo_proxy("test", None)
+            );
+            assert!(
+                encoded.expose_private_bytes()
+                    == restored.private_record().unwrap().expose_private_bytes()
+            );
+            assert_eq!(format!("{encoded:?}"), "PrivateWireGuardRecord([REDACTED])");
+        }
+    }
+
+    #[test]
+    fn private_record_excludes_guest_metadata_and_unifies_all_import_sources() {
+        let native = standard();
+        let expected = parse_wireguard_config(&native)
+            .unwrap()
+            .private_record()
+            .unwrap();
+        for input in [
+            vpn_link(&native),
+            vpn_link(&guest("amnezia-wireguard", "wireguard", &native)),
+        ] {
+            let profile = parse_amnezia_vpn_link(&input).unwrap();
+            assert!(
+                expected.expose_private_bytes()
+                    == profile.private_record().unwrap().expose_private_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn private_record_rejects_ambiguous_json_versions_and_shapes() {
+        use private_record::{PrivateRecordError, parse_private_wireguard_record};
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let text = std::str::from_utf8(valid.expose_private_bytes()).unwrap();
+        for invalid in [
+            text.replacen(
+                "\"schemaVersion\":1",
+                "\"schemaVersion\":1,\"schemaVersion\":1",
+                1,
+            ),
+            text.replacen(
+                "\"privatekey\":",
+                "\"privatekey\":\"ignored-secret\",\"privatekey\":",
+                1,
+            ),
+            text.replacen("\"peer\":", "\"peer\":{},\"peer\":", 1),
+            text.replacen("\"schemaVersion\":1", "\"schemaVersion\":\"1\"", 1),
+            text.replacen(
+                "\"schemaVersion\":1",
+                "\"schemaVersion\":1,\"rawGuest\":\"secret\"",
+                1,
+            ),
+            format!("{text}{{}}"),
+            "null".to_owned(),
+            "[]".to_owned(),
+        ] {
+            assert_eq!(
+                parse_private_wireguard_record(invalid.as_bytes()).unwrap_err(),
+                PrivateRecordError::InvalidRecord
+            );
+        }
+        assert_eq!(
+            parse_private_wireguard_record(
+                text.replacen("\"schemaVersion\":1", "\"schemaVersion\":2", 1)
+                    .as_bytes()
+            )
+            .unwrap_err(),
+            PrivateRecordError::UnsupportedVersion
+        );
+    }
+
+    #[test]
+    fn private_record_revalidates_fields_and_refuses_line_injection() {
+        use private_record::{PrivateRecordError, parse_private_wireguard_record};
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(valid.expose_private_bytes()).unwrap();
+        for (section, key, value) in [
+            ("interface", "postup", "secret-command"),
+            ("interface", "Address", "10.0.0.3/32"),
+            ("interface", "privatekey", "invalid-secret"),
+            ("interface", "mtu", "-1"),
+            ("interface", "address", "10.0.0.2/32\nDNS = 8.8.8.8"),
+            ("interface", "dns", "1.1.1.1\r[Peer]"),
+            ("peer", "endpoint", " peer.example.invalid:443"),
+            ("peer", "publickey", "secret\0value"),
+            ("peer", "allowedips", "0.0.0.0/33"),
+            ("peer", "persistentkeepalive", "1-2"),
+        ] {
+            let mut invalid = record.clone();
+            invalid[section][key] = serde_json::json!(value);
+            let error =
+                parse_private_wireguard_record(&serde_json::to_vec(&invalid).unwrap()).unwrap_err();
+            assert_eq!(error, PrivateRecordError::InvalidRecord);
+            assert!(!error.to_string().contains(value));
+        }
+    }
+
+    #[test]
+    fn private_record_rejects_missing_fields_invalid_utf8_and_oversized_inputs() {
+        use private_record::{
+            MAX_PRIVATE_RECORD_BYTES, PrivateRecordError, parse_private_wireguard_record,
+        };
+        let valid = parse_wireguard_config(&standard())
+            .unwrap()
+            .private_record()
+            .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(valid.expose_private_bytes()).unwrap();
+        for (section, field) in [
+            ("interface", "privatekey"),
+            ("interface", "address"),
+            ("peer", "publickey"),
+            ("peer", "endpoint"),
+            ("peer", "allowedips"),
+        ] {
+            let mut invalid = record.clone();
+            invalid[section].as_object_mut().unwrap().remove(field);
+            assert!(
+                parse_private_wireguard_record(&serde_json::to_vec(&invalid).unwrap()).is_err()
+            );
+        }
+        assert_eq!(
+            parse_private_wireguard_record(&[0xff]).unwrap_err(),
+            PrivateRecordError::InvalidRecord
+        );
+        assert_eq!(
+            parse_private_wireguard_record(&vec![b' '; MAX_PRIVATE_RECORD_BYTES + 1]).unwrap_err(),
+            PrivateRecordError::TooLarge
+        );
+        assert_eq!(
+            parse_private_wireguard_record(&vec![b' '; MAX_PRIVATE_RECORD_BYTES]).unwrap_err(),
+            PrivateRecordError::InvalidRecord
+        );
     }
 
     fn awg3() -> String {
