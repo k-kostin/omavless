@@ -1,5 +1,7 @@
+use crate::listener_admission::{AdmittedListener, ListenerError};
 use crate::session_owner_candidate::{SessionOwner, SessionProgress};
 use std::io::ErrorKind;
+use std::os::unix::fs::{DirBuilderExt, symlink};
 use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
@@ -16,6 +18,28 @@ fn client(path: &PathBuf, request: Request) -> UnixStream {
     let mut client = UnixStream::connect(path).unwrap();
     send(&mut client, request);
     client
+}
+
+fn admitted_listener(f: &Fixture) -> (AdmittedListener, PathBuf) {
+    let parent = f.0.join("run");
+    fs::DirBuilder::new().mode(0o700).create(&parent).unwrap();
+    let directory = parent.join("omavless-netguard");
+    fs::DirBuilder::new().mode(0o750).create(&directory).unwrap();
+    let path = directory.join("control.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    let meta = fs::metadata(&parent).unwrap();
+    (
+        AdmittedListener::open_test_parent(
+            listener,
+            File::open(&parent).unwrap(),
+            &path,
+            (meta.uid(), meta.gid()),
+            meta.gid(),
+        )
+        .unwrap(),
+        path,
+    )
 }
 
 #[test]
@@ -279,4 +303,104 @@ fn dropping_armed_listener_preserves_durable_evidence_for_restart() {
     ));
     assert_eq!(f.bytes(), before);
     assert_eq!(restarted.test_kernel().effects, 0);
+}
+
+#[test]
+fn admitted_listener_refuses_wrong_address_permissions_and_package_group() {
+    let f = Fixture::new();
+    let (admitted, path) = admitted_listener(&f);
+    assert_eq!(admitted.validate(), Ok(()));
+    let parent = f.0.join("run");
+    let meta = fs::metadata(&parent).unwrap();
+    let wrong_path = parent.join("other.sock");
+    let wrong = UnixListener::bind(&wrong_path).unwrap();
+    assert!(matches!(
+        AdmittedListener::open_test_parent(
+            wrong,
+            File::open(&parent).unwrap(),
+            &path,
+            (meta.uid(), meta.gid()),
+            meta.gid(),
+        ),
+        Err(ListenerError::UnsafeOrUnavailable)
+    ));
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).unwrap();
+    assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    assert_eq!(admitted.validate(), Ok(()));
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o730)).unwrap();
+    assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(admitted.validate(), Ok(()));
+    let wrong_group = meta.gid().checked_add(1).unwrap();
+    let wrong = UnixListener::bind(parent.join("wrong-group.sock")).unwrap();
+    assert!(matches!(
+        AdmittedListener::open_test_parent(
+            wrong,
+            File::open(&parent).unwrap(),
+            &parent.join("wrong-group.sock"),
+            (meta.uid(), meta.gid()),
+            wrong_group,
+        ),
+        Err(ListenerError::UnsafeOrUnavailable)
+    ));
+}
+
+#[test]
+fn socket_replacement_seals_owner_without_erasing_armed_records() {
+    let f = Fixture::new();
+    let (listener, path) = admitted_listener(&f);
+    let mut owner =
+        SessionOwner::from_admitted(listener, bound_state(&f, peer_uid()), Kernel::new(&f), NS)
+            .unwrap();
+    let mut arm = client(&path, ARM);
+    assert_eq!(owner.poll_one(), SessionProgress::Served);
+    assert!(matches!(receive(&mut arm), Response::Status { .. }));
+    let before = f.bytes();
+    fs::rename(&path, path.with_extension("old")).unwrap();
+    let replacement = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    let _queued = client(&path, Request::Status {});
+    assert_eq!(owner.poll_one(), SessionProgress::ListenerLost);
+    assert_eq!(owner.poll_one(), SessionProgress::ListenerLost);
+    assert_eq!(owner.test_kernel().effects, 1);
+    assert_eq!(f.bytes(), before);
+    drop(replacement);
+}
+
+#[test]
+fn directory_replacement_or_symlink_seals_admitted_listener() {
+    let f = Fixture::new();
+    let (admitted, path) = admitted_listener(&f);
+    let directory = path.parent().unwrap();
+    let old = f.0.join("old-runtime");
+    fs::rename(directory, &old).unwrap();
+    symlink(&old, directory).unwrap();
+    assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
+    fs::remove_file(directory).unwrap();
+    fs::DirBuilder::new().mode(0o750).create(directory).unwrap();
+    let replacement = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
+    drop(replacement);
+}
+
+#[test]
+fn listener_replacement_after_accept_does_not_dispatch_queued_request() {
+    let f = Fixture::new();
+    let (listener, path) = admitted_listener(&f);
+    let mut owner =
+        SessionOwner::from_admitted(listener, bound_state(&f, peer_uid()), Kernel::new(&f), NS)
+            .unwrap();
+    let _queued = client(&path, ARM);
+    assert_eq!(
+        owner.test_poll_with(|listener| {
+            fs::rename(&path, path.with_extension("old")).unwrap();
+            listener.accept().map(|(stream, _)| stream)
+        }),
+        SessionProgress::ListenerLost
+    );
+    assert_eq!(owner.poll_one(), SessionProgress::ListenerLost);
+    assert_eq!(owner.test_kernel().effects, 0);
+    assert_eq!(f.bytes(), (None, None));
 }

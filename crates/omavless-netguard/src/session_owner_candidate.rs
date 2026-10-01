@@ -2,6 +2,7 @@
 //! This is not a socket publisher, installed helper, or kernel authority.
 
 use crate::effect_port::EffectPort;
+use crate::listener_admission::AdmittedListener;
 use crate::locked_state::{ExchangeError, LockedState};
 use crate::receipt::NamespaceObservation;
 use crate::transport_candidate::TransportError;
@@ -15,35 +16,54 @@ pub(crate) enum SessionProgress {
     Refused(ExchangeError),
     AcceptUnavailable,
     AuthorityLost,
+    ListenerLost,
 }
 
 /// One owner retains the enrollment binding and the durable-state lock across
 /// clients. No worker threads, queue, retry or automatic recovery are created.
-/// A future installed service must separately prove the listener's path,
-/// ownership, group, backlog, namespace and kernel-port provenance.
+/// The path entry is checked by ListenerAdmission, but a future service must
+/// still prove trusted bind-before-publication, group identity, backlog,
+/// namespace and kernel-port provenance.
 pub(crate) struct SessionOwner<K: EffectPort> {
-    listener: UnixListener,
+    listener: AdmittedListener,
     state: LockedState,
     kernel: K,
     namespace: NamespaceObservation,
     authority_lost: bool,
+    listener_lost: bool,
 }
 
 impl<K: EffectPort> SessionOwner<K> {
-    pub(crate) fn from_prebound(
-        listener: UnixListener,
+    pub(crate) fn from_admitted(
+        listener: AdmittedListener,
         state: LockedState,
         kernel: K,
         namespace: NamespaceObservation,
     ) -> io::Result<Self> {
-        listener.set_nonblocking(true)?;
+        listener.listener().set_nonblocking(true)?;
         Ok(Self {
             listener,
             state,
             kernel,
             namespace,
             authority_lost: false,
+            listener_lost: false,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_prebound(
+        listener: UnixListener,
+        state: LockedState,
+        kernel: K,
+        namespace: NamespaceObservation,
+    ) -> io::Result<Self> {
+        Self::from_admitted(
+            AdmittedListener::unchecked_for_test(listener),
+            state,
+            kernel,
+            namespace,
+        )
     }
 
     /// Never loops on an accept error or on a stalled peer. Each call accepts
@@ -57,15 +77,23 @@ impl<K: EffectPort> SessionOwner<K> {
         &mut self,
         accept: impl FnOnce(&UnixListener) -> io::Result<UnixStream>,
     ) -> SessionProgress {
+        if self.listener_lost || self.listener.validate().is_err() {
+            self.listener_lost = true;
+            return SessionProgress::ListenerLost;
+        }
         if self.authority_lost || !self.state.enrollment_current() {
             self.authority_lost = true;
             return SessionProgress::AuthorityLost;
         }
-        let stream = match accept(&self.listener) {
+        let stream = match accept(self.listener.listener()) {
             Ok(stream) => stream,
             Err(error) if error.kind() == ErrorKind::WouldBlock => return SessionProgress::Idle,
             Err(_) => return SessionProgress::AcceptUnavailable,
         };
+        if self.listener.validate().is_err() {
+            self.listener_lost = true;
+            return SessionProgress::ListenerLost;
+        }
         if stream.set_nonblocking(false).is_err() {
             return SessionProgress::Refused(ExchangeError::Receive(TransportError::Unavailable));
         }

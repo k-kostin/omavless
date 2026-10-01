@@ -246,6 +246,16 @@ replaced enrollment, failed replies and poisoned transactions. This is not a
 socket publisher or installed service: the listener path, ownership, group,
 backlog, namespace and real kernel-port provenance still need separate proof.
 
+An inactive listener path-admission candidate now pins the already-bound
+`/run/omavless-netguard/control.sock` directory and filesystem entry, checks
+root/package-group modes, and refuses replacement before or after accept.
+This is not complete descriptor provenance: a socket's reported path is not
+proof that its descriptor corresponds to the *current* path entry after
+unlink/rebind. The future trusted service must bind while group access is
+closed, prove that lifetime, then publish access; package-group resolution,
+backlog, namespace and installation remain separate. Tests use private
+temporary listeners only; no host socket is created or used.
+
 The user runtime never invokes sudo or pkexec. Administrator setup/recovery is
 performed intentionally in a terminal.
 
