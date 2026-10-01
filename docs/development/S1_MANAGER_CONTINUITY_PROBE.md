@@ -84,6 +84,11 @@ unavailable queries, foreign/counterfeit peer identity, observed PID/start-time
 changes, endpoint replacement, wrong owner, symlink and unsafe directory refusal,
 and a real pinned socket connection. They do not simulate full system-bus
 authentication or assert trusted namespace/inherited-worker/session provenance.
+The diagnostic and lifetime fixtures now share one private pidfd implementation,
+so process-exit, inherited-listener, capture/drop cleanup and child-only
+descriptor-exhaustion checks exercise the diagnostic's actual primitive.
+The `nix/resource` feature is enabled only as a test dependency for the isolated
+descriptor-limit fixture; it introduces no production resource-limit operation.
 The inherited-listener/relay counterexamples remain covered by the separate AUTH
 probe and must not be mistaken for a positive proof here.
 

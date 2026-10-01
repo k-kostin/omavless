@@ -43,14 +43,14 @@ are independently trusted, identifying the launcher's unique connection can
 potentially avoid inspecting its private environment. This is version-specific
 evidence, not proof from `--scope user`, a process name or matching settings.
 
-## Narrow new primitive: socket-peer lifetime, synthetic only
+## Narrow primitive: socket-peer lifetime, private to the opt-in diagnostic
 
 Linux
 [`SO_PEERPIDFD`](https://github.com/torvalds/linux/blob/72d3fcf802c45d00b300f25b848a93c3a2bd7c7e/net/core/sock.c)
 creates a descriptor from the socket's stored peer process reference. This
 avoids reopening a numeric PID and accidentally binding a replacement process.
 The safe pinned `nix` dependency already exposes an owned descriptor API. The
-new test-only module requires a connected Unix endpoint and close-on-exec
+private module requires a connected Unix endpoint and close-on-exec
 descriptor, then uses nonblocking poll to reject observed exit/error. Unknown
 or unsupported kernel behavior refuses; there is no procfs/PID fallback.
 
@@ -70,12 +70,24 @@ The tests also reject non-sockets and unconnected/listening endpoints; an early
 fixture exposed that a listener can itself yield a pidfd, hence the explicit
 connected-endpoint check is necessary.
 
-All this code is behind both `cfg(test)` and `peer-lifetime-tests`. It is absent
-from non-test builds even with all features. No installed bus/socket, settings,
-service or VM is touched; fixtures use private temporary paths and owned child
-processes. The primitive has no runtime export, PID accessor, signal operation,
-helper executable or conversion into authority. Fixture cleanup only terminates
-and reaps its own spawned test child if the normal bounded exit did not finish.
+The manager diagnostic now uses this same private implementation, replacing its
+duplicate pidfd wrapper. The process-exit and inherited-listener regressions
+therefore exercise the actual diagnostic primitive. Without the optional
+`manager-continuity-probe` feature it is compiled only for
+`peer-lifetime-tests` test builds. It is never exported to consumers, and the
+normal runtime does not link it. It has no PID accessor, signal operation or
+conversion into authority.
+
+An additional child-isolated regression checks that 64 capture/drop cycles
+release every handle, then temporarily sets that child's soft descriptor limit
+to zero. Capture must refuse even with a live connected same-user peer; it must
+not fall back to numeric PID observations. Restoring the child's limit allows a
+fresh capture. The hard limit is unchanged. This tests descriptor exhaustion,
+not a kernel lacking `SO_PEERPIDFD`, and does not grant write authority.
+
+These fixtures use private temporary paths and owned child processes; they do
+not touch installed bus/socket, settings, service or VM state. Fixture cleanup
+only terminates and reaps its own spawned child if normal bounded exit fails.
 
 ```sh
 cargo test --locked -p omavless-s1-observer --features peer-lifetime-tests

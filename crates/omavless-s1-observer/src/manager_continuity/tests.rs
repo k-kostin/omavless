@@ -188,9 +188,9 @@ fn held_endpoint_rejects_symlinks_wrong_owners_and_replacements() {
     let credentials = socket.credentials().unwrap();
     assert_eq!(credentials.unix_pid().unwrap(), std::process::id() as i32);
     assert_eq!(credentials.unix_user().unwrap(), uid);
-    let pin = UnverifiedManagerPin::capture(&socket).unwrap();
+    let pin = UnverifiedPeerLifetime::capture(&socket).unwrap();
     assert_eq!(pin.require_alive_now(), Ok(()));
-    assert!(UnverifiedManagerPin::capture(&listener).is_err());
+    assert!(UnverifiedPeerLifetime::capture(&listener).is_err());
     // This is listener identity only, not proof of who serves future bytes.
     drop(socket);
     drop(replacement);

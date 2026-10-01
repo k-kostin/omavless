@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MIT
 //! Diagnostic continuity only: no trusted-process, session or write authority.
-use crate::{Error, local_bus};
+use crate::{Error, local_bus, peer_lifetime::UnverifiedPeerLifetime};
 use gio::glib::{self, prelude::ToVariant};
 use gio::prelude::*;
-use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl, open, openat};
-use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
-use nix::sys::socket::{UnixAddr, getpeername, getsockopt, sockopt::PeerPidfd};
+use nix::fcntl::{OFlag, open, openat};
 use nix::sys::stat::Mode;
 use std::fs::File;
-use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
@@ -98,32 +95,6 @@ struct Lifetime {
     start: u64,
 }
 
-// The kernel handle pins the connected socket's recorded peer process, not
-// necessarily the process that later writes on an inherited listener.
-struct UnverifiedManagerPin(OwnedFd);
-impl UnverifiedManagerPin {
-    fn capture(socket: &impl AsFd) -> Result<Self, Error> {
-        getpeername::<UnixAddr>(socket.as_fd().as_raw_fd())
-            .map_err(|_| Error::IdentityUnverified)?;
-        let fd = getsockopt(socket, PeerPidfd).map_err(|_| Error::IdentityUnverified)?;
-        let flags = fcntl(&fd, FcntlArg::F_GETFD).map_err(|_| Error::IdentityUnverified)?;
-        if flags & FdFlag::FD_CLOEXEC.bits() == 0 {
-            return Err(Error::IdentityUnverified);
-        }
-        let pin = Self(fd);
-        pin.require_alive_now()?;
-        Ok(pin)
-    }
-
-    fn require_alive_now(&self) -> Result<(), Error> {
-        let mut fds = [PollFd::new(self.0.as_fd(), PollFlags::POLLIN)];
-        match poll(&mut fds, PollTimeout::ZERO).map_err(|_| Error::IdentityUnverified)? {
-            0 if fds[0].revents().is_some_and(|events| events.is_empty()) => Ok(()),
-            _ => Err(Error::IdentityUnverified),
-        }
-    }
-}
-
 trait Facts {
     fn main_pid(&mut self) -> Result<u32, Error>;
     fn lifetime(&mut self, pid: u32) -> Result<Lifetime, Error>;
@@ -158,7 +129,7 @@ struct Host {
     endpoints: Endpoints,
     connection: gio::DBusConnection,
     private_socket: Option<gio::Socket>,
-    private_peer_pin: Option<UnverifiedManagerPin>,
+    private_peer_pin: Option<UnverifiedPeerLifetime>,
 }
 impl Facts for Host {
     fn main_pid(&mut self) -> Result<u32, Error> {
@@ -185,7 +156,7 @@ impl Facts for Host {
     }
     fn private_peer(&mut self) -> Result<(u32, u32), Error> {
         let socket = local_bus::connect_endpoint(&self.endpoints.private)?;
-        let pin = UnverifiedManagerPin::capture(&socket)?;
+        let pin = UnverifiedPeerLifetime::capture(&socket)?;
         let credentials = socket
             .credentials()
             .map_err(|_| Error::IdentityUnverified)?;
