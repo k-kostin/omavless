@@ -67,3 +67,22 @@ layout; the 400-pixel EN and RU captures showed the single-column profile
 panel without horizontal clipping. The selected/connected distinction
 remained visible. Full keyboard/wheel reachability of the lower Details panel
 was **NOT RUN** and remains a G1a gate; these captures do not establish it.
+
+### Narrow scroll reachability follow-up
+
+The subsequent Shell-only layout slice removes the viewport-height flex cap
+from the wrapped Profiles/Details row. In the same isolated x86_64 VM, an
+actual 400×700 logical-pixel window was scrolled with a virtual mouse wheel
+to the bottom: the entire Details panel, including the read-only notice, was
+visible. The selected *North* and confirmed *South* labels remained distinct
+after scrolling. Returning to the top and resizing to 1110×1198 logical
+pixels retained the two-column layout. These observations are from the
+synthetic Shell trial only; screenshots remain outside Git. The temporary
+mouse-input test daemon was stopped after the run. The guest received
+`ydotool` as a development-only test utility; no OmaVLESS package, service,
+private store or VPN state was changed.
+
+This closes the specific lower-panel wheel reachability gap from the preceding
+400-pixel capture. It does not establish keyboard-only scroll access,
+screen-reader behavior, direct-Rust parity, live theme watching, large-list
+performance or G1b daemon attachment.

@@ -163,8 +163,11 @@ G1b/G1c; the listed interaction/theme/platform gaps remain open.
 The [synthetic palette follow-up](../testing/G1_INTERACTION_AUDIT_2026-10-01.md#shell-only-synthetic-palette-follow-up)
 now exercises Shell dark/light and whole-palette fallback in the VM, but does
 not establish real theme-file watching or direct Rust theme parity. A separate
-400-pixel Shell recapture corrected horizontal panel clipping; lower-pane
-keyboard/wheel reachability and the wider platform matrix remain open.
+400-pixel Shell recapture corrected horizontal panel clipping. A later
+Shell-only 400×700 VM wheel test reached the complete Details panel after
+removing the wrapped row's viewport-height cap, while 1110-pixel two-column
+layout remained intact. Keyboard-only reachability and the wider G1a/platform
+matrix remain open.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)
