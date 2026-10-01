@@ -440,6 +440,13 @@ diagnostic hints, never a connection or internet-health verdict. Missing or
 stale runtime data stays unavailable. This is a bounded operator view, not a
 general raw-log export, and installed EN/RU rendering remains a separate gate.
 
+The collection-state follow-up displays the already parsed `finished` fact as
+“Log collection ended”, independently of the incomplete-collection warning.
+Missing/malformed diagnostics remain unavailable, and stale snapshots do not
+retain a current collection claim. Neither a finished collector nor a complete
+read verifies core exit, VPN cleanup or network health. This uses the existing
+observation only; it adds no log read, repair or runtime action.
+
 The bar may show compact summaries but need not duplicate full tables.
 
 The first T3 development slice is a read-only operator view for the existing

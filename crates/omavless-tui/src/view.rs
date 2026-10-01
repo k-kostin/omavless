@@ -1052,6 +1052,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 Line::from(""),
                 Line::from(tr("tui.core_log_scope")),
                 field(
+                    "tui.core_log_finished",
+                    s.core_diagnostics
+                        .as_ref()
+                        .map(|d| boolean(d.finished))
+                        .unwrap_or_else(unknown),
+                ),
+                Line::from(tr("tui.core_log_finished_scope")),
+                field(
                     "tui.core_log_dns",
                     s.core_diagnostics
                         .as_ref()

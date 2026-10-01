@@ -371,6 +371,74 @@ fn diagnostics_shows_only_typed_log_classifications_not_private_lines() {
 }
 
 #[test]
+fn log_collection_end_is_independent_of_completeness_and_never_cleanup_evidence() {
+    let now = Instant::now();
+    for locale in [Locale::En, Locale::Ru] {
+        for (finished, expected) in [
+            (json!(true), "tui.yes"),
+            (json!(false), "tui.no"),
+            (json!(null), "tui.metric_unavailable"),
+            (json!("private raw error"), "tui.metric_unavailable"),
+        ] {
+            for incomplete in [false, true] {
+                let mut calls = Vec::new();
+                let mut app = App::new(locale);
+                app.page = Page::Diagnostics;
+                app.accept(
+                    load_page(
+                        &mut |read| {
+                            calls.push(read);
+                            let mut value = support::response(read);
+                            if read == Read::Observation {
+                                value["result"]["coreDiagnostics"] = json!({
+                                    "scope":"latest_owned_core_log_counts",
+                                    "dnsErrors":0,"tlsErrors":0,"timeoutErrors":0,
+                                    "connectionErrors":0,"otherWarnings":0,"oversizedLines":0,
+                                    "readFailed":false,"incomplete":incomplete,"finished":finished
+                                });
+                            }
+                            Ok(value)
+                        },
+                        Page::Diagnostics,
+                    ),
+                    now,
+                );
+                assert_eq!(
+                    calls,
+                    [
+                        Read::Hello,
+                        Read::Capabilities,
+                        Read::Snapshot,
+                        Read::Diagnostics,
+                        Read::Observation
+                    ]
+                );
+                let screen = render_at(&app, now, 100, 65);
+                let expected_field = format!(
+                    "{}: {}",
+                    locale.text("tui.core_log_finished"),
+                    locale.text(expected)
+                );
+                assert!(screen.contains(&expected_field));
+                assert!(screen.contains(locale.text("tui.core_log_finished_scope")));
+                assert!(!screen.contains("private raw error"));
+                // The same field remains reachable by scrolling a narrow terminal.
+                let mut reachable = false;
+                for offset in 0..70 {
+                    app.inspection_scroll = offset;
+                    reachable |= render_at(&app, now, 60, 18).contains(&expected_field);
+                }
+                assert!(reachable);
+                app.inspection_scroll = 0;
+                let stale = render_at(&app, now + FRESH_FOR, 100, 65);
+                assert!(!stale.contains(locale.text("tui.core_log_finished")));
+                assert!(stale.contains(locale.text("tui.stale")));
+            }
+        }
+    }
+}
+
+#[test]
 fn doctor_facts_distinguish_last_known_state_from_unavailable_observation() {
     let now = Instant::now();
     for locale in [Locale::En, Locale::Ru] {
