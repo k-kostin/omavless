@@ -1,8 +1,12 @@
 # Native release, beta and RC preparation
 
 Current candidate version: **0.9.5-rc.1**, not stable or marketplace-ready.
-Its bootstrap pins are empty: no public RC1 downloads or clean first-use
-acceptance are implied. Build/inspect offline exact-source artifacts first.
+Its bootstrap pins identify reviewed RC1 application/DNS packages from
+`b0bfbee681f6abcbb4f8fb23e6957594d0a4ab10` for both architectures.
+Pins alone do not prove public downloads or clean first-use acceptance; those
+results belong to the [RC ledger](../../docs/development/RC_095.md).
+Use the corrected public `omavless-0.9.5-rc.1-frontend2.tar.xz`; the initial
+frontend is retained as superseded provenance, not an installation recommendation.
 Do not relabel beta/older RC archives or substitute their hashes into RC1 metadata.
 
 The separately accepted **0.9.0-rc.2** production pair has owner-attended ARM64 and separate x86_64 VM evidence;

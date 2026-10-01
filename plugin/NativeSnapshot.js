@@ -396,6 +396,27 @@ function parseCoreDiagnostics(value) {
   return result
 }
 
+// T3 adds fixed log categories to the observation envelope. Validate that
+// optional extension even though the plugin does not display this TUI data.
+// Unknown fields/raw log text remain forbidden; hints are never health proof.
+function validCoreLogHints(value) {
+  if (!object(value, ["schemaVersion", "scope", "availability", "items", "incomplete", "interpretation"])
+      || value.schemaVersion !== 1 || value.scope !== "latest_owned_core_log_categories"
+      || value.interpretation !== "log_hints_not_health") return false
+  if (value.availability === "unavailable") return value.items === null && value.incomplete === null
+  if (value.availability !== "observed" || typeof value.incomplete !== "boolean"
+      || !Array.isArray(value.items) || value.items.length > 24) return false
+  var last = 0
+  for (var i = 0; i < value.items.length; i++) {
+    var item = value.items[i]
+    if (!object(item, ["sequence", "category"]) || !number(item.sequence, 4294967295)
+        || item.sequence <= last || ["dns", "tls", "timeout", "connection", "other", "oversized",
+          "tun_setup", "firewall_setup", "setup_permission"].indexOf(item.category) < 0) return false
+    last = item.sequence
+  }
+  return true
+}
+
 function parseObservation(raw) {
   try {
     var p = envelope(raw)
@@ -403,7 +424,11 @@ function parseObservation(raw) {
     var r = p.result, d = r.desired, f = r.facts
     var fields = ["schemaVersion", "scope", "availability", "desired", "lastKnownActual", "manualRecoveryRequired", "facts", "verification", "instanceId", "transition"]
     var diagnostics = r.coreDiagnostics === undefined || r.coreDiagnostics === null ? null : parseCoreDiagnostics(r.coreDiagnostics)
-    if (!(object(r, fields) || object(r, fields.concat(["coreDiagnostics"])))
+    var optional = []
+    if (r.coreDiagnostics !== undefined) optional.push("coreDiagnostics")
+    if (r.coreLogHints !== undefined) optional.push("coreLogHints")
+    if (!object(r, fields.concat(optional))
+        || (r.coreLogHints !== undefined && r.coreLogHints !== null && !validCoreLogHints(r.coreLogHints))
         || (r.coreDiagnostics !== undefined && r.coreDiagnostics !== null && !diagnostics)
         || r.schemaVersion !== 1 || r.scope !== "local_runtime_observation" || !id(r.instanceId, false) || r.transition !== null
         || ["observed", "unavailable"].indexOf(r.availability) < 0

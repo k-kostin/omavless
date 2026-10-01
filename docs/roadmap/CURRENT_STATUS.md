@@ -6,12 +6,21 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.5 scope frozen:** `rc/0.9.5` selects T3 read-only operator views and
+- **0.9.5 RC accepted:** `rc/0.9.5` supersedes 0.9.0 as the selected candidate.
+  Public `v0.9.5-rc.1` packages for both architectures have matching pins;
+  anonymous downloads and clean guided ARM64 setup/onboarding passed. Use the
+  corrected `frontend2` asset: the first pass found and fixed strict QML
+  rejection of T3's bounded log-hint extension. No runtime/security policy
+  changed. The [RC ledger](../development/RC_095.md#public-rc1-acceptance)
+  records exact artifacts, retained host evidence and limits. Main/Marketplace
+  stay on stable 0.8.2; 0.9.0 branch/assets are immutable historical acceptance.
+
+- **0.9.5 scope freeze history:** `rc/0.9.5` selects T3 read-only operator views and
   explicit transient T4 provider information on the accepted managed-DNS/T2
   base. #392 is integrated into beta; installed ARM64 beta review now passes,
   complementing the x86_64 VM record. Source version is `0.9.5-rc.1`.
   The [RC ledger](../development/RC_095.md) owns final checks/artifacts,
-  limitations and excluded foundations. Public pins remain empty; stable
+  limitations and excluded foundations. At scope freeze pins were empty; stable
   main/Marketplace and accepted `rc/0.9.0` are unchanged.
 
 - **0.9.5 beta history:** owner-approved `beta/0.9.5` starts from accepted
@@ -28,12 +37,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
   installed T3 stale-private-row, two-client revision fence, EN/RU and synthetic
   T4 provider-claim checks in an isolated Omarchy VM. ARM64 CI artifacts were
   strictly paired offline with the reviewed frontend; installed ARM64 beta
-  review remains. External-provider positive evidence and public provisioning are
-  separate later gates. Other T4/S1/K1 inactive foundations are not advertised
+  review passed at selection. External-provider positive evidence remains
+  unavailable; public provisioning passed at the RC checkpoint above. Other
+  T4/S1/K1 inactive foundations are not advertised
   as working features. The
   [beta ledger](../development/BETA_095.md) records selection and remaining gates.
-  Accepted RC 0.9.0, stable main and Marketplace stay unchanged; new public
-  0.9.5 artifacts need separate authorization.
+  RC 0.9.0 history, stable main and Marketplace stay unchanged; subsequent owner
+  authorization and RC 0.9.5 publication are recorded above.
 
 - **0.9.0 managed-DNS candidate:** [#331](https://github.com/k-kostin/omavless/pull/331)
   merged into RC at `67b5f21`, integrating #295 and its stacked delivery work
@@ -409,16 +419,18 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Prepare the 0.9.0 RC release/package/pairing checks from the accepted T2
-   checkpoint, reconciling constituent PRs and docs before any main proposal.
-   Do not silently bump/publish packages or main. Preserve accepted UI unless the task
+4. Prepare a separately owner-authorized stable/main proposal from accepted
+   `rc/0.9.5`, reconciling release notes, constituent PRs and candidate docs.
+   RC1 public assets/pins and clean provisioning are completed, not a fresh work
+   queue. Do not silently bump/publish stable packages or main. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
-Additional mandatory RC work: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
+Retained mandatory RC disposition: [the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
 for scoped DNS authorization (#270), network-setup diagnostics/compatibility
 (#271), and ICMP/HTTPS result semantics (#272). The September 24 owner direction
-makes their disposition and applicable implementation/acceptance mandatory
-before RC readiness. Existing native readiness checks remain accepted.
+makes their disposition and applicable implementation/acceptance mandatory.
+That candidate gate is retained in RC 0.9.5; #270/#132 remain open for the older
+stable 0.8.2 path, not a reason to repeat unchanged accepted RC host checks.
 
 Historical acceptance reports retain their original heads and outcomes. Their
 old "Python still owns production", "R5 incomplete" or "publication withheld"

@@ -6,7 +6,8 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
-  'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md'];
+  'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
+  'docs/development/RC_095.md', 'docs/development/RC_090.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -40,9 +41,18 @@ assert(!workflow.includes('not a new branch convention'), 'do not forbid the acc
 for (const file of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/development/AGENT_GUIDE.md',
   'DEVELOPMENT_ROADMAP.md', 'docs/roadmap/CURRENT_STATUS.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  assert(text.includes('beta/0.9.5') && text.includes('rc/0.9.0'),
-    'development beta and accepted RC must remain separate: ' + file);
+  assert(text.includes('rc/0.9.5') && text.includes('rc/0.9.0'),
+    'selected RC and retained predecessor must remain discoverable: ' + file);
+  assert(/supersede|histor/i.test(text),
+    'previous RC must be identified as retained history: ' + file);
 }
+assert(entry.includes('Current accepted candidate is `rc/0.9.5`'));
+assert(workflow.includes('accepted `rc/0.9.5` supersedes 0.9.0'));
+const contributing = fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8');
+assert(contributing.includes('accepted candidate is `rc/0.9.5`'));
+assert(contributing.includes('`beta/0.9.5` retains development history'));
+assert(!contributing.includes('0.9.5 work targets `beta/0.9.5`'),
+  'do not direct frozen RC fixes to the former development beta');
 assert(workflow.includes('archive/python-legacy'));
 assert(workflow.includes('### Release reconciliation checklist'));
 assert(workflow.includes('**revoked**'), 'old automatic docs merge permission must be explicitly superseded');

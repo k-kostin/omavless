@@ -66,21 +66,35 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
 
-    def test_unpublished_candidate_cannot_reuse_accepted_rc_pair_pins(self):
+    def test_selected_candidate_has_matching_bounded_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
         records = {}
         for filename in ("runtime-release.json", "dns-release.json"):
             metadata = json.loads((ROOT / "plugin" / filename).read_text())
             self.assertEqual(metadata["schemaVersion"], 1)
             self.assertEqual(metadata["version"], manifest["version"])
-            self.assertEqual(metadata["packages"], {})
+            self.assertEqual(set(metadata["packages"]), {"aarch64", "x86_64"})
+            for entry in metadata["packages"].values():
+                self.assertEqual(set(entry), {"sha256", "sourceCommit"})
+                self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
+                self.assertRegex(entry["sourceCommit"], r"^[0-9a-f]{40}$")
             records[filename] = metadata
             shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
         self.assertEqual(manifest["version"], VERSION)
         for arch in ("aarch64", "x86_64"):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(result.stdout + result.stderr, "")
+            self.assertEqual(result.returncode, 0)
+            app = records["runtime-release.json"]["packages"][arch]
+            dns = records["dns-release.json"]["packages"][arch]
+            self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
+            self.assertEqual(result.stdout, f"{VERSION}\t{arch}\t{app['sha256']}\t{dns['sha256']}\t{app['sourceCommit']}\n")
+            self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                             "needs_package\n")
+
+    def test_unpublished_candidate_refuses_without_both_pins(self):
+        self.pins()
+        for arch in ("aarch64", "x86_64"):
+            self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
             self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
                              "release_unavailable\n")
 
