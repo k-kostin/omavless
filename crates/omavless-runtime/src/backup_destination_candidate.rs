@@ -179,7 +179,12 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     fn fixture() -> (std::path::PathBuf, u32, SealedBackup) {
-        let root = crate::test_temp::directory("backup-destination").unwrap();
+        // The product path policy intentionally rejects /tmp's writable
+        // ancestor. Use an ordinary same-user home path even when CI sets
+        // TMPDIR=/tmp, without weakening production admission.
+        let home = std::env::var_os("HOME").expect("backup test needs a home directory");
+        let root =
+            crate::test_temp::directory_under(Path::new(&home), "backup-destination").unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let uid = fs::metadata(&root).unwrap().uid();
         let store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
