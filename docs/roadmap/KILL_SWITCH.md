@@ -212,6 +212,16 @@ The caller cannot provide nft syntax, commands, executables, paths, marks,
 ports, addresses, DNS servers, interface names, systemd units or arbitrary
 environment values. Responses contain no endpoint, credential or rule dump.
 
+An inactive transport candidate now tests one four-byte big-endian length plus
+one bounded JSON request/response on an already connected Unix stream. It
+validates the fixed root enrollment binding and kernel `SO_PEERCRED` UID before
+reading a request, revalidates enrollment after decoding, and applies one
+two-second total receive budget so a peer cannot indefinitely drip bytes. It
+does not bind a socket, dispatch to the root coordinator, package a service or
+change nftables. The future service must close the connection after one reply,
+retain the validated enrollment through every effect and recheck it before
+success; framing alone grants no privileged authority.
+
 The user runtime never invokes sudo or pkexec. Administrator setup/recovery is
 performed intentionally in a terminal.
 
