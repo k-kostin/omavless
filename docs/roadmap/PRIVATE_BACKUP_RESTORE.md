@@ -515,6 +515,26 @@ its own fence. A separately reviewed cleanup/retirement protocol must define
 the exact unlink order, crash recovery and authorization before activation;
 these synthetic tests are not installed backup/restore acceptance.
 
+## Inactive replacement-slot retirement candidate
+
+The internal `restore_slot_retirement_candidate` handles the four fixed
+credential-bearing replacement names that an interrupted executor may leave
+in the live configuration directory. It requires a durable matching terminal
+receipt, complete staged pair and journal, unchanged Rust owner/Off desired
+state/live pair, matching lease and a supplied fresh host gate. It checks
+**every** present slot before removing any: `.new` files must equal their
+corresponding staged new bytes, `.old` files the staged old bytes, all through
+private no-follow, single-link descriptor reads. Arbitrary subsets are valid;
+foreign, unsafe or changed slots refuse. Each fixed-name unlink is followed
+by directory synchronization and full independent reinspection. No live file,
+stage, journal or receipt is removed.
+
+Synthetic tests reproduce an aborted transaction after a new slot was linked,
+exercise matching subsets and identical old/new pairs, refuse unsafe or
+foreign slots, and reopen after process termination at every unlink/sync
+boundary. The candidate has no product caller or automatic invocation. It
+must precede staged-artifact retirement whenever a slot survives.
+
 ## Inactive fixed-artifact retirement candidate
 
 The separate `restore_cleanup_candidate` tests that protocol without a
@@ -540,9 +560,9 @@ hostile same-user writer or a guarantee about arbitrary power loss.
 
 This candidate refuses to retire the stage while any fixed replacement slot
 survives in the live configuration directory: losing the complete stage could
-otherwise lose proof of a slot's provenance, especially after abort. Slot
-retirement needs a separate review. This candidate **does not clear the
-receipt fence**, register a
+otherwise lose proof of a slot's provenance, especially after abort. The
+separate inactive slot candidate above can be tested first, but neither has
+product authority. This candidate **does not clear the receipt fence**, register a
 command, expose UI, or complete T4 acceptance. Product authority, admission,
 UX and installed-environment checks remain separate gates.
 

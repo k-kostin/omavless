@@ -89,7 +89,7 @@ struct Observed {
     stage_parent: Option<Metadata>,
 }
 
-type PrivateMember = (Zeroizing<Vec<u8>>, Metadata);
+pub(crate) type PrivateMember = (Zeroizing<Vec<u8>>, Metadata);
 
 fn exact_directory(metadata: &Metadata, uid: u32) -> bool {
     metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o7777 == 0o700
@@ -104,7 +104,7 @@ fn replacement_slot_pending(config: &Path) -> bool {
     })
 }
 
-fn read_optional(
+pub(crate) fn read_optional(
     directory: &File,
     name: &str,
     uid: u32,
