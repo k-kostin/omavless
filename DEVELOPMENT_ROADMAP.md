@@ -2,7 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.5 scope freeze, 2026-10-01:** `rc/0.9.5` selects completed
+**0.9.5 RC accepted, 2026-10-01:** `rc/0.9.5` replaces 0.9.0 as the selected
+candidate. Immutable prerelease packages/pins, anonymous downloads and clean
+guided ARM64 setup/onboarding passed. Use the corrected `frontend2`; the first
+pass found and fixed QML rejection of T3 log-category metadata. See the
+[exact RC checkpoint](docs/development/RC_095.md#public-rc1-acceptance).
+Stable main/Marketplace remain unchanged; 0.9.0 evidence/assets are preserved.
+
+**0.9.5 scope freeze history, 2026-10-01:** `rc/0.9.5` selects completed
 T3 read-only and explicit T4 provider-information slices after x86_64 and
 ARM64 installed beta review. The [RC ledger](docs/development/RC_095.md)
 owns exact scope, evidence, excluded foundations and publication boundaries.
@@ -17,7 +24,9 @@ Start with the bounded T3 read-only operator workspace, preserving the new
 managed-DNS pair and CLI fixes. #375 is composition-audit evidence, not a
 wholesale merge vehicle: inactive T4/S1/K1 foundations are not working product
 features. See the [beta ledger](docs/development/BETA_095.md).
-No main update, public 0.9.5 assets or Marketplace change is authorized.
+At that beta checkpoint no main update, public 0.9.5 assets or Marketplace change
+was authorized. The later RC-only publication/acceptance above supersedes the
+public-assets restriction, not the main/Marketplace hold.
 
 **Development candidate, not a main update:** the next `rc/0.9.0` includes
 the accepted T2 MVP and reconciled workflow/triage documentation. Its
