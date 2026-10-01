@@ -2487,8 +2487,10 @@ mod tests {
     #[test]
     fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
         use super::restore_candidate::RestoreAdmissionError;
+        use crate::restore_decision_candidate::{DecisionRecord, RecoveryReview, TerminalChoice};
         use crate::restore_staging_candidate::{
             ClassifyError, InspectError, LivePairClass, classify_live_pair,
+            classify_live_pair_bound, inspect_stage_identity,
         };
 
         let (root, store, mut owner) = private_support_fixture("restore-stage-owner");
@@ -2544,10 +2546,48 @@ mod tests {
             )
         };
         assert_eq!(classify(&owner), Ok(LivePairClass::Old));
+        let desired = fs::read(&owner.transaction.desired_paths().file).ok();
+        let stage_identity = inspect_stage_identity(
+            &owner.transaction.cutover_paths().state_directory,
+            owner.transaction.uid(),
+        )
+        .unwrap();
+        let decision =
+            DecisionRecord::intent(2, desired.as_deref(), &stage_identity, [7; 16]).unwrap();
+        let committed = decision.terminal(TerminalChoice::Commit).unwrap();
+        let classify_bound = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            classify_live_pair_bound(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                2,
+                &lock,
+            )
+            .unwrap()
+        };
+        let observed = classify_bound(&owner);
+        assert_eq!(observed.stage().digest(), stage_identity.digest());
+        assert_eq!(
+            decision.review(2, desired.as_deref(), &observed),
+            RecoveryReview::OldRollbackCandidate
+        );
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &observed),
+            RecoveryReview::ManualRecovery
+        );
         fs::write(&template, portable_template).unwrap();
         assert_eq!(classify(&owner), Ok(LivePairClass::Mixed));
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::ManualRecovery
+        );
         fs::write(&store, portable_store).unwrap();
         assert_eq!(classify(&owner), Ok(LivePairClass::New));
+        assert_eq!(
+            committed.review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::VerifyCommittedCandidate
+        );
         fs::write(&store, b"synthetic divergent store").unwrap();
         assert_eq!(classify(&owner), Ok(LivePairClass::Diverged));
         let lock = owner.transaction.acquire_lock().unwrap();
