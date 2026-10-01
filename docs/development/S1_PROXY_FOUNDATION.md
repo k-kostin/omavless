@@ -134,7 +134,11 @@ unresolved; the normal runtime does not build or call the optional GIO helper.
    proves that an optimistic same-backend read can show an uncommitted value,
    and that `Settings.sync` also returns after a failed commit. Require
    independent persisted readback after settling admitted operations; retain
-   unknown-outcome journals when completion cannot be established.
+   unknown-outcome journals when completion cannot be established. The
+   [independent readback candidate](../testing/S1_INDEPENDENT_READBACK_2026-10-01.md)
+   compares the complete layered snapshot through a fresh fixed helper process.
+   It supplies read-side evidence only: no writer-drain barrier, persistent
+   outcome transfer or production write admission is established.
 7. Add semantic enable/disable/status through the existing owner and localized
    UI. Explicit disable first restores settings, then stops the owned proxy
    listener. A restoration conflict must stay visible; do not stop a listener

@@ -9,6 +9,7 @@ use nix::poll::{PollFd, PollFlags, poll};
 use nix::sys::signal::{Signal, killpg};
 use nix::sys::stat::Mode;
 use nix::unistd::Pid;
+use omavless_runtime::app_proxy::codec::DesktopSnapshot;
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::{AsFd, AsRawFd};
@@ -35,6 +36,38 @@ pub enum RunnerError {
     ChildFailed,
     InvalidResponse,
     ReadFailed,
+}
+
+/// Equality of a fresh helper process's complete layered desktop snapshot.
+/// This is read-side evidence only. A caller must separately prove that its
+/// admitted writer has settled before interpreting a match as a committed
+/// effect, and must retain an unknown-outcome journal on either error or
+/// uncertain writer completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopReadback {
+    Matches,
+    Differs,
+}
+
+pub(crate) fn compare_desktop(
+    expected: &DesktopSnapshot,
+    actual: &DesktopSnapshot,
+) -> DesktopReadback {
+    if actual == expected {
+        DesktopReadback::Matches
+    } else {
+        DesktopReadback::Differs
+    }
+}
+
+/// Start a new fixed read-only helper process and compare all 16 desktop
+/// fields, including override presence, defaults and writability. This does
+/// not authorize any host write or infer writer quiescence from equality.
+pub fn independent_desktop_readback(
+    expected: &DesktopSnapshot,
+) -> Result<DesktopReadback, RunnerError> {
+    let actual = observe_via_fixed_runner()?;
+    Ok(compare_desktop(expected, actual.desktop()))
 }
 
 /// Read-only, opt-in candidate. Successful output remains unverified and can
@@ -325,6 +358,11 @@ mod tests {
     fn fake_child_matrix_is_bounded_private_and_reaped() {
         let fixture = Fixture::new();
         let decoded = fixture.run("valid", Duration::from_secs(2)).unwrap();
+        let expected = crate::tests::synthetic_observation();
+        assert_eq!(
+            compare_desktop(expected.desktop(), decoded.desktop()),
+            DesktopReadback::Matches
+        );
         assert!(matches!(
             decoded.provenance(),
             crate::Provenance::Unverified
@@ -355,6 +393,24 @@ mod tests {
             );
             assert!(began.elapsed() < Duration::from_secs(1));
         }
+    }
+
+    #[test]
+    fn layered_difference_refuses_a_persistent_match() {
+        use omavless_runtime::app_proxy::codec::{DesktopKey, Override};
+
+        let expected = crate::tests::synthetic_observation();
+        let mut altered = expected.desktop().entries().to_vec();
+        let mode = altered
+            .iter_mut()
+            .find(|entry| entry.key == DesktopKey::Mode)
+            .unwrap();
+        mode.user = Override::Present(mode.default.clone());
+        let actual = DesktopSnapshot::capture(altered).unwrap();
+        assert_eq!(
+            compare_desktop(expected.desktop(), &actual),
+            DesktopReadback::Differs
+        );
     }
 
     #[test]
