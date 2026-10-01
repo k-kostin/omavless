@@ -158,3 +158,18 @@ not drop raw netlink ACK packets. The full #416 file-publication SIGKILL matrix
 still uses a synthetic kernel. Real replace/delete authority, crashes within
 kernel/file publication, power loss, persistent orphan adjudication, root
 service/boot integration and the physical-host matrix remain separate gates.
+
+### Exact-source delegated VM result, 2026-10-01
+
+Source `802598039d13c1891dd5273fece40268448d5918`, based on #416
+`866275eae9e678d404bcd26205853b7fed0bc6ab`, passed all three cuts in the
+coordinated Omarchy Dev x86_64/KVM guest, kernel `7.2.5-3-omarchy` (0.45 s).
+The host-built test binary SHA-256 was
+`2facc8c06e23dfb9e2ed8a589e2ba6fbf0f72f924c262ceefdb3e188abc1ee45`,
+verified equal after transfer. The guest's original network namespace identity
+was unchanged before/after; Mihomo and TUN counts were zero before/after and no
+test process remained. Unique empty tables were removed after exact fixture
+checks; transferred binary and its empty directory were removed afterwards.
+No package, installed frontend, manager, route, VPN or physical-host network
+state changed. This is isolated VM kernel/file refusal evidence, not physical
+NIC/suspend/boot acceptance or production K1 availability.
