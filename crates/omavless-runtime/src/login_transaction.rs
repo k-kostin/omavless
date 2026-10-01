@@ -20,6 +20,7 @@
 use crate::cutover::{CutoverError, CutoverPaths, MigrationLock, OwnershipPhase, read_marker};
 use crate::desired::{DesiredPaths, DesiredState, MAX_DESIRED_STATE_BYTES, MAX_GENERATION};
 use crate::login_intent::{LoginIntentError, LoginTrigger, plan_login_intent};
+use crate::pending_private_transaction;
 use crate::{OwnerLock, RuntimeError, RuntimePaths};
 use nix::unistd::Uid;
 use omavless_domain::config::MAX_TEMPLATE_BYTES;
@@ -257,6 +258,9 @@ pub(crate) fn check_startup_receipt(
     if !lock.authorizes(paths, uid) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
+    if pending_private_transaction::pending_at(&paths.state_directory) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
     match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
         None => Ok(()),
         Some(value)
@@ -288,6 +292,9 @@ pub(crate) fn check_current_receipt(
     epoch: &str,
 ) -> Result<()> {
     if !lock.authorizes(paths, uid) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    if pending_private_transaction::pending_at(&paths.state_directory) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     let expected = format!(
@@ -329,6 +336,8 @@ struct Publisher {
     fault: Option<(Publication, bool)>,
     #[cfg(test)]
     tamper: Option<(Publication, PathBuf, Vec<u8>)>,
+    #[cfg(test)]
+    create_pending_after: Option<(Publication, PathBuf)>,
 }
 impl Publisher {
     fn write(&self, paths: &LoginPaths, path: &Path, raw: &[u8], stage: Publication) -> Result<()> {
@@ -346,6 +355,12 @@ impl Publisher {
         {
             atomic_replace_private(target, bytes, paths.uid)
                 .map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
+        }
+        #[cfg(test)]
+        if let Some((target_stage, directory)) = &self.create_pending_after
+            && *target_stage == stage
+        {
+            fs::create_dir(directory).map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
         }
         #[cfg(test)]
         if self.fault == Some((stage, true)) {
@@ -401,6 +416,9 @@ fn consume(
             LoginTransactionError::InvalidState
         }
     })?;
+    if pending_private_transaction::pending(&paths.desired) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
     let existing = receipt(paths)?;
     if existing
         .as_ref()
@@ -449,6 +467,9 @@ fn consume(
     if Snapshot::read(paths)? != snapshot || receipt(paths)?.is_some() {
         return Err(LoginTransactionError::SnapshotChanged);
     }
+    if pending_private_transaction::pending(&paths.desired) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
     let mut journal = Receipt {
         schema_version: 1,
         epoch_hash,
@@ -465,6 +486,9 @@ fn consume(
         Publication::Pending,
     )?;
     if receipt(paths)? != Some(journal.clone()) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    if pending_private_transaction::pending(&paths.desired) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     exact_owner(paths, generation).map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
@@ -498,6 +522,9 @@ fn consume(
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     if receipt(paths)? != Some(journal.clone()) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    if pending_private_transaction::pending(&paths.desired) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
     journal.phase = Phase::Consumed;

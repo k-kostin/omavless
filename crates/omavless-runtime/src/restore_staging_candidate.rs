@@ -6,7 +6,6 @@
 
 use crate::backup_source_candidate::open_private_directory;
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
-use crate::desired::DesiredPaths;
 use nix::errno::Errno;
 use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::{Mode, mkdirat};
@@ -26,9 +25,9 @@ const READY_BYTES: usize = 8 + 4 * 4 + 4 * 32;
 
 /// Existence, inaccessible metadata and unexpected entry types all block a
 /// second restore attempt. There is deliberately no automatic deletion.
-pub(crate) fn staging_pending(paths: &DesiredPaths) -> bool {
+pub(crate) fn staging_pending_at(directory: &Path) -> bool {
     !matches!(
-        std::fs::symlink_metadata(paths.directory.join(PENDING_DIRECTORY)),
+        std::fs::symlink_metadata(directory.join(PENDING_DIRECTORY)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound
     )
 }
