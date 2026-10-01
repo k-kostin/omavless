@@ -146,6 +146,47 @@ class TerminalTests(unittest.TestCase):
             os.close(master)
             os.close(slave)
 
+    def test_slow_connections_read_has_visible_loading_then_rows(self):
+        # The delayed synthetic read makes the transient page state observable
+        # through the real terminal renderer without contacting a VPN runtime.
+        master, slave = pty.openpty()
+        original = termios.tcgetattr(slave)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        child = subprocess.Popen([str(BINARY), "operator-slow-rows"],
+                                 stdin=slave, stdout=slave, stderr=slave,
+                                 start_new_session=True,
+                                 env={**os.environ, "TERM": "xterm-256color", "OMAVLESS_LOCALE": "en"})
+        output = bytearray()
+
+        def wait_for(needle, timeout=5):
+            deadline = time.monotonic() + timeout
+            while needle not in output and time.monotonic() < deadline:
+                if select.select([master], [], [], 0.1)[0]:
+                    output.extend(os.read(master, 65536))
+            self.assertIn(needle, output)
+
+        try:
+            wait_for(b"OmaVLESS")
+            # Wait for the initial Profiles snapshot; otherwise rapid tabs can
+            # reach Connections before there is a fresh header to render.
+            wait_for(b"Fixture")
+            os.write(master, b"\t\t\t")
+            # Ratatui may split the phrase with cursor-addressing sequences.
+            wait_for(b"Loading")
+            self.assertIn(b"connections", output)
+            self.assertNotIn(b"example.invalid", output)
+            wait_for(b"example.invalid")
+            self.assertNotIn(b"private://", output)
+            os.write(master, b"q")
+            self.assertEqual(child.wait(timeout=2), 0)
+            self.assertEqual(termios.tcgetattr(slave), original)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=2)
+            os.close(master)
+            os.close(slave)
+
     def test_real_terminal_teardown_cannot_leave_poll_spinning(self):
         # Closing during Ratatui's cursor cleanup is a race. Exercise it more
         # than once; a destructor panic (101) is not an accepted shutdown.

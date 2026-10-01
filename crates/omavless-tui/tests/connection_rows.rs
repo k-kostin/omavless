@@ -151,6 +151,29 @@ fn local_en_ru_narrow_render_never_shows_raw_controller_fields() {
 }
 
 #[test]
+fn first_page_load_is_waiting_not_a_false_connection_failure() {
+    for locale in [Locale::En, Locale::Ru] {
+        let now = Instant::now();
+        let mut app = App::new(locale);
+        app.accept(load_page(&mut |r| Ok(read(r)), Page::Profiles), now);
+        app.page = Page::Connections;
+
+        let waiting = render(&app, now, 70);
+        assert!(waiting.contains(locale.text("tui.connection_rows_loading")));
+
+        // A completed read from a runtime without this optional method is a
+        // real unavailable state, not an endless loading indicator.
+        app.accept(
+            load_page(&mut |r| Ok(support::response(r)), Page::Connections),
+            now,
+        );
+        let unavailable = render(&app, now, 70);
+        assert!(!unavailable.contains(locale.text("tui.connection_rows_loading")));
+        assert!(unavailable.contains(locale.text("tui.metric_unavailable")));
+    }
+}
+
+#[test]
 fn leaving_explicit_page_drops_private_destination_snapshot() {
     let now = Instant::now();
     let mut app = App::new(Locale::En);
@@ -163,6 +186,9 @@ fn leaving_explicit_page_drops_private_destination_snapshot() {
     assert!(!app.accept_for(Page::Connections, None, late, now));
     assert!(app.snapshot.as_ref().unwrap().connection_rows.is_none());
     assert!(!render(&app, now, 70).contains("example.invalid"));
+    app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+    assert!(app.page == Page::Connections);
+    assert!(render(&app, now, 70).contains(Locale::En.text("tui.connection_rows_loading")));
 }
 
 #[test]

@@ -9,13 +9,18 @@ fn main() {
         if scenario == "slow" {
             std::thread::sleep(std::time::Duration::from_secs(20));
         }
+        if scenario == "operator-slow-rows" && r == omavless_tui::client::Read::ConnectionRows {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        }
         if scenario == "unavailable" {
             return Err(omavless_tui::model::ReadError::Unavailable);
         }
         let mut response = support::response(r);
         // The operator scenario enables only synthetic read capabilities. It
         // never exposes a mutation method or contacts a runtime socket.
-        if scenario == "operator" && r == omavless_tui::client::Read::Capabilities {
+        if (scenario == "operator" || scenario == "operator-slow-rows")
+            && r == omavless_tui::client::Read::Capabilities
+        {
             response["result"]["methods"] = serde_json::json!([
                 "ui.snapshot",
                 "runtime.observation",

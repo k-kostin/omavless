@@ -129,7 +129,7 @@ class PackageTests(unittest.TestCase):
         hook = (destination / "omavless-dns.hook").read_text()
         script = (destination / "omavless-dns.install").read_text()
         self.assertIn("pkgname=omavless-dns\n", recipe)
-        self.assertIn("pkgver=0.9.6rc1\n", recipe)
+        self.assertIn("pkgver=0.9.7rc1\n", recipe)
         self.assertIn("conflicts=('omavless-dns-experimental')", recipe)
         self.assertIn("/usr/lib/omavless-dns/mihomo", recipe)
         self.assertIn("/usr/lib/omavless-dns/omavless-dns-broker", unit)

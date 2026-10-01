@@ -59,7 +59,7 @@ configuration files can contain private metadata and are not shareable reports.
 Main-screen Test and latency sections are intentionally hidden for later
 improvement; their absence is not evidence of a broken core.
 
-## Open the terminal application (0.9.6 candidate)
+## Open the terminal application (0.9 development candidate)
 
 This section describes the development candidate, not the published 0.8.2 package.
 With a TUI-enabled application installed, **Open app** appears below the fixed
@@ -93,6 +93,11 @@ in-session traffic trend, an explicit notice when older activity has been
 discarded, a bounded log-collection end state and the age of an explicitly
 requested route-check result. None of these is a new network-control action
 or independent proof that all traffic is protected.
+The 0.9.7 candidate shows a loading message while the explicit Connections
+page fetches its first result; a completed unavailable read remains distinct.
+Settings also shows the installed plugin's version and author below Shut down
+OmaVLESS. This identifies the plugin frontend, not necessarily the separately
+installed native package.
 
 On Subscriptions, `u` explicitly requests provider-reported usage and expiry
 for the selected source. This private claim is not measured VPN traffic or
