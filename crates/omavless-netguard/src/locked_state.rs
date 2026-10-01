@@ -847,4 +847,185 @@ mod tests {
             }
         }
     }
+
+    // Real process death complements returned-error injection: no destructor,
+    // poisoning assignment or cleanup runs in the interrupted writer. The
+    // kernel below is still a model, never Linux ownership evidence.
+    fn crash_points() -> Vec<Point> {
+        vec![
+            Point::BeforePending,
+            Point::Pending,
+            Point::BeforeKernel,
+            Point::KernelReturned,
+            Point::KernelVerified,
+            Point::BeforeMarker,
+            Point::Marker,
+            Point::BeforeTerminal,
+            Point::Terminal,
+            Point::BeforeReply,
+        ]
+        .into_iter()
+        .chain([false, true].into_iter().flat_map(|terminal| {
+            (0..=10).map(move |boundary| Point::ReceiptWrite { terminal, boundary })
+        }))
+        .chain((0..=5).map(Point::MarkerWrite))
+        .collect()
+    }
+
+    #[test]
+    fn process_crash_child() {
+        let Some(parent) = std::env::var_os("OMAVLESS_K1_CRASH_FIXTURE") else {
+            return;
+        };
+        // Only the parent owns fixture cleanup, including on child failure.
+        let f = std::mem::ManuallyDrop::new(Fixture(PathBuf::from(parent)));
+        let kind: u8 = std::env::var("OMAVLESS_K1_CRASH_KIND")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(kind < 3);
+        let index: usize = std::env::var("OMAVLESS_K1_CRASH_POINT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let target = crash_points()[index];
+        let mut s = f.state();
+        let mut k = Kernel::new(&f);
+        if kind != 0 {
+            k.current = LIVE;
+        }
+        let request = if kind == 2 { DISARM } else { ARM };
+        let _ = s.request_with(request, NS, &mut k, |point| {
+            if point == target {
+                fs::write(f.0.join("ready"), b"checkpoint").unwrap();
+                loop {
+                    std::thread::park();
+                }
+            }
+            Ok(())
+        });
+        panic!("crash checkpoint not reached");
+    }
+
+    #[test]
+    fn sigkill_releases_lock_but_never_completes_pending_transactions() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{Child, Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        struct ChildGuard(Child);
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let publication_files = |f: &Fixture| {
+            fs::read_dir(f.0.join("omavless-netguard"))
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (entry.file_name(), fs::read(entry.path()).unwrap())
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+
+        for kind in 0..3 {
+            for (index, point) in crash_points().into_iter().enumerate() {
+                let f = Fixture::new();
+                let mut k = Kernel::new(&f);
+                if kind != 0 {
+                    f.state().request(ARM, NS, &mut k).unwrap();
+                }
+                let mut child = ChildGuard(
+                    Command::new(std::env::current_exe().unwrap())
+                        .args(["--exact", "locked_state::tests::process_crash_child"])
+                        .env("OMAVLESS_K1_CRASH_FIXTURE", &f.0)
+                        .env("OMAVLESS_K1_CRASH_KIND", kind.to_string())
+                        .env("OMAVLESS_K1_CRASH_POINT", index.to_string())
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                        .unwrap(),
+                );
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !f.0.join("ready").exists() {
+                    assert!(child.0.try_wait().unwrap().is_none(), "{kind} {point:?}");
+                    assert!(Instant::now() < deadline, "checkpoint timeout");
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                assert!(matches!(f.root(), Err(StateError::Busy)));
+                child.0.kill().unwrap();
+                assert_eq!(child.0.wait().unwrap().signal(), Some(9));
+
+                // Reconstruct only the synthetic effect state from the selected
+                // boundary. This is not a persistent kernel identity provider.
+                let after_kernel = matches!(
+                    point,
+                    Point::KernelReturned
+                        | Point::KernelVerified
+                        | Point::BeforeTerminal
+                        | Point::Terminal
+                        | Point::BeforeReply
+                        | Point::ReceiptWrite { terminal: true, .. }
+                ) || (kind != 2
+                    && matches!(
+                        point,
+                        Point::BeforeMarker | Point::Marker | Point::MarkerWrite(_)
+                    ));
+                if after_kernel {
+                    k.current = match kind {
+                        0 => LIVE,
+                        1 => EffectSnapshot {
+                            table: Table::OwnedVerified(Policy::FullVpn),
+                            identity: Some(EffectIdentity {
+                                table_handle: 6,
+                                ..ID
+                            }),
+                        },
+                        _ => ABSENT,
+                    };
+                }
+                let bytes = publication_files(&f);
+                let effects = k.effects;
+                let mut reopened = f.state();
+                let stable = matches!(
+                    point,
+                    Point::BeforePending
+                        | Point::Terminal
+                        | Point::BeforeReply
+                        | Point::ReceiptWrite {
+                            terminal: false,
+                            boundary: 0
+                        }
+                        | Point::ReceiptWrite {
+                            terminal: true,
+                            boundary: 9 | 10
+                        }
+                );
+                assert_eq!(
+                    reopened.request(Request::Status {}, NS, &mut k).is_ok(),
+                    stable,
+                    "{kind} {point:?}"
+                );
+                if !stable {
+                    for request in [ARM, DISARM] {
+                        assert_eq!(reopened.request(request, NS, &mut k), Err(REFUSED));
+                    }
+                }
+                assert_eq!(k.effects, effects);
+                assert_eq!(publication_files(&f), bytes);
+                // A completed delete retains its generation fence even when
+                // the writer dies before delivering its success response.
+                if kind == 2 && after_kernel && stable {
+                    assert_eq!(
+                        reopened.request(ARM, NS, &mut k),
+                        Err(ErrorCode::GenerationConflict)
+                    );
+                }
+            }
+        }
+    }
 }
