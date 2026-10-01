@@ -8,6 +8,8 @@ use crate::app_proxy::takeover::{
 };
 use sha2::{Digest, Sha256};
 
+mod quiescence;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Scope {
