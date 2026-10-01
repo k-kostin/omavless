@@ -130,6 +130,11 @@ unresolved; the normal runtime does not build or call the optional GIO helper.
    Re-read immediately before/after effects, preserve foreign edits, and retain
    the journal on conflict. Matching values do not prove absence of an external
    ABA write; do not advertise exclusive ownership from equality alone.
+   The [isolated persistent dconf experiment](../testing/S1_PRIVATE_DCONF_2026-10-01.md)
+   proves that an optimistic same-backend read can show an uncommitted value,
+   and that `Settings.sync` also returns after a failed commit. Require
+   independent persisted readback after settling admitted operations; retain
+   unknown-outcome journals when completion cannot be established.
 7. Add semantic enable/disable/status through the existing owner and localized
    UI. Explicit disable first restores settings, then stops the owned proxy
    listener. A restoration conflict must stay visible; do not stop a listener
