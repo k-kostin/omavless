@@ -196,6 +196,45 @@ session/broker provenance, and exact partial-write restoration. No production
 caller, automatic transfer, S1 availability or network change follows from
 this model.
 
+### Test-only durable compensation transfer experiment
+
+The field-journal tests now compose the takeover decision with the real private
+storage lock, exact-byte comparison and durable replacement sequence. The
+experiment stores a canonical bounded envelope containing the unchanged field
+record, a nonzero monotonic sequence and synthetic manager/bus/settings scope.
+Its identity hashes the complete private bytes. The model changes only the
+owner binding and sequence during transfer: original/intended values, expected
+sides, attempted bits, pending field and phase are preserved. A successful
+transfer or reopen remains compensation-only; it cannot resume application or
+confirm the predecessor's unknown write. Every later restoration publication
+also advances the sequence, invalidating old receipts.
+
+This is compiled only inside `cfg(test)`, not a new journal version, production
+transfer API, migration or host lease. Its scope and joined/settled receipt are
+deliberately synthetic inputs; they do not close any identity edge. The normal
+v1/v2 journal decoders and all production paths are unchanged. The experimental
+format is used only in disposable private fixture directories.
+
+The matrix transfers at all 27 partial-apply boundaries, including both possible
+outcomes of the pending write, then reopens under the successor and restores the
+exact original state. It rejects predecessor bindings, stale receipts, changed
+scope, unknown quiescence, competing lock holders, foreign bytes, missing or
+released records, sequence overflow and invalid/duplicate envelope fields.
+Injected failures and actual owned-child exit after staging creation, write,
+file sync, rename and directory sync prove refusal ordering: pre-rename staging
+blocks both owners; a visible post-rename record retires the predecessor and
+permits only modeled compensation under the successor. Foreign field edits
+still refuse without changing the record. These are process-exit and storage
+ordering tests, not power-loss durability or automatic crash-handoff proof.
+
+Before promoting this experiment, the remaining gate is a separately reviewed
+coordinator that proves old-worker quiescence and the unchanged installed host
+scope, binds a receipt to the exact locked record, and revalidates that authority
+before each typed effect. An ordinary daemon crash still supplies no graceful
+receipt. The read-only manager diagnostic's unverified success cannot create
+one. Installed exact restoration, listener readiness and new-app consumption
+remain later gates; this experiment does not access proxy settings or a VM.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the

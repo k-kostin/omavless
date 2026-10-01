@@ -7,6 +7,8 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod transfer;
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
