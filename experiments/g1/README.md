@@ -8,6 +8,8 @@ simulation. This is research material, not an installable OmaVLESS frontend.
 
 The [dated VM result](../../docs/testing/G1_SYNTHETIC_TRIAL_2026-10-01.md)
 records what actually ran and what remains unverified. The
+[interaction follow-up](../../docs/testing/G1_INTERACTION_AUDIT_2026-10-01.md)
+records the later synthetic focus and transient-state review. The
 [G1 contract](../../docs/roadmap/GUI_RESEARCH.md) remains the decision authority.
 
 ## Reproduce
@@ -48,3 +50,8 @@ platform acceptance.
 The sample list can expand to 10,006 rows. Selection, search, collection,
 language and simulated states are local UI actions only. There is deliberately
 no Connect, Disconnect, Quit, daemon bridge or credential input.
+
+For deterministic visual review, the direct Rust trial accepts only
+`--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
+refuses without echoing it. This chooses fixture state before the window opens;
+it is not a daemon state selector or a VPN operation.

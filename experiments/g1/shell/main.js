@@ -8,7 +8,7 @@ import {
   AppShell, Badge, Button, Label, ListRow, MutedText, Panel, TextField,
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
-import { fixture, visibleProfiles } from "./data.js";
+import { connectionPresentation, fixture, visibleProfiles } from "./data.js";
 
 const COLORS = `
 mode = "dark"
@@ -27,7 +27,7 @@ const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = t
 const copy = {
   en: {
     profiles: "Profiles", details: "Details", sources: "Subscriptions / sources", selected: "Selected for inspection",
-    connected: "Confirmed connection", none: "None confirmed", invalid: "No valid selection",
+    connected: "Confirmed connection", previous: "Previous server · not verified now", none: "None confirmed", invalid: "No valid selection",
     source: "Source",
     note: "Click a row or press Enter in search to inspect; never connects", large: "10,005 synthetic rows · virtualized",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
@@ -36,7 +36,7 @@ const copy = {
   },
   ru: {
     profiles: "Профили", details: "Детали", sources: "Подписки / источники", selected: "Выбрано для просмотра",
-    connected: "Подтверждённое соединение", none: "Нет подтверждённого соединения", invalid: "Нет выбранного профиля",
+    connected: "Подтверждённое соединение", previous: "Прежний сервер · сейчас не подтверждён", none: "Нет подтверждённого соединения", invalid: "Нет выбранного профиля",
     source: "Источник",
     note: "Нажмите строку или Enter в поиске для просмотра; подключения нет", large: "10 005 демонстрационных строк · виртуализация",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
@@ -57,6 +57,8 @@ export default class G1Trial extends View {
       this.selected = visibleProfiles(this.search.value(), this.large, this.collection)[0]?.id ?? null;
       context.notify();
     });
+    this.panelFocus = cx.focus_handle();
+    this.panelFocus.focus();
     this.scene = 0;
     this.selected = fixture.scenes[0].selected;
     this.locale = "en";
@@ -71,7 +73,8 @@ export default class G1Trial extends View {
   render(cx) {
     const strings = copy[this.locale];
     const scene = fixture.scenes[this.scene];
-    const connected = fixture.profiles.find((item) => item.id === scene.connected);
+    const connection = connectionPresentation(scene);
+    const connected = fixture.profiles.find((item) => item.id === connection.id);
     const selected = fixture.profiles.find((item) => item.id === this.selected);
     const query = this.search.value();
     if (query !== this.cachedQuery || this.large !== this.cachedLarge || this.collection !== this.cachedCollection) {
@@ -83,7 +86,7 @@ export default class G1Trial extends View {
     const visible = this.visible;
     const colors = cx.theme().colors;
     const statusTone = scene.phase === "connected" ? "success"
-      : ["unverified", "failed", "recovery"].includes(scene.phase) ? "danger" : "warning";
+      : ["failed", "recovery"].includes(scene.phase) ? "danger" : "warning";
     const scenes = h_flex().flex_wrap().gap(6).children(fixture.scenes.map((item, index) =>
       new Button(`scene-${item.id}`).label(strings.scenes[item.id]).outlined().selected(index === this.scene)
         .onClick((_event, context) => {
@@ -103,12 +106,12 @@ export default class G1Trial extends View {
       .child(v_flex().min_w_0()
         .child(new Label(profile.name).truncate().build(cx))
         .child(new MutedText(profile.host).size("caption").truncate().build(cx)))
-      .child(profile.id === scene.connected
+      .child(connection.kind === "confirmed" && profile.id === connection.id
         ? new Badge(`connected-${profile.id}`).label(this.locale === "ru" ? "Подключено" : "Connected").tone("success").build(cx)
         : new MutedText("").build(cx))
       .build(cx).h(52);
 
-    const list = v_flex().flex_1().min_h_0().gap(8)
+    const list = v_flex().flex_1().min_h_0().gap(8).p(12)
       .child(new MutedText(strings.sources).build(cx))
       .child(collections)
       .child(new TextField().state(this.search).build(cx))
@@ -122,12 +125,12 @@ export default class G1Trial extends View {
             row(visible[range.start + offset])))
           .size_full().on_item_click((id, context) => { this.selected = id; context.notify(); }))
         .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0()));
-    const details = v_flex().gap(12)
+    const details = v_flex().gap(12).p(12)
       .child(new MutedText(strings.selected).build(cx))
       .child(new Label(selected?.name ?? strings.invalid).build(cx))
       .child(new MutedText(strings.source).build(cx))
       .child(new Label(selected?.subscription || (this.locale === "ru" ? "Локальный" : "Local")).build(cx))
-      .child(new MutedText(strings.connected).build(cx))
+      .child(new MutedText(connection.kind === "previous" ? strings.previous : strings.connected).build(cx))
       .child(new Label(connected?.name ?? strings.none).build(cx))
       .child(new MutedText(strings.readonly).build(cx));
 
@@ -141,6 +144,7 @@ export default class G1Trial extends View {
       .child(new Panel("details").title(strings.details).content(details).build(cx)
         .min_w("30rem").flex_basis("30rem").flex_grow(1));
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
+      .track_focus(this.panelFocus)
       .overflow_y_scrollbar()
       .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx))
       .child(scenes)
