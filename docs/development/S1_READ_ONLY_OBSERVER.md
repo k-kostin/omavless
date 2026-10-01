@@ -57,6 +57,14 @@ inspect only the backend type, without reading user proxy values. They are
 ignored by default because CI images need not ship GNOME schemas. No current
 host proxy values, VM settings or live connection are part of this checkpoint.
 
+The subsequent [x86_64 Omarchy Dev VM schema gate](../testing/S1_SCHEMA_MEMORY_VM_2026-10-01.md)
+exercises all 16 installed keys with explicitly supplied memory backends: absent,
+equal-default and representable empty overrides, typed temporary changes, and
+exact restoration of the complete layered snapshot. The guest's default-backend
+type check also passes without reading proxy values. This supplies installed
+public-schema/memory semantics evidence, not dconf write durability, live desktop
+restore, host provenance or write admission. Those gates remain separate.
+
 The runner's fake-process matrix covers normal framed success, malformed frame,
 nonzero exit, stdout/stderr overflow, timeout, an inherited-pipe descendant,
 and unsafe executable path refusal. It does not establish installed identity,
