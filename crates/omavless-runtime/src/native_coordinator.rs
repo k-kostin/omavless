@@ -16,6 +16,7 @@ mod onboarding;
 mod probe;
 mod provider;
 mod restore_candidate;
+mod restore_retirement_candidate;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
@@ -2717,6 +2718,331 @@ mod tests {
             inspect_journal(&owner),
             Err(JournalError::Stage(InspectError::MissingOrIncomplete))
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn terminal_retirement_fixture(
+        label: &str,
+        aborted: bool,
+    ) -> (
+        PathBuf,
+        PathBuf,
+        OfflineNativeCoordinator<FakeHost>,
+        Vec<u8>,
+    ) {
+        use crate::restore_executor_candidate::{
+            EffectStep, ExecutionError, PendingOutcome, execute_staged_pair, execute_with_hook,
+            recover_staged_pair,
+        };
+        use crate::restore_retirement_candidate::publish_retirement_receipt;
+
+        let (root, store, mut owner) = private_support_fixture(label);
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, b"synthetic original template\n").unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic test passphrase";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                portable_store,
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let paths = owner.transaction.cutover_paths();
+        let uid = owner.uid();
+        let lock = owner.transaction.acquire_lock().unwrap();
+        if aborted {
+            assert_eq!(
+                execute_with_hook(
+                    store.parent().unwrap(),
+                    paths,
+                    uid,
+                    2,
+                    &lock,
+                    [91; 16],
+                    || true,
+                    |step| step != EffectStep::Linked(0),
+                ),
+                Err(ExecutionError::Ambiguous)
+            );
+            assert_eq!(
+                recover_staged_pair(store.parent().unwrap(), paths, uid, 2, &lock, || true),
+                Ok(PendingOutcome::Aborted)
+            );
+        } else {
+            assert_eq!(
+                execute_staged_pair(
+                    store.parent().unwrap(),
+                    paths,
+                    uid,
+                    2,
+                    &lock,
+                    [92; 16],
+                    || true
+                ),
+                Ok(PendingOutcome::Committed)
+            );
+        }
+        assert_eq!(
+            publish_retirement_receipt(store.parent().unwrap(), paths, uid, 2, &lock, || true),
+            Ok(if aborted {
+                PendingOutcome::Aborted
+            } else {
+                PendingOutcome::Committed
+            })
+        );
+        drop(lock);
+        (root, store, owner, original_store)
+    }
+
+    #[test]
+    fn inactive_owner_retirement_composes_terminal_slots_and_artifacts_without_releasing_fence() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+        use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
+        use crate::restore_retirement_candidate::RECEIPT_MEMBER;
+
+        for aborted in [false, true] {
+            let (root, store, mut owner, original_store) =
+                terminal_retirement_fixture("retirement-composed", aborted);
+            let config = store.parent().unwrap();
+            let stage = owner
+                .transaction
+                .cutover_paths()
+                .state_directory
+                .join("restore-pair.pending");
+            let state = owner.transaction.cutover_paths().state_directory.clone();
+            let receipt_path = state.join(RECEIPT_MEMBER);
+            let receipt_before = fs::read(&receipt_path).unwrap();
+            let desired_before = fs::read(&owner.transaction.desired_paths().file).unwrap();
+            if !aborted {
+                for (slot, member) in [
+                    (NEW_SLOT[0], "new-profiles.json"),
+                    (NEW_SLOT[1], "new-route-template.yaml"),
+                    (OLD_SLOT[0], "old-profiles.json"),
+                    (OLD_SLOT[1], "old-route-template.yaml"),
+                ] {
+                    fs::write(config.join(slot), fs::read(stage.join(member)).unwrap()).unwrap();
+                    fs::set_permissions(config.join(slot), fs::Permissions::from_mode(0o600))
+                        .unwrap();
+                }
+            } else {
+                assert!(config.join(NEW_SLOT[0]).exists());
+            }
+            let live_before = fs::read(&store).unwrap();
+            // A foreign visible VPN must not be stopped or treated as ours.
+            owner.host_mut().support_observation = Some(crate::lifecycle::NativeLocalObservation {
+                visible_mihomo_count: 1,
+                visible_tun_count: 1,
+                ..empty_local_observation()
+            });
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            assert!(!stage.exists());
+            assert!(
+                NEW_SLOT
+                    .into_iter()
+                    .chain(OLD_SLOT)
+                    .all(|name| !config.join(name).exists())
+            );
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert_eq!(
+                fs::read(&owner.transaction.desired_paths().file).unwrap(),
+                desired_before
+            );
+            assert_eq!(fs::read(&receipt_path).unwrap(), receipt_before);
+            assert!(!state.join("restore-decision.intent").exists());
+            assert!(!state.join("restore-decision.terminal").exists());
+            assert!(crate::pending_private_transaction::pending_at(&state));
+            assert!(owner.transaction.blocked());
+            assert_eq!(owner.host_mut().calls, 0);
+            if aborted {
+                assert_eq!(fs::read(&store).unwrap(), original_store);
+            } else {
+                assert_ne!(fs::read(&store).unwrap(), original_store);
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_owner_retirement_resumes_a_partial_stage_cleanup_prefix() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+
+        let (root, store, mut owner, _) = terminal_retirement_fixture("retirement-prefix", false);
+        let state = owner.transaction.cutover_paths().state_directory.clone();
+        let stage = state.join("restore-pair.pending");
+        fs::remove_file(stage.join("old-profiles.json")).unwrap();
+        fs::File::open(&stage).unwrap().sync_all().unwrap();
+        assert_eq!(
+            owner.retire_terminal_restore_candidate(),
+            Ok(CleanupResult::RetiredStillFenced)
+        );
+        assert!(!stage.exists());
+        assert!(state.join("restore-finalization.pending").exists());
+        assert!(store.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_owner_retirement_refuses_unrelated_owner_host_and_queue_drift() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        for change in 0..8 {
+            let (root, store, mut owner, _) =
+                terminal_retirement_fixture("retirement-refusal", false);
+            let config = store.parent().unwrap();
+            let paths = owner.transaction.cutover_paths().clone();
+            let stage = paths.state_directory.join("restore-pair.pending");
+            let receipt = paths.state_directory.join("restore-finalization.pending");
+            let live_before = fs::read(&store).unwrap();
+            let receipt_before = fs::read(&receipt).unwrap();
+            let slot = config.join(NEW_SLOT[0]);
+            fs::write(&slot, fs::read(stage.join("new-profiles.json")).unwrap()).unwrap();
+            fs::set_permissions(&slot, fs::Permissions::from_mode(0o600)).unwrap();
+            let mut auxiliary_lease = None;
+            match change {
+                0 => {
+                    fs::write(
+                        &paths.ownership_marker,
+                        br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+                    )
+                    .unwrap();
+                }
+                1 => {
+                    let mut desired = owner.desired().unwrap();
+                    desired.generation += 1;
+                    write_desired(owner.transaction.desired_paths(), owner.uid(), &desired)
+                        .unwrap();
+                }
+                2 => {
+                    owner.host_mut().support_observation =
+                        Some(crate::lifecycle::NativeLocalObservation {
+                            owned_core_running: true,
+                            ..empty_local_observation()
+                        });
+                }
+                3 => {
+                    let request = MutationRequest::new(
+                        MutationKind::Other,
+                        Some("synthetic-retirement-queue"),
+                        Some(0),
+                        MutationDigest::from_semantic_bytes(b"synthetic-retirement-queue"),
+                    )
+                    .unwrap();
+                    owner.coordinator.submit(request).unwrap();
+                }
+                4 => {
+                    fs::write(
+                        owner
+                            .transaction
+                            .desired_paths()
+                            .directory
+                            .join("routing-preset.pending.json"),
+                        b"unrelated pending",
+                    )
+                    .unwrap();
+                }
+                5 => {
+                    auxiliary_lease = Some(owner.host_mut().auxiliary.reserve().unwrap());
+                }
+                6 => owner.transaction.block(),
+                _ => {
+                    fs::write(&slot, b"foreign slot\n").unwrap();
+                }
+            }
+            assert!(owner.retire_terminal_restore_candidate().is_err());
+            assert!(slot.exists());
+            assert!(stage.exists());
+            assert_eq!(fs::read(&receipt).unwrap(), receipt_before);
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            drop(auxiliary_lease);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inactive_owner_retirement_never_discards_stage_while_a_slot_survives() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        let (root, store, mut owner, _) =
+            terminal_retirement_fixture("retirement-slot-stage-order", false);
+        let stage = owner
+            .transaction
+            .cutover_paths()
+            .state_directory
+            .join("restore-pair.pending");
+        let slot = store.parent().unwrap().join(NEW_SLOT[0]);
+        fs::write(&slot, fs::read(stage.join("new-profiles.json")).unwrap()).unwrap();
+        fs::set_permissions(&slot, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::remove_file(stage.join("old-profiles.json")).unwrap();
+        fs::File::open(&stage).unwrap().sync_all().unwrap();
+        assert!(owner.retire_terminal_restore_candidate().is_err());
+        assert!(slot.exists());
+        assert!(stage.exists());
+        assert!(stage.join("ready.bin").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_owner_retirement_rechecks_owner_during_slot_work() {
+        use crate::restore_executor_candidate::NEW_SLOT;
+
+        let (root, store, mut owner, _) =
+            terminal_retirement_fixture("retirement-late-drift", false);
+        let stage = owner
+            .transaction
+            .cutover_paths()
+            .state_directory
+            .join("restore-pair.pending");
+        let state = owner.transaction.cutover_paths().state_directory.clone();
+        for (slot, member) in [
+            (NEW_SLOT[0], "new-profiles.json"),
+            (NEW_SLOT[1], "new-route-template.yaml"),
+        ] {
+            let path = store.parent().unwrap().join(slot);
+            fs::write(&path, fs::read(stage.join(member)).unwrap()).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let live_before = fs::read(&store).unwrap();
+        let receipt_before = fs::read(state.join("restore-finalization.pending")).unwrap();
+        let mut changed = owner.desired().unwrap();
+        changed.generation += 1;
+        let next_observation = owner.host_mut().support_observation_calls + 8;
+        let desired_path = owner.transaction.desired_paths().file.clone();
+        owner.host_mut().support_late_read_change = Some((
+            next_observation,
+            desired_path.clone(),
+            serde_json::to_vec(&changed).unwrap(),
+        ));
+        assert!(owner.retire_terminal_restore_candidate().is_err());
+        assert!(owner.host_mut().support_late_read_change.is_none());
+        assert!(stage.exists());
+        assert!(state.join("restore-decision.intent").exists());
+        assert_eq!(fs::read(&store).unwrap(), live_before);
+        assert_eq!(
+            fs::read(state.join("restore-finalization.pending")).unwrap(),
+            receipt_before
+        );
+        assert_eq!(
+            fs::read(desired_path).unwrap(),
+            serde_json::to_vec(&changed).unwrap()
+        );
+        assert!(crate::pending_private_transaction::pending_at(&state));
         fs::remove_dir_all(root).unwrap();
     }
 

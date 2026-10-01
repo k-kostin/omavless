@@ -249,6 +249,13 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         self.connection_blocked || self.stop_blocked()
     }
 
+    /// Stored lifecycle/store failures independent of the existence-based
+    /// private-transaction fence. Only the inactive terminal-restore
+    /// retirement candidate may consider that exact fence separately.
+    pub(crate) fn independently_blocked(&self) -> bool {
+        self.blocked || self.connection_blocked
+    }
+
     // A lifecycle failure can be resolved by explicit, verified owned cleanup.
     // Store/cutover/preset ambiguity cannot be cleared by a successful stop.
     pub(crate) fn stop_blocked(&self) -> bool {
