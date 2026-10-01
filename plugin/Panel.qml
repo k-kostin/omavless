@@ -2512,7 +2512,27 @@ Panel {
                   RowLayout {
                     visible: !nativeRow.isProfile
                     Layout.fillWidth: true
-                    PanelActionButton { id: nativeGroup; size: Style.space(24); foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground; iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"; tooltipText: root.nativeSubscriptionToggleTooltip(nativeRow.modelData); focusable: true; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
+                    PanelActionButton {
+                      id: nativeGroup
+                      size: Style.space(24)
+                      foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground
+                      iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"
+                      focusable: true
+                      property bool pointerHovered: false
+                      onHovered: function(isHovered) { pointerHovered = isHovered }
+                      onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id)
+                      // The shared action tooltip is single-line. Keep the full
+                      // translated explanation within this row, also on focus.
+                      PanelToolTip {
+                        id: nativeGroupHint
+                        visible: nativeGroup.pointerHovered || nativeGroup.activeFocus
+                        text: root.nativeSubscriptionToggleTooltip(nativeRow.modelData)
+                        fontFamily: root.fontFamily
+                        x: 0
+                        width: Math.min(implicitWidth, nativeRow.width)
+                        Binding { target: nativeGroupHint.contentItem; property: "wrapMode"; value: Text.Wrap }
+                      }
+                    }
                     PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? "" : nativeRow.modelData.subscription.name; textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; elide: Text.ElideRight
                       MouseArea { anchors.fill: parent; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
                     }
