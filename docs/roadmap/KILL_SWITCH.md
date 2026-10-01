@@ -194,6 +194,18 @@ root-owned, accessible through a dedicated package group, and every request is
 checked against kernel `SO_PEERCRED`; a caller can act only for its own enrolled
 UID. The request never carries a selectable UID.
 
+An inactive first-enrollment producer now covers the missing *initial write*
+side for synthetic tests. It resolves one unique, non-root local login account
+from a bounded, root-owned `/etc/passwd` snapshot and writes only its canonical
+numeric UID record to an exclusively created private directory/file. It
+synchronizes and reopens that record through the existing enrollment reader;
+an existing enrollment, root-state directory, unsafe account source or
+interrupted publication refuses without replacement or automatic cleanup.
+The producer has no administrator command or installed caller. It does not
+create the package group, enable the helper, grant current-session socket
+access or report the kill switch as ready. Actual provisioning must also
+coordinate with the later package/service lifetime and account-removal policy.
+
 Group membership alone is not authorization. Multiple concurrently protected
 desktop users are rejected in v1 rather than given ambiguous host-wide policy.
 
