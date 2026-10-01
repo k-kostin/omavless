@@ -269,8 +269,8 @@ hardlinks/symlinks, bounds, uncommitted/unsafe ownership and interrupted presets
 same-size in-place/atomic member replacement, directory replacement and late
 owner/pending changes. The ninth test composes the captured pair with the
 authenticated envelope, verifies private roundtrip and unchanged sources, and
-refuses invalid passphrases and templates. This is filesystem and cooperative-lock evidence, not
-protection from a hostile same-user process able to forge the entire state.
+refuses invalid passphrases and templates. This is filesystem and cooperative-lock
+evidence, not protection from a hostile same-user process able to forge the entire state.
 No system service, provider, controller, TUN or private installed file is used.
 
 The internal pair holds unvalidated plaintext in zeroizing byte buffers until
@@ -280,3 +280,30 @@ made by parsing cannot be promised zeroized. Owner instance/revision and
 recovery-state admission, private destination transfer, exclusive publication,
 restore recovery and installed acceptance remain separate gates. No product
 caller or backup command is registered.
+
+## Inactive exclusive ciphertext destination
+
+The internal runtime destination candidate accepts only the opaque result of
+the source-and-seal primitive, not arbitrary plaintext bytes. It has no CLI,
+IPC, picker or product caller. Its deliberately conservative first policy
+requires an absolute path under a same-user `0700` parent, reached through
+root- or same-user-owned ancestors with no symlinks or group/other write
+permission. Other user-selected directories refuse rather than weakening this
+boundary. The eventual user-facing destination policy and transfer API remain
+undecided.
+
+On supporting Linux filesystems it writes ciphertext to an unnamed `O_TMPFILE`
+inode with exact `0600` mode, syncs that inode, then links the requested final
+name exclusively with `AT_EMPTY_PATH`. Existing files, including symlinks, are
+never overwritten. There is no named temporary artifact or fallback if the
+filesystem lacks `O_TMPFILE`. The pinned parent is rechecked after publication
+and synchronized. Once the exclusive link succeeds, a parent-path replacement
+or sync failure is reported as an ambiguous result, not a safe retry or a claim
+that no file was created. The file is encrypted, but remains private user data.
+
+Synthetic tests cover one successful private publication, existing destination
+and symlink refusal, unsafe parents, wrong owner and a replaced parent after
+link. The latter preserves the encrypted file and reports ambiguity. This does
+not prove safety against a hostile same-user process able to move the entire
+directory concurrently, nor complete native-owner admission, passphrase UX,
+disconnected restore, durable multi-file recovery or installed acceptance.

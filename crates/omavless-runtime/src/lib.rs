@@ -5,6 +5,7 @@
 //! daemon read-only; only a successfully reconciled committed Rust owner can
 //! register mutation methods.
 
+mod backup_destination_candidate;
 mod backup_source_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
