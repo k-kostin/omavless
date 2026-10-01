@@ -17,6 +17,9 @@ function context(){
   c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
   vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
+  c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
+  const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
+  vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
   for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
@@ -46,6 +49,28 @@ test('empty native list guidance distinguishes unavailable, absent, filtered and
     assert.equal(c.calls.length,0);
   }
   assert.match(source,/PlainText \{[^\n]*text: root.nativeEmptyProfilesText\(\)/);
+});
+test('subscription toggle describes the actual target and preserves expansion during search',()=>{
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;
+    c.nativeView.subscriptions[0].name='Synthetic <b>подписка</b>';
+    let row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.expand',{name:row.subscription.name}));
+    assert.equal(c.sanitizedTooltip,c.nativeSubscriptionToggleTooltip(row));
+    c.toggleNativeSubscription('sub');row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.collapse',{name:row.subscription.name}));
+    for(const expanded of [true,false]) {
+      c.nativeExpanded={sub:expanded};c.profileFilter='Match';
+      row=c.nativeRows.find(r=>r.kind==='subscription');assert.equal(row.expanded,true);
+      assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.search_expanded'));
+      c.toggleNativeSubscription('sub');assert.equal(c.nativeExpanded.sub,expanded);
+      c.nativeCursor=0;c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,expanded);
+      c.profileFilter='';assert.equal(c.nativeRows.find(r=>r.kind==='subscription').expanded,expanded);
+    }
+    assert.equal(c.nativeSubscriptionToggleTooltip({kind:'profile'}),'');
+    assert.equal(c.calls.length,0);
+  }
+  assert.match(source,/id: nativeGroup;[^\n]*tooltipText: root.nativeSubscriptionToggleTooltip\(nativeRow.modelData\)/);
 });
 test('subscription navigation restores list focus after the old Open control disappears',()=>{
   const c=context(),deferred=[];let focused=0;
