@@ -1,7 +1,10 @@
 # Native release, beta and RC preparation
 
-Current candidate version: **0.9.5-rc.1**, not stable or marketplace-ready.
-Its bootstrap pins identify reviewed RC1 application/DNS packages from
+Current development version: **0.9.6-beta.1**, not stable or marketplace-ready.
+Its package pins are empty; do not relabel 0.9.5 assets. See the
+[beta selection](../../docs/development/BETA_096.md).
+
+The separately accepted **0.9.5-rc.1** bootstrap pins identify reviewed RC1 application/DNS packages from
 `b0bfbee681f6abcbb4f8fb23e6957594d0a4ab10` for both architectures.
 Pins alone do not prove public downloads or clean first-use acceptance; those
 results belong to the [RC ledger](../../docs/development/RC_095.md).

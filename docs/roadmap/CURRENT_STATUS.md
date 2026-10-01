@@ -6,6 +6,12 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.6 beta assembly:** owner selected #403/#408/#413/#429 TUI read-side
+  refinements and #409/#411/#420 QML state/tooltips, based on accepted
+  `rc/0.9.5`. See the [bounded selection](../development/BETA_096.md).
+  Combined and installed ARM64 checks are pending; version `0.9.6-beta.1`
+  has empty unpublished package pins. The accepted RC below remains unchanged.
+
 - **0.9.5 RC accepted:** `rc/0.9.5` supersedes 0.9.0 as the selected candidate.
   Public `v0.9.5-rc.1` packages for both architectures have matching pins;
   anonymous downloads and clean guided ARM64 setup/onboarding passed. Use the
