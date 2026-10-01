@@ -6,6 +6,8 @@
 //! register mutation methods.
 
 #[cfg(test)]
+mod backup_source_candidate;
+#[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
 
