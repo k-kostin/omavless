@@ -69,6 +69,11 @@ initialization may read the system theme before the trial explicitly applies
 its synthetic default; it then stops following system changes. These controls
 exercise in-process presentation continuity, not live theme-file watching.
 
+In the direct Rust trial, a narrow window also supports `Page Down` and
+`Page Up` for the outer Profiles/Details scroll area, including when search
+or the profile list has keyboard focus. These keys move only the viewport;
+they do not inspect a different profile or alter the simulated connection.
+
 For deterministic visual review, the direct Rust trial accepts only
 `--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
 refuses without echoing it. This chooses fixture state before the window opens;
