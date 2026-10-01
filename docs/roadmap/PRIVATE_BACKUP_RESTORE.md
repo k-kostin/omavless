@@ -242,8 +242,9 @@ available to users.
 
 ## Inactive fixed-member source snapshot
 
-The runtime's test-only `backup_source_candidate` exercises the source-pair
-acquisition prerequisite using only synthetic temporary files. It accepts the
+The runtime's internal `backup_source_candidate` compiles in normal Rust builds
+but has no product caller. It exercises the source-pair acquisition prerequisite
+using only synthetic temporary files in tests. It accepts the
 existing matching migration lease, checks the exact committed Rust generation
 and refuses an existing or unreadable routing-preset pending marker both before
 and after acquisition. It never creates state directories or repairs a marker.
@@ -262,17 +263,20 @@ mode, ownership and modification/change timestamps are rechecked after both
 reads, together with the directory and owner/pending state. A detected edit or
 replacement returns no pair and never overwrites the changed source.
 
-Eight synthetic tests cover fixed-member-only acquisition, matching lease
+Nine synthetic tests cover fixed-member-only acquisition, matching lease
 exclusion, wrong generation/lease, unsafe/missing members and directories,
 hardlinks/symlinks, bounds, uncommitted/unsafe ownership and interrupted presets,
 same-size in-place/atomic member replacement, directory replacement and late
-owner/pending changes. This is filesystem and cooperative-lock evidence, not
+owner/pending changes. The ninth test composes the captured pair with the
+authenticated envelope, verifies private roundtrip and unchanged sources, and
+refuses invalid passphrases and templates. This is filesystem and cooperative-lock evidence, not
 protection from a hostile same-user process able to forge the entire state.
 No system service, provider, controller, TUN or private installed file is used.
 
-The returned pair is deliberately unvalidated plaintext in memory, not an
-encrypted backup or authorization to publish it. Semantic store/template checks
-and authentication remain separate; non-formatable owned buffers make no
-zeroization guarantee. Source acquisition does not select destination transfer,
-cryptography, memory-cleanup policy or restore recovery, and no product caller
-or backup command is registered.
+The internal pair holds unvalidated plaintext in zeroizing byte buffers until
+the envelope's semantic checks and encryption complete. It is not an
+authorization to publish the resulting sealed bytes. Additional allocations
+made by parsing cannot be promised zeroized. Owner instance/revision and
+recovery-state admission, private destination transfer, exclusive publication,
+restore recovery and installed acceptance remain separate gates. No product
+caller or backup command is registered.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Test-only source-pair acquisition. Not an export, authentication boundary,
-//! portable-payload validator, or complete native-owner admission decision.
+//! Inactive source-pair acquisition and authenticated sealing primitive. There
+//! is no product caller, file publication, IPC or restore authority.
 
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::desired::DesiredPaths;
@@ -11,18 +11,22 @@ use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
-enum SnapshotError {
+pub(crate) enum SnapshotError {
     Admission,
     UnsafeSource,
     SourceChanged,
+    InvalidBackupInput,
+    SealingUnavailable,
 }
 
 // No formatting, serialization or clone: these are reusable private bytes.
+// Both buffers are cleared when the pair leaves scope, including error paths.
 struct PrivateSourcePair {
-    store: Vec<u8>,
-    template: Vec<u8>,
+    store: Zeroizing<Vec<u8>>,
+    template: Zeroizing<Vec<u8>>,
 }
 
 fn stable(left: &Metadata, right: &Metadata) -> bool {
@@ -108,8 +112,8 @@ impl Member {
         })
     }
 
-    fn read(&mut self) -> Result<Vec<u8>, SnapshotError> {
-        let mut bytes = Vec::new();
+    fn read(&mut self) -> Result<Zeroizing<Vec<u8>>, SnapshotError> {
+        let mut bytes = Zeroizing::new(Vec::new());
         Read::by_ref(&mut self.file)
             .take(self.limit as u64 + 1)
             .read_to_end(&mut bytes)
@@ -175,10 +179,37 @@ fn capture(
     })
 }
 
+/// Only a future serialized native owner may call this with its held lease and
+/// exact generation. This does not publish the sealed bytes or authorize a
+/// restore. No current CLI, IPC or background operation exposes it.
+#[allow(dead_code)]
+pub(crate) fn seal_current_pair(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    passphrase: &[u8],
+) -> Result<Vec<u8>, SnapshotError> {
+    let pair = capture(config, paths, uid, generation, lock, || {})?;
+    omavless_domain::private_backup::seal(&pair.store, &pair.template, passphrase).map_err(
+        |error| match error {
+            omavless_domain::private_backup::BackupError::Unavailable => {
+                SnapshotError::SealingUnavailable
+            }
+            _ => SnapshotError::InvalidBackupInput,
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    const VALID_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+    const VALID_TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
+    const PASSPHRASE: &[u8] = b"synthetic passphrase only";
 
     struct Fixture {
         root: PathBuf,
@@ -239,8 +270,8 @@ mod tests {
         write(&fixture.config.join("private.log"), b"not-portable");
         let before = fs::read(&fixture.paths.ownership_marker).unwrap();
         let pair = fixture.read(|| {}).unwrap();
-        assert!(pair.store == b"synthetic-store");
-        assert!(pair.template == b"synthetic-template");
+        assert!(pair.store.as_slice() == b"synthetic-store");
+        assert!(pair.template.as_slice() == b"synthetic-template");
         assert!(before == fs::read(&fixture.paths.ownership_marker).unwrap());
         assert!(MigrationLock::acquire(&fixture.paths, fixture.uid).is_err());
         // Bytes are intentionally not a semantic store/template fixture.
@@ -249,6 +280,68 @@ mod tests {
                 std::str::from_utf8(&pair.store).unwrap()
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn committed_source_pair_seals_without_publishing_plaintext_or_changing_sources() {
+        let fixture = Fixture::new();
+        let store_path = fixture.config.join("profiles.json");
+        let template_path = fixture.config.join("route-template.yaml");
+        write(&store_path, VALID_STORE);
+        write(&template_path, VALID_TEMPLATE);
+        let original_marker = fs::read(&fixture.paths.ownership_marker).unwrap();
+
+        let envelope = seal_current_pair(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &fixture.lock,
+            PASSPHRASE,
+        )
+        .unwrap();
+        assert!(envelope.len() <= omavless_domain::private_backup::MAX_BACKUP_BYTES);
+        assert!(
+            !envelope
+                .windows(VALID_STORE.len())
+                .any(|window| window == VALID_STORE)
+        );
+        let opened = omavless_domain::private_backup::open(&envelope, PASSPHRASE).unwrap();
+        assert_eq!(opened.store(), VALID_STORE);
+        assert_eq!(opened.template(), VALID_TEMPLATE);
+        assert_eq!(fs::read(store_path).unwrap(), VALID_STORE);
+        assert_eq!(fs::read(template_path).unwrap(), VALID_TEMPLATE);
+        assert_eq!(
+            fs::read(&fixture.paths.ownership_marker).unwrap(),
+            original_marker
+        );
+
+        assert_eq!(
+            seal_current_pair(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &fixture.lock,
+                b"short",
+            ),
+            Err(SnapshotError::InvalidBackupInput)
+        );
+        write(
+            &fixture.config.join("route-template.yaml"),
+            b"invalid-template",
+        );
+        assert_eq!(
+            seal_current_pair(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &fixture.lock,
+                PASSPHRASE,
+            ),
+            Err(SnapshotError::InvalidBackupInput)
         );
     }
 
@@ -450,7 +543,7 @@ mod tests {
                 ));
             })
             .unwrap();
-        assert!(pair.store == b"synthetic-store");
-        assert!(pair.template == b"synthetic-template");
+        assert!(pair.store.as_slice() == b"synthetic-store");
+        assert!(pair.template.as_slice() == b"synthetic-template");
     }
 }
