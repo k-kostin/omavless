@@ -178,6 +178,7 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
   vm.runInContext(source.slice(start,source.indexOf('\n  }',start)+4),c);
   const flick=c.nativeFlick;Object.assign(flick,{height:300,contentHeight:1000,contentItem:{},contentY:250});
   const item=(y,height)=>({height,mapToItem:()=>({y})});
+  c.nativeQuitSetting={focusTarget:null};c.nativeReleaseCredit={visible:false};
   let target=item(290,30);target.focusScrollItem=item(230,130);
   c.scrollPanelControlIntoView(target);assert.equal(flick.contentY,222);
   flick.contentY=0;target=item(260,30);target.focusScrollItem=item(220,140);
@@ -189,6 +190,9 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
   flick.contentY=500;c.scrollPanelControlIntoView(item(990,10));assert.equal(flick.contentY,700);
   flick.contentY=100;target=item(900,30);target.parent={parent:null};
   c.scrollPanelControlIntoView(target);assert.equal(flick.contentY,100);
+  const quit=item(880,45);c.nativeQuitSetting.focusTarget=quit;
+  c.nativeReleaseCredit=Object.assign(item(940,20),{visible:true});
+  flick.contentY=500;c.scrollPanelControlIntoView(quit);assert.equal(flick.contentY,668);
   assert.match(source,/id: actionButton\s+readonly property Item focusScrollItem: settingRow/);
   for (const id of ['nativeSupportCopy','nativeSupportSave'])
     assert(source.includes('id: '+id+'; readonly property Item focusScrollItem: nativeSupportSetting;'));
@@ -423,20 +427,25 @@ test('Settings footer uses only installed public plugin metadata after Quit',()=
   const end=source.indexOf('\n  }',start)+4;
   assert(start>0&&end>start);
   const expression=source.slice(start,end).replace('readonly property string releaseCredit:','function releaseCredit()');
-  const c=vm.createContext({manifest:{version:'0.9.7-rc.1',author:'kdk'},locale:'en',textFor:(key,values)=>i18n.translate(key,c.locale,values)});
+  const c=vm.createContext({releaseManifest:{version:'0.9.7-rc.1',author:'kdk'},locale:'en',textFor:(key,values)=>i18n.translate(key,c.locale,values)});
   vm.runInContext(expression,c);
   assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · by kdk');
   c.locale='ru';assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · автор: kdk');
   for(const metadata of [null,{}, {version:'0.9.7-rc.1'}, {version:'../../secret',author:'kdk'}, {version:'0.9.7-'+('x'.repeat(40)),author:'kdk'}, {version:'0.9.7-rc.1',author:'<b>'}]){
-    c.manifest=metadata;assert.equal(c.releaseCredit(),'');
+    c.releaseManifest=metadata;assert.equal(c.releaseCredit(),'');
   }
-  assert.match(source,/property var manifest: null/);
+  assert.match(source,/property var releaseManifest: null/);
+  assert.match(source,/path: String\(Qt\.resolvedUrl\("\.\.\/manifest\.json"\)\)/);
+  assert.match(source,/if \(raw\.length > 8192\)/);
+  assert.match(source,/onLoadFailed: root\.releaseManifest = null/);
   const quit=source.indexOf('id: nativeQuitSetting');
+  const footerId=source.indexOf('id: nativeReleaseCredit',quit);
   const footer=source.indexOf('text: root.releaseCredit',quit);
   const next=source.indexOf('visible: root.page === "subscriptions"',quit);
-  assert(quit<footer&&footer<next);
+  assert(quit<footerId&&footerId<footer&&footer<next);
   assert.match(source.slice(quit,next),/textFormat: Text.PlainText/);
   assert.match(source.slice(quit,next),/font.pixelSize: Style.font.caption/);
+  assert.match(source,/target === nativeQuitSetting\.focusTarget && nativeReleaseCredit\.visible/);
 });
 test('native Settings Tab order follows visual action order without hidden Test',()=>{
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);

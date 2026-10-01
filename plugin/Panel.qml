@@ -19,15 +19,29 @@ Panel {
   moduleName: "kdk.omavless"
   ipcTarget: "kdk.omavless"
   manageIpc: false
-  // Quickshell supplies the installed plugin's public manifest to panels
-  // exposing this property. Never infer the displayed version from a native
-  // runtime that may be on a different package revision during an update.
-  property var manifest: null
+  // A bar-widget panel does not receive the host's manifest injection. Read
+  // only our adjacent public manifest; the native package may temporarily be
+  // on a different revision during an update.
+  property var releaseManifest: null
   readonly property string releaseCredit: {
-    if (!manifest || typeof manifest.version !== "string" || typeof manifest.author !== "string") return ""
-    if (manifest.version.length > 32 || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(manifest.version)) return ""
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(manifest.author)) return ""
-    return textFor("settings.release_credit", {version:manifest.version, author:manifest.author})
+    var metadata = releaseManifest
+    if (!metadata || typeof metadata.version !== "string" || typeof metadata.author !== "string") return ""
+    if (metadata.version.length > 32 || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(metadata.version)) return ""
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(metadata.author)) return ""
+    return textFor("settings.release_credit", {version:metadata.version, author:metadata.author})
+  }
+  FileView {
+    path: String(Qt.resolvedUrl("../manifest.json")).replace(/^file:\/\//, "")
+    watchChanges: true
+    printErrors: false
+    onLoaded: {
+      var raw = String(text())
+      if (raw.length > 8192) { root.releaseManifest = null; return }
+      try { root.releaseManifest = JSON.parse(raw) }
+      catch (e) { root.releaseManifest = null }
+    }
+    onLoadFailed: root.releaseManifest = null
+    onFileChanged: reload()
   }
 
   // Owner-requested temporary presentation gates. Restore only on explicit
@@ -858,6 +872,12 @@ Panel {
       var point = item.mapToItem(flick.contentItem, 0, 0)
       var top = point.y
       var bottom = top + item.height
+      // Quit is the final focusable Settings row. Keep its adjacent passive
+      // release credit visible for keyboard users reaching the end of the list.
+      if (target === nativeQuitSetting.focusTarget && nativeReleaseCredit.visible) {
+        var footer = nativeReleaseCredit.mapToItem(flick.contentItem, 0, 0)
+        bottom = Math.max(bottom, footer.y + nativeReleaseCredit.height)
+      }
       var maxY = Math.max(0, flick.contentHeight - flick.height)
       if (top < flick.contentY + margin)
         flick.contentY = Math.max(0, top - margin)
@@ -2397,6 +2417,7 @@ Panel {
             onAction: root.quitConfirmation = true
           }
           PlainText {
+            id: nativeReleaseCredit
             Layout.fillWidth: true
             visible: root.page === "settings" && root.releaseCredit !== ""
             text: root.releaseCredit
