@@ -41,18 +41,33 @@ export function connectionPresentation(scene) {
   return { kind: "none", id: null };
 }
 
+function generatedProfile(index) {
+  const number = String(index).padStart(5, "0");
+  return {
+    id: `generated-${number}`,
+    name: `Synthetic node ${number}`,
+    country: "Example",
+    host: `node-${number}.example`,
+    subscription: "Generated samples",
+  };
+}
+
+// Selection can outlive a filter or the large-list toggle. Resolve its
+// details without rebuilding the entire 10k-row fixture on every render.
+export function profileById(id) {
+  const sample = fixture.profiles.find((profile) => profile.id === id);
+  if (sample) return sample;
+  const match = /^generated-(\d{5})$/.exec(id ?? "");
+  if (!match) return null;
+  const index = Number(match[1]);
+  return index < fixture.large_list_count ? generatedProfile(index) : null;
+}
+
 export function visibleProfiles(query, large = false, collection = "all") {
   const profiles = [...fixture.profiles];
   if (large) {
     for (let index = 0; index < fixture.large_list_count; index += 1) {
-      const number = String(index).padStart(5, "0");
-      profiles.push({
-        id: `generated-${number}`,
-        name: `Synthetic node ${number}`,
-        country: "Example",
-        host: `node-${number}.example`,
-        subscription: "Generated samples",
-      });
+      profiles.push(generatedProfile(index));
     }
   }
   const needle = query.toLocaleLowerCase();
@@ -64,4 +79,14 @@ export function visibleProfiles(query, large = false, collection = "all") {
     return inCollection && [profile.name, profile.country, profile.host, profile.subscription]
       .some((value) => value.toLocaleLowerCase().includes(needle));
   });
+}
+
+// Keyboard position is navigation, not profile selection or a connection.
+// A filtered-out position starts at the nearest edge in the key direction.
+export function nextHighlightedProfile(visible, currentId, direction) {
+  if (visible.length === 0) return null;
+  const current = visible.findIndex((profile) => profile.id === currentId);
+  if (current < 0) return visible[direction < 0 ? visible.length - 1 : 0].id;
+  const next = Math.max(0, Math.min(visible.length - 1, current + direction));
+  return visible[next].id;
 }

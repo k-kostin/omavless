@@ -52,6 +52,13 @@ platform acceptance.
 The sample list can expand to 10,006 rows. Selection, search, collection,
 language and simulated states are local UI actions only. There is deliberately
 no Connect, Disconnect, Quit, daemon bridge or credential input.
+In the Shell trial, `Tab` reaches the profile list, `Up`/`Down` move a
+highlight without changing the inspected or confirmed profile, `Enter`
+inspects the highlighted row, and `Escape` returns focus to the panel. An
+empty search displays a localized no-results message; pressing `Enter` there
+does not erase the prior inspected profile. Generated sample details remain
+resolvable after filtering or hiding the large list. These are synthetic
+keyboard interactions, not an accessibility or production acceptance claim.
 
 The Shell trial also offers three **synthetic** palette choices: dark, light,
 and a deliberately malformed palette. The last one must replace the *whole*

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { connectionPresentation, fixture, visibleProfiles } from "../shell/data.js";
+import { connectionPresentation, fixture, nextHighlightedProfile, profileById, visibleProfiles } from "../shell/data.js";
 import { BROKEN, DARK, LIGHT, completePalette, resolvedPalette } from "../shell/palette.js";
 
 const expected = JSON.parse(readFileSync(new URL("../fixtures.json", import.meta.url), "utf8"));
@@ -14,6 +14,17 @@ assert.equal(visibleProfiles("", true, "sample").length, 5);
 assert.equal(visibleProfiles("", true, "generated").length, fixture.large_list_count);
 assert.equal(visibleProfiles("", true, "local").length, 1);
 assert.equal(visibleProfiles("south", false, "local").length, 0);
+const small = visibleProfiles("", false);
+assert.equal(nextHighlightedProfile(small, "north", 1), "south");
+assert.equal(nextHighlightedProfile(small, "north", -1), "north");
+assert.equal(nextHighlightedProfile(small, "local", 1), "local");
+assert.equal(nextHighlightedProfile(small, "filtered-out", -1), "local");
+assert.equal(nextHighlightedProfile([], "north", 1), null);
+assert.equal(nextHighlightedProfile(visibleProfiles("south"), "north", 1), "south");
+assert.deepEqual(profileById("generated-00012"), visibleProfiles("node-00012", true)[0]);
+assert.equal(profileById("generated-10000"), null);
+assert.equal(profileById("generated-00012-extra"), null);
+assert.equal(profileById("removed-profile"), null);
 assert.deepEqual(connectionPresentation(fixture.scenes[0]), { kind: "confirmed", id: "south" });
 assert.deepEqual(connectionPresentation(fixture.scenes[2]), { kind: "previous", id: "south" });
 for (const scene of fixture.scenes.filter((scene) => !["connected", "switching"].includes(scene.phase))) {

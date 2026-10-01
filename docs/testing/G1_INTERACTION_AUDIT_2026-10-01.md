@@ -86,3 +86,33 @@ This closes the specific lower-panel wheel reachability gap from the preceding
 400-pixel capture. It does not establish keyboard-only scroll access,
 screen-reader behavior, direct-Rust parity, live theme watching, large-list
 performance or G1b daemon attachment.
+
+### Shell keyboard list and empty-state follow-up
+
+The next Shell-only slice adds a focused, keyboard-navigable *synthetic*
+profile list. The action target is the highlighted row for inspection, never
+the VPN connection. `Tab` enters the list; `Up`/`Down` move the outline and
+scroll it into view without changing the selected profile or the separately
+confirmed connection. `Enter` selects only the highlighted profile for
+inspection; `Escape` returns focus to the panel. When a search has no matches,
+the list displays an English/Russian no-results message; `Enter` in either
+the empty list or the empty search retains the prior inspection selection.
+
+On the x86_64 Omarchy Dev VM at 1110×1198 logical pixels, the pinned Shell
+host rendered the English list and search-empty state. Keyboard navigation
+reached a generated row in the 10,006-row fixture and scrolled it into view.
+The initial trial exposed a real defect: the row became selected, but its
+details said "No valid selection" because only the six static fixture rows
+were resolved. The corrected candidate resolves generated IDs without a
+10k-row rebuild; a second VM render showed the generated profile name and
+source in Details, while the confirmed *South* remained unchanged. The
+Russian empty-state copy and the no-op `Enter` on zero matches were rendered
+in the VM. Node fixture assertions, Shell syntax checks and diff checks pass.
+Captures stayed outside Git. The transient trial was stopped and its copied
+application directory removed afterward; no product service, route or private
+store was touched.
+
+This establishes only the exercised Shell keyboard path. Native accessibility,
+screen readers, IME, narrow-window keyboard reachability, direct Rust parity,
+measured large-list latency/memory, live theme watching and platform/package
+gates remain open. G1a is not complete and G1b daemon binding is not started.
