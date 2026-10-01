@@ -37,6 +37,13 @@ ShellRoot {
     })
     return "started"
   }
+  function subscriptionGroup() {
+    // Profile delegates also instantiate an invisible group control. Never
+    // mistake that placeholder for the visible subscription arrow.
+    return review.find(product, function(o) {
+      return "pointerHovered" in o && "iconText" in o && o.iconText !== ""
+    })
+  }
   Product.Panel {
     id: product
     width: Style.bar.iconSlot
@@ -91,7 +98,7 @@ ShellRoot {
       return "ready"
     }
     function reviewInspect(): string {
-      var group = review.find(product, function(o) { return "pointerHovered" in o && "iconText" in o })
+      var group = review.subscriptionGroup()
       var hint = group && review.find(group, function(o) { return "panelBackground" in o && "delay" in o && o.text !== "" })
       return JSON.stringify({kind:review.reviewKind, locale:product.uiLocale,
         rows:product.nativeRows.length, storedExpanded:product.nativeExpanded["demo-subscription"] === true,
@@ -101,13 +108,13 @@ ShellRoot {
         pointerHovered:!!(group && group.pointerHovered), state:product.nativeView.state})
     }
     function reviewFocus(): string {
-      var group = review.find(product, function(o) { return "pointerHovered" in o && "iconText" in o })
+      var group = review.subscriptionGroup()
       if (!group) return "not-ready"
       group.forceActiveFocus()
       return "focused"
     }
     function reviewPointer(): string {
-      var group = review.find(product, function(o) { return "pointerHovered" in o && "iconText" in o })
+      var group = review.subscriptionGroup()
       if (!group) return "not-ready"
       var point = group.mapToGlobal(group.width / 2, group.height / 2)
       return JSON.stringify({x:Math.round(point.x), y:Math.round(point.y)})
