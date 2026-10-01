@@ -1,8 +1,8 @@
 # T4 private backup and restore proposal
 
-Status: security/product design candidate, **not implemented or approved for
-activation**. This document creates no backup command, IPC method, picker,
-archive format, scheduler, or restore authority. A backup file contains reusable
+Status: security/product design with an inactive Rust envelope primitive, **not
+approved for activation**. There is no backup command, IPC method, picker,
+scheduler, file publisher or restore authority. A backup file contains reusable
 VPN credentials and subscription bearer URLs; it is not a support report.
 
 ## User task and scope
@@ -31,9 +31,8 @@ than being captured by a wildcard directory archive.
 
 - A portable product backup must be authenticated and encrypted before it is
   written to a user-selected destination. There is no silent plaintext export
-  or cloud upload. Specify the interoperable envelope, KDF/AEAD parameters,
-  passphrase policy and recovery behavior in a later cryptographic review; do
-  not invent a home-grown cipher or treat file mode `0600` as encryption.
+  or cloud upload. The inactive envelope below fixes a candidate KDF/AEAD and
+  byte format for review; do not treat file mode `0600` as encryption.
 - The passphrase must not enter argv, environment variables, logs, shell history
   or shareable diagnostics. Wrong passphrase and corrupt/unsupported backups
   get fixed, non-oracular public errors. Losing the passphrase is unrecoverable;
@@ -104,17 +103,17 @@ setup merely because a backup was supplied.
    portable payload. A physical-PC pass is needed only for a concrete
    hardware-specific behavior, not for the pure archive format.
 
-Open decisions before implementation: cryptographic format and passphrase UX;
-private byte-transfer/destination API; portable template policy; whether a
+Open decisions before activation: passphrase UX and independent format review;
+private byte-transfer/destination API; broader portable template policy; whether a
 later version can offer an explicit non-destructive import/merge; and precise
 transaction-journal layout. None is settled by this proposal.
 
-## Test-only inner payload framing candidate
+## Inner payload framing candidate
 
-The `omavless-domain` test-only `backup_payload_candidate` module explores one
-bounded inner payload representation. It is excluded from non-test builds and
-has no runtime caller, file handling, credentials, cryptography or IPC surface.
-Its plaintext output is **not a backup** and must never be saved as one.
+The internal `omavless-domain::backup_payload_candidate` module explores one
+bounded inner payload representation. It is compiled for the inactive encrypted
+envelope below and has no runtime caller, file handling or IPC surface. Its
+plaintext output is **not a backup** and must never be saved as one.
 
 The experimental framing is eight literal bytes `OVTESTP1`, then two big-endian
 u32 lengths, then exact store bytes followed by exact template bytes. Member
@@ -132,13 +131,10 @@ pass framing: structural decode is **not authentication or restore validation**.
 No decoded private type implements Debug, Display, Clone or serialization.
 Borrowed slices avoid a decoder plaintext copy but provide no zeroization claim.
 
-This narrower gate does not select an AEAD/KDF library or parameters. Before
-adding encryption, review the interoperable outer format, authenticated header
-coverage, unique nonce/salt generation and RNG failure, bounded KDF resource
-policy, passphrase encoding/UX, memory cleanup, dependency advisories and
-independent known-answer/interoperability evidence. Authentication must finish
-before inner semantic parsing or preview. Public wrong-passphrase/corruption
-errors must remain fixed; this framing test makes no timing-oracle guarantee.
+This narrower gate did not select an AEAD/KDF library or parameters. The inactive
+envelope primitive below now fixes one version for review. Authentication must
+finish before inner semantic parsing or preview. Public wrong-passphrase and
+corruption errors remain fixed; no timing-oracle guarantee is claimed.
 
 Strict current-schema store validation (including duplicate/unknown members),
 portable-template policy, consistent owner snapshot, private byte transfer,
@@ -148,7 +144,7 @@ production activation or completed backup/restore feature is claimed.
 
 ## Inactive strict store admission
 
-The test-only `private_store::backup_candidate` now validates the store member
+The internal `private_store::backup_candidate` validates the store member
 after the framing gate. A closed deserialization schema rejects unknown and
 duplicate decoded keys at the root, profile, subscription, rule and startup
 objects. The existing private-store parser then validates credentials, record
@@ -162,7 +158,7 @@ formatting, cloning or generic serialization.
 The deliberately closed schema rejects extensions such as provider quota,
 schedules, embedded host state and future fields; it does not silently discard
 them. A later schema decision can add reviewed portable fields. This restriction
-is local to the test-only backup candidate; ordinary store compatibility reads
+is local to the backup candidate; ordinary store compatibility reads
 are unchanged. Enabled startup preferences can be valid portable data, but
 their presence grants no login/restore authority and does not relax the separate
 Off-after-restore requirement.
@@ -175,15 +171,15 @@ that a valid store can coexist with an invalid template: store acceptance is
 neither authentication, portable-template validation nor permission to restore.
 The exact input bytes survive successful admission; no file or host is touched.
 
-Current-schema store admission now has this executable candidate, but activation
-still needs the authenticated envelope, portable-template policy and whole-pair
-validation, consistent owner snapshot, private transfer/publication, disconnected
+Current-schema store admission is now compiled for the inactive encrypted
+envelope below. Activation still needs a broader portable-template policy,
+consistent owner snapshot, private transfer/publication, disconnected
 owner/revision admission and durable multi-file recovery. No installed backup or
 restore is available or claimed.
 
 ## Inactive bundled-template pair admission
 
-The test-only framing candidate also offers a deliberately narrow whole-pair
+The inner framing candidate also offers a deliberately narrow whole-pair
 gate. After strict store validation, it recognizes only the exact current
 checked-in default, China or Iran template selected by the store's routing
 preset, with the existing canonical rule/global/direct mode transformation.
@@ -203,8 +199,43 @@ This bounded subset is an executable candidate, **not** a decision that the
 product should permanently reject custom templates. It is version-sensitive to
 the checked-in template snapshots and makes no cross-version portability claim.
 A broader portable-template policy still needs an explicit contract. The
-authenticated envelope, complete native-owner snapshot integration, private
+authenticated envelope's runtime integration, complete native-owner snapshot, private
 transfer and exclusive destination publication, disconnected owner/revision
 admission, durable multi-file recovery and exact-head installed acceptance all
 remain gates before activation. Pair admission does not authenticate bytes or
 grant permission to restore them.
+
+## Inactive authenticated envelope primitive
+
+`omavless-domain::private_backup` is compiled in normal Rust builds but has no
+runtime caller, CLI, IPC, file picker or restore transaction. It accepts only
+the strict v3 store and exact bundled-template pair above. Its `seal` operation
+uses OS-generated independent 16-byte salt and 24-byte nonce, Argon2id v19
+(64 MiB, three iterations, one lane, 32-byte key), then XChaCha20-Poly1305.
+Opening checks total and declared sizes before the fixed-cost KDF,
+authenticates the complete header as AEAD associated data, and only then parses
+the inner framing and pair semantics. Key and owned plaintext buffers are
+zeroized on drop; the caller still owns its passphrase memory. Strict JSON
+validation can allocate additional private data that is not guaranteed to be
+zeroized. Both APIs require 12–1024 passphrase bytes. The future UI must explain
+that losing the passphrase is unrecoverable and avoid argv, environment and
+logging exposure.
+
+Version 01 bytes are: `OVBKUP01` (8), salt (16), nonce (24), big-endian u32
+ciphertext length (4), ciphertext and 16-byte AEAD tag. The authenticated
+plaintext is the fixed `OVTESTP1` inner representation above. No variable KDF
+parameters, compression, paths or extra members are accepted. Total input is
+bounded by the 5-MiB store and 2-MiB template limits plus 68 bytes of outer
+overhead and 16 bytes of inner framing. Wrong passphrase, tampering, unsupported
+version and invalid authenticated members all return `backup_unreadable`.
+Creation rejects invalid source pairs; no plaintext backup is written.
+
+Synthetic tests and an independent libargon2/libsodium deterministic envelope
+vector cover roundtrip/exact bytes, fresh entropy, wrong passphrase,
+tampering of salt/nonce/ciphertext/tag, truncation, declared-length and version
+refusal, and creation admission. This is a cryptographic format candidate until
+full memory/dependency review and product passphrase UX are complete. It does not
+close consistent native-owner snapshot,
+private destination publication, disconnected restore admission, durable
+multi-file recovery or installed acceptance. No backup or restore feature is
+available to users.

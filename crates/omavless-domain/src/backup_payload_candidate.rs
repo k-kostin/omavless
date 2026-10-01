@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Test-only candidate for the *inner* plaintext payload, never a backup file.
-//! No cryptography, authentication, or restore authority. Semantic admission
-//! is separately limited to complete stores and exact current bundled templates.
-//! Future callers must authenticate a complete bounded outer envelope first.
+//! Internal plaintext framing, never a backup file. The public backup module
+//! authenticates the complete outer envelope before calling this decoder.
 
 use crate::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
 use std::fmt;
@@ -12,11 +10,12 @@ mod pair;
 
 // Experimental marker, explicitly not a stable interoperable backup format.
 const MAGIC: &[u8; 8] = b"OVTESTP1";
-const HEADER_BYTES: usize = 16;
-const MAX_PAYLOAD_BYTES: usize = HEADER_BYTES + MAX_PRIVATE_STORE_BYTES + MAX_TEMPLATE_BYTES;
+pub(crate) const HEADER_BYTES: usize = 16;
+pub(crate) const MAX_PAYLOAD_BYTES: usize =
+    HEADER_BYTES + MAX_PRIVATE_STORE_BYTES + MAX_TEMPLATE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct InvalidPayload;
+pub(crate) struct InvalidPayload;
 
 impl fmt::Display for InvalidPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -24,16 +23,16 @@ impl fmt::Display for InvalidPayload {
     }
 }
 
-// No Debug, Display, Clone or serialization: contents remain private even if a
-// future authenticated envelope yields these bytes. Borrowing does not duplicate
+// No Debug, Display, Clone or serialization: contents remain private even when
+// the authenticated envelope yields these bytes. Borrowing does not duplicate
 // plaintext; its owner remains responsible for memory lifetime/zeroization.
-struct FramedPayload<'a> {
+pub(crate) struct FramedPayload<'a> {
     store: &'a [u8],
     template: &'a [u8],
 }
 
 impl<'a> FramedPayload<'a> {
-    // Test-only semantic composition. The caller still must authenticate the
+    // Internal semantic composition. The caller still must authenticate the
     // outer envelope first; neither framing nor a valid store authenticates it.
     fn validate_store(
         &self,
@@ -57,7 +56,7 @@ fn lengths(store: usize, template: usize) -> Result<usize, InvalidPayload> {
         .ok_or(InvalidPayload)
 }
 
-fn decode(input: &[u8]) -> Result<FramedPayload<'_>, InvalidPayload> {
+pub(crate) fn decode(input: &[u8]) -> Result<FramedPayload<'_>, InvalidPayload> {
     if !(HEADER_BYTES..=MAX_PAYLOAD_BYTES).contains(&input.len())
         || input.get(..8) != Some(MAGIC.as_slice())
     {
@@ -82,7 +81,7 @@ fn decode(input: &[u8]) -> Result<FramedPayload<'_>, InvalidPayload> {
 
 // Only the synthetic gate uses this encoder. Never write its plaintext output
 // as a product backup, even with private permissions.
-fn encode(store: &[u8], template: &[u8]) -> Result<Vec<u8>, InvalidPayload> {
+pub(crate) fn encode(store: &[u8], template: &[u8]) -> Result<Vec<u8>, InvalidPayload> {
     let total = lengths(store.len(), template.len())?;
     let store_len = u32::try_from(store.len()).map_err(|_| InvalidPayload)?;
     let template_len = u32::try_from(template.len()).map_err(|_| InvalidPayload)?;
