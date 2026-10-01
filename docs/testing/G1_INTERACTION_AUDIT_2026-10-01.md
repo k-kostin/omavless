@@ -55,3 +55,15 @@ broken/missing filesystem theme, direct Rust parity, narrow layout,
 accessibility and packaging remain **NOT RUN**. The upstream hidden-check
 panic still applies. No product VPN, installed plugin or host theme was
 changed; temporary screenshots remain outside Git.
+
+### Short-window correction on the same trial
+
+At `b450b02`, the VM showed an actual layout defect at 400×700 logical pixels:
+the Shell profile panel kept its 30rem minimum and was clipped to the right.
+Putting flex sizing on a wrapper and allowing the panel/list internals to
+shrink kept the collection controls, search, list rows and long safe labels
+within the window. A 1110-pixel-wide recapture retained the two-column
+layout; the 400-pixel EN and RU captures showed the single-column profile
+panel without horizontal clipping. The selected/connected distinction
+remained visible. Full keyboard/wheel reachability of the lower Details panel
+was **NOT RUN** and remains a G1a gate; these captures do not establish it.
