@@ -52,8 +52,8 @@ packet to carry the K1 mark, with nonzero total traffic. The wrong-mark phase
 requires zero K1-marked packets and nonzero successful resolver traffic. Both
 still require the fixed HTTP token and post-core-stop proxy refusal. Separate
 core processes avoid an earlier phase's in-memory DNS cache. The original direct
-TCP pair remains in the same run. The parent deadline is 100 seconds for all six
-bounded phases; namespace and command guards are unchanged.
+TCP pair remains in the same run. That checkpoint used a 100-second parent
+deadline for all six bounded phases; namespace and command guards were unchanged.
 
 On October 1, 2026 all six phases passed in the same x86_64 KVM development VM,
 kernel `7.2.5-3-omarchy`, with `omavless-dns 0.9.5beta1-1` and core hash below.
@@ -65,6 +65,38 @@ behavior, encrypted DNS, hostname bootstrap, proxy endpoint resolution, IPv6,
 TUN capture, physical egress or complete production resolver coverage.
 The test is based on the upstream [DNS configuration contract](https://wiki.metacubex.one/en/config/dns/);
 the measured binary identity, rather than current documentation, owns the result.
+
+### IPv6 socket extension
+
+The next checkpoint adds `2001:db8::2/128` to child loopback with `nodad`,
+alongside the existing IPv4 fixture. It creates no route to another namespace,
+physical link or internet destination. IPv6 TCP HTTP and UDP/TCP DNS responders
+bind only this documentation address. Six additional candidate/wrong-mark phases
+test direct IPv6 TCP and both numeric IPv6 DNS upstream transports. No IPv6
+sysctl, host interface, default route or firewall is changed. Missing IPv6 support
+fails the probe instead of silently skipping these phases.
+
+The direct counters now also select their server port, excluding the fixture
+server's replies, and require every counted request packet to be marked in both
+families. DNS counters select the IPv6 upstream address, transport and port;
+the DNS answer remains a synthetic IPv4 HTTP address, so those phases establish
+the resolver socket's family separately from the application destination. The
+direct IPv6 phase independently checks an IPv6 application destination. All
+twelve phases retain successful-token and stopped-core controls. The bounded
+parent deadline is 180 seconds for the expanded matrix.
+
+An initial IPv6 resolver attempt retained `dns.ipv6: false` and failed at the
+UDP request; it is not a mark failure or passing resolver result. With both
+global and DNS IPv6 enabled in the synthetic IPv6 configuration, all twelve
+phases passed on October 1 in the same guest/kernel/package/core identified
+above. No production configuration was altered. Exact extended script SHA-256:
+`d7bc48a4b779698f5514e2fe950d858ed42f7f537fae9dc8aab1466a0a580d7e`.
+
+This is isolated IPv6 socket-mark evidence. It does not prove routed IPv6,
+physical egress, IPv6 confidentiality on core failure, neighbor discovery,
+router advertisements, actual provider transports, encrypted DNS, or K1's host
+failure matrix. The lack of an external IPv6 network is deliberate and cannot
+be used to claim those acceptance rows passed.
 
 ## Exact evidence and source limits
 
