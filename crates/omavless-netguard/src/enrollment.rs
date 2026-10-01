@@ -104,7 +104,7 @@ impl EnrollmentBinding {
         Self::open_under(etc, owner)
     }
 
-    fn open_under(etc: File, owner: (u32, u32)) -> Result<Self> {
+    pub(crate) fn open_under(etc: File, owner: (u32, u32)) -> Result<Self> {
         let directory =
             File::from(openat(&etc, DIR, DIRECTORY, Mode::empty()).map_err(|_| REFUSE)?);
         check(&directory, owner, true)?;
