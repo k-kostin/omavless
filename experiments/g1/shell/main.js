@@ -145,8 +145,11 @@ export default class G1Trial extends View {
     // Let native flex layout react to window geometry. A Shell view snapshot is
     // not rebuilt on resize, so a JS viewport breakpoint remains stale until
     // another action happens to refresh the view.
-    const panels = h_flex().flex_1().flex_wrap()
-      .items_start().min_h_0().min_w_0().gap(12)
+    // A wrapped Details panel must contribute to the outer scroll extent in
+    // a short window. Flexing this row to the viewport clipped it below the
+    // Profiles panel even though the body advertised vertical scrolling.
+    const panels = h_flex().flex_none().flex_wrap()
+      .items_start().min_w_0().gap(12)
       .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
         .child(new Panel("profiles").title(strings.profiles).content(list).build(cx).min_w_0()))
       .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)

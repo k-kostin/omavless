@@ -41,7 +41,9 @@ grants no script network, process, filesystem or clipboard authority. Its
 `omarchy-ui` source is bundled, pinned and licensed under
 [`vendor/omarchy-ui/`](shell/vendor/omarchy-ui/UPSTREAM.md); the normal launch
 must not fetch it. The profile/details panels now reflow through native flex
-layout when the window resizes, without a script-render event. `gpui-shell check`
+layout when the window resizes, without a script-render event. The wrapped
+panels contribute to outer scrolling in short windows: a 400×700 VM wheel
+test reached the complete Details panel. `gpui-shell check`
 still panics while materializing the virtual list outside a rendered view in
 the inspected upstream host; an actual debug/release launch and fixture test
 are the applicable checks until that is fixed. Do not treat a launch as VPN or
