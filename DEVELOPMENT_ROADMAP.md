@@ -2,7 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
-**0.9.5 development, 2026-09-30:** owner-selected `beta/0.9.5` starts from
+**0.9.5 scope freeze, 2026-10-01:** `rc/0.9.5` selects completed
+T3 read-only and explicit T4 provider-information slices after x86_64 and
+ARM64 installed beta review. The [RC ledger](docs/development/RC_095.md)
+owns exact scope, evidence, excluded foundations and publication boundaries.
+Source version is `0.9.5-rc.1`; stable main, accepted RC 0.9.0 and Marketplace
+remain unchanged. This supersedes the beta-pending narrative below.
+
+**0.9.5 development, 2026-09-30 (selection history):** owner-selected `beta/0.9.5` starts from
 accepted `rc/0.9.0` at `a543a45c34dcc953ef2e9cd019499146f85ac2eb`.
 It carries selected, checked `dev/*` checkpoints and their reconciled docs;
 later `rc/0.9.5` freezes release scope. Keep 0.9.0 acceptance/artifacts intact.

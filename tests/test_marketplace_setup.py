@@ -14,8 +14,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
-VERSION = "0.9.5-beta.1"
-PKGVER = "0.9.5beta1"
+VERSION = "0.9.5-rc.1"
+PKGVER = "0.9.5rc1"
 SOURCE = "b" * 40
 
 
@@ -66,7 +66,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
                                   "x86_64": entry(digest)} if digest else {})}
             (self.directory / name).write_text(json.dumps(data))
 
-    def test_unpublished_beta_cannot_reuse_accepted_rc_pair_pins(self):
+    def test_unpublished_candidate_cannot_reuse_accepted_rc_pair_pins(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
         records = {}
         for filename in ("runtime-release.json", "dns-release.json"):
@@ -130,7 +130,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
     def test_existing_package_states_are_bounded_and_read_only(self):
         fixture = '''
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5beta1-1'; }
+package_installed() { echo 'omavless 0.9.5rc1-1'; }
 pair_installed() { return 0; }
 system_broker_available() { return 0; }
 native_target() { echo rust; }
@@ -298,7 +298,7 @@ install_package
         fixture = '''
 pair_installed() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5beta1-1'; }
+package_installed() { echo 'omavless 0.9.5rc1-1'; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
@@ -337,7 +337,7 @@ pair_installed() { return 0; }
 system_broker_idle() { return 0; }
 broker_access_for_user() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5beta1-1'; }
+package_installed() { echo 'omavless 0.9.5rc1-1'; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }

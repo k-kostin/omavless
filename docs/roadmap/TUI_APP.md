@@ -1,8 +1,11 @@
 # OmaVLESS TUI application and control surfaces
 
-Status: bounded T2 MVP accepted for RC, not a published stable package.
+Status: T2 MVP plus selected T3/T4 slices frozen in RC 0.9.5, not stable.
 Updated 2026-09-24; see [combined acceptance](../testing/T2_MVP_2026-09-24.md).
 See [scope, commands and validation](../development/T2_READONLY_CLIENT.md).
+The [RC 0.9.5 ledger](../development/RC_095.md) supersedes pending-beta wording
+below: bounded installed ARM64/x86_64 review is recorded, while public
+distribution and unselected foundations remain separate.
 The owner-selected 0.9.5 beta integrates the bounded read-only T3 chain through
 #372 on accepted managed-DNS RC 0.9.0; see the
 [beta checkpoint](../development/BETA_095.md#first-t3-checkpoint).

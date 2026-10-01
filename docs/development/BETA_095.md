@@ -4,6 +4,11 @@ Owner decision, 2026-09-30: develop in temporary `beta/0.9.5`, then select a
 scope-frozen `rc/0.9.5`. Follow the [workflow](../roadmap/DEVELOPMENT_WORKFLOW.md).
 Main and Marketplace remain held; a beta branch is not a published prerelease.
 
+**Scope freeze, 2026-10-01:** #392 is merged; the ARM64 installed beta
+counterpart passed bounded read-side and rendered checks. `rc/0.9.5` selects
+the completed scope as `0.9.5-rc.1`; the [RC ledger](RC_095.md) supersedes
+pending beta gates below without relabeling historical artifacts.
+
 ## Base and first selection
 
 - Accepted base: `rc/0.9.0` at
