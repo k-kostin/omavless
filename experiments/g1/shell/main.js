@@ -119,7 +119,7 @@ export default class G1Trial extends View {
         : new MutedText("").build(cx))
       .build(cx).h(52);
 
-    const list = v_flex().flex_1().min_h_0().gap(8).p(12)
+    const list = v_flex().flex_1().min_h_0().min_w_0().gap(8).p(12)
       .child(new MutedText(strings.sources).build(cx))
       .child(collections)
       .child(new TextField().state(this.search).build(cx))
@@ -133,7 +133,7 @@ export default class G1Trial extends View {
             row(visible[range.start + offset])))
           .size_full().on_item_click((id, context) => { this.selected = id; context.notify(); }))
         .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0()));
-    const details = v_flex().gap(12).p(12)
+    const details = v_flex().min_w_0().gap(12).p(12)
       .child(new MutedText(strings.selected).build(cx))
       .child(new Label(selected?.name ?? strings.invalid).build(cx))
       .child(new MutedText(strings.source).build(cx))
@@ -147,10 +147,10 @@ export default class G1Trial extends View {
     // another action happens to refresh the view.
     const panels = h_flex().flex_1().flex_wrap()
       .items_start().min_h_0().min_w_0().gap(12)
-      .child(new Panel("profiles").title(strings.profiles).content(list).build(cx)
-        .min_w("30rem").flex_basis("30rem").flex_grow(1))
-      .child(new Panel("details").title(strings.details).content(details).build(cx)
-        .min_w("30rem").flex_basis("30rem").flex_grow(1));
+      .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
+        .child(new Panel("profiles").title(strings.profiles).content(list).build(cx).min_w_0()))
+      .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
+        .child(new Panel("details").title(strings.details).content(details).build(cx).min_w_0()));
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
       .track_focus(this.panelFocus)
       .overflow_y_scrollbar()
