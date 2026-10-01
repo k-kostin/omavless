@@ -236,6 +236,16 @@ socket acknowledgement is not an automatic retry ticket. The future service
 still needs reviewed provenance, listener lifetime, provisioning and host
 acceptance; framing alone grants no privileged authority.
 
+An additional inactive session-owner candidate holds one already-bound Unix
+listener, the same locked state and one kernel port across sequential clients.
+Each poll accepts at most one client and performs one existing exchange; a
+failed accept does not spin, a stalled client has the bounded receive deadline,
+and lost enrollment seals the owner before the next accept. Dropping a listener
+does not disarm or erase a durable armed record. Synthetic tests cover restart,
+replaced enrollment, failed replies and poisoned transactions. This is not a
+socket publisher or installed service: the listener path, ownership, group,
+backlog, namespace and real kernel-port provenance still need separate proof.
+
 The user runtime never invokes sudo or pkexec. Administrator setup/recovery is
 performed intentionally in a terminal.
 

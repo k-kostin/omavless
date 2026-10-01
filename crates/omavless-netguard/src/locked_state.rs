@@ -87,6 +87,13 @@ impl LockedState {
         }
     }
 
+    #[allow(dead_code)] // The inactive session owner has no product caller yet.
+    pub(crate) fn enrollment_current(&self) -> bool {
+        self.enrollment
+            .as_ref()
+            .is_some_and(|binding| binding.validate().is_ok())
+    }
+
     /// Inactive one-request composition. The transport and transaction use
     /// this state's single pinned enrollment; a caller cannot substitute a
     /// different binding. The owned stream is closed after this exchange.
@@ -419,6 +426,7 @@ mod tests {
 
     mod exchange {
         include!("locked_state_exchange_tests.rs");
+        include!("locked_state_session_tests.rs");
     }
 
     use super::*;

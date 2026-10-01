@@ -16,5 +16,7 @@ pub mod protocol;
 pub mod receipt;
 pub mod receipt_store;
 pub mod root_state;
+#[allow(dead_code)] // Compiled and tested, but not installed or started.
+mod session_owner_candidate;
 pub mod transaction;
 mod transport_candidate;
