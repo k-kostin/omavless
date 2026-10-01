@@ -121,8 +121,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         self.prepare_restore_locked(incoming, &lock)
     }
 
-    /// Stage only the four fixed private members under the same lease that
-    /// captured the old pair. The durable pending directory blocks another
+    /// Stage only the four fixed private data members and ready marker under
+    /// the same lease that captured the old pair. The pending directory blocks another
     /// staging attempt; no live file is replaced. No product caller exists.
     #[allow(dead_code)]
     pub(crate) fn stage_restore_candidate(

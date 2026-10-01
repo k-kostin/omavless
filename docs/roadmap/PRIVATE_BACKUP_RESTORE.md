@@ -406,3 +406,20 @@ torn staging; it does **not** authenticate the directory against a malicious
 same-user writer or prove that a commit ever occurred. Even a complete stage
 remains a pending recovery fence until a separately designed, verified
 commit/rollback procedure exists. The inspector never clears it.
+
+## Inactive native-owner backup composition
+
+The native coordinator now has one internal-only composition of the earlier
+source, authenticated envelope and exclusive ciphertext publisher. Under its
+mutation lease it checks committed Rust ownership and rejects recovery and
+active/queued mutations, captures one fixed private store/template pair,
+encrypts it, rechecks owner/revision and publishes only ciphertext to a new
+file. A failed destination publication preserves the source; an ambiguous
+post-link outcome is never reported as safe to retry. The method does not
+observe, stop or reconnect the VPN and has no product caller, CLI, IPC or UI.
+Synthetic evidence includes wrong passphrase, exact-source preservation,
+authenticated count-only reopen, exclusive destination refusal and the
+private-transaction recovery fence. This is **not** backup availability for
+users: explicit destination authority, passphrase-entry UX, operational
+cancellation/latency, installed-host review and a separately approved client
+protocol remain open before activation.

@@ -10,6 +10,7 @@
 //! Subscription network work uses a fixed, bounded transport and never runs
 //! while the Python/Rust migration lock is held.
 
+mod backup_candidate;
 mod batch;
 mod onboarding;
 mod probe;
@@ -2529,6 +2530,84 @@ mod tests {
             owner.restore_readiness_candidate(),
             Err(RestoreAdmissionError::RecoveryRequired)
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_native_backup_composes_sealed_snapshot_and_exclusive_publication() {
+        use super::backup_candidate::BackupCreateError;
+        use crate::backup_destination_candidate::{BackupPreview, PublishError, preview_existing};
+        use crate::backup_source_candidate::SnapshotError;
+
+        let (root, store, mut owner) = private_support_fixture("backup-owner-composition");
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(&store, portable_store).unwrap();
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, include_bytes!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let original_store = fs::read(&store).unwrap();
+        let original_template = fs::read(&template).unwrap();
+        let destination = root.join("synthetic-private.ovb");
+        let passphrase = b"synthetic passphrase only";
+
+        assert_eq!(
+            owner.create_backup_candidate(&destination, b"short"),
+            Err(BackupCreateError::Source(SnapshotError::InvalidBackupInput))
+        );
+        assert!(!destination.exists());
+        owner
+            .create_backup_candidate(&destination, passphrase)
+            .unwrap();
+        assert_eq!(
+            preview_existing(&destination, owner.transaction.uid(), passphrase),
+            Ok(BackupPreview {
+                profiles: 0,
+                subscriptions: 0
+            })
+        );
+        assert_eq!(fs::read(&store).unwrap(), original_store);
+        assert_eq!(fs::read(&template).unwrap(), original_template);
+        assert_eq!(owner.host_mut().calls, 0);
+        let published = fs::read(&destination).unwrap();
+        assert!(
+            !published
+                .windows(portable_store.len())
+                .any(|part| part == portable_store)
+        );
+        assert_eq!(
+            owner.create_backup_candidate(&destination, passphrase),
+            Err(BackupCreateError::Publish(PublishError::Exists))
+        );
+        assert_eq!(fs::read(&destination).unwrap(), published);
+
+        fs::create_dir(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("restore-pair.pending"),
+        )
+        .unwrap();
+        assert_eq!(
+            owner.create_backup_candidate(&root.join("blocked.ovb"), passphrase),
+            Err(BackupCreateError::RecoveryRequired)
+        );
+        assert!(!root.join("blocked.ovb").exists());
+        fs::remove_dir(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("restore-pair.pending"),
+        )
+        .unwrap();
+        owner.required_ownership = None;
+        assert_eq!(
+            owner.create_backup_candidate(&root.join("unowned.ovb"), passphrase),
+            Err(BackupCreateError::OwnershipUnavailable)
+        );
+        assert!(!root.join("unowned.ovb").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
