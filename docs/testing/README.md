@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [G1a synthetic GUI comparison](G1_SYNTHETIC_TRIAL_2026-10-01.md): isolated
+  direct-Rust and GPUI Shell native prototypes, VM observations, and explicit
+  unverified research gates; no VPN or product GUI acceptance.
+
 - [0.8.2 fresh x86_64 VM installation](NATIVE_082_FRESH_VM_2026-09-21.md):
   actual plugin-first setup with both application and Mihomo initially absent,
   onboarding/reopen and exact-source marketplace baseline; no new VPN claim.
