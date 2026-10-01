@@ -69,8 +69,6 @@ export default class G1Trial extends View {
   }
 
   render(cx) {
-    const narrow = window.viewport_size().width < window.rem_size() * 50;
-    const listHeight = Math.max(8, Math.min(24, window.viewport_size().height / window.rem_size() - 20)) * window.rem_size();
     const strings = copy[this.locale];
     const scene = fixture.scenes[this.scene];
     const connected = fixture.profiles.find((item) => item.id === scene.connected);
@@ -117,7 +115,7 @@ export default class G1Trial extends View {
       .child(new MutedText(this.large
         ? (this.locale === "ru" ? `${visible.length} демонстрационных строк · виртуализация`
           : `${visible.length} synthetic rows · virtualized`) : strings.note).build(cx))
-      .child(v_flex().relative().h(listHeight).min_h_0().overflow_hidden()
+      .child(v_flex().relative().h("24rem").min_h_0().overflow_hidden()
         .child(v_virtual_list("g1-profile-list", visible.length, 52,
           (index) => visible[index].id,
           (range) => Array.from({ length: range.end - range.start }, (_unused, offset) =>
@@ -133,14 +131,17 @@ export default class G1Trial extends View {
       .child(new Label(connected?.name ?? strings.none).build(cx))
       .child(new MutedText(strings.readonly).build(cx));
 
-    const panels = (narrow ? v_flex().w_full() : h_flex().flex_1())
+    // Let native flex layout react to window geometry. A Shell view snapshot is
+    // not rebuilt on resize, so a JS viewport breakpoint remains stale until
+    // another action happens to refresh the view.
+    const panels = h_flex().flex_1().flex_wrap()
       .items_start().min_h_0().min_w_0().gap(12)
       .child(new Panel("profiles").title(strings.profiles).content(list).build(cx)
-        .min_w_0().when(narrow, (element) => element.w_full()).when(!narrow, (element) => element.flex_1()))
+        .min_w("30rem").flex_basis("30rem").flex_grow(1))
       .child(new Panel("details").title(strings.details).content(details).build(cx)
-        .min_w_0().when(narrow, (element) => element.w_full()).when(!narrow, (element) => element.flex_1()));
+        .min_w("30rem").flex_basis("30rem").flex_grow(1));
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
-      .when(narrow, (element) => element.overflow_y_scrollbar())
+      .overflow_y_scrollbar()
       .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx))
       .child(scenes)
       .child(new Button("large-list").label(this.large ? "5 samples" : "10k samples").outlined()
