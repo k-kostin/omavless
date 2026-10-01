@@ -2,6 +2,7 @@
 //! No production caller or provenance provider exists. Receipts cannot turn an
 //! untrusted orphan into an owned table. There is deliberately no recovery API.
 use crate::effect_port::{EffectIdentity, EffectPort, EffectSnapshot};
+use crate::enrollment::EnrollmentBinding;
 
 use crate::policy::Policy;
 use crate::protocol::{ErrorCode, Request, Response};
@@ -43,23 +44,35 @@ struct Snapshot {
 /// writer. Poisoning and pending receipts are barriers, never replay tickets.
 pub struct LockedState {
     receipts: ReceiptStore,
+    enrollment: Option<EnrollmentBinding>,
     poisoned: bool,
 }
 
 impl LockedState {
-    pub fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
-        Ok(Self::from_root(RootStateStore::open_fixed(enrolled_uid)?))
+    /// Fixed administrator enrollment is read from a root-owned file; no UID
+    /// from an IPC request or caller is accepted by this entry point.
+    pub fn open_fixed() -> Result<Self, StateError> {
+        let enrollment =
+            EnrollmentBinding::open_fixed().map_err(|_| StateError::UnsafeOrUnreadable)?;
+        let mut state = Self::from_root(RootStateStore::open_fixed(enrollment.uid())?);
+        enrollment
+            .validate()
+            .map_err(|_| StateError::UnsafeOrUnreadable)?;
+        state.enrollment = Some(enrollment);
+        Ok(state)
     }
 
-    pub fn from_root(root: RootStateStore) -> Self {
+    pub(crate) fn from_root(root: RootStateStore) -> Self {
         Self {
             receipts: ReceiptStore::from_root(root),
+            enrollment: None,
             poisoned: false,
         }
     }
 
     /// Namespace and port facts remain independently supplied proof obligations,
-    /// not evidence this adapter can authenticate. No production port exists.
+    /// not evidence this adapter can authenticate. Keep the effect entry inside
+    /// this crate until a reviewed production adapter can establish them.
     pub fn request<K: EffectPort>(
         &mut self,
         request: Request,
@@ -70,6 +83,9 @@ impl LockedState {
     }
 
     fn snapshot<K: EffectPort>(&mut self, kernel: &mut K) -> Result<Snapshot, ErrorCode> {
+        if let Some(binding) = &self.enrollment {
+            binding.validate().map_err(|_| REFUSED)?;
+        }
         let marker = self
             .receipts
             .root()
@@ -91,6 +107,9 @@ impl LockedState {
             || self.receipts.read() != receipt
         {
             return Err(REFUSED);
+        }
+        if let Some(binding) = &self.enrollment {
+            binding.validate().map_err(|_| REFUSED)?;
         }
         Ok(Snapshot {
             marker,
@@ -424,6 +443,7 @@ mod tests {
         bad_readback: bool,
         observes: usize,
         drift_at: Option<usize>,
+        rebind_enrollment_on_observe: bool,
     }
     impl Kernel {
         fn new(f: &Fixture) -> Self {
@@ -435,6 +455,7 @@ mod tests {
                 bad_readback: false,
                 observes: 0,
                 drift_at: None,
+                rebind_enrollment_on_observe: false,
             }
         }
         fn lock_held(&self) {
@@ -462,10 +483,25 @@ mod tests {
             }
         }
     }
+    impl crate::effect_port::sealed::Sealed for Kernel {}
     impl EffectPort for Kernel {
         fn observe(&mut self) -> Result<EffectSnapshot, EffectError> {
             self.lock_held();
             self.observes += 1;
+            if self.rebind_enrollment_on_observe {
+                self.rebind_enrollment_on_observe = false;
+                let config = self.parent.join("omavless-netguard/enrollment-v1.json");
+                fs::rename(
+                    &config,
+                    self.parent.join("omavless-netguard/old-enrollment"),
+                )
+                .unwrap();
+                fs::copy(
+                    self.parent.join("omavless-netguard/old-enrollment"),
+                    &config,
+                )
+                .unwrap();
+            }
             if self.drift_at == Some(self.observes) {
                 self.current = EffectSnapshot {
                     table: Table::Foreign,
@@ -507,6 +543,26 @@ mod tests {
             assert_eq!(value["generation"], 7);
             self.finish_effect(ABSENT)
         }
+    }
+
+    #[test]
+    fn enrollment_rebinding_during_kernel_observation_refuses_before_effect() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = Fixture::new();
+        let config = f.0.join("omavless-netguard/enrollment-v1.json");
+        fs::write(&config, b"{\"version\":1,\"enrolled_uid\":1001}").unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        let parent = File::open(&f.0).unwrap();
+        let m = parent.metadata().unwrap();
+        let binding = EnrollmentBinding::open_test_parent(parent, (m.uid(), m.gid())).unwrap();
+        let mut state = f.state();
+        state.enrollment = Some(binding);
+        let mut kernel = Kernel::new(&f);
+        kernel.rebind_enrollment_on_observe = true;
+        let before = f.bytes();
+        assert_eq!(state.request(ARM, NS, &mut kernel), Err(REFUSED));
+        assert_eq!(kernel.effects, 0);
+        assert_eq!(f.bytes(), before);
     }
 
     fn record(state: &LockedState) -> Receipt {

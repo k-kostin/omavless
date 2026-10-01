@@ -108,9 +108,9 @@ impl RootStateStore {
         Ok((&self.dir, self.owner, self.enrolled_uid))
     }
 
-    /// Only production path; never creates directories. Enrollment must come
-    /// from separately verified root configuration, not a peer-supplied UID.
-    pub fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
+    /// Inactive fixed-path writer. Only the enrolled LockedState entry may
+    /// open it; external callers cannot nominate a UID for root state.
+    pub(crate) fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
         let mut parent = File::from(
             open("/", DIRECTORY, Mode::empty()).map_err(|_| StateError::UnsafeOrUnreadable)?,
         );

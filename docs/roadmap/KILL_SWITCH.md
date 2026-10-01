@@ -187,7 +187,9 @@ subscription data or provider content.
 
 Initial K1 supports one explicitly enrolled non-root desktop UID. Enrollment is
 an administrator action which validates an existing local account and records
-only its numeric UID in a root-owned mode-`0600` configuration. The socket is
+only its numeric UID in a root-owned mode-`0600` configuration. The inactive
+reader pins `/etc/omavless-netguard/enrollment-v1.json`; provisioning and
+account validation remain separate gates. The socket is
 root-owned, accessible through a dedicated package group, and every request is
 checked against kernel `SO_PEERCRED`; a caller can act only for its own enrolled
 UID. The request never carries a selectable UID.

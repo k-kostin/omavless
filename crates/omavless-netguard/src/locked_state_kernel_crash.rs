@@ -208,6 +208,7 @@ struct UntrustedKernel<'a> {
     cut: u8,
     effects: usize,
 }
+impl crate::effect_port::sealed::Sealed for UntrustedKernel<'_> {}
 impl EffectPort for UntrustedKernel<'_> {
     fn observe(&mut self) -> Result<EffectSnapshot, EffectError> {
         Ok(EffectSnapshot {

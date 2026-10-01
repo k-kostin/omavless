@@ -32,10 +32,6 @@ pub struct ReceiptStore {
 }
 
 impl ReceiptStore {
-    pub fn open_fixed(enrolled_uid: u32) -> Result<Self, StateError> {
-        Ok(Self::from_root(RootStateStore::open_fixed(enrolled_uid)?))
-    }
-
     /// Moves the existing lock owner; never opens another FD or reacquires flock.
     pub(crate) fn from_root(root: RootStateStore) -> Self {
         Self {

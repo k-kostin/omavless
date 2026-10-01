@@ -2,6 +2,12 @@
 //! This module performs no I/O and establishes no ownership by itself.
 use crate::{policy::Policy, transaction::Table};
 
+// A production implementation must be reviewed inside this crate. External
+// callers cannot inject fabricated ownership snapshots into LockedState.
+pub(crate) mod sealed {
+    pub trait Sealed {}
+}
+
 /// An independently established kernel identity supplied by the future adapter.
 /// These fields are a model, not an attestation: matching a durable receipt,
 /// table name, policy, handle or owner port ID cannot construct actual authority.
@@ -40,7 +46,21 @@ pub enum EffectError {
 /// that store's lock, or infer orphan ownership from its records. No production
 /// implementation exists. In particular there is no blanket adapter from the
 /// legacy `coordinator::KernelPort`, whose contract includes receipt writes.
-pub trait EffectPort {
+/// External crates cannot implement this port, even with a matching receipt or
+/// policy-shaped table. This is a compile-time boundary, not kernel provenance.
+///
+/// ```compile_fail
+/// use omavless_netguard::effect_port::{EffectPort, EffectSnapshot, EffectError, EffectIdentity};
+/// use omavless_netguard::policy::Policy;
+/// struct Invented;
+/// impl EffectPort for Invented {
+///     fn observe(&mut self) -> Result<EffectSnapshot, EffectError> { unimplemented!() }
+///     fn create_if_absent(&mut self, _: Policy) -> Result<EffectIdentity, EffectError> { unimplemented!() }
+///     fn replace_owned(&mut self, _: EffectIdentity, _: Policy) -> Result<EffectIdentity, EffectError> { unimplemented!() }
+///     fn delete_owned(&mut self, _: EffectIdentity) -> Result<(), EffectError> { unimplemented!() }
+/// }
+/// ```
+pub trait EffectPort: sealed::Sealed {
     fn observe(&mut self) -> Result<EffectSnapshot, EffectError>;
     fn create_if_absent(&mut self, policy: Policy) -> Result<EffectIdentity, EffectError>;
     fn replace_owned(

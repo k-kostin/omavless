@@ -16,9 +16,11 @@ test-only counterexamples. It adds no automatic recovery or ownership adoption.
 
 ## Fixed trust boundary
 
-`ReceiptStore::open_fixed(enrolled_uid)` opens the existing
+The fixed-path receipt opener is now crate-private. The inactive combined
+`LockedState::open_fixed()` entry obtains enrollment from the separately
+validated root configuration before opening the existing
 `/var/lib/omavless-netguard` directory via the root-state adapter. Enrollment
-must come from separately verified root configuration, not a client request.
+never comes from a client request. See the [authority barrier](K1_LOCKED_STATE.md#one-lock-and-strict-admission).
 It does not provision the directory. Ancestors must be root-owned and not
 group/other writable; the final directory must be root:root 0700. Every open
 uses pinned directory FDs with no-follow checks. The held final directory is
