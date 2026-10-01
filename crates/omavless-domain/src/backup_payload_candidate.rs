@@ -29,6 +29,17 @@ struct FramedPayload<'a> {
     template: &'a [u8],
 }
 
+impl<'a> FramedPayload<'a> {
+    // Test-only semantic composition. The caller still must authenticate the
+    // outer envelope first; neither framing nor a valid store authenticates it.
+    fn validate_store(
+        &self,
+    ) -> Result<crate::private_store::backup_candidate::ValidatedBackupStore<'a>, InvalidPayload>
+    {
+        crate::private_store::backup_candidate::validate(self.store).map_err(|_| InvalidPayload)
+    }
+}
+
 fn lengths(store: usize, template: usize) -> Result<usize, InvalidPayload> {
     if store == 0
         || store > MAX_PRIVATE_STORE_BYTES
@@ -165,4 +176,19 @@ fn refusal_is_fixed_and_does_not_format_input() {
     let error = decode(b"synthetic-private-marker").err().unwrap();
     assert_eq!(error.to_string(), "backup_unreadable");
     assert_eq!(format!("{error:?}"), "InvalidPayload");
+}
+
+#[test]
+fn framed_store_validation_does_not_authorize_template_or_restore() {
+    let store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+    let wire = encode(store, b"not a portable routing template").unwrap();
+    let framed = decode(&wire).unwrap();
+    let validated = framed.validate_store().unwrap();
+    assert!(validated.bytes == store);
+    assert_eq!(validated.profiles, 0);
+    assert_eq!(validated.subscriptions, 0);
+    // Template validation is intentionally still a distinct gate.
+    assert!(framed.template == b"not a portable routing template");
+    let invalid = encode(b"{}", b"not a portable routing template").unwrap();
+    assert!(decode(&invalid).unwrap().validate_store().is_err());
 }

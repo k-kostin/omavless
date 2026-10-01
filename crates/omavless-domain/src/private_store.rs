@@ -25,6 +25,8 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+#[cfg(test)]
+pub(crate) mod backup_candidate;
 mod startup;
 mod support;
 pub use startup::{StartupPreferences, apply_startup_preferences};

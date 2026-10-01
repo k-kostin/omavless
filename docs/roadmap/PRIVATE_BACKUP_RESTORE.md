@@ -145,3 +145,38 @@ portable-template policy, consistent owner snapshot, private byte transfer,
 exclusive destination publication, disconnected restore admission and durable
 multi-file recovery are still required. No filesystem/VM/host/UI acceptance,
 production activation or completed backup/restore feature is claimed.
+
+## Inactive strict store admission
+
+The test-only `private_store::backup_candidate` now validates the store member
+after the framing gate. A closed deserialization schema rejects unknown and
+duplicate decoded keys at the root, profile, subscription, rule and startup
+objects. The existing private-store parser then validates credentials, record
+relationships and routing semantics. Admission requires explicit v3 and exact
+semantic equality with that parser's normalized document: old versions, omitted
+defaults, stale convenience pointers and silently repaired startup references
+refuse. It returns the original borrowed bytes and bounded counts, never a
+normalized replacement or raw parser diagnostic. No private type implements
+formatting, cloning or generic serialization.
+
+The deliberately closed schema rejects extensions such as provider quota,
+schedules, embedded host state and future fields; it does not silently discard
+them. A later schema decision can add reviewed portable fields. This restriction
+is local to the test-only backup candidate; ordinary store compatibility reads
+are unchanged. Enabled startup preferences can be valid portable data, but
+their presence grants no login/restore authority and does not relax the separate
+Off-after-restore requirement.
+
+Synthetic tests cover complete managed/standalone/empty stores, escaped display
+text, unknown fields at every object scope, duplicates including escaped keys,
+legacy/future versions, missing defaults, stale pointers, invalid credentials,
+relationships/rules, bounded input and fixed errors. Framing composition proves
+that a valid store can coexist with an invalid template: store acceptance is
+neither authentication, portable-template validation nor permission to restore.
+The exact input bytes survive successful admission; no file or host is touched.
+
+Current-schema store admission now has this executable candidate, but activation
+still needs the authenticated envelope, portable-template policy and whole-pair
+validation, consistent owner snapshot, private transfer/publication, disconnected
+owner/revision admission and durable multi-file recovery. No installed backup or
+restore is available or claimed.
