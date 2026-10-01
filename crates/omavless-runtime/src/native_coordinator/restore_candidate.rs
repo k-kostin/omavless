@@ -23,7 +23,7 @@ pub(crate) enum RestoreAdmissionError {
 }
 
 /// Informational snapshot only. It cannot authorize a later mutation.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RestoreReadiness {
     pub(crate) revision: u64,
     pub(crate) desired_generation: u64,

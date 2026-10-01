@@ -566,6 +566,29 @@ product authority. This candidate **does not clear the receipt fence**, register
 command, expose UI, or complete T4 acceptance. Product authority, admission,
 UX and installed-environment checks remain separate gates.
 
+## Inactive native-owner retirement composition
+
+An internal `OfflineNativeCoordinator` candidate now joins the terminal
+receipt, replacement-slot retirement and fixed-artifact cleanup under one
+migration lease. It requires exact Rust ownership, an Off desired state, a
+fresh absence of owned core/TUN, idle mutation and auxiliary work, and no
+independent lifecycle/store block or unrelated routing-preset transaction.
+Every effect repeats that host check and binds the same durable receipt inode
+and terminal transaction. A complete stage retires provenance-matched slots
+first; a valid already-partial cleanup prefix continues directly. A partial
+stage with a surviving slot refuses instead of discarding the evidence needed
+to prove its provenance.
+
+Synthetic composition tests start from an authenticated backup, exercise both
+committed and aborted terminals, an interrupted new-slot creation, a partial
+cleanup restart, foreign visible VPN preservation and unrelated owner/host/
+queue drift. Live and desired bytes are not changed by retirement; the
+receipt and startup/mutation fence survive even an idempotent retry. This is
+**not** a product recovery command or an accepted installed restore flow.
+Import/startup policy, explicit owner authority, receipt-fence release design,
+passphrase UX and VM/host acceptance remain open. Other manually-blocked
+lifecycle states are not silently reclassified as terminal restore cleanup.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier
