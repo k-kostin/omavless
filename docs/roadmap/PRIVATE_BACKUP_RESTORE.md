@@ -515,6 +515,35 @@ its own fence. A separately reviewed cleanup/retirement protocol must define
 the exact unlink order, crash recovery and authorization before activation;
 these synthetic tests are not installed backup/restore acceptance.
 
+## Inactive fixed-artifact retirement candidate
+
+The separate `restore_cleanup_candidate` tests that protocol without a
+production caller. Under the same owner lease and a supplied fresh Off/idle
+gate, it first synchronizes and reopens the terminal receipt, then checks the
+owner, exact desired state, live pair and complete artifact inventory. Only a
+prefix of this fixed deletion order is resumable: the four staged data files,
+`ready.bin`, the now-empty stage directory, terminal journal, then intent
+journal. Each unlink is descriptor-relative and followed by parent-directory
+synchronization and independent reinspection. There is no recursive removal.
+The receipt remains unchanged as a startup/mutation fence even when those
+eight artifacts are gone.
+
+While any staged data member survives, `ready.bin` must remain and its digest
+must match the transaction in the receipt. Every surviving member is checked
+against that ready marker's length and digest. The cleanup refuses gaps,
+unknown entries, missing/changed receipt, mismatched journals, unsafe member
+types, changed owner/desired/live bindings and host-gate drift. Tests exercise
+every post-unlink and post-sync interruption, including abrupt subprocess
+termination, followed by independent reopen and idempotent continuation.
+This is checksum binding and crash-prefix testing, not protection against a
+hostile same-user writer or a guarantee about arbitrary power loss.
+
+This candidate deliberately leaves any fixed replacement slots in the live
+configuration directory alone; their own provenance and retirement need a
+separate review. It also **does not clear the receipt fence**, register a
+command, expose UI, or complete T4 acceptance. Product authority, admission,
+UX and installed-environment checks remain separate gates.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier

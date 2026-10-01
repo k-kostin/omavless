@@ -63,6 +63,10 @@ pub(crate) struct RetirementReceipt {
 }
 
 impl RetirementReceipt {
+    pub(crate) fn terminal(&self) -> &DecisionRecord {
+        &self.terminal
+    }
+
     fn from_terminal(
         terminal: &DecisionRecord,
         stage: &VerifiedStage,
@@ -333,6 +337,63 @@ fn write_receipt(
         return Err(RetirementError::Ambiguous);
     }
     Ok(durable_identity)
+}
+
+/// Re-establish file and directory durability before any later cleanup effect.
+/// The returned inode identity is a binding, not permission to unlink.
+#[allow(dead_code)]
+pub(crate) fn durable_retirement_receipt(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<(RetirementReceipt, Metadata), RetirementError> {
+    let (receipt, before) = read_receipt_member(paths, uid)?;
+    let directory = open_private_directory(&paths.state_directory, uid)
+        .map_err(|_| RetirementError::ManualRecovery)?;
+    let parent = directory
+        .metadata()
+        .map_err(|_| RetirementError::ManualRecovery)?;
+    let file = File::from(
+        openat(
+            &directory,
+            Path::new(RECEIPT_MEMBER),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| RetirementError::ManualRecovery)?,
+    );
+    if !same_member(
+        &before,
+        &file
+            .metadata()
+            .map_err(|_| RetirementError::ManualRecovery)?,
+    ) {
+        return Err(RetirementError::ManualRecovery);
+    }
+    file.sync_all().map_err(|_| RetirementError::Ambiguous)?;
+    directory
+        .sync_all()
+        .map_err(|_| RetirementError::Ambiguous)?;
+    let (again, after) = read_receipt_member(paths, uid)?;
+    if !same_member(&before, &after)
+        || receipt.encode() != again.encode()
+        || !same_directory(
+            &parent,
+            &open_private_directory(&paths.state_directory, uid)
+                .map_err(|_| RetirementError::ManualRecovery)?
+                .metadata()
+                .map_err(|_| RetirementError::ManualRecovery)?,
+        )
+    {
+        return Err(RetirementError::ManualRecovery);
+    }
+    let inspected = inspect_retirement_receipt(config, paths, uid, generation, lock)?;
+    if inspected.encode() != receipt.encode() {
+        return Err(RetirementError::ManualRecovery);
+    }
+    Ok((inspected, after))
 }
 
 /// Write only a durable, still-fenced receipt for a verified terminal pair.

@@ -18,10 +18,10 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use zeroize::Zeroizing;
 
-const PENDING_DIRECTORY: &str = "restore-pair.pending";
-const READY_MEMBER: &str = "ready.bin";
-const READY_MAGIC: &[u8; 8] = b"OVRPAIR1";
-const READY_BYTES: usize = 8 + 4 * 4 + 4 * 32;
+pub(crate) const PENDING_DIRECTORY: &str = "restore-pair.pending";
+pub(crate) const READY_MEMBER: &str = "ready.bin";
+pub(crate) const READY_MAGIC: &[u8; 8] = b"OVRPAIR1";
+pub(crate) const READY_BYTES: usize = 8 + 4 * 4 + 4 * 32;
 
 /// Existence, inaccessible metadata and unexpected entry types all block a
 /// second restore attempt. There is deliberately no automatic deletion.
@@ -31,7 +31,7 @@ pub(crate) fn staging_pending_at(directory: &Path) -> bool {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound
     )
 }
-const MEMBERS: [&str; 4] = [
+pub(crate) const MEMBERS: [&str; 4] = [
     "old-profiles.json",
     "old-route-template.yaml",
     "new-profiles.json",
