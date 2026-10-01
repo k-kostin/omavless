@@ -233,3 +233,66 @@ fn deleting_subscription_uses_one_atomic_publication_and_exact_rollback() {
     drop(lock);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn whole_store_erasure_uses_latest_bytes_and_refuses_unknown_compensation() {
+    use omavless_domain::subscription_usage_store::erase_provider_usage_candidate;
+
+    let root = crate::test_temp::directory("quota-erasure").unwrap();
+    let runtime = root.join("runtime");
+    let state = root.join("state");
+    for directory in [&root, &runtime, &state] {
+        fs::create_dir_all(directory).unwrap();
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let uid = fs::metadata(&root).unwrap().uid();
+    let paths = CutoverPaths::below(&runtime, &state, uid);
+    let lock = MigrationLock::acquire(&paths, uid).unwrap();
+    let path = root.join("profiles.json");
+    let mut latest: serde_json::Value = serde_json::from_str(&prior_claim()).unwrap();
+    latest["subscriptions"][0]["name"] = "Latest rename".into();
+    let original = format!("\n  {latest}\n");
+    fs::write(&path, &original).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let prepared = prepare_private_store_write(&path, uid, |current| {
+        let candidate =
+            erase_provider_usage_candidate(current).map_err(|_| PrivateStoreError::InvalidShape)?;
+        Ok(match candidate {
+            Some(candidate) => (candidate.payload().to_vec(), true),
+            None => (current.as_bytes().to_vec(), false),
+        })
+    })
+    .unwrap();
+    assert_eq!(
+        prepared.commit_locked(&lock, &paths),
+        Ok(PreparedWrite::Changed)
+    );
+    let cleaned = fs::read_to_string(&path).unwrap();
+    assert!(!cleaned.contains("providerUsageV1"));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&cleaned).unwrap()["subscriptions"][0]["name"],
+        "Latest rename"
+    );
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    assert_eq!(
+        prepared.restore_locked(&lock, &paths),
+        Ok(PreparedWrite::Changed)
+    );
+    assert_eq!(fs::read(&path).unwrap(), original.as_bytes());
+
+    let prepared = prepare_private_store_write(&path, uid, |current| {
+        let candidate = erase_provider_usage_candidate(current).unwrap().unwrap();
+        Ok((candidate.payload().to_vec(), true))
+    })
+    .unwrap();
+    assert_eq!(
+        prepared.commit_locked(&lock, &paths),
+        Ok(PreparedWrite::Changed)
+    );
+    let unknown = store();
+    fs::write(&path, &unknown).unwrap();
+    assert!(prepared.restore_locked(&lock, &paths).is_err());
+    assert_eq!(fs::read_to_string(&path).unwrap(), unknown);
+    drop(lock);
+    fs::remove_dir_all(root).unwrap();
+}

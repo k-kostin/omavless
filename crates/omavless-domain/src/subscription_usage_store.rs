@@ -117,6 +117,45 @@ impl PrivateUsageCandidate {
     }
 }
 
+/// Prepare removal of every subscription usage extension, including malformed
+/// or stale claims. This inactive seam is intended for a future reviewed
+/// restore/downgrade transaction, not automatic cleanup on read or startup.
+/// `None` means the exact original bytes can remain untouched. The caller must
+/// retain those original bytes for compare-before-write and compensation.
+pub fn erase_provider_usage_candidate(
+    input: &str,
+) -> Result<Option<PrivateUsageCandidate>, UsageStoreError> {
+    reject_duplicate_members(input)?;
+    parse_private_store(input).map_err(|_| UsageStoreError::InvalidStore)?;
+    let mut document: Value =
+        serde_json::from_str(input).map_err(|_| UsageStoreError::InvalidStore)?;
+    let mut changed = false;
+    if let Some(records) = document
+        .get_mut("subscriptions")
+        .and_then(Value::as_array_mut)
+    {
+        for record in records {
+            let record = record
+                .as_object_mut()
+                .ok_or(UsageStoreError::InvalidStore)?;
+            changed |= record.remove(FIELD).is_some();
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    // Compact serialization cannot inflate indentation near the store bound.
+    // Preserve unknown fields semantically; never recursively scrub unrelated
+    // objects merely because they use the same member name.
+    let bytes = serde_json::to_vec(&document).map_err(|_| UsageStoreError::InvalidStore)?;
+    if bytes.len() > MAX_PRIVATE_STORE_BYTES {
+        return Err(UsageStoreError::TooLarge);
+    }
+    parse_private_store(std::str::from_utf8(&bytes).map_err(|_| UsageStoreError::InvalidStore)?)
+        .map_err(|_| UsageStoreError::InvalidStore)?;
+    Ok(Some(PrivateUsageCandidate(bytes)))
+}
+
 /// Provider assertion bound to one subscription URL and exact successful
 /// refresh token. It is not VPN health or proof that an account is active.
 /// Intentionally cannot be formatted or serialized generically.
@@ -592,5 +631,88 @@ mod tests {
             Err(UsageStoreError::TooLarge)
         ));
         assert!(parse_private_store(&original).is_ok());
+    }
+
+    #[test]
+    fn whole_store_erasure_removes_valid_stale_and_malformed_claims_only() {
+        for version in [1, 2, 3] {
+            let mut document: Value = serde_json::from_str(&bound(&store(version))).unwrap();
+            for (index, claim) in [
+                json!(null),
+                json!("synthetic-private"),
+                json!({"version": 99}),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut record = document["subscriptions"][0].clone();
+                record["id"] = format!("20000000-0000-0000-0000-{:012}", index + 2).into();
+                record["url"] = format!("https://example.invalid/synthetic-{index}").into();
+                record[FIELD] = claim;
+                document["subscriptions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(record);
+            }
+            document["unrelated"][FIELD] = json!({"keep": true});
+            let original = document.to_string();
+            let candidate = erase_provider_usage_candidate(&original).unwrap().unwrap();
+            for record in document["subscriptions"].as_array_mut().unwrap() {
+                record.as_object_mut().unwrap().remove(FIELD);
+            }
+            let actual: Value = serde_json::from_slice(candidate.payload()).unwrap();
+            assert_eq!(actual, document);
+            let cleaned = std::str::from_utf8(candidate.payload()).unwrap();
+            assert!(erase_provider_usage_candidate(cleaned).unwrap().is_none());
+            assert!(read_provider_usage(&original, ID).unwrap().is_some());
+        }
+    }
+
+    #[test]
+    fn whole_store_erasure_noop_does_not_normalize_legacy_bytes() {
+        for version in [1, 2, 3] {
+            let original = format!("\n  {}\n", store(version));
+            assert!(erase_provider_usage_candidate(&original).unwrap().is_none());
+        }
+        assert!(
+            erase_provider_usage_candidate(r#"{"version":3,"profiles":[]}"#)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn whole_store_erasure_rejects_ambiguous_or_invalid_store_before_cleanup() {
+        let original = bound(&store(3));
+        let duplicate = original.replacen("\"upload\": 12", "\"upload\":12,\"upload\":13", 1);
+        assert_ne!(duplicate, original);
+        let invalid = original.replacen("\"version\": 3", "\"version\": 999", 1);
+        assert_ne!(invalid, original);
+        for input in [
+            duplicate,
+            invalid,
+            format!("{original}{{}}"),
+            " ".repeat(MAX_PRIVATE_STORE_BYTES + 1),
+        ] {
+            assert!(matches!(
+                erase_provider_usage_candidate(&input),
+                Err(UsageStoreError::InvalidStore)
+            ));
+        }
+    }
+
+    #[test]
+    fn whole_store_erasure_succeeds_at_input_capacity_without_pretty_print_growth() {
+        let mut document: Value = serde_json::from_str(&bound(&store(3))).unwrap();
+        document["padding"] = json!("");
+        let remaining = MAX_PRIVATE_STORE_BYTES - document.to_string().len();
+        document["padding"] = "x".repeat(remaining).into();
+        let original = document.to_string();
+        assert_eq!(original.len(), MAX_PRIVATE_STORE_BYTES);
+        let candidate = erase_provider_usage_candidate(&original).unwrap().unwrap();
+        assert!(candidate.payload().len() < original.len());
+        let actual: Value = serde_json::from_slice(candidate.payload()).unwrap();
+        assert_eq!(actual["padding"], document["padding"]);
+        assert!(actual["subscriptions"][0].get(FIELD).is_none());
     }
 }
