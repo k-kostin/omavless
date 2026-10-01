@@ -625,6 +625,9 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     // the separate header continues to describe current freshness/health.
     if app.page == Page::Activity {
         let mut lines = vec![Line::from(tr("tui.activity_scope"))];
+        if app.activity.older_events_discarded() {
+            lines.push(Line::from(tr("tui.activity_discarded")));
+        }
         for entry in app.activity.newest_first() {
             let seconds = entry.elapsed_seconds;
             lines.push(Line::from(format!(

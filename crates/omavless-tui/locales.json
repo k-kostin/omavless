@@ -51,6 +51,7 @@
   "tui.activity":{"en":"Session activity","ru":"События сеанса"},
   "tui.activity_scope":{"en":"Newest first; up to 32 events in this TUI session. Times are since opening. Not daemon logs or a connectivity test.","ru":"Последние события сверху; до 32 событий этого окна. Время от его открытия. Это не логи службы и не проверка связи."},
   "tui.activity_empty":{"en":"No events yet.","ru":"Событий пока нет."},
+  "tui.activity_discarded":{"en":"Older events were discarded. This is only the latest part of this session.","ru":"Старые события удалены. Показана только последняя часть этого сеанса."},
   "tui.event_connected":{"en":"Observed local connection: connected","ru":"Локальное состояние: подключено"},
   "tui.event_disconnected":{"en":"Observed local connection: disconnected","ru":"Локальное состояние: отключено"},
   "tui.event_recovery":{"en":"Observed recovery-required state","ru":"Обнаружено состояние, требующее восстановления"},
