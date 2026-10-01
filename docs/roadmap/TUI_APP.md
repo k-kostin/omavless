@@ -50,6 +50,13 @@ or unavailable runtime within the current window, while the header remains the
 authority for current freshness. Closing the TUI discards history and leaves
 the runtime alone. This is not persistent logging or new daemon event streaming.
 
+The T3 retention follow-up explicitly marks the session history after its first
+eviction. The warning remains through runtime unavailability, owner changes and
+navigation; opening a new TUI window starts empty. It records only a boolean,
+without retaining discarded events or adding daemon reads. The 32-event bound
+and existing freshness header remain unchanged. Synthetic EN/RU rendering and
+retention tests do not establish installed terminal acceptance.
+
 The integrated session-settings checkpoint #283 adds a Settings page (`,` or the page cycle):
 `l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
 `0` restores both automatic choices. Changes are immediate and window-local;
