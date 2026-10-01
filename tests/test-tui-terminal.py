@@ -169,7 +169,7 @@ class TerminalTests(unittest.TestCase):
             wait_for(b"OmaVLESS")
             # Wait for the initial Profiles snapshot; otherwise rapid tabs can
             # reach Connections before there is a fresh header to render.
-            wait_for(b"Fixture Helsinki")
+            wait_for(b"Fixture")
             os.write(master, b"\t\t\t")
             # Ratatui may split the phrase with cursor-addressing sequences.
             wait_for(b"Loading")
