@@ -107,6 +107,47 @@ fn read_optional(
     Ok(Some(bytes))
 }
 
+/// Exact desired bytes (or exact absence) for a lease-bound decision. This is
+/// not a host/disconnect check and must be compared again before each effect.
+pub(crate) fn read_desired_for_decision(
+    paths: &CutoverPaths,
+    uid: u32,
+    lock: &MigrationLock,
+) -> Result<Option<Zeroizing<Vec<u8>>>, JournalError> {
+    if !lock.authorizes(paths, uid) {
+        return Err(JournalError::Admission);
+    }
+    let directory = open_private_directory(&paths.state_directory, uid)
+        .map_err(|_| JournalError::UnsafeOrChanged)?;
+    let before = directory
+        .metadata()
+        .map_err(|_| JournalError::UnsafeOrChanged)?;
+    let desired = read_optional(
+        &directory,
+        DESIRED_MEMBER,
+        uid,
+        MAX_DESIRED_STATE_BYTES as usize,
+        false,
+    )?;
+    if !same_file(
+        &before,
+        &open_private_directory(&paths.state_directory, uid)
+            .map_err(|_| JournalError::UnsafeOrChanged)?
+            .metadata()
+            .map_err(|_| JournalError::UnsafeOrChanged)?,
+    ) || read_optional(
+        &directory,
+        DESIRED_MEMBER,
+        uid,
+        MAX_DESIRED_STATE_BYTES as usize,
+        false,
+    )? != desired
+    {
+        return Err(JournalError::UnsafeOrChanged);
+    }
+    Ok(desired)
+}
+
 /// Inspect only. Even a matching terminal decision cannot authorize cleanup
 /// or commit without later fresh live-pair and host checks under the lease.
 #[allow(dead_code)]

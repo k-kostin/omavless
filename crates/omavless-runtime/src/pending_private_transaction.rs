@@ -17,4 +17,33 @@ pub(crate) fn pending(paths: &DesiredPaths) -> bool {
 pub(crate) fn pending_at(directory: &Path) -> bool {
     crate::routing_preset::pending_at(directory)
         || crate::restore_staging_candidate::staging_pending_at(directory)
+        || journal_member_pending(directory, "restore-decision.intent")
+        || journal_member_pending(directory, "restore-decision.terminal")
+}
+
+fn journal_member_pending(directory: &Path, name: &str) -> bool {
+    !matches!(
+        std::fs::symlink_metadata(directory.join(name)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn orphan_decision_members_remain_a_startup_fence() {
+        let home = std::env::var_os("HOME").expect("test needs home");
+        let root =
+            crate::test_temp::directory_under(Path::new(&home), "orphan-restore-decision").unwrap();
+        for name in ["restore-decision.intent", "restore-decision.terminal"] {
+            fs::write(root.join(name), b"incomplete").unwrap();
+            assert!(pending_at(&root));
+            fs::remove_file(root.join(name)).unwrap();
+        }
+        assert!(!pending_at(&root));
+        fs::remove_dir_all(root).unwrap();
+    }
 }
