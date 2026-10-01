@@ -10,6 +10,7 @@ use crate::backup_destination_candidate::{
 };
 use crate::backup_source_candidate::{PrivateSourcePair, capture_current_pair};
 use crate::desired::read_desired_snapshot;
+use crate::restore_staging_candidate::{StageError, stage_private_pair};
 use omavless_domain::private_backup::OpenedBackup;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +44,12 @@ pub(crate) enum RestorePrepareError {
     Backup(ReadError),
     Owner(RestoreAdmissionError),
     CurrentPairUnavailable,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RestoreStageError {
+    Prepare(RestorePrepareError),
+    Staging(StageError),
 }
 
 /// Sensitive, in-memory preparation only. The old bytes and authenticated
@@ -111,8 +118,47 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 _ => RestoreAdmissionError::OwnershipUnavailable,
             })
         })?;
+        self.prepare_restore_locked(incoming, &lock)
+    }
+
+    /// Stage only the four fixed private members under the same lease that
+    /// captured the old pair. The durable pending directory blocks another
+    /// staging attempt; no live file is replaced. No product caller exists.
+    #[allow(dead_code)]
+    pub(crate) fn stage_restore_candidate(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<(), RestoreStageError> {
+        let incoming = open_existing(source, self.transaction.uid(), passphrase)
+            .map_err(|error| RestoreStageError::Prepare(RestorePrepareError::Backup(error)))?;
+        let lock = self.transaction.acquire_lock().map_err(|error| {
+            RestoreStageError::Prepare(RestorePrepareError::Owner(match error {
+                ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
+                _ => RestoreAdmissionError::OwnershipUnavailable,
+            }))
+        })?;
+        let prepared = self
+            .prepare_restore_locked(incoming, &lock)
+            .map_err(RestoreStageError::Prepare)?;
+        stage_private_pair(
+            &self.transaction.desired_paths().directory,
+            self.transaction.uid(),
+            prepared.original_store(),
+            prepared.original_template(),
+            prepared.incoming_store(),
+            prepared.incoming_template(),
+        )
+        .map_err(RestoreStageError::Staging)
+    }
+
+    fn prepare_restore_locked(
+        &mut self,
+        incoming: OpenedBackup,
+        lock: &MigrationLock,
+    ) -> Result<PreparedRestorePair, RestorePrepareError> {
         let readiness = self
-            .restore_readiness_locked(&lock)
+            .restore_readiness_locked(lock)
             .map_err(RestorePrepareError::Owner)?;
         let config = self
             .transaction
@@ -130,11 +176,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             self.transaction.cutover_paths(),
             self.transaction.uid(),
             readiness.owner_generation,
-            &lock,
+            lock,
         )
         .map_err(|_| RestorePrepareError::CurrentPairUnavailable)?;
         let after = self
-            .restore_readiness_locked(&lock)
+            .restore_readiness_locked(lock)
             .map_err(RestorePrepareError::Owner)?;
         if after != readiness {
             return Err(RestorePrepareError::Owner(
@@ -202,7 +248,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::Busy);
         }
-        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         let desired =
@@ -233,7 +279,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::OwnershipUnavailable);
         }
-        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         Ok(RestoreReadiness {

@@ -868,7 +868,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .map_err(|_| NativeOwnerError::Invariant)?;
             let desired = crate::desired::read_desired_snapshot(&desired_paths, uid)
                 .map_err(|_| NativeOwnerError::Invariant)?;
-            let pending = crate::routing_preset::pending(&desired_paths);
+            let pending = crate::pending_private_transaction::pending(&desired_paths);
             let observation = owner.host_mut().fresh_observation(&desired).ok();
             let host = owner.host_mut().support_facts(desired.connected);
             // Preserve one coherent sample even if a non-cooperating writer
@@ -879,7 +879,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 || omavless_store::read_private_utf8(&store_path, uid)
                     .map_err(|_| NativeOwnerError::Invariant)?
                     != input
-                || crate::routing_preset::pending(&desired_paths) != pending
+                || crate::pending_private_transaction::pending(&desired_paths) != pending
             {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
@@ -1136,7 +1136,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
         }
-        if crate::routing_preset::pending(self.transaction.desired_paths()) {
+        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }
         self.check_batch_operation_id(operation_id)?;
@@ -1164,7 +1164,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Ok(lock) => {
                 // A durable interrupted preset must also fence the effect
                 // boundary, not only the earlier queue/replay admission.
-                if crate::routing_preset::pending(self.transaction.desired_paths()) {
+                if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
                     self.coordinator.abort_active_uncached(token)?;
                     return Err(NativeOwnerError::ManualRecoveryRequired);
                 }
@@ -2459,6 +2459,55 @@ mod tests {
         ));
         assert!(fs::read(&store).unwrap() == original_store);
         assert!(fs::read(&template).unwrap() == original_template);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
+        use super::restore_candidate::RestoreAdmissionError;
+
+        let (root, store, mut owner) = support_fixture("restore-stage-owner");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        let original_template = b"synthetic old route template\n";
+        fs::write(&template, original_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        let portable_template = include_bytes!("../../../templates/default.yaml");
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(portable_store, portable_template, passphrase)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let staged = owner
+            .transaction
+            .desired_paths()
+            .directory
+            .join("restore-pair.pending");
+        assert!(fs::read(staged.join("old-profiles.json")).unwrap() == original_store);
+        assert!(fs::read(staged.join("old-route-template.yaml")).unwrap() == original_template);
+        assert!(fs::read(staged.join("new-profiles.json")).unwrap() == portable_store);
+        assert!(fs::read(staged.join("new-route-template.yaml")).unwrap() == portable_template);
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
+        assert_eq!(owner.host_mut().calls, 0);
+        assert!(owner.transaction.stop_blocked());
+        assert!(owner.transaction.blocked());
+        assert_eq!(
+            owner.transaction.reconcile_startup(),
+            Err(ConnectionTransactionError::ManualRecoveryRequired)
+        );
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
