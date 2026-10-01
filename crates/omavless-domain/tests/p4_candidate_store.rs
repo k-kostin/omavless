@@ -4,7 +4,9 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use omavless_domain::private_store::{parse_candidate_private_store, parse_private_store};
+use omavless_domain::private_store::{
+    migrate_legacy_store_candidate, parse_candidate_private_store, parse_private_store,
+};
 use omavless_profile::wireguard::parse_wireguard_config;
 use serde_json::{Value, json};
 
@@ -153,4 +155,60 @@ fn unsupported_versions_and_bounds_fail_closed() {
     let mut source = mixed();
     source["padding"] = "x".repeat(5 * 1024 * 1024).into();
     assert!(parse_candidate_private_store(&source.to_string()).is_err());
+}
+
+#[test]
+fn legacy_migration_and_standalone_append_are_private_in_memory_only() {
+    let source = json!({
+        "version": 3,
+        "profiles": [{"id": URI_ID, "name": "URI", "protocol": "vless", "uri": URI,
+            "extension": {"preserve": true}}],
+        "activeId": URI_ID, "lastId": URI_ID,
+        "startup": {"enabled": true, "target": "profile", "profileId": URI_ID, "mode": "global"}
+    })
+    .to_string();
+    let candidate = migrate_legacy_store_candidate(&source).unwrap();
+    assert_eq!(candidate.profile_counts(), (1, 0, 0));
+    assert_eq!(candidate.pointer_presence(), (true, true, true));
+    let wg = parse_wireguard_config(&native(false)).unwrap();
+    let candidate = candidate.with_wireguard(WG_ID, "WG", wg).unwrap();
+    assert_eq!(candidate.profile_counts(), (1, 1, 0));
+    assert_eq!(candidate.pointer_presence(), (true, true, true));
+    let bytes = candidate.into_private_bytes().unwrap();
+    let document: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["profiles"][0]["extension"]["preserve"], true);
+    assert_eq!(document["version"], 4);
+    assert!(parse_private_store(std::str::from_utf8(&bytes).unwrap()).is_err());
+    assert_eq!(
+        parse_private_store(&source)
+            .unwrap()
+            .projection()
+            .profile_count,
+        1
+    );
+
+    let duplicate = source.replacen("\"version\":3", "\"version\":3,\"version\":3", 1);
+    assert!(migrate_legacy_store_candidate(&duplicate).is_err());
+    let duplicate_id = migrate_legacy_store_candidate(&source).unwrap();
+    assert!(
+        duplicate_id
+            .with_wireguard(
+                URI_ID,
+                "WG",
+                parse_wireguard_config(&native(false)).unwrap()
+            )
+            .is_err()
+    );
+
+    for version in [1, 2] {
+        let mut old: Value = serde_json::from_str(&source).unwrap();
+        old["version"] = version.into();
+        old["profiles"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("protocol");
+        let migrated = migrate_legacy_store_candidate(&old.to_string()).unwrap();
+        assert_eq!(migrated.profile_counts(), (1, 0, 0));
+        assert_eq!(migrated.pointer_presence(), (true, true, true));
+    }
 }

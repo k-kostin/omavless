@@ -28,7 +28,9 @@ use std::fmt;
 mod candidate;
 mod startup;
 mod support;
-pub use candidate::{CandidatePrivateStore, parse_candidate_private_store};
+pub use candidate::{
+    CandidatePrivateStore, migrate_legacy_store_candidate, parse_candidate_private_store,
+};
 pub use startup::{StartupPreferences, apply_startup_preferences};
 
 /// Complete onboarding without changing login policy, profile selection or

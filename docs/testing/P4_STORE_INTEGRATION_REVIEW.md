@@ -133,6 +133,9 @@ rows share one subscription/profile identity and startup-pointer validation
 pass, including WG-only stores. Provider-managed WG rows, ambiguous credential
 sources and unsupported versions are refused. Private re-encoding roundtrips
 the complete document; public methods expose counts and pointer-presence only.
+An in-memory migration from a fully validated v1-v3 document additionally
+rejects original-byte duplicates, preserves legacy extensions and pointers,
+and can prepare one standalone WG/AWG candidate without writing any bytes.
 
 This is **not a store migration or product activation**. The production
 `parse_private_store` still refuses v4; no filesystem writer, IPC method,

@@ -64,6 +64,47 @@ impl CandidatePrivateStore {
         parse_candidate_private_store(text)?;
         Ok(bytes)
     }
+
+    /// Prepare one standalone native profile in memory. This never writes the
+    /// store or makes the profile connectable through the installed owner.
+    pub fn with_wireguard(
+        mut self,
+        id: &str,
+        name: &str,
+        profile: WireGuardProfile,
+    ) -> Result<Self, PrivateStoreError> {
+        if !valid_record_id(id) || !canonical_name(name) {
+            return Err(PrivateStoreError::InvalidShape);
+        }
+        let protocol = profile.facts().flavor.protocol_name();
+        let record = profile
+            .private_record()
+            .map_err(|_| PrivateStoreError::InvalidShape)?;
+        let value: Value = serde_json::from_slice(record.expose_private_bytes())
+            .map_err(|_| PrivateStoreError::InvalidShape)?;
+        self.document["profiles"]
+            .as_array_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?
+            .push(serde_json::json!({
+                "id": id, "name": name, "protocol": protocol, "wireguard": value
+            }));
+        parse_candidate_private_store(&self.document.to_string())
+    }
+}
+
+/// Convert a fully validated legacy store into an in-memory v4 candidate.
+/// Original bytes must also pass duplicate-key rejection before the legacy
+/// parser can discard any conflicting value. No file or owner state changes.
+pub fn migrate_legacy_store_candidate(
+    input: &str,
+) -> Result<CandidatePrivateStore, PrivateStoreError> {
+    if input.len() > MAX_PRIVATE_STORE_BYTES {
+        return Err(PrivateStoreError::TooLarge);
+    }
+    parse_unique_private_json(input).map_err(|_| PrivateStoreError::InvalidJson)?;
+    let mut legacy = parse_private_store(input)?;
+    legacy.document["version"] = Value::from(4);
+    parse_candidate_private_store(&legacy.document.to_string())
 }
 
 /// Validate a complete future v4 document from original bytes. Duplicate keys
