@@ -2,6 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**0.9.7 maintenance RC source, 2026-10-01:** the owner selected the checked
+0.9.6 source plus a narrow TUI Connections loading correction and installed
+manifest-based Settings credit. The [RC ledger](docs/development/RC_097.md)
+records exact inputs and unrun distribution/installed gates. The short Unix
+socket fixture fix proposed in #433 is already in the 0.9.6 source. Source
+version `0.9.7-rc.1` has empty package pins; this is not an accepted/public RC,
+main update or marketplace publication.
+
 **0.9.6 RC scope freeze, 2026-10-01:** the owner selected the checked
 `beta/0.9.6` assembly for `rc/0.9.6`. The [RC ledger](docs/development/RC_096.md)
 records the exact source, retained evidence, excluded work and remaining

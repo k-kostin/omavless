@@ -6,6 +6,13 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.7 maintenance RC source in preparation:** selected 0.9.6 read-side
+  scope plus #435's honest Connections loading state and a small Settings
+  credit from the installed plugin manifest. #433's socket-fixture correction
+  was already integrated into 0.9.6, so its changes are not duplicated. See
+  [the 0.9.7 ledger](../development/RC_097.md) for exact selection, exclusions
+  and pending package/installed gates. `0.9.7-rc.1` is not accepted or public.
+
 - **0.9.6 RC source prepared:** the owner selected the reviewed beta for
   `rc/0.9.6`; [its ledger](../development/RC_096.md) freezes the seven
   read-side/presentation changes and records remaining exact-RC checks and

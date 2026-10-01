@@ -19,6 +19,16 @@ Panel {
   moduleName: "kdk.omavless"
   ipcTarget: "kdk.omavless"
   manageIpc: false
+  // Quickshell supplies the installed plugin's public manifest to panels
+  // exposing this property. Never infer the displayed version from a native
+  // runtime that may be on a different package revision during an update.
+  property var manifest: null
+  readonly property string releaseCredit: {
+    if (!manifest || typeof manifest.version !== "string" || typeof manifest.author !== "string") return ""
+    if (manifest.version.length > 32 || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(manifest.version)) return ""
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(manifest.author)) return ""
+    return textFor("settings.release_credit", {version:manifest.version, author:manifest.author})
+  }
 
   // Owner-requested temporary presentation gates. Restore only on explicit
   // owner direction; see docs/roadmap/MAIN_PANEL_DEFERRED_SECTIONS.md.
@@ -2385,6 +2395,16 @@ Panel {
             actionText: root.textFor(vless.nativeQuitting ? "native.quit.running" : "native.quit.action")
             actionEnabled: vless.nativeCanStop && !vless.nativeEditorRunning && !vless.nativeImportBusy
             onAction: root.quitConfirmation = true
+          }
+          PlainText {
+            Layout.fillWidth: true
+            visible: root.page === "settings" && root.releaseCredit !== ""
+            text: root.releaseCredit
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.Wrap
           }
           PlainText { Layout.fillWidth: true; visible: root.page === "subscriptions"; text: root.textFor("native.subscription.help"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           Button { id: nativeSubscriptionAdd; visible: root.page === "subscriptions"; text: root.textFor("common.add"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.addSubscription() }

@@ -418,6 +418,26 @@ test('settings sections group related controls in a stable visual order',()=>{
   const order=['settings.appearance','id: nativeLanguageRow','settings.connections','id: nativeModeButtons','id: nativeRoutingPresetSetting','id: nativeRoutingToolsSetting','id: nativeProvidersRefresh','id: nativeSubscriptionsSetting','settings.setup_startup','id: nativeCoreSetupRow','id: nativeOnboardingSetting','id: nativeStartupSummaryRow','id: nativeHelpersRefresh','settings.diagnostics_privacy','id: nativeDiagnosticsSetting','id: nativeSupportSetting','id: nativeSupportCopy','id: nativeSupportSave','id: nativeExitIpSetting','settings.application','id: nativeQuitSetting'];
   let previous=-1;for(const marker of order){const at=region.indexOf(marker);assert(at>previous,marker);previous=at;}
 });
+test('Settings footer uses only installed public plugin metadata after Quit',()=>{
+  const start=source.indexOf('  readonly property string releaseCredit: {');
+  const end=source.indexOf('\n  }',start)+4;
+  assert(start>0&&end>start);
+  const expression=source.slice(start,end).replace('readonly property string releaseCredit:','function releaseCredit()');
+  const c=vm.createContext({manifest:{version:'0.9.7-rc.1',author:'kdk'},locale:'en',textFor:(key,values)=>i18n.translate(key,c.locale,values)});
+  vm.runInContext(expression,c);
+  assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · by kdk');
+  c.locale='ru';assert.equal(c.releaseCredit(),'OmaVLESS 0.9.7-rc.1 · автор: kdk');
+  for(const metadata of [null,{}, {version:'0.9.7-rc.1'}, {version:'../../secret',author:'kdk'}, {version:'0.9.7-'+('x'.repeat(40)),author:'kdk'}, {version:'0.9.7-rc.1',author:'<b>'}]){
+    c.manifest=metadata;assert.equal(c.releaseCredit(),'');
+  }
+  assert.match(source,/property var manifest: null/);
+  const quit=source.indexOf('id: nativeQuitSetting');
+  const footer=source.indexOf('text: root.releaseCredit',quit);
+  const next=source.indexOf('visible: root.page === "subscriptions"',quit);
+  assert(quit<footer&&footer<next);
+  assert.match(source.slice(quit,next),/textFormat: Text.PlainText/);
+  assert.match(source.slice(quit,next),/font.pixelSize: Style.font.caption/);
+});
 test('native Settings Tab order follows visual action order without hidden Test',()=>{
   const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
   const names=Array.from(new Set(source.slice(from,to).match(/\bnative[A-Z]\w*/g)));

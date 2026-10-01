@@ -76,6 +76,7 @@ var CATALOG = {
   "native.supportExport.saved": {"en":"Report saved","ru":"Отчёт сохранён"},
   "native.supportExport.failed": {"en":"Could not export the report. Check the destination and try again.","ru":"Не удалось экспортировать отчёт. Проверьте путь и повторите попытку."},
   "settings.application": {"en":"APPLICATION","ru":"ПРИЛОЖЕНИЕ"},
+  "settings.release_credit": {"en":"OmaVLESS {version} · by {author}","ru":"OmaVLESS {version} · автор: {author}"},
   "settings.setup_assistant": {"en":"Setup assistant","ru":"Помощник настройки"},
   "settings.setup_description": {"en":"Set up the core, choose routing and import profiles.","ru":"Установка ядра, выбор маршрутизации и импорт профилей."},
   "settings.routing_profile_label": {"en":"Routing profile","ru":"Профиль маршрутизации"},

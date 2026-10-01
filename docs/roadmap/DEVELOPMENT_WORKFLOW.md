@@ -55,6 +55,13 @@ public-download and clean-install gates explicit. Until those pass, 0.9.6 is
 RC-integrated but not the replacement *accepted* candidate; 0.9.5 RC1 remains
 immutable history.
 
+The 0.9.7 maintenance candidate retains that 0.9.6 scope and adds only the
+bounded Connections loading correction plus a manifest-derived Settings credit.
+Its [own ledger](../development/RC_097.md) separates source integration from
+installed, package and public acceptance. Neither an unpublished 0.9.6 source
+nor this 0.9.7 source is a substitute for those gates; 0.9.5 RC1 keeps its
+independent accepted artifact identity.
+
 The owner-approved `archive/python-legacy` exception is a frozen full-repository
 snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
 reference and its tests, not a supported parallel release or development branch.
