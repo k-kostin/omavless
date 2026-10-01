@@ -283,9 +283,20 @@ Panel {
   }
 
   function toggleNativeSubscription(id) {
+    // Search exposes every matching child. Do not silently change the saved
+    // expansion preference when no collapse can be visible.
+    if (profileFilter !== "") return
     var next = Object.assign({}, nativeExpanded)
     next[id] = !next[id]
     nativeExpanded = next
+  }
+
+  function nativeSubscriptionToggleTooltip(row) {
+    if (!row || row.kind !== "subscription") return ""
+    if (profileFilter !== "") return textFor("native.subscriptions.search_expanded")
+    return safeTooltip(textFor(row.expanded
+      ? "native.subscriptions.collapse" : "native.subscriptions.expand",
+      {name:row.subscription.name}))
   }
 
   function browseNativeSubscription(id) {
@@ -2490,7 +2501,7 @@ Panel {
                   RowLayout {
                     visible: !nativeRow.isProfile
                     Layout.fillWidth: true
-                    PanelActionButton { id: nativeGroup; size: Style.space(24); foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground; iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"; tooltipText: root.textFor("native.subscriptions.browse"); focusable: true; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
+                    PanelActionButton { id: nativeGroup; size: Style.space(24); foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground; iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"; tooltipText: root.nativeSubscriptionToggleTooltip(nativeRow.modelData); focusable: true; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
                     PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? "" : nativeRow.modelData.subscription.name; textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; elide: Text.ElideRight
                       MouseArea { anchors.fill: parent; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
                     }
