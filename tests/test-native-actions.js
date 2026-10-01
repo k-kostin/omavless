@@ -295,4 +295,28 @@ test('optional core counters stay bounded and never promote internet verificatio
   p.result.coreDiagnostics=null;assert(parser.parseObservation(JSON.stringify(p)));
   delete p.result.coreDiagnostics;assert(parser.parseObservation(JSON.stringify(p)));
 });
+test('T3 log-hint extension preserves coherent disconnected action admission',()=>{
+  const p=observation();
+  p.result.coreLogHints={schemaVersion:1,scope:'latest_owned_core_log_categories',availability:'unavailable',
+    items:null,incomplete:null,interpretation:'log_hints_not_health'};
+  assert(parseObservation(p));
+  p.result.coreLogHints.availability='observed'; p.result.coreLogHints.incomplete=false;
+  const categories=['dns','tls','timeout','connection','other','oversized','tun_setup','firewall_setup','setup_permission'];
+  p.result.coreLogHints.items=Array.from({length:24},(_,i)=>({sequence:i+1,category:categories[i%categories.length]}));
+  assert(parseObservation(p));
+  assert.equal(parseObservation(p).coreLogHints,undefined); // not a raw-log UI surface
+  const copy=()=>JSON.parse(JSON.stringify(p));
+  for(const mutate of [
+    r=>r.raw='private',r=>r.coreLogHints.raw='vless://private',
+    r=>r.coreLogHints.schemaVersion=2,r=>r.coreLogHints.interpretation='healthy',
+    r=>r.coreLogHints.items.push({sequence:25,category:'dns'}),
+    r=>r.coreLogHints.items[0].category='password=private',
+    r=>r.coreLogHints.items[0].sequence=0,r=>r.coreLogHints.items[0].sequence=true,
+    r=>r.coreLogHints.items[1].sequence=1,r=>r.coreLogHints.items[0].sequence=4294967296,
+    r=>r.coreLogHints.items[0].raw='https://private.invalid',
+    r=>r.coreLogHints.availability='unknown',r=>r.coreLogHints.incomplete=null
+  ]){const bad=copy();mutate(bad.result);assert.equal(parseObservation(bad),null);}
+  p.result.coreLogHints=null; assert(parseObservation(p));
+  delete p.result.coreLogHints; assert(parseObservation(p));
+});
 console.log(`${count} native action/observation tests passed`);
