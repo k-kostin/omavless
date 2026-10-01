@@ -170,9 +170,11 @@ layout remained intact. Keyboard-only reachability and the wider G1a/platform
 matrix remain open.
 The later Shell keyboard-list follow-up exercised focused row navigation,
 inspection and an EN/RU zero-match state in the x86_64 VM, including a
-10,006-row synthetic fixture. This closes only that narrow interaction path;
-it does not establish native accessibility, full short-window keyboard
-reachability, latency budgets or direct Rust parity.
+10,006-row synthetic fixture. The following direct Rust trial exercised the
+same narrow keyboard path, including generated-row Details and EN/RU empty
+states, without changing the confirmed connection fixture. Neither result
+establishes native accessibility, full short-window keyboard reachability,
+latency budgets or adoption.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)

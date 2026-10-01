@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 //! Synthetic, read-only G1 comparison client. No OmaVLESS IPC or credentials.
 
+use gpui_kit::base::VirtualListScrollHandle;
 use gpui_kit::base::input::{InputEvent, InputState};
 use gpui_kit::{
-    AnyElement, Context, Entity, IntoElement, ParentElement, Pixels, Render, Size, Styled, Window,
-    WindowOptions, div, prelude::*, rems,
+    AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, ParentElement, Pixels,
+    Render, ScrollStrategy, Size, Styled, Window, WindowOptions, div, prelude::*, rems,
 };
 use gpui_omarchy::{ActiveTheme, ButtonVariant, button, focus_scope, input, panel, virtual_list};
 use serde::Deserialize;
@@ -68,6 +69,18 @@ impl Fixtures {
         self.profiles.iter().find(|profile| profile.id == id)
     }
 
+    fn resolved_profile(&self, id: &str) -> Option<Profile> {
+        if let Some(profile) = self.profile(id) {
+            return Some(profile.clone());
+        }
+        let number = id.strip_prefix("generated-")?;
+        if number.len() != 5 || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let index = number.parse::<usize>().ok()?;
+        (index < self.large_list_count).then(|| generated_profile(index))
+    }
+
     fn initial_scene(&self, args: &[String]) -> Result<usize, &'static str> {
         match args {
             [] => Ok(0),
@@ -81,11 +94,43 @@ impl Fixtures {
     }
 }
 
+fn generated_profile(index: usize) -> Profile {
+    Profile {
+        id: format!("generated-{index:05}"),
+        name: format!("Synthetic node {index:05}"),
+        country: "Example".into(),
+        host: format!("node-{index:05}.example"),
+        subscription: "Generated samples".into(),
+    }
+}
+
+fn next_highlight_index(
+    visible: &[Profile],
+    current: Option<&str>,
+    direction: isize,
+) -> Option<usize> {
+    if visible.is_empty() {
+        return None;
+    }
+    let current = visible
+        .iter()
+        .position(|profile| Some(profile.id.as_str()) == current);
+    Some(match current {
+        Some(index) if direction < 0 => index.saturating_sub(1),
+        Some(index) => (index + 1).min(visible.len() - 1),
+        None if direction < 0 => visible.len() - 1,
+        None => 0,
+    })
+}
+
 struct Trial {
     fixtures: Fixtures,
     search: Entity<InputState>,
     scene: usize,
     selected: Option<String>,
+    highlighted: Option<String>,
+    list_focus: FocusHandle,
+    list_scroll: VirtualListScrollHandle,
     russian: bool,
     large: bool,
     collection: usize,
@@ -106,10 +151,11 @@ impl Trial {
         cx.subscribe(&search, |this, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 let query = input.read(cx).value().to_string();
-                this.selected = this
-                    .visible_profiles(&query)
-                    .first()
-                    .map(|profile| profile.id.clone());
+                if let Some(first) = this.visible_profiles(&query).first() {
+                    this.selected = Some(first.id.clone());
+                    this.highlighted = Some(first.id.clone());
+                    this.list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                }
                 cx.notify();
             }
         })
@@ -123,7 +169,10 @@ impl Trial {
             fixtures,
             search,
             scene: initial_scene,
+            highlighted: selected.clone(),
             selected,
+            list_focus: cx.focus_handle(),
+            list_scroll: VirtualListScrollHandle::new(),
             russian: false,
             large: false,
             collection: 0,
@@ -180,13 +229,7 @@ impl Trial {
         let collection = self.fixtures.collections[self.collection].id.as_str();
         let mut profiles = self.fixtures.profiles.clone();
         if self.large {
-            profiles.extend((0..self.fixtures.large_list_count).map(|index| Profile {
-                id: format!("generated-{index:05}"),
-                name: format!("Synthetic node {index:05}"),
-                country: "Example".into(),
-                host: format!("node-{index:05}.example"),
-                subscription: "Generated samples".into(),
-            }));
+            profiles.extend((0..self.fixtures.large_list_count).map(generated_profile));
         }
         profiles
             .into_iter()
@@ -221,6 +264,13 @@ impl Trial {
             self.cached_large = self.large;
             self.cached_collection = self.collection;
         }
+        if !self
+            .visible
+            .iter()
+            .any(|profile| Some(profile.id.as_str()) == self.highlighted.as_deref())
+        {
+            self.highlighted = self.visible.first().map(|profile| profile.id.clone());
+        }
         if changed
             || self.row_rem_size != window.rem_size()
             || self.row_sizes.len() != self.visible.len()
@@ -240,9 +290,12 @@ impl Trial {
         &mut self,
         profile: Profile,
         connected: Option<&str>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let selected = self.selected.as_deref() == Some(profile.id.as_str());
+        let highlighted = self.list_focus.is_focused(window)
+            && self.highlighted.as_deref() == Some(profile.id.as_str());
         let is_connected = connected == Some(profile.id.as_str());
         let theme = cx.omarchy().clone();
         let id = profile.id.clone();
@@ -262,7 +315,11 @@ impl Trial {
             .h(rems(3.5))
             .p(rems(0.625))
             .border_1()
-            .border_color(if selected { theme.accent } else { theme.border })
+            .border_color(if selected || highlighted {
+                theme.accent
+            } else {
+                theme.border
+            })
             .bg(if selected {
                 theme.selection
             } else {
@@ -270,6 +327,7 @@ impl Trial {
             })
             .hover(|style| style.bg(theme.surface))
             .on_click(cx.listener(move |this, _, _, cx| {
+                this.highlighted = Some(id.clone());
                 this.selected = Some(id.clone());
                 cx.notify();
             }))
@@ -314,12 +372,9 @@ impl Render for Trial {
         let selected = self
             .selected
             .as_deref()
-            .and_then(|id| self.fixtures.profile(id))
-            .cloned();
+            .and_then(|id| self.fixtures.resolved_profile(id));
         let connection_id = scene.confirmed_id().or_else(|| scene.previous_id());
-        let connected = connection_id
-            .and_then(|id| self.fixtures.profile(id))
-            .cloned();
+        let connected = connection_id.and_then(|id| self.fixtures.resolved_profile(id));
         let status = match scene.phase.as_str() {
             "connected" => self.label("Connected (synthetic)", "Подключено (макет)"),
             "connecting" => self.label("Connecting… (synthetic)", "Подключаемся… (макет)"),
@@ -400,8 +455,8 @@ impl Render for Trial {
             }
         } else {
             self.label(
-                "Click a row or press Enter in search to inspect; never connects",
-                "Нажмите строку или Enter в поиске для просмотра; подключения нет",
+                "Tab to list: arrows move, Enter inspects; never connects",
+                "Tab — к списку, стрелки — перемещение, Enter — просмотр; без подключения",
             )
             .to_owned()
         };
@@ -427,19 +482,37 @@ impl Render for Trial {
         let viewport_rems = window.viewport_size().height.as_f32() / window.rem_size().as_f32();
         let list_height = rems((viewport_rems - 27.).clamp(8., 24.));
         let confirmed_id = scene.confirmed_id().map(str::to_owned);
-        let list = virtual_list(
-            cx.entity(),
-            "g1-profile-list",
-            self.row_sizes.clone(),
-            move |this, range, _, cx| {
-                range
-                    .map(|index| {
-                        this.render_profile(visible[index].clone(), confirmed_id.as_deref(), cx)
-                    })
-                    .collect::<Vec<_>>()
-            },
-            cx,
-        );
+        let list: AnyElement = if visible.is_empty() {
+            div()
+                .h(list_height)
+                .p(rems(0.625))
+                .text_color(theme.secondary)
+                .child(self.label("No matching profiles", "Профили не найдены"))
+                .into_any_element()
+        } else {
+            virtual_list(
+                cx.entity(),
+                "g1-profile-list",
+                self.row_sizes.clone(),
+                move |this, range, window, cx| {
+                    range
+                        .map(|index| {
+                            this.render_profile(
+                                visible[index].clone(),
+                                confirmed_id.as_deref(),
+                                window,
+                                cx,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                },
+                cx,
+            )
+            .track_scroll(&self.list_scroll)
+            .h(list_height)
+            .min_h_0()
+            .into_any_element()
+        };
         let profile_panel = panel(self.label("Profiles", "Профили"), cx)
             .min_w(rems(16.))
             .flex_1()
@@ -457,7 +530,51 @@ impl Render for Trial {
             )
             .child(input("g1-search", &self.search, window, cx))
             .child(div().text_color(theme.secondary).child(list_note))
-            .child(list.h(list_height).min_h_0());
+            .child(
+                div()
+                    .id("g1-list-focus")
+                    .track_focus(&self.list_focus.clone().tab_stop(true))
+                    .border_1()
+                    .border_color(if self.list_focus.is_focused(window) {
+                        theme.accent
+                    } else {
+                        theme.border
+                    })
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.modifiers.modified() {
+                            return;
+                        }
+                        match event.keystroke.key.as_str() {
+                            "down" | "up" => {
+                                let direction = if event.keystroke.key == "down" { 1 } else { -1 };
+                                if let Some(index) = next_highlight_index(
+                                    &this.visible,
+                                    this.highlighted.as_deref(),
+                                    direction,
+                                ) {
+                                    this.highlighted = Some(this.visible[index].id.clone());
+                                    this.list_scroll
+                                        .scroll_to_item(index, ScrollStrategy::Nearest);
+                                    cx.notify();
+                                }
+                            }
+                            "enter" => {
+                                if this.visible.iter().any(|profile| {
+                                    Some(profile.id.as_str()) == this.highlighted.as_deref()
+                                }) {
+                                    this.selected = this.highlighted.clone();
+                                    cx.notify();
+                                }
+                            }
+                            "escape" => {
+                                this.search.update(cx, |input, cx| input.focus(window, cx));
+                            }
+                            _ => return,
+                        }
+                        cx.stop_propagation();
+                    }))
+                    .child(list),
+            );
         let details = panel(self.label("Details", "Детали"), cx)
             .min_w(rems(16.))
             .flex_1()
@@ -644,6 +761,32 @@ mod tests {
             assert_eq!(scene.confirmed_id(), None);
             assert_eq!(scene.previous_id(), None);
         }
+    }
+
+    #[test]
+    fn list_navigation_is_bounded_and_does_not_mutate_connection_facts() {
+        let fixture = Fixtures::load();
+        let visible = &fixture.profiles;
+        assert_eq!(next_highlight_index(visible, Some("north"), 1), Some(1));
+        assert_eq!(next_highlight_index(visible, Some("north"), -1), Some(0));
+        assert_eq!(next_highlight_index(visible, Some("local"), 1), Some(5));
+        assert_eq!(
+            next_highlight_index(visible, Some("filtered-out"), -1),
+            Some(5)
+        );
+        assert_eq!(next_highlight_index(&[], Some("north"), 1), None);
+        assert_eq!(fixture.scenes[0].confirmed_id(), Some("south"));
+    }
+
+    #[test]
+    fn generated_selection_resolves_without_materializing_full_list() {
+        let fixture = Fixtures::load();
+        let generated = fixture.resolved_profile("generated-00012").unwrap();
+        assert_eq!(generated.name, "Synthetic node 00012");
+        assert_eq!(generated.subscription, "Generated samples");
+        assert!(fixture.resolved_profile("generated-10000").is_none());
+        assert!(fixture.resolved_profile("generated-00012-extra").is_none());
+        assert!(fixture.resolved_profile("removed-profile").is_none());
     }
 
     #[test]
