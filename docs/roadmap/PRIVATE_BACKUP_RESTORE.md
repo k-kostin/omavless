@@ -417,6 +417,15 @@ particular write committed or permission to roll forward/back. No class
 automatically clears the pending fence, and future recovery must retain the
 same lease and reprove all facts before each effect.
 
+The existing login transaction and its startup receipt checks now refuse a
+surviving private-transaction pending marker, including this inactive restore
+stage. This prevents an imported `startup.enabled` preference from producing a
+new connected desired state while staged restoration is ambiguous. Synthetic
+tests cover both marker kinds, an already-consumed login receipt and a marker
+appearing during host validation. This is an admission fence, not a completed
+restore decision or a policy for how imported startup preferences behave after
+the stage is eventually resolved.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier
