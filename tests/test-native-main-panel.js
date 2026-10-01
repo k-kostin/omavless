@@ -4,6 +4,8 @@ const assert=require('node:assert/strict'), fs=require('node:fs'),path=require('
 const source=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
 const presentation=vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/NativePresentation.js'),'utf8'),presentation);
+const i18n=vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/I18n.js'),'utf8'),i18n);
 const standalone={id:'local',name:'Local',protocol:'vless',subscriptionId:'',favorite:false,missing:false};
 const managed={id:'managed',name:'Match',protocol:'vless',subscriptionId:'sub',favorite:true,missing:false};
 function context(){
@@ -12,7 +14,12 @@ function context(){
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
     nativeCursor:-1,nativeExpandedDetailsId:'',nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
-  c.root=c;c.calls=calls;
+  c.root=c;c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
+  const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
+  vm.runInContext(source.slice(emptyStart,source.indexOf('\n  }',emptyStart)+4),c);
+  c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
+  const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
+  vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
   for(const name of ['nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
@@ -23,6 +30,56 @@ function context(){
   return c;
 }
 let count=0;function test(name,f){try{f();count++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('empty native list guidance distinguishes unavailable, absent, filtered and managed data',()=>{
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.empty'));
+    c.profileFilter='Synthetic <b>имя</b>';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('profiles.no_match',{query:c.profileFilter}));
+    c.vless.nativeSnapshotFailed=true;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.unavailable'));
+    c.vless.nativeSnapshotFailed=false;c.vless.nativeSnapshot=null;
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.unavailable'));
+    c.vless.nativeSnapshot={};c.page='subscription';c.nativeSubscriptionId='removed';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.subscription_missing'));
+    c.nativeSubscriptionId='sub';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('profiles.no_match',{query:c.profileFilter}));
+    c.profileFilter='';
+    assert.equal(c.nativeEmptyProfilesText(),c.textFor('native.profiles.subscription_empty'));
+    assert.equal(c.calls.length,0);
+  }
+  assert.match(source,/PlainText \{[^\n]*text: root.nativeEmptyProfilesText\(\)/);
+});
+test('subscription toggle describes the actual target and preserves expansion during search',()=>{
+  for(const locale of ['en','ru']) {
+    const c=context();c.locale=locale;
+    c.nativeView.subscriptions[0].name='Synthetic <b>подписка</b>';
+    let row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.expand',{name:row.subscription.name}));
+    assert.equal(c.sanitizedTooltip,c.nativeSubscriptionToggleTooltip(row));
+    c.toggleNativeSubscription('sub');row=c.nativeRows.find(r=>r.kind==='subscription');
+    assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.collapse',{name:row.subscription.name}));
+    for(const expanded of [true,false]) {
+      c.nativeExpanded={sub:expanded};c.profileFilter='Match';
+      row=c.nativeRows.find(r=>r.kind==='subscription');assert.equal(row.expanded,true);
+      assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.search_expanded'));
+      c.toggleNativeSubscription('sub');assert.equal(c.nativeExpanded.sub,expanded);
+      c.nativeCursor=0;c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,expanded);
+      c.profileFilter='';assert.equal(c.nativeRows.find(r=>r.kind==='subscription').expanded,expanded);
+    }
+    assert.equal(c.nativeSubscriptionToggleTooltip({kind:'profile'}),'');
+    assert.equal(c.calls.length,0);
+  }
+});
+test('subscription hint wraps within its row and remains available on keyboard focus',()=>{
+  const group=source.slice(source.indexOf('id: nativeGroup\n'),source.indexOf('id: nativeGroupRefresh\n'));
+  assert.match(group,/text: root.nativeSubscriptionToggleTooltip\(nativeRow.modelData\)/);
+  assert.match(group,/visible: nativeGroup.pointerHovered \|\| nativeGroup.activeFocus/);
+  assert.match(group,/width: Math.min\(implicitWidth, nativeRow.width\)/);
+  assert.match(group,/property: "wrapMode"; value: Text.Wrap/);
+  assert.match(group,/x: 0/);
+  assert(!group.includes('tooltipText:')); // No second, unbounded shared hint.
+});
 test('subscription navigation restores list focus after the old Open control disappears',()=>{
   const c=context(),deferred=[];let focused=0;
   c.Qt.callLater=f=>deferred.push(f);

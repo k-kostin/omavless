@@ -58,6 +58,13 @@ or unavailable runtime within the current window, while the header remains the
 authority for current freshness. Closing the TUI discards history and leaves
 the runtime alone. This is not persistent logging or new daemon event streaming.
 
+The T3 retention follow-up explicitly marks the session history after its first
+eviction. The warning remains through runtime unavailability, owner changes and
+navigation; opening a new TUI window starts empty. It records only a boolean,
+without retaining discarded events or adding daemon reads. The 32-event bound
+and existing freshness header remain unchanged. Synthetic EN/RU rendering and
+retention tests do not establish installed terminal acceptance.
+
 The integrated session-settings checkpoint #283 adds a Settings page (`,` or the page cycle):
 `l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
 `0` restores both automatic choices. Changes are immediate and window-local;
@@ -78,6 +85,14 @@ live observation remains unavailable, not an inferred route. This is a policy
 inspection, not an Internet/DNS health test. No history, debug output or
 shareable report records the private query or matched rule. Synthetic EN/RU
 terminal and protocol tests do not replace exact-head installed TUI review.
+
+The separate T3 traffic-history candidate extends the Traffic page's
+session-only TUN-rate view from 60 seconds to an additional trend of up to five
+minutes. It retains at most 300 valid samples, collapses each graph to at most
+40 plotted points, and clears continuity after a missing reading, runtime
+change or sampling gap. This is relative rate history observed while the TUI is
+open, not a packet capture, persisted accounting, proof of routing health or a
+continuous background monitor. The original 60-second view remains visible.
 
 ## 1. Product shape
 
@@ -424,6 +439,13 @@ destinations, profile names and timestamps do not cross IPC. Categories are
 diagnostic hints, never a connection or internet-health verdict. Missing or
 stale runtime data stays unavailable. This is a bounded operator view, not a
 general raw-log export, and installed EN/RU rendering remains a separate gate.
+
+The collection-state follow-up displays the already parsed `finished` fact as
+“Log collection ended”, independently of the incomplete-collection warning.
+Missing/malformed diagnostics remain unavailable, and stale snapshots do not
+retain a current collection claim. Neither a finished collector nor a complete
+read verifies core exit, VPN cleanup or network health. This uses the existing
+observation only; it adds no log read, repair or runtime action.
 
 The bar may show compact summaries but need not duplicate full tables.
 

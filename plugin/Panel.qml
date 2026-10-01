@@ -237,6 +237,17 @@ Panel {
     return {uuid:profile.id, name:profile.name, favorite:profile.favorite, managed:profile.subscriptionId !== ""}
   }
 
+  function nativeEmptyProfilesText() {
+    if (!vless.nativeSnapshot || vless.nativeSnapshotFailed)
+      return textFor("native.profiles.unavailable")
+    if (page === "subscription" && !nativeSubscription)
+      return textFor("native.profiles.subscription_missing")
+    if (profileFilter !== "")
+      return textFor("profiles.no_match", {query:profileFilter})
+    return textFor(page === "subscription"
+      ? "native.profiles.subscription_empty" : "native.profiles.empty")
+  }
+
   function buildNativeRows() {
     var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
     if (page === "subscription") return sortNativeProbeProfiles(profiles.filter(function(p) {
@@ -283,9 +294,20 @@ Panel {
   }
 
   function toggleNativeSubscription(id) {
+    // Search exposes every matching child. Do not silently change the saved
+    // expansion preference when no collapse can be visible.
+    if (profileFilter !== "") return
     var next = Object.assign({}, nativeExpanded)
     next[id] = !next[id]
     nativeExpanded = next
+  }
+
+  function nativeSubscriptionToggleTooltip(row) {
+    if (!row || row.kind !== "subscription") return ""
+    if (profileFilter !== "") return textFor("native.subscriptions.search_expanded")
+    return safeTooltip(textFor(row.expanded
+      ? "native.subscriptions.collapse" : "native.subscriptions.expand",
+      {name:row.subscription.name}))
   }
 
   function browseNativeSubscription(id) {
@@ -2471,7 +2493,7 @@ Panel {
                 }
                 Keys.onEscapePressed: function(event) { root.profileFilter = ""; keyCatcher.forceActiveFocus(); event.accepted = true }
               }
-              PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.textFor("native.main.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+              PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.nativeEmptyProfilesText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
               Repeater {
                 id: nativeProfiles
                 model: root.page === "main" || root.page === "subscription" ? root.nativeRows : []
@@ -2490,7 +2512,27 @@ Panel {
                   RowLayout {
                     visible: !nativeRow.isProfile
                     Layout.fillWidth: true
-                    PanelActionButton { id: nativeGroup; size: Style.space(24); foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground; iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"; tooltipText: root.textFor("native.subscriptions.browse"); focusable: true; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
+                    PanelActionButton {
+                      id: nativeGroup
+                      size: Style.space(24)
+                      foreground: root.nativeCursor === nativeRow.index ? Color.accent : root.foreground
+                      iconText: nativeRow.isProfile ? "" : nativeRow.modelData.expanded ? "󰅀" : "󰅂"
+                      focusable: true
+                      property bool pointerHovered: false
+                      onHovered: function(isHovered) { pointerHovered = isHovered }
+                      onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id)
+                      // The shared action tooltip is single-line. Keep the full
+                      // translated explanation within this row, also on focus.
+                      PanelToolTip {
+                        id: nativeGroupHint
+                        visible: nativeGroup.pointerHovered || nativeGroup.activeFocus
+                        text: root.nativeSubscriptionToggleTooltip(nativeRow.modelData)
+                        fontFamily: root.fontFamily
+                        x: 0
+                        width: Math.min(implicitWidth, nativeRow.width)
+                        Binding { target: nativeGroupHint.contentItem; property: "wrapMode"; value: Text.Wrap }
+                      }
+                    }
                     PlainText { Layout.fillWidth: true; Layout.minimumWidth: 0; text: nativeRow.isProfile ? "" : nativeRow.modelData.subscription.name; textFormat: Text.PlainText; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; elide: Text.ElideRight
                       MouseArea { anchors.fill: parent; onClicked: root.toggleNativeSubscription(nativeRow.modelData.subscription.id) }
                     }

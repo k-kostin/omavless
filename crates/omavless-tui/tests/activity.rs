@@ -77,6 +77,66 @@ fn ring_is_bounded_newest_first_and_times_never_regress() {
 }
 
 #[test]
+fn retention_warning_begins_at_first_eviction_and_resets_only_with_new_window() {
+    let mut history = Activity::default();
+    let now = Instant::now();
+    assert!(!history.older_events_discarded());
+    history.record(Event::Unknown, now);
+    for _ in 1..CAPACITY {
+        history.record(Event::Applied, now);
+    }
+    assert!(!history.older_events_discarded());
+    assert!(history.newest_first().last().unwrap().event == Event::Unknown);
+    history.record(Event::Rejected, now);
+    assert!(history.older_events_discarded());
+    assert_eq!(history.newest_first().count(), CAPACITY);
+    assert!(
+        !history
+            .newest_first()
+            .any(|entry| entry.event == Event::Unknown)
+    );
+    history.record(Event::RuntimeChanged, now);
+    assert!(history.older_events_discarded());
+    assert!(!Activity::default().older_events_discarded());
+}
+
+#[test]
+fn partial_history_is_disclosed_in_both_locales_even_after_runtime_loss() {
+    for locale in [Locale::En, Locale::Ru] {
+        let now = Instant::now();
+        let mut a = App::new(locale);
+        a.page = Page::Activity;
+        a.accept(Ok(snapshot()), now);
+        assert!(!render(&a, now, 100, 32).contains(locale.text("tui.activity_discarded")));
+        for _ in 0..CAPACITY {
+            a.activity.record(Event::Applied, now);
+        }
+        a.accept(Err(ReadError::Unavailable), now);
+        for (width, height) in [(100, 32), (60, 18)] {
+            let screen = render(&a, now, width, height);
+            // Whitespace-independent comparison also checks wrapped narrow text.
+            let compact: String = screen
+                .chars()
+                .filter(|c| !c.is_whitespace() && !"│┃║".contains(*c))
+                .collect();
+            let warning = locale
+                .text("tui.activity_discarded")
+                .split_whitespace()
+                .collect::<String>();
+            assert!(compact.contains(&warning), "{screen}");
+            assert!(screen.contains(locale.text("tui.event_unavailable")));
+            assert!(!screen.contains("Fixture Frankfurt"));
+        }
+        key(&mut a, KeyCode::Esc, now);
+        assert!(a.activity.older_events_discarded());
+        let mut changed = snapshot();
+        changed.metadata.instance_id = "private-next-instance".into();
+        a.accept(Ok(changed), now);
+        assert!(a.activity.older_events_discarded());
+    }
+}
+
+#[test]
 fn instance_mode_and_local_health_changes_record_only_semantic_events() {
     let mut a = App::new(Locale::En);
     let now = Instant::now();

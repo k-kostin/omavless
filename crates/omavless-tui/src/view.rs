@@ -625,6 +625,9 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     // the separate header continues to describe current freshness/health.
     if app.page == Page::Activity {
         let mut lines = vec![Line::from(tr("tui.activity_scope"))];
+        if app.activity.older_events_discarded() {
+            lines.push(Line::from(tr("tui.activity_discarded")));
+        }
         for entry in app.activity.newest_first() {
             let seconds = entry.elapsed_seconds;
             lines.push(Line::from(format!(
@@ -744,6 +747,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             ];
             match &app.route_result {
                 Some(Status::Observed(result)) => {
+                    if let Some(checked_at) = app.route_checked_at {
+                        let (key, count) = crate::inspection::observed_age(checked_at, now);
+                        let age = count.map_or_else(
+                            || tr(key).to_owned(),
+                            |n| tr(key).replace("{count}", &n.to_string()),
+                        );
+                        lines.push(field("tui.route_check_age", age));
+                    }
                     let outcome = match result.outcome {
                         Outcome::Vpn => "tui.connection_route_vpn",
                         Outcome::Direct => "tui.connection_route_direct",
@@ -875,6 +886,37 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                             Style::default().fg(app.palette.foreground)
                         }),
                     );
+                }
+                if app.traffic_history.has_long_trend(now) {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(tr("tui.traffic_history_long_scope")));
+                    for (upload, label) in [
+                        (true, "tui.upload_history"),
+                        (false, "tui.download_history"),
+                    ] {
+                        let graph = app
+                            .traffic_history
+                            .sparkline_window(now, upload, crate::traffic_history::LONG_WINDOW)
+                            .unwrap_or_default();
+                        let peak = app
+                            .traffic_history
+                            .peak_window(now, upload, crate::traffic_history::LONG_WINDOW)
+                            .unwrap_or_default();
+                        lines.push(
+                            Line::from(format!(
+                                "{}: {}  ({}: {}/s)",
+                                tr(label),
+                                graph,
+                                tr("tui.traffic_history_peak"),
+                                bytes(peak)
+                            ))
+                            .style(if upload {
+                                Style::default().fg(app.palette.accent)
+                            } else {
+                                Style::default().fg(app.palette.foreground)
+                            }),
+                        );
+                    }
                 }
             }
             lines
@@ -1092,6 +1134,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 lines.push(Line::from(tr("tui.metric_unavailable")));
             }
             lines.push(Line::from(tr("tui.core_log_recent_scope")));
+            lines.push(field(
+                "tui.core_log_finished",
+                s.core_diagnostics
+                    .as_ref()
+                    .map(|d| boolean(d.finished))
+                    .unwrap_or_else(unknown),
+            ));
+            lines.push(Line::from(tr("tui.core_log_finished_scope")));
             lines.push(Line::from(tr("tui.health")));
             lines.push(Line::from(tr("tui.no_killswitch")));
             lines.push(Line::from(tr("tui.diagnostic_drilldown")));

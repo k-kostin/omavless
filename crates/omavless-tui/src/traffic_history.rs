@@ -6,7 +6,10 @@ use std::{
 };
 
 pub const WINDOW: Duration = Duration::from_secs(60);
-pub const CAPACITY: usize = 40;
+pub const LONG_WINDOW: Duration = Duration::from_secs(300);
+pub const CAPACITY: usize = 300;
+const MAX_SPARKLINE: usize = 40;
+const MAX_SAMPLE_GAP: Duration = Duration::from_secs(12);
 
 #[derive(Clone, Copy)]
 pub struct Sample {
@@ -32,7 +35,9 @@ impl History {
             self.clear();
             return;
         };
-        if self.samples.back().is_some_and(|last| at <= last.at) {
+        if self.samples.back().is_some_and(|last| {
+            at <= last.at || at.saturating_duration_since(last.at) > MAX_SAMPLE_GAP
+        }) {
             self.clear();
         }
         self.samples.push_back(Sample {
@@ -50,20 +55,32 @@ impl History {
         while self
             .samples
             .front()
-            .is_some_and(|first| now.saturating_duration_since(first.at) > WINDOW)
+            .is_some_and(|first| now.saturating_duration_since(first.at) > LONG_WINDOW)
         {
             self.samples.pop_front();
         }
     }
 
     pub fn recent(&self, now: Instant) -> impl Iterator<Item = Sample> + '_ {
+        self.recent_window(now, WINDOW)
+    }
+
+    pub fn recent_window(
+        &self,
+        now: Instant,
+        window: Duration,
+    ) -> impl Iterator<Item = Sample> + '_ {
         self.samples.iter().copied().filter(move |sample| {
-            sample.at <= now && now.saturating_duration_since(sample.at) <= WINDOW
+            sample.at <= now && now.saturating_duration_since(sample.at) <= window.min(LONG_WINDOW)
         })
     }
 
     pub fn peak(&self, now: Instant, upload: bool) -> Option<u64> {
-        self.recent(now)
+        self.peak_window(now, upload, WINDOW)
+    }
+
+    pub fn peak_window(&self, now: Instant, upload: bool, window: Duration) -> Option<u64> {
+        self.recent_window(now, window)
             .map(|sample| {
                 if upload {
                     sample.upload
@@ -77,14 +94,34 @@ impl History {
     /// Relative to this line's own peak. A dot means an observed zero, never a
     /// missing sample; missing history is represented outside this function.
     pub fn sparkline(&self, now: Instant, upload: bool) -> Option<String> {
-        let peak = self.peak(now, upload)?;
+        self.sparkline_window(now, upload, WINDOW)
+    }
+
+    pub fn sparkline_window(&self, now: Instant, upload: bool, window: Duration) -> Option<String> {
+        let values: Vec<u64> = self
+            .recent_window(now, window)
+            .map(|sample| {
+                if upload {
+                    sample.upload
+                } else {
+                    sample.download
+                }
+            })
+            .collect();
+        let peak = values.iter().copied().max()?;
+        let plotted: Vec<u64> = if values.len() <= MAX_SPARKLINE {
+            values
+        } else {
+            (0..MAX_SPARKLINE)
+                .map(|bucket| {
+                    let start = bucket * values.len() / MAX_SPARKLINE;
+                    let end = (bucket + 1) * values.len() / MAX_SPARKLINE;
+                    values[start..end].iter().copied().max().unwrap_or_default()
+                })
+                .collect()
+        };
         let mut line = String::new();
-        for sample in self.recent(now) {
-            let value = if upload {
-                sample.upload
-            } else {
-                sample.download
-            };
+        for value in plotted {
             let level = if value == 0 {
                 0
             } else if peak == 0 {
@@ -97,5 +134,11 @@ impl History {
             line.push(['·', '▁', '▂', '▃', '▄', '▅', '▆', '█'][level]);
         }
         Some(line)
+    }
+
+    pub fn has_long_trend(&self, now: Instant) -> bool {
+        self.recent_window(now, LONG_WINDOW)
+            .next()
+            .is_some_and(|first| now.saturating_duration_since(first.at) > WINDOW)
     }
 }

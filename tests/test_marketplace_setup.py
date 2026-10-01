@@ -14,8 +14,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
-VERSION = "0.9.5-rc.1"
-PKGVER = "0.9.5rc1"
+VERSION = json.loads((ROOT / "manifest.json").read_text())["version"]
+PKGVER = subprocess.check_output(
+    ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
+).split()[1]
 SOURCE = "b" * 40
 
 
@@ -73,7 +75,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
             metadata = json.loads((ROOT / "plugin" / filename).read_text())
             self.assertEqual(metadata["schemaVersion"], 1)
             self.assertEqual(metadata["version"], manifest["version"])
-            self.assertEqual(set(metadata["packages"]), {"aarch64", "x86_64"})
+            self.assertIn(set(metadata["packages"]), (set(), {"aarch64", "x86_64"}))
             for entry in metadata["packages"].values():
                 self.assertEqual(set(entry), {"sha256", "sourceCommit"})
                 self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
@@ -81,6 +83,14 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
             records[filename] = metadata
             shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
         self.assertEqual(manifest["version"], VERSION)
+        self.assertEqual(set(records["runtime-release.json"]["packages"]),
+                         set(records["dns-release.json"]["packages"]))
+        if not records["runtime-release.json"]["packages"]:
+            for arch in ("aarch64", "x86_64"):
+                self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
+                self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
+                                 "release_unavailable\n")
+            return
         for arch in ("aarch64", "x86_64"):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
             self.assertEqual(result.returncode, 0)
@@ -144,7 +154,7 @@ curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
     def test_existing_package_states_are_bounded_and_read_only(self):
         fixture = '''
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5rc1-1'; }
+package_installed() { echo "omavless $package_version-1"; }
 pair_installed() { return 0; }
 system_broker_available() { return 0; }
 native_target() { echo rust; }
@@ -312,7 +322,7 @@ install_package
         fixture = '''
 pair_installed() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5rc1-1'; }
+package_installed() { echo "omavless $package_version-1"; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 enroll_uid() { echo enroll >> "$TEST_DIR/trace"; }
@@ -351,7 +361,7 @@ pair_installed() { return 0; }
 system_broker_idle() { return 0; }
 broker_access_for_user() { return 0; }
 native_present() { return 0; }
-package_installed() { echo 'omavless 0.9.5rc1-1'; }
+package_installed() { echo "omavless $package_version-1"; }
 native_target() { echo rust; }
 pair_selection_status() { if [[ -f "$TEST_DIR/selected" ]]; then echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; else echo '{"schemaVersion":1,"scope":"local_pair_only","selected":false}'; fi; }
 native() { echo "$*" >> "$TEST_DIR/trace"; [[ "$*" != 'dns-pair select' ]] || touch "$TEST_DIR/selected"; }
