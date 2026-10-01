@@ -237,6 +237,17 @@ Panel {
     return {uuid:profile.id, name:profile.name, favorite:profile.favorite, managed:profile.subscriptionId !== ""}
   }
 
+  function nativeEmptyProfilesText() {
+    if (!vless.nativeSnapshot || vless.nativeSnapshotFailed)
+      return textFor("native.profiles.unavailable")
+    if (page === "subscription" && !nativeSubscription)
+      return textFor("native.profiles.subscription_missing")
+    if (profileFilter !== "")
+      return textFor("profiles.no_match", {query:profileFilter})
+    return textFor(page === "subscription"
+      ? "native.profiles.subscription_empty" : "native.profiles.empty")
+  }
+
   function buildNativeRows() {
     var profiles = NativePresentation.filtered(nativeView.profiles, profileFilter)
     if (page === "subscription") return sortNativeProbeProfiles(profiles.filter(function(p) {
@@ -2471,7 +2482,7 @@ Panel {
                 }
                 Keys.onEscapePressed: function(event) { root.profileFilter = ""; keyCatcher.forceActiveFocus(); event.accepted = true }
               }
-              PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.textFor("native.main.empty"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+              PlainText { Layout.fillWidth: true; visible: (root.page === "main" || root.page === "subscription") && root.nativeRows.length === 0; text: root.nativeEmptyProfilesText(); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
               Repeater {
                 id: nativeProfiles
                 model: root.page === "main" || root.page === "subscription" ? root.nativeRows : []
