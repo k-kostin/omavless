@@ -74,8 +74,6 @@ ShellRoot {
       var snapshot = JSON.parse(JSON.stringify(review.reviewSnapshot))
       product.settings = {locale:locale, showExitIp:false, showBarThroughput:false}
       product.open()
-      product.page = ["missing", "subscription-empty"].indexOf(kind) >= 0 ? "subscription" : "main"
-      product.nativeSubscriptionId = kind === "missing" ? "absent-fixture" : "demo-subscription"
       product.profileFilter = kind === "search" ? "Helsinki" : ""
       product.nativeExpanded = {"demo-subscription":false}
       product.nativeSelectedProfile = ""
@@ -83,6 +81,9 @@ ShellRoot {
       if (kind === "empty" || kind === "unavailable") snapshot.subscriptions = []
       service.nativeSnapshot = snapshot
       service.nativeSnapshotFailed = kind === "unavailable"
+      // Assign the page after snapshot-change navigation has settled.
+      product.nativeSubscriptionId = kind === "missing" ? "absent-fixture" : "demo-subscription"
+      product.page = ["missing", "subscription-empty"].indexOf(kind) >= 0 ? "subscription" : "main"
       var popup = review.find(product, function(o) { return "cardOrigin" in o && "contentWidth" in o })
       if (!popup) return "not-ready"
       popup.contentWidth = width
@@ -91,7 +92,7 @@ ShellRoot {
     }
     function reviewInspect(): string {
       var group = review.find(product, function(o) { return "pointerHovered" in o && "iconText" in o })
-      var hint = group && review.find(group, function(o) { return "panelBackground" in o && "delay" in o })
+      var hint = group && review.find(group, function(o) { return "panelBackground" in o && "delay" in o && o.text !== "" })
       return JSON.stringify({kind:review.reviewKind, locale:product.uiLocale,
         rows:product.nativeRows.length, storedExpanded:product.nativeExpanded["demo-subscription"] === true,
         expanded:product.nativeRows.some(function(row) { return row.kind === "subscription" && row.expanded }),
@@ -104,6 +105,12 @@ ShellRoot {
       if (!group) return "not-ready"
       group.forceActiveFocus()
       return "focused"
+    }
+    function reviewPointer(): string {
+      var group = review.find(product, function(o) { return "pointerHovered" in o && "iconText" in o })
+      if (!group) return "not-ready"
+      var point = group.mapToGlobal(group.width / 2, group.height / 2)
+      return JSON.stringify({x:Math.round(point.x), y:Math.round(point.y)})
     }
     function reviewToggle(): string {
       product.toggleNativeSubscription("demo-subscription")
