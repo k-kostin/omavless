@@ -8,6 +8,9 @@
 use crate::network_transition_plan::{self as hint_plan, Attempt, Current, Decision, Hint};
 use serde::{Deserialize, Serialize};
 
+#[path = "network_recovery_receipt_files.rs"]
+mod file_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Fence {
