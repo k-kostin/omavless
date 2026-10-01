@@ -677,7 +677,23 @@ pub(crate) fn recover_staged_pair(
     lock: &MigrationLock,
     gate: impl FnMut() -> bool,
 ) -> Result<PendingOutcome, ExecutionError> {
-    recover_with_hook(config, paths, uid, generation, lock, gate, |_| true)
+    recover_with_hook(config, paths, uid, generation, lock, (gate, true), |_| true)
+}
+
+/// Verify and re-synchronize an existing terminal pair only. This variant
+/// never interprets an undecided intent as authority to write old bytes.
+#[allow(dead_code)]
+pub(crate) fn verify_terminal_staged_pair(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<PendingOutcome, ExecutionError> {
+    recover_with_hook(config, paths, uid, generation, lock, (gate, false), |_| {
+        true
+    })
 }
 
 fn recover_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
@@ -686,7 +702,7 @@ fn recover_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     uid: u32,
     generation: u64,
     lock: &MigrationLock,
-    gate: G,
+    (gate, allow_rollback): (G, bool),
     mut hook: H,
 ) -> Result<PendingOutcome, ExecutionError> {
     let stage = read_staged_pair(&paths.state_directory, uid)
@@ -730,6 +746,9 @@ fn recover_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
             Ok(PendingOutcome::Aborted)
         }
         RecoveryReview::OldRollbackCandidate => {
+            if !allow_rollback {
+                return Err(ExecutionError::ManualRecovery);
+            }
             for (index, slot) in OLD_SLOT.iter().enumerate() {
                 replace_member(
                     &mut bound,
@@ -911,6 +930,41 @@ mod tests {
     }
 
     #[test]
+    fn terminal_only_verification_refuses_undecided_intent_without_live_write() {
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        let stage = read_staged_pair(&fixture.paths.state_directory, fixture.uid).unwrap();
+        let desired = fs::read(fixture.paths.state_directory.join("desired.json")).unwrap();
+        let intent = DecisionRecord::intent(2, Some(&desired), stage.identity(), [19; 16]).unwrap();
+        Fixture::member(
+            &fixture
+                .paths
+                .state_directory
+                .join("restore-decision.intent"),
+            &intent.encode(),
+        );
+        assert_eq!(
+            verify_terminal_staged_pair(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            ),
+            Err(ExecutionError::ManualRecovery)
+        );
+        fixture.assert_pair(true);
+        assert!(
+            !fixture
+                .paths
+                .state_directory
+                .join("restore-decision.terminal")
+                .exists()
+        );
+    }
+
+    #[test]
     fn each_forward_interruption_reopens_to_exact_old_or_durable_new() {
         for stop in [
             EffectStep::Intent,
@@ -995,7 +1049,7 @@ mod tests {
                     fixture.uid,
                     2,
                     &lock,
-                    || true,
+                    (|| true, true),
                     |step| step != stop,
                 ),
                 Err(ExecutionError::Ambiguous),
@@ -1436,7 +1490,7 @@ mod tests {
                 fixture.uid,
                 2,
                 &lock,
-                || true,
+                (|| true, true),
                 &mut crash_at_step,
             );
         } else {

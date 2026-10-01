@@ -194,7 +194,21 @@ impl DecisionRecord {
         desired_raw: Option<&[u8]>,
         stage: &StageIdentity,
     ) -> bool {
-        if owner_generation != self.owner_generation || stage.digest() != self.stage_digest {
+        if stage.digest() != self.stage_digest {
+            return false;
+        }
+        self.matches_owner_desired(owner_generation, desired_raw)
+    }
+
+    /// A finalization receipt must remain independently inspectable after
+    /// staged copies are retired. This still requires a fresh owner and exact
+    /// Off desired-state read under the same lease; it is not cleanup authority.
+    pub(crate) fn matches_owner_desired(
+        &self,
+        owner_generation: u64,
+        desired_raw: Option<&[u8]>,
+    ) -> bool {
+        if owner_generation != self.owner_generation {
             return false;
         }
         desired_binding(desired_raw).is_ok_and(|(generation, present, digest)| {

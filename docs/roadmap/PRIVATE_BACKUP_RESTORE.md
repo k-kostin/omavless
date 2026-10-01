@@ -494,6 +494,27 @@ destination/passphrase UX, product caller/API authority, installed VM and host
 acceptance, and a separate decision whether the portable format extends beyond
 the fixed v1 pair. Do not interpret synthetic PASS as T4 completion.
 
+## Inactive restore-finalization receipt
+
+The internal `restore_retirement_candidate` can publish a single exclusive,
+fixed-size `restore-finalization.pending` receipt only after a committed or
+aborted terminal pair has been reopened and verified. The receipt binds the
+terminal transaction, Rust owner generation, desired state and the exact two
+live members by length and digest; it contains no profile or template bytes.
+Publication synchronizes the file and its directory, checks that the same
+inode remains in place, then independently reopens the receipt and live pair.
+It refuses an undecided intent instead of invoking rollback. A surviving
+receipt is an existence-based startup/mutation fence even if the original
+stage and journal later disappear. Synthetic tests verify that independent
+inspection works after that disappearance and refuses torn, duplicate or
+drifted evidence.
+
+This is a **publication and inspection candidate only**. It has no product
+caller, does not delete a single staged or journal member, and never removes
+its own fence. A separately reviewed cleanup/retirement protocol must define
+the exact unlink order, crash recovery and authorization before activation;
+these synthetic tests are not installed backup/restore acceptance.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier
