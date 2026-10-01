@@ -88,7 +88,7 @@ fn private_directory(path: &Path, uid: u32) -> Result<Metadata, SnapshotError> {
 // A no-follow flag on the final directory does not protect its ancestors.
 // Traverse from a pinned root so an accidental symlink or writable parent
 // cannot redirect a future backup source to a different private-looking pair.
-fn open_config_directory(path: &Path, uid: u32) -> Result<File, SnapshotError> {
+pub(crate) fn open_private_directory(path: &Path, uid: u32) -> Result<File, SnapshotError> {
     if !path.is_absolute() {
         return Err(SnapshotError::UnsafeSource);
     }
@@ -152,7 +152,7 @@ fn admit(
     };
     if marker.phase() != OwnershipPhase::Rust
         || marker.generation() != generation
-        || crate::routing_preset::pending(&desired)
+        || crate::pending_private_transaction::pending(&desired)
     {
         return Err(SnapshotError::Admission);
     }
@@ -227,7 +227,7 @@ fn capture(
     between_reads: impl FnOnce(),
 ) -> Result<PrivateSourcePair, SnapshotError> {
     admit(paths, uid, generation, lock)?;
-    let directory = open_config_directory(config, uid)?;
+    let directory = open_private_directory(config, uid)?;
     let before = directory
         .metadata()
         .map_err(|_| SnapshotError::UnsafeSource)?;
@@ -239,7 +239,7 @@ fn capture(
     let template_bytes = template.read()?;
     store.verify()?;
     template.verify()?;
-    let current = open_config_directory(config, uid).map_err(|_| SnapshotError::SourceChanged)?;
+    let current = open_private_directory(config, uid).map_err(|_| SnapshotError::SourceChanged)?;
     if !stable(
         &before,
         &current

@@ -146,7 +146,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }
         if self.transaction.blocked()
-            || crate::routing_preset::pending(self.transaction.desired_paths())
+            || crate::pending_private_transaction::pending(self.transaction.desired_paths())
         {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }

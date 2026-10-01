@@ -252,7 +252,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
     // A lifecycle failure can be resolved by explicit, verified owned cleanup.
     // Store/cutover/preset ambiguity cannot be cleared by a successful stop.
     pub(crate) fn stop_blocked(&self) -> bool {
-        self.blocked || crate::routing_preset::pending(&self.desired_paths)
+        self.blocked || crate::pending_private_transaction::pending(&self.desired_paths)
     }
 
     pub(crate) fn block_connection(&mut self) {

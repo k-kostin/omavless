@@ -7,6 +7,8 @@
 
 mod backup_destination_candidate;
 mod backup_source_candidate;
+mod pending_private_transaction;
+mod restore_staging_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;

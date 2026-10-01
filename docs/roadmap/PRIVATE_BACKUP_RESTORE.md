@@ -246,7 +246,7 @@ The runtime's internal `backup_source_candidate` compiles in normal Rust builds
 but has no product caller. It exercises the source-pair acquisition prerequisite
 using only synthetic temporary files in tests. It accepts the
 existing matching migration lease, checks the exact committed Rust generation
-and refuses an existing or unreadable routing-preset pending marker both before
+and refuses an existing or unreadable private-transaction pending marker both before
 and after acquisition. It never creates state directories or repairs a marker.
 The lease remains held across both reads, excluding cooperating store/template
 writers. This is not yet the serialized native owner's complete admission:
@@ -371,3 +371,26 @@ The eventual transaction must reopen and authenticate the selected backup,
 repeat owner/host checks at commit, stage both complete replacement files,
 durably preserve the old pair and provide restart-safe recovery before any
 product method or UI is added.
+
+## Inactive durable restore staging candidate
+
+The next internal Rust slice reopens/authenticates the backup and, under the
+same owner lease as the final readiness and old-pair capture, creates exactly
+one private `restore-pair.pending` directory in the state root. It stores four
+fixed, bounded members: old store, old template, authenticated new store and
+authenticated new template. The directory and members use exact `0700`/`0600`
+permissions, no-follow/exclusive descriptor-relative creation and file plus
+directory synchronization. Existing or inaccessible pending state refuses; a
+failure after the directory name is created is ambiguous and never triggers
+automatic retry or deletion. The live pair is not replaced. The primitive
+itself does not authenticate or validate arbitrary input: only the coordinator
+candidate supplies previously admitted bytes.
+
+An existing staging directory joins the common private-transaction ambiguity
+fence used by connection, stop, batch and cutover admission, source capture and
+later restore preview. Synthetic tests check private fixed members, partial
+staging, existing/symlinked targets, unchanged live bytes, and the fence. The
+test interruption hook models step failures; it does **not** prove crash-safe
+commit. There is still no commit or rollback protocol, startup verifier,
+automatic recovery, public method, IPC or user-facing restore feature. The
+pending directory is deliberately not produced by normal installed operation.
