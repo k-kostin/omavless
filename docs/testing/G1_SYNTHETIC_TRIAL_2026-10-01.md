@@ -36,7 +36,7 @@ observations, not acceptance thresholds or product speed claims.
 
 | Check, one VM | Direct Rust | Shell with bundled UI |
 | --- | --- | --- |
-| Release executable bytes | 44,472,000 | 84,253,320 (general-purpose host, not one-app bundle) |
+| Release executable bytes | 44,473,136 | 84,253,320 (general-purpose host, not one-app bundle) |
 | Warm-cache process start to Hyprland window, 50 ms polling | 110 / 111 / 110 ms | 110 / 110 / 110 ms |
 | Idle PSS after ~2½ min | ~49 MiB | ~75 MiB |
 | 10,006-row PSS | ~52 MiB | ~82 MiB |

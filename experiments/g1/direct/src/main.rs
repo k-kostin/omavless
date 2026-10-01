@@ -248,9 +248,17 @@ impl Trial {
                     .flex()
                     .flex_col()
                     .min_w_0()
-                    .child(div().text_color(theme.foreground).child(profile.name))
                     .child(
                         div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(theme.foreground)
+                            .child(profile.name),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
                             .text_color(theme.secondary)
                             .text_size(rems(0.6875))
                             .child(profile.host),
@@ -428,13 +436,13 @@ impl Render for Trial {
                     .text_color(theme.secondary)
                     .child(self.label("Selected for inspection", "Выбрано для просмотра")),
             )
-            .child(div().child(selected_name.to_owned()))
+            .child(div().min_w_0().truncate().child(selected_name.to_owned()))
             .child(
                 div()
                     .text_color(theme.secondary)
                     .child(self.label("Source", "Источник")),
             )
-            .child(div().child(selected_source.to_owned()))
+            .child(div().min_w_0().truncate().child(selected_source.to_owned()))
             .child(
                 div()
                     .text_color(theme.secondary)
@@ -442,6 +450,8 @@ impl Render for Trial {
             )
             .child(
                 div()
+                    .min_w_0()
+                    .truncate()
                     .text_color(theme.success)
                     .child(connected_name.to_owned()),
             )
