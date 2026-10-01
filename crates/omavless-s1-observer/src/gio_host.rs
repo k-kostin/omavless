@@ -218,6 +218,9 @@ fn read_manager_environment(
 }
 
 #[cfg(test)]
+mod persistent_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
