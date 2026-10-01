@@ -79,6 +79,14 @@ inspection, not an Internet/DNS health test. No history, debug output or
 shareable report records the private query or matched rule. Synthetic EN/RU
 terminal and protocol tests do not replace exact-head installed TUI review.
 
+The separate T3 traffic-history candidate extends the Traffic page's
+session-only TUN-rate view from 60 seconds to an additional trend of up to five
+minutes. It retains at most 300 valid samples, collapses each graph to at most
+40 plotted points, and clears continuity after a missing reading, runtime
+change or sampling gap. This is relative rate history observed while the TUI is
+open, not a packet capture, persisted accounting, proof of routing health or a
+continuous background monitor. The original 60-second view remains visible.
+
 ## 1. Product shape
 
 OmaVLESS grows from a compact Omarchy bar plugin into one VPN application with

@@ -876,6 +876,37 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                         }),
                     );
                 }
+                if app.traffic_history.has_long_trend(now) {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(tr("tui.traffic_history_long_scope")));
+                    for (upload, label) in [
+                        (true, "tui.upload_history"),
+                        (false, "tui.download_history"),
+                    ] {
+                        let graph = app
+                            .traffic_history
+                            .sparkline_window(now, upload, crate::traffic_history::LONG_WINDOW)
+                            .unwrap_or_default();
+                        let peak = app
+                            .traffic_history
+                            .peak_window(now, upload, crate::traffic_history::LONG_WINDOW)
+                            .unwrap_or_default();
+                        lines.push(
+                            Line::from(format!(
+                                "{}: {}  ({}: {}/s)",
+                                tr(label),
+                                graph,
+                                tr("tui.traffic_history_peak"),
+                                bytes(peak)
+                            ))
+                            .style(if upload {
+                                Style::default().fg(app.palette.accent)
+                            } else {
+                                Style::default().fg(app.palette.foreground)
+                            }),
+                        );
+                    }
+                }
             }
             lines
         }
