@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 
 //! Test-only candidate for the *inner* plaintext payload, never a backup file.
-//! No cryptography, authentication, semantic validation, or restore authority.
+//! No cryptography, authentication, or restore authority. Semantic admission
+//! is separately limited to complete stores and exact current bundled templates.
 //! Future callers must authenticate a complete bounded outer envelope first.
 
 use crate::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
 use std::fmt;
+
+mod pair;
 
 // Experimental marker, explicitly not a stable interoperable backup format.
 const MAGIC: &[u8; 8] = b"OVTESTP1";

@@ -180,3 +180,31 @@ still needs the authenticated envelope, portable-template policy and whole-pair
 validation, consistent owner snapshot, private transfer/publication, disconnected
 owner/revision admission and durable multi-file recovery. No installed backup or
 restore is available or claimed.
+
+## Inactive bundled-template pair admission
+
+The test-only framing candidate also offers a deliberately narrow whole-pair
+gate. After strict store validation, it recognizes only the exact current
+checked-in default, China or Iran template selected by the store's routing
+preset, with the existing canonical rule/global/direct mode transformation.
+Nine positive combinations and all eighteen cross-preset mismatches are covered.
+Both borrowed members remain byte-for-byte unchanged. Portable custom rules and
+startup preferences remain store data; this gate does not render, merge or
+activate them, nor infer a saved routing mode from an unrelated store field.
+
+Unknown/custom/unconfigured presets and edited templates refuse, including
+comments, controller additions, duplicate mode keys and line-ending rewrites.
+This is exact source-byte recognition, not a general YAML security parser or a
+lossy backup conversion. Invalid UTF-8 and private-looking rejected content
+produce only fixed diagnostics. No private result exposes formatting, cloning
+or serialization, and no filesystem, IPC or export/restore caller is added.
+
+This bounded subset is an executable candidate, **not** a decision that the
+product should permanently reject custom templates. It is version-sensitive to
+the checked-in template snapshots and makes no cross-version portability claim.
+A broader portable-template policy still needs an explicit contract. The
+authenticated envelope, complete native-owner snapshot integration, private
+transfer and exclusive destination publication, disconnected owner/revision
+admission, durable multi-file recovery and exact-head installed acceptance all
+remain gates before activation. Pair admission does not authenticate bytes or
+grant permission to restore them.
