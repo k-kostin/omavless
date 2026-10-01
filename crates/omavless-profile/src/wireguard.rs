@@ -951,6 +951,13 @@ fn unique_json(input: &str) -> Result<serde_json::Value, WireGuardError> {
         .map_err(|_| WireGuardError::UnsupportedVpnContainer)
 }
 
+/// Parse credential-bearing JSON with duplicate-key rejection at every depth.
+/// The returned value is private material: never log or serialize it to a
+/// public response. Intended for inactive mixed-store candidate validation.
+pub fn parse_unique_private_json(input: &str) -> Result<serde_json::Value, WireGuardError> {
+    unique_json(input)
+}
+
 fn guest_text<'a>(
     fields: &'a BTreeMap<String, serde_json::Value>,
     key: &str,
