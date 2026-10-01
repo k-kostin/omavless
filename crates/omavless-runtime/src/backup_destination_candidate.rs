@@ -9,9 +9,10 @@ use nix::fcntl::{AtFlags, OFlag, open, openat};
 use nix::sys::stat::Mode;
 use nix::unistd::linkat;
 use std::fs::{File, Metadata};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
+use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PublishError {
@@ -22,11 +23,37 @@ pub(crate) enum PublishError {
     Ambiguous,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReadError {
+    UnsafeSource,
+    Changed,
+    Unreadable,
+}
+
+/// Only bounded local counts are permitted to cross a future preview boundary.
+/// A preview is not a reservation: restore must reread and revalidate.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BackupPreview {
+    pub(crate) profiles: usize,
+    pub(crate) subscriptions: usize,
+}
+
 fn stable_directory(left: &Metadata, right: &Metadata) -> bool {
     left.dev() == right.dev()
         && left.ino() == right.ino()
         && left.uid() == right.uid()
         && left.mode() == right.mode()
+}
+
+fn stable_member(left: &Metadata, right: &Metadata) -> bool {
+    stable_directory(left, right)
+        && left.gid() == right.gid()
+        && left.nlink() == right.nlink()
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
 }
 
 // Pin every ancestor: an intermediate symlink must never redirect a private
@@ -91,6 +118,102 @@ pub(crate) fn publish_new(
     sealed: &SealedBackup,
 ) -> Result<(), PublishError> {
     publish_new_with_hook(destination, uid, sealed, || {})
+}
+
+/// Open only one private, single-link regular ciphertext file. Authentication
+/// finishes before an `OpenedBackup` can exist. This is deliberately not a
+/// restore admission or IPC file-read method.
+#[allow(dead_code)]
+pub(crate) fn open_existing(
+    source: &Path,
+    uid: u32,
+    passphrase: &[u8],
+) -> Result<omavless_domain::private_backup::OpenedBackup, ReadError> {
+    open_existing_with_hook(source, uid, passphrase, || {})
+}
+
+fn open_existing_with_hook(
+    source: &Path,
+    uid: u32,
+    passphrase: &[u8],
+    after_read: impl FnOnce(),
+) -> Result<omavless_domain::private_backup::OpenedBackup, ReadError> {
+    if !source.is_absolute() {
+        return Err(ReadError::UnsafeSource);
+    }
+    let parent_path = source.parent().ok_or(ReadError::UnsafeSource)?;
+    let name = source.file_name().ok_or(ReadError::UnsafeSource)?;
+    let directory = open_parent(parent_path, uid).map_err(|_| ReadError::UnsafeSource)?;
+    let parent_before = directory.metadata().map_err(|_| ReadError::UnsafeSource)?;
+    let mut file = File::from(
+        openat(
+            &directory,
+            Path::new(name),
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| ReadError::UnsafeSource)?,
+    );
+    let before = file.metadata().map_err(|_| ReadError::UnsafeSource)?;
+    let limit = omavless_domain::private_backup::MAX_BACKUP_BYTES;
+    if !before.is_file()
+        || before.uid() != uid
+        || before.mode() & 0o7777 != 0o600
+        || before.nlink() != 1
+        || before.len() == 0
+        || before.len() > limit as u64
+    {
+        return Err(ReadError::UnsafeSource);
+    }
+    let mut ciphertext = Zeroizing::new(Vec::new());
+    Read::by_ref(&mut file)
+        .take(limit as u64 + 1)
+        .read_to_end(&mut ciphertext)
+        .map_err(|_| ReadError::Changed)?;
+    after_read(); // Synthetic race hook; product caller is a no-op.
+    let current = File::from(
+        openat(
+            &directory,
+            Path::new(name),
+            OFlag::O_PATH | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| ReadError::Changed)?,
+    );
+    let parent_after = open_parent(parent_path, uid).map_err(|_| ReadError::Changed)?;
+    if ciphertext.len() as u64 != before.len()
+        || ciphertext.len() > limit
+        || !stable_member(&before, &file.metadata().map_err(|_| ReadError::Changed)?)
+        || !stable_member(
+            &before,
+            &current.metadata().map_err(|_| ReadError::Changed)?,
+        )
+        || !stable_directory(
+            &parent_before,
+            &directory.metadata().map_err(|_| ReadError::Changed)?,
+        )
+        || !stable_directory(
+            &parent_before,
+            &parent_after.metadata().map_err(|_| ReadError::Changed)?,
+        )
+    {
+        return Err(ReadError::Changed);
+    }
+    omavless_domain::private_backup::open(&ciphertext, passphrase)
+        .map_err(|_| ReadError::Unreadable)
+}
+
+#[allow(dead_code)]
+pub(crate) fn preview_existing(
+    source: &Path,
+    uid: u32,
+    passphrase: &[u8],
+) -> Result<BackupPreview, ReadError> {
+    let opened = open_existing(source, uid, passphrase)?;
+    Ok(BackupPreview {
+        profiles: opened.profile_count(),
+        subscriptions: opened.subscription_count(),
+    })
 }
 
 fn publish_new_with_hook(
@@ -269,5 +392,88 @@ mod tests {
         );
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(displaced).unwrap();
+    }
+
+    #[test]
+    fn bounded_private_open_and_counts_only_preview_require_authentication() {
+        let (root, uid, sealed) = fixture();
+        let destination = root.join("private.ovb");
+        publish_new(&destination, uid, &sealed).unwrap();
+        let opened = open_existing(&destination, uid, b"synthetic passphrase only").unwrap();
+        assert_eq!(opened.profile_count(), 0);
+        assert_eq!(opened.subscription_count(), 0);
+        assert_eq!(
+            preview_existing(&destination, uid, b"synthetic passphrase only"),
+            Ok(BackupPreview {
+                profiles: 0,
+                subscriptions: 0
+            })
+        );
+        assert!(matches!(
+            open_existing(&destination, uid, b"incorrect passphrase"),
+            Err(ReadError::Unreadable)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn private_open_refuses_links_public_modes_and_changed_bytes() {
+        let (root, uid, sealed) = fixture();
+        let destination = root.join("private.ovb");
+        publish_new(&destination, uid, &sealed).unwrap();
+        let linked = root.join("linked.ovb");
+        symlink(&destination, &linked).unwrap();
+        assert!(matches!(
+            open_existing(&linked, uid, b"synthetic passphrase only"),
+            Err(ReadError::UnsafeSource)
+        ));
+        fs::remove_file(&linked).unwrap();
+        fs::hard_link(&destination, &linked).unwrap();
+        assert!(matches!(
+            open_existing(&destination, uid, b"synthetic passphrase only"),
+            Err(ReadError::UnsafeSource)
+        ));
+        fs::remove_file(&linked).unwrap();
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            open_existing(&destination, uid, b"synthetic passphrase only"),
+            Err(ReadError::UnsafeSource)
+        ));
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut changed = fs::read(&destination).unwrap();
+        *changed.last_mut().unwrap() ^= 1;
+        fs::write(&destination, changed).unwrap();
+        assert!(matches!(
+            open_existing(&destination, uid, b"synthetic passphrase only"),
+            Err(ReadError::Unreadable)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn private_open_refuses_changed_file_and_parent_before_decryption() {
+        for replace_parent in [false, true] {
+            let (root, uid, sealed) = fixture();
+            let destination = root.join("private.ovb");
+            publish_new(&destination, uid, &sealed).unwrap();
+            let displaced = root.with_extension("read-displaced");
+            let result =
+                open_existing_with_hook(&destination, uid, b"synthetic passphrase only", || {
+                    if replace_parent {
+                        fs::rename(&root, &displaced).unwrap();
+                        fs::create_dir(&root).unwrap();
+                        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+                    } else {
+                        let mut changed = fs::read(&destination).unwrap();
+                        *changed.last_mut().unwrap() ^= 1;
+                        fs::write(&destination, changed).unwrap();
+                    }
+                });
+            assert!(matches!(result, Err(ReadError::Changed)));
+            fs::remove_dir_all(root).unwrap();
+            if replace_parent {
+                fs::remove_dir_all(displaced).unwrap();
+            }
+        }
     }
 }

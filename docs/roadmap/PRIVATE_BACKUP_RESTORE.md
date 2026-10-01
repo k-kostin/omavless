@@ -307,3 +307,23 @@ link. The latter preserves the encrypted file and reports ambiguity. This does
 not prove safety against a hostile same-user process able to move the entire
 directory concurrently, nor complete native-owner admission, passphrase UX,
 disconnected restore, durable multi-file recovery or installed acceptance.
+
+## Inactive bounded source open and preview
+
+The same internal runtime candidate can read an existing backup under its
+conservative private-parent policy. It opens the member relative to the pinned
+directory without following links, requires a same-user regular file with one
+link and exact `0600` mode, and bounds the read before authentication. It
+rechecks the opened member, current directory entry and directory path after
+reading; a detected change refuses before decrypting. No caller, file picker,
+IPC method or restore mutation is registered.
+
+Only the authenticated envelope can produce an opened pair. A separate preview
+returns profile and subscription counts, never names, credentials or URLs.
+Wrong passphrases and invalid ciphertext get a fixed unreadable result. The
+preview is informational, not a reservation: an eventual restore must reopen,
+reauthenticate and recheck its owner/revision and disconnected-state gates.
+Synthetic tests cover roundtrip counts, wrong passphrase, tampering, symlink,
+hard link, public mode and file/directory replacement during the read. A
+hostile same-user process is outside this primitive's guarantee; broader
+owner admission and durable restore are still required before activation.
