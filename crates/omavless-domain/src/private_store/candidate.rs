@@ -138,6 +138,69 @@ impl CandidatePrivateStore {
             }));
         parse_candidate_private_store(&self.document.to_string())
     }
+
+    /// Prepare a standalone metadata rename over the complete mixed graph.
+    /// No credential is converted, exported or made runtime-capable. The
+    /// owner must separately fence any eventual publication/lifecycle effect.
+    pub fn rename_standalone(
+        mut self,
+        id: &str,
+        new_name: &str,
+    ) -> Result<(Self, bool), PrivateStoreError> {
+        let name = clean_mutation_name(new_name)?;
+        let profiles = self
+            .document
+            .get_mut("profiles")
+            .and_then(Value::as_array_mut)
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        let index = profiles
+            .iter()
+            .position(|entry| entry["id"] == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        if profiles[index]["subscriptionId"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+        {
+            return Err(PrivateStoreError::SubscribedProfile);
+        }
+        if profiles
+            .iter()
+            .enumerate()
+            .any(|(other, entry)| other != index && entry["name"] == name)
+        {
+            return Err(PrivateStoreError::DuplicateProfileName);
+        }
+        let changed = profiles[index]["name"] != name;
+        profiles[index]["name"] = Value::from(name);
+        Ok((
+            parse_candidate_private_store(&self.document.to_string())?,
+            changed,
+        ))
+    }
+
+    /// Prepare the same favorite metadata operation for URI and WG/AWG rows.
+    /// Subscribed URI rows remain eligible, as in the current v3 store.
+    pub fn set_favorite(
+        mut self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<(Self, bool), PrivateStoreError> {
+        let profiles = self
+            .document
+            .get_mut("profiles")
+            .and_then(Value::as_array_mut)
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        let entry = profiles
+            .iter_mut()
+            .find(|entry| entry["id"] == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        let changed = entry["favorite"].as_bool().unwrap_or(false) != enabled;
+        entry["favorite"] = Value::from(enabled);
+        Ok((
+            parse_candidate_private_store(&self.document.to_string())?,
+            changed,
+        ))
+    }
 }
 
 /// Convert a fully validated legacy store into an in-memory v4 candidate.
