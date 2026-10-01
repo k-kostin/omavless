@@ -14,6 +14,8 @@ mod restore_decision_candidate;
 mod restore_executor_candidate;
 #[allow(dead_code)]
 mod restore_journal_candidate;
+#[allow(dead_code)]
+mod restore_retirement_candidate;
 mod restore_staging_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]

@@ -19,6 +19,7 @@ pub(crate) fn pending_at(directory: &Path) -> bool {
         || crate::restore_staging_candidate::staging_pending_at(directory)
         || journal_member_pending(directory, "restore-decision.intent")
         || journal_member_pending(directory, "restore-decision.terminal")
+        || journal_member_pending(directory, "restore-finalization.pending")
 }
 
 fn journal_member_pending(directory: &Path, name: &str) -> bool {
@@ -38,7 +39,11 @@ mod tests {
         let home = std::env::var_os("HOME").expect("test needs home");
         let root =
             crate::test_temp::directory_under(Path::new(&home), "orphan-restore-decision").unwrap();
-        for name in ["restore-decision.intent", "restore-decision.terminal"] {
+        for name in [
+            "restore-decision.intent",
+            "restore-decision.terminal",
+            "restore-finalization.pending",
+        ] {
             fs::write(root.join(name), b"incomplete").unwrap();
             assert!(pending_at(&root));
             fs::remove_file(root.join(name)).unwrap();
