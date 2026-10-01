@@ -1967,6 +1967,8 @@ mod tests {
         calls: usize,
         support_observation: Option<crate::lifecycle::NativeLocalObservation>,
         support_read_change: Option<(PathBuf, Vec<u8>)>,
+        support_late_read_change: Option<(usize, PathBuf, Vec<u8>)>,
+        support_observation_calls: usize,
         diagnostic_reader: Option<crate::core_diagnostics::DiagnosticReader>,
         auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
     }
@@ -1984,7 +1986,16 @@ mod tests {
             &mut self,
             _desired: &DesiredState,
         ) -> Result<crate::lifecycle::NativeLocalObservation, HostStepError> {
+            self.support_observation_calls += 1;
             if let Some((path, bytes)) = self.support_read_change.take() {
+                fs::write(path, bytes).unwrap();
+            }
+            if self
+                .support_late_read_change
+                .as_ref()
+                .is_some_and(|(call, _, _)| *call == self.support_observation_calls)
+            {
+                let (_, path, bytes) = self.support_late_read_change.take().unwrap();
                 fs::write(path, bytes).unwrap();
             }
             self.support_observation.ok_or(HostStepError::Observation)
@@ -2097,6 +2108,8 @@ mod tests {
                 calls: 0,
                 support_observation: None,
                 support_read_change: None,
+                support_late_read_change: None,
+                support_observation_calls: 0,
                 diagnostic_reader: None,
                 auxiliary: std::sync::Arc::default(),
             },
@@ -2304,6 +2317,148 @@ mod tests {
             owner.restore_readiness_candidate(),
             Err(RestoreAdmissionError::Busy)
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preview_separates_backup_authentication_from_owner_readiness() {
+        use super::restore_candidate::{RestoreAdmissionError, RestoreReadiness};
+        use crate::backup_destination_candidate::{BackupPreview, ReadError};
+
+        let (root, store, mut owner) = support_fixture("restore-preview");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let before = fs::read(&store).unwrap();
+        let desired_before = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                portable_store,
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let preview = owner
+            .restore_preview_candidate(&backup, passphrase)
+            .unwrap();
+        assert_eq!(
+            preview.backup,
+            BackupPreview {
+                profiles: 0,
+                subscriptions: 0
+            }
+        );
+        assert_eq!(
+            preview.readiness,
+            Ok(RestoreReadiness {
+                revision: 0,
+                desired_generation: 0,
+                owner_generation: 2,
+            })
+        );
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            desired_before
+        );
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation += 1;
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+        let connected_desired = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let preview = owner
+            .restore_preview_candidate(&backup, passphrase)
+            .unwrap();
+        assert_eq!(preview.backup.profiles, 0);
+        assert_eq!(
+            preview.readiness,
+            Err(RestoreAdmissionError::NotDisconnected)
+        );
+
+        assert!(matches!(
+            owner.restore_preview_candidate(&backup, b"incorrect passphrase"),
+            Err(ReadError::Unreadable)
+        ));
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            connected_desired
+        );
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preparation_holds_exact_old_and_authenticated_new_pair_without_writes() {
+        use super::restore_candidate::{RestoreAdmissionError, RestorePrepareError};
+
+        let (root, store, mut owner) = support_fixture("restore-pair-preparation");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let original_store = fs::read(&store).unwrap();
+        let template = store.parent().unwrap().join("route-template.yaml");
+        let original_template = b"synthetic old custom template\n";
+        fs::write(&template, original_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        let portable_store = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
+        let portable_template = include_bytes!("../../../templates/default.yaml");
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(portable_store, portable_template, passphrase)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let prepared = owner
+            .prepare_restore_candidate(&backup, passphrase)
+            .unwrap();
+        assert!(prepared.original_store() == original_store);
+        assert!(prepared.original_template() == original_template);
+        assert!(prepared.incoming_store() == portable_store);
+        assert!(prepared.incoming_template() == portable_template);
+        assert_eq!(prepared.readiness().revision, 0);
+        assert_eq!(owner.host_mut().calls, 0);
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation += 1;
+        let desired_path = owner.transaction.desired_paths().file.clone();
+        let next_observation = owner.host_mut().support_observation_calls + 2;
+        owner.host_mut().support_late_read_change = Some((
+            next_observation,
+            desired_path.clone(),
+            serde_json::to_vec(&desired).unwrap(),
+        ));
+        assert!(matches!(
+            owner.prepare_restore_candidate(&backup, passphrase),
+            Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::OwnershipUnavailable
+            ))
+        ));
+        assert_eq!(
+            fs::read(&desired_path).unwrap(),
+            serde_json::to_vec(&desired).unwrap()
+        );
+        assert!(matches!(
+            owner.prepare_restore_candidate(&backup, passphrase),
+            Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::NotDisconnected
+            ))
+        ));
+        assert!(fs::read(&store).unwrap() == original_store);
+        assert!(fs::read(&template).unwrap() == original_template);
         fs::remove_dir_all(root).unwrap();
     }
 
