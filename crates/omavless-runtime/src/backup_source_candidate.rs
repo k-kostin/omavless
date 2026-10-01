@@ -29,6 +29,23 @@ struct PrivateSourcePair {
     template: Zeroizing<Vec<u8>>,
 }
 
+/// Only this module can construct authenticated backup bytes. The inactive
+/// destination writer accepts this type, never an arbitrary plaintext slice.
+pub(crate) struct SealedBackup {
+    bytes: Vec<u8>,
+}
+
+impl SealedBackup {
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+}
+
 fn stable(left: &Metadata, right: &Metadata) -> bool {
     left.dev() == right.dev()
         && left.ino() == right.ino()
@@ -190,16 +207,16 @@ pub(crate) fn seal_current_pair(
     generation: u64,
     lock: &MigrationLock,
     passphrase: &[u8],
-) -> Result<Vec<u8>, SnapshotError> {
+) -> Result<SealedBackup, SnapshotError> {
     let pair = capture(config, paths, uid, generation, lock, || {})?;
-    omavless_domain::private_backup::seal(&pair.store, &pair.template, passphrase).map_err(
-        |error| match error {
+    omavless_domain::private_backup::seal(&pair.store, &pair.template, passphrase)
+        .map(|bytes| SealedBackup { bytes })
+        .map_err(|error| match error {
             omavless_domain::private_backup::BackupError::Unavailable => {
                 SnapshotError::SealingUnavailable
             }
             _ => SnapshotError::InvalidBackupInput,
-        },
-    )
+        })
 }
 
 #[cfg(test)]
@@ -301,13 +318,14 @@ mod tests {
             PASSPHRASE,
         )
         .unwrap();
-        assert!(envelope.len() <= omavless_domain::private_backup::MAX_BACKUP_BYTES);
+        assert!(envelope.bytes().len() <= omavless_domain::private_backup::MAX_BACKUP_BYTES);
         assert!(
             !envelope
+                .bytes()
                 .windows(VALID_STORE.len())
                 .any(|window| window == VALID_STORE)
         );
-        let opened = omavless_domain::private_backup::open(&envelope, PASSPHRASE).unwrap();
+        let opened = omavless_domain::private_backup::open(envelope.bytes(), PASSPHRASE).unwrap();
         assert_eq!(opened.store(), VALID_STORE);
         assert_eq!(opened.template(), VALID_TEMPLATE);
         assert_eq!(fs::read(store_path).unwrap(), VALID_STORE);
@@ -317,7 +335,7 @@ mod tests {
             original_marker
         );
 
-        assert_eq!(
+        assert!(matches!(
             seal_current_pair(
                 &fixture.config,
                 &fixture.paths,
@@ -327,12 +345,12 @@ mod tests {
                 b"short",
             ),
             Err(SnapshotError::InvalidBackupInput)
-        );
+        ));
         write(
             &fixture.config.join("route-template.yaml"),
             b"invalid-template",
         );
-        assert_eq!(
+        assert!(matches!(
             seal_current_pair(
                 &fixture.config,
                 &fixture.paths,
@@ -342,7 +360,7 @@ mod tests {
                 PASSPHRASE,
             ),
             Err(SnapshotError::InvalidBackupInput)
-        );
+        ));
     }
 
     #[test]
