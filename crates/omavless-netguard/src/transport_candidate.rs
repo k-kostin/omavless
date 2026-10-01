@@ -1,6 +1,6 @@
-//! Inactive one-exchange Unix transport. This module neither binds a socket
-//! nor dispatches a request to root effects. It proves peer and framing
-//! boundaries before a future separately reviewed service may use them.
+//! Inactive one-exchange Unix transport. This module does not bind a socket
+//! or supply a production kernel port. The shared-lock candidate composes its
+//! peer and framing checks with synthetic transactions only.
 
 use crate::enrollment::EnrollmentBinding;
 use crate::protocol::{MAX_FRAME_BYTES, Request, Response, decode_request, encode_response};

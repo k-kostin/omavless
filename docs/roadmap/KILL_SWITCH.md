@@ -212,15 +212,17 @@ The caller cannot provide nft syntax, commands, executables, paths, marks,
 ports, addresses, DNS servers, interface names, systemd units or arbitrary
 environment values. Responses contain no endpoint, credential or rule dump.
 
-An inactive transport candidate now tests one four-byte big-endian length plus
-one bounded JSON request/response on an already connected Unix stream. It
-validates the fixed root enrollment binding and kernel `SO_PEERCRED` UID before
-reading a request, revalidates enrollment after decoding, and applies one
-two-second total receive budget so a peer cannot indefinitely drip bytes. It
-does not bind a socket, dispatch to the root coordinator, package a service or
-change nftables. The future service must close the connection after one reply,
-retain the validated enrollment through every effect and recheck it before
-success; framing alone grants no privileged authority.
+An inactive transport candidate tests one four-byte big-endian length plus one
+bounded JSON request/response on an already connected Unix stream. It checks
+the fixed root enrollment binding and kernel `SO_PEERCRED` UID before reading,
+revalidates enrollment after decoding, and applies one two-second total receive
+budget so a peer cannot indefinitely drip bytes. A later inactive composition
+dispatches at most one request through the shared-lock transaction with that
+same pinned enrollment and rechecks it before a response. It does not bind a
+socket, supply a real kernel port, package a service or change nftables. Lost
+socket acknowledgement is not an automatic retry ticket. The future service
+still needs reviewed provenance, listener lifetime, provisioning and host
+acceptance; framing alone grants no privileged authority.
 
 The user runtime never invokes sudo or pkexec. Administrator setup/recovery is
 performed intentionally in a terminal.

@@ -13,6 +13,8 @@ use crate::receipt::{
 use crate::receipt_store::ReceiptStore;
 use crate::root_state::{RootStateStore, StateError};
 use crate::transaction::{self, Effect, Marker, Observation, Table};
+use crate::transport_candidate::{self, TransportError};
+use std::os::unix::net::UnixStream;
 
 const REFUSED: ErrorCode = ErrorCode::ManualRecoveryRequired;
 
@@ -37,6 +39,21 @@ struct Snapshot {
     marker: Marker,
     receipt: ReceiptRead,
     kernel: EffectSnapshot,
+}
+
+/// The request was never admitted, or the outcome of delivering an already
+/// processed response is unknown. Neither case permits an automatic retry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExchangeError {
+    NoEnrollment,
+    Receive(TransportError),
+    ReplyDeliveryUnknown(TransportError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExchangePoint {
+    Received,
+    BeforeResponse,
 }
 
 /// Owns both records through exactly one pinned-directory lock. Construction
@@ -68,6 +85,49 @@ impl LockedState {
             enrollment: None,
             poisoned: false,
         }
+    }
+
+    /// Inactive one-request composition. The transport and transaction use
+    /// this state's single pinned enrollment; a caller cannot substitute a
+    /// different binding. The owned stream is closed after this exchange.
+    /// Namespace and kernel provenance remain separate unimplemented gates.
+    #[allow(dead_code)]
+    pub(crate) fn exchange_once<K: EffectPort>(
+        &mut self,
+        stream: UnixStream,
+        namespace: NamespaceObservation,
+        kernel: &mut K,
+    ) -> Result<(), ExchangeError> {
+        self.exchange_with(stream, namespace, kernel, |_| {})
+    }
+
+    fn exchange_with<K: EffectPort>(
+        &mut self,
+        stream: UnixStream,
+        namespace: NamespaceObservation,
+        kernel: &mut K,
+        mut checkpoint: impl FnMut(ExchangePoint),
+    ) -> Result<(), ExchangeError> {
+        let binding = self
+            .enrollment
+            .as_ref()
+            .ok_or(ExchangeError::NoEnrollment)?;
+        let request = transport_candidate::receive_request(&stream, binding)
+            .map_err(ExchangeError::Receive)?;
+        checkpoint(ExchangePoint::Received);
+        let response = match self.request(request, namespace, kernel) {
+            Ok(response) => response,
+            Err(code) => Response::Error { code },
+        };
+        checkpoint(ExchangePoint::BeforeResponse);
+        // Reborrow the same binding after request's mutable borrow. A failed
+        // socket write never undoes a durable transaction or replays effects.
+        let binding = self
+            .enrollment
+            .as_ref()
+            .ok_or(ExchangeError::NoEnrollment)?;
+        transport_candidate::send_response(&stream, binding, response)
+            .map_err(ExchangeError::ReplyDeliveryUnknown)
     }
 
     /// Namespace and port facts remain independently supplied proof obligations,
@@ -357,6 +417,10 @@ mod tests {
         include!("locked_state_kernel_crash.rs");
     }
 
+    mod exchange {
+        include!("locked_state_exchange_tests.rs");
+    }
+
     use super::*;
     use crate::effect_port::EffectError;
     use crate::protocol::{Health, Mode, Protection};
@@ -444,6 +508,7 @@ mod tests {
         observes: usize,
         drift_at: Option<usize>,
         rebind_enrollment_on_observe: bool,
+        rebind_enrollment_on_effect: bool,
     }
     impl Kernel {
         fn new(f: &Fixture) -> Self {
@@ -456,6 +521,7 @@ mod tests {
                 observes: 0,
                 drift_at: None,
                 rebind_enrollment_on_observe: false,
+                rebind_enrollment_on_effect: false,
             }
         }
         fn lock_held(&self) {
@@ -476,11 +542,28 @@ mod tests {
             ));
             self.effects += 1;
             self.current = next;
+            if self.rebind_enrollment_on_effect {
+                self.rebind_enrollment_on_effect = false;
+                self.rebind_enrollment();
+            }
             if self.fail_after_effect {
                 Err(EffectError::UnavailableOrUncertain)
             } else {
                 Ok(())
             }
+        }
+        fn rebind_enrollment(&self) {
+            let config = self.parent.join("omavless-netguard/enrollment-v1.json");
+            fs::rename(
+                &config,
+                self.parent.join("omavless-netguard/old-enrollment"),
+            )
+            .unwrap();
+            fs::copy(
+                self.parent.join("omavless-netguard/old-enrollment"),
+                &config,
+            )
+            .unwrap();
         }
     }
     impl crate::effect_port::sealed::Sealed for Kernel {}
@@ -490,17 +573,7 @@ mod tests {
             self.observes += 1;
             if self.rebind_enrollment_on_observe {
                 self.rebind_enrollment_on_observe = false;
-                let config = self.parent.join("omavless-netguard/enrollment-v1.json");
-                fs::rename(
-                    &config,
-                    self.parent.join("omavless-netguard/old-enrollment"),
-                )
-                .unwrap();
-                fs::copy(
-                    self.parent.join("omavless-netguard/old-enrollment"),
-                    &config,
-                )
-                .unwrap();
+                self.rebind_enrollment();
             }
             if self.drift_at == Some(self.observes) {
                 self.current = EffectSnapshot {

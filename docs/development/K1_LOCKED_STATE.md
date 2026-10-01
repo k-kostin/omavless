@@ -3,8 +3,9 @@
 This candidate follows [owner/persist lifetime evidence](K1_OWNER_LIFETIME.md)
 and the [durable receipt store](K1_RECEIPT_STORE.md). `LockedState` composes the
 existing marker writer, receipt writer and transaction planner with a synthetic
-[`EffectPort`](K1_EFFECT_PORT.md). It adds no production caller, executor, authenticated socket,
-service, provisioning or activation. K1 remains unavailable.
+[`EffectPort`](K1_EFFECT_PORT.md). It adds no production caller, executor,
+installed socket/listener, service, provisioning or activation. K1 remains
+unavailable.
 
 ## One lock and strict admission
 
@@ -133,6 +134,35 @@ adjudication/provenance, root enrollment/peer authentication, real kernel and
 filesystem crash tests, boot ordering, core mark/DNS/firewall integration and
 the [K1 host matrix](../roadmap/KILL_SWITCH.md) remain explicit gates.
 There is no main merge, package change, live activation or publication implied.
+
+## Inactive authenticated one-exchange composition
+
+The next candidate joins the already bounded Unix framing and `SO_PEERCRED`
+check to `LockedState`'s durable transaction. It consumes one already-connected
+stream, dispatches at most one request, sends one bounded response and closes
+the stream. The receive, transaction rechecks and response all use the same
+pinned enrollment held by `LockedState`; a caller cannot provide an unrelated
+binding. There is still no listener, installed socket, root binary, service,
+production kernel port or runtime caller.
+
+A request rejected before decoding cannot reach state or effects. A replaced
+enrollment after decoding, during a synthetic effect or just before the reply
+cannot deliver a success response. If a client disconnects after a transaction
+commits, the terminal marker and receipt remain committed; the reply delivery
+is unknown and neither the helper nor a client may automatically replay Arm.
+An independently authenticated later Status can observe the durable state,
+but cannot establish whether the first client received its acknowledgement.
+This is different from a lost *kernel-effect* acknowledgement, which keeps a
+Pending receipt and poisons the current instance. Exact completed Disarm retry
+remains read-only; same-generation Arm is **not** an effect-free replay.
+
+Private-file/Unix-pair tests cover framing and peer refusal, timeout, one
+request per connection, shared lock, replacement at those three boundaries,
+commit followed by lost reply, later Status and completed Disarm retry. These
+tests do not authenticate a canonical host namespace, prove nft ownership or
+policy readback, or test an installed/root listener. Enrollment rechecks are
+operation-boundary checks, not an atomic lock against a root administrator
+replacing enrollment concurrently. The remaining K1 gates above still apply.
 
 ## Opt-in kernel commit / missing acknowledgement fixture
 
