@@ -57,3 +57,8 @@ subscription backup behavior need their own reviewed integration. Real matching
 WG/AWG servers, installed-core versions, modes/lifecycle, IPv4/IPv6 and privacy
 acceptance remain required before exposure. No VM or live-network result is
 inferred from codec tests; AUTO-1, DNS/provider and V0 remain unchanged.
+
+The [store integration review](P4_STORE_INTEGRATION_REVIEW.md) identifies the
+current URI-only consumers, mixed-store pointer and duplicate-key hazards, and
+the next inactive validation boundary. Its negative domain regressions keep
+P4 out of current production import/replacement and store admission.
