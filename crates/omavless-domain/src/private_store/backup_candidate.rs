@@ -65,6 +65,7 @@ pub(crate) struct ValidatedBackupStore<'a> {
     pub(crate) bytes: &'a [u8],
     pub(crate) profiles: usize,
     pub(crate) subscriptions: usize,
+    pub(crate) routing_preset: String,
 }
 
 pub(crate) fn validate(input: &[u8]) -> Result<ValidatedBackupStore<'_>, InvalidBackupStore> {
@@ -85,6 +86,7 @@ pub(crate) fn validate(input: &[u8]) -> Result<ValidatedBackupStore<'_>, Invalid
         bytes: input,
         profiles: projection.profile_count,
         subscriptions: projection.subscription_count,
+        routing_preset: projection.routing_preset,
     })
 }
 
