@@ -26,9 +26,20 @@ pub(crate) enum SnapshotError {
 
 // No formatting, serialization or clone: these are reusable private bytes.
 // Both buffers are cleared when the pair leaves scope, including error paths.
-struct PrivateSourcePair {
+pub(crate) struct PrivateSourcePair {
     store: Zeroizing<Vec<u8>>,
     template: Zeroizing<Vec<u8>>,
+}
+
+#[allow(dead_code)]
+impl PrivateSourcePair {
+    pub(crate) fn store(&self) -> &[u8] {
+        &self.store
+    }
+
+    pub(crate) fn template(&self) -> &[u8] {
+        &self.template
+    }
 }
 
 /// Only this module can construct authenticated backup bytes. The inactive
@@ -242,6 +253,18 @@ fn capture(
         store: store_bytes,
         template: template_bytes,
     })
+}
+
+/// Hold exact old bytes only in zeroizing memory while the matching owner
+/// lease excludes cooperating writers. No source member is replaced here.
+pub(crate) fn capture_current_pair(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<PrivateSourcePair, SnapshotError> {
+    capture(config, paths, uid, generation, lock, || {})
 }
 
 /// Only a future serialized native owner may call this with its held lease and

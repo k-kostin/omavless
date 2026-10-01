@@ -5,7 +5,12 @@
 //! and migration leases, then separately prove durable multi-file recovery.
 
 use super::*;
+use crate::backup_destination_candidate::{
+    BackupPreview, ReadError, open_existing, preview_existing,
+};
+use crate::backup_source_candidate::{PrivateSourcePair, capture_current_pair};
 use crate::desired::read_desired_snapshot;
+use omavless_domain::private_backup::OpenedBackup;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RestoreAdmissionError {
@@ -24,7 +29,125 @@ pub(crate) struct RestoreReadiness {
     pub(crate) owner_generation: u64,
 }
 
+/// The authenticated file facts and current owner facts are deliberately
+/// separate. A readable backup can coexist with a connected or recovering
+/// owner. Neither part reserves the file, revision, or future host state.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RestorePreview {
+    pub(crate) backup: BackupPreview,
+    pub(crate) readiness: Result<RestoreReadiness, RestoreAdmissionError>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RestorePrepareError {
+    Backup(ReadError),
+    Owner(RestoreAdmissionError),
+    CurrentPairUnavailable,
+}
+
+/// Sensitive, in-memory preparation only. The old bytes and authenticated
+/// replacement are never logged, persisted, formatted or copied by this type.
+/// A future commit may not use this snapshot as a reservation: it must repeat
+/// authentication/admission and implement durable whole-pair recovery.
+#[allow(dead_code)]
+pub(crate) struct PreparedRestorePair {
+    original: PrivateSourcePair,
+    incoming: OpenedBackup,
+    readiness: RestoreReadiness,
+}
+
+#[allow(dead_code)]
+impl PreparedRestorePair {
+    pub(crate) fn original_store(&self) -> &[u8] {
+        self.original.store()
+    }
+
+    pub(crate) fn original_template(&self) -> &[u8] {
+        self.original.template()
+    }
+
+    pub(crate) fn incoming_store(&self) -> &[u8] {
+        self.incoming.store()
+    }
+
+    pub(crate) fn incoming_template(&self) -> &[u8] {
+        self.incoming.template()
+    }
+
+    pub(crate) fn readiness(&self) -> &RestoreReadiness {
+        &self.readiness
+    }
+}
+
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    /// Inactive, read-only composition for an eventual replacement preview.
+    /// A future restore must reopen and authenticate the file, then repeat
+    /// disconnected-owner admission under its exclusive commit lease.
+    #[allow(dead_code)]
+    pub(crate) fn restore_preview_candidate(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<RestorePreview, ReadError> {
+        let backup = preview_existing(source, self.transaction.uid(), passphrase)?;
+        let readiness = self.restore_readiness_candidate();
+        Ok(RestorePreview { backup, readiness })
+    }
+
+    /// Authentication is deliberately outside the owner lock. Afterwards one
+    /// lease covers both old-file reads and two disconnected observations.
+    /// This is a preparation experiment only, with no restore side effect.
+    #[allow(dead_code)]
+    pub(crate) fn prepare_restore_candidate(
+        &mut self,
+        source: &Path,
+        passphrase: &[u8],
+    ) -> Result<PreparedRestorePair, RestorePrepareError> {
+        let incoming = open_existing(source, self.transaction.uid(), passphrase)
+            .map_err(RestorePrepareError::Backup)?;
+        let lock = self.transaction.acquire_lock().map_err(|error| {
+            RestorePrepareError::Owner(match error {
+                ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
+                _ => RestoreAdmissionError::OwnershipUnavailable,
+            })
+        })?;
+        let readiness = self
+            .restore_readiness_locked(&lock)
+            .map_err(RestorePrepareError::Owner)?;
+        let config = self
+            .transaction
+            .store_path()
+            .parent()
+            .filter(|_| {
+                self.transaction
+                    .store_path()
+                    .file_name()
+                    .is_some_and(|name| name == "profiles.json")
+            })
+            .ok_or(RestorePrepareError::CurrentPairUnavailable)?;
+        let original = capture_current_pair(
+            config,
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+            readiness.owner_generation,
+            &lock,
+        )
+        .map_err(|_| RestorePrepareError::CurrentPairUnavailable)?;
+        let after = self
+            .restore_readiness_locked(&lock)
+            .map_err(RestorePrepareError::Owner)?;
+        if after != readiness {
+            return Err(RestorePrepareError::Owner(
+                RestoreAdmissionError::ObservationUnavailable,
+            ));
+        }
+        Ok(PreparedRestorePair {
+            original,
+            incoming,
+            readiness,
+        })
+    }
+
     /// No IPC, UI, CLI, file mutation or VPN effect. A connected or uncertain
     /// owner cannot preview itself as restore-ready. Foreign cores/TUNs are
     /// never stopped or adopted; only our managed device must be absent.
@@ -32,17 +155,27 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn restore_readiness_candidate(
         &mut self,
     ) -> Result<RestoreReadiness, RestoreAdmissionError> {
-        let fence = self
-            .required_ownership
-            .filter(|fence| fence.phase == OwnershipPhase::Rust)
-            .ok_or(RestoreAdmissionError::OwnershipUnavailable)?;
-        let _lock = self
+        let lock = self
             .transaction
             .acquire_lock()
             .map_err(|error| match error {
                 ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
                 _ => RestoreAdmissionError::OwnershipUnavailable,
             })?;
+        self.restore_readiness_locked(&lock)
+    }
+
+    fn restore_readiness_locked(
+        &mut self,
+        lock: &MigrationLock,
+    ) -> Result<RestoreReadiness, RestoreAdmissionError> {
+        let fence = self
+            .required_ownership
+            .filter(|fence| fence.phase == OwnershipPhase::Rust)
+            .ok_or(RestoreAdmissionError::OwnershipUnavailable)?;
+        if !lock.authorizes(self.transaction.cutover_paths(), self.transaction.uid()) {
+            return Err(RestoreAdmissionError::OwnershipUnavailable);
+        }
         if !self
             .transaction
             .ownership_matches(fence.phase, fence.generation)

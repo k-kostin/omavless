@@ -348,3 +348,26 @@ reservation or authorization to write: a future restore commit must repeat all
 checks, hold background work quiescent across the transaction, authenticate the
 backup again and prove durable replacement/recovery of both fixed files. This
 candidate has no product caller, IPC, UI, file mutation or VPN effect.
+
+## Inactive restore preview and pair preparation
+
+The follow-up coordinator candidate combines the authenticated file counts
+with the *separate* disconnected-owner result. A valid backup can therefore
+preview as readable while restore is currently unavailable. No caller-visible
+label may imply that either fact reserves an eventual commit. Wrong passphrase
+and invalid ciphertext retain the same fixed unreadable class; no profile
+content, URL or endpoint enters this preview.
+
+A second inactive method authenticates the backup outside the owner lease,
+then holds one matching migration lease across disconnected-owner admission,
+exact old store/template acquisition and a repeated final admission. Both
+old and new pairs remain only in non-formatable, zeroizing memory. Synthetic
+tests prove byte-exact preservation of a custom old template, refusal while
+connected, refusal when desired state changes during preparation, no host
+action, no file replacement, and no credential-bearing output. This preparation
+is intentionally **not** a restore plan that can be
+committed later: its revision/generation are observations, not a lock or token.
+The eventual transaction must reopen and authenticate the selected backup,
+repeat owner/host checks at commit, stage both complete replacement files,
+durably preserve the old pair and provide restart-safe recovery before any
+product method or UI is added.
