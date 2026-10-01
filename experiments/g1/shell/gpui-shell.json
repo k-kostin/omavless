@@ -1,0 +1,6 @@
+{
+  "id": "io.github.k-kostin.omavless-g1-synthetic",
+  "name": "OmaVLESS G1 Synthetic Trial",
+  "entry": "main.js",
+  "capabilities": { "storage": false }
+}

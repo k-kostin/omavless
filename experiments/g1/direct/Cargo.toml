@@ -1,0 +1,19 @@
+[package]
+name = "omavless-g1-direct-trial"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gpui-kit = { version = "=0.7.0", default-features = false, features = ["assets"] }
+gpui-omarchy = { git = "https://github.com/huacnlee/gpui-omarchy", rev = "da310c5c817a09010cc31cc2f0928d8e2af086e9" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+debug = "limited"
+
+[profile.release.package.gpui-pre-macros]
+debug-assertions = true
