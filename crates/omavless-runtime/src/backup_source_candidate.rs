@@ -5,12 +5,14 @@
 
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::desired::DesiredPaths;
+use nix::fcntl::{OFlag, open, openat};
+use nix::sys::stat::Mode;
 use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -70,6 +72,56 @@ fn private_directory(path: &Path, uid: u32) -> Result<Metadata, SnapshotError> {
         return Err(SnapshotError::UnsafeSource);
     }
     Ok(metadata)
+}
+
+// A no-follow flag on the final directory does not protect its ancestors.
+// Traverse from a pinned root so an accidental symlink or writable parent
+// cannot redirect a future backup source to a different private-looking pair.
+fn open_config_directory(path: &Path, uid: u32) -> Result<File, SnapshotError> {
+    if !path.is_absolute() {
+        return Err(SnapshotError::UnsafeSource);
+    }
+    let mut directory = File::from(
+        open(
+            Path::new("/"),
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| SnapshotError::UnsafeSource)?,
+    );
+    for component in path.components() {
+        match component {
+            Component::RootDir => continue,
+            Component::Normal(name) => {
+                let metadata = directory
+                    .metadata()
+                    .map_err(|_| SnapshotError::UnsafeSource)?;
+                if !metadata.is_dir()
+                    || (metadata.uid() != 0 && metadata.uid() != uid)
+                    || metadata.mode() & 0o022 != 0
+                {
+                    return Err(SnapshotError::UnsafeSource);
+                }
+                directory = File::from(
+                    openat(
+                        &directory,
+                        Path::new(name),
+                        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                        Mode::empty(),
+                    )
+                    .map_err(|_| SnapshotError::UnsafeSource)?,
+                );
+            }
+            _ => return Err(SnapshotError::UnsafeSource),
+        }
+    }
+    let metadata = directory
+        .metadata()
+        .map_err(|_| SnapshotError::UnsafeSource)?;
+    if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+        return Err(SnapshotError::UnsafeSource);
+    }
+    Ok(directory)
 }
 
 fn admit(
@@ -164,20 +216,10 @@ fn capture(
     between_reads: impl FnOnce(),
 ) -> Result<PrivateSourcePair, SnapshotError> {
     admit(paths, uid, generation, lock)?;
-    let before = private_directory(config, uid)?;
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_DIRECTORY)
-        .open(config)
+    let directory = open_config_directory(config, uid)?;
+    let before = directory
+        .metadata()
         .map_err(|_| SnapshotError::UnsafeSource)?;
-    if !stable(
-        &before,
-        &directory
-            .metadata()
-            .map_err(|_| SnapshotError::UnsafeSource)?,
-    ) {
-        return Err(SnapshotError::SourceChanged);
-    }
     // Fixed member names only; hold both descriptors before reading either.
     let mut store = Member::open(&directory, "profiles.json", uid, MAX_PRIVATE_STORE_BYTES)?;
     let mut template = Member::open(&directory, "route-template.yaml", uid, MAX_TEMPLATE_BYTES)?;
@@ -186,7 +228,13 @@ fn capture(
     let template_bytes = template.read()?;
     store.verify()?;
     template.verify()?;
-    if !stable(&before, &private_directory(config, uid)?) {
+    let current = open_config_directory(config, uid).map_err(|_| SnapshotError::SourceChanged)?;
+    if !stable(
+        &before,
+        &current
+            .metadata()
+            .map_err(|_| SnapshotError::SourceChanged)?,
+    ) {
         return Err(SnapshotError::SourceChanged);
     }
     admit(paths, uid, generation, lock)?;
@@ -243,7 +291,10 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let root = crate::test_temp::directory("backup-source").unwrap();
+            // The source policy rejects writable ancestors such as /tmp.
+            let home = std::env::var_os("HOME").expect("backup test needs a home directory");
+            let root =
+                crate::test_temp::directory_under(Path::new(&home), "backup-source").unwrap();
             let config = root.join("config");
             let runtime = root.join("runtime");
             let state = root.join("state");
@@ -548,6 +599,61 @@ mod tests {
             }
             assert!(fixture.read(|| {}).is_err());
         }
+    }
+
+    #[test]
+    fn backup_source_refuses_symlinked_and_writable_ancestors() {
+        for change in ["symlink", "writable"] {
+            let fixture = Fixture::new();
+            let bridge = fixture.root.join("bridge");
+            fs::create_dir(&bridge).unwrap();
+            fs::set_permissions(&bridge, fs::Permissions::from_mode(0o700)).unwrap();
+            fs::rename(&fixture.config, bridge.join("config")).unwrap();
+            let source = if change == "symlink" {
+                let alias = fixture.root.join("alias");
+                symlink(&bridge, &alias).unwrap();
+                alias.join("config")
+            } else {
+                fs::set_permissions(&bridge, fs::Permissions::from_mode(0o777)).unwrap();
+                bridge.join("config")
+            };
+            assert!(matches!(
+                capture(
+                    &source,
+                    &fixture.paths,
+                    fixture.uid,
+                    2,
+                    &fixture.lock,
+                    || {}
+                ),
+                Err(SnapshotError::UnsafeSource)
+            ));
+        }
+    }
+
+    #[test]
+    fn backup_source_refuses_ancestor_symlink_inserted_between_reads() {
+        let fixture = Fixture::new();
+        let bridge = fixture.root.join("bridge");
+        let held = fixture.root.join("held-bridge");
+        fs::create_dir(&bridge).unwrap();
+        fs::set_permissions(&bridge, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(&fixture.config, bridge.join("config")).unwrap();
+        let source = bridge.join("config");
+        assert!(matches!(
+            capture(
+                &source,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &fixture.lock,
+                || {
+                    fs::rename(&bridge, &held).unwrap();
+                    symlink(&held, &bridge).unwrap();
+                }
+            ),
+            Err(SnapshotError::SourceChanged)
+        ));
     }
 
     #[test]
