@@ -52,8 +52,8 @@ installed-release gates. It is not a stable-release acceptance claim.
 The build tuple is one reviewed source commit, locked Rust workspace version,
 prebuilt native ELF SHA-256, Arch package and matching native-only frontend.
 `Cargo.toml` supplies the product version; Cargo workspace members inherit it.
-Arch spells `0.9.5-beta.1` as `0.9.5beta1`, and `0.9.5-rc.1` as `0.9.5rc1`
-(package release `1`). Beta sorts before RC, which sorts before stable `0.9.5`.
+Arch spells `0.9.6-beta.1` as `0.9.6beta1`, and `0.9.6-rc.1` as `0.9.6rc1`
+(package release `1`). Beta sorts before RC, which sorts before stable `0.9.6`.
 The candidate frontend manifest gets the exact Cargo spelling.
 This follows Arch's [pkgver restrictions](https://man.archlinux.org/man/PKGBUILD.5.en)
 and [version ordering](https://man.archlinux.org/man/vercmp.8.en); local tests
