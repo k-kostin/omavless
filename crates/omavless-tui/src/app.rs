@@ -21,6 +21,9 @@ pub struct App {
     pub traffic_history: crate::traffic_history::History,
     pub inspection_scroll: u16,
     pub snapshot: Option<Snapshot>,
+    /// The page whose optional details were actually sampled. A previous
+    /// page's fresh header is not evidence that this page's data is unavailable.
+    pub(crate) snapshot_page: Option<crate::inspection::Page>,
     pub sampled_at: Option<Instant>,
     pub error: Option<ReadError>,
     pub selected: Option<String>,
@@ -96,6 +99,9 @@ impl App {
         if next != crate::inspection::Page::Subscriptions {
             self.clear_usage();
         }
+        if self.page != next {
+            self.snapshot_page = None;
+        }
         if self.page == crate::inspection::Page::Connections
             && next != crate::inspection::Page::Connections
             && let Some(snapshot) = &mut self.snapshot
@@ -125,6 +131,7 @@ impl App {
             traffic_history: crate::traffic_history::History::default(),
             inspection_scroll: 0,
             snapshot: None,
+            snapshot_page: None,
             sampled_at: None,
             error: None,
             selected: None,
@@ -237,6 +244,7 @@ impl App {
                 }
                 self.accepted = Some((next.metadata.instance_id.clone(), next.revision));
                 self.snapshot = Some(next);
+                self.snapshot_page = Some(self.page);
                 if self.selected.as_ref().is_some_and(|id| {
                     !self.visible().iter().any(|i| {
                         self.snapshot
@@ -262,6 +270,7 @@ impl App {
                 self.clear_usage();
                 self.route_checked_at = None;
                 self.snapshot = None;
+                self.snapshot_page = None;
                 self.sampled_at = None;
                 self.selected = None;
                 self.selected_subscription = None;
