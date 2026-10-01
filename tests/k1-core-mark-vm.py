@@ -26,6 +26,7 @@ TABLE = "omavless_k1_mark_probe"
 PROXY_PORT = 17890
 SERVER_PORT = 18080
 SERVER_IP = "192.0.2.2"
+SERVER_IPV6 = "2001:db8::2"
 DNS_PORT = 15353
 DNS_NAME = "mark-probe.invalid"
 DNS_QUESTION = b"\x0amark-probe\x07invalid\x00"
@@ -71,15 +72,16 @@ def command(argv, *, input_bytes=None, timeout=5):
     return result.stdout
 
 
-def table_commands(transport=None):
+def table_commands(transport=None, ipv6=False):
     # Both counters see the same synthetic core request; the first only when
     # the packet carries the K1 mark, the second regardless of mark.
-    selector = f" {transport} dport {DNS_PORT}" if transport else ""
+    selector = f" {transport} dport {DNS_PORT}" if transport else f" tcp dport {SERVER_PORT}"
+    destination = f"ip6 daddr {SERVER_IPV6}" if ipv6 else f"ip daddr {SERVER_IP}"
     return (f"""table inet {TABLE} {{
   chain output {{
     type filter hook output priority 100; policy accept;
-    ip daddr {SERVER_IP}{selector} meta mark {CORE_MARK} counter
-    ip daddr {SERVER_IP}{selector} counter
+    {destination}{selector} meta mark {CORE_MARK} counter
+    {destination}{selector} counter
   }}
 }}
 """).encode("ascii")
@@ -164,6 +166,19 @@ class DnsTcpServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+class HttpIpv6Server(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+    daemon_threads = True
+
+
+class DnsUdpIpv6Server(socketserver.UDPServer):
+    address_family = socket.AF_INET6
+
+
+class DnsTcpIpv6Server(DnsTcpServer):
+    address_family = socket.AF_INET6
+
+
 def stop(proc):
     if proc.poll() is None:
         proc.terminate()
@@ -174,18 +189,19 @@ def stop(proc):
             proc.wait(timeout=3)
 
 
-def phase(scratch, mark, should_match, transport=None):
+def phase(scratch, mark, should_match, transport=None, ipv6=False):
     check_child()
     config = scratch / "config.yaml"
+    address = f"[{SERVER_IPV6}]" if ipv6 else SERVER_IP
     dns = "  enable: false\n"
     if transport:
         dns = f"""  enable: true
-  ipv6: false
+  ipv6: {str(ipv6).lower()}
   use-hosts: false
   use-system-hosts: false
   enhanced-mode: redir-host
   nameserver:
-    - {transport}://{SERVER_IP}:{DNS_PORT}
+    - {transport}://{address}:{DNS_PORT}
   default-nameserver:
     - {SERVER_IP}:{DNS_PORT}
 """
@@ -195,7 +211,7 @@ allow-lan: false
 bind-address: 127.0.0.1
 mode: direct
 log-level: silent
-ipv6: false
+ipv6: {str(ipv6).lower()}
 find-process-mode: off
 routing-mark: {mark}
 tun:
@@ -209,7 +225,7 @@ rules:
         encoding="ascii",
     )
     config.chmod(0o600)
-    command(["/usr/bin/nft", "-f", "-"], input_bytes=table_commands(transport))
+    command(["/usr/bin/nft", "-f", "-"], input_bytes=table_commands(transport, ipv6))
     proc = subprocess.Popen(
         [CORE, "-d", str(scratch), "-f", str(config)],
         stdin=subprocess.DEVNULL,
@@ -232,7 +248,7 @@ rules:
             raise RuntimeError("core")
         request = ["/usr/bin/curl", "--silent", "--show-error", "--fail", "--max-time", "5",
                    "--noproxy", "", "--proxy", f"http://127.0.0.1:{PROXY_PORT}",
-                   f"http://{DNS_NAME if transport else SERVER_IP}:{SERVER_PORT}/"]
+                   f"http://{DNS_NAME if transport else address}:{SERVER_PORT}/"]
         body = command(request, timeout=7)
         if body != TOKEN:
             raise RuntimeError("response")
@@ -243,7 +259,7 @@ rules:
             raise RuntimeError("readback")
         if should_match and marked == 0:
             raise RuntimeError("mark-missing")
-        if transport and should_match and marked != total:
+        if should_match and marked != total:
             raise RuntimeError("mark-missing")
         if not should_match and marked > 0:
             raise RuntimeError("wrong-mark")
@@ -275,6 +291,7 @@ def child():
         # destination is global-unicast-shaped to Mihomo's socket-mark code,
         # but cannot leave this netns (no other interface or default route).
         command(["/usr/bin/ip", "address", "add", f"{SERVER_IP}/32", "dev", "lo"])
+        command(["/usr/bin/ip", "-6", "address", "add", f"{SERVER_IPV6}/128", "dev", "lo", "nodad"])
         for family in ("-4", "-6"):
             if json.loads(command(["/usr/bin/ip", "-j", family, "route", "show", "default"])):
                 raise RuntimeError("route")
@@ -285,8 +302,12 @@ def child():
         thread.start()
         dns_udp = socketserver.UDPServer((SERVER_IP, DNS_PORT), DnsUdpHandler)
         dns_tcp = DnsTcpServer((SERVER_IP, DNS_PORT), DnsTcpHandler)
-        for resolver in (dns_udp, dns_tcp):
-            threading.Thread(target=resolver.serve_forever, daemon=True).start()
+        ipv6_http = HttpIpv6Server((SERVER_IPV6, SERVER_PORT), Handler)
+        ipv6_udp = DnsUdpIpv6Server((SERVER_IPV6, DNS_PORT), DnsUdpHandler)
+        ipv6_tcp = DnsTcpIpv6Server((SERVER_IPV6, DNS_PORT), DnsTcpHandler)
+        extra_servers = (dns_udp, dns_tcp, ipv6_http, ipv6_udp, ipv6_tcp)
+        for extra_server in extra_servers:
+            threading.Thread(target=extra_server.serve_forever, daemon=True).start()
         try:
             with tempfile.TemporaryDirectory(prefix="k1mark.", dir=os.environ["K1_SCRATCH_PARENT"]) as root:
                 scratch = pathlib.Path(root)
@@ -300,10 +321,15 @@ def child():
                     phase(scratch, CORE_MARK, True, transport)
                     stage = transport + "-control"
                     phase(scratch, OTHER_MARK, False, transport)
+                for transport in (None, "udp", "tcp"):
+                    stage = "ipv6-" + (transport or "direct") + "-candidate"
+                    phase(scratch, CORE_MARK, True, transport, ipv6=True)
+                    stage = "ipv6-" + (transport or "direct") + "-control"
+                    phase(scratch, OTHER_MARK, False, transport, ipv6=True)
         finally:
-            for resolver in (dns_udp, dns_tcp):
-                resolver.shutdown()
-                resolver.server_close()
+            for extra_server in extra_servers:
+                extra_server.shutdown()
+                extra_server.server_close()
             server.shutdown()
             server.server_close()
         check_child()
@@ -331,7 +357,7 @@ def parent():
         pass_fds=[descriptor],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        timeout=100,
+        timeout=180,
         check=False,
         env={"PATH": "/usr/bin:/bin", "LC_ALL": "C",
              "K1_PARENT_FD": str(descriptor),
@@ -344,7 +370,9 @@ def parent():
             or namespace_id("/proc/self/ns/net") != (identity.st_dev, identity.st_ino)):
         raise SystemExit("parent namespace changed")
     if result.returncode != 0 or result.stdout != b"K1_CORE_MARK_PASS\n":
-        for stage in ("isolation", "server", "candidate", "control", "udp-candidate", "udp-control", "tcp-candidate", "tcp-control"):
+        stages = ["isolation", "server", "candidate", "control", "udp-candidate", "udp-control", "tcp-candidate", "tcp-control"]
+        stages.extend(f"ipv6-{path}-{kind}" for path in ("direct", "udp", "tcp") for kind in ("candidate", "control"))
+        for stage in stages:
             for reason in ("namespace", "interfaces", "route", "command", "readback", "core", "response", "no-egress", "mark-missing", "wrong-mark", "proxy-bypass", "unavailable"):
                 if result.stdout == f"K1_CORE_MARK_FAILED={stage}.{reason}\n".encode("ascii"):
                     raise SystemExit(f"isolated core mark probe failed at {stage}.{reason}")
