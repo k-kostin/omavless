@@ -112,3 +112,49 @@ adjudication/provenance, root enrollment/peer authentication, real kernel and
 filesystem crash tests, boot ordering, core mark/DNS/firewall integration and
 the [K1 host matrix](../roadmap/KILL_SWITCH.md) remain explicit gates.
 There is no main merge, package change, live activation or publication implied.
+
+## Opt-in kernel commit / missing acknowledgement fixture
+
+The test-only `locked_state_kernel_crash.rs` adds a narrower real-kernel
+composition: PendingCreate is published by the real shared-lock context, an
+exclusive empty-table creation can complete through nft, and the effect port
+**never returns an ownership identity or verified policy**. Three SIGKILL cuts
+cover before creation, after kernel completion/readback but before the effect
+returns, and after an explicit uncertain-effect error. The separate namespace
+holder survives the writer and inspects the actual table rather than rebuilding
+synthetic kernel state from a checkpoint number.
+
+Run only in the coordinated delegated VM:
+
+```sh
+OMAVLESS_K1_RECEIPT_VM=1 cargo test --locked -p omavless-netguard --lib \
+  locked_state::tests::kernel_crash::kernel_receipt_crash_in_disposable_vm \
+  -- --ignored --exact --nocapture
+```
+
+The outer test pins its original network namespace, creates a fresh unprivileged
+user+network namespace and rechecks the original identity afterwards. The holder
+and writer require a different pinned network namespace and only loopback before
+every nft subprocess. No interface, address, route, chain, hook, rule, IP probe,
+installed state path or service is changed. Internally generated unique `inet`
+table names contain only a fixed fixture prefix, holder PID and cut number; no
+caller-selected nft syntax is accepted. A separate empty sentinel is preserved.
+
+After each kill, the original directory lock is released. The real PendingCreate
+receipt remains; Armed is absent. Status, Arm and Disarm refuse, with zero
+effect calls and unchanged file bytes/table metadata. Present tables are always
+Foreign/untrusted to the restart port. Fixture cleanup checks exact retained
+metadata immediately before deleting its own empty tables in the exclusively
+controlled namespace; this is not a production conditional-delete authority or
+orphan-recovery path. Namespace teardown is the final isolation boundary.
+Subprocesses have bounded deadlines/output, kill/reap guards, and a parked
+writer exits on holder death or its own deadline. Raw tool output is not shared.
+
+This does not compose a successful kernel EffectPort: the empty table provides
+no packet policy, no live owner socket and no production ownership provenance.
+The synthetic epoch identifies only the test namespace, not the canonical host.
+The withheld effect response models acknowledgement loss *above* nft; it does
+not drop raw netlink ACK packets. The full #416 file-publication SIGKILL matrix
+still uses a synthetic kernel. Real replace/delete authority, crashes within
+kernel/file publication, power loss, persistent orphan adjudication, root
+service/boot integration and the physical-host matrix remain separate gates.

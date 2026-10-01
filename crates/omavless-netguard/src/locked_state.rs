@@ -334,6 +334,10 @@ fn identity_in_epoch(identity: EffectIdentity, epoch: HostEpoch) -> bool {
 
 #[cfg(test)]
 mod tests {
+    mod kernel_crash {
+        include!("locked_state_kernel_crash.rs");
+    }
+
     use super::*;
     use crate::effect_port::EffectError;
     use crate::protocol::{Health, Mode, Protection};
