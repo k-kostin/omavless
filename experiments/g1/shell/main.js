@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Synthetic, read-only G1 comparison. No daemon/IPC, network or private data.
 import { View } from "gpui-kit";
-import { InputState, Scrollbar, h_flex, v_flex, v_virtual_list } from "gpui-base";
+import { InputState, Scrollbar, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list } from "gpui-base";
 import { set_theme } from "gpui-base";
 import {
   AppShell, Badge, Button, Label, ListRow, MutedText, Panel, TextField,
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
-import { connectionPresentation, fixture, visibleProfiles } from "./data.js";
+import { connectionPresentation, fixture, nextHighlightedProfile, profileById, visibleProfiles } from "./data.js";
 import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
@@ -17,7 +17,7 @@ const copy = {
     profiles: "Profiles", details: "Details", sources: "Subscriptions / sources", selected: "Selected for inspection",
     connected: "Confirmed connection", previous: "Previous server · not verified now", none: "None confirmed", invalid: "No valid selection",
     source: "Source",
-    note: "Click a row or press Enter in search to inspect; never connects", large: "10,005 synthetic rows · virtualized",
+    note: "Tab to list: arrows move, Enter inspects; never connects", large: "10,005 synthetic rows · virtualized", noResults: "No matching profiles",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
     theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
     largeList: "10k samples", smallList: "5 samples",
@@ -28,7 +28,7 @@ const copy = {
     profiles: "Профили", details: "Детали", sources: "Подписки / источники", selected: "Выбрано для просмотра",
     connected: "Подтверждённое соединение", previous: "Прежний сервер · сейчас не подтверждён", none: "Нет подтверждённого соединения", invalid: "Нет выбранного профиля",
     source: "Источник",
-    note: "Нажмите строку или Enter в поиске для просмотра; подключения нет", large: "10 005 демонстрационных строк · виртуализация",
+    note: "Tab — к списку, стрелки — перемещение, Enter — просмотр; без подключения", large: "10 005 демонстрационных строк · виртуализация", noResults: "Профили не найдены",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
     theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
     largeList: "10 тыс. строк", smallList: "5 строк",
@@ -50,13 +50,21 @@ export default class G1Trial extends View {
     this.search = InputState.new({ placeholder: "Search / Поиск" });
     this.search.on("change", (_event, context) => context.notify());
     this.search.on("submit", (_event, context) => {
-      this.selected = visibleProfiles(this.search.value(), this.large, this.collection)[0]?.id ?? null;
+      const first = visibleProfiles(this.search.value(), this.large, this.collection)[0];
+      if (first) {
+        this.selected = first.id;
+        this.highlighted = first.id;
+        this.listScroll.scroll_to_item(0);
+      }
       context.notify();
     });
     this.panelFocus = cx.focus_handle();
+    this.listFocus = cx.focus_handle();
+    this.listScroll = VirtualListScrollHandle.new();
     this.panelFocus.focus();
     this.scene = 0;
     this.selected = fixture.scenes[0].selected;
+    this.highlighted = this.selected;
     this.locale = "en";
     this.large = false;
     this.collection = "all";
@@ -82,8 +90,8 @@ export default class G1Trial extends View {
     const strings = copy[this.locale];
     const scene = fixture.scenes[this.scene];
     const connection = connectionPresentation(scene);
-    const connected = fixture.profiles.find((item) => item.id === connection.id);
-    const selected = fixture.profiles.find((item) => item.id === this.selected);
+    const connected = profileById(connection.id);
+    const selected = profileById(this.selected);
     const query = this.search.value();
     if (query !== this.cachedQuery || this.large !== this.cachedLarge || this.collection !== this.cachedCollection) {
       this.visible = visibleProfiles(query, this.large, this.collection);
@@ -92,6 +100,9 @@ export default class G1Trial extends View {
       this.cachedCollection = this.collection;
     }
     const visible = this.visible;
+    if (!visible.some((profile) => profile.id === this.highlighted)) {
+      this.highlighted = visible[0]?.id ?? null;
+    }
     const colors = cx.theme().colors;
     const statusTone = scene.phase === "connected" ? "success"
       : ["failed", "recovery"].includes(scene.phase) ? "danger" : "warning";
@@ -117,7 +128,28 @@ export default class G1Trial extends View {
       .child(connection.kind === "confirmed" && profile.id === connection.id
         ? new Badge(`connected-${profile.id}`).label(this.locale === "ru" ? "Подключено" : "Connected").tone("success").build(cx)
         : new MutedText("").build(cx))
-      .build(cx).h(52);
+      .build(cx).h(52)
+      .when(this.listFocus.is_focused() && this.highlighted === profile.id,
+        (element) => element.border(1).border_color(colors.ring));
+
+    const navigateList = (event, context) => {
+      if (event.key === "down" || event.key === "up") {
+        const id = nextHighlightedProfile(visible, this.highlighted, event.key === "down" ? 1 : -1);
+        if (id !== null) {
+          this.highlighted = id;
+          this.listScroll.scroll_to_item(visible.findIndex((profile) => profile.id === id), "center");
+          context.notify();
+        }
+        context.stop_propagation();
+      } else if (event.key === "enter" && visible.some((profile) => profile.id === this.highlighted)) {
+        this.selected = this.highlighted;
+        context.notify();
+        context.stop_propagation();
+      } else if (event.key === "escape") {
+        this.panelFocus.focus();
+        context.stop_propagation();
+      }
+    };
 
     const list = v_flex().flex_1().min_h_0().min_w_0().gap(8).p(12)
       .child(new MutedText(strings.sources).build(cx))
@@ -127,12 +159,17 @@ export default class G1Trial extends View {
         ? (this.locale === "ru" ? `${visible.length} демонстрационных строк · виртуализация`
           : `${visible.length} synthetic rows · virtualized`) : strings.note).build(cx))
       .child(v_flex().relative().h("24rem").min_h_0().overflow_hidden()
-        .child(v_virtual_list("g1-profile-list", visible.length, 52,
-          (index) => visible[index].id,
-          (range) => Array.from({ length: range.end - range.start }, (_unused, offset) =>
-            row(visible[range.start + offset])))
-          .size_full().on_item_click((id, context) => { this.selected = id; context.notify(); }))
-        .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0()));
+        .track_focus(this.listFocus).tab_stop(true).on_key_down(navigateList)
+        .focus((appearance) => appearance.border(1).border_color(colors.ring))
+        .when(visible.length === 0, (element) => element.child(new MutedText(strings.noResults).build(cx).p(12)))
+        .when(visible.length > 0, (element) => element
+          .child(v_virtual_list("g1-profile-list", visible.length, 52,
+            (index) => visible[index].id,
+            (range) => Array.from({ length: range.end - range.start }, (_unused, offset) =>
+              row(visible[range.start + offset])))
+            .size_full().track_scroll(this.listScroll)
+            .on_item_click((id, context) => { this.highlighted = id; this.selected = id; context.notify(); }))
+          .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0())));
     const details = v_flex().min_w_0().gap(12).p(12)
       .child(new MutedText(strings.selected).build(cx))
       .child(new Label(selected?.name ?? strings.invalid).build(cx))
