@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fixture, visibleProfiles } from "../shell/data.js";
+import { connectionPresentation, fixture, visibleProfiles } from "../shell/data.js";
 
 const expected = JSON.parse(readFileSync(new URL("../fixtures.json", import.meta.url), "utf8"));
 assert.deepEqual(fixture, expected);
@@ -13,4 +13,9 @@ assert.equal(visibleProfiles("", true, "sample").length, 5);
 assert.equal(visibleProfiles("", true, "generated").length, fixture.large_list_count);
 assert.equal(visibleProfiles("", true, "local").length, 1);
 assert.equal(visibleProfiles("south", false, "local").length, 0);
+assert.deepEqual(connectionPresentation(fixture.scenes[0]), { kind: "confirmed", id: "south" });
+assert.deepEqual(connectionPresentation(fixture.scenes[2]), { kind: "previous", id: "south" });
+for (const scene of fixture.scenes.filter((scene) => !["connected", "switching"].includes(scene.phase))) {
+  assert.deepEqual(connectionPresentation(scene), { kind: "none", id: null });
+}
 console.log("G1 synthetic fixture parity passed");

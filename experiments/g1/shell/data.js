@@ -29,6 +29,18 @@ export const fixture = {
   large_list_count: 10000,
 };
 
+// A stale last-known server is useful context during a switch, but never a
+// confirmed live connection or a green row marker.
+export function connectionPresentation(scene) {
+  if (scene.phase === "connected" && scene.connected) {
+    return { kind: "confirmed", id: scene.connected };
+  }
+  if (scene.phase === "switching" && scene.connected) {
+    return { kind: "previous", id: scene.connected };
+  }
+  return { kind: "none", id: null };
+}
+
 export function visibleProfiles(query, large = false, collection = "all") {
   const profiles = [...fixture.profiles];
   if (large) {

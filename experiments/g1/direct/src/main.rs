@@ -27,6 +27,20 @@ struct Scene {
     connected: Option<String>,
 }
 
+impl Scene {
+    fn confirmed_id(&self) -> Option<&str> {
+        (self.phase == "connected")
+            .then_some(self.connected.as_deref())
+            .flatten()
+    }
+
+    fn previous_id(&self) -> Option<&str> {
+        (self.phase == "switching")
+            .then_some(self.connected.as_deref())
+            .flatten()
+    }
+}
+
 #[derive(Clone, Deserialize)]
 struct Collection {
     id: String,
@@ -53,6 +67,18 @@ impl Fixtures {
     fn profile(&self, id: &str) -> Option<&Profile> {
         self.profiles.iter().find(|profile| profile.id == id)
     }
+
+    fn initial_scene(&self, args: &[String]) -> Result<usize, &'static str> {
+        match args {
+            [] => Ok(0),
+            [flag, id] if flag == "--scene" => self
+                .scenes
+                .iter()
+                .position(|scene| scene.id == *id)
+                .ok_or("Unknown synthetic scene"),
+            _ => Err("Expected only --scene <synthetic-id>"),
+        }
+    }
 }
 
 struct Trial {
@@ -72,8 +98,9 @@ struct Trial {
 }
 
 impl Trial {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>, initial_scene: usize) -> Self {
         let fixtures = Fixtures::load();
+        assert!(initial_scene < fixtures.scenes.len());
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search / Поиск"));
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&search, |this, input, event: &InputEvent, cx| {
@@ -87,12 +114,15 @@ impl Trial {
             }
         })
         .detach();
-        let selected = fixtures.scenes[0].selected.clone();
+        // Give the keyboard-only path an initial, visible focus target. A
+        // focus scope without any focused child cannot receive its Tab action.
+        search.update(cx, |input, cx| input.focus(window, cx));
+        let selected = fixtures.scenes[initial_scene].selected.clone();
         Self {
             visible: Rc::new(fixtures.profiles.clone()),
             fixtures,
             search,
-            scene: 0,
+            scene: initial_scene,
             selected,
             russian: false,
             large: false,
@@ -286,9 +316,8 @@ impl Render for Trial {
             .as_deref()
             .and_then(|id| self.fixtures.profile(id))
             .cloned();
-        let connected = scene
-            .connected
-            .as_deref()
+        let connection_id = scene.confirmed_id().or_else(|| scene.previous_id());
+        let connected = connection_id
             .and_then(|id| self.fixtures.profile(id))
             .cloned();
         let status = match scene.phase.as_str() {
@@ -313,7 +342,8 @@ impl Render for Trial {
         let status_color = match scene.phase.as_str() {
             "connected" => theme.success,
             "connecting" | "switching" | "reconnecting" => theme.warning,
-            "unverified" | "failed" | "recovery" => theme.danger,
+            "unverified" => theme.warning,
+            "failed" | "recovery" => theme.danger,
             _ => theme.secondary,
         };
         let mut scene_buttons = Vec::<AnyElement>::new();
@@ -396,7 +426,7 @@ impl Render for Trial {
         let narrow = window.bounds().size.width < rems(60.).to_pixels(window.rem_size());
         let viewport_rems = window.viewport_size().height.as_f32() / window.rem_size().as_f32();
         let list_height = rems((viewport_rems - 27.).clamp(8., 24.));
-        let connection_id = scene.connected.clone();
+        let confirmed_id = scene.confirmed_id().map(str::to_owned);
         let list = virtual_list(
             cx.entity(),
             "g1-profile-list",
@@ -404,7 +434,7 @@ impl Render for Trial {
             move |this, range, _, cx| {
                 range
                     .map(|index| {
-                        this.render_profile(visible[index].clone(), connection_id.as_deref(), cx)
+                        this.render_profile(visible[index].clone(), confirmed_id.as_deref(), cx)
                     })
                     .collect::<Vec<_>>()
             },
@@ -446,13 +476,26 @@ impl Render for Trial {
             .child(
                 div()
                     .text_color(theme.secondary)
-                    .child(self.label("Confirmed connection", "Подтверждённое соединение")),
+                    .child(if scene.previous_id().is_some() {
+                        self.label(
+                            "Previous server · not verified now",
+                            "Прежний сервер · сейчас не подтверждён",
+                        )
+                    } else {
+                        self.label("Confirmed connection", "Подтверждённое соединение")
+                    }),
             )
             .child(
                 div()
                     .min_w_0()
                     .truncate()
-                    .text_color(theme.success)
+                    .text_color(if scene.confirmed_id().is_some() {
+                        theme.success
+                    } else if scene.previous_id().is_some() {
+                        theme.warning
+                    } else {
+                        theme.secondary
+                    })
                     .child(connected_name.to_owned()),
             )
             .child(div().text_color(theme.secondary).child(self.label(
@@ -528,12 +571,21 @@ impl Render for Trial {
 }
 
 fn main() {
+    let fixtures = Fixtures::load();
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let initial_scene = match fixtures.initial_scene(&arguments) {
+        Ok(index) => index,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
-        .run(|cx| {
+        .run(move |cx| {
             gpui_omarchy::init(cx);
             cx.open_window(WindowOptions::default(), |window, cx| {
-                cx.new(|cx| Trial::new(window, cx))
+                cx.new(|cx| Trial::new(window, cx, initial_scene))
             })
             .expect("open synthetic G1 window");
             cx.activate(true);
@@ -571,5 +623,41 @@ mod tests {
         assert!(fixture.scenes.iter().any(|scene| scene.phase == "recovery"));
         assert_eq!(fixture.collections.len(), 4);
         assert!(fixture.large_list_count >= 10_000);
+    }
+
+    #[test]
+    fn transient_scene_never_claims_a_confirmed_row() {
+        let fixture = Fixtures::load();
+        assert_eq!(fixture.scenes[0].confirmed_id(), Some("south"));
+        let switching = fixture
+            .scenes
+            .iter()
+            .find(|scene| scene.phase == "switching")
+            .unwrap();
+        assert_eq!(switching.confirmed_id(), None);
+        assert_eq!(switching.previous_id(), Some("south"));
+        for scene in fixture
+            .scenes
+            .iter()
+            .filter(|scene| !matches!(scene.phase.as_str(), "connected" | "switching"))
+        {
+            assert_eq!(scene.confirmed_id(), None);
+            assert_eq!(scene.previous_id(), None);
+        }
+    }
+
+    #[test]
+    fn exact_synthetic_scene_selection_never_echoes_unknown_input() {
+        let fixture = Fixtures::load();
+        assert_eq!(fixture.initial_scene(&[]), Ok(0));
+        assert_eq!(
+            fixture.initial_scene(&["--scene".into(), "switching".into()]),
+            Ok(2)
+        );
+        assert_eq!(
+            fixture.initial_scene(&["--scene".into(), "private-token".into()]),
+            Err("Unknown synthetic scene")
+        );
+        assert!(fixture.initial_scene(&["--scene".into()]).is_err());
     }
 }
