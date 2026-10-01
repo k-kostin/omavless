@@ -1034,14 +1034,6 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 Line::from(""),
                 Line::from(tr("tui.core_log_scope")),
                 field(
-                    "tui.core_log_finished",
-                    s.core_diagnostics
-                        .as_ref()
-                        .map(|d| boolean(d.finished))
-                        .unwrap_or_else(unknown),
-                ),
-                Line::from(tr("tui.core_log_finished_scope")),
-                field(
                     "tui.core_log_dns",
                     s.core_diagnostics
                         .as_ref()
@@ -1116,6 +1108,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 lines.push(Line::from(tr("tui.metric_unavailable")));
             }
             lines.push(Line::from(tr("tui.core_log_recent_scope")));
+            lines.push(field(
+                "tui.core_log_finished",
+                s.core_diagnostics
+                    .as_ref()
+                    .map(|d| boolean(d.finished))
+                    .unwrap_or_else(unknown),
+            ));
+            lines.push(Line::from(tr("tui.core_log_finished_scope")));
             lines.push(Line::from(tr("tui.health")));
             lines.push(Line::from(tr("tui.no_killswitch")));
             lines.push(Line::from(tr("tui.diagnostic_drilldown")));
