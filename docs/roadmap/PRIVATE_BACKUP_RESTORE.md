@@ -257,17 +257,21 @@ The candidate pins the private config directory and opens only `profiles.json`
 and `route-template.yaml` through that directory descriptor. Both member
 descriptors are held before either read. Members must be same-user, regular,
 single-link, mode `0600`, nonempty and within the existing individual bounds;
-symlinks, hard links, unsafe directories and special files refuse. Reads are
-bounded and nonblocking at open. Descriptor and current-path identity, size,
-mode, ownership and modification/change timestamps are rechecked after both
-reads, together with the directory and owner/pending state. A detected edit or
-replacement returns no pair and never overwrites the changed source.
+symlinks, hard links, unsafe directories and special files refuse. The config
+directory is reached component by component from `/` without following an
+ancestor symlink; root- or same-user-owned ancestors must not be writable by
+other users. Reads are bounded and nonblocking at open. Descriptor and
+current-path identity, size, mode, ownership and modification/change timestamps
+are rechecked after both reads, together with a second no-follow traversal of
+the directory and the owner/pending state. A detected edit or replacement
+returns no pair and never overwrites the changed source.
 
-Nine synthetic tests cover fixed-member-only acquisition, matching lease
+Eleven synthetic tests cover fixed-member-only acquisition, matching lease
 exclusion, wrong generation/lease, unsafe/missing members and directories,
 hardlinks/symlinks, bounds, uncommitted/unsafe ownership and interrupted presets,
 same-size in-place/atomic member replacement, directory replacement and late
-owner/pending changes. The ninth test composes the captured pair with the
+owner/pending changes, including symlinked/writable ancestors and an ancestor
+changed between reads. The seal-composition test uses the captured pair with the
 authenticated envelope, verifies private roundtrip and unchanged sources, and
 refuses invalid passphrases and templates. This is filesystem and cooperative-lock
 evidence, not protection from a hostile same-user process able to forge the entire state.
