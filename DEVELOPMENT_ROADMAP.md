@@ -2,13 +2,20 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**0.9.6 RC scope freeze, 2026-10-01:** the owner selected the checked
+`beta/0.9.6` assembly for `rc/0.9.6`. The [RC ledger](docs/development/RC_096.md)
+records the exact source, retained evidence, excluded work and remaining
+release/distribution gates. Source version is `0.9.6-rc.1`; pins are empty.
+This is not yet an accepted or published replacement for the immutable
+0.9.5 RC1, and main/Marketplace remain unchanged.
+
 **0.9.6 development, 2026-10-01:** owner selected T3 read-only traffic/activity/
 log/route-age refinements and QML empty-state/expansion/tooltips for temporary
 `beta/0.9.6` from accepted `rc/0.9.5`. See the
 [selection and gates](docs/development/BETA_096.md). No inactive security,
 backup, protocol or desktop-app foundation is activated. Main/Marketplace and
 RC 0.9.5 stay unchanged. Combined suites, EN/RU actual rendering and installed
-ARM64 read-only review pass; this beta is not a new release acceptance.
+ARM64/x86_64 read-only review pass; this beta was not a new release acceptance.
 
 **0.9.5 RC accepted, 2026-10-01:** `rc/0.9.5` replaces 0.9.0 as the selected
 candidate. Immutable prerelease packages/pins, anonymous downloads and clean

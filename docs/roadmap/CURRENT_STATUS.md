@@ -6,6 +6,14 @@ history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
+- **0.9.6 RC source prepared:** the owner selected the reviewed beta for
+  `rc/0.9.6`; [its ledger](../development/RC_096.md) freezes the seven
+  read-side/presentation changes and records remaining exact-RC checks and
+  distribution gates. Source version `0.9.6-rc.1` has empty package pins.
+  This branch is RC-integrated, **not yet an accepted or published RC**.
+  Public 0.9.5 RC1 remains the accepted historical candidate; main and
+  Marketplace remain at stable 0.8.2.
+
 - **0.9.6 beta assembly:** owner selected #403/#408/#413/#429 TUI read-side
   refinements and #409/#411/#420 QML state/tooltips, based on accepted
   `rc/0.9.5`. See the [bounded selection](../development/BETA_096.md).
@@ -13,7 +21,7 @@ history. GitHub's actual main/PR state is authoritative for publication.
   [x86_64](../testing/BETA_096_PC_VM_2026-10-01.md) bounded read-side beta
   reviews pass. Version `0.9.6-beta.1` still has empty unpublished package
   pins; public/clean-install and later RC/release acceptance are not claimed.
-  The accepted RC below remains unchanged.
+  This is the recorded input to the 0.9.6 RC scope freeze.
 
 - **0.9.5 RC accepted:** `rc/0.9.5` supersedes 0.9.0 as the selected candidate.
   Public `v0.9.5-rc.1` packages for both architectures have matching pins;

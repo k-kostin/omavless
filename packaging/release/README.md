@@ -1,7 +1,8 @@
 # Native release, beta and RC preparation
 
-Current development version: **0.9.6-beta.1**, not stable or marketplace-ready.
+Current release-candidate source version: **0.9.6-rc.1**, not stable or marketplace-ready.
 Its package pins are empty; do not relabel 0.9.5 assets. See the
+[RC scope and remaining gates](../../docs/development/RC_096.md) and its
 [beta selection](../../docs/development/BETA_096.md).
 
 The separately accepted **0.9.5-rc.1** bootstrap pins identify reviewed RC1 application/DNS packages from

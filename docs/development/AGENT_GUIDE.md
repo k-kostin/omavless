@@ -193,7 +193,8 @@ the change.
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
   `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
   assemblies and `rc/<version>` release candidates follow the canonical
-  workflow; current accepted candidate is `rc/0.9.5`. Preserve `rc/0.9.0` as
+  workflow; `rc/0.9.6` is scope-frozen pending acceptance, while the current
+  accepted candidate is `rc/0.9.5`. Preserve `rc/0.9.0` as
   superseded acceptance history, without rewriting its branch or public assets.
   Do not rename active/evidence branches just
   for cosmetics or commit implementation work directly to `main`.

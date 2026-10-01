@@ -20,6 +20,8 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [0.9.6 RC ledger](../development/RC_096.md): selected read-side scope,
+  prior installed beta evidence and explicit final distribution gates.
 - [0.9.5 RC ledger](../development/RC_095.md): scope-frozen T3/T4 selection,
   installed ARM64 beta counterpart, exact-artifact checks and retained limits.
 

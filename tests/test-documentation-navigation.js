@@ -7,7 +7,8 @@ const root = path.resolve(__dirname, '..');
 const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/development/README.md', 'docs/development/AGENT_GUIDE.md',
   'docs/roadmap/DEVELOPMENT_WORKFLOW.md', 'docs/development/BETA_095.md',
-  'docs/development/RC_095.md', 'docs/development/RC_090.md'];
+  'docs/development/RC_096.md', 'docs/development/RC_095.md',
+  'docs/development/RC_090.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -47,6 +48,9 @@ for (const file of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/development/AGENT_GUID
     'previous RC must be identified as retained history: ' + file);
 }
 assert(entry.includes('Current accepted candidate is `rc/0.9.5`'));
+assert(entry.includes('`rc/0.9.6` is a scope-frozen, not-yet-accepted successor'));
+assert(fs.readFileSync(path.join(root, 'docs/development/RC_096.md'), 'utf8')
+  .includes('RC-integrated, not yet an accepted or published RC'));
 assert(workflow.includes('accepted `rc/0.9.5` supersedes 0.9.0'));
 const contributing = fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8');
 assert(contributing.includes('accepted candidate is `rc/0.9.5`'));
