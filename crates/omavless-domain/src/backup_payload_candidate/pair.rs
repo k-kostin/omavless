@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 
-//! Restricted whole-pair proposal. Unknown/custom templates are refused, never
-//! rewritten, approximated or silently omitted. Not an authenticated archive.
+//! Restricted whole-pair gate. Unknown/custom templates are refused, never
+//! rewritten, approximated or silently omitted. This is not authentication.
 
 use super::{FramedPayload, InvalidPayload};
 use crate::private_store::backup_candidate::ValidatedBackupStore;
 
 // No formatting/serialization/clone: the exact plaintext remains private.
-struct ValidatedPair<'a> {
-    store: ValidatedBackupStore<'a>,
-    template: &'a [u8],
+pub(crate) struct ValidatedPair<'a> {
+    pub(crate) store: ValidatedBackupStore<'a>,
+    pub(crate) template: &'a [u8],
 }
 
 fn bundled(preset: &str) -> Option<&'static str> {
@@ -22,7 +22,7 @@ fn bundled(preset: &str) -> Option<&'static str> {
 }
 
 impl<'a> FramedPayload<'a> {
-    fn validate_bundled_pair(self) -> Result<ValidatedPair<'a>, InvalidPayload> {
+    pub(crate) fn validate_bundled_pair(self) -> Result<ValidatedPair<'a>, InvalidPayload> {
         let store = self.validate_store()?;
         let expected = bundled(&store.routing_preset).ok_or(InvalidPayload)?;
         // Recognize trusted source bytes only. This is not a YAML security
