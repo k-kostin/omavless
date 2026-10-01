@@ -82,8 +82,31 @@ both Pending and terminal publication, plus six marker-publication boundaries,
 for create, replace and delete (84 cases). Existing receipt-store tests retain
 unsafe files, rebinding, contention and stage/guard preservation coverage.
 
-These are deterministic composition checks, not VM packet, process-SIGKILL,
-filesystem power-cut or installed-host acceptance. The `owner,persist` orphan
+The subsequent process-death gate runs 114 real child-process SIGKILL cases:
+38 checkpoints each for create, replace and delete. The child owns the real
+private fixture file writers and held directory lock; the parent waits for the
+selected checkpoint, proves a competing opener is Busy, kills and reaps that
+exact child, then reacquires the lock. No writer destructor, error return or
+in-memory poisoning assignment runs after the checkpoint. The checkpoints
+include ten transaction boundaries, all eleven receipt-publication boundaries
+for both Pending and terminal records, and six marker-publication boundaries.
+
+Restart preserves every publication file, including staging files and guards.
+Incomplete transactions refuse status and both arm/disarm retries without any
+modeled kernel effect. Stable old state before publication and stable terminal
+state after guard removal remain readable. A completed delete retains the
+Closed generation fence even when the child dies before returning success.
+The test has a ten-second checkpoint deadline and a child kill/reap guard on
+failure; it runs automatically with the ordinary crate/workspace suite.
+
+This gate uses a synthetic kernel port, reconstructed from the selected
+checkpoint by the parent. It proves destructor-free filesystem/lock restart
+behavior, not persistent kernel ownership, packet enforcement or delivery of an
+earlier response. It touches only private temporary fixtures; it opens no
+installed root state, netlink socket, namespace, service or VPN connection.
+Actual exclusive kernel commit/lost acknowledgement paired with file writes,
+supported-filesystem power-cut/reboot and installed-host acceptance remain
+unrun by this gate. The `owner,persist` orphan
 remains untrusted. Canonical namespace and nft-subsystem continuity, orphan
 adjudication/provenance, root enrollment/peer authentication, real kernel and
 filesystem crash tests, boot ordering, core mark/DNS/firewall integration and
