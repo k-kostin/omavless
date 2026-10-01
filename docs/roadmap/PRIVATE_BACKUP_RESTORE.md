@@ -331,3 +331,20 @@ Synthetic tests cover roundtrip counts, wrong passphrase, tampering, symlink,
 hard link, public mode and file/directory replacement during the read. A
 hostile same-user process is outside this primitive's guarantee; broader
 owner admission and durable restore are still required before activation.
+
+## Inactive disconnected-owner restore preflight
+
+The native coordinator now has an internal read-only restore-readiness
+candidate. Under the existing migration lease it requires the exact committed
+Rust ownership generation, no pending preset or recovery barrier, no active or
+queued mutation, no active background operation, and a safe auxiliary-core
+slot. It reads desired state twice around a fresh local observation and admits
+only an Off/Disconnected owner with no owned core, auxiliary process or managed
+TUN. A foreign VPN is neither stopped nor adopted; unrelated visible processes
+and interfaces do not by themselves grant or withdraw restore authority.
+
+The result records only revision and generation for comparison. It is not a
+reservation or authorization to write: a future restore commit must repeat all
+checks, hold background work quiescent across the transaction, authenticate the
+backup again and prove durable replacement/recovery of both fixed files. This
+candidate has no product caller, IPC, UI, file mutation or VPN effect.

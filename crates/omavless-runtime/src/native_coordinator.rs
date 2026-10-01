@@ -14,6 +14,7 @@ mod batch;
 mod onboarding;
 mod probe;
 mod provider;
+mod restore_candidate;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
@@ -1967,9 +1968,13 @@ mod tests {
         support_observation: Option<crate::lifecycle::NativeLocalObservation>,
         support_read_change: Option<(PathBuf, Vec<u8>)>,
         diagnostic_reader: Option<crate::core_diagnostics::DiagnosticReader>,
+        auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
     }
 
     impl LifecycleHost for FakeHost {
+        fn auxiliary_slot(&self) -> Option<std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>> {
+            Some(std::sync::Arc::clone(&self.auxiliary))
+        }
         fn core_diagnostics(&self) -> Option<crate::core_diagnostics::CoreDiagnostics> {
             self.diagnostic_reader
                 .as_ref()
@@ -2093,6 +2098,7 @@ mod tests {
                 support_observation: None,
                 support_read_change: None,
                 diagnostic_reader: None,
+                auxiliary: std::sync::Arc::default(),
             },
             desired_paths,
             &store_path,
@@ -2118,6 +2124,187 @@ mod tests {
             generation: 2,
         });
         (root, store, owner)
+    }
+
+    fn empty_local_observation() -> crate::lifecycle::NativeLocalObservation {
+        crate::lifecycle::NativeLocalObservation {
+            owned_core_running: false,
+            visible_mihomo_count: 0,
+            owned_auxiliary_mihomo_count: 0,
+            visible_tun_count: 0,
+            managed_tun_count: 0,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        }
+    }
+
+    #[test]
+    fn inactive_restore_preflight_requires_exact_idle_disconnected_owner() {
+        use super::restore_candidate::{RestoreAdmissionError, RestoreReadiness};
+
+        let (root, _, mut owner) = support_fixture("restore-readiness");
+        // A foreign VPN is observation, not authority to mutate or stop it.
+        owner.host_mut().support_observation = Some(crate::lifecycle::NativeLocalObservation {
+            visible_mihomo_count: 1,
+            visible_tun_count: 1,
+            ..empty_local_observation()
+        });
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Ok(RestoreReadiness {
+                revision: 0,
+                desired_generation: 0,
+                owner_generation: 2,
+            })
+        );
+
+        owner.host_mut().support_observation = None;
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::ObservationUnavailable)
+        );
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        for observed in [
+            crate::lifecycle::NativeLocalObservation {
+                owned_core_running: true,
+                ..empty_local_observation()
+            },
+            crate::lifecycle::NativeLocalObservation {
+                managed_tun_count: 1,
+                ..empty_local_observation()
+            },
+            crate::lifecycle::NativeLocalObservation {
+                owned_auxiliary_mihomo_count: 1,
+                ..empty_local_observation()
+            },
+        ] {
+            owner.host_mut().support_observation = Some(observed);
+            assert_eq!(
+                owner.restore_readiness_candidate(),
+                Err(RestoreAdmissionError::NotDisconnected)
+            );
+        }
+        owner.host_mut().support_observation = Some(empty_local_observation());
+
+        let mut desired = owner.desired().unwrap();
+        desired.connected = true;
+        desired.profile_id = PROFILE.to_owned();
+        desired.generation = 1;
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::NotDisconnected)
+        );
+        desired = DesiredState::default();
+        write_desired(owner.transaction.desired_paths(), owner.uid(), &desired).unwrap();
+
+        fs::write(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("routing-preset.pending.json"),
+            b"pending",
+        )
+        .unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        fs::remove_file(
+            owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join("routing-preset.pending.json"),
+        )
+        .unwrap();
+        owner
+            .initialize_batch_operations("synthetic-owner")
+            .unwrap();
+        owner.batch.as_mut().unwrap().stopped = true;
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        owner.batch.as_mut().unwrap().stopped = false;
+
+        let active = owner.host_mut().auxiliary.reserve().unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        drop(active);
+        fs::write(
+            &owner.transaction.cutover_paths().ownership_marker,
+            br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::OwnershipUnavailable)
+        );
+        fs::write(
+            &owner.transaction.cutover_paths().ownership_marker,
+            br#"{"schemaVersion":1,"generation":2,"phase":"rust"}"#,
+        )
+        .unwrap();
+        owner.transaction.block();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preflight_is_not_a_reservation() {
+        use super::restore_candidate::RestoreAdmissionError;
+
+        let (root, _, mut owner) = support_fixture("restore-stale-preview");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let preview = owner.restore_readiness_candidate().unwrap();
+        assert_eq!(preview.revision, 0);
+        owner.host_mut().support_read_change = Some((
+            owner.transaction.desired_paths().file.clone(),
+            b"{}".to_vec(),
+        ));
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::ObservationUnavailable)
+        );
+        // This stale preview is not a token that could authorize a write.
+        assert_eq!(preview.owner_generation, 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_restore_preflight_refuses_queued_and_active_work() {
+        use super::restore_candidate::RestoreAdmissionError;
+
+        let (root, _, mut owner) = support_fixture("restore-work-fence");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let request = MutationRequest::new(
+            MutationKind::Other,
+            Some("synthetic-restore-fence"),
+            Some(0),
+            MutationDigest::from_semantic_bytes(b"synthetic-restore-fence"),
+        )
+        .unwrap();
+        owner.coordinator.submit(request).unwrap();
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        assert!(matches!(
+            owner.coordinator.begin_next().unwrap(),
+            BeginOutcome::Started(_)
+        ));
+        assert_eq!(
+            owner.restore_readiness_candidate(),
+            Err(RestoreAdmissionError::Busy)
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
