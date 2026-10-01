@@ -2,7 +2,8 @@
 
 //! Inactive, pure model for a future durable two-file restore decision.
 //! Encoding is not persistence, and a decoded record is not an authority to
-//! mutate live files. There is no product caller or recovery executor.
+//! mutate live files. An inactive synthetic executor exists; no product caller
+//! or installed recovery path exists.
 
 use crate::desired::{DesiredState, MAX_DESIRED_STATE_BYTES, MAX_GENERATION};
 use crate::restore_staging_candidate::{LivePairClass, StageIdentity, VerifiedLivePair};
@@ -127,6 +128,20 @@ fn desired_binding(raw: Option<&[u8]>) -> Result<(u64, bool, [u8; 32]), Decision
 }
 
 impl DecisionRecord {
+    /// A partial-stage cleanup keeps ready.bin until all data members are
+    /// gone, so its exact digest can still be checked against the terminal.
+    pub(crate) fn matches_stage_ready(&self, ready: &[u8]) -> bool {
+        self.stage_digest == Sha256::digest(ready)[..]
+    }
+
+    /// After the terminal journal member is retired, an intent may remain
+    /// only when it is the exact earlier phase of this receipt transaction.
+    pub(crate) fn is_intent_of(&self, terminal: &Self) -> bool {
+        self.phase == DecisionPhase::Intent
+            && terminal.phase != DecisionPhase::Intent
+            && self.same_transaction(terminal)
+    }
+
     /// This constructor checks an Off desired snapshot, not its filesystem
     /// origin or the current host. The caller supplies a fresh random ID.
     pub(crate) fn intent(

@@ -29,8 +29,8 @@ use zeroize::Zeroizing;
 const INTENT: &str = "restore-decision.intent";
 const TERMINAL: &str = "restore-decision.terminal";
 const LIVE: [&str; 2] = ["profiles.json", "route-template.yaml"];
-const NEW_SLOT: [&str; 2] = [".restore-profiles.new", ".restore-template.new"];
-const OLD_SLOT: [&str; 2] = [".restore-profiles.old", ".restore-template.old"];
+pub(crate) const NEW_SLOT: [&str; 2] = [".restore-profiles.new", ".restore-template.new"];
+pub(crate) const OLD_SLOT: [&str; 2] = [".restore-profiles.old", ".restore-template.old"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionError {
