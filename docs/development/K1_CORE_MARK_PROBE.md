@@ -1,6 +1,6 @@
 # K1 packaged-core socket-mark probe
 
-This is an opt-in, development-only check of one Mihomo socket-mark path. It
+This is an opt-in, development-only check of bounded Mihomo socket-mark paths. It
 does not enable NetGuard, alter an installed OmaVLESS connection, install a
 package, create a physical route or establish K1 protection.
 
@@ -36,6 +36,36 @@ fixed pass or bounded stage/reason. Tool output and core stderr are suppressed.
 No credentials, provider URL, real endpoint, host firewall or OmaVLESS daemon
 state enters the test.
 
+### UDP and TCP resolver extension
+
+The harness additionally starts fixed UDP and TCP DNS responders on the same
+child-only documentation address. They answer only `mark-probe.invalid` A/AAAA
+questions, never recurse, and return the synthetic HTTP server's address for A.
+Each fresh core resolves that name for an HTTP proxy request, with hosts/system
+hosts disabled, `redir-host`, and exactly one numeric upstream using either
+`udp://` or `tcp://`. No resolver name bootstrap or outside network is needed.
+Counter predicates now select the configured DNS transport and upstream port,
+so the successful HTTP connection cannot substitute for resolver evidence.
+
+For each resolver transport, the candidate phase requires every counted upstream
+packet to carry the K1 mark, with nonzero total traffic. The wrong-mark phase
+requires zero K1-marked packets and nonzero successful resolver traffic. Both
+still require the fixed HTTP token and post-core-stop proxy refusal. Separate
+core processes avoid an earlier phase's in-memory DNS cache. The original direct
+TCP pair remains in the same run. The parent deadline is 100 seconds for all six
+bounded phases; namespace and command guards are unchanged.
+
+On October 1, 2026 all six phases passed in the same x86_64 KVM development VM,
+kernel `7.2.5-3-omarchy`, with `omavless-dns 0.9.5beta1-1` and core hash below.
+The extended script SHA-256 is
+`5fd2f463a021e3b387720bfe9af5e38cab2a345340a8f1259cd4eb4624fbcb0d`.
+This proves only numeric-upstream IPv4 UDP/TCP resolver sockets under the fixed
+synthetic configuration. It does not establish direct-DNS blocking, local-stub
+behavior, encrypted DNS, hostname bootstrap, proxy endpoint resolution, IPv6,
+TUN capture, physical egress or complete production resolver coverage.
+The test is based on the upstream [DNS configuration contract](https://wiki.metacubex.one/en/config/dns/);
+the measured binary identity, rather than current documentation, owns the result.
+
 ## Exact evidence and source limits
 
 On September 30, 2026 the test passed inside the x86_64 Omarchy Dev VM, kernel
@@ -61,7 +91,7 @@ simultaneous global routing mark. None is covered by this direct TCP control.
 This result proves only that the **tested packaged core**, with the synthetic
 global-unicast-shaped direct TCP request and canonical mark setting, emits
 packets bearing K1's candidate mark. It does not prove VLESS/REALITY/gRPC or
-other outbound transports, UDP, resolver bootstrap, DNS broker, IPv6, retries,
+other outbound transports, general UDP proxying, resolver bootstrap, DNS broker, IPv6, retries,
 all provider-controlled proxy options, mark persistence across reload, TUN
 auto-routing, physical egress, or that today's active OmaVLESS configuration
 contains the candidate mark. The normal `Meta` TUN name also differs from K1's
