@@ -235,6 +235,32 @@ receipt. The read-only manager diagnostic's unverified success cannot create
 one. Installed exact restoration, listener readiness and new-app consumption
 remain later gates; this experiment does not access proxy settings or a VM.
 
+### Test-only tracked-worker quiescence experiment
+
+The transfer fixture now has a synthetic worker registry with real Rust threads
+and separately retained effect tickets. It closes new worker/effect admission,
+joins every registered worker, and refuses a modeled graceful receipt while any
+effect is pending or any completion is unknown. Dropping an unsettled ticket or
+joining a panicked worker sets an irreversible unknown-outcome flag; an empty
+ticket count is not success. Cancellation alone cannot settle an already
+admitted write, and joining its initiating worker cannot settle a later callback.
+
+Channel-controlled tests prove these boundaries without timing-based assumptions.
+An admitted synthetic field write can complete after cancellation; only after
+tracked quiescence does the model transfer and restore the exact saved original.
+A child callback deliberately outlives its parent worker and blocks the receipt
+until its own tracked completion. Known completion before worker join is also
+insufficient. A subsequent durable record revision invalidates an otherwise
+settled receipt, so the storage identity check remains mandatory.
+
+This registry is test-only and covers only the workers and effects it explicitly
+tracks. Its `settle` call is a synthetic executor acknowledgment, not evidence
+that a host API committed a write. It cannot discover detached/unregistered
+work, quiesce GIO/D-Bus operations, rule out foreign writes, authenticate a host
+scope or provide a production lease. The promotion gate must first define all
+real asynchronous effect owners and require bounded known completion or
+conservative refusal for each, alongside the still-open provenance gates above.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the
