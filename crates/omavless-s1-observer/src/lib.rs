@@ -6,8 +6,14 @@
 use omavless_runtime::app_proxy::{Snapshot, codec};
 use std::fmt;
 
-// Deliberately absent from every non-test build, including --all-features.
-#[cfg(all(test, feature = "peer-lifetime-tests", target_os = "linux"))]
+// Shared only by the opt-in diagnostic and synthetic tests; never exported.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        feature = "manager-continuity-probe",
+        all(test, feature = "peer-lifetime-tests")
+    )
+))]
 mod peer_lifetime;
 
 #[cfg(feature = "auth-sender-probe")]

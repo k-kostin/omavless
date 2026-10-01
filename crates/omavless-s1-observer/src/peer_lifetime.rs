@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Synthetic-only socket-peer lifetime contract. Not AUTH-writer provenance.
+//! Private socket-peer lifetime observation. Not AUTH-writer provenance.
 
 use crate::Error;
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
@@ -8,9 +8,9 @@ use nix::sys::socket::{UnixAddr, getpeername, getsockopt, sockopt::PeerPidfd};
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 
 // No PID access, Debug, serialization, signals, exports or conversion to permit.
-struct UnverifiedPeerLifetime(OwnedFd);
+pub(crate) struct UnverifiedPeerLifetime(OwnedFd);
 impl UnverifiedPeerLifetime {
-    fn capture(socket: &impl AsFd) -> Result<Self, Error> {
+    pub(crate) fn capture(socket: &impl AsFd) -> Result<Self, Error> {
         // A listening socket can itself expose sk_peer_pid; require a connected
         // Unix endpoint before interpreting this as the connection peer.
         getpeername::<UnixAddr>(socket.as_fd().as_raw_fd())
@@ -25,7 +25,7 @@ impl UnverifiedPeerLifetime {
         pin.require_alive_now()?;
         Ok(pin)
     }
-    fn require_alive_now(&self) -> Result<(), Error> {
+    pub(crate) fn require_alive_now(&self) -> Result<(), Error> {
         let mut descriptors = [PollFd::new(self.0.as_fd(), PollFlags::POLLIN)];
         let count =
             poll(&mut descriptors, PollTimeout::ZERO).map_err(|_| Error::IdentityUnverified)?;
@@ -94,6 +94,9 @@ mod tests {
         }
         fn finish(&mut self, mut control: UnixStream) {
             control.write_all(b"Q").unwrap();
+            self.wait_child();
+        }
+        fn wait_child(&mut self) {
             let deadline = Instant::now() + Duration::from_secs(3);
             loop {
                 if let Some(status) = self.child.as_mut().unwrap().try_wait().unwrap() {
@@ -187,5 +190,55 @@ mod tests {
         let fixture = Fixture::new();
         let listener = UnixListener::bind(fixture.path.join("socket")).unwrap();
         assert!(UnverifiedPeerLifetime::capture(&listener).is_err());
+    }
+
+    #[test]
+    fn descriptor_exhaustion_refuses_and_capture_drop_releases_handles() {
+        // RLIMIT_NOFILE is process-wide: change it only in this owned child,
+        // never in the shared test runner or the user's processes.
+        let mut fixture = Fixture::new();
+        fixture.child = Some(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "peer_lifetime::tests::descriptor_fixture"])
+                .env("OMAVLESS_SYNTHETIC_FD_CHILD", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        fixture.wait_child();
+    }
+
+    #[test]
+    fn descriptor_fixture() {
+        if std::env::var_os("OMAVLESS_SYNTHETIC_FD_CHILD").is_none() {
+            return;
+        }
+        use nix::sys::resource::{Resource, getrlimit, setrlimit};
+
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let count = || std::fs::read_dir("/proc/self/fd").unwrap().count();
+        let before = count();
+        for _ in 0..64 {
+            let pin = UnverifiedPeerLifetime::capture(&socket).unwrap();
+            assert_eq!(pin.require_alive_now(), Ok(()));
+            assert_eq!(count(), before + 1);
+            drop(pin);
+            assert_eq!(count(), before);
+        }
+
+        let (soft, hard) = getrlimit(Resource::RLIMIT_NOFILE).unwrap();
+        setrlimit(Resource::RLIMIT_NOFILE, 0, hard).unwrap();
+        // Existing descriptors still work, but the kernel cannot allocate the
+        // requested pidfd. A live same-user peer must not become a fallback.
+        let result = UnverifiedPeerLifetime::capture(&socket);
+        setrlimit(Resource::RLIMIT_NOFILE, soft, hard).unwrap();
+        assert!(matches!(result, Err(Error::IdentityUnverified)));
+        assert_eq!(count(), before);
+        let pin = UnverifiedPeerLifetime::capture(&socket).unwrap();
+        assert_eq!(pin.require_alive_now(), Ok(()));
+        drop(pin);
+        assert_eq!(count(), before);
     }
 }

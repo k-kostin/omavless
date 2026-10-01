@@ -19,6 +19,9 @@ gio = { version = "0.22.10", optional = true }
 nix = { version = "0.30", features = ["fs", "poll", "process", "signal", "user"], optional = true }
 omavless-runtime = { path = "../omavless-runtime", default-features = false }
 
+[dev-dependencies]
+nix = { version = "0.30", features = ["resource"] }
+
 [[bin]]
 name = "omavless-s1-observer"
 path = "src/main.rs"
