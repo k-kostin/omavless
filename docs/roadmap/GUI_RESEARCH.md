@@ -160,6 +160,11 @@ follow-up made the Shell fixture's panels reflow immediately on resize through
 native layout, but viewport-derived script state and the Shell hidden-check
 panic still require investigation. The trial does not close G1a or advance
 G1b/G1c; the listed interaction/theme/platform gaps remain open.
+The [synthetic palette follow-up](../testing/G1_INTERACTION_AUDIT_2026-10-01.md#shell-only-synthetic-palette-follow-up)
+now exercises Shell dark/light and whole-palette fallback in the VM, but does
+not establish real theme-file watching or direct Rust theme parity. A separate
+400-pixel Shell recapture corrected horizontal panel clipping; lower-pane
+keyboard/wheel reachability and the wider platform matrix remain open.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)

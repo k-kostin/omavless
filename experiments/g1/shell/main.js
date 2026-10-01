@@ -9,19 +9,7 @@ import {
   Title, TitleBar, applyOmarchyRoles, applyOmarchyStyle, omarchyTheme,
 } from "./vendor/omarchy-ui/src/index.js";
 import { connectionPresentation, fixture, visibleProfiles } from "./data.js";
-
-const COLORS = `
-mode = "dark"
-background = "#1a1b26"
-foreground = "#c0caf5"
-accent = "#7aa2f7"
-red = "#f7768e"
-green = "#9ece6a"
-yellow = "#e0af68"
-blue = "#7aa2f7"
-magenta = "#bb9af7"
-cyan = "#7dcfff"
-`;
+import { BROKEN, DARK, LIGHT, resolvedPalette } from "./palette.js";
 const SHELL = "[font]\nbase-size = 12\n[spacing]\nscale = 1\nscale-with-font = true\n";
 
 const copy = {
@@ -31,6 +19,8 @@ const copy = {
     source: "Source",
     note: "Click a row or press Enter in search to inspect; never connects", large: "10,005 synthetic rows · virtualized",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
+    theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
+    largeList: "10k samples", smallList: "5 samples",
     phases: { connected: "Connected (synthetic)", connecting: "Connecting… (synthetic)", switching: "Switching server… (synthetic)", reconnecting: "Reconnecting… (synthetic)", unverified: "State unverified (synthetic)", failed: "Connection failed (synthetic)", recovery: "Recovery required (synthetic)", disconnected: "Disconnected (synthetic)" },
     scenes: { connected: "connected", connecting: "connecting", switching: "switching", reconnecting: "reconnecting", unverified: "unverified", failed: "failed", recovery: "recovery", removed: "removed" },
   },
@@ -40,6 +30,8 @@ const copy = {
     source: "Источник",
     note: "Нажмите строку или Enter в поиске для просмотра; подключения нет", large: "10 005 демонстрационных строк · виртуализация",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
+    theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
+    largeList: "10 тыс. строк", smallList: "5 строк",
     phases: { connected: "Подключено (макет)", connecting: "Подключаемся… (макет)", switching: "Меняем сервер… (макет)", reconnecting: "Переподключаемся… (макет)", unverified: "Состояние не подтверждено (макет)", failed: "Подключение не удалось (макет)", recovery: "Требуется восстановление (макет)", disconnected: "Отключено (макет)" },
     scenes: { connected: "подключено", connecting: "подключение", switching: "смена", reconnecting: "переподключение", unverified: "не проверено", failed: "сбой", recovery: "восстановление", removed: "удалён" },
   },
@@ -48,8 +40,12 @@ const copy = {
 export default class G1Trial extends View {
   init(_props, cx) {
     const tokens = applyOmarchyStyle(SHELL, { cornerRadius: 0, fontFamily: "monospace" });
-    applyOmarchyRoles(COLORS);
-    const theme = omarchyTheme(COLORS, cx.theme(), tokens);
+    this.baseTheme = cx.theme();
+    this.themeTokens = tokens;
+    this.themeChoice = "dark";
+    this.themeFallback = false;
+    applyOmarchyRoles(DARK);
+    const theme = omarchyTheme(DARK, this.baseTheme, tokens);
     if (theme) set_theme(theme);
     this.search = InputState.new({ placeholder: "Search / Поиск" });
     this.search.on("change", (_event, context) => context.notify());
@@ -68,6 +64,18 @@ export default class G1Trial extends View {
     this.cachedLarge = false;
     this.cachedCollection = "all";
     this.visible = fixture.profiles;
+  }
+
+  applyPalette(choice, context) {
+    const source = choice === "light" ? LIGHT : choice === "broken" ? BROKEN : DARK;
+    const resolved = resolvedPalette(source);
+    const theme = omarchyTheme(resolved.source, this.baseTheme, this.themeTokens);
+    if (!theme) return;
+    set_theme(theme);
+    applyOmarchyRoles(resolved.source);
+    this.themeChoice = choice;
+    this.themeFallback = resolved.fallback;
+    context.notify();
   }
 
   render(cx) {
@@ -111,7 +119,7 @@ export default class G1Trial extends View {
         : new MutedText("").build(cx))
       .build(cx).h(52);
 
-    const list = v_flex().flex_1().min_h_0().gap(8).p(12)
+    const list = v_flex().flex_1().min_h_0().min_w_0().gap(8).p(12)
       .child(new MutedText(strings.sources).build(cx))
       .child(collections)
       .child(new TextField().state(this.search).build(cx))
@@ -125,7 +133,7 @@ export default class G1Trial extends View {
             row(visible[range.start + offset])))
           .size_full().on_item_click((id, context) => { this.selected = id; context.notify(); }))
         .child(Scrollbar.vertical("g1-profile-list").absolute().inset_0()));
-    const details = v_flex().gap(12).p(12)
+    const details = v_flex().min_w_0().gap(12).p(12)
       .child(new MutedText(strings.selected).build(cx))
       .child(new Label(selected?.name ?? strings.invalid).build(cx))
       .child(new MutedText(strings.source).build(cx))
@@ -139,17 +147,23 @@ export default class G1Trial extends View {
     // another action happens to refresh the view.
     const panels = h_flex().flex_1().flex_wrap()
       .items_start().min_h_0().min_w_0().gap(12)
-      .child(new Panel("profiles").title(strings.profiles).content(list).build(cx)
-        .min_w("30rem").flex_basis("30rem").flex_grow(1))
-      .child(new Panel("details").title(strings.details).content(details).build(cx)
-        .min_w("30rem").flex_basis("30rem").flex_grow(1));
+      .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
+        .child(new Panel("profiles").title(strings.profiles).content(list).build(cx).min_w_0()))
+      .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
+        .child(new Panel("details").title(strings.details).content(details).build(cx).min_w_0()));
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
       .track_focus(this.panelFocus)
       .overflow_y_scrollbar()
       .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx))
       .child(scenes)
-      .child(new Button("large-list").label(this.large ? "5 samples" : "10k samples").outlined()
+      .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
         .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
+      .child(h_flex().flex_wrap().gap(6)
+        .child(new MutedText(strings.theme).build(cx))
+        .children([["dark", strings.dark], ["light", strings.light], ["broken", strings.broken]].map(([choice, label]) =>
+          new Button(`theme-${choice}`).label(label).outlined().selected(this.themeChoice === choice)
+            .onClick((_event, context) => this.applyPalette(choice, context)).build(cx))))
+      .when(this.themeFallback, (element) => element.child(new MutedText(strings.fallback).build(cx)))
       .child(panels);
     return new AppShell()
       .top(new TitleBar().brand(new Title("OmaVLESS · G1").build(cx))
