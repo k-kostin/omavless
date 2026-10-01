@@ -22,8 +22,9 @@ TUN merely by renaming this constant. Runtime integration must establish exact
 owned-interface identity and verify every required core/resolver socket mark.
 There is no profile-endpoint exemption: marked core traffic supplies that path.
 The separate [packaged-core mark probe](K1_CORE_MARK_PROBE.md) tests one
-synthetic direct TCP socket in an isolated VM and records why this is not a
-general mark-coverage or activation proof.
+synthetic direct TCP socket and numeric-upstream IPv4 UDP/TCP resolver sockets
+in an isolated VM and records why this is not a general mark-coverage or
+activation proof.
 There is no generic established-flow, user-ID, DNS, LAN or physical-interface
 exception. DHCP/ND are protocol exemptions, not a malicious-user defense.
 

@@ -10,6 +10,8 @@ import json
 import os
 import pathlib
 import socket
+import socketserver
+import struct
 import subprocess
 import sys
 import tempfile
@@ -24,6 +26,9 @@ TABLE = "omavless_k1_mark_probe"
 PROXY_PORT = 17890
 SERVER_PORT = 18080
 SERVER_IP = "192.0.2.2"
+DNS_PORT = 15353
+DNS_NAME = "mark-probe.invalid"
+DNS_QUESTION = b"\x0amark-probe\x07invalid\x00"
 TOKEN = b"K1_MARK_OK\n"
 
 
@@ -66,14 +71,15 @@ def command(argv, *, input_bytes=None, timeout=5):
     return result.stdout
 
 
-def table_commands():
+def table_commands(transport=None):
     # Both counters see the same synthetic core request; the first only when
     # the packet carries the K1 mark, the second regardless of mark.
+    selector = f" {transport} dport {DNS_PORT}" if transport else ""
     return (f"""table inet {TABLE} {{
   chain output {{
     type filter hook output priority 100; policy accept;
-    ip daddr {SERVER_IP} meta mark {CORE_MARK} counter
-    ip daddr {SERVER_IP} counter
+    ip daddr {SERVER_IP}{selector} meta mark {CORE_MARK} counter
+    ip daddr {SERVER_IP}{selector} counter
   }}
 }}
 """).encode("ascii")
@@ -105,6 +111,59 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def dns_response(query):
+    """Answer only the fixed synthetic A/AAAA question; never recurse."""
+    if len(query) < 12 or len(query) > 512:
+        raise ValueError("query")
+    identifier, flags, questions, answers, authority, additional = struct.unpack("!6H", query[:12])
+    end = 12 + len(DNS_QUESTION)
+    if (flags & 0xF800 or questions != 1 or answers or authority or additional > 1
+            or query[12:end] != DNS_QUESTION or len(query) < end + 4):
+        raise ValueError("query")
+    kind, cls = struct.unpack("!HH", query[end:end + 4])
+    if kind not in (1, 28) or cls != 1:
+        raise ValueError("query")
+    answer = (b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 0, 4)
+              + socket.inet_aton(SERVER_IP)) if kind == 1 else b""
+    return (struct.pack("!6H", identifier, 0x8180, 1, int(kind == 1), 0, 0)
+            + query[12:end + 4] + answer)
+
+
+class DnsUdpHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        query, stream = self.request
+        try:
+            response = dns_response(query)
+        except ValueError:
+            return
+        stream.sendto(response, self.client_address)
+
+
+class DnsTcpHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        self.request.settimeout(2)
+        def receive(size):
+            data = b""
+            while len(data) < size:
+                part = self.request.recv(size - len(data))
+                if not part:
+                    raise ValueError("query")
+                data += part
+            return data
+        try:
+            size = struct.unpack("!H", receive(2))[0]
+            if size > 512:
+                return
+            response = dns_response(receive(size))
+            self.request.sendall(struct.pack("!H", len(response)) + response)
+        except (ValueError, OSError):
+            return
+
+
+class DnsTcpServer(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+
+
 def stop(proc):
     if proc.poll() is None:
         proc.terminate()
@@ -115,9 +174,21 @@ def stop(proc):
             proc.wait(timeout=3)
 
 
-def phase(scratch, mark, should_match):
+def phase(scratch, mark, should_match, transport=None):
     check_child()
     config = scratch / "config.yaml"
+    dns = "  enable: false\n"
+    if transport:
+        dns = f"""  enable: true
+  ipv6: false
+  use-hosts: false
+  use-system-hosts: false
+  enhanced-mode: redir-host
+  nameserver:
+    - {transport}://{SERVER_IP}:{DNS_PORT}
+  default-nameserver:
+    - {SERVER_IP}:{DNS_PORT}
+"""
     config.write_text(
         f"""mixed-port: {PROXY_PORT}
 allow-lan: false
@@ -130,8 +201,7 @@ routing-mark: {mark}
 tun:
   enable: false
 dns:
-  enable: false
-proxies: []
+{dns}proxies: []
 proxy-groups: []
 rules:
   - MATCH,DIRECT
@@ -139,7 +209,7 @@ rules:
         encoding="ascii",
     )
     config.chmod(0o600)
-    command(["/usr/bin/nft", "-f", "-"], input_bytes=table_commands())
+    command(["/usr/bin/nft", "-f", "-"], input_bytes=table_commands(transport))
     proc = subprocess.Popen(
         [CORE, "-d", str(scratch), "-f", str(config)],
         stdin=subprocess.DEVNULL,
@@ -162,7 +232,7 @@ rules:
             raise RuntimeError("core")
         request = ["/usr/bin/curl", "--silent", "--show-error", "--fail", "--max-time", "5",
                    "--noproxy", "", "--proxy", f"http://127.0.0.1:{PROXY_PORT}",
-                   f"http://{SERVER_IP}:{SERVER_PORT}/"]
+                   f"http://{DNS_NAME if transport else SERVER_IP}:{SERVER_PORT}/"]
         body = command(request, timeout=7)
         if body != TOKEN:
             raise RuntimeError("response")
@@ -172,6 +242,8 @@ rules:
         if marked > total:
             raise RuntimeError("readback")
         if should_match and marked == 0:
+            raise RuntimeError("mark-missing")
+        if transport and should_match and marked != total:
             raise RuntimeError("mark-missing")
         if not should_match and marked > 0:
             raise RuntimeError("wrong-mark")
@@ -211,6 +283,10 @@ def child():
         server.daemon_threads = True
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        dns_udp = socketserver.UDPServer((SERVER_IP, DNS_PORT), DnsUdpHandler)
+        dns_tcp = DnsTcpServer((SERVER_IP, DNS_PORT), DnsTcpHandler)
+        for resolver in (dns_udp, dns_tcp):
+            threading.Thread(target=resolver.serve_forever, daemon=True).start()
         try:
             with tempfile.TemporaryDirectory(prefix="k1mark.", dir=os.environ["K1_SCRATCH_PARENT"]) as root:
                 scratch = pathlib.Path(root)
@@ -219,7 +295,15 @@ def child():
                 phase(scratch, CORE_MARK, True)
                 stage = "control"
                 phase(scratch, OTHER_MARK, False)
+                for transport in ("udp", "tcp"):
+                    stage = transport + "-candidate"
+                    phase(scratch, CORE_MARK, True, transport)
+                    stage = transport + "-control"
+                    phase(scratch, OTHER_MARK, False, transport)
         finally:
+            for resolver in (dns_udp, dns_tcp):
+                resolver.shutdown()
+                resolver.server_close()
             server.shutdown()
             server.server_close()
         check_child()
@@ -247,7 +331,7 @@ def parent():
         pass_fds=[descriptor],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        timeout=45,
+        timeout=100,
         check=False,
         env={"PATH": "/usr/bin:/bin", "LC_ALL": "C",
              "K1_PARENT_FD": str(descriptor),
@@ -260,7 +344,7 @@ def parent():
             or namespace_id("/proc/self/ns/net") != (identity.st_dev, identity.st_ino)):
         raise SystemExit("parent namespace changed")
     if result.returncode != 0 or result.stdout != b"K1_CORE_MARK_PASS\n":
-        for stage in ("isolation", "server", "candidate", "control"):
+        for stage in ("isolation", "server", "candidate", "control", "udp-candidate", "udp-control", "tcp-candidate", "tcp-control"):
             for reason in ("namespace", "interfaces", "route", "command", "readback", "core", "response", "no-egress", "mark-missing", "wrong-mark", "proxy-bypass", "unavailable"):
                 if result.stdout == f"K1_CORE_MARK_FAILED={stage}.{reason}\n".encode("ascii"):
                     raise SystemExit(f"isolated core mark probe failed at {stage}.{reason}")
