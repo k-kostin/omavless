@@ -690,7 +690,10 @@ mod tests {
             fixture.committed(&lock);
             fixture.all_slots(NEW_STORE, NEW_TEMPLATE);
             let first = fixture.config.join(SLOTS[0]);
-            let old_inode = fs::metadata(&first).unwrap().ino();
+            // Keep the original inode alive so a replacement cannot reuse its
+            // number immediately and make this regression assertion flaky.
+            let held_original = File::open(&first).unwrap();
+            let old_inode = held_original.metadata().unwrap().ino();
             let mut calls = 0;
             assert_eq!(
                 retire_replacement_slots(
@@ -729,6 +732,7 @@ mod tests {
             );
             assert!(first.exists());
             if change != 2 {
+                assert_eq!(held_original.metadata().unwrap().ino(), old_inode);
                 assert_ne!(fs::metadata(&first).unwrap().ino(), old_inode);
             }
             assert!(fixture.config.join(SLOTS[1]).exists());
