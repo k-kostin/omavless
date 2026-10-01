@@ -66,11 +66,37 @@ The Shell window's `viewport_size`/`bounds` stayed at the old 880 px immediately
 after Hyprland resized it to 700 px. A later locale-button action triggered a
 render, at which point both reported 700 px and the one-column layout appeared.
 Direct Rust reacted to the narrow resize without that extra action. Therefore
-**Shell responsive behavior is not accepted** as-is; a host/window invalidation
-fix is preferable to a timer-based repaint workaround. `gpui-shell check`
-also panics while materializing this virtual list outside an active rendered
-view (`current_view`); actual debug and release launches worked. These are
-specific upstream-host integration gaps, not evidence of VPN failure.
+**the original Shell snapshot's JS breakpoint is not responsive** as-is.
+`gpui-shell check` also panics while materializing this virtual list outside an
+active rendered view (`current_view`); actual debug and release launches worked.
+These are specific upstream-host integration gaps, not evidence of VPN failure.
+
+### Follow-up: native layout reflow in the Shell fixture
+
+The follow-up G1 Shell fixture replaces the JS `viewport_size` breakpoint for
+the profile/details panels with a wrapping native flex layout. This avoids a
+timer or Shell-host fork: GPUI can lay out the retained snapshot again when the
+window changes size. It does **not** imply that other JS reads of viewport
+geometry refresh on resize; the fixture still computes its list height during
+script render.
+
+On the same Omarchy Dev VM and pinned Shell host, the locally deployed fixture
+was captured at 1110×1198, then resized through Hyprland to 700×900, 1100×900
+and 500×900. No fixture button or search action was used between resizes. The
+panels appeared side by side at both wide widths and stacked immediately at
+both narrow widths; the header, scene controls and visible list stayed drawn.
+The window was floating for the resize test. Screenshots are held outside Git.
+This closes the observed *panel reflow* failure for this synthetic fixture,
+not the full G1a responsive/keyboard/scroll acceptance matrix.
+
+The hidden `gpui-shell check` command still fails. A VM backtrace at the pinned
+host revision reaches `gpui_shell::materialize::components::virtual_list::scroll_position`,
+which calls `Window::use_keyed_state` and then `Window::current_view`; the latter
+unwraps `None` because `check` materializes the snapshot directly in a hidden
+window, outside an active GPUI view render. A source-only workaround that skips
+the virtual list during `check` would weaken that check, so it is not used.
+This needs a bounded upstream host fix or a different trustworthy check path
+before claiming Shell-host validation.
 
 In `--watch`, changing a script reloaded the view and reset local scene and
 selection. A daemon-bound future client would have to re-negotiate and
@@ -95,9 +121,10 @@ memory. The synthetic app itself has no daemon state to change.
   questions. User launch should never require Cargo or a remote fetch.
 
 Recommendation: keep G1 production **deferred** while T2/T3 remain the product
-focus. If G1 resumes, direct Rust is the simpler baseline. Shell may still be
-worth revisiting if its resize invalidation, hidden `check` panic, permission
-audit and measured iteration benefit are addressed. Neither candidate has
-passed G1a, so G1b read-only daemon binding and G1c mutating controls do not
-start from this report. Cleanup/rollback is removing only the trial windows,
-transient binaries and isolated build caches; the daemon and VPN are untouched.
+focus. If G1 resumes, direct Rust is the simpler baseline. Shell's panel reflow
+now works without script invalidation, but its hidden `check` panic, other
+viewport-dependent script state, permission audit and measured iteration
+benefit remain open. Neither candidate has passed G1a, so G1b read-only daemon
+binding and G1c mutating controls do not start from this report.
+Cleanup/rollback is removing only the trial windows, transient binaries and
+isolated build caches; the daemon and VPN are untouched.

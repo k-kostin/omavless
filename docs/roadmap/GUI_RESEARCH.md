@@ -155,9 +155,11 @@ shared caches or rewrite system themes as trial cleanup.
 ## Evaluation sequence and stopping conditions
 
 The [2026-10-01 G1a synthetic VM trial](../testing/G1_SYNTHETIC_TRIAL_2026-10-01.md)
-provides two isolated prototypes and preliminary native measurements. It does
-not close G1a or advance G1b/G1c; the Shell resize and check issues and the
-listed interaction/theme/platform gaps remain open.
+provides two isolated prototypes and preliminary native measurements. A
+follow-up made the Shell fixture's panels reflow immediately on resize through
+native layout, but viewport-derived script state and the Shell hidden-check
+panic still require investigation. The trial does not close G1a or advance
+G1b/G1c; the listed interaction/theme/platform gaps remain open.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)

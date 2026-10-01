@@ -38,10 +38,12 @@ in-memory scene/selection. The Shell manifest explicitly disables storage and
 grants no script network, process, filesystem or clipboard authority. Its
 `omarchy-ui` source is bundled, pinned and licensed under
 [`vendor/omarchy-ui/`](shell/vendor/omarchy-ui/UPSTREAM.md); the normal launch
-must not fetch it. `gpui-shell check` currently panics while materializing the
-virtual list outside a rendered view in the inspected upstream host; an actual
-debug/release launch and fixture test are the applicable checks until that is
-fixed. Do not treat a launch as VPN or platform acceptance.
+must not fetch it. The profile/details panels now reflow through native flex
+layout when the window resizes, without a script-render event. `gpui-shell check`
+still panics while materializing the virtual list outside a rendered view in
+the inspected upstream host; an actual debug/release launch and fixture test
+are the applicable checks until that is fixed. Do not treat a launch as VPN or
+platform acceptance.
 
 The sample list can expand to 10,006 rows. Selection, search, collection,
 language and simulated states are local UI actions only. There is deliberately
