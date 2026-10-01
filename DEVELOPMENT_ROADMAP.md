@@ -1466,8 +1466,8 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Preserve the integrated native R6 implementation and accepted UI; finish the
-separate native release/package delivery gates with owner-controlled marketplace
-publication. Track AUTO-1 and DNS/provider follow-ups without relabelling their
-unrun/failed checks. V0 remains Draft and fixture-constrained. Scope T2 separately;
-no implementation or release starts merely because the ledger changed.**
+**Preserve the accepted native R6/UI and RC 0.9.5 managed-DNS/T2/T3/explicit-T4
+checkpoint; stable/main and Marketplace promotion require separate owner
+authorization and release reconciliation. Track AUTO-1, unavailable V0 fixtures
+and excluded feature work without relabelling their unrun/failed checks or
+restarting unchanged accepted gates merely because the ledger changed.**

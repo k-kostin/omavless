@@ -419,16 +419,18 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Prepare the 0.9.0 RC release/package/pairing checks from the accepted T2
-   checkpoint, reconciling constituent PRs and docs before any main proposal.
-   Do not silently bump/publish packages or main. Preserve accepted UI unless the task
+4. Prepare a separately owner-authorized stable/main proposal from accepted
+   `rc/0.9.5`, reconciling release notes, constituent PRs and candidate docs.
+   RC1 public assets/pins and clean provisioning are completed, not a fresh work
+   queue. Do not silently bump/publish stable packages or main. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
 
-Additional mandatory RC work: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
+Retained mandatory RC disposition: [the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
 for scoped DNS authorization (#270), network-setup diagnostics/compatibility
 (#271), and ICMP/HTTPS result semantics (#272). The September 24 owner direction
-makes their disposition and applicable implementation/acceptance mandatory
-before RC readiness. Existing native readiness checks remain accepted.
+makes their disposition and applicable implementation/acceptance mandatory.
+That candidate gate is retained in RC 0.9.5; #270/#132 remain open for the older
+stable 0.8.2 path, not a reason to repeat unchanged accepted RC host checks.
 
 Historical acceptance reports retain their original heads and outcomes. Their
 old "Python still owns production", "R5 incomplete" or "publication withheld"
