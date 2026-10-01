@@ -5,7 +5,8 @@ use gpui_kit::base::VirtualListScrollHandle;
 use gpui_kit::base::input::{InputEvent, InputState};
 use gpui_kit::{
     AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, ParentElement, Pixels,
-    Render, ScrollStrategy, Size, Styled, Window, WindowOptions, div, prelude::*, rems,
+    Render, ScrollHandle, ScrollStrategy, Size, Styled, Window, WindowOptions, div, point,
+    prelude::*, px, rems,
 };
 use gpui_omarchy::{
     ActiveTheme, ButtonVariant, Theme, button, focus_scope, input, panel, virtual_list,
@@ -170,6 +171,16 @@ fn next_highlight_index(
     })
 }
 
+fn page_offset(current: f32, max: f32, viewport: f32, key: &str) -> Option<f32> {
+    let step = viewport.max(0.) * 0.85;
+    let next = match key {
+        "pagedown" => current - step,
+        "pageup" => current + step,
+        _ => return None,
+    };
+    Some(next.clamp(-max.max(0.), 0.))
+}
+
 struct Trial {
     fixtures: Fixtures,
     search: Entity<InputState>,
@@ -178,6 +189,8 @@ struct Trial {
     highlighted: Option<String>,
     list_focus: FocusHandle,
     list_scroll: VirtualListScrollHandle,
+    panels_focus: FocusHandle,
+    panels_scroll: ScrollHandle,
     russian: bool,
     palette: usize,
     large: bool,
@@ -221,6 +234,8 @@ impl Trial {
             selected,
             list_focus: cx.focus_handle(),
             list_scroll: VirtualListScrollHandle::new(),
+            panels_focus: cx.focus_handle(),
+            panels_scroll: ScrollHandle::new(),
             russian: false,
             palette: 0,
             large: false,
@@ -774,6 +789,35 @@ impl Render for Trial {
                     .flex()
                     .when(narrow, |layout| layout.flex_col().overflow_y_scroll())
                     .when(!narrow, |layout| layout.flex_row())
+                    .track_scroll(&self.panels_scroll)
+                    .track_focus(&self.panels_focus.clone().tab_stop(true))
+                    .border_1()
+                    .border_color(if self.panels_focus.is_focused(window) {
+                        theme.accent
+                    } else {
+                        theme.border
+                    })
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.modifiers.modified()
+                            || window.bounds().size.width >= rems(60.).to_pixels(window.rem_size())
+                        {
+                            return;
+                        }
+                        let offset = this.panels_scroll.offset();
+                        let maximum = this.panels_scroll.max_offset();
+                        let viewport = this.panels_scroll.bounds().size.height;
+                        let Some(next) = page_offset(
+                            offset.y.as_f32(),
+                            maximum.y.as_f32(),
+                            viewport.as_f32(),
+                            &event.keystroke.key,
+                        ) else {
+                            return;
+                        };
+                        this.panels_scroll.set_offset(point(px(0.), px(next)));
+                        cx.notify();
+                        cx.stop_propagation();
+                    }))
                     .min_h_0()
                     .flex_1()
                     .gap(rems(0.75))
@@ -916,6 +960,16 @@ mod tests {
             let shell_source = after_name.split_once('`').unwrap().0;
             assert_eq!(source, shell_source, "{name} palette drifted");
         }
+    }
+
+    #[test]
+    fn narrow_page_scroll_is_bounded_and_does_not_choose_a_profile() {
+        assert_eq!(page_offset(0., 900., 400., "pagedown"), Some(-340.));
+        assert_eq!(page_offset(-850., 900., 400., "pagedown"), Some(-900.));
+        assert_eq!(page_offset(-900., 900., 400., "pageup"), Some(-560.));
+        assert_eq!(page_offset(-20., 900., 400., "pageup"), Some(0.));
+        assert_eq!(page_offset(0., 900., 400., "down"), None);
+        assert_eq!(Fixtures::load().scenes[0].confirmed_id(), Some("south"));
     }
 
     #[test]

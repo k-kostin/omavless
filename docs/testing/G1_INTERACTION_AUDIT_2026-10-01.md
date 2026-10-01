@@ -162,3 +162,27 @@ This closes only synthetic in-process palette parity and the exercised narrow
 scroll path. Live theme-file watching/replacement, native accessibility, IME,
 full keyboard access to all controls, latency budgets, cross-platform behavior,
 optional package lifecycle and G1b daemon binding remain unverified.
+
+### Direct Rust narrow keyboard reachability follow-up — 2026-10-02
+
+User goal: reach the lower read-only Details panel without a mouse in a short
+window. `Page Down`/`Page Up` now move only the outer narrow-window scroll
+area; profile inspection still requires explicit `Enter`, and the confirmed
+synthetic connection remains independent. The scroll region itself is a Tab
+stop with a focus border. Wide layout remains a two-column panel without
+postresize scroll-key interception.
+
+The corrected source is `8f754a138cae56cb9e15f4c18bb56cc0098ec974`;
+its release binary was `f7935a87f548253c9f0933812930cfa9f683d5b7dad038bf164bb486b04b96b1`.
+Both the baseline and corrected direct-Rust synthetic binaries were built in
+release mode; each SHA-256 matched after temporary transfer to the x86_64
+Omarchy Dev VM. At 400×700 logical pixels, the baseline left Details below
+the viewport after `Page Down`; the corrected candidate reached the entire
+Details panel after two keypresses, and `Page Up` returned toward Profiles.
+From the keyboard-focused list, Down/Down/Enter inspected the long invented
+East row; Details continued to show a separately confirmed South. At
+1100×1198 logical pixels, the same binary retained the two-column layout and
+independent identities. Eight direct Rust unit tests and its release build
+passed. Captures remain private and outside Git. This is native rendered GUI
+evidence for one direct-Rust interaction, not Shell parity, accessibility,
+daemon binding, package acceptance or VPN health.
