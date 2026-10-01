@@ -240,6 +240,92 @@ mod tests {
         assert_eq!(second.entries()[0].effective, second.entries()[0].default);
     }
 
+    fn variant(value: &DesktopValue) -> glib::Variant {
+        match value {
+            DesktopValue::String(value) => value.to_variant(),
+            DesktopValue::Bool(value) => value.to_variant(),
+            DesktopValue::Int(value) => value.to_variant(),
+            DesktopValue::Strings(value) => value.to_variant(),
+        }
+    }
+
+    #[test]
+    #[ignore = "requires public schemas; writes only an explicitly supplied memory backend"]
+    fn installed_schema_all_fields_restore_exact_memory_override_presence() {
+        let source = gio::SettingsSchemaSource::default().unwrap();
+        let schemas = validate_schemas(&source).unwrap();
+        for (index, key) in DesktopKey::ALL.into_iter().enumerate() {
+            let (schema_id, name, signature) = key.schema_key_type();
+            let schema = schemas
+                .iter()
+                .find(|schema| schema.id() == schema_id)
+                .unwrap();
+            for initial in 0..3 {
+                // A fresh explicitly supplied backend for every case prevents
+                // fallback to the current desktop's default/dconf database.
+                let memory = gio::memory_settings_backend_new();
+                let setting = gio::Settings::new_full(schema, Some(&memory), None);
+                assert_eq!(setting.backend().as_ref(), Some(&memory));
+                let default = setting.default_value(name).unwrap();
+                let empty_or_default = match signature {
+                    "s" if key != DesktopKey::Mode => "".to_variant(),
+                    "as" => Vec::<String>::new().to_variant(),
+                    _ => default.clone(),
+                };
+                match initial {
+                    0 => assert!(setting.user_value(name).is_none()),
+                    1 => assert!(setting.set_value(name, &default).is_ok()),
+                    _ => assert!(setting.set_value(name, &empty_or_default).is_ok()),
+                }
+                let before = read_desktop_with_backend(&schemas, Some(&memory), false).unwrap();
+                assert_eq!(
+                    matches!(before.entries()[index].user, Override::Absent),
+                    initial == 0
+                );
+                if initial == 1 {
+                    assert_eq!(
+                        before.entries()[index].effective,
+                        before.entries()[index].default
+                    );
+                }
+                let replacement = match key {
+                    DesktopKey::Mode => "manual".to_variant(),
+                    _ => match signature {
+                        "s" => "synthetic literal = 'quoted'\nvalue".to_variant(),
+                        "as" => vec!["synthetic.invalid", "localhost"].to_variant(),
+                        "b" => (!default.get::<bool>().unwrap()).to_variant(),
+                        "i" => 12345_i32.to_variant(),
+                        _ => unreachable!(),
+                    },
+                };
+                assert!(setting.set_value(name, &replacement).is_ok());
+                let changed = read_desktop_with_backend(&schemas, Some(&memory), false).unwrap();
+                for (position, entry) in changed.entries().iter().enumerate() {
+                    if position == index {
+                        assert_eq!(
+                            entry.user,
+                            Override::Present(typed_value(key, &replacement).unwrap())
+                        );
+                        assert_eq!(entry.effective, typed_value(key, &replacement).unwrap());
+                        assert_eq!(entry.default, before.entries()[index].default);
+                        assert_eq!(entry.writable, before.entries()[index].writable);
+                    } else {
+                        assert_eq!(entry, &before.entries()[position]);
+                    }
+                }
+                match &before.entries()[index].user {
+                    Override::Absent => setting.reset(name),
+                    Override::Present(value) => {
+                        assert!(setting.set_value(name, &variant(value)).is_ok())
+                    }
+                }
+                let restored = read_desktop_with_backend(&schemas, Some(&memory), false).unwrap();
+                assert_eq!(restored.encode().unwrap(), before.encode().unwrap());
+                assert_eq!(restored, before);
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires an installed Omarchy GSettings backend; reads no setting values"]
     fn installed_default_backend_is_the_supported_dconf_type() {
