@@ -30,8 +30,10 @@ Use a narrow `dev/<topic>` branch from the declared main or versioned candidate
 base and an early meaningful Draft PR. Optional kind prefixes include
 `dev/fix/<topic>` and `dev/docs/<topic>`. A temporary `beta/<version>` assembles
 selected development checkpoints; a later `rc/<version>` freezes release scope.
-Neither is a second permanent product or a separate set of docs. Ongoing
-0.9.5 work targets `beta/0.9.5`; accepted `rc/0.9.0` stays unchanged.
+Neither is a second permanent product or a separate set of docs. The selected
+accepted candidate is `rc/0.9.5`; `beta/0.9.5` retains development history and
+`rc/0.9.0` remains unchanged as superseded acceptance history. Only release
+fixes belong in the selected RC; new scope needs a separately declared branch.
 Follow [the canonical workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) for ownership,
 exact-head gates, affected rechecks, merge approval and cleanup. Existing open
 branches need not be renamed for cosmetics. Published releases use immutable
