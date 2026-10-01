@@ -76,9 +76,10 @@ These are specific upstream-host integration gaps, not evidence of VPN failure.
 The follow-up G1 Shell fixture replaces the JS `viewport_size` breakpoint for
 the profile/details panels with a wrapping native flex layout. This avoids a
 timer or Shell-host fork: GPUI can lay out the retained snapshot again when the
-window changes size. It does **not** imply that other JS reads of viewport
-geometry refresh on resize; the fixture still computes its list height during
-script render.
+window changes size. The fixture's list now uses a rem-based fixed height, so
+its geometry does not rely on stale JS viewport reads. This does **not** imply
+that arbitrary other JS geometry reads would refresh on resize. Usability of
+very short windows remains unverified and is not part of this narrow fix.
 
 On the same Omarchy Dev VM and pinned Shell host, the locally deployed fixture
 was captured at 1110×1198, then resized through Hyprland to 700×900, 1100×900

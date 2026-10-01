@@ -69,7 +69,6 @@ export default class G1Trial extends View {
   }
 
   render(cx) {
-    const listHeight = Math.max(8, Math.min(24, window.viewport_size().height / window.rem_size() - 20)) * window.rem_size();
     const strings = copy[this.locale];
     const scene = fixture.scenes[this.scene];
     const connected = fixture.profiles.find((item) => item.id === scene.connected);
@@ -116,7 +115,7 @@ export default class G1Trial extends View {
       .child(new MutedText(this.large
         ? (this.locale === "ru" ? `${visible.length} демонстрационных строк · виртуализация`
           : `${visible.length} synthetic rows · virtualized`) : strings.note).build(cx))
-      .child(v_flex().relative().h(listHeight).min_h_0().overflow_hidden()
+      .child(v_flex().relative().h("24rem").min_h_0().overflow_hidden()
         .child(v_virtual_list("g1-profile-list", visible.length, 52,
           (index) => visible[index].id,
           (range) => Array.from({ length: range.end - range.start }, (_unused, offset) =>
