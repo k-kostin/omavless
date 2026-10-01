@@ -11,11 +11,11 @@ repository.workspace = true
 base64 = "0.22"
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 idna = "1.1"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [dev-dependencies]
 omavless-parity = { path = "../omavless-parity" }
-serde = { version = "1.0", features = ["derive"] }
 
 [lints]
 workspace = true
