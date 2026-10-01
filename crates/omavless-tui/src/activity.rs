@@ -56,12 +56,14 @@ pub struct Entry {
 pub struct Activity {
     started: Instant,
     entries: VecDeque<Entry>,
+    older_events_discarded: bool,
 }
 impl Default for Activity {
     fn default() -> Self {
         Self {
             started: Instant::now(),
             entries: VecDeque::with_capacity(CAPACITY),
+            older_events_discarded: false,
         }
     }
 }
@@ -69,6 +71,7 @@ impl Activity {
     pub fn record(&mut self, event: Event, at: Instant) {
         if self.entries.len() == CAPACITY {
             self.entries.pop_front();
+            self.older_events_discarded = true;
         }
         // A slow read may have started before a command event; preserve
         // monotonic display times without inventing wall-clock timestamps.
@@ -83,5 +86,9 @@ impl Activity {
     }
     pub fn newest_first(&self) -> impl Iterator<Item = &Entry> {
         self.entries.iter().rev()
+    }
+    /// Sticky for this window, including across read failures and owner changes.
+    pub fn older_events_discarded(&self) -> bool {
+        self.older_events_discarded
     }
 }
