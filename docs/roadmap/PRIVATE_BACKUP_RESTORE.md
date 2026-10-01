@@ -448,6 +448,19 @@ verified, durable on-disk intent, fresh owner/disconnected/host checks,
 descriptor-relative writes and readback under one lease. The model does not
 settle imported startup preferences after recovery.
 
+A further inactive read-only journal inspector recognizes two fixed private
+state-root files, `restore-decision.intent` and an optional
+`restore-decision.terminal`. It requires exact owner/permissions/single-link
+regular files, bounded records, one matching transaction, an unchanged Rust
+owner generation, the current complete stage and the exact current Off desired
+state. A terminal without an intent, torn file, symlink, changed desired state
+or mismatched transaction refuses. The inspector reopens the members and
+rechecks the marker/stage/state directory during one lease-bound pass. This is
+not a journal **writer**: synthetic tests create its records, normal installed
+operation never does. It never clears a stage or classifies/changes live
+profiles. Any later writer and executor still need independent durability,
+interruption, cleanup and host-authorization design and evidence.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier

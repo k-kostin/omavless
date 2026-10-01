@@ -2488,6 +2488,7 @@ mod tests {
     fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
         use super::restore_candidate::RestoreAdmissionError;
         use crate::restore_decision_candidate::{DecisionRecord, RecoveryReview, TerminalChoice};
+        use crate::restore_journal_candidate::{JournalError, inspect_decision_journal};
         use crate::restore_staging_candidate::{
             ClassifyError, InspectError, LivePairClass, classify_live_pair,
             classify_live_pair_bound, inspect_stage_identity,
@@ -2555,6 +2556,93 @@ mod tests {
         let decision =
             DecisionRecord::intent(2, desired.as_deref(), &stage_identity, [7; 16]).unwrap();
         let committed = decision.terminal(TerminalChoice::Commit).unwrap();
+        let state = &owner.transaction.cutover_paths().state_directory;
+        let intent_path = state.join("restore-decision.intent");
+        let terminal_path = state.join("restore-decision.terminal");
+        let inspect_journal = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            inspect_decision_journal(
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                &lock,
+            )
+        };
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Missing)
+        ));
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        fs::write(&intent_path, decision.encode()).unwrap();
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            inspect_journal(&owner).unwrap().active().phase(),
+            decision.phase()
+        );
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            inspect_journal(&owner).unwrap().active().phase(),
+            committed.phase()
+        );
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = state.join("synthetic-hardlink-only-in-test");
+        fs::hard_link(&intent_path, &alias).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&alias).unwrap();
+        let different = DecisionRecord::intent(2, desired.as_deref(), &stage_identity, [8; 16])
+            .unwrap()
+            .terminal(TerminalChoice::Commit)
+            .unwrap();
+        fs::write(&terminal_path, different.encode()).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        fs::write(&terminal_path, b"torn").unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        std::os::unix::fs::symlink(&intent_path, &terminal_path).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::UnsafeOrChanged)
+        ));
+        fs::remove_file(&terminal_path).unwrap();
+        fs::write(&terminal_path, committed.encode()).unwrap();
+        fs::set_permissions(&terminal_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let desired_path = &owner.transaction.desired_paths().file;
+        let mut changed_desired = desired
+            .as_ref()
+            .map(|raw| serde_json::from_slice::<DesiredState>(raw).unwrap())
+            .unwrap_or_default();
+        changed_desired.generation += 1;
+        fs::write(desired_path, serde_json::to_vec(&changed_desired).unwrap()).unwrap();
+        fs::set_permissions(desired_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Invalid)
+        ));
+        if let Some(raw) = &desired {
+            fs::write(desired_path, raw).unwrap();
+        } else {
+            fs::remove_file(desired_path).unwrap();
+        }
         let classify_bound = |owner: &OfflineNativeCoordinator<FakeHost>| {
             let lock = owner.transaction.acquire_lock().unwrap();
             classify_live_pair_bound(
@@ -2568,6 +2656,12 @@ mod tests {
         };
         let observed = classify_bound(&owner);
         assert_eq!(observed.stage().digest(), stage_identity.digest());
+        assert_eq!(
+            inspect_journal(&owner)
+                .unwrap()
+                .review(2, desired.as_deref(), &observed),
+            RecoveryReview::ManualRecovery
+        );
         assert_eq!(
             decision.review(2, desired.as_deref(), &observed),
             RecoveryReview::OldRollbackCandidate
@@ -2586,6 +2680,12 @@ mod tests {
         assert_eq!(classify(&owner), Ok(LivePairClass::New));
         assert_eq!(
             committed.review(2, desired.as_deref(), &classify_bound(&owner)),
+            RecoveryReview::VerifyCommittedCandidate
+        );
+        assert_eq!(
+            inspect_journal(&owner)
+                .unwrap()
+                .review(2, desired.as_deref(), &classify_bound(&owner)),
             RecoveryReview::VerifyCommittedCandidate
         );
         fs::write(&store, b"synthetic divergent store").unwrap();
@@ -2613,6 +2713,10 @@ mod tests {
             classify(&owner),
             Err(ClassifyError::Stage(InspectError::MissingOrIncomplete))
         );
+        assert!(matches!(
+            inspect_journal(&owner),
+            Err(JournalError::Stage(InspectError::MissingOrIncomplete))
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 const MAGIC: &[u8; 8] = b"OVRDEC01";
 const CHECKSUM_DOMAIN: &[u8] = b"omavless-restore-decision-v1\0";
 const BODY_BYTES: usize = 8 + 1 + 8 + 8 + 1 + 32 + 32 + 16;
-const RECORD_BYTES: usize = BODY_BYTES + 32;
+pub(crate) const RECORD_BYTES: usize = BODY_BYTES + 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DecisionError {
@@ -53,6 +53,46 @@ pub(crate) struct DecisionRecord {
     desired_digest: [u8; 32],
     stage_digest: [u8; 32],
     transaction_id: [u8; 16],
+}
+
+/// Two immutable records are one decision only when the second is a terminal
+/// transition of the exact first transaction. Decoding never authorizes I/O.
+pub(crate) struct DecisionChain {
+    intent: DecisionRecord,
+    terminal: Option<DecisionRecord>,
+}
+
+impl DecisionChain {
+    pub(crate) fn decode(
+        intent_raw: &[u8],
+        terminal_raw: Option<&[u8]>,
+    ) -> Result<Self, DecisionError> {
+        let intent = DecisionRecord::decode(intent_raw)?;
+        if intent.phase != DecisionPhase::Intent {
+            return Err(DecisionError::Invalid);
+        }
+        let terminal = terminal_raw.map(DecisionRecord::decode).transpose()?;
+        if terminal.as_ref().is_some_and(|record| {
+            record.phase == DecisionPhase::Intent || !intent.same_transaction(record)
+        }) {
+            return Err(DecisionError::Invalid);
+        }
+        Ok(Self { intent, terminal })
+    }
+
+    pub(crate) fn active(&self) -> &DecisionRecord {
+        self.terminal.as_ref().unwrap_or(&self.intent)
+    }
+
+    pub(crate) fn review(
+        &self,
+        owner_generation: u64,
+        desired_raw: Option<&[u8]>,
+        observed: &VerifiedLivePair,
+    ) -> RecoveryReview {
+        self.active()
+            .review(owner_generation, desired_raw, observed)
+    }
 }
 
 fn checksum(body: &[u8]) -> [u8; 32] {
@@ -311,6 +351,37 @@ mod tests {
         assert!(committed.terminal(TerminalChoice::Abort).is_err());
         assert!(DecisionRecord::decode(&committed.encode()).unwrap() == committed);
         assert!(DecisionRecord::decode(&aborted.encode()).unwrap() == aborted);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn chain_requires_one_exact_intent_before_any_terminal() {
+        let (root, _, stage) = stage();
+        let intent = DecisionRecord::intent(3, None, &stage, [7; 16]).unwrap();
+        let committed = intent.terminal(TerminalChoice::Commit).unwrap();
+        let aborted = intent.terminal(TerminalChoice::Abort).unwrap();
+        let bare = DecisionChain::decode(&intent.encode(), None).unwrap();
+        assert_eq!(bare.active().phase(), DecisionPhase::Intent);
+        assert_eq!(
+            bare.review(
+                3,
+                None,
+                &VerifiedLivePair::synthetic(stage, LivePairClass::New)
+            ),
+            RecoveryReview::OldRollbackCandidate
+        );
+        for terminal in [&committed, &aborted] {
+            let chain = DecisionChain::decode(&intent.encode(), Some(&terminal.encode())).unwrap();
+            assert_eq!(chain.active().phase(), terminal.phase());
+        }
+        assert!(DecisionChain::decode(&committed.encode(), None).is_err());
+        assert!(DecisionChain::decode(&intent.encode(), Some(&intent.encode())).is_err());
+        assert!(DecisionChain::decode(&intent.encode(), Some(&committed.encode()[..20])).is_err());
+        let other = DecisionRecord::intent(3, None, &stage, [8; 16])
+            .unwrap()
+            .terminal(TerminalChoice::Commit)
+            .unwrap();
+        assert!(DecisionChain::decode(&intent.encode(), Some(&other.encode())).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 
