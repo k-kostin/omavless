@@ -131,7 +131,9 @@ fn stage_with_hook(
     match mkdirat(&parent, PENDING_DIRECTORY, Mode::S_IRWXU) {
         Ok(()) => {}
         Err(Errno::EEXIST) => return Err(StageError::AlreadyPending),
-        Err(_) => return Err(StageError::UnsafeState),
+        // An I/O failure does not prove the directory was never created.
+        // Keep the fixed name fenced until an independent recovery decision.
+        Err(_) => return Err(StageError::Ambiguous),
     }
     // Once the fixed name exists, every failure is ambiguous. Keep the
     // directory, even if it is partial, so nothing retries over it blindly.
