@@ -300,6 +300,14 @@ The foundation accepts large but bounded provider-generated `AllowedIPs` lists
 without treating them as host route commands. It keeps at most one IPv4 and one
 IPv6 local address because Mihomo's one-peer outbound has one field per family.
 
+The inactive private-record codec defines a version-1 structured JSON envelope
+with canonical `interface` and `peer` field maps. Loading rejects duplicate,
+unknown, injected or invalid fields and reuses the native config validator;
+encoding verifies lossless restoration before releasing credential bytes.
+This is an in-memory storage prerequisite only, not production store admission,
+filesystem persistence, export UI or lifecycle activation. See the
+[codec contract and verification](docs/testing/P4_PRIVATE_RECORD_CODEC.md).
+
 ### P4b — native AmneziaWG `.conf`
 
 Reuse Rust P4a parser/storage boundaries. Accept only documented deterministic
