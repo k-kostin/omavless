@@ -2047,12 +2047,15 @@ mod tests {
         }
     }
 
-    fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+    fn fixture_under(
+        parent: &Path,
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
+        let root = parent.join(format!(
             "omavless-native-coordinator-{label}-{}-{nonce}",
             std::process::id()
         ));
@@ -2121,8 +2124,15 @@ mod tests {
         (root, store_path, owner)
     }
 
-    fn support_fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
-        let (root, store, mut owner) = fixture(label);
+    fn fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        fixture_under(&std::env::temp_dir(), label)
+    }
+
+    fn support_fixture_under(
+        parent: &Path,
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let (root, store, mut owner) = fixture_under(parent, label);
         let paths = owner.transaction.cutover_paths();
         fs::create_dir_all(&paths.state_directory).unwrap();
         fs::set_permissions(&paths.state_directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2137,6 +2147,17 @@ mod tests {
             generation: 2,
         });
         (root, store, owner)
+    }
+
+    fn support_fixture(label: &str) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        support_fixture_under(&std::env::temp_dir(), label)
+    }
+
+    fn private_support_fixture(
+        label: &str,
+    ) -> (PathBuf, PathBuf, OfflineNativeCoordinator<FakeHost>) {
+        let home = std::env::var_os("HOME").expect("private restore fixture needs home");
+        support_fixture_under(Path::new(&home), label)
     }
 
     fn empty_local_observation() -> crate::lifecycle::NativeLocalObservation {
@@ -2325,7 +2346,7 @@ mod tests {
         use super::restore_candidate::{RestoreAdmissionError, RestoreReadiness};
         use crate::backup_destination_candidate::{BackupPreview, ReadError};
 
-        let (root, store, mut owner) = support_fixture("restore-preview");
+        let (root, store, mut owner) = private_support_fixture("restore-preview");
         owner.host_mut().support_observation = Some(empty_local_observation());
         let before = fs::read(&store).unwrap();
         let desired_before = fs::read(&owner.transaction.desired_paths().file).unwrap();
@@ -2399,7 +2420,7 @@ mod tests {
     fn inactive_restore_preparation_holds_exact_old_and_authenticated_new_pair_without_writes() {
         use super::restore_candidate::{RestoreAdmissionError, RestorePrepareError};
 
-        let (root, store, mut owner) = support_fixture("restore-pair-preparation");
+        let (root, store, mut owner) = private_support_fixture("restore-pair-preparation");
         owner.host_mut().support_observation = Some(empty_local_observation());
         let original_store = fs::read(&store).unwrap();
         let template = store.parent().unwrap().join("route-template.yaml");
@@ -2466,7 +2487,7 @@ mod tests {
     fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
         use super::restore_candidate::RestoreAdmissionError;
 
-        let (root, store, mut owner) = support_fixture("restore-stage-owner");
+        let (root, store, mut owner) = private_support_fixture("restore-stage-owner");
         owner.host_mut().support_observation = Some(empty_local_observation());
         let original_store = fs::read(&store).unwrap();
         let template = store.parent().unwrap().join("route-template.yaml");
