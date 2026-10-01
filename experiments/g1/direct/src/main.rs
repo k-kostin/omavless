@@ -7,9 +7,56 @@ use gpui_kit::{
     AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, ParentElement, Pixels,
     Render, ScrollStrategy, Size, Styled, Window, WindowOptions, div, prelude::*, rems,
 };
-use gpui_omarchy::{ActiveTheme, ButtonVariant, button, focus_scope, input, panel, virtual_list};
+use gpui_omarchy::{
+    ActiveTheme, ButtonVariant, Theme, button, focus_scope, input, panel, virtual_list,
+};
 use serde::Deserialize;
 use std::rc::Rc;
+
+// Keep these synthetic inputs byte-for-byte aligned with shell/palette.js.
+// They are not loaded from the user's Omarchy theme files.
+const SYNTHETIC_DARK: &str = r##"
+mode = "dark"
+background = "#1a1b26"
+foreground = "#c0caf5"
+accent = "#7aa2f7"
+red = "#f7768e"
+green = "#9ece6a"
+yellow = "#e0af68"
+blue = "#7aa2f7"
+magenta = "#bb9af7"
+cyan = "#7dcfff"
+"##;
+const SYNTHETIC_LIGHT: &str = r##"
+mode = "light"
+background = "#f4f2ee"
+foreground = "#25252b"
+accent = "#6948a5"
+red = "#af3446"
+green = "#267746"
+yellow = "#8c5e16"
+blue = "#4164a8"
+magenta = "#784b98"
+cyan = "#236e7c"
+"##;
+const SYNTHETIC_BROKEN: &str = r##"
+mode = "light"
+background = "#f4f2ee"
+foreground = "not-a-color"
+accent = "#6948a5"
+"##;
+
+fn synthetic_theme(index: usize) -> (Theme, bool) {
+    let source = match index {
+        0 => SYNTHETIC_DARK,
+        1 => SYNTHETIC_LIGHT,
+        _ => SYNTHETIC_BROKEN,
+    };
+    match Theme::from_colors_toml("G1 synthetic", source) {
+        Ok(theme) => (theme, false),
+        Err(_) => (Theme::tokyo_night(), true),
+    }
+}
 
 #[derive(Clone, Deserialize)]
 struct Profile {
@@ -132,6 +179,7 @@ struct Trial {
     list_focus: FocusHandle,
     list_scroll: VirtualListScrollHandle,
     russian: bool,
+    palette: usize,
     large: bool,
     collection: usize,
     cached_query: String,
@@ -174,6 +222,7 @@ impl Trial {
             list_focus: cx.focus_handle(),
             list_scroll: VirtualListScrollHandle::new(),
             russian: false,
+            palette: 0,
             large: false,
             collection: 0,
             cached_query: String::new(),
@@ -401,6 +450,35 @@ impl Render for Trial {
             "failed" | "recovery" => theme.danger,
             _ => theme.secondary,
         };
+        let mut palette_buttons = Vec::<AnyElement>::new();
+        for index in 0..3 {
+            let label = match (index, self.russian) {
+                (0, false) => "Dark",
+                (0, true) => "Тёмная",
+                (1, false) => "Light",
+                (1, true) => "Светлая",
+                (_, false) => "Broken",
+                (_, true) => "Сломанная",
+            };
+            palette_buttons.push(
+                button(
+                    format!("palette-{index}"),
+                    label,
+                    if self.palette == index {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.palette = index;
+                    synthetic_theme(index).0.apply(cx);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            );
+        }
         let mut scene_buttons = Vec::<AnyElement>::new();
         for index in 0..self.fixtures.scenes.len() {
             let id = self.fixtures.scenes[index].id.clone();
@@ -653,6 +731,24 @@ impl Render for Trial {
                 div()
                     .flex()
                     .flex_wrap()
+                    .items_center()
+                    .gap(rems(0.4))
+                    .child(
+                        div()
+                            .text_color(theme.secondary)
+                            .child(self.label("Synthetic palette", "Палитра макета")),
+                    )
+                    .children(palette_buttons)
+                    .when(self.palette == 2, |row| {
+                        row.child(div().text_color(theme.secondary).child(
+                            self.label("Whole default fallback", "Полный откат к базовой теме"),
+                        ))
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
                     .gap(rems(0.4))
                     .children(scene_buttons),
             )
@@ -701,6 +797,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_omarchy::init(cx);
+            synthetic_theme(0).0.apply(cx);
             cx.open_window(WindowOptions::default(), |window, cx| {
                 cx.new(|cx| Trial::new(window, cx, initial_scene))
             })
@@ -802,5 +899,32 @@ mod tests {
             Err("Unknown synthetic scene")
         );
         assert!(fixture.initial_scene(&["--scene".into()]).is_err());
+    }
+
+    #[test]
+    fn direct_palette_uses_same_synthetic_inputs_as_shell() {
+        let shell = include_str!("../../shell/palette.js");
+        for (name, source) in [
+            ("DARK", SYNTHETIC_DARK),
+            ("LIGHT", SYNTHETIC_LIGHT),
+            ("BROKEN", SYNTHETIC_BROKEN),
+        ] {
+            let after_name = shell
+                .split_once(&format!("export const {name} = `"))
+                .unwrap()
+                .1;
+            let shell_source = after_name.split_once('`').unwrap().0;
+            assert_eq!(source, shell_source, "{name} palette drifted");
+        }
+    }
+
+    #[test]
+    fn broken_palette_falls_back_as_a_whole() {
+        assert!(!synthetic_theme(0).1);
+        assert!(!synthetic_theme(1).1);
+        let (fallback, used_fallback) = synthetic_theme(2);
+        assert!(used_fallback);
+        assert_eq!(fallback, Theme::tokyo_night());
+        assert_ne!(fallback, synthetic_theme(1).0);
     }
 }

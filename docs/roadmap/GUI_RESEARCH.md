@@ -175,6 +175,11 @@ same narrow keyboard path, including generated-row Details and EN/RU empty
 states, without changing the confirmed connection fixture. Neither result
 establishes native accessibility, full short-window keyboard reachability,
 latency budgets or adoption.
+The direct Rust trial subsequently exercised the Shell fixture's exact
+dark/light/malformed synthetic palette inputs in the x86_64 VM. A malformed
+input falls back to the complete standalone theme. English and Russian
+400×700 layouts retained scroll access to Details. This does not test real
+system-theme replacement or production packaging.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)

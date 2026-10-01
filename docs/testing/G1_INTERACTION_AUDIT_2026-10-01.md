@@ -138,3 +138,27 @@ remain outside Git. Five direct Rust unit tests, including generated-ID and
 navigation bounds, passed. This closes the exercised keyboard parity slice,
 not screen-reader, IME, short-window reachability, performance, package or
 G1b daemon-binding gates.
+
+### Direct Rust synthetic palette parity follow-up — 2026-10-02
+
+The direct Rust trial now exposes the same dark, light and intentionally
+malformed palette inputs as the Shell trial. Its unit test compares the exact
+synthetic source strings and verifies that malformed input selects the whole
+standalone Tokyo Night default, not a mixture of palettes. The controls change
+only the local trial presentation; the selected-for-inspection and synthetic
+confirmed-connection identities remain separate.
+
+A release-mode binary was copied temporarily to the x86_64 Omarchy Dev VM.
+At 1110×1198 logical pixels, the dark, light and malformed-fallback buttons
+were clicked and each resulting screen inspected. North remained selected for
+inspection and South remained synthetically confirmed in all three palettes.
+The window was then floated and resized to 400×700. The malformed fallback and
+light palettes rendered with Russian labels; palette controls wrapped without
+overlap, and wheel scrolling reached the entire Details panel. The user VPN,
+daemon, private store, system theme and installed plugin were not modified.
+Captures and the transient binary stay outside Git.
+
+This closes only synthetic in-process palette parity and the exercised narrow
+scroll path. Live theme-file watching/replacement, native accessibility, IME,
+full keyboard access to all controls, latency budgets, cross-platform behavior,
+optional package lifecycle and G1b daemon binding remain unverified.
