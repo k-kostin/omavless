@@ -59,7 +59,7 @@ configuration files can contain private metadata and are not shareable reports.
 Main-screen Test and latency sections are intentionally hidden for later
 improvement; their absence is not evidence of a broken core.
 
-## Open the terminal application (0.9.0 candidate)
+## Open the terminal application (0.9.5 candidate)
 
 This section describes the development candidate, not the published 0.8.2 package.
 With a TUI-enabled application installed, **Open app** appears below the fixed
@@ -83,6 +83,17 @@ not be retried as a new action blindly.
 `,` opens session Settings for language and theme. Closing with `q` or closing
 the terminal leaves the VPN and accepted background work running. The plugin
 remains available for import, editing and routing management.
+
+The 0.9.5 candidate adds read-only operator pages: Connections, Host, Rules,
+Providers, Custom rules and Route check. These show local or controller facts,
+not a blanket proof of working Internet, DNS or traffic protection.
+Route check sends only an explicitly entered query and clears it when leaving.
+
+On Subscriptions, `u` explicitly requests provider-reported usage and expiry
+for the selected source. This private claim is not measured VPN traffic or
+verified account entitlement; a provider may supply no usable information.
+Leaving the page discards the result. It does not refresh server lists, change
+the VPN or include the claim in ordinary diagnostic reports.
 
 ## Close, disconnect, Quit
 

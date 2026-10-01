@@ -1,12 +1,20 @@
 # Current delivery status
 
-Updated 2026-09-30. This is the compact current-state entry point; the detailed
+Updated 2026-10-01. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.5 development:** owner-approved `beta/0.9.5` starts from accepted
+- **0.9.5 scope frozen:** `rc/0.9.5` selects T3 read-only operator views and
+  explicit transient T4 provider information on the accepted managed-DNS/T2
+  base. #392 is integrated into beta; installed ARM64 beta review now passes,
+  complementing the x86_64 VM record. Source version is `0.9.5-rc.1`.
+  The [RC ledger](../development/RC_095.md) owns final checks/artifacts,
+  limitations and excluded foundations. Public pins remain empty; stable
+  main/Marketplace and accepted `rc/0.9.0` are unchanged.
+
+- **0.9.5 beta history:** owner-approved `beta/0.9.5` starts from accepted
   `rc/0.9.0` at `a543a45c34dcc953ef2e9cd019499146f85ac2eb`, not from the older
   #375 composition branch. Scoped `dev/*` PRs target beta; `rc/0.9.5` is a later
   scope freeze. The [#388](https://github.com/k-kostin/omavless/pull/388)

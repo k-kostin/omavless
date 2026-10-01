@@ -1,9 +1,9 @@
 # Native release, beta and RC preparation
 
-Current development version: **0.9.5-beta.1**, not stable or marketplace-ready.
-Its bootstrap pins are empty: no public beta downloads or clean first-use
+Current candidate version: **0.9.5-rc.1**, not stable or marketplace-ready.
+Its bootstrap pins are empty: no public RC1 downloads or clean first-use
 acceptance are implied. Build/inspect offline exact-source artifacts first.
-Do not relabel older RC archives or substitute their hashes into beta metadata.
+Do not relabel beta/older RC archives or substitute their hashes into RC1 metadata.
 
 The separately accepted **0.9.0-rc.2** production pair has owner-attended ARM64 and separate x86_64 VM evidence;
 public-download first use in an empty ARM64 account also passed. Final RC2
@@ -120,8 +120,8 @@ script is included. The wrapper always calls the accepted installer with
 
 Output:
 
-- `omavless-0.9.5beta1-1-ARCH.pkg.tar.zst`;
-- `omavless-0.9.5-beta.1-frontend.tar.xz`;
+- `omavless-0.9.5rc1-1-ARCH.pkg.tar.zst`;
+- `omavless-0.9.5-rc.1-frontend.tar.xz`;
 - `release-candidate.json`: full source, version, architecture and binary/archive
   hashes; explicitly caller-supplied prebuilt provenance;
 - `SHA256SUMS`: both archives and the identity record;
@@ -234,7 +234,7 @@ pin from one source, version or architecture for another.
 
 ### Explicit stable assembly (offline preparation only)
 
-The default assembler remains RC-only. Once the owner approves a clean source
+The default assembler remains prerelease-only. Once the owner approves a clean source
 commit with the stable Cargo/lock/manifest versions, use the same assembler
 with an explicit `--stable`:
 
