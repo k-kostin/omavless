@@ -116,3 +116,25 @@ This establishes only the exercised Shell keyboard path. Native accessibility,
 screen readers, IME, narrow-window keyboard reachability, direct Rust parity,
 measured large-list latency/memory, live theme watching and platform/package
 gates remain open. G1a is not complete and G1b daemon binding is not started.
+
+### Direct Rust keyboard parity follow-up
+
+The separate direct Rust/GPUI trial now implements the same synthetic list
+contract: focusable virtualized list, bounded Up/Down highlight with
+scroll-to-item, Enter for inspection only, Escape back to search, and a
+localized no-match view. Search Enter with no match preserves the inspected
+profile. Generated fixture rows resolve for Details without rebuilding the
+full list during inspection. None of these handlers attaches to the daemon or
+performs a VPN action.
+
+On the x86_64 Omarchy Dev VM at 1110×1198 logical pixels, keyboard input
+reached the direct Rust list. Down and Enter inspected another static row
+while the separately confirmed *South* stayed unchanged. The 10,006-row
+fixture scrolled via repeated Down; Enter inspected a generated row with its
+correct name/source. English and Russian zero-match states rendered, and
+Enter in the empty search/list left the prior inspection intact. The trial
+used a transient user unit and invented `.example` fixtures only; screenshots
+remain outside Git. Five direct Rust unit tests, including generated-ID and
+navigation bounds, passed. This closes the exercised keyboard parity slice,
+not screen-reader, IME, short-window reachability, performance, package or
+G1b daemon-binding gates.
