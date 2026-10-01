@@ -56,7 +56,34 @@ impl CandidatePrivateStore {
 
     /// Intentional private byte release for a future owner-bound writer only.
     /// There is currently no production caller and no filesystem publication.
-    pub fn into_private_bytes(self) -> Result<Vec<u8>, PrivateStoreError> {
+    pub fn into_private_bytes(mut self) -> Result<Vec<u8>, PrivateStoreError> {
+        // Admission normalizes stale pointers in memory. Do not serialize the
+        // original pointers again when this candidate is explicitly exported.
+        // Keep unrelated root/row extensions and credential bytes untouched.
+        let root = self
+            .document
+            .as_object_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        root.insert(
+            "activeId".to_owned(),
+            Value::from(self.state.active_id.clone()),
+        );
+        root.insert("lastId".to_owned(), Value::from(self.state.last_id.clone()));
+        let startup = root
+            .entry("startup".to_owned())
+            .or_insert_with(|| Value::Object(Map::new()))
+            .as_object_mut()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        startup.insert(
+            "enabled".to_owned(),
+            Value::from(self.state.startup.enabled),
+        );
+        startup.insert("target".to_owned(), Value::from(self.state.startup.target));
+        startup.insert(
+            "profileId".to_owned(),
+            Value::from(self.state.startup.profile_id),
+        );
+        startup.insert("mode".to_owned(), Value::from(self.state.startup.mode));
         let mut bytes =
             serde_json::to_vec(&self.document).map_err(|_| PrivateStoreError::InvalidJson)?;
         bytes.push(b'\n');
@@ -75,6 +102,27 @@ impl CandidatePrivateStore {
     ) -> Result<Self, PrivateStoreError> {
         if !valid_record_id(id) || !canonical_name(name) {
             return Err(PrivateStoreError::InvalidShape);
+        }
+        let root = self
+            .document
+            .as_object()
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        if root
+            .get("subscriptions")
+            .and_then(Value::as_array)
+            .is_some_and(|subscriptions| subscriptions.iter().any(|entry| entry["id"] == id))
+        {
+            return Err(PrivateStoreError::InvalidShape);
+        }
+        let profiles = root
+            .get("profiles")
+            .and_then(Value::as_array)
+            .ok_or(PrivateStoreError::InvalidShape)?;
+        if profiles.iter().any(|entry| entry["id"] == id) {
+            return Err(PrivateStoreError::InvalidShape);
+        }
+        if profiles.iter().any(|entry| entry["name"] == name) {
+            return Err(PrivateStoreError::DuplicateProfileName);
         }
         let protocol = profile.facts().flavor.protocol_name();
         let record = profile

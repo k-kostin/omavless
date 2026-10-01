@@ -137,6 +137,16 @@ An in-memory migration from a fully validated v1-v3 document additionally
 rejects original-byte duplicates, preserves legacy extensions and pointers,
 and can prepare one standalone WG/AWG candidate without writing any bytes.
 
+The next inactive normalization slice makes the deliberate private byte export
+write the candidate's validated active/last/startup pointers, rather than
+re-emitting stale source pointers that the safe projection already cleared.
+Unrelated root, profile and startup extensions survive. Standalone WG append
+also refuses a name already used by any profile and an ID already used by a
+profile or subscription, matching the existing import collision boundary.
+Focused synthetic tests cover stale references, extension retention and the
+cross-graph collisions. This remains an in-memory contract only; the installed
+owner still refuses v4 bytes and there is no file writer or user-facing WG.
+
 This is **not a store migration or product activation**. The production
 `parse_private_store` still refuses v4; no filesystem writer, IPC method,
 profile import/edit/export, renderer, probe, backup/restore or core operation

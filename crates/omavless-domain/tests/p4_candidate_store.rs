@@ -5,7 +5,8 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use omavless_domain::private_store::{
-    migrate_legacy_store_candidate, parse_candidate_private_store, parse_private_store,
+    PrivateStoreError, migrate_legacy_store_candidate, parse_candidate_private_store,
+    parse_private_store,
 };
 use omavless_profile::wireguard::parse_wireguard_config;
 use serde_json::{Value, json};
@@ -211,4 +212,55 @@ fn legacy_migration_and_standalone_append_are_private_in_memory_only() {
         assert_eq!(migrated.profile_counts(), (1, 0, 0));
         assert_eq!(migrated.pointer_presence(), (true, true, true));
     }
+}
+
+#[test]
+fn candidate_private_output_clears_stale_references_without_losing_extensions() {
+    let mut source = mixed();
+    source["activeId"] = "00000000-0000-0000-0000-000000000099".into();
+    source["lastId"] = "00000000-0000-0000-0000-000000000099".into();
+    source["startup"]["profileId"] = "00000000-0000-0000-0000-000000000099".into();
+    source["startup"]["extension"] = json!({"keep": true});
+    let candidate = parse_candidate_private_store(&source.to_string()).unwrap();
+    assert_eq!(candidate.pointer_presence(), (false, false, false));
+
+    let bytes = candidate.into_private_bytes().unwrap();
+    let output: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(output["activeId"], "");
+    assert_eq!(output["lastId"], "");
+    assert_eq!(output["startup"]["profileId"], "");
+    assert_eq!(output["startup"]["enabled"], false);
+    assert_eq!(output["startup"]["extension"]["keep"], true);
+    assert_eq!(output["vendorExtension"]["kept"], 1);
+    assert_eq!(output["profiles"][0]["extraLegacy"]["retained"], true);
+    assert_eq!(
+        parse_candidate_private_store(std::str::from_utf8(&bytes).unwrap())
+            .unwrap()
+            .pointer_presence(),
+        (false, false, false)
+    );
+}
+
+#[test]
+fn standalone_append_refuses_cross_graph_ids_and_duplicate_names() {
+    let wg = || parse_wireguard_config(&native(false)).unwrap();
+    let source = mixed().to_string();
+    assert!(
+        parse_candidate_private_store(&source)
+            .unwrap()
+            .with_wireguard(SUB_ID, "New", wg())
+            .is_err()
+    );
+    assert!(
+        parse_candidate_private_store(&source)
+            .unwrap()
+            .with_wireguard(URI_ID, "New", wg())
+            .is_err()
+    );
+    assert!(matches!(
+        parse_candidate_private_store(&source)
+            .unwrap()
+            .with_wireguard("00000000-0000-0000-0000-000000000099", "URI", wg()),
+        Err(PrivateStoreError::DuplicateProfileName)
+    ));
 }
