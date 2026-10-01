@@ -51,6 +51,13 @@ The sample list can expand to 10,006 rows. Selection, search, collection,
 language and simulated states are local UI actions only. There is deliberately
 no Connect, Disconnect, Quit, daemon bridge or credential input.
 
+The Shell trial also offers three **synthetic** palette choices: dark, light,
+and a deliberately malformed palette. The last one must replace the *whole*
+palette with the standalone dark default, never leave mixed old/new colors.
+These controls do not read or modify Omarchy's real theme files. They exercise
+in-process presentation continuity, not filesystem watching or the direct
+Rust candidate's theme adapter.
+
 For deterministic visual review, the direct Rust trial accepts only
 `--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
 refuses without echoing it. This chooses fixture state before the window opens;

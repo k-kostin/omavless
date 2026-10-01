@@ -35,3 +35,23 @@ Still open: full keyboard and screen-reader matrix, IME, wheel-scroll
 continuity, large-list update latency, live theme changes, short-window
 layout, ARM64 and packaged install/remove. No G1a adoption decision or
 daemon client is justified by this follow-up.
+
+## Shell-only synthetic palette follow-up
+
+At candidate `d28b4e0`, the Shell trial gained a complete-palette guard and
+dark/light/malformed synthetic choices. On the same x86_64 Omarchy Dev VM,
+the pinned Shell host rendered the initial dark window, then light and a
+malformed-palette fallback to the complete dark default through keyboard
+activation. The English and Russian labels were inspected. The selected
+*North* row and separate confirmed *South* identity stayed distinct across
+the theme swaps; malformed input did not leave a mixed light/dark window. A
+follow-up render of the final candidate confirmed that the fallback note takes
+no empty layout row in ordinary dark mode. These invented `.example` rows
+contain no real profile metadata.
+
+The Node fixture/palette assertions and Shell syntax checks passed. This is
+an event-driven in-memory trial only: live Omarchy theme-file replacement,
+broken/missing filesystem theme, direct Rust parity, narrow layout,
+accessibility and packaging remain **NOT RUN**. The upstream hidden-check
+panic still applies. No product VPN, installed plugin or host theme was
+changed; temporary screenshots remain outside Git.
