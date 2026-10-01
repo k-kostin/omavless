@@ -2487,6 +2487,9 @@ mod tests {
     #[test]
     fn inactive_restore_staging_preserves_live_pair_and_blocks_new_previews() {
         use super::restore_candidate::RestoreAdmissionError;
+        use crate::restore_staging_candidate::{
+            ClassifyError, InspectError, LivePairClass, classify_live_pair,
+        };
 
         let (root, store, mut owner) = private_support_fixture("restore-stage-owner");
         owner.host_mut().support_observation = Some(empty_local_observation());
@@ -2529,6 +2532,46 @@ mod tests {
         assert_eq!(
             owner.restore_readiness_candidate(),
             Err(RestoreAdmissionError::RecoveryRequired)
+        );
+        let classify = |owner: &OfflineNativeCoordinator<FakeHost>| {
+            let lock = owner.transaction.acquire_lock().unwrap();
+            classify_live_pair(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                2,
+                &lock,
+            )
+        };
+        assert_eq!(classify(&owner), Ok(LivePairClass::Old));
+        fs::write(&template, portable_template).unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::Mixed));
+        fs::write(&store, portable_store).unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::New));
+        fs::write(&store, b"synthetic divergent store").unwrap();
+        assert_eq!(classify(&owner), Ok(LivePairClass::Diverged));
+        let lock = owner.transaction.acquire_lock().unwrap();
+        assert_eq!(
+            classify_live_pair(
+                store.parent().unwrap(),
+                owner.transaction.cutover_paths(),
+                owner.transaction.uid(),
+                3,
+                &lock,
+            ),
+            Err(ClassifyError::Admission)
+        );
+        drop(lock);
+        fs::remove_file(&template).unwrap();
+        std::os::unix::fs::symlink(&store, &template).unwrap();
+        assert_eq!(classify(&owner), Err(ClassifyError::UnsafeLive));
+        fs::remove_file(&template).unwrap();
+        fs::write(&template, portable_template).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(staged.join("ready.bin"), b"synthetic torn stage").unwrap();
+        assert_eq!(
+            classify(&owner),
+            Err(ClassifyError::Stage(InspectError::MissingOrIncomplete))
         );
         fs::remove_dir_all(root).unwrap();
     }
