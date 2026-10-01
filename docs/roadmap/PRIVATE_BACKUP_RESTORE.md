@@ -538,9 +538,11 @@ termination, followed by independent reopen and idempotent continuation.
 This is checksum binding and crash-prefix testing, not protection against a
 hostile same-user writer or a guarantee about arbitrary power loss.
 
-This candidate deliberately leaves any fixed replacement slots in the live
-configuration directory alone; their own provenance and retirement need a
-separate review. It also **does not clear the receipt fence**, register a
+This candidate refuses to retire the stage while any fixed replacement slot
+survives in the live configuration directory: losing the complete stage could
+otherwise lose proof of a slot's provenance, especially after abort. Slot
+retirement needs a separate review. This candidate **does not clear the
+receipt fence**, register a
 command, expose UI, or complete T4 acceptance. Product authority, admission,
 UX and installed-environment checks remain separate gates.
 

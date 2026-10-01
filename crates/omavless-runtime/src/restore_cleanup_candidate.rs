@@ -6,6 +6,7 @@
 use crate::backup_source_candidate::open_private_directory;
 use crate::cutover::{CutoverPaths, MigrationLock};
 use crate::restore_decision_candidate::{DecisionRecord, RECORD_BYTES};
+use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
 use crate::restore_retirement_candidate::{RetirementReceipt, durable_retirement_receipt};
 use crate::restore_staging_candidate::{
     MEMBERS, PENDING_DIRECTORY, READY_BYTES, READY_MAGIC, READY_MEMBER, same_directory, same_member,
@@ -92,6 +93,15 @@ type PrivateMember = (Zeroizing<Vec<u8>>, Metadata);
 
 fn exact_directory(metadata: &Metadata, uid: u32) -> bool {
     metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o7777 == 0o700
+}
+
+fn replacement_slot_pending(config: &Path) -> bool {
+    NEW_SLOT.into_iter().chain(OLD_SLOT).any(|name| {
+        !matches!(
+            std::fs::symlink_metadata(config.join(name)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+    })
 }
 
 fn read_optional(
@@ -374,6 +384,9 @@ impl<'a> Context<'a> {
             self.lock,
         )
         .map_err(|_| CleanupError::ManualRecovery)?;
+        if replacement_slot_pending(self.config) {
+            return Err(CleanupError::ManualRecovery);
+        }
         if self
             .receipt_identity
             .as_ref()
@@ -1101,6 +1114,46 @@ mod tests {
                 Err(CleanupError::ManualRecovery)
             );
             assert_eq!(fs::metadata(&first).unwrap().ino(), before);
+            assert!(fixture.paths.state_directory.join(RECEIPT_MEMBER).exists());
+        }
+    }
+
+    #[test]
+    fn surviving_or_new_replacement_slot_preserves_complete_stage() {
+        for introduced_at_gate in [false, true] {
+            let fixture = Fixture::new();
+            let lock = fixture.lock();
+            fixture.committed(&lock);
+            let first = fixture
+                .paths
+                .state_directory
+                .join(PENDING_DIRECTORY)
+                .join(MEMBERS[0]);
+            let before = fs::metadata(&first).unwrap().ino();
+            let slot = fixture.config.join(NEW_SLOT[0]);
+            if !introduced_at_gate {
+                Fixture::member(&slot, NEW_STORE);
+            }
+            let mut calls = 0;
+            assert_eq!(
+                retire_fixed_restore_artifacts(
+                    &fixture.config,
+                    &fixture.paths,
+                    fixture.uid,
+                    2,
+                    &lock,
+                    || {
+                        calls += 1;
+                        if introduced_at_gate && calls == 2 {
+                            Fixture::member(&slot, NEW_STORE);
+                        }
+                        true
+                    },
+                ),
+                Err(CleanupError::ManualRecovery)
+            );
+            assert_eq!(fs::metadata(&first).unwrap().ino(), before);
+            assert!(slot.exists());
             assert!(fixture.paths.state_directory.join(RECEIPT_MEMBER).exists());
         }
     }
