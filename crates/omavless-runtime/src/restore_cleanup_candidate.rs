@@ -1028,7 +1028,10 @@ mod tests {
                 .state_directory
                 .join(PENDING_DIRECTORY)
                 .join(MEMBERS[0]);
-            let old_inode = fs::metadata(&first).unwrap().ino();
+            // Keep the unlinked inode alive. Otherwise the filesystem may
+            // legitimately reuse its number for the replacement immediately.
+            let held_original = File::open(&first).unwrap();
+            let old_inode = held_original.metadata().unwrap().ino();
             let mut calls = 0;
             assert_eq!(
                 retire_fixed_restore_artifacts(
@@ -1056,6 +1059,7 @@ mod tests {
                 Err(CleanupError::ManualRecovery)
             );
             assert!(first.exists());
+            assert_eq!(held_original.metadata().unwrap().ino(), old_inode);
             assert_ne!(fs::metadata(&first).unwrap().ino(), old_inode);
             assert_eq!(
                 fs::read(&first).unwrap(),
