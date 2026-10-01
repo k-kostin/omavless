@@ -2509,18 +2509,12 @@ mod tests {
         }
     }
 
-    fn temporary_base(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = env::temp_dir().join(format!(
-            "omavless-runtime-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        let mut builder = fs::DirBuilder::new();
-        builder.mode(0o700).create(&base).unwrap();
-        base
+    fn temporary_base(_label: &str) -> PathBuf {
+        // The old descriptive prefix plus a nanosecond timestamp exceeded
+        // Linux's Unix-socket path limit before many otherwise valid fixture
+        // sockets could bind. The shared private allocator keeps uniqueness
+        // while leaving room for nested runtime socket names.
+        crate::test_temp::directory("rt").unwrap()
     }
 
     #[test]

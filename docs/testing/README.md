@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [T3 isolated VM operator rendering](T3_SYNTHETIC_VM_2026-10-01.md): exact
+  synthetic TUI head, English/Russian and narrow PTY review, plus explicit
+  installed/live boundaries.
+
 - [0.8.2 fresh x86_64 VM installation](NATIVE_082_FRESH_VM_2026-09-21.md):
   actual plugin-first setup with both application and Mihomo initially absent,
   onboarding/reopen and exact-source marketplace baseline; no new VPN claim.
