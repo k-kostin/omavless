@@ -365,6 +365,19 @@ pub fn saved_age(updated_at: Option<u64>, now_ms: u64) -> (&'static str, Option<
     else {
         return ("tui.metric_unavailable", None);
     };
+    age_bucket(age)
+}
+
+/// Age of one local explicit observation; unrelated snapshot reads never reset it.
+pub fn observed_age(
+    then: std::time::Instant,
+    now: std::time::Instant,
+) -> (&'static str, Option<u64>) {
+    let millis = now.saturating_duration_since(then).as_millis();
+    age_bucket(u64::try_from(millis).unwrap_or(u64::MAX))
+}
+
+fn age_bucket(age: u64) -> (&'static str, Option<u64>) {
     if age < 60_000 {
         ("tui.age_recent", None)
     } else if age < 3_600_000 {

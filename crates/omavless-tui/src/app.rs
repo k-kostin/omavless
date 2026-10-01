@@ -36,6 +36,8 @@ pub struct App {
     pub route_editing: bool,
     pub route_request: Option<crate::route_inspection::Request>,
     pub route_result: Option<crate::route_inspection::Status>,
+    /// Time of the explicit route read, independent of routine status polling.
+    pub route_checked_at: Option<Instant>,
     route_context: Option<crate::route_inspection::Request>,
     pub favorites_only: bool,
     pub searching: bool,
@@ -101,6 +103,7 @@ impl App {
             self.route_editing = false;
             self.route_request = None;
             self.route_result = None;
+            self.route_checked_at = None;
             self.route_context = None;
         }
     }
@@ -128,6 +131,7 @@ impl App {
             route_editing: false,
             route_request: None,
             route_result: None,
+            route_checked_at: None,
             route_context: None,
             favorites_only: false,
             searching: false,
@@ -202,6 +206,7 @@ impl App {
                     *id != next.metadata.instance_id || *revision != next.revision
                 }) {
                     self.route_result = None;
+                    self.route_checked_at = None;
                 }
                 if self
                     .selected_subscription
@@ -244,6 +249,7 @@ impl App {
                 self.traffic_rates = None;
                 self.traffic_history.clear();
                 self.route_result = None;
+                self.route_checked_at = None;
                 self.snapshot = None;
                 self.sampled_at = None;
                 self.selected = None;
@@ -293,6 +299,9 @@ impl App {
             && self.sampled_at == Some(at)
         {
             self.route_result = status;
+            self.route_checked_at = self.route_result.as_ref().and_then(|result| {
+                matches!(result, crate::route_inspection::Status::Observed(_)).then_some(at)
+            });
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
@@ -397,6 +406,7 @@ impl App {
                         self.route_context = None;
                         self.route_request = None;
                         self.route_result = Some(crate::route_inspection::Status::InvalidInput);
+                        self.route_checked_at = None;
                         return Action::None;
                     };
                     if self.fresh(now)
@@ -410,11 +420,13 @@ impl App {
                         self.route_context = Some(request.clone());
                         self.route_request = Some(request);
                         self.route_result = None;
+                        self.route_checked_at = None;
                         return Action::Refresh;
                     }
                     self.route_context = None;
                     self.route_request = None;
                     self.route_result = Some(crate::route_inspection::Status::Unavailable);
+                    self.route_checked_at = None;
                 }
                 KeyCode::Backspace => {
                     self.route_query.pop();
@@ -481,6 +493,7 @@ impl App {
                 // As soon as input changes, the previous result is no longer
                 // visibly tied to the displayed destination.
                 self.route_result = None;
+                self.route_checked_at = None;
                 self.route_context = None;
                 self.route_request = None;
                 self.route_editing = true;

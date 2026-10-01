@@ -15,7 +15,7 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
 };
 use serde_json::json;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn key(app: &mut App, code: KeyCode, at: Instant) -> Action {
     app.key_at(KeyEvent::new(code, KeyModifiers::NONE), at)
@@ -188,6 +188,7 @@ fn input_result_and_navigation_are_private_and_do_not_mutate_runtime() {
             RouteResult::parse(&support::response(Read::RouteCheck(target)), target, 7).unwrap();
         app.accept_route(Some(target), Some(Status::Observed(result)), at);
         assert!(matches!(app.route_result, Some(Status::Observed(_))));
+        assert_eq!(app.route_checked_at, Some(at));
         assert!(!render(&app, at).contains("Missing translation"));
         assert!(render_size(&app, at, 70, 24).contains("example.invalid"));
         let later = Target::new("later.invalid").unwrap();
@@ -195,6 +196,7 @@ fn input_result_and_navigation_are_private_and_do_not_mutate_runtime() {
         assert!(matches!(app.route_result, Some(Status::Observed(_))));
         assert_eq!(key(&mut app, KeyCode::Char('/'), at), Action::None);
         assert!(app.route_result.is_none());
+        assert!(app.route_checked_at.is_none());
         app.accept_route(Some(target), Some(Status::Unavailable), at);
         assert!(app.route_result.is_none());
         assert_eq!(key(&mut app, KeyCode::Esc, at), Action::None);
@@ -202,6 +204,7 @@ fn input_result_and_navigation_are_private_and_do_not_mutate_runtime() {
         assert!(app.page == Page::Diagnostics);
         assert!(app.route_query.is_empty());
         assert!(app.route_result.is_none());
+        assert!(app.route_checked_at.is_none());
         assert!(app.route_request.is_none());
         assert!(!render(&app, at).contains("example.invalid"));
     }
@@ -224,6 +227,7 @@ fn changed_revision_or_failed_read_clears_old_route_evidence() {
         RouteResult::parse(&support::response(Read::RouteCheck(target)), target, 7).unwrap();
     app.accept_route(Some(target), Some(Status::Observed(result)), at);
     assert!(app.route_result.is_some());
+    assert_eq!(app.route_checked_at, Some(at));
     let changed = load_page(
         &mut |read| {
             let mut response = support::response(read);
@@ -235,8 +239,80 @@ fn changed_revision_or_failed_read_clears_old_route_evidence() {
     .unwrap();
     app.accept(Ok(changed), at);
     assert!(app.route_result.is_none());
+    assert!(app.route_checked_at.is_none());
     app.accept_route(Some(target), Some(Status::Unavailable), at);
     // Even a response stamped with the same synthetic Instant cannot attach
     // after the owner revision moved.
     assert!(app.route_result.is_none());
+}
+
+#[test]
+fn ordinary_status_poll_never_renews_explicit_route_evidence() {
+    let at = Instant::now();
+    let later = at + Duration::from_secs(90);
+    let target = Target::new("example.invalid").unwrap();
+    for (locale, age_text) in [(Locale::En, "1 min ago"), (Locale::Ru, "1 мин назад")] {
+        let mut app = App::new(locale);
+        app.page = Page::RouteCheck;
+        app.accept(
+            Ok(load_page(&mut |read| Ok(support::response(read)), Page::RouteCheck).unwrap()),
+            at,
+        );
+        app.route_query = target.as_str().to_owned();
+        assert_eq!(key(&mut app, KeyCode::Char('/'), at), Action::None);
+        assert_eq!(key(&mut app, KeyCode::Enter, at), Action::Refresh);
+        let result =
+            RouteResult::parse(&support::response(Read::RouteCheck(target)), target, 7).unwrap();
+        app.accept_route(Some(target), Some(Status::Observed(result)), at);
+        assert_eq!(app.route_checked_at, Some(at));
+
+        let mut reads = Vec::new();
+        let (snapshot, route) = load_page_for_route(
+            &mut |read| {
+                reads.push(read);
+                Ok(support::response(read))
+            },
+            Page::RouteCheck,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(route.is_none());
+        assert!(!reads.iter().any(|read| matches!(read, Read::RouteCheck(_))));
+        app.accept(Ok(snapshot), later);
+        assert_eq!(app.route_checked_at, Some(at));
+        let screen = render_size(&app, later, 70, 24);
+        assert!(screen.contains(age_text), "{screen}");
+        assert!(!screen.contains("Missing translation"), "{screen}");
+
+        app.accept(Err(omavless_tui::model::ReadError::Unavailable), later);
+        assert!(app.route_result.is_none());
+        assert!(app.route_checked_at.is_none());
+    }
+}
+
+#[test]
+fn unavailable_route_read_is_not_a_direct_policy_result() {
+    let at = Instant::now();
+    let target = Target::new("example.invalid").unwrap();
+    for (locale, unavailable) in [
+        (Locale::En, "Could not verify this route"),
+        (Locale::Ru, "Маршрут подтвердить не удалось"),
+    ] {
+        let mut app = App::new(locale);
+        app.page = Page::RouteCheck;
+        app.accept(
+            Ok(load_page(&mut |read| Ok(support::response(read)), Page::RouteCheck).unwrap()),
+            at,
+        );
+        app.route_query = target.as_str().to_owned();
+        assert_eq!(key(&mut app, KeyCode::Char('/'), at), Action::None);
+        assert_eq!(key(&mut app, KeyCode::Enter, at), Action::Refresh);
+        app.accept_route(Some(target), Some(Status::Unavailable), at);
+        assert!(app.route_checked_at.is_none());
+        let screen = render_size(&app, at, 70, 24);
+        assert!(screen.contains(unavailable), "{screen}");
+        assert!(!screen.contains("Policy outcome:"), "{screen}");
+        assert!(!screen.contains("Результат политики:"), "{screen}");
+    }
 }
