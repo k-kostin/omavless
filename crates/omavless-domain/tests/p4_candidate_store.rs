@@ -264,3 +264,62 @@ fn standalone_append_refuses_cross_graph_ids_and_duplicate_names() {
         Err(PrivateStoreError::DuplicateProfileName)
     ));
 }
+
+#[test]
+fn mixed_metadata_mutations_preserve_all_credentials_and_pointers() {
+    let source = mixed();
+    let original_wg = source["profiles"][1]["wireguard"].clone();
+    let original_awg = source["profiles"][2]["wireguard"].clone();
+    let original_uri = source["profiles"][0]["uri"].clone();
+    let (candidate, changed) = parse_candidate_private_store(&source.to_string())
+        .unwrap()
+        .rename_standalone(WG_ID, "  Renamed WG  ")
+        .unwrap();
+    assert!(changed);
+    let (candidate, changed) = candidate.set_favorite(AWG_ID, true).unwrap();
+    assert!(changed);
+    let (candidate, changed) = candidate.set_favorite(URI_ID, true).unwrap();
+    assert!(changed, "subscribed URI favorites remain supported");
+    assert_eq!(candidate.profile_counts(), (1, 2, 1));
+    assert_eq!(candidate.pointer_presence(), (true, true, true));
+
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert_eq!(output["profiles"][0]["uri"], original_uri);
+    assert_eq!(output["profiles"][0]["extraLegacy"]["retained"], true);
+    assert_eq!(output["profiles"][1]["wireguard"], original_wg);
+    assert_eq!(output["profiles"][2]["wireguard"], original_awg);
+    assert_eq!(output["profiles"][1]["name"], "Renamed WG");
+    assert_eq!(output["profiles"][0]["favorite"], true);
+    assert_eq!(output["profiles"][2]["favorite"], true);
+    assert_eq!(output["activeId"], WG_ID);
+    assert_eq!(output["lastId"], AWG_ID);
+    assert_eq!(output["startup"]["profileId"], AWG_ID);
+    assert_eq!(output["vendorExtension"]["kept"], 1);
+}
+
+#[test]
+fn mixed_metadata_mutations_refuse_ambiguous_or_missing_targets() {
+    let source = mixed().to_string();
+    let candidate = || parse_candidate_private_store(&source).unwrap();
+    assert!(matches!(
+        candidate().rename_standalone(URI_ID, "Provider rename"),
+        Err(PrivateStoreError::SubscribedProfile)
+    ));
+    assert!(matches!(
+        candidate().rename_standalone(WG_ID, "URI"),
+        Err(PrivateStoreError::DuplicateProfileName)
+    ));
+    assert!(matches!(
+        candidate().rename_standalone("00000000-0000-0000-0000-000000000099", "Missing"),
+        Err(PrivateStoreError::ProfileNotFound)
+    ));
+    assert!(matches!(
+        candidate().set_favorite("00000000-0000-0000-0000-000000000099", true),
+        Err(PrivateStoreError::ProfileNotFound)
+    ));
+    let (candidate, changed) = candidate().rename_standalone(WG_ID, "WG").unwrap();
+    assert!(!changed);
+    let (candidate, changed) = candidate.set_favorite(WG_ID, true).unwrap();
+    assert!(!changed);
+    assert_eq!(candidate.profile_counts(), (1, 2, 1));
+}

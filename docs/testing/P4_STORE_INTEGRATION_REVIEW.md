@@ -147,6 +147,15 @@ Focused synthetic tests cover stale references, extension retention and the
 cross-graph collisions. This remains an in-memory contract only; the installed
 owner still refuses v4 bytes and there is no file writer or user-facing WG.
 
+The next inactive metadata slice adds in-memory standalone rename and favorite
+updates across the complete mixed profile array. It follows the v3 rules:
+subscribed URI rows cannot be renamed, profile names remain unique during
+rename, and both standalone and subscribed rows can be favorited. Synthetic
+tests preserve exact WG/AWG private record objects, URI, extensions,
+subscriptions and active/last/startup references across those updates; missing
+IDs and ambiguous names refuse. There is deliberately no delete/replace,
+filesystem publication, IPC method or lifecycle transition in this slice.
+
 This is **not a store migration or product activation**. The production
 `parse_private_store` still refuses v4; no filesystem writer, IPC method,
 profile import/edit/export, renderer, probe, backup/restore or core operation
