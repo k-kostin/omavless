@@ -64,11 +64,21 @@ native-snapshot parser sources are unchanged from accepted RC 0.9.5.
   pass. Fourteen bounded read methods pass, private store stays byte-identical,
   and TUI close does not stop the sole runtime owner.
 
-Final VM state is disconnected/Routing, plugin enabled, one user runtime and
-one system DNS broker, zero core/TUN. No network transition was needed for this
-read-side selection. Captures and local packages remain outside Git; private
-installed screenshots are not publication material. x86_64 package CI passes,
-but installed x86_64 beta acceptance and public provisioning are **not claimed**.
+The separate [installed x86_64 Omarchy Dev VM review](../testing/BETA_096_PC_VM_2026-10-01.md)
+passed for the later exact beta merge: matched unpublished app/DNS/frontend
+triple, preserved profile/subscription fingerprints, Rust owner and services,
+actual plugin Disconnected/search-empty/subscription-tooltip rendering, and
+TUI open/close without stopping the runtime. A Quickshell-only reload was
+needed to clear a `STATE UNVERIFIED` presentation already seen before the
+update; fresh CLI observation remained Disconnected. This is agent-run
+installed read-side evidence, not a new live VPN or public installation cycle.
+
+Both VM reviews finished disconnected/Routing, plugin enabled, one user
+runtime and one system DNS broker, zero core/TUN. No network transition was
+needed for this read-side selection. Captures and local packages remain
+outside Git; private installed screenshots are not publication material.
+Public provisioning is **not claimed**: package pins remain empty and no
+0.9.6 release assets have been published or anonymously downloaded.
 
 No K1 enforcement, S1 host-manager cutover, T4 encrypted-backup integration,
 P4 protocol activation, G1 desktop app or T3 connection-closing mutation is
