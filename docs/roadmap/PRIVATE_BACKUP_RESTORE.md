@@ -435,8 +435,9 @@ absence), owner generation and a nonzero transaction identifier. Its fixed
 `Aborted`) and a domain-separated SHA-256 tear checksum. It contains no raw
 profile, template, desired-state or passphrase bytes. The checksum is **not**
 authentication against a same-user writer. This record is neither written to
-disk nor read at startup by current product code; there is no transaction
-executor, cleanup or restore command.
+disk nor read at startup by current product code. The inactive executor below
+can write it only from synthetic tests; there is no product caller, cleanup or
+restore command.
 
 The pure review table treats a valid nonterminal intent with live old/new/mixed
 bytes as a *candidate* for exact-old rollback, never as a completed restore.
@@ -456,10 +457,42 @@ owner generation, the current complete stage and the exact current Off desired
 state. A terminal without an intent, torn file, symlink, changed desired state
 or mismatched transaction refuses. The inspector reopens the members and
 rechecks the marker/stage/state directory during one lease-bound pass. This is
-not a journal **writer**: synthetic tests create its records, normal installed
-operation never does. It never clears a stage or classifies/changes live
-profiles. Any later writer and executor still need independent durability,
-interruption, cleanup and host-authorization design and evidence.
+not a product journal **writer**: synthetic tests and the inactive executor
+below create its records, but normal installed operation never does. It never
+clears a stage or changes live profiles. On startup, orphan decision records
+also fence mutation even if the pending-stage directory is absent; they cannot
+be mistaken for a clean state.
+
+## Inactive two-file restore executor
+
+The internal `restore_executor_candidate` composes the verified four-member
+stage and decision journal into a lease-bound synthetic transaction. There is
+no runtime registration, CLI/IPC operation or GUI button for it. Its caller
+must supply a fresh disconnected/idle host gate; the tests supply only a
+synthetic gate. This is **not** usable backup or restore in an installed build.
+
+Before each effect it rechecks the Rust owner generation, exact Off desired
+bytes, complete stage identity, fixed configuration directory and same journal
+transaction. It publishes a fixed, exclusive intent before live writes. For
+each of the two files it synchronizes a private replacement inode, links it
+under a fixed name in the pinned directory, rechecks identity/content and
+renames it over the live member, then synchronizes the directory. Before a
+terminal decision it synchronizes and reopens both exact live members and
+independently classifies the pair. Intent without terminal recovers toward the
+exact old pair; committed/aborted terminals are verified, never reversed.
+Every uncertain result retains stage and journal as a startup/mutation fence.
+No path can automatically overwrite a divergent pair. These are bounded
+synthetic guarantees, not proof against a hostile same-user writer or arbitrary
+power-loss behavior. Tests include actual subprocess termination between
+effects, reopen/retry of forward and rollback paths, owner/desired/host drift,
+and symlink/hardlink/replacement-slot refusal.
+
+The executor deliberately leaves even a successful stage and journal in
+place. Remaining gates before activation include a reviewed finalization and
+cleanup protocol, real host admission and imported-startup policy, explicit
+destination/passphrase UX, product caller/API authority, installed VM and host
+acceptance, and a separate decision whether the portable format extends beyond
+the fixed v1 pair. Do not interpret synthetic PASS as T4 completion.
 
 ## Inactive native-owner backup composition
 

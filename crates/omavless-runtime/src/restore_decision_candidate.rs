@@ -84,6 +84,10 @@ impl DecisionChain {
         self.terminal.as_ref().unwrap_or(&self.intent)
     }
 
+    pub(crate) fn intent(&self) -> &DecisionRecord {
+        &self.intent
+    }
+
     pub(crate) fn review(
         &self,
         owner_generation: u64,

@@ -98,6 +98,35 @@ pub(crate) struct VerifiedLivePair {
     class: LivePairClass,
 }
 
+/// Exact staged bytes retained only in zeroizing memory. This does not grant
+/// restore authority: callers must also prove the owner and host admission.
+pub(crate) struct VerifiedStage {
+    identity: StageIdentity,
+    members: [Zeroizing<Vec<u8>>; 4],
+}
+
+impl VerifiedStage {
+    pub(crate) const fn identity(&self) -> &StageIdentity {
+        &self.identity
+    }
+
+    pub(crate) fn old_store(&self) -> &[u8] {
+        &self.members[0]
+    }
+
+    pub(crate) fn old_template(&self) -> &[u8] {
+        &self.members[1]
+    }
+
+    pub(crate) fn new_store(&self) -> &[u8] {
+        &self.members[2]
+    }
+
+    pub(crate) fn new_template(&self) -> &[u8] {
+        &self.members[3]
+    }
+}
+
 impl VerifiedLivePair {
     pub(crate) const fn stage(&self) -> &StageIdentity {
         &self.stage
@@ -124,14 +153,14 @@ fn exact_directory(metadata: &Metadata, uid: u32) -> bool {
     metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o7777 == 0o700
 }
 
-fn same_directory(before: &Metadata, after: &Metadata) -> bool {
+pub(crate) fn same_directory(before: &Metadata, after: &Metadata) -> bool {
     before.dev() == after.dev()
         && before.ino() == after.ino()
         && before.uid() == after.uid()
         && before.mode() == after.mode()
 }
 
-fn same_member(before: &Metadata, after: &Metadata) -> bool {
+pub(crate) fn same_member(before: &Metadata, after: &Metadata) -> bool {
     before.dev() == after.dev()
         && before.ino() == after.ino()
         && before.uid() == after.uid()
@@ -176,7 +205,7 @@ fn class_from_matches(
     }
 }
 
-fn read_member(
+pub(crate) fn read_member(
     directory: &File,
     name: &str,
     uid: u32,
@@ -230,6 +259,75 @@ fn read_member(
         return Err(InspectError::UnsafeOrChanged);
     }
     Ok(bytes)
+}
+
+/// Reopen all four staged members after the complete-stage inspection, then
+/// repeat that inspection and the directory identity check. A stale snapshot
+/// is never sufficient for a later live-file effect.
+pub(crate) fn read_staged_pair(
+    state_directory: &Path,
+    uid: u32,
+) -> Result<VerifiedStage, InspectError> {
+    let ready = inspect_ready(state_directory, uid)?;
+    let parent =
+        open_private_directory(state_directory, uid).map_err(|_| InspectError::UnsafeOrChanged)?;
+    let parent_before = parent
+        .metadata()
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    let directory = File::from(
+        openat(
+            &parent,
+            Path::new(PENDING_DIRECTORY),
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| InspectError::MissingOrIncomplete)?,
+    );
+    let before = directory
+        .metadata()
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    if !exact_directory(&before, uid) {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    let members = [
+        read_member(&directory, MEMBERS[0], uid, MAX_PRIVATE_STORE_BYTES)?,
+        read_member(&directory, MEMBERS[1], uid, MAX_TEMPLATE_BYTES)?,
+        read_member(&directory, MEMBERS[2], uid, MAX_PRIVATE_STORE_BYTES)?,
+        read_member(&directory, MEMBERS[3], uid, MAX_TEMPLATE_BYTES)?,
+    ];
+    if members
+        .iter()
+        .enumerate()
+        .any(|(index, bytes)| !matches_member(bytes, &ready, index))
+        || !same_directory(
+            &before,
+            &File::from(
+                openat(
+                    &parent,
+                    Path::new(PENDING_DIRECTORY),
+                    OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(|_| InspectError::UnsafeOrChanged)?,
+            )
+            .metadata()
+            .map_err(|_| InspectError::UnsafeOrChanged)?,
+        )
+        || !same_directory(
+            &parent_before,
+            &open_private_directory(state_directory, uid)
+                .map_err(|_| InspectError::UnsafeOrChanged)?
+                .metadata()
+                .map_err(|_| InspectError::UnsafeOrChanged)?,
+        )
+        || inspect_ready(state_directory, uid)? != ready
+    {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    Ok(VerifiedStage {
+        identity: StageIdentity(Sha256::digest(ready).into()),
+        members,
+    })
 }
 
 /// Read-only integrity inspection. A ready marker is a checksum of the exact
