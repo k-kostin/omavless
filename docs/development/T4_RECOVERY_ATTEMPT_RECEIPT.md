@@ -2,8 +2,10 @@
 
 Status: test-only protocol model, stacked on the inactive network-transition
 planner. The implementation is compiled only under `cfg(test)` and has no
-production caller, filesystem adapter, event subscription, timer, retry worker,
-IPC method, settings change or VPN effect.
+production caller, production filesystem adapter, event subscription, timer, retry worker,
+IPC method, settings change or VPN effect. A separate test-only temporary-file
+fixture now composes this protocol with the existing private atomic writer and
+migration lock; its scope and crash limitations are recorded below.
 
 ## Problem and bounded result
 
@@ -98,6 +100,39 @@ at-most-once behavior. Neither an owner restart nor startup reconciliation is
 implemented by this model.
 
 ## Evidence scope
+
+### Real-file process-crash fixture
+
+`network_recovery_receipt_files.rs` is reachable only from the `cfg(test)`
+receipt module. It creates synthetic Ready state in an exclusive private test
+directory, holds the real `MigrationLock`, and uses the existing
+`omavless_store::atomic_replace_private` writer for Reserved and Finished.
+The effect is only a synced counter byte in that same disposable directory.
+Nothing reads the user's store or calls a service/controller/network adapter.
+
+Six rendezvous points cover immediately before/after reservation publication,
+before/after the synthetic effect, and before/after completion publication.
+The parent test kills a real child with SIGKILL at each point and reaps it.
+The restarted fixture obtains the released lock, checks the exact surviving
+phase and uses a new owner instance: even the pre-reservation Ready record
+cannot authorize it. After any effect the file is Reserved or Finished, never
+Ready. A separate six-point error matrix verifies that same-owner retries stay
+poisoned even when an error precedes the reservation. Success/duplicate,
+lock-contention, missing/malformed/oversized/version-mismatched/stale-instance,
+unsafe-mode and symlink fixtures check refusal without initialization or repair.
+
+This closes **process death at acknowledged writer-call boundaries in a trusted
+temporary directory**, not the full durable-adapter gate. It does not inject
+failure inside the writer's write/fsync/rename sequence, simulate machine power
+loss, prove rollback resistance or attribute an unsynced foreign Ready file.
+The fixture's path checks are not a pinned-dirfd production storage design and
+do not establish safety against concurrent same-user path replacement. Ready
+is seeded solely by test setup; provisioning, restart identity provenance,
+cross-trigger startup/event serialization and real host admission are still
+absent. The ignored child entry point is explicitly exercised by its ordinary
+parent test; it is not an unrun installed-host gate.
+
+### Abstract protocol fixtures
 
 Synthetic tests cover missing/lost receipts; exact Ready admission; duplicate
 hints; terminal and uncertain attempts; changed boot/owner/generation/desired/
