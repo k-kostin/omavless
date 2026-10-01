@@ -171,10 +171,27 @@ fn valid_subscription_key(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-pub fn normalize_store_state(
-    mut input: StoreStateInput,
+pub fn normalize_store_state(input: StoreStateInput) -> Result<NormalizedStoreState, StoreError> {
+    normalize_store_state_with_version(input, CURRENT_STORE_VERSION, CURRENT_STORE_VERSION)
+}
+
+/// Inactive v4 candidate validation only. This does not raise the version
+/// accepted by the production loader or authorize publication of v4 bytes.
+pub(crate) fn normalize_candidate_store_state(
+    input: StoreStateInput,
 ) -> Result<NormalizedStoreState, StoreError> {
-    if !(1..=CURRENT_STORE_VERSION).contains(&input.version) {
+    if input.version != 4 {
+        return Err(StoreError::UnsupportedVersion);
+    }
+    normalize_store_state_with_version(input, 4, 4)
+}
+
+fn normalize_store_state_with_version(
+    mut input: StoreStateInput,
+    max_version: u8,
+    output_version: u8,
+) -> Result<NormalizedStoreState, StoreError> {
+    if !(1..=max_version).contains(&input.version) {
         return Err(StoreError::UnsupportedVersion);
     }
     if input.profiles.len() > MAX_PROFILES {
@@ -256,7 +273,7 @@ pub fn normalize_store_state(
         .onboarding_complete
         .unwrap_or(!input.profiles.is_empty());
     Ok(NormalizedStoreState {
-        version: CURRENT_STORE_VERSION,
+        version: output_version,
         profiles: input.profiles,
         subscriptions: input.subscriptions,
         active_id: input.active_id,

@@ -121,3 +121,23 @@ Repeat that audit before any protocol/core integration PR.
 No VM, bare-metal network, provider, AUTO-1, DNS or V0 result changes. Rust
 remains the production owner, the Python archive remains frozen, and neither
 merge nor release/marketplace publication is authorized by this checkpoint.
+
+## Inactive v4 candidate follow-up
+
+The subsequent `dev/p4-mixed-store-candidate` slice adds an in-memory
+`CandidatePrivateStore` validator for a future version 4 document. URI rows
+retain their v3 `uri`/`protocol` shape; a WG/AWG row instead has one
+`wireguard` private-record object and a matching `protocol`. Original-byte
+duplicate keys reject at every depth before JSON normalization. URI and WG
+rows share one subscription/profile identity and startup-pointer validation
+pass, including WG-only stores. Provider-managed WG rows, ambiguous credential
+sources and unsupported versions are refused. Private re-encoding roundtrips
+the complete document; public methods expose counts and pointer-presence only.
+
+This is **not a store migration or product activation**. The production
+`parse_private_store` still refuses v4; no filesystem writer, IPC method,
+profile import/edit/export, renderer, probe, backup/restore or core operation
+accepts these rows. In particular, successful candidate validation gives no
+permission to write a v4 artifact that the installed owner cannot read. The
+next slice must couple owner-bound atomic publication with an old-reader and
+rollback policy, followed by typed consumers and installed/real-server gates.
