@@ -49,7 +49,15 @@ test('subscription toggle describes the actual target and preserves expansion du
     assert.equal(c.nativeSubscriptionToggleTooltip({kind:'profile'}),'');
     assert.equal(c.calls.length,0);
   }
-  assert.match(source,/id: nativeGroup;[^\n]*tooltipText: root.nativeSubscriptionToggleTooltip\(nativeRow.modelData\)/);
+});
+test('subscription hint wraps within its row and remains available on keyboard focus',()=>{
+  const group=source.slice(source.indexOf('id: nativeGroup\n'),source.indexOf('id: nativeGroupRefresh\n'));
+  assert.match(group,/text: root.nativeSubscriptionToggleTooltip\(nativeRow.modelData\)/);
+  assert.match(group,/visible: nativeGroup.pointerHovered \|\| nativeGroup.activeFocus/);
+  assert.match(group,/width: Math.min\(implicitWidth, nativeRow.width\)/);
+  assert.match(group,/property: "wrapMode"; value: Text.Wrap/);
+  assert.match(group,/x: 0/);
+  assert(!group.includes('tooltipText:')); // No second, unbounded shared hint.
 });
 test('subscription navigation restores list focus after the old Open control disappears',()=>{
   const c=context(),deferred=[];let focused=0;
