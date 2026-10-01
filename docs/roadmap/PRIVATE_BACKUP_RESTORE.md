@@ -426,6 +426,41 @@ appearing during host validation. This is an admission fence, not a completed
 restore decision or a policy for how imported startup preferences behave after
 the stage is eventually resolved.
 
+## Inactive recovery-decision model
+
+An internal pure Rust model now binds a candidate decision to a verified
+point-in-time v1 stage digest, exact Off desired-state bytes (or explicit
+absence), owner generation and a nonzero transaction identifier. Its fixed
+138-byte `OVRDEC01` representation contains a phase (`Intent`, `Committed` or
+`Aborted`) and a domain-separated SHA-256 tear checksum. It contains no raw
+profile, template, desired-state or passphrase bytes. The checksum is **not**
+authentication against a same-user writer. This record is neither written to
+disk nor read at startup by current product code; there is no transaction
+executor, cleanup or restore command.
+
+The pure review table treats a valid nonterminal intent with live old/new/mixed
+bytes as a *candidate* for exact-old rollback, never as a completed restore.
+Only a matching terminal `Committed` plus new pair can be reviewed as commit;
+only `Aborted` plus old pair as abort. Divergence and contradictions require
+manual recovery. A missing/invalid record or existing v1 stage alone grants no
+recovery authority. Even a table match still requires an independently
+verified, durable on-disk intent, fresh owner/disconnected/host checks,
+descriptor-relative writes and readback under one lease. The model does not
+settle imported startup preferences after recovery.
+
+A further inactive read-only journal inspector recognizes two fixed private
+state-root files, `restore-decision.intent` and an optional
+`restore-decision.terminal`. It requires exact owner/permissions/single-link
+regular files, bounded records, one matching transaction, an unchanged Rust
+owner generation, the current complete stage and the exact current Off desired
+state. A terminal without an intent, torn file, symlink, changed desired state
+or mismatched transaction refuses. The inspector reopens the members and
+rechecks the marker/stage/state directory during one lease-bound pass. This is
+not a journal **writer**: synthetic tests create its records, normal installed
+operation never does. It never clears a stage or classifies/changes live
+profiles. Any later writer and executor still need independent durability,
+interruption, cleanup and host-authorization design and evidence.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier

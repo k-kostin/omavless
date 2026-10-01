@@ -8,6 +8,10 @@
 mod backup_destination_candidate;
 mod backup_source_candidate;
 mod pending_private_transaction;
+#[allow(dead_code)]
+mod restore_decision_candidate;
+#[allow(dead_code)]
+mod restore_journal_candidate;
 mod restore_staging_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]

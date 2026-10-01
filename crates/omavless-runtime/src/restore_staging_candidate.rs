@@ -62,6 +62,26 @@ pub(crate) enum InspectError {
     UnsafeOrChanged,
 }
 
+/// A point-in-time digest of a fully inspected v1 stage. This is not a
+/// transaction identity or authority to replace either live file.
+#[derive(Clone, Copy)]
+pub(crate) struct StageIdentity([u8; 32]);
+
+impl StageIdentity {
+    pub(crate) const fn digest(&self) -> [u8; 32] {
+        self.0
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn inspect_stage_identity(
+    state_directory: &Path,
+    uid: u32,
+) -> Result<StageIdentity, InspectError> {
+    let ready = inspect_ready(state_directory, uid)?;
+    Ok(StageIdentity(Sha256::digest(ready).into()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LivePairClass {
     Old,
@@ -69,6 +89,28 @@ pub(crate) enum LivePairClass {
     Identical,
     Mixed,
     Diverged,
+}
+
+/// Both values come from one inspected stage and live-pair pass under the
+/// matching migration lease. A detached enum must not authorize recovery.
+pub(crate) struct VerifiedLivePair {
+    stage: StageIdentity,
+    class: LivePairClass,
+}
+
+impl VerifiedLivePair {
+    pub(crate) const fn stage(&self) -> &StageIdentity {
+        &self.stage
+    }
+
+    pub(crate) const fn class(&self) -> LivePairClass {
+        self.class
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn synthetic(stage: StageIdentity, class: LivePairClass) -> Self {
+        Self { stage, class }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,6 +330,18 @@ pub(crate) fn classify_live_pair(
     generation: u64,
     lock: &MigrationLock,
 ) -> Result<LivePairClass, ClassifyError> {
+    classify_live_pair_bound(config_directory, paths, uid, generation, lock)
+        .map(|pair| pair.class())
+}
+
+#[allow(dead_code)]
+pub(crate) fn classify_live_pair_bound(
+    config_directory: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<VerifiedLivePair, ClassifyError> {
     if !lock.authorizes(paths, uid)
         || !read_marker_existing(paths, uid).is_ok_and(|marker| {
             marker.phase() == OwnershipPhase::Rust && marker.generation() == generation
@@ -323,12 +377,10 @@ pub(crate) fn classify_live_pair(
     let old_template = matches_member(&template, &ready, 1);
     let new_store = matches_member(&store, &ready, 2);
     let new_template = matches_member(&template, &ready, 3);
-    Ok(class_from_matches(
-        old_store,
-        old_template,
-        new_store,
-        new_template,
-    ))
+    Ok(VerifiedLivePair {
+        stage: StageIdentity(Sha256::digest(ready).into()),
+        class: class_from_matches(old_store, old_template, new_store, new_template),
+    })
 }
 
 fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<(), StageError> {
