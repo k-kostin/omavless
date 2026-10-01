@@ -239,3 +239,40 @@ close consistent native-owner snapshot,
 private destination publication, disconnected restore admission, durable
 multi-file recovery or installed acceptance. No backup or restore feature is
 available to users.
+
+## Inactive fixed-member source snapshot
+
+The runtime's test-only `backup_source_candidate` exercises the source-pair
+acquisition prerequisite using only synthetic temporary files. It accepts the
+existing matching migration lease, checks the exact committed Rust generation
+and refuses an existing or unreadable routing-preset pending marker both before
+and after acquisition. It never creates state directories or repairs a marker.
+The lease remains held across both reads, excluding cooperating store/template
+writers. This is not yet the serialized native owner's complete admission:
+instance/revision, in-memory recovery barriers and background-operation state
+must still be supplied by eventual owner integration.
+
+The candidate pins the private config directory and opens only `profiles.json`
+and `route-template.yaml` through that directory descriptor. Both member
+descriptors are held before either read. Members must be same-user, regular,
+single-link, mode `0600`, nonempty and within the existing individual bounds;
+symlinks, hard links, unsafe directories and special files refuse. Reads are
+bounded and nonblocking at open. Descriptor and current-path identity, size,
+mode, ownership and modification/change timestamps are rechecked after both
+reads, together with the directory and owner/pending state. A detected edit or
+replacement returns no pair and never overwrites the changed source.
+
+Eight synthetic tests cover fixed-member-only acquisition, matching lease
+exclusion, wrong generation/lease, unsafe/missing members and directories,
+hardlinks/symlinks, bounds, uncommitted/unsafe ownership and interrupted presets,
+same-size in-place/atomic member replacement, directory replacement and late
+owner/pending changes. This is filesystem and cooperative-lock evidence, not
+protection from a hostile same-user process able to forge the entire state.
+No system service, provider, controller, TUN or private installed file is used.
+
+The returned pair is deliberately unvalidated plaintext in memory, not an
+encrypted backup or authorization to publish it. Semantic store/template checks
+and authentication remain separate; non-formatable owned buffers make no
+zeroization guarantee. Source acquisition does not select destination transfer,
+cryptography, memory-cleanup policy or restore recovery, and no product caller
+or backup command is registered.
