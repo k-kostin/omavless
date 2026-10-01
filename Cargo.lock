@@ -915,6 +915,7 @@ dependencies = [
  "signal-hook",
  "ureq",
  "url",
+ "zeroize",
 ]
 
 [[package]]
