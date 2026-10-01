@@ -377,8 +377,9 @@ product method or UI is added.
 The next internal Rust slice reopens/authenticates the backup and, under the
 same owner lease as the final readiness and old-pair capture, creates exactly
 one private `restore-pair.pending` directory in the state root. It stores four
-fixed, bounded members: old store, old template, authenticated new store and
-authenticated new template. The directory and members use exact `0700`/`0600`
+fixed, bounded data members: old store, old template, authenticated new store
+and authenticated new template, followed by a fixed-size `ready.bin` marker.
+The directory and members use exact `0700`/`0600`
 permissions, no-follow/exclusive descriptor-relative creation and file plus
 directory synchronization. Existing or inaccessible pending state refuses; a
 failure after the directory name is created is ambiguous and never triggers
@@ -394,3 +395,14 @@ test interruption hook models step failures; it does **not** prove crash-safe
 commit. There is still no commit or rollback protocol, startup verifier,
 automatic recovery, public method, IPC or user-facing restore feature. The
 pending directory is deliberately not produced by normal installed operation.
+
+A follow-up read-only inspector requires the exact five-member set, safe
+single-link private files and a final `ready.bin` containing versioned lengths
+and SHA-256 checksums for all four staged byte strings. It reopens entries and
+the parent after bounded reads to refuse detected replacement. Synthetic
+fixtures cover missing, partial, malformed, extra, public, symlinked and
+checksum-mismatched members. The checksum detects accidental corruption and
+torn staging; it does **not** authenticate the directory against a malicious
+same-user writer or prove that a commit ever occurred. Even a complete stage
+remains a pending recovery fence until a separately designed, verified
+commit/rollback procedure exists. The inspector never clears it.

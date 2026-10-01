@@ -10,12 +10,18 @@ use nix::errno::Errno;
 use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::{Mode, mkdirat};
 use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
+use sha2::{Digest, Sha256};
 use std::fs::{File, Metadata};
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
+use zeroize::Zeroizing;
 
 const PENDING_DIRECTORY: &str = "restore-pair.pending";
+const READY_MEMBER: &str = "ready.bin";
+const READY_MAGIC: &[u8; 8] = b"OVRPAIR1";
+const READY_BYTES: usize = 8 + 4 * 4 + 4 * 32;
 
 /// Existence, inaccessible metadata and unexpected entry types all block a
 /// second restore attempt. There is deliberately no automatic deletion.
@@ -46,7 +52,14 @@ pub(crate) enum StageError {
 enum Step {
     Directory,
     Member(usize),
+    Ready,
     Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InspectError {
+    MissingOrIncomplete,
+    UnsafeOrChanged,
 }
 
 fn exact_directory(metadata: &Metadata, uid: u32) -> bool {
@@ -58,6 +71,168 @@ fn same_directory(before: &Metadata, after: &Metadata) -> bool {
         && before.ino() == after.ino()
         && before.uid() == after.uid()
         && before.mode() == after.mode()
+}
+
+fn same_member(before: &Metadata, after: &Metadata) -> bool {
+    before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.uid() == after.uid()
+        && before.mode() == after.mode()
+        && before.nlink() == after.nlink()
+        && before.len() == after.len()
+        && before.mtime() == after.mtime()
+        && before.mtime_nsec() == after.mtime_nsec()
+        && before.ctime() == after.ctime()
+        && before.ctime_nsec() == after.ctime_nsec()
+}
+
+fn ready_bytes(members: [&[u8]; 4]) -> [u8; READY_BYTES] {
+    let mut ready = [0_u8; READY_BYTES];
+    ready[..8].copy_from_slice(READY_MAGIC);
+    for (index, bytes) in members.iter().enumerate() {
+        ready[8 + index * 4..12 + index * 4].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        ready[24 + index * 32..56 + index * 32].copy_from_slice(&Sha256::digest(bytes));
+    }
+    ready
+}
+
+fn read_member(
+    directory: &File,
+    name: &str,
+    uid: u32,
+    limit: usize,
+) -> Result<Zeroizing<Vec<u8>>, InspectError> {
+    let mut file = File::from(
+        openat(
+            directory,
+            Path::new(name),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| InspectError::MissingOrIncomplete)?,
+    );
+    let before = file.metadata().map_err(|_| InspectError::UnsafeOrChanged)?;
+    if !before.is_file()
+        || before.uid() != uid
+        || before.mode() & 0o7777 != 0o600
+        || before.nlink() != 1
+        || before.len() == 0
+        || before.len() > limit as u64
+    {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    Read::by_ref(&mut file)
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    if bytes.len() as u64 != before.len() {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    let after = file.metadata().map_err(|_| InspectError::UnsafeOrChanged)?;
+    let reopened = File::from(
+        openat(
+            directory,
+            Path::new(name),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| InspectError::UnsafeOrChanged)?,
+    );
+    if !same_member(&before, &after)
+        || !same_member(
+            &before,
+            &reopened
+                .metadata()
+                .map_err(|_| InspectError::UnsafeOrChanged)?,
+        )
+    {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    Ok(bytes)
+}
+
+/// Read-only integrity inspection. A ready marker is a checksum of the exact
+/// staged bytes, not proof of owner admission or permission to commit them.
+#[allow(dead_code)]
+pub(crate) fn inspect_staged_pair(state_directory: &Path, uid: u32) -> Result<(), InspectError> {
+    let parent =
+        open_private_directory(state_directory, uid).map_err(|_| InspectError::UnsafeOrChanged)?;
+    let parent_before = parent
+        .metadata()
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    let directory = File::from(
+        openat(
+            &parent,
+            Path::new(PENDING_DIRECTORY),
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| InspectError::MissingOrIncomplete)?,
+    );
+    let directory_before = directory
+        .metadata()
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    if !exact_directory(&directory_before, uid) {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    let ready = read_member(&directory, READY_MEMBER, uid, READY_BYTES)?;
+    if ready.len() != READY_BYTES || &ready[..8] != READY_MAGIC {
+        return Err(InspectError::MissingOrIncomplete);
+    }
+    for (index, name) in MEMBERS.iter().enumerate() {
+        let limit = if index % 2 == 0 {
+            MAX_PRIVATE_STORE_BYTES
+        } else {
+            MAX_TEMPLATE_BYTES
+        };
+        let bytes = read_member(&directory, name, uid, limit)?;
+        if ready[8 + index * 4..12 + index * 4] != (bytes.len() as u32).to_be_bytes()
+            || ready[24 + index * 32..56 + index * 32] != Sha256::digest(&*bytes)[..]
+        {
+            return Err(InspectError::UnsafeOrChanged);
+        }
+    }
+    let entries = std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))
+        .map_err(|_| InspectError::UnsafeOrChanged)?;
+    let mut names = entries
+        .map(|entry| {
+            entry
+                .map(|value| value.file_name())
+                .map_err(|_| InspectError::UnsafeOrChanged)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+    let mut expected = MEMBERS.map(std::ffi::OsString::from).to_vec();
+    expected.push(READY_MEMBER.into());
+    expected.sort();
+    if names != expected {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    let current = File::from(
+        openat(
+            &parent,
+            Path::new(PENDING_DIRECTORY),
+            OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| InspectError::UnsafeOrChanged)?,
+    );
+    if !same_directory(
+        &directory_before,
+        &current
+            .metadata()
+            .map_err(|_| InspectError::UnsafeOrChanged)?,
+    ) || !same_directory(
+        &parent_before,
+        &open_private_directory(state_directory, uid)
+            .map_err(|_| InspectError::UnsafeOrChanged)?
+            .metadata()
+            .map_err(|_| InspectError::UnsafeOrChanged)?,
+    ) {
+        return Err(InspectError::UnsafeOrChanged);
+    }
+    Ok(())
 }
 
 fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<(), StageError> {
@@ -161,6 +336,12 @@ fn stage_with_hook(
         }
     }
     directory.sync_all().map_err(|_| StageError::Ambiguous)?;
+    let ready = ready_bytes(members);
+    write_member(&directory, READY_MEMBER, uid, &ready)?;
+    if !proceed(Step::Ready) {
+        return Err(StageError::Ambiguous);
+    }
+    directory.sync_all().map_err(|_| StageError::Ambiguous)?;
     if !proceed(Step::Complete) {
         return Err(StageError::Ambiguous);
     }
@@ -186,6 +367,7 @@ fn stage_with_hook(
         return Err(StageError::Ambiguous);
     }
     parent.sync_all().map_err(|_| StageError::Ambiguous)?;
+    inspect_staged_pair(state_directory, uid).map_err(|_| StageError::Ambiguous)?;
     Ok(())
 }
 
@@ -223,6 +405,7 @@ mod tests {
             .collect::<Vec<_>>();
         entries.sort();
         let mut expected = MEMBERS.map(std::ffi::OsString::from).to_vec();
+        expected.push(READY_MEMBER.into());
         expected.sort();
         assert_eq!(entries, expected);
         for (name, bytes) in MEMBERS.iter().zip(PAIR) {
@@ -232,6 +415,7 @@ mod tests {
             assert_eq!(metadata.nlink(), 1);
             assert!(fs::read(file).unwrap() == bytes);
         }
+        assert_eq!(inspect_staged_pair(&root, uid), Ok(()));
         assert_eq!(
             stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]),
             Err(StageError::AlreadyPending)
@@ -245,6 +429,7 @@ mod tests {
             Step::Directory,
             Step::Member(0),
             Step::Member(2),
+            Step::Ready,
             Step::Complete,
         ] {
             let (root, uid) = root();
@@ -253,6 +438,9 @@ mod tests {
                 Err(StageError::Ambiguous)
             );
             assert!(root.join(PENDING_DIRECTORY).is_dir());
+            if !matches!(stop, Step::Ready | Step::Complete) {
+                assert_ne!(inspect_staged_pair(&root, uid), Ok(()));
+            }
             assert_eq!(
                 stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]),
                 Err(StageError::AlreadyPending)
@@ -288,5 +476,45 @@ mod tests {
         );
         assert!(fs::read_dir(target).unwrap().next().is_none());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inspector_refuses_tampering_missing_members_and_unexpected_entries() {
+        for mutation in 0..5 {
+            let (root, uid) = root();
+            stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]).unwrap();
+            let staged = root.join(PENDING_DIRECTORY);
+            match mutation {
+                0 => fs::write(staged.join(MEMBERS[0]), b"new store").unwrap(),
+                1 => fs::write(staged.join(READY_MEMBER), b"invalid marker").unwrap(),
+                2 => fs::remove_file(staged.join(MEMBERS[1])).unwrap(),
+                3 => fs::write(staged.join("unexpected.txt"), b"extra").unwrap(),
+                _ => {
+                    let member = staged.join(MEMBERS[2]);
+                    fs::hard_link(&member, staged.join("other-link")).unwrap();
+                }
+            }
+            assert_ne!(inspect_staged_pair(&root, uid), Ok(()));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn inspector_refuses_public_and_symlinked_members() {
+        for replace_with_symlink in [false, true] {
+            let (root, uid) = root();
+            stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]).unwrap();
+            let staged = root.join(PENDING_DIRECTORY);
+            let member = staged.join(MEMBERS[3]);
+            fs::remove_file(&member).unwrap();
+            if replace_with_symlink {
+                symlink(staged.join(MEMBERS[1]), member).unwrap();
+            } else {
+                fs::write(&member, PAIR[3]).unwrap();
+                fs::set_permissions(&member, fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            assert_ne!(inspect_staged_pair(&root, uid), Ok(()));
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }
