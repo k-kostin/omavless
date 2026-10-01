@@ -747,6 +747,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             ];
             match &app.route_result {
                 Some(Status::Observed(result)) => {
+                    if let Some(checked_at) = app.route_checked_at {
+                        let (key, count) = crate::inspection::observed_age(checked_at, now);
+                        let age = count.map_or_else(
+                            || tr(key).to_owned(),
+                            |n| tr(key).replace("{count}", &n.to_string()),
+                        );
+                        lines.push(field("tui.route_check_age", age));
+                    }
                     let outcome = match result.outcome {
                         Outcome::Vpn => "tui.connection_route_vpn",
                         Outcome::Direct => "tui.connection_route_direct",
