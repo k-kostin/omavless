@@ -407,6 +407,16 @@ same-user writer or prove that a commit ever occurred. Even a complete stage
 remains a pending recovery fence until a separately designed, verified
 commit/rollback procedure exists. The inspector never clears it.
 
+Under a matching owner lease, a further read-only recovery classifier compares
+the two currently live fixed files with the verified staged old/new checksums.
+It reports only `old`, `new`, `identical`, `mixed` or `diverged`; unsafe live
+files, an invalid stage and changed ownership refuse separately. Synthetic
+fixtures exercise every changed outcome, a wrong generation, a symlinked live
+member and a torn marker. This is a point-in-time diagnosis, not proof that a
+particular write committed or permission to roll forward/back. No class
+automatically clears the pending fence, and future recovery must retain the
+same lease and reprove all facts before each effect.
+
 ## Inactive native-owner backup composition
 
 The native coordinator now has one internal-only composition of the earlier

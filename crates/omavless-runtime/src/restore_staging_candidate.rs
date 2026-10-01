@@ -5,6 +5,7 @@
 //! is a refusal/recovery signal, not permission to finish or retry a restore.
 
 use crate::backup_source_candidate::open_private_directory;
+use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::desired::DesiredPaths;
 use nix::errno::Errno;
 use nix::fcntl::{OFlag, openat};
@@ -62,6 +63,22 @@ pub(crate) enum InspectError {
     UnsafeOrChanged,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LivePairClass {
+    Old,
+    New,
+    Identical,
+    Mixed,
+    Diverged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClassifyError {
+    Admission,
+    Stage(InspectError),
+    UnsafeLive,
+}
+
 fn exact_directory(metadata: &Metadata, uid: u32) -> bool {
     metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o7777 == 0o700
 }
@@ -94,6 +111,28 @@ fn ready_bytes(members: [&[u8]; 4]) -> [u8; READY_BYTES] {
         ready[24 + index * 32..56 + index * 32].copy_from_slice(&Sha256::digest(bytes));
     }
     ready
+}
+
+fn matches_member(bytes: &[u8], ready: &[u8; READY_BYTES], index: usize) -> bool {
+    ready[8 + index * 4..12 + index * 4] == (bytes.len() as u32).to_be_bytes()
+        && ready[24 + index * 32..56 + index * 32] == Sha256::digest(bytes)[..]
+}
+
+fn class_from_matches(
+    old_store: bool,
+    old_template: bool,
+    new_store: bool,
+    new_template: bool,
+) -> LivePairClass {
+    match (old_store && old_template, new_store && new_template) {
+        (true, true) => LivePairClass::Identical,
+        (true, false) => LivePairClass::Old,
+        (false, true) => LivePairClass::New,
+        (false, false) if (old_store || new_store) && (old_template || new_template) => {
+            LivePairClass::Mixed
+        }
+        (false, false) => LivePairClass::Diverged,
+    }
 }
 
 fn read_member(
@@ -156,6 +195,10 @@ fn read_member(
 /// staged bytes, not proof of owner admission or permission to commit them.
 #[allow(dead_code)]
 pub(crate) fn inspect_staged_pair(state_directory: &Path, uid: u32) -> Result<(), InspectError> {
+    inspect_ready(state_directory, uid).map(|_| ())
+}
+
+fn inspect_ready(state_directory: &Path, uid: u32) -> Result<[u8; READY_BYTES], InspectError> {
     let parent =
         open_private_directory(state_directory, uid).map_err(|_| InspectError::UnsafeOrChanged)?;
     let parent_before = parent
@@ -180,6 +223,8 @@ pub(crate) fn inspect_staged_pair(state_directory: &Path, uid: u32) -> Result<()
     if ready.len() != READY_BYTES || &ready[..8] != READY_MAGIC {
         return Err(InspectError::MissingOrIncomplete);
     }
+    let mut signature = [0_u8; READY_BYTES];
+    signature.copy_from_slice(&ready);
     for (index, name) in MEMBERS.iter().enumerate() {
         let limit = if index % 2 == 0 {
             MAX_PRIVATE_STORE_BYTES
@@ -187,9 +232,7 @@ pub(crate) fn inspect_staged_pair(state_directory: &Path, uid: u32) -> Result<()
             MAX_TEMPLATE_BYTES
         };
         let bytes = read_member(&directory, name, uid, limit)?;
-        if ready[8 + index * 4..12 + index * 4] != (bytes.len() as u32).to_be_bytes()
-            || ready[24 + index * 32..56 + index * 32] != Sha256::digest(&*bytes)[..]
-        {
+        if !matches_member(&bytes, &signature, index) {
             return Err(InspectError::UnsafeOrChanged);
         }
     }
@@ -232,7 +275,61 @@ pub(crate) fn inspect_staged_pair(state_directory: &Path, uid: u32) -> Result<()
     ) {
         return Err(InspectError::UnsafeOrChanged);
     }
-    Ok(())
+    Ok(signature)
+}
+
+/// Point-in-time classification only; never a restore/rollback authority.
+/// The matching owner lease excludes cooperating writers, but a foreign
+/// same-user writer and later mutation remain outside this observation.
+#[allow(dead_code)]
+pub(crate) fn classify_live_pair(
+    config_directory: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<LivePairClass, ClassifyError> {
+    if !lock.authorizes(paths, uid)
+        || !read_marker_existing(paths, uid).is_ok_and(|marker| {
+            marker.phase() == OwnershipPhase::Rust && marker.generation() == generation
+        })
+    {
+        return Err(ClassifyError::Admission);
+    }
+    let ready = inspect_ready(&paths.state_directory, uid).map_err(ClassifyError::Stage)?;
+    let config =
+        open_private_directory(config_directory, uid).map_err(|_| ClassifyError::UnsafeLive)?;
+    let before = config.metadata().map_err(|_| ClassifyError::UnsafeLive)?;
+    let store = read_member(&config, "profiles.json", uid, MAX_PRIVATE_STORE_BYTES)
+        .map_err(|_| ClassifyError::UnsafeLive)?;
+    let template = read_member(&config, "route-template.yaml", uid, MAX_TEMPLATE_BYTES)
+        .map_err(|_| ClassifyError::UnsafeLive)?;
+    let after =
+        open_private_directory(config_directory, uid).map_err(|_| ClassifyError::UnsafeLive)?;
+    if !same_directory(
+        &before,
+        &after.metadata().map_err(|_| ClassifyError::UnsafeLive)?,
+    ) {
+        return Err(ClassifyError::UnsafeLive);
+    }
+    if !read_marker_existing(paths, uid).is_ok_and(|marker| {
+        marker.phase() == OwnershipPhase::Rust && marker.generation() == generation
+    }) {
+        return Err(ClassifyError::Admission);
+    }
+    if inspect_ready(&paths.state_directory, uid).map_err(ClassifyError::Stage)? != ready {
+        return Err(ClassifyError::Stage(InspectError::UnsafeOrChanged));
+    }
+    let old_store = matches_member(&store, &ready, 0);
+    let old_template = matches_member(&template, &ready, 1);
+    let new_store = matches_member(&store, &ready, 2);
+    let new_template = matches_member(&template, &ready, 3);
+    Ok(class_from_matches(
+        old_store,
+        old_template,
+        new_store,
+        new_template,
+    ))
 }
 
 fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<(), StageError> {
@@ -386,6 +483,34 @@ mod tests {
     }
 
     const PAIR: [&[u8]; 4] = [b"old store", b"old template", b"new store", b"new template"];
+
+    #[test]
+    fn classification_distinguishes_identical_mixed_and_diverged_pairs() {
+        assert_eq!(
+            class_from_matches(true, true, true, true),
+            LivePairClass::Identical
+        );
+        assert_eq!(
+            class_from_matches(true, true, false, false),
+            LivePairClass::Old
+        );
+        assert_eq!(
+            class_from_matches(false, false, true, true),
+            LivePairClass::New
+        );
+        assert_eq!(
+            class_from_matches(true, false, false, true),
+            LivePairClass::Mixed
+        );
+        assert_eq!(
+            class_from_matches(false, false, false, false),
+            LivePairClass::Diverged
+        );
+        assert_eq!(
+            class_from_matches(true, false, false, false),
+            LivePairClass::Diverged
+        );
+    }
 
     #[test]
     fn stages_only_fixed_private_members_and_refuses_second_attempt() {
