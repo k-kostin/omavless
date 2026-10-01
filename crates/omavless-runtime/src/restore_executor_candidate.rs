@@ -576,7 +576,7 @@ pub(crate) fn execute_staged_pair(
 // The final parameter is a test-only crash hook; the public candidate keeps
 // the fixed owner/lease identity explicit at its security boundary.
 #[allow(clippy::too_many_arguments)]
-fn execute_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
+pub(crate) fn execute_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     config: &Path,
     paths: &CutoverPaths,
     uid: u32,

@@ -134,6 +134,12 @@ impl DecisionRecord {
         self.stage_digest == Sha256::digest(ready)[..]
     }
 
+    /// A caller that captures stage bytes separately from journal inspection
+    /// must bind that exact captured snapshot to the terminal before effects.
+    pub(crate) fn matches_stage_identity(&self, stage: &StageIdentity) -> bool {
+        self.stage_digest == stage.digest()
+    }
+
     /// After the terminal journal member is retired, an intent may remain
     /// only when it is the exact earlier phase of this receipt transaction.
     pub(crate) fn is_intent_of(&self, terminal: &Self) -> bool {
@@ -378,6 +384,9 @@ mod tests {
         assert!(!wire.windows(desired.len()).any(|part| part == desired));
         let committed = intent.terminal(TerminalChoice::Commit).unwrap();
         let aborted = intent.terminal(TerminalChoice::Abort).unwrap();
+        let (other_root, _, other_stage) = stage_with(b"other new store");
+        assert!(committed.matches_stage_identity(&stage));
+        assert!(!committed.matches_stage_identity(&other_stage));
         assert!(committed.same_transaction(&intent));
         assert!(aborted.same_transaction(&intent));
         assert_ne!(committed.phase(), aborted.phase());
@@ -385,6 +394,7 @@ mod tests {
         assert!(DecisionRecord::decode(&committed.encode()).unwrap() == committed);
         assert!(DecisionRecord::decode(&aborted.encode()).unwrap() == aborted);
         fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(other_root).unwrap();
     }
 
     #[test]
