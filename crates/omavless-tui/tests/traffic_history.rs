@@ -6,7 +6,7 @@ use omavless_tui::{
     client::{Read, load_page},
     i18n::Locale,
     inspection::Page,
-    traffic_history::{CAPACITY, History, WINDOW},
+    traffic_history::{CAPACITY, History, LONG_WINDOW, WINDOW},
     view,
 };
 use ratatui::{Terminal, backend::TestBackend};
@@ -70,6 +70,35 @@ fn samples_cannot_be_unbounded_or_joined_across_non_monotonic_time() {
     assert!(history.recent(start + Duration::from_secs(99)).count() <= CAPACITY);
     history.observe(Some((1, 1)), start + Duration::from_secs(10));
     assert_eq!(history.recent(start + Duration::from_secs(10)).count(), 1);
+}
+
+#[test]
+fn five_minute_view_is_bounded_and_preserves_short_bursts() {
+    let start = Instant::now();
+    let mut history = History::default();
+    for index in 0..100 {
+        let upload = if index == 17 { 10_000 } else { 10 };
+        history.observe(
+            Some((upload, index)),
+            start + Duration::from_secs(index * 3),
+        );
+    }
+    let now = start + Duration::from_secs(297);
+    assert!(history.has_long_trend(now));
+    assert_eq!(history.peak_window(now, true, LONG_WINDOW), Some(10_000));
+    assert_eq!(history.peak(now, true), Some(10));
+    let graph = history.sparkline_window(now, true, LONG_WINDOW).unwrap();
+    assert_eq!(graph.chars().count(), 40);
+    assert!(graph.contains('█'));
+
+    history.observe(Some((1, 1)), now + Duration::from_secs(13));
+    assert!(!history.has_long_trend(now + Duration::from_secs(13)));
+    assert_eq!(
+        history
+            .recent_window(now + Duration::from_secs(13), LONG_WINDOW)
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -139,5 +168,22 @@ fn traffic_screen_labels_relative_samples_in_en_and_ru_without_live_probe() {
         assert!(screen.contains(locale.text("tui.upload_history")));
         assert!(screen.contains(locale.text("tui.download_history")));
         assert!(!screen.contains("private://"));
+        for index in 2..=22 {
+            app.traffic_history
+                .observe(Some((42, 21)), now + Duration::from_secs(index * 3));
+        }
+        let later = now + Duration::from_secs(66);
+        app.sampled_at = Some(later);
+        assert!(
+            render(&mut terminal, &app, later)
+                .contains(locale.text("tui.traffic_history_long_scope"))
+        );
+        let mut compact = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        app.inspection_scroll = u16::MAX;
+        view::clamp_scroll(&mut app, 80, 20, later);
+        assert!(
+            render(&mut compact, &app, later)
+                .contains(locale.text("tui.traffic_history_long_scope"))
+        );
     }
 }
