@@ -8,6 +8,27 @@ service, provisioning or activation. K1 remains unavailable.
 
 ## One lock and strict admission
 
+The follow-on authority barrier binds the inactive `LockedState::open_fixed()`
+entry to a fixed root-owned enrollment file at
+`/etc/omavless-netguard/enrollment-v1.json`. The canonical version-1 document
+contains only a nonzero numeric `enrolled_uid`. Pinned no-follow descriptors,
+root ownership, exact `0700` directory and `0600` one-link file modes, bounded
+strict JSON, and re-opened identity/content checks reject unsafe or replaced
+configuration. The binding is rechecked around each kernel observation and
+therefore before effects and final success. There is no provisioning path or
+request-supplied UID at this entry point. Direct fixed-path marker/receipt
+openers are crate-private; the new effect port is sealed against external
+implementations. A regression case replaces the enrollment file during an
+observation and verifies zero effects or state writes.
+
+This is a compile-time and file-binding prerequisite, not authenticated peer
+enrollment or kernel authority. An enrolled account's existence and local
+identity still need administrator setup checks. Test-only in-crate ports can
+still supply modeled namespace and ownership facts. The real adapter must
+independently prove canonical host namespace/socket lifetime, complete policy
+and table provenance, and conditional mutation. No service or installed state
+path calls this entry.
+
 The context owns `ReceiptStore`, which owns the original `RootStateStore` and
 its pinned-directory flock. `from_root` moves that owner; it does not duplicate,
 drop or reacquire the lock. There is no public mutable accessor for either

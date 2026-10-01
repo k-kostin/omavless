@@ -12,6 +12,12 @@ terminal receipt. The older coordinator's contract is preserved for its own
 synthetic callers. There is no blanket conversion, production implementation,
 socket, nft invocation, service, packaging or activation.
 
+The follow-on authority barrier seals `EffectPort` to this crate. External
+callers cannot implement it to inject fabricated ownership facts into the
+public `LockedState::request` method. An in-crate implementation still needs
+independent kernel and namespace provenance before it can be trusted; sealing
+is an API boundary, not a source of that provenance.
+
 The new snapshot and identity vocabulary also stays separate from the older
 receipt-backed vocabulary. `EffectIdentity` is a modeled input proof obligation,
 not an attestation minted by this module. Copying its fields, reading a receipt,

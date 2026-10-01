@@ -5,6 +5,7 @@
 
 pub mod coordinator;
 pub mod effect_port;
+mod enrollment;
 #[cfg(target_os = "linux")]
 pub mod kernel_observer;
 pub mod locked_state;
