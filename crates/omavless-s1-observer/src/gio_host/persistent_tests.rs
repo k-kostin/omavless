@@ -340,6 +340,10 @@ fn private_dconf_child() {
             let s = setting(&schemas, DesktopKey::Mode);
             s.set_value("mode", &"manual".to_variant()).unwrap();
             assert_eq!(s.string("mode"), "manual");
+            // This is deliberately optimistic local state, saved privately
+            // only so a fresh process can check the *complete* intended
+            // snapshot after this writer finishes.
+            private_file(&root.join("intended"), &snapshot_bytes(&schemas));
             private_file(&root.join("local-visible"), b"pending");
             gio::Settings::sync();
             private_file(&root.join("sync-returned"), b"settled-or-failed");
@@ -351,6 +355,22 @@ fn private_dconf_child() {
         "assert-disk-manual" => {
             assert_eq!(setting(&schemas, DesktopKey::Mode).string("mode"), "manual");
             assert!(root.join("config/dconf/user").is_file());
+        }
+        "compare-independent" => {
+            let intended = DesktopSnapshot::decode(
+                &omavless_runtime::app_proxy::Snapshot::new(Some(
+                    fs::read(root.join("intended")).unwrap(),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+            let persisted = read_desktop(&schemas).unwrap();
+            let result = crate::runner::compare_desktop(&intended, &persisted);
+            let status = match result {
+                crate::DesktopReadback::Matches => b"matches".as_slice(),
+                crate::DesktopReadback::Differs => b"differs".as_slice(),
+            };
+            private_file(&root.join("readback"), status);
         }
         _ => panic!("unknown fixture role"),
     }
@@ -387,6 +407,15 @@ fn installed_dconf_local_readback_is_not_commit_and_sync_is_not_success() {
         }
         writer.finish();
         assert!(fixture.root.join("sync-returned").exists());
+        fixture.run("compare-independent");
+        assert_eq!(
+            fs::read(fixture.root.join("readback")).unwrap(),
+            if fail {
+                b"differs".as_slice()
+            } else {
+                b"matches".as_slice()
+            }
+        );
         fixture.run(if fail {
             "assert-disk-original"
         } else {

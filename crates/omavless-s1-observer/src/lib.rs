@@ -33,7 +33,9 @@ mod local_bus;
 #[cfg(feature = "gio-observation")]
 mod runner;
 #[cfg(feature = "gio-observation")]
-pub use runner::{RunnerError, observe_via_fixed_runner};
+pub use runner::{
+    DesktopReadback, RunnerError, independent_desktop_readback, observe_via_fixed_runner,
+};
 
 const MAGIC: &[u8; 8] = b"OMAS1OBS";
 const MAX_FRAME: usize = 2 * 16 * 1024 + 32;
