@@ -116,6 +116,8 @@
   "tui.core_log_other":{"en":"Other warnings","ru":"Прочие предупреждения"},
   "tui.core_log_oversized":{"en":"Oversized lines omitted","ru":"Пропущено длинных строк"},
   "tui.core_log_incomplete":{"en":"Log collection incomplete","ru":"Сбор строк неполный"},
+  "tui.core_log_finished":{"en":"Log collection ended","ru":"Сбор строк завершён"},
+  "tui.core_log_finished_scope":{"en":"Collection ending does not verify core exit or VPN cleanup.","ru":"Завершение сбора не подтверждает остановку ядра или очистку VPN."},
   "tui.core_log_recent":{"en":"Recent owned-core warning categories","ru":"Недавние категории предупреждений своего ядра"},
   "tui.core_log_no_recent":{"en":"No classified warnings observed","ru":"Классифицированных предупреждений нет"},
   "tui.core_log_recent_scope":{"en":"Categories only; no raw logs or health verdict. Latest owned core, in memory.","ru":"Только категории, без исходных строк и оценки здоровья. Последнее своё ядро, в памяти."},
