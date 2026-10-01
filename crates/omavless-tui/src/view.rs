@@ -638,7 +638,13 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
         Page::Connections => {
             let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
             let Some(connections) = &s.connection_rows else {
-                lines.push(Line::from(tr("tui.metric_unavailable")));
+                lines.push(Line::from(tr(
+                    if app.snapshot_page == Some(Page::Connections) {
+                        "tui.metric_unavailable"
+                    } else {
+                        "tui.connection_rows_loading"
+                    },
+                )));
                 return lines;
             };
             lines.push(field(

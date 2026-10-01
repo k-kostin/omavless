@@ -46,3 +46,21 @@ operations do not provide an atomic incarnation guarantee (PR #395). A
 synthetic table, connected label or route outcome cannot prove Internet/DNS
 health or the path of all system traffic. T3 is not marked accepted by this
 checkpoint.
+
+## Follow-up: connection-page loading state
+
+On the stacked `dev/t3-connection-loading` candidate, a fresh snapshot from
+another page no longer makes the not-yet-loaded private Connections list look
+unavailable. A page-scoped sample marker selects the new waiting label until
+the first Connections read completes. A completed read without that optional
+capability still says unavailable; leaving the page drops private rows, and
+returning starts a new waiting state. EN/RU tests cover those distinctions.
+
+The same credential-free fixture was rendered in the Omarchy Dev VM with a
+delayed Connections read. Both “Loading connections…” and “Загрузка
+соединений…” were visually checked before the two synthetic rows appeared;
+adjacent settled English/Russian states remained legible. The delay fixture
+was kept below the TUI freshness threshold. No installed package, daemon,
+profile or route was changed. Temporary VM binaries and private screenshots
+were removed after inspection. This remains synthetic presentation evidence,
+not the exact-head installed/live acceptance described above.
