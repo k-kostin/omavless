@@ -3,6 +3,9 @@
 //! survive. No rollback, non-atomic fallback, unlink or normal-owner admission.
 use super::*;
 
+#[path = "restore_successor_displaced_candidate.rs"]
+pub(crate) mod displaced;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExchangeResult {
     ExchangedStillFenced,
@@ -115,6 +118,14 @@ impl Context<'_> {
         hook: &mut impl FnMut(Checkpoint) -> bool,
     ) -> Result<(), ExecutionError> {
         for index in 0..6 {
+            // Only the separately reviewed displaced-retirement phase permits
+            // this one absent source. Exchange itself still requires all six.
+            if index == 1
+                && self.snapshot.phase == RotationPhase::DisplacedRetired
+                && self.snapshot.members[index].is_none()
+            {
+                continue;
+            }
             self.check(gate)?;
             self.open_source(index)?
                 .sync_all()

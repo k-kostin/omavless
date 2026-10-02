@@ -977,3 +977,25 @@ crashes and repeated loss during resynchronization. Neither closure, handoff nor
 receipt is removed. Displaced-record retirement and explicit post-handoff/last
 receipt phases remain separate gates; the old completion reader alone does not
 prove handoff/next absence or normal-owner readiness.
+
+## Inactive displaced-closure retirement
+
+Only a freshly authenticated Exchanged/Done phase admits removal of the fixed
+next name holding C0. All six surviving files and both private directories are
+resynchronized first, with exact two-pass checks around each synchronization.
+The next inode is pinned before unlink. The only accepted transition is next
+absence plus unchanged canonical C1, handoff, receipt and live-pair bytes and
+inodes. State-directory synchronization and fresh readback complete the operation.
+Failures after unlink remain ambiguous; no recreation or repair is attempted.
+
+A separate DisplacedRetired resynchronizer requires next absence and preserves
+the other five files. It never unlinks anything. Retire on DisplacedRetired
+refuses, while restart after visible unlink but before directory synchronization
+must resynchronize and recheck the retained evidence. Commit/abort synthetic
+fixtures cover all effect checkpoints and actual repeated SIGKILL/reopen.
+This is process-crash evidence, not physical power-cut acceptance.
+
+The result remains `DisplacedRetiredStillFenced`. Handoff and receipt retirement
+need explicit additional post-handoff/post-receipt phases and are not performed
+here. Canonical C1 remains a permanent startup fence. Third-cycle admission,
+normal-owner recovery, product UI/CLI and installed acceptance remain separate.
