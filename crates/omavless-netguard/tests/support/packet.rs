@@ -2,6 +2,9 @@
 use super::*;
 use serde_json::json;
 
+#[path = "packet_raw.rs"]
+mod raw;
+
 const CHILD: &str = "packet::nft_packet_child";
 const PASS: &str = "K1_PACKET_CHILD_PASS";
 const OUT: &str = "k1out0";

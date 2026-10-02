@@ -492,6 +492,9 @@ installed caller; it does not make K1 available.
 The [fixed FullVpn atomic wire candidate](../development/K1_FULL_VPN_ATOMIC_WIRE.md)
 encodes the existing ten-rule policy without execution. Its independent pure
 tests do not establish kernel compatibility or packet enforcement.
+The separate [raw FullVpn packet candidate](../development/K1_RAW_FULL_PACKET_GATE.md)
+reuses the isolated 53-vector matrix with exact encoded bytes and a retained
+creator; it introduces no installed caller or physical-host acceptance.
 The [package-group identity follow-up](../testing/K1_PACKAGE_GROUP_IDENTITY_2026-10-02.md)
 checks a proposed fixed local group name before publishing access; package
 creation and real session membership are still separate gates.
