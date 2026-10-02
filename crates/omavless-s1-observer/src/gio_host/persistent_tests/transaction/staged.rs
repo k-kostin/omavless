@@ -228,6 +228,9 @@ fn every_staged_restore_prefix_reenters_without_exposing_unrestored_controls() {
         let (mut driver, _) = Driver::setup(role);
         driver.apply();
         driver.begin_restore().unwrap();
+        driver = driver.reopen();
+        assert_eq!(driver.step(), Err(Error::DrainRequired));
+        driver.begin_restore().unwrap();
         while driver.step().unwrap().is_some() {
             if driver.journal.stage() != Stage::Released {
                 driver = driver.reopen();
@@ -235,6 +238,21 @@ fn every_staged_restore_prefix_reenters_without_exposing_unrestored_controls() {
             }
         }
         assert_eq!(driver.journal.stage(), Stage::Released);
+        assert_eq!(driver.host.observe(binding()).unwrap(), driver.original);
+        let mut driver = driver.reopen();
+        let bytes = staged_record(&driver.host.fixture.borrow());
+        let original = driver.host.observe(binding()).unwrap();
+        assert_eq!(
+            driver
+                .journal
+                .recovery_review(binding(), &original)
+                .unwrap()
+                .decision,
+            Decision::RetainReleasedTombstone
+        );
+        assert_eq!(driver.step(), Err(Error::DrainRequired));
+        assert!(driver.begin_restore().is_err());
+        assert_eq!(staged_record(&driver.host.fixture.borrow()), bytes);
         assert_eq!(driver.host.observe(binding()).unwrap(), driver.original);
     }
 }
