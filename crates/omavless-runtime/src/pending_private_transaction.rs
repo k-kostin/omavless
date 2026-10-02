@@ -21,6 +21,10 @@ pub(crate) fn pending_at(directory: &Path) -> bool {
         || journal_member_pending(directory, "restore-decision.terminal")
         || journal_member_pending(directory, "restore-finalization.pending")
         || journal_member_pending(directory, crate::restore_closure_model::CLOSURE_MEMBER)
+        || journal_member_pending(
+            directory,
+            crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+        )
 }
 
 fn journal_member_pending(directory: &Path, name: &str) -> bool {
@@ -45,6 +49,7 @@ mod tests {
             "restore-decision.terminal",
             "restore-finalization.pending",
             crate::restore_closure_model::CLOSURE_MEMBER,
+            crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
         ] {
             fs::write(root.join(name), b"incomplete").unwrap();
             assert!(pending_at(&root));

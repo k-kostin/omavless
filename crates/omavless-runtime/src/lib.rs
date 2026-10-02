@@ -23,6 +23,8 @@ mod restore_retirement_candidate;
 #[allow(dead_code)]
 mod restore_slot_retirement_candidate;
 mod restore_staging_candidate;
+#[allow(dead_code)]
+mod restore_successor_handoff_model;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;

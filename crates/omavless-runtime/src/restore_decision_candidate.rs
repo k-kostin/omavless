@@ -178,6 +178,10 @@ impl DecisionRecord {
         self.phase
     }
 
+    pub(crate) fn transaction_id(&self) -> [u8; 16] {
+        self.transaction_id
+    }
+
     /// A terminal record keeps every bound byte; it cannot change an earlier
     /// terminal choice or substitute another transaction identity.
     pub(crate) fn terminal(&self, choice: TerminalChoice) -> Result<Self, DecisionError> {

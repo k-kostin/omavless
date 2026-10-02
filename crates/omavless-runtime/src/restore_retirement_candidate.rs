@@ -86,6 +86,24 @@ impl RetirementReceipt {
         })
     }
 
+    /// Compare the planned successor's captured old pair with the completed
+    /// predecessor pair. The caller still has to authenticate the on-disk
+    /// source, current live pair and owner under one lease.
+    pub(crate) fn matches_pair(&self, store: &[u8], template: &[u8]) -> bool {
+        self.expected[0].matches(store) && self.expected[1].matches(template)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic(terminal: &DecisionRecord, store: &[u8], template: &[u8]) -> Self {
+        Self {
+            terminal: DecisionRecord::decode(&terminal.encode()).unwrap(),
+            expected: [
+                MemberBinding::from_bytes(store).unwrap(),
+                MemberBinding::from_bytes(template).unwrap(),
+            ],
+        }
+    }
+
     pub(crate) fn encode(&self) -> [u8; RECEIPT_BYTES] {
         let mut raw = [0_u8; RECEIPT_BYTES];
         raw[..8].copy_from_slice(MAGIC);
