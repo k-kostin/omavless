@@ -60,6 +60,14 @@ does not erase the prior inspected profile. Generated sample details remain
 resolvable after filtering or hiding the large list. These are synthetic
 keyboard interactions, not an accessibility or production acceptance claim.
 
+The direct Rust prototype additionally exposes named native accessibility
+roles for status, search, the virtualized profile list and the read-only
+Details summary. Its row labels keep inspection selection separate from the
+synthetic confirmed connection. These semantics were probed through the VM's
+accessibility bus; full screen-reader acceptance remains open. The Shell
+prototype's native accessibility tree is still incomplete in the pinned
+host. See the dated interaction audit for the exact comparison and limits.
+
 Both trials offer the same three **synthetic** palette inputs: dark, light,
 and a deliberately malformed palette. The last one must replace the *whole*
 palette with the standalone dark default, never leave mixed old/new colors.
