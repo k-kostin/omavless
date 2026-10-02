@@ -14,6 +14,9 @@ use std::fs::Metadata;
 use std::os::unix::fs::MetadataExt;
 use zeroize::Zeroizing;
 
+#[path = "restore_final_recovery_candidate.rs"]
+mod recovery;
+
 const REFUSE: ProductionOwnerError = ProductionOwnerError::ManualRecoveryRequired;
 type Member = Option<(Zeroizing<Vec<u8>>, Metadata)>;
 struct Boundary {
@@ -249,7 +252,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 }
 
 #[cfg(all(test, target_os = "linux", target_env = "gnu"))]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::desired::{DesiredState, OwnedObservation};
     use crate::lifecycle::{HostStepError, NativeLocalObservation};
@@ -262,10 +265,11 @@ mod tests {
         rc::Rc,
     };
 
-    struct Host {
-        calls: Rc<Cell<usize>>,
-        action: Box<dyn FnMut(usize)>,
-        owned: bool,
+    pub(super) struct Host {
+        pub(super) calls: Rc<Cell<usize>>,
+        pub(super) action: Box<dyn FnMut(usize)>,
+        pub(super) owned: bool,
+        pub(super) owned_after_observe: Option<usize>,
     }
     impl LifecycleHost for Host {
         fn fresh_observation(
@@ -276,7 +280,8 @@ mod tests {
             self.calls.set(n);
             (self.action)(n);
             Ok(NativeLocalObservation {
-                owned_core_running: self.owned,
+                owned_core_running: self.owned
+                    || self.owned_after_observe.is_some_and(|at| n >= at),
                 visible_mihomo_count: 3,
                 owned_auxiliary_mihomo_count: 0,
                 visible_tun_count: 2,
@@ -304,14 +309,15 @@ mod tests {
             panic!("no effect");
         }
     }
-    fn host() -> Host {
+    pub(super) fn host() -> Host {
         Host {
             calls: Rc::new(Cell::new(0)),
             action: Box::new(|_| {}),
             owned: false,
+            owned_after_observe: None,
         }
     }
-    fn desired(f: &Fixture) -> DesiredPaths {
+    pub(super) fn desired(f: &Fixture) -> DesiredPaths {
         DesiredPaths {
             directory: f.paths.state_directory.clone(),
             file: f.paths.state_directory.join("desired.json"),
@@ -331,7 +337,7 @@ mod tests {
             archive,
         )
     }
-    fn ready(commit: bool, phase: usize) -> Fixture {
+    pub(super) fn ready(commit: bool, phase: usize) -> Fixture {
         let (f, lock) = final_review::tests::ready(commit);
         if phase > 0 {
             final_review::handoff_retirement::retire_successor_handoff(
@@ -360,7 +366,7 @@ mod tests {
         drop(lock);
         f
     }
-    fn private(path: &Path, bytes: &[u8]) {
+    pub(super) fn private(path: &Path, bytes: &[u8]) {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
     }
@@ -380,7 +386,7 @@ mod tests {
         )
     }
 
-    fn source_snapshot(f: &Fixture) -> Vec<(std::path::PathBuf, Vec<u8>, Metadata)> {
+    pub(super) fn source_snapshot(f: &Fixture) -> Vec<(std::path::PathBuf, Vec<u8>, Metadata)> {
         let mut values = Vec::new();
         for dir in [&f.paths.state_directory, &f.config] {
             for entry in fs::read_dir(dir).unwrap() {
@@ -395,7 +401,7 @@ mod tests {
         values.sort_by(|a, b| a.0.cmp(&b.0));
         values
     }
-    fn unchanged(f: &Fixture, before: &[(std::path::PathBuf, Vec<u8>, Metadata)]) {
+    pub(super) fn unchanged(f: &Fixture, before: &[(std::path::PathBuf, Vec<u8>, Metadata)]) {
         let now = source_snapshot(f);
         assert_eq!(before.len(), now.len());
         for (a, b) in before.iter().zip(&now) {

@@ -24,6 +24,40 @@ impl FinalSnapshot {
     }
 }
 
+/// Immutable identity facts only, never a mutation grant. A recovery session
+/// must hold its own uninterrupted lease and revalidate its owner/host gates.
+/// No raw bytes, Clone/Copy, Debug or portable authority are exposed.
+pub(crate) struct FinalEvidence<'a> {
+    snapshot: FinalSnapshot,
+    off: Zeroizing<Vec<u8>>,
+    template: &'a [u8],
+}
+impl FinalEvidence<'_> {
+    pub(crate) fn phase(&self) -> FinalPhase {
+        self.snapshot.phase
+    }
+
+    pub(crate) fn matches_current(
+        &self,
+        config: &Path,
+        paths: &CutoverPaths,
+        uid: u32,
+        generation: u64,
+        lock: &MigrationLock,
+    ) -> bool {
+        observe_final(
+            config,
+            paths,
+            uid,
+            generation,
+            lock,
+            &self.off,
+            self.template,
+        )
+        .is_ok_and(|now| self.snapshot.same(&now))
+    }
+}
+
 fn output_binding(receipt: &RetirementReceipt, live: [&[u8]; 2], new: [&[u8]; 2]) -> bool {
     if !receipt.matches_pair(live[0], live[1]) {
         return false;
@@ -190,8 +224,22 @@ pub(crate) fn review_final_closure(
     generation: u64,
     lock: &MigrationLock,
     backup: &OpenedBackup,
-    mut gate: impl FnMut() -> bool,
+    gate: impl FnMut() -> bool,
 ) -> Result<FinalPhase, ExecutionError> {
+    capture_final_closure(config, paths, uid, generation, lock, backup, gate)
+        .map(|evidence| evidence.phase())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn capture_final_closure<'a>(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &'a OpenedBackup,
+    mut gate: impl FnMut() -> bool,
+) -> Result<FinalEvidence<'a>, ExecutionError> {
     if !gate() {
         return Err(REFUSE);
     }
@@ -220,7 +268,11 @@ pub(crate) fn review_final_closure(
     if !first.same(&second) {
         return Err(REFUSE);
     }
-    Ok(second.phase)
+    Ok(FinalEvidence {
+        snapshot: second,
+        off,
+        template: backup.template(),
+    })
 }
 
 #[cfg(all(test, target_os = "linux", target_env = "gnu"))]

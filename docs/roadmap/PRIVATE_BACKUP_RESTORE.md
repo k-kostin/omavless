@@ -1174,3 +1174,31 @@ and inodes, late closure substitution under the same flock, and actual SIGKILL
 after lock creation followed by existing-only re-entry. A fixture recreates its
 own volatile directory to model missing runtime state; that is not an actual
 reboot, user-manager epoch proof, old-process-death proof or power-loss acceptance.
+
+## Inactive one-shot C1-only recovery session
+
+A private consuming session holds one uninterrupted existing migration lease,
+the pinned owner/desired/login/runtime boundary, fresh authenticated archive and
+opaque exact final-source evidence across admission and resynchronization. Its
+only operation calls the bounded C1-only resync and returns `StillFenced`; it
+cannot unlink, rewrite, start a normal owner or export a reusable phase-based
+capability. Missing locks must be handled separately, not recreated implicitly.
+
+The evidence capture is strictly read-only, stores zeroizing Off bytes and a
+borrow of the authenticated template, and exposes no raw members or Copy/Debug.
+It is identity evidence, not authority by itself. Every resync gate rechecks the
+original C1/live/source phase, owner/desired/login/lock identities and a fresh
+empty-owned-host observation before and after that observation. A different
+valid record or same-byte replacement cannot silently replace initial admission.
+Only the C1-only phase is accepted; any handoff, receipt, next, stage or journal
+entry refuses. Errors after any sync, including the final return gate, preserve
+the canonical startup fence and require fresh admission.
+
+Synthetic tests cover the admission-to-first-sync gap, all five file/directory
+post-sync boundaries and the final wrapper gate, hostile substitution, host
+drift, wrong archive, and fourteen actual SIGKILL/re-entry cases across Commit
+and Abort. They preserve exact source bytes/inodes and do not establish installed
+clean restore, user-manager epoch freshness or physical power-loss acceptance.
+Product passphrase transport, destination UX, independent encrypted-format
+review, installed synthetic restore, and EN/RU rendered recovery states remain
+separate gates. This is not RC readiness or normal-owner startup admission.
