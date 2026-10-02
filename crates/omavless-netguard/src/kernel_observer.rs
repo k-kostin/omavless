@@ -13,6 +13,9 @@ use nix::sys::socket::{
 };
 use nix::sys::statfs::{NSFS_MAGIC, PROC_SUPER_MAGIC, fstatfs};
 pub use rule_wire::LocalRuleInventory;
+#[path = "kernel_inventory.rs"]
+mod inventory;
+pub use inventory::LocalPolicyInventory;
 use std::{
     fs::File,
     io::IoSliceMut,
@@ -125,6 +128,15 @@ struct Exchange {
     total: usize,
     datagrams: usize,
 }
+
+#[derive(Debug, Eq, PartialEq)]
+struct TableMetadata {
+    flags: u32,
+    uses: u32,
+    handle: u64,
+    owner: Option<u32>,
+    userdata: Option<Vec<u8>>,
+}
 impl Exchange {
     fn new(kind: u16, seq: u32, port: u32) -> Result<Self> {
         require(port != 0)?;
@@ -222,9 +234,16 @@ impl Exchange {
         Ok(value)
     }
     fn table(&self, generation: u32) -> Result<LocalTablePresence> {
+        Ok(if self.table_metadata(generation)?.is_some() {
+            LocalTablePresence::PresentUntrusted
+        } else {
+            LocalTablePresence::Absent
+        })
+    }
+    fn table_metadata(&self, generation: u32) -> Result<Option<TableMetadata>> {
         require(self.complete())?;
         if self.absent {
-            return Ok(LocalTablePresence::Absent);
+            return Ok(None);
         }
         let body = self.body.as_deref().ok_or(REFUSE)?;
         require(body[2..4] == (generation as u16).to_be_bytes())?;
@@ -232,7 +251,7 @@ impl Exchange {
         require(values[1] == Some(TABLE))?;
         let flags = u32b(values[2].ok_or(REFUSE)?)?;
         require(flags & !7 == 0)?;
-        u32b(values[3].ok_or(REFUSE)?)?;
+        let uses = u32b(values[3].ok_or(REFUSE)?)?;
         let handle = u64::from_be_bytes(values[4].ok_or(REFUSE)?.try_into().map_err(|_| REFUSE)?);
         require(handle != 0 && values[5].is_none_or(|pad| pad.is_empty()))?;
         if let Some(data) = values[6] {
@@ -242,7 +261,13 @@ impl Exchange {
             Some(owner) => require(flags & 2 != 0 && u32b(owner)? != 0)?,
             None => require(flags & 2 == 0)?,
         }
-        Ok(LocalTablePresence::PresentUntrusted)
+        Ok(Some(TableMetadata {
+            flags,
+            uses,
+            handle,
+            owner: values[7].map(u32b).transpose()?,
+            userdata: values[6].map(<[u8]>::to_vec),
+        }))
     }
 }
 

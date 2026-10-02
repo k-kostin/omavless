@@ -93,7 +93,7 @@ fn same_expressions(actual: &[u8], expected: &[u8]) -> Result<bool> {
     Ok(true)
 }
 
-struct RuleDump {
+pub(super) struct RuleDump {
     request: Vec<u8>,
     port: u32,
     generation: u32,
@@ -230,7 +230,7 @@ impl RuleDump {
         Ok(())
     }
 
-    fn classify(&self) -> Result<LocalRuleInventory> {
+    pub(super) fn classify(&self) -> Result<LocalRuleInventory> {
         require(self.done)?;
         Ok(if self.full && self.count == 10 {
             LocalRuleInventory::ExactRulesUntrusted(Policy::FullVpn)
@@ -267,42 +267,53 @@ impl LocalReadSession {
         let inventory = if table == LocalTablePresence::Absent {
             LocalRuleInventory::TableAbsent
         } else {
-            let mut dump = RuleDump::new(first + 2, self.local.pid(), generation)?;
-            self.check(deadline)?;
-            require(
-                sendto(
-                    self.socket.as_raw_fd(),
-                    &dump.request,
-                    &NetlinkAddr::new(0, 0),
-                    MsgFlags::MSG_DONTWAIT,
-                )
-                .map_err(|_| REFUSE)?
-                    == dump.request.len(),
-            )?;
-            while !dump.done {
-                self.check(deadline)?;
-                let mut bytes = [0; LIMIT];
-                let mut iov = [IoSliceMut::new(&mut bytes)];
-                match recvmsg::<NetlinkAddr>(
-                    self.socket.as_raw_fd(),
-                    &mut iov,
-                    None,
-                    MsgFlags::MSG_DONTWAIT,
-                ) {
-                    Ok(reply) => {
-                        let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
-                        require(length <= LIMIT)?;
-                        dump.receive(&bytes[..length], sender, flags)?;
-                    }
-                    Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
-                    Err(_) => return Err(REFUSE),
-                }
-            }
-            dump.classify()?
+            self.dump_rules(first + 2, generation, deadline)?
+                .classify()?
         };
         require(self.exchange(GET_GEN, first + 3, deadline)?.generation()? == generation)?;
         self.check(deadline)?;
         Ok(inventory)
+    }
+
+    pub(super) fn dump_rules(
+        &self,
+        sequence: u32,
+        generation: u32,
+        deadline: Instant,
+    ) -> Result<RuleDump> {
+        let mut dump = RuleDump::new(sequence, self.local.pid(), generation)?;
+        self.check(deadline)?;
+        require(
+            sendto(
+                self.socket.as_raw_fd(),
+                &dump.request,
+                &NetlinkAddr::new(0, 0),
+                MsgFlags::MSG_DONTWAIT,
+            )
+            .map_err(|_| REFUSE)?
+                == dump.request.len(),
+        )?;
+        while !dump.done {
+            self.check(deadline)?;
+            let mut bytes = [0; LIMIT];
+            let mut iov = [IoSliceMut::new(&mut bytes)];
+            match recvmsg::<NetlinkAddr>(
+                self.socket.as_raw_fd(),
+                &mut iov,
+                None,
+                MsgFlags::MSG_DONTWAIT,
+            ) {
+                Ok(reply) => {
+                    let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
+                    require(length <= LIMIT)?;
+                    dump.receive(&bytes[..length], sender, flags)?;
+                }
+                Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(_) => return Err(REFUSE),
+            }
+        }
+        self.check(deadline)?;
+        Ok(dump)
     }
 }
 

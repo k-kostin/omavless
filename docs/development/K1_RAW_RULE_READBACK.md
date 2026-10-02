@@ -1,5 +1,9 @@
 # K1 retained-socket rule readback
 
+Successor: [complete retained-socket table inventory](K1_COMPLETE_INVENTORY.md)
+adds the other object kinds without promoting readback into effect authority.
+The exact evidence below remains scoped to the original rule-only head.
+
 This candidate reads fixed `inet omavless_netguard` rules with GETRULE on the
 same retained NETLINK_NETFILTER descriptor as the generation/table checks.
 `LocalReadSession::inspect_rules` launches no child and accepts no table,

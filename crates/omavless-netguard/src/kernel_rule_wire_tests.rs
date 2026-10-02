@@ -195,7 +195,7 @@ fn raw_rules_in_disposable_vm() {
     assert_eq!(std::env::var("OMAVLESS_K1_RAW_RULE_VM").as_deref(), Ok("1"));
     let parent = File::open("/proc/thread-self/ns/net").unwrap();
     let identity = namespace_identity(&parent).unwrap();
-    for policy in ["full", "emergency"] {
+    for policy in ["full", "emergency", "set", "object", "flowtable", "chain"] {
         let mut child = Command::new("/usr/bin/unshare")
             .env_clear()
             .env("OMAVLESS_K1_RAW_RULE_CHILD", policy)
@@ -229,7 +229,7 @@ fn raw_rules_in_disposable_vm() {
             identity
         );
     }
-    println!("K1_RAW_RULE_VM_PASS");
+    println!("K1_COMPLETE_INVENTORY_VM_PASS");
 }
 
 #[test]
@@ -237,7 +237,10 @@ fn raw_rules_in_disposable_vm() {
 fn raw_rules_child() {
     use std::os::fd::AsFd;
     let selected = std::env::var("OMAVLESS_K1_RAW_RULE_CHILD").unwrap();
-    assert!(matches!(selected.as_str(), "full" | "emergency"));
+    assert!(matches!(
+        selected.as_str(),
+        "full" | "emergency" | "set" | "object" | "flowtable" | "chain"
+    ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let parent_id = namespace_identity(&parent).unwrap();
     let child_id = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -251,16 +254,20 @@ fn raw_rules_child() {
     assert_eq!(names, ["lo"]);
     let mut session = LocalReadSession::open().unwrap();
     assert_eq!(session.inspect_rules(), Ok(LocalRuleInventory::TableAbsent));
+    assert_eq!(
+        session.inspect_policy_inventory(),
+        Ok(LocalPolicyInventory::TableAbsent)
+    );
     let deadline = Instant::now() + Duration::from_secs(2);
     let generation = session
-        .exchange(GET_GEN, 10, deadline)
+        .exchange(GET_GEN, 50, deadline)
         .unwrap()
         .generation()
         .unwrap();
-    let first = 11;
+    let first = 51;
     let full = full_vpn_wire::encode(generation, first).unwrap();
     let emergency = emergency_wire::encode(generation, first).unwrap();
-    let is_full = selected == "full";
+    let is_full = selected != "emergency";
     let (batch, barrier) = if is_full {
         (full.batch(), full.barrier())
     } else {
@@ -345,7 +352,15 @@ fn raw_rules_child() {
             session.inspect_rules(),
             Ok(LocalRuleInventory::ExactRulesUntrusted(policy))
         );
+        assert_eq!(
+            session.inspect_policy_inventory(),
+            Ok(LocalPolicyInventory::ExactUntrusted(policy))
+        );
     }
+    assert_eq!(
+        LocalReadSession::open().unwrap().inspect_policy_inventory(),
+        Ok(LocalPolicyInventory::OtherUntrusted)
+    );
     // The old JSON classifier deliberately does not accept owner,persist table
     // flags. Preserve its refusal rather than normalizing away ownership facts.
     assert_eq!(
@@ -359,18 +374,77 @@ fn raw_rules_child() {
     // Mutation is test-only, uses the still-held exclusive creator socket and
     // fixed synthetic bytes, and never touches the parent's namespace.
     let deadline = Instant::now() + Duration::from_secs(1);
+    let (operation, flags, fields) = match selected.as_str() {
+        "set" => (
+            NFT + 9,
+            0x605,
+            [
+                attribute(1, TABLE),
+                attribute(2, b"extra\0"),
+                attribute(4, &1u32.to_be_bytes()),
+                attribute(5, &4u32.to_be_bytes()),
+                attribute(10, &1u32.to_be_bytes()),
+            ]
+            .concat(),
+        ),
+        "object" => (
+            NFT + 18,
+            0x605,
+            [
+                attribute(1, TABLE),
+                attribute(2, b"extra\0"),
+                attribute(3, &1u32.to_be_bytes()),
+                emergency_wire::nested(
+                    4,
+                    &[
+                        attribute(1, &0u64.to_be_bytes()),
+                        attribute(2, &0u64.to_be_bytes()),
+                    ]
+                    .concat(),
+                ),
+            ]
+            .concat(),
+        ),
+        "flowtable" => (
+            NFT + 22,
+            0x605,
+            [
+                attribute(1, TABLE),
+                attribute(2, b"extra\0"),
+                emergency_wire::nested(
+                    3,
+                    &[
+                        attribute(1, &0u32.to_be_bytes()),
+                        attribute(2, &0u32.to_be_bytes()),
+                        emergency_wire::nested(3, &attribute(1, b"lo\0")),
+                    ]
+                    .concat(),
+                ),
+            ]
+            .concat(),
+        ),
+        "chain" => (
+            NFT + 3,
+            0x605,
+            [attribute(1, TABLE), attribute(3, b"extra\0")].concat(),
+        ),
+        _ => (
+            NEW_RULE,
+            0xc05,
+            [
+                attribute(1, TABLE),
+                attribute(2, CHAIN),
+                emergency_wire::nested(4, &emergency_wire::verdict(1)),
+            ]
+            .concat(),
+        ),
+    };
     let request = message(
-        NEW_RULE,
-        0xc05,
+        operation,
+        flags,
         200,
         0,
-        &[
-            vec![1, 0, 0, 0],
-            attribute(1, TABLE),
-            attribute(2, CHAIN),
-            emergency_wire::nested(4, &emergency_wire::verdict(1)),
-        ]
-        .concat(),
+        &[vec![1, 0, 0, 0], fields].concat(),
     );
     let mut ack = Exchange {
         request,
@@ -432,10 +506,18 @@ fn raw_rules_child() {
     session.next_sequence = 202;
     assert_eq!(
         session.inspect_rules(),
-        Ok(LocalRuleInventory::OtherUntrusted)
+        Ok(if matches!(selected.as_str(), "full" | "emergency") {
+            LocalRuleInventory::OtherUntrusted
+        } else {
+            LocalRuleInventory::ExactRulesUntrusted(policy)
+        })
+    );
+    assert_eq!(
+        session.inspect_policy_inventory(),
+        Ok(LocalPolicyInventory::OtherUntrusted)
     );
     nix::sched::unshare(nix::sched::CloneFlags::CLONE_NEWNET).unwrap();
-    assert!(session.inspect_rules().is_err());
+    assert!(session.inspect_policy_inventory().is_err());
     assert!(session.inspect_rules().is_err());
     // Destroy this isolated namespace at child exit; never delete a host table.
     println!("K1_RAW_RULE_CHILD_PASS");

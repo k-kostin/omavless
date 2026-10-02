@@ -97,11 +97,14 @@ fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, Vec<u8>, bool)>
             && hook_exact
             && policy == Some(0)
             && kind == Some(FILTER)
-            && flags == Some(1),
+            && flags == Some(1)
+            && values[8].is_none()
+            && values[11].is_none()
+            && values[12].is_none(),
     ))
 }
 
-struct ChainDump {
+pub(super) struct ChainDump {
     request: Vec<u8>,
     port: u32,
     generation: u32,
@@ -177,7 +180,7 @@ impl ChainDump {
         Ok(())
     }
 
-    fn classify(&self) -> Result<LocalChainInventory> {
+    pub(super) fn classify(&self) -> Result<LocalChainInventory> {
         require(self.done)?;
         Ok(if self.target_count == 0 {
             LocalChainInventory::Empty
@@ -200,7 +203,12 @@ impl LocalReadSession {
         Ok([first, second, third, fourth])
     }
 
-    fn dump_chains(&self, seq: u32, generation: u32, deadline: Instant) -> Result<ChainDump> {
+    pub(super) fn dump_chains(
+        &self,
+        seq: u32,
+        generation: u32,
+        deadline: Instant,
+    ) -> Result<ChainDump> {
         self.check(deadline)?;
         let mut dump = ChainDump::new(seq, self.local.pid(), generation)?;
         require(
