@@ -5,11 +5,14 @@ mod chain;
 pub use chain::LocalChainInventory;
 #[path = "kernel_rule_observer.rs"]
 mod rule;
+#[path = "kernel_rule_wire.rs"]
+mod rule_wire;
 use nix::sys::socket::{
     AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, bind, getsockname,
     recvmsg, sendto, socket,
 };
 use nix::sys::statfs::{NSFS_MAGIC, PROC_SUPER_MAGIC, fstatfs};
+pub use rule_wire::LocalRuleInventory;
 use std::{
     fs::File,
     io::IoSliceMut,

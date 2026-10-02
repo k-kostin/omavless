@@ -160,7 +160,7 @@ fn ipv6(text: &str) -> [u8; 16] {
         .expect("fixed IPv6 literal")
         .octets()
 }
-fn rules() -> [Vec<u8>; 10] {
+pub(super) fn rules() -> [Vec<u8>; 10] {
     // nfproto and l4proto precede all payload accesses. Transport-header base
     // follows kernel protocol parsing, not fixed IPv4/IPv6 header-size guesses.
     // Failed transport access (including noninitial fragments) must break rule.

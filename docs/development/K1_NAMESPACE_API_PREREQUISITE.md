@@ -1,5 +1,10 @@
 # K1 namespace and socket API prerequisite
 
+A later [review-only upstream patch artifact](K1_NAMESPACE_PATCH_REVIEW.md)
+implements the proposed fixed read-only boundary against an exact nix source.
+It is not adopted or submitted; the safe dependency and launch gates below
+remain open.
+
 Status: bounded source/API research, 2026-10-02, following the
 [live Emergency creator experiment](K1_LIVE_EMERGENCY_OWNER.md). This records
 the concrete dependency and launch requirements for a Rust authenticator.
