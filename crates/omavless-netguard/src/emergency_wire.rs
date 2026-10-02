@@ -100,7 +100,7 @@ pub fn encode(generation: u32, first_sequence: u32) -> Result<EmergencyCreate, I
 }
 
 // All helpers are private, fixed small inputs; no arbitrary expressions/attrs.
-fn attr(kind: u16, value: &[u8]) -> Vec<u8> {
+pub(super) fn attr(kind: u16, value: &[u8]) -> Vec<u8> {
     let len = u16::try_from(4 + value.len()).expect("fixed attribute size");
     let mut bytes = Vec::from(len.to_ne_bytes());
     bytes.extend(kind.to_ne_bytes());
@@ -109,15 +109,15 @@ fn attr(kind: u16, value: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn nested(kind: u16, value: &[u8]) -> Vec<u8> {
+pub(super) fn nested(kind: u16, value: &[u8]) -> Vec<u8> {
     attr(kind | 0x8000, value)
 }
 
-fn nf(family: u8, resource: u16) -> Vec<u8> {
+pub(super) fn nf(family: u8, resource: u16) -> Vec<u8> {
     [vec![family, 0], resource.to_be_bytes().to_vec()].concat()
 }
 
-fn message(kind: u16, flags: u16, sequence: u32, payload: &[u8]) -> Vec<u8> {
+pub(super) fn message(kind: u16, flags: u16, sequence: u32, payload: &[u8]) -> Vec<u8> {
     [
         u32::try_from(16 + payload.len())
             .expect("fixed message size")
@@ -132,11 +132,11 @@ fn message(kind: u16, flags: u16, sequence: u32, payload: &[u8]) -> Vec<u8> {
     .concat()
 }
 
-fn expression(name: &[u8], data: &[u8]) -> Vec<u8> {
+pub(super) fn expression(name: &[u8], data: &[u8]) -> Vec<u8> {
     nested(1, &[attr(1, name), nested(2, data)].concat())
 }
 
-fn verdict(code: u32) -> Vec<u8> {
+pub(super) fn verdict(code: u32) -> Vec<u8> {
     expression(
         b"immediate\0",
         &[
