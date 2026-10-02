@@ -3,6 +3,8 @@
 #[path = "kernel_chain_observer.rs"]
 mod chain;
 pub use chain::LocalChainInventory;
+#[path = "kernel_rule_observer.rs"]
+mod rule;
 use nix::sys::socket::{
     AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, bind, getsockname,
     recvmsg, sendto, socket,

@@ -56,13 +56,15 @@ actions must match exactly. Other omissions, extra accept expressions, wrong
 families and unmeasured partial elision remain unrecognized.
 
 Name, comment and policy equality do **not** establish ownership. The caller must
-supply a `TrustedTableIdentity` from the future root adapter's independently
-verified exclusive-creation receipt, tied to boot ID, network namespace inode
-and table handle. No receipt, different epoch/namespace or changed handle yields
-Foreign even when every rule matches. A matching receipt with changed policy
-yields OwnedUnrecognized. This is a pure trust-boundary representation; its
-Rust constructor is not authentication and no receipt persistence exists yet.
-An unprivileged request must never supply these trusted facts.
+supply a `TrustedTableIdentity` from a future root adapter's authenticated
+*live* exclusive creator session, tied to boot ID, network namespace inode and
+table handle. A durable receipt may cross-check that session; it cannot
+reconstruct ownership after the creator socket/helper dies. No proof,
+different epoch/namespace or changed handle yields Foreign even when every
+rule matches. A matching live proof with changed policy yields
+OwnedUnrecognized. This is a pure trust-boundary representation; its Rust
+constructor is not authentication. An unprivileged request must never supply
+these trusted facts.
 
 No replace/delete renderer is provided. The root executor must solve ownership
 receipt publication after an uncertain create, serialization, revalidation at
@@ -72,16 +74,22 @@ Unknown creation outcome must require recovery, not adoption based on a name.
 
 ## Evidence and remaining gates
 
+The later [fixed-table full-rule observer](K1_RULE_READBACK.md) adds a bounded,
+read-only installed-kernel shape check in a disposable VM. It deliberately
+returns no ownership authority and does not close the root-service or physical
+host gates below.
+
 Tests use synthetic values only: independent emergency golden, bounded normal
 predicates, identity rejection, malformed/duplicate/truncated input, dormant
 flags, injected objects and modified/missing policy. No nft command is executed.
 These tests prove renderer/parser decisions, not kernel enforcement or installed
 JSON round-trip compatibility. Existing protocol and crash/fence tests remain.
 
-Next steps are installed parse/readback fixtures and an isolated network-namespace
-packet matrix, then the separately reviewed executor/root receipt service. The
-complete K1 host matrix and mandatory physical NIC/suspend/boot gates remain
-open. Main/RC 0.9 and the user's installed network are unchanged.
+Installed parse/readback fixtures and an isolated network-namespace packet
+matrix now have separate evidence; neither supplies the independently proven
+ownership needed by an executor/root receipt service. The complete K1 host
+matrix and mandatory physical NIC/suspend/boot gates remain open. Main/RC 0.9
+and the user's installed network are unchanged by this candidate.
 
 ### Opt-in installed nft round-trip harness
 

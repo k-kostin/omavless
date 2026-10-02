@@ -1,6 +1,8 @@
 //! Explicit VM-only integration harness. Ordinary workspace tests execute only
 //! pure refusal/response tests. No command is ever run in the parent netns.
-use omavless_netguard::kernel_observer::{LocalTablePresence, inspect_current_namespace};
+use omavless_netguard::kernel_observer::{
+    LocalReadSession, LocalTablePresence, inspect_current_namespace,
+};
 use omavless_netguard::{nft, policy::Policy, transaction::Table};
 use serde_json::Value;
 use std::{
@@ -362,6 +364,15 @@ fn nft_roundtrip_child() {
     println!("K1_NFT_STAGE=isolation");
     let namespace = guard.check().expect("child isolation required");
     assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
+    let mut missing = LocalReadSession::open().expect("retained child read session");
+    assert!(
+        missing.inspect_policy_shape().is_err(),
+        "missing table is command failure, never an exact empty policy"
+    );
+    assert!(
+        missing.inspect_policy_shape().is_err(),
+        "failed read poisons session"
+    );
     // Test-only boot receipt. The namespace is freshly created by this harness;
     // production root receipt issuance/persistence is deliberately not exercised.
     for policy in [Policy::Emergency, Policy::FullVpn] {
@@ -409,6 +420,14 @@ fn nft_roundtrip_child() {
         )
         .expect("nft readback unavailable");
         assert!(list.success, "nft readback failed");
+        // Exercise the inactive fixed-command reader as well as the fixture's
+        // own independent nft invocation. Exact shape is deliberately not an
+        // ownership claim and cannot be used to arm/disarm the host.
+        let mut read_session = LocalReadSession::open().expect("retained child read session");
+        assert_eq!(
+            read_session.inspect_policy_shape(),
+            Ok(nft::UntrustedPolicyShape::Exact(policy))
+        );
         let value: Value = serde_json::from_slice(&list.bytes).expect("bounded synthetic JSON");
         let handle = value["nftables"]
             .as_array()
@@ -464,6 +483,27 @@ fn nft_roundtrip_child() {
         assert!(
             after.success && after.bytes == list.bytes,
             "duplicate create changed table"
+        );
+        // A late extra accept in the same isolated fixture must revoke exact
+        // shape even though all original fixed rules remain present.
+        assert!(
+            nft_command(
+                &guard,
+                &[
+                    "add",
+                    "rule",
+                    "inet",
+                    "omavless_netguard",
+                    "output_guard",
+                    "accept"
+                ]
+            )
+            .unwrap()
+            .success
+        );
+        assert_eq!(
+            read_session.inspect_policy_shape(),
+            Ok(nft::UntrustedPolicyShape::OtherUntrusted)
         );
         println!("K1_NFT_STAGE=cleanup");
         // Test fixture cleanup only, after independent create and exact readback.
