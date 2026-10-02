@@ -307,6 +307,18 @@ refuses invalid passphrases and templates. This is filesystem and cooperative-lo
 evidence, not protection from a hostile same-user process able to forge the entire state.
 No system service, provider, controller, TUN or private installed file is used.
 
+Source-member acquisition now uses safe `openat` on the already pinned config
+directory, with only the two fixed member names and read-only, no-follow,
+nonblocking, close-on-exec flags. No procfs descriptor-link path participates.
+Each member borrows that directory for its lifetime; `fstat` of the held file
+and no-follow `fstatat` of its name recheck the full prior identity, permissions,
+link count, size and modification/change timestamps before release. Whole-pair
+admission still reopens and verifies the trusted directory path afterward.
+Synthetic cases prove pinned-dir resolution despite directory-name replacement
+and refuse late symlink, hard-link and same-byte inode substitution. This does
+not establish protection from arbitrary hostile same-user races or activate a
+backup caller; unchanged owner/lease and pair-consistency gates still apply.
+
 The internal pair holds unvalidated plaintext in zeroizing byte buffers until
 the envelope's semantic checks and encryption complete. It is not an
 authorization to publish the resulting sealed bytes. Additional allocations
