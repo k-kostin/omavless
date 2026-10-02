@@ -331,7 +331,7 @@ fn publish_with_hook(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::restore_decision_candidate::TerminalChoice;
     use crate::restore_retirement_candidate::RetirementReceipt;
@@ -345,10 +345,10 @@ mod tests {
 
     const STORE: &[u8] = br#"{"version":3,"profiles":[{"id":"10000000-0000-4000-8000-000000000001","name":"Synthetic","uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic","protocol":"vless","favorite":false}],"subscriptions":[],"activeId":"10000000-0000-4000-8000-000000000001","lastId":"10000000-0000-4000-8000-000000000001","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":true,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     const TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
-    const OLD: [&[u8]; 2] = [b"synthetic old store", b"synthetic old template"];
+    pub(crate) const OLD: [&[u8]; 2] = [b"synthetic old store", b"synthetic old template"];
     const PASS: &[u8] = b"synthetic successor passphrase";
 
-    fn backup() -> &'static OpenedBackup {
+    pub(crate) fn backup() -> &'static OpenedBackup {
         static BACKUP: OnceLock<OpenedBackup> = OnceLock::new();
         BACKUP.get_or_init(|| open(&seal(STORE, TEMPLATE, PASS).unwrap(), PASS).unwrap())
     }
@@ -356,14 +356,14 @@ mod tests {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
     }
-    struct Fixture {
-        root: PathBuf,
-        config: PathBuf,
-        paths: CutoverPaths,
-        uid: u32,
+    pub(crate) struct Fixture {
+        pub(crate) root: PathBuf,
+        pub(crate) config: PathBuf,
+        pub(crate) paths: CutoverPaths,
+        pub(crate) uid: u32,
     }
     impl Fixture {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let home = std::env::var_os("HOME").unwrap();
             let root =
                 crate::test_temp::directory_under(Path::new(&home), "restore-successor").unwrap();
@@ -401,7 +401,7 @@ mod tests {
             );
             fixture
         }
-        fn reopen(root: PathBuf) -> Self {
+        pub(crate) fn reopen(root: PathBuf) -> Self {
             let uid = fs::metadata(&root).unwrap().uid();
             Self {
                 config: root.join("config"),
@@ -410,7 +410,7 @@ mod tests {
                 uid,
             }
         }
-        fn lock(&self) -> MigrationLock {
+        pub(crate) fn lock(&self) -> MigrationLock {
             MigrationLock::acquire(&self.paths, self.uid).unwrap()
         }
         fn publish(
