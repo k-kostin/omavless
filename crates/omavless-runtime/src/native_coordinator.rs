@@ -2866,7 +2866,7 @@ mod tests {
     }
 
     #[test]
-    fn inactive_owner_retirement_closes_fence_only_after_terminal_cleanup() {
+    fn inactive_owner_retirement_retains_completion_fence_after_terminal_cleanup() {
         use crate::restore_cleanup_candidate::CleanupResult;
         use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
         use crate::restore_retirement_candidate::RECEIPT_MEMBER;
@@ -2937,12 +2937,18 @@ mod tests {
                 assert_ne!(fs::read(&store).unwrap(), original_store);
             }
             assert_eq!(
+                owner.publish_restore_completion_candidate(),
+                Ok(
+                    crate::restore_cleanup_candidate::ClosurePublicationResult::PublishedStillFenced
+                )
+            );
+            assert_eq!(
                 owner.finalize_terminal_restore_candidate(),
-                Ok(crate::restore_cleanup_candidate::FinalizeResult::Closed)
+                Ok(crate::restore_cleanup_candidate::FinalizeResult::ReceiptRetiredStillFenced)
             );
             assert!(!receipt_path.exists());
-            assert!(!crate::pending_private_transaction::pending_at(&state));
-            assert!(!owner.transaction.blocked());
+            assert!(crate::pending_private_transaction::pending_at(&state));
+            assert!(owner.transaction.blocked());
             assert_eq!(fs::read(&store).unwrap(), live_before);
             assert_eq!(owner.host_mut().calls, 0);
             fs::remove_dir_all(root).unwrap();

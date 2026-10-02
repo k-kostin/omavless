@@ -626,9 +626,9 @@ Unsafe, unrelated or incomplete evidence remains manual recovery. A same-process
 ambiguous final receipt removal also latches the coordinator into manual
 recovery even if the existence fence may have disappeared.
 
-These checks do **not** activate automatic startup recovery. A post-restart
-final-unlink ambiguity with no surviving receipt still needs an explicit
-durable outcome/recovery design; absence alone cannot prove closure succeeded.
+These checks do **not** activate automatic startup recovery. The later
+completion-record candidate addresses the post-restart last-unlink gap by
+retaining a second fence; absence of both records still cannot prove closure.
 The complete crash-checkpoint matrix, packaged recovery-only owner path,
 installed synthetic restore, private transfer/confirmation UX and independent
 format review remain open before T4 can be exposed to users.
@@ -647,13 +647,39 @@ owner/Off/live-pair drift demand manual recovery.
 
 The model tests the crash-observable evidence combinations. A separate
 fixed-size candidate record wraps the complete validated terminal receipt,
-with domain-separated checksum and strict decode, so a future restart reader
-could recheck its owner/desired/live-pair binding even after the pending
-receipt disappears. This is tear detection, not authentication against a
-hostile same-user writer. No completion record is written or read from disk
-yet. Independent format review, exclusive durable publication, restart
-inspection, retention/replacement across a
-second restore and product startup interpretation need separate review and
-implementation before the final pending receipt may be removed in a product
-flow. The existing inactive final-unlink candidate remains insufficient for
-post-restart admission.
+with domain-separated checksum and strict decode, so a restart reader can
+recheck its owner/desired/live-pair binding even after the pending receipt
+disappears. This is tear detection, not authentication against a hostile
+same-user writer. The following inactive slice implements durable publication
+and read-only inspection. Independent format review, retention/replacement
+across a second restore and product startup interpretation remain open before
+activation.
+
+## Inactive durable completion publication and receipt retirement
+
+An inactive candidate now adds `restore-closure.complete` to the ordinary
+startup/mutation existence fence **before** any writer creates it. Only after
+terminal receipt, exact Rust owner/Off/empty-owned-host gate and full
+stage/journal/slot retirement are independently checked does the candidate
+exclusively create the fixed private completion record, synchronize member
+and state directory, reopen the same inode and repeat all bindings. An
+existing or ambiguous member is never overwritten. Synthetic subprocess
+crashes after create, write, file sync, directory sync and reopen leave the
+older pending receipt as a fence.
+
+The older receipt's unlink candidate now requires the matching completion
+record to be synchronized and rebound first. After unlink it verifies the
+surviving completion record and live pair again; `Closed` has become
+`ReceiptRetiredStillFenced`. The separate read-only startup review refuses
+invalid or mismatched dual evidence and classifies completion-only as a
+verification candidate, never a normal owner. Synthetic abrupt-termination
+checks cover both sides of the pending-receipt unlink. There is no product
+caller, UI, passphrase transfer or automatic recovery, and this slice never
+deletes the completion record.
+
+Remaining gates include independent fixed-format review, exact installed
+synthetic crash/boot tests, a recovery-only owner that can safely admit a
+post-reboot missing `/run` lock, retention/replacement of a prior completion
+record before a second restore, and a separately reviewed transition from
+verified completion to ordinary owner startup. Neither the existence of a
+completion file nor a locally green test removes these requirements.
