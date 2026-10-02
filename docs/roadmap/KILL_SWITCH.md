@@ -489,6 +489,9 @@ helper or evidence that any kill switch is available.
 The [fixed Emergency reply transcript candidate](../development/K1_EMERGENCY_REPLY_TRANSCRIPT.md)
 adds bounded raw-byte parsing without a socket, effect, ownership proof or
 installed caller; it does not make K1 available.
+The [fixed FullVpn atomic wire candidate](../development/K1_FULL_VPN_ATOMIC_WIRE.md)
+encodes the existing ten-rule policy without execution. Its independent pure
+tests do not establish kernel compatibility or packet enforcement.
 The [package-group identity follow-up](../testing/K1_PACKAGE_GROUP_IDENTITY_2026-10-02.md)
 checks a proposed fixed local group name before publishing access; package
 creation and real session membership are still separate gates.

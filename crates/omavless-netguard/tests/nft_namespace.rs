@@ -22,6 +22,8 @@ const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
 #[path = "support/atomic_emergency.rs"]
 mod atomic_emergency;
+#[path = "support/atomic_full.rs"]
+mod atomic_full;
 #[path = "support/capability.rs"]
 mod capability;
 #[path = "support/live_owner.rs"]
