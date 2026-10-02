@@ -246,6 +246,7 @@ pub struct MigrationLock {
 enum LockOpen {
     Existing,
     CreateIfAbsent,
+    AbsentOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -292,6 +293,12 @@ impl MigrationLock {
         Self::acquire_checked(paths, uid, LockOpen::CreateIfAbsent, |_| true)
     }
 
+    /// Recovery diagnostic only: never take, repair or retry an existing name.
+    #[allow(dead_code)]
+    pub(crate) fn acquire_absent(paths: &CutoverPaths, uid: u32) -> Result<Self, CutoverError> {
+        Self::acquire_checked(paths, uid, LockOpen::AbsentOnly, |_| true)
+    }
+
     fn acquire_checked(
         paths: &CutoverPaths,
         uid: u32,
@@ -325,10 +332,15 @@ impl MigrationLock {
         // Absence is only ENOENT. An intervening creator gets EEXIST: never
         // reopen or repair that new inode as an implicit retry.
         let prior = match fs::symlink_metadata(&paths.operation_lock) {
-            Ok(value) if acceptable_open_lock(&value, uid, mode) => Some(value),
+            Ok(value)
+                if !matches!(mode, LockOpen::AbsentOnly)
+                    && acceptable_open_lock(&value, uid, mode) =>
+            {
+                Some(value)
+            }
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound
-                    && matches!(mode, LockOpen::CreateIfAbsent) =>
+                    && !matches!(mode, LockOpen::Existing) =>
             {
                 None
             }
@@ -885,6 +897,37 @@ mod tests {
                 .unwrap()
                 .file_type()
                 .is_symlink()
+        );
+        fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn migration_lease_absent_only_never_takes_existing_or_raced_name() {
+        let (runtime, state, uid) = roots("lease-absent-only");
+        let paths = CutoverPaths::below(&runtime, &state, uid);
+        let held = MigrationLock::acquire_absent(&paths, uid).unwrap();
+        assert!(held.authorizes(&paths, uid));
+        assert!(MigrationLock::acquire_absent(&paths, uid).is_err());
+        drop(held);
+        let identity = fs::metadata(&paths.operation_lock).unwrap();
+        assert!(MigrationLock::acquire_absent(&paths, uid).is_err());
+        assert!(same_inode(
+            &identity,
+            &fs::metadata(&paths.operation_lock).unwrap()
+        ));
+        fs::remove_file(&paths.operation_lock).unwrap();
+        let result = MigrationLock::acquire_checked(&paths, uid, LockOpen::AbsentOnly, |point| {
+            if point == LockCheckpoint::PriorChecked {
+                fs::write(&paths.operation_lock, b"raced synthetic lock").unwrap();
+                fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o600))
+                    .unwrap();
+            }
+            true
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(&paths.operation_lock).unwrap(),
+            b"raced synthetic lock"
         );
         fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
     }
