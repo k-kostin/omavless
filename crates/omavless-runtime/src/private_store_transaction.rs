@@ -62,6 +62,11 @@ pub(crate) struct PreparedPointerMutation {
 }
 
 impl PreparedPointerMutation {
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> bool {
+        self.prepared.changed()
+    }
+
     pub fn commit_locked(
         &self,
         lock: &MigrationLock,

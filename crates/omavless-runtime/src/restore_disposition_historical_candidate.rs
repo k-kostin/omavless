@@ -579,7 +579,7 @@ fn sync_snapshot(
 
 /// The retained sources predate epoch acquisition, including its external
 /// system-manager queries. No status enum can reconstruct this witness.
-struct RetainedCurrentOff<'a> {
+pub(crate) struct RetainedCurrentOff<'a> {
     original: Snapshot,
     config: &'a Path,
     paths: &'a CutoverPaths,
@@ -588,7 +588,7 @@ struct RetainedCurrentOff<'a> {
     generation: u64,
 }
 impl<'a> RetainedCurrentOff<'a> {
-    fn capture(
+    pub(crate) fn capture(
         config: &'a Path,
         paths: &'a CutoverPaths,
         uid: u32,
@@ -617,6 +617,15 @@ impl<'a> RetainedCurrentOff<'a> {
         mut gate: impl FnMut() -> bool,
         hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
     ) -> Result<HistoricalResyncResult, ExecutionError> {
+        self.sync(&mut proof, &mut gate, hook)
+    }
+
+    fn sync(
+        &self,
+        proof: &mut crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
+        mut gate: impl FnMut() -> bool,
+        hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    ) -> Result<HistoricalResyncResult, ExecutionError> {
         let mut fresh = || {
             proof
                 .recheck(self.paths, self.uid, self.generation, self.lock)
@@ -636,6 +645,74 @@ impl<'a> RetainedCurrentOff<'a> {
             &mut fresh,
             hook,
             |_, file| file.sync_all(),
+        )
+    }
+}
+
+/// Test-only real-caller research. Retains (not copies) the original evidence
+/// beyond resync. No production constructor or normal mutation authority.
+#[cfg(test)]
+pub(crate) struct RetainedEpochOff<'a> {
+    original: RetainedCurrentOff<'a>,
+    proof: crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
+}
+
+#[cfg(test)]
+impl<'a> RetainedCurrentOff<'a> {
+    pub(crate) fn research(
+        self,
+        mut proof: crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
+        gate: impl FnMut() -> bool,
+    ) -> Result<RetainedEpochOff<'a>, ExecutionError> {
+        self.sync(&mut proof, gate, |_| true)?;
+        Ok(RetainedEpochOff {
+            original: self,
+            proof,
+        })
+    }
+}
+
+#[cfg(test)]
+impl RetainedEpochOff<'_> {
+    pub(crate) fn paths_match(&self, desired: &crate::desired::DesiredPaths, store: &Path) -> bool {
+        desired.directory == self.original.paths.state_directory
+            && desired.file == self.original.paths.state_directory.join("desired.json")
+            && store == self.original.config.join(LIVE[0])
+    }
+    pub(crate) fn bind(
+        &mut self,
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: &MigrationLock,
+    ) -> Result<(), ExecutionError> {
+        if paths != self.original.paths
+            || uid != self.original.uid
+            || !std::ptr::eq(lock, self.original.lock)
+        {
+            return Err(REFUSE);
+        }
+        self.recheck()
+    }
+    pub(crate) fn recheck(&mut self) -> Result<(), ExecutionError> {
+        let original = &self.original;
+        let proof = &mut self.proof;
+        recheck(
+            &original.original,
+            original.config,
+            original.paths,
+            original.uid,
+            original.generation,
+            original.lock,
+            &mut || {
+                proof
+                    .recheck(
+                        original.paths,
+                        original.uid,
+                        original.generation,
+                        original.lock,
+                    )
+                    .is_ok()
+            },
         )
     }
 }

@@ -289,10 +289,26 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
-        if self.blocked() {
-            return Err(ConnectionTransactionError::ManualRecoveryRequired);
-        }
-        let lifecycle = self.lifecycle.reconcile_startup();
+        self.reconcile_startup_admitted(
+            lock,
+            &mut crate::startup_admission::StartupAdmission::ordinary(),
+        )
+    }
+
+    pub(crate) fn reconcile_startup_admitted(
+        &mut self,
+        lock: &MigrationLock,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        admission
+            .transaction(
+                &self.cutover_paths,
+                self.uid,
+                lock,
+                self.independently_blocked(),
+            )
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
+        let lifecycle = self.lifecycle.reconcile_startup_admitted(admission);
         let desired = match read_desired(&self.desired_paths, self.uid) {
             Ok(desired) => desired,
             Err(_) => {
@@ -350,6 +366,9 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             }
             Err(error) => return Err(store_error(error)),
         };
+        admission
+            .pointer(&plan)
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
         let write = match plan.commit_locked(lock, &self.cutover_paths) {
             Ok(write) => write,
             Err(_) if self.lifecycle.actual() == ActualState::Connected => {
@@ -360,6 +379,9 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             }
             Err(error) => return Err(store_error(error)),
         };
+        admission
+            .recheck()
+            .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
         if let Some(error) = deferred_error {
             return Err(error);
         }

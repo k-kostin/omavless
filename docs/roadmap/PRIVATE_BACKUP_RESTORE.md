@@ -1608,3 +1608,27 @@ transaction/coordinator/effect guard remain outstanding. Cross-manager recovery
 also needs a separately authorized crash-safe fresh-receipt transition; an old
 receipt cannot attest the new manager. See the bounded
 [evidence and remaining gates](../development/T4_CURRENT_EPOCH_RESYNC.md).
+
+### Dev-only real Off-startup caller research
+
+`dev/t4-owner-off-research` consumes the retained current-manager/current-Off
+witness through the real production-owner initializer, native coordinator,
+connection transaction, lifecycle reconciliation and compatibility-pointer plan.
+The historical alternative and its constructors compile only in unit tests;
+normal builds retain only ordinary startup admission and conservative pending
+guards. The fixed-path research counterpart performs no orphan cleanup.
+
+Research permits only the existing `SettledDisconnected` lifecycle branch and
+an already-no-change pointer plan. Owned cleanup, reconnect, pointer repair and
+auto-start are not authorized. The same original evidence and lease are checked
+before/after observation and before/after the no-change commit. The result holds
+the actual constructed owner privately, without dispatch, registration,
+coordinator access or extraction; it is not normal-owner admission. C1, ticket,
+completion and other files remain retained and unchanged.
+
+This is explicitly **not adoption** of the proposed historical product policy.
+The owner decision and the rest of the caller matrix above remain outstanding,
+as do installed positive package/epoch/host acceptance and new-manager receipt
+recovery. Repeated archive authentication is not newly required by this slice;
+it tests the already-proposed same-UID/exact-generation historical policy only.
+See [the bounded research evidence](../development/T4_OWNER_OFF_RESEARCH.md).
