@@ -5,6 +5,9 @@
 use crate::restore_closure_model::{ClosureRecord, ReceiptIdentity};
 use crate::restore_decision_candidate::DecisionPhase;
 
+#[path = "restore_disposition_policy_model.rs"]
+pub(crate) mod proposed_policy;
+
 /// Exact terminal output identity, not full predecessor lineage. No raw
 /// profile/template bytes, public field access or printable identity.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -142,7 +145,7 @@ mod tests {
     use crate::restore_retirement_candidate::RetirementReceipt;
     use crate::restore_staging_candidate::planned_stage_identity;
 
-    fn binding(generation: u64, id: u8, commit: bool, output: &[u8]) -> ClosureBinding {
+    pub(super) fn binding(generation: u64, id: u8, commit: bool, output: &[u8]) -> ClosureBinding {
         let stage =
             planned_stage_identity([b"old", b"old-template", b"new", b"new-template"]).unwrap();
         let terminal = DecisionRecord::intent(generation, None, &stage, [id; 16])
