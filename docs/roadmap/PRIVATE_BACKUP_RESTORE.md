@@ -999,3 +999,31 @@ The result remains `DisplacedRetiredStillFenced`. Handoff and receipt retirement
 need explicit additional post-handoff/post-receipt phases and are not performed
 here. Canonical C1 remains a permanent startup fence. Third-cycle admission,
 normal-owner recovery, product UI/CLI and installed acceptance remain separate.
+
+## Inactive final-closure output review
+
+A separate read-only reader recognizes exactly three fenced phases: before
+handoff retirement (H and R1 survive), H absent with R1 present, and H/R1 both
+absent. H present with R1 absent refuses. Next, stage, journals, replacement
+slots and routing-preset pending must be explicitly absent; only ENOENT counts
+as absence. Torn, unsafe or inaccessible optional receipt entries refuse.
+
+While H survives, the existing DisplacedRetired classifier supplies the complete
+predecessor relationship. Without H, canonical C1 must wrap exactly R1 whenever
+R1 survives, bind the current owner/desired Off state, and match the live pair.
+Committed output must equal the freshly authenticated archive's Off pair. For
+Abort, the terminal stage identity is reconstructed from live OLD and fresh
+authenticated NEW bytes. The intent-only successor helper is not weakened.
+Identical OLD/NEW bytes do not erase the recorded Commit/Abort distinction.
+
+After H is gone, these checks prove only bounded terminal output/completion
+evidence. They cannot reconstruct predecessor lineage, prove prior fsync, grant
+live replacement authority or admit a normal owner. Two observations compare
+phase, exact presence, bytes, inode metadata, directory identities and desired
+state; the reader performs no sync, unlink or repair. Canonical C1 remains the
+startup fence. A phase-specific H-then-R1-last writer, restart resynchronization,
+third-cycle admission and installed product acceptance are still separate gates.
+In particular, the earlier handoff publisher's completion inspection does not
+yet exclude the next-closure slot. Third-cycle admission must first harden that
+publisher's exact absence/pinned-source checks; this reader does not repair or
+authorize that earlier path.
