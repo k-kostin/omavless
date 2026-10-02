@@ -354,6 +354,24 @@ mod tests {
         assert!(push(&mut c, &failed_end).is_err());
     }
     #[test]
+    fn final_commit_ack_truncation_forgery_or_duplicate_poison() {
+        let c = collector();
+        let end = ack(&c.wire.end, 0, false);
+        for length in 0..end.len() {
+            assert!(push(&mut collector(), &end[..length]).is_err());
+        }
+        for offset in [0, 4, 6, 8, 12, 16, 20, 24, 28, 32] {
+            let mut bad = end.clone();
+            bad[offset] ^= 1;
+            assert!(push(&mut collector(), &bad).is_err());
+        }
+        let mut c = collector();
+        push(&mut c, &end).unwrap();
+        assert!(!c.complete());
+        assert!(push(&mut c, &end).is_err());
+        assert!(!c.complete());
+    }
+    #[test]
     fn exact_restart_of_begin_only_is_changed_all_other_errors_unknown() {
         for capped in [false, true] {
             let mut c = collector();
