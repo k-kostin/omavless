@@ -124,13 +124,25 @@ ShellRoot {
       return "toggled"
     }
     function reviewClearSearch(): string { product.profileFilter = ""; return "cleared" }
+    function reviewSettings(locale: string, width: int): string {
+      if (reviewState(locale, "normal", width) !== "ready") return "not-ready"
+      product.openSettings()
+      Qt.callLater(function() {
+        var quit = review.find(product, function(o) {
+          return "focusTarget" in o && "title" in o && o.title === product.textFor("native.quit.title")
+        })
+        if (quit) product.scrollPanelControlIntoView(quit.focusTarget)
+      })
+      return "ready"
+    }
     function reviewCapture(slug: string): string {
       if (review.reviewKind === "") return "not-ready"
       return review.captureCard(slug)
     }
     function inspect(): string {
       return JSON.stringify({state:product.nativeView.state, profiles:product.nativeView.profiles.length,
-        page:product.page, connected:product.nativeView.connected, opened:product.opened})
+        page:product.page, connected:product.nativeView.connected, opened:product.opened,
+        releaseCredit:product.releaseCredit})
     }
     function result(): string { return review.result }
     function finish() { Qt.quit() }
