@@ -203,6 +203,57 @@ impl CandidatePrivateStore {
             _ => Err(PrivateStoreError::InvalidShape),
         }
     }
+
+    /// Explicit canonical native credential export/editor seed. WG/AWG emits
+    /// one native conf and URI emits the stored URI; no guest/admin envelope
+    /// or generated runtime config is released. Never a status/list projection.
+    pub fn export_private_native_credential(
+        &self,
+        id: &str,
+    ) -> Result<CandidateProfileExport, PrivateStoreError> {
+        let index = self
+            .state
+            .profiles
+            .iter()
+            .position(|profile| profile.id == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        match &self.credentials[index] {
+            CandidateCredential::Uri(_) => self.export_private_credential(id),
+            CandidateCredential::WireGuard(profile) => Ok(CandidateProfileExport {
+                format: CandidateExportFormat::WireGuardConfig,
+                bytes: profile
+                    .private_config()
+                    .map_err(|_| PrivateStoreError::InvalidShape)?
+                    .expose_private_bytes()
+                    .to_vec(),
+            }),
+        }
+    }
+
+    /// Standalone editor seed only. Managed URI rows retain provider ownership.
+    /// This deliberate private result has no serializer or diagnostic format.
+    pub fn private_edit_input(
+        &self,
+        id: &str,
+    ) -> Result<CandidateProfileEditInput, PrivateStoreError> {
+        let index = self
+            .state
+            .profiles
+            .iter()
+            .position(|profile| profile.id == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        if !self.state.profiles[index].subscription_id.is_empty() {
+            return Err(PrivateStoreError::SubscribedProfile);
+        }
+        let name = self.document["profiles"][index]["name"]
+            .as_str()
+            .ok_or(PrivateStoreError::InvalidShape)?
+            .to_owned();
+        Ok(CandidateProfileEditInput {
+            name,
+            credential: self.export_private_native_credential(id)?,
+        })
+    }
     /// Publicly safe counts only. Profile names, endpoints and reusable keys
     /// stay inside the private candidate.
     #[must_use]
@@ -351,12 +402,28 @@ impl CandidatePrivateStore {
 pub enum CandidateExportFormat {
     Uri,
     WireGuardRecord,
+    WireGuardConfig,
 }
 
 /// Deliberate private release only; cannot be formatted or serialized.
 pub struct CandidateProfileExport {
     format: CandidateExportFormat,
     bytes: Vec<u8>,
+}
+
+pub struct CandidateProfileEditInput {
+    name: String,
+    credential: CandidateProfileExport,
+}
+impl CandidateProfileEditInput {
+    #[must_use]
+    pub fn private_name(&self) -> &str {
+        &self.name
+    }
+    #[must_use]
+    pub const fn private_credential(&self) -> &CandidateProfileExport {
+        &self.credential
+    }
 }
 impl CandidateProfileExport {
     #[must_use]

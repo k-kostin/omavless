@@ -62,3 +62,45 @@ The [store integration review](P4_STORE_INTEGRATION_REVIEW.md) identifies the
 current URI-only consumers, mixed-store pointer and duplicate-key hazards, and
 the next inactive validation boundary. Its negative domain regressions keep
 P4 out of current production import/replacement and store admission.
+
+## Canonical native export prerequisite
+
+The October 2 inactive successor adds `WireGuardProfile::private_config`.
+It deliberately releases canonical native `[Interface]`/`[Peer]` text through
+an opaque private-byte value with redacted Debug. The existing validated record
+is its source; each admitted field maps to a fixed native key spelling. Source
+comments, labels and guest/admin envelopes are absent. It never emits arbitrary
+keys, hooks, `Table`, `SaveConfig` or shell operations. Standard native names
+follow the official [WireGuard tools parser](https://git.zx2c4.com/wireguard-tools/tree/src/config.c)
+and [wg-quick interface fields](https://git.zx2c4.com/wireguard-tools/tree/src/wg-quick/linux.bash);
+AWG names retain the previously established native parser contract.
+
+The generated text must pass the same bounded parser and preserve private
+identity before release. Synthetic cases cover WG and AWG 1/2/3/3.1,
+IPv4/IPv6, optional DNS/MTU/preshared key, AWG header protection and generation
+fields, exact keepalive/timer/padding range preservation, repeated canonical
+bytes and equivalent Mihomo output after reimport. Export preserves source
+ranges instead of writing the renderer's lower-bound keepalive normalization.
+This proves the established adapter's native roundtrip, not acceptance by an
+installed WireGuard/Amnezia external client or matching server.
+
+The complete candidate store exposes format-tagged native credential export
+and a standalone private editor seed. URI remains the stored URI; WG/AWG is
+canonical native conf. Managed URI editor reads refuse. Synthetic read tests
+prove complete candidate bytes, counts and pointers do not change. No
+filesystem export, QR generation, IPC framing, CLI, UI, lifecycle or installed
+v4 admission is connected. Canonical native exports can exceed current unary
+string/frame bounds, so a reviewed bounded acquisition/editor/export bridge
+remains required before these operations become product capabilities.
+
+The offline opt-in synthetic installed-Mihomo test now validates generation
+after structured guest import, canonical native export and native reimport.
+It uses invented keys and documentation-range endpoints in private scratch,
+fixed `-t` argv and a provider/geodata-free configuration. No listener/core
+startup, tunnel or live provider access is involved. The exact version/head
+and outcome belong to the Draft PR, not to an inferred protocol host PASS.
+
+For home-based local checks, this successor reuses the existing test-only
+#382 commit `702b0b2f61e4b5b7e56a1677bde7b865e7d165ce` with cherry-pick provenance.
+It changes only runtime test temporary-root allocation, avoiding Unix socket
+path overflow under a home TMPDIR; no production path or second helper is added.
