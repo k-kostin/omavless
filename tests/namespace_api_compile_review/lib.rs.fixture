@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: MIT
+#![forbid(unsafe_code)]
+
+use std::os::fd::BorrowedFd;
+use nix::sys::socket::GetSockOpt;
+
+pub fn namespace_type(fd: BorrowedFd<'_>) -> nix::Result<nix::sys::nsfs::NamespaceType> {
+    nix::sys::nsfs::namespace_type(fd)
+}
+
+pub fn namespace_id(fd: BorrowedFd<'_>) -> nix::Result<u64> {
+    nix::sys::nsfs::namespace_id(fd)
+}
+
+pub fn socket_namespace_cookie(fd: BorrowedFd<'_>) -> nix::Result<u64> {
+    nix::sys::socket::sockopt::NetnsCookie.get(&fd)
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<u64>() == 8);
+    assert!(nix::request_code_read!(0xb7, 13, 8) == 0x8008_b70d);
+    assert!(nix::libc::NS_GET_NSTYPE == 0xb703);
+    assert!(nix::libc::SO_NETNS_COOKIE == 71);
+};
