@@ -10,7 +10,7 @@ pub(crate) enum HistoricalReview {
     ConsistentStillFenced,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum LivePolicy {
     InitialOutput,
     ValidCurrentBundled,
@@ -23,6 +23,7 @@ pub(crate) enum CurrentLiveReview {
 }
 
 struct Snapshot {
+    policy: LivePolicy,
     directories: [Metadata; 3],
     directory_handles: [File; 3],
     boundary: BoundaryMembers,
@@ -203,6 +204,7 @@ impl Snapshot {
                 .transpose()?,
         ];
         let snapshot = Self {
+            policy,
             directories: [
                 state.metadata().map_err(|_| REFUSE)?,
                 config_dir.metadata().map_err(|_| REFUSE)?,
@@ -249,7 +251,8 @@ impl Snapshot {
     }
 
     fn same(&self, other: &Self) -> bool {
-        self.pins_intact()
+        self.policy == other.policy
+            && self.pins_intact()
             && other.pins_intact()
             && self
                 .directories
@@ -403,17 +406,16 @@ fn recheck(
     uid: u32,
     generation: u64,
     lock: &MigrationLock,
-    policy: LivePolicy,
     gate: &mut impl FnMut() -> bool,
 ) -> Result<(), ExecutionError> {
     if !original.pins_intact() {
         return Err(REFUSE);
     }
-    let before = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
+    let before = Snapshot::read_policy(config, paths, uid, generation, lock, original.policy)?;
     if !original.same(&before) || !gate() {
         return Err(REFUSE);
     }
-    let after = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
+    let after = Snapshot::read_policy(config, paths, uid, generation, lock, original.policy)?;
     if !original.same(&after) {
         return Err(REFUSE);
     }
@@ -524,11 +526,7 @@ fn run_resync_policy(
     // Capture the original source and path identities before the first host
     // callback. A later observation can reject drift, never redefine source.
     let original = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
-    let mut check = || {
-        recheck(
-            &original, config, paths, uid, generation, lock, policy, &mut gate,
-        )
-    };
+    let mut check = || recheck(&original, config, paths, uid, generation, lock, &mut gate);
     check()?;
     for (index, file) in original.member_handles.iter().enumerate() {
         sync(HistoricalSyncCheckpoint::File(index), file).map_err(|_| ExecutionError::Ambiguous)?;
