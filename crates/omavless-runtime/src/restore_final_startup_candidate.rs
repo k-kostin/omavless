@@ -14,6 +14,8 @@ use std::fs::Metadata;
 use std::os::unix::fs::MetadataExt;
 use zeroize::Zeroizing;
 
+#[path = "restore_preauth_status_candidate.rs"]
+mod preauth;
 #[path = "restore_final_recovery_candidate.rs"]
 mod recovery;
 
