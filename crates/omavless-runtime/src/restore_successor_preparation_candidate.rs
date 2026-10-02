@@ -62,6 +62,7 @@ impl Context<'_> {
             "restore-decision.terminal",
             "routing-preset.pending.json",
             crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
         ] {
             absent(&self.state, name)?;
         }

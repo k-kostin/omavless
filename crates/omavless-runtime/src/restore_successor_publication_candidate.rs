@@ -105,6 +105,7 @@ impl Context<'_> {
         for name in [
             NEXT_CLOSURE_MEMBER,
             crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
             RECEIPT_MEMBER,
             PENDING_DIRECTORY,
             "restore-decision.intent",
@@ -202,6 +203,10 @@ fn publish_with_hook(
     absent(
         &state,
         crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    )?;
+    absent(
+        &state,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
     )?;
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
     let (_, predecessor_identity) = read_optional(&state, CLOSURE_MEMBER, uid, CLOSURE_BYTES)

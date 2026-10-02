@@ -303,6 +303,7 @@ pub(crate) fn inspect_retirement_receipt(
 ) -> Result<RetirementReceipt, RetirementError> {
     if !lock.authorizes(paths, uid)
         || crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+        || crate::restore_disposition_complete_model::pending_at(&paths.state_directory)
     {
         return Err(RetirementError::Admission);
     }
@@ -522,6 +523,7 @@ pub(crate) fn publish_retirement_receipt(
     if !gate()
         || !lock.authorizes(paths, uid)
         || crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+        || crate::restore_disposition_complete_model::pending_at(&paths.state_directory)
     {
         return Err(RetirementError::Admission);
     }
@@ -555,7 +557,9 @@ pub(crate) fn publish_retirement_receipt(
     {
         return Err(RetirementError::ManualRecovery);
     }
-    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+        || crate::restore_disposition_complete_model::pending_at(&paths.state_directory)
+    {
         return Err(RetirementError::ManualRecovery);
     }
     let written = write_receipt(paths, uid, &receipt.encode())?;
@@ -577,7 +581,9 @@ pub(crate) fn publish_retirement_receipt(
     {
         return Err(RetirementError::ManualRecovery);
     }
-    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+        || crate::restore_disposition_complete_model::pending_at(&paths.state_directory)
+    {
         return Err(RetirementError::ManualRecovery);
     }
     Ok(outcome)

@@ -21,8 +21,9 @@ pub(crate) enum PreauthClosureStatus {
     NeedsAuthenticatedArchiveStillFenced,
 }
 
-const STATE_TRANSIENTS: [&str; 8] = [
+const STATE_TRANSIENTS: [&str; 9] = [
     crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    crate::restore_disposition_complete_model::COMPLETE_MEMBER,
     NEXT_CLOSURE_MEMBER,
     SUCCESSOR_MEMBER,
     RECEIPT_MEMBER,

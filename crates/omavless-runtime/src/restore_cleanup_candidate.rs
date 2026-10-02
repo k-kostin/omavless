@@ -383,7 +383,9 @@ fn inspect_inventory_with_stage_check(
     receipt: &RetirementReceipt,
     before_stage_read: impl FnOnce(&File) -> Result<(), CleanupError>,
 ) -> Result<Observed, CleanupError> {
-    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+        || crate::restore_disposition_complete_model::pending_at(&paths.state_directory)
+    {
         return Err(CleanupError::ManualRecovery);
     }
     let parent = state.metadata().map_err(|_| CleanupError::ManualRecovery)?;
@@ -469,6 +471,7 @@ impl<'a> Context<'a> {
     fn check_bindings(&mut self) -> Result<Observed, CleanupError> {
         if !self.lock.authorizes(self.paths, self.uid)
             || crate::restore_disposition_ticket_model::pending_at(&self.paths.state_directory)
+            || crate::restore_disposition_complete_model::pending_at(&self.paths.state_directory)
         {
             return Err(CleanupError::Admission);
         }
@@ -808,6 +811,7 @@ fn fixed_artifacts_absent(state: &File, config: &File) -> Result<bool, FinalizeE
         TERMINAL,
         INTENT,
         crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
     ] {
         if !absent(state, name)? {
             return Ok(false);

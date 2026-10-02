@@ -12,9 +12,14 @@ pub(crate) mod handoff_retirement;
 pub(crate) mod disposition;
 
 fn ticket_absent(paths: &CutoverPaths, uid: u32) -> Result<(), ExecutionError> {
+    let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     absent(
-        &open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?,
+        &state,
         crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    )?;
+    absent(
+        &state,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
     )
 }
 
