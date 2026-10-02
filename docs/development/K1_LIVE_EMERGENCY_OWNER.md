@@ -68,3 +68,7 @@ kernel/filesystem publication windows, Full VPN atomic creation and conditional
 effects, orphan adjudication, root service/boot integration and physical
 NIC/suspend/boot acceptance remain open. No installed firewall, route, TUN,
 Mihomo, credentials, package or release is changed.
+
+The [Rust namespace API prerequisite](K1_NAMESPACE_API_PREREQUISITE.md) identifies
+the missing reviewed safe syscall wrappers and the independent trusted-launch
+boundary. The test's cookie equality must not bypass either requirement.
