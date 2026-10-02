@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Developer-only isolated WG fixture renderer. No daemon/IPC/installed caller.
 use omavless_domain::private_store::parse_candidate_private_store;
-use omavless_profile::wireguard::{MAX_WIREGUARD_CONFIG_BYTES, parse_wireguard_config};
+use omavless_profile::wireguard::{
+    AwgGeneration, MAX_WIREGUARD_CONFIG_BYTES, WireGuardFlavor, parse_wireguard_config,
+};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -11,7 +13,7 @@ const ID: &str = "00000000-0000-0000-0000-000000000001";
 const NAME: &str = "P4 loopback";
 const TEMPLATE: &str = "mixed-port: 7898\nallow-lan: false\nbind-address: 127.0.0.1\nmode: rule\nlog-level: silent\nipv6: false\ntun:\n  enable: false\ndns:\n  enable: false\nproxies:\n{{OMAVLESS_PROXY}}\nproxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n      - P4 loopback\nrules:\n  - MATCH,PROXY\n";
 
-fn render(root: &Path, phase: &str) -> Result<(), ()> {
+fn render(root: &Path, phase: &str, generation: &str) -> Result<(), ()> {
     if !root.is_absolute() || !matches!(phase, "positive" | "negative") {
         return Err(());
     }
@@ -54,7 +56,13 @@ fn render(root: &Path, phase: &str) -> Result<(), ()> {
         return Err(());
     }
     let profile = parse_wireguard_config(&input).map_err(|_| ())?;
-    if profile.facts().flavor.protocol_name() != "wireguard" {
+    let expected = match generation {
+        "wireguard" => WireGuardFlavor::Standard,
+        "3" => WireGuardFlavor::Amnezia(AwgGeneration::V3),
+        "3.1" => WireGuardFlavor::Amnezia(AwgGeneration::V3_1),
+        _ => return Err(()),
+    };
+    if profile.facts().flavor != expected {
         return Err(());
     }
     let store =
@@ -95,16 +103,20 @@ fn render(root: &Path, phase: &str) -> Result<(), ()> {
         .write_all(prepared.expose_private_bytes())
         .map_err(|_| ())?;
     output.sync_all().map_err(|_| ())?;
-    println!("{{\"private_roundtrip\":true,\"flavor\":\"wireguard\"}}");
+    println!("{{\"private_roundtrip\":true,\"flavor\":\"{generation}\"}}");
     Ok(())
 }
 
 fn main() {
     let arguments: Vec<_> = std::env::args_os().collect();
-    let okay = arguments.len() == 3
+    let generation = arguments
+        .get(3)
+        .and_then(|value| value.to_str())
+        .unwrap_or("wireguard");
+    let okay = matches!(arguments.len(), 3 | 4)
         && arguments[2]
             .to_str()
-            .is_some_and(|phase| render(Path::new(&arguments[1]), phase).is_ok());
+            .is_some_and(|phase| render(Path::new(&arguments[1]), phase, generation).is_ok());
     if !okay {
         eprintln!("p4_loopback_render_refused");
         std::process::exit(2);
