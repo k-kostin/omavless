@@ -77,6 +77,26 @@ transfer plus private-network mismatch are the limited runtime gate; they are
 not exhaustive validation of mount/PID/user namespace ordering or root-manager
 provenance. Exact-head execution evidence and availability belong in the PR.
 
+### Recorded isolated result, 2026-10-02
+
+Code head `049e59cd8a35b7b3168e8a1d2b1643b208bff9d1` passed all five
+cases in the dedicated x86_64 KVM Omarchy Dev VM: systemd `261.2-1-arch`,
+Omarchy `4.0.4-1`. Root authorization was supplied only through interactive
+tty/stdin. The exact binary SHA256 was
+`36fe02473a34c4ef094bb6bdf2d7b15df30c60aeda745eab8ac81b99067fc728`;
+runner SHA256 was
+`f2f49123cbb0e3daf15162c1a8b7bce92ff08789192b97182f4ae3505a94b951`.
+Both transferred hashes were verified before execution. Each fixed case
+printed its PASS category, followed by `K1_OPENFILE_VM_PASS`.
+
+The transient unit's final `LoadState` was `not-found`. Only the exact staged
+probe, runner and empty `/run/omavless-k1-openfile-fixture` directory were
+removed. This confirms controlled descriptor delivery/agreement and four
+refusal cases; **DescriptorMatch remains different from Canonical**. It proves
+neither general inherited-FD authenticity nor unavailable NS_GET_NSTYPE/ID,
+socket-cookie or nft ownership checks. Subsequent documentation-only changes
+do not expand the tested code's evidence.
+
 ## Still required
 
 Reviewed safe `NS_GET_NSTYPE`, `NS_GET_ID`, `SO_NETNS_COOKIE` wrappers; trusted
