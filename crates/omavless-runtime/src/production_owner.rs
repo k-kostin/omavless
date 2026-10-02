@@ -785,6 +785,18 @@ mod tests {
     impl Fixture {
         fn new(phase: OwnershipPhase) -> Self {
             let root = crate::test_temp::directory("production-owner").unwrap();
+            Self::at(root, phase)
+        }
+
+        fn new_private(phase: OwnershipPhase) -> Self {
+            let home = std::env::var_os("HOME").expect("restore review needs private home");
+            let root =
+                crate::test_temp::directory_under(Path::new(&home), "production-owner-private")
+                    .unwrap();
+            Self::at(root, phase)
+        }
+
+        fn at(root: PathBuf, phase: OwnershipPhase) -> Self {
             let runtime = root.join("runtime");
             let state = root.join("state");
             let config = root.join("config");
@@ -890,7 +902,7 @@ mod tests {
         use crate::restore_staging_candidate::{inspect_stage_identity, stage_private_pair};
 
         for phase in ["stage", "intent", "commit", "abort", "receipt"] {
-            let fixture = Fixture::new(OwnershipPhase::Rust);
+            let fixture = Fixture::new_private(OwnershipPhase::Rust);
             let config = fixture.store.parent().unwrap();
             let template = config.join("route-template.yaml");
             fs::write(&template, b"old synthetic template").unwrap();
@@ -988,7 +1000,7 @@ mod tests {
 
     #[test]
     fn restore_restart_review_refuses_connected_or_owned_host_and_ignores_foreign_visibility() {
-        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let fixture = Fixture::new_private(OwnershipPhase::Rust);
         drop(MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap());
         fs::write(
             fixture
@@ -1062,7 +1074,7 @@ mod tests {
 
     #[test]
     fn restore_restart_review_never_creates_a_missing_operation_lock() {
-        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let fixture = Fixture::new_private(OwnershipPhase::Rust);
         let path = &fixture.cutover.operation_lock;
         assert!(!path.exists());
         fs::write(
