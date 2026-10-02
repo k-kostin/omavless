@@ -88,8 +88,10 @@ of every pending field, all four mode identities and exact original restoration.
 Journal tests cover every recorded intent, strict decoding, separate directories,
 foreign records, fsync poison and actual child exit at all five storage checkpoints
 for all four mode intents. Private dconf tests cover all 54 confirmed apply
-prefixes across None/Manual/PAC, every confirmed restore prefix, timed-out mode
-operations and dead-writer delayed mode operations, including absent reset.
+prefixes across None/Manual/PAC, initial and every nonterminal confirmed restore
+prefix plus reopened Released tombstones, timed-out mode operations and dead-writer
+delayed mode operations, including absent reset. Independent persisted baseline
+checks precede coverage; seed setters and sync do not establish that proof.
 The crash child receives only a fixed private synthetic target file; that file is
 not installed authority. Unattempted external none is explicitly foreign.
 
