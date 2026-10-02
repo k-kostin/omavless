@@ -97,6 +97,14 @@ fn local_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-'))
 }
 
+fn unrelated_name(name: &str) -> bool {
+    // Account names outside the requested enrollment are not ours to
+    // restrict. Local databases may legitimately contain mixed case, dots,
+    // trailing '$' and leading digits. Still reject control/non-ASCII bytes
+    // rather than treating a malformed passwd record as authority.
+    !name.is_empty() && name.len() <= 256 && name.bytes().all(|byte| byte.is_ascii_graphic())
+}
+
 fn canonical_number(value: &str) -> Option<u32> {
     if value.is_empty()
         || value.len() > 10
@@ -122,12 +130,12 @@ fn account_uid(bytes: &[u8], requested: &str) -> Result<u32, ProvisionError> {
     let mut accounts = Vec::new();
     for line in text.lines() {
         let fields = line.split(':').collect::<Vec<_>>();
-        if fields.len() != 7 || !local_name(fields[0]) {
+        if fields.len() != 7 || !unrelated_name(fields[0]) {
             return Err(ProvisionError::AccountUnavailable);
         }
         let uid = canonical_number(fields[2]).ok_or(ProvisionError::AccountUnavailable)?;
         let gid = canonical_number(fields[3]).ok_or(ProvisionError::AccountUnavailable)?;
-        if !fields[5].starts_with('/') || !fields[6].starts_with('/') {
+        if fields[0] == requested && (!fields[5].starts_with('/') || !fields[6].starts_with('/')) {
             return Err(ProvisionError::AccountUnavailable);
         }
         accounts.push((fields[0], uid, gid, fields[6]));
@@ -457,6 +465,13 @@ mod tests {
     #[test]
     fn only_unique_non_root_local_login_account_is_accepted() {
         assert_eq!(account_uid(PASSWD, "kdk_vm"), Ok(1001));
+        assert_eq!(
+            account_uid(
+                b"root:x:0:0:root:/root:/bin/bash\nACME.Service$:x:350:350:Service:/:/usr/bin/false\n2d-team:x:351:351:Service::\nkdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh\n",
+                "kdk_vm"
+            ),
+            Ok(1001)
+        );
         for (bytes, name) in [
             (PASSWD, "root"),
             (PASSWD, "absent"),
@@ -466,8 +481,10 @@ mod tests {
             (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/usr/bin/nologin\n", "kdk_vm"),
             (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh", "kdk_vm"),
             (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh\nother:x:1001:1002:Test:/home/other:/bin/zsh\n", "kdk_vm"),
+            (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh\nACME.Service$:x:1001:1002:Other::\n", "kdk_vm"),
             (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh\nkdk_vm:x:1002:1002:Test:/home/kdk_vm:/bin/zsh\n", "kdk_vm"),
             (b"kdk_vm:x:01001:1001:Test:/home/kdk_vm:/bin/zsh\n", "kdk_vm"),
+            (b"kdk_vm:x:1001:1001:Test:/home/kdk_vm:/bin/zsh\nbad\x01name:x:1100:1100::/:/bin/false\n", "kdk_vm"),
         ] {
             assert_eq!(account_uid(bytes, name), Err(ProvisionError::AccountUnavailable));
         }
