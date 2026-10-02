@@ -6,6 +6,9 @@
 
 use crate::emergency_wire::{attr, expression, message, nested, nf, verdict};
 
+#[path = "full_vpn_reply.rs"]
+pub mod reply;
+
 const TABLE: &[u8] = b"omavless_netguard\0";
 const CHAIN: &[u8] = b"output_guard\0";
 

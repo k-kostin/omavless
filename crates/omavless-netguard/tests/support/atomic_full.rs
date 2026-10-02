@@ -1,6 +1,45 @@
 // SPDX-License-Identifier: MIT
 //! Opt-in FullVpn wire validation in a new loopback-only VM namespace.
 use super::*;
+use std::io::Read;
+
+#[test]
+#[ignore = "pure raw-reply decoder child used only by explicit developer harness"]
+fn decoder_child() {
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(32 * 1024 + 16 * 16 + 17)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let mut rest = bytes.as_slice();
+    let next = |rest: &mut &[u8]| -> u32 {
+        let (value, tail) = rest.split_at(4);
+        *rest = tail;
+        u32::from_ne_bytes(value.try_into().unwrap())
+    };
+    let generation = next(&mut rest);
+    let first = next(&mut rest);
+    let port = next(&mut rest);
+    let count = next(&mut rest);
+    assert!((1..=16).contains(&count));
+    let mut collector =
+        omavless_netguard::full_vpn_wire::reply::FullVpnTranscript::new(generation, first, port)
+            .unwrap();
+    for _ in 0..count {
+        let length = usize::try_from(next(&mut rest)).unwrap();
+        let sender_port = next(&mut rest);
+        let sender_groups = next(&mut rest);
+        let flags = next(&mut rest);
+        let (data, tail) = rest.split_at(length);
+        rest = tail;
+        collector
+            .push_datagram(data, sender_port, sender_groups, flags)
+            .unwrap();
+    }
+    assert!(rest.is_empty());
+    assert!(collector.finish().is_ok());
+    println!("K1_FULL_RAW_REPLY_PASS");
+}
 
 fn fixture() -> Scratch {
     let scratch = Scratch::new().unwrap();
@@ -78,6 +117,7 @@ fn atomic_full_in_disposable_vm() {
     cmd.env_clear()
         .env("OMAVLESS_K1_FULL_EXE", std::env::current_exe().unwrap())
         .env("OMAVLESS_K1_FULL_CHILD", "1")
+        .env("OMAVLESS_K1_FULL_RAW_REPLY_VM", "1")
         .env("OMAVLESS_K1_CAPABILITY_CHILD", "1")
         .env("OMAVLESS_K1_NFT_PARENT_DEV", parent.dev.to_string())
         .env("OMAVLESS_K1_NFT_PARENT_INO", parent.ino.to_string())
@@ -125,5 +165,15 @@ fn atomic_full_in_disposable_vm() {
         output.success && output.bytes.ends_with(b"K1_FULL_PASS\n"),
         "FullVpn gate failed: {stages:?}"
     );
+    assert_eq!(
+        output
+            .bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| *line == b"K1_FULL_RAW_REPLY_PASS")
+            .count(),
+        1,
+        "raw FullVpn transcript was not checked exactly once"
+    );
+    println!("K1_FULL_RAW_REPLY_PASS");
     println!("K1_FULL_PASS");
 }
