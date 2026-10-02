@@ -114,6 +114,7 @@ fn fixture() -> (PathBuf, PathBuf, OfflineNativeCoordinator<Host>) {
     )
     .unwrap();
     fs::set_permissions(&paths.ownership_marker, fs::Permissions::from_mode(0o600)).unwrap();
+    drop(MigrationLock::acquire(&paths, uid).unwrap());
     let owner = OfflineNativeCoordinator::new_ownership_gated(
         Host {
             observation: OwnedObservation {
@@ -636,5 +637,280 @@ fn v3_is_never_upgraded_and_input_bounds_refuse_before_admission() {
     assert!(!owner.coordinator.operation_id_in_use("oversize").unwrap());
     assert_eq!(owner.host().observations, 0);
     assert_eq!(owner.revision(), 0);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn substitute_lease(paths: &CutoverPaths, replace_parent: bool) {
+    if replace_parent {
+        let saved = paths.runtime_base.with_extension("saved");
+        fs::rename(&paths.runtime_base, &saved).unwrap();
+        fs::create_dir(&paths.runtime_base).unwrap();
+        fs::set_permissions(&paths.runtime_base, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(
+            saved.join(paths.operation_lock.file_name().unwrap()),
+            &paths.operation_lock,
+        )
+        .unwrap();
+    } else {
+        let replacement = paths.runtime_base.join("synthetic-replacement-lock");
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&replacement)
+            .unwrap();
+        fs::rename(replacement, &paths.operation_lock).unwrap();
+    }
+}
+
+#[test]
+fn stale_file_or_runtime_lease_cannot_read_prepare_publish_or_compensate() {
+    for replace_parent in [false, true] {
+        let (root, store, owner) = fixture();
+        let paths = owner.transaction.cutover_paths();
+        let uid = owner.uid();
+        let old = MigrationLock::acquire_existing(paths, uid).unwrap();
+        let plan = prepare_candidate_store_write(&store, uid, &old, paths, 2, |candidate| {
+            candidate.replace_standalone(WG_ID, "Edited WG", wg("10.8.0.4/32"))
+        })
+        .unwrap();
+        let before = fs::read(&store).unwrap();
+        substitute_lease(paths, replace_parent);
+        let replacement_holder = if replace_parent {
+            // Moving the held inode retains flock. Parent identity alone
+            // invalidates the old authority, and acquisition remains Busy.
+            assert!(matches!(
+                MigrationLock::acquire_existing(paths, uid),
+                Err(crate::cutover::CutoverError::Busy)
+            ));
+            None
+        } else {
+            Some(MigrationLock::acquire_existing(paths, uid).unwrap())
+        };
+        assert!(!old.authorizes(paths, uid));
+        if let Some(new) = &replacement_holder {
+            assert!(new.authorizes(paths, uid));
+        }
+        assert!(matches!(
+            read_candidate_native_export_locked(&store, uid, &old, paths, 2, WG_ID),
+            Err(CandidateStoreWriteError::Write(
+                PrivateStoreWriteError::LockMismatch
+            ))
+        ));
+        assert!(matches!(
+            read_candidate_edit_input_locked(&store, uid, &old, paths, 2, WG_ID),
+            Err(CandidateStoreWriteError::Write(
+                PrivateStoreWriteError::LockMismatch
+            ))
+        ));
+        assert!(
+            prepare_candidate_store_write(&store, uid, &old, paths, 2, |_| panic!(
+                "stale transform admitted"
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            plan.commit_locked(&old),
+            Err(CandidateStoreWriteError::Write(
+                PrivateStoreWriteError::LockMismatch
+            ))
+        );
+        assert_eq!(
+            plan.restore_locked(&old),
+            Err(CandidateStoreWriteError::Write(
+                PrivateStoreWriteError::LockMismatch
+            ))
+        );
+        assert!(fs::read(&store).unwrap() == before);
+        assert_eq!(owner.host().effects, 0);
+        assert_eq!(owner.host().observations, 0);
+        drop(old);
+        drop(replacement_holder);
+        let new = MigrationLock::acquire_existing(paths, uid).unwrap();
+        assert!(read_candidate_native_export_locked(&store, uid, &new, paths, 2, WG_ID).is_ok());
+        drop(new);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn owner_private_reads_do_not_create_or_repair_lease_and_recheck_substitution() {
+    let (root, store, mut owner) = fixture();
+    let paths = owner.transaction.cutover_paths().clone();
+    let before = fs::read(&store).unwrap();
+    fs::remove_file(&paths.operation_lock).unwrap();
+    assert!(matches!(
+        owner.candidate_native_export(0, WG_ID),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    ));
+    assert!(matches!(
+        owner.candidate_edit_input(0, WG_ID),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    ));
+    assert!(!paths.operation_lock.exists());
+    drop(MigrationLock::acquire(&paths, owner.uid()).unwrap());
+    fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(owner.candidate_native_export(0, WG_ID).is_err());
+    assert!(owner.candidate_edit_input(0, WG_ID).is_err());
+    assert_eq!(
+        fs::metadata(&paths.operation_lock).unwrap().mode() & 0o7777,
+        0o644
+    );
+    fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o600)).unwrap();
+    for native in [false, true] {
+        let result = owner.candidate_private_read(0, |owner, lock, generation| {
+            substitute_lease(&paths, false);
+            if native {
+                read_candidate_native_export_locked(
+                    &store,
+                    owner.uid(),
+                    lock,
+                    &paths,
+                    generation,
+                    WG_ID,
+                )
+                .map(|_| ())
+            } else {
+                read_candidate_edit_input_locked(
+                    &store,
+                    owner.uid(),
+                    lock,
+                    &paths,
+                    generation,
+                    WG_ID,
+                )
+                .map(|_| ())
+            }
+        });
+        assert!(result.is_err());
+    }
+    assert!(fs::read(&store).unwrap() == before);
+    assert_eq!(owner.host().observations, 0);
+    assert_eq!(owner.host().effects, 0);
+    assert_eq!(owner.revision(), 0);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn shared_admission_refuses_substituted_lease_before_replay_or_cache_access() {
+    for replace_parent in [false, true] {
+        let (root, store, mut owner) = fixture();
+        let (cached, result) = outcome(
+            owner
+                .execute_candidate_profile(import(), "lease-replay", 0)
+                .unwrap(),
+        );
+        assert!(result.is_ok());
+        let before = fs::read(&store).unwrap();
+        let observations = owner.host().observations;
+        let paths = owner.transaction.cutover_paths().clone();
+        let result = owner.admit_with_lease_checkpoint(
+            MutationKind::Other,
+            Some("lease-replay"),
+            Some(0),
+            import().digest().unwrap(),
+            || {
+                substitute_lease(&paths, replace_parent);
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(NativeOwnerError::OwnershipUnavailable)
+        ));
+        assert_eq!(
+            owner
+                .execute_candidate_profile(import(), "lease-replay", 0)
+                .unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        assert!(fs::read(&store).unwrap() == before);
+        assert_eq!(owner.host().observations, observations);
+        assert_eq!(owner.host().effects, 0);
+        assert_eq!(owner.revision(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn shared_preflight_refusal_is_uncached_for_every_existing_mutation_family() {
+    let families: [fn(ConnectionTransactionError) -> NativeTransactionError; 3] = [
+        NativeTransactionError::Connection,
+        |_| NativeTransactionError::Profile(ProfileTransactionError::Store),
+        |_| NativeTransactionError::Subscription(SubscriptionTransactionError::Store),
+    ];
+    for family in families {
+        let (root, store, mut owner) = fixture();
+        let before = fs::read(&store).unwrap();
+        let paths = owner.transaction.cutover_paths().clone();
+        let token = match owner
+            .admit(
+                MutationKind::Other,
+                Some("preflight-lease"),
+                Some(0),
+                import().digest().unwrap(),
+            )
+            .unwrap()
+        {
+            Admission::Execute(token) => token,
+            _ => panic!("Fresh fixed request refused"),
+        };
+        let result = owner.preflight_lock_with_lease_checkpoint(token, family, || {
+            substitute_lease(&paths, false)
+        });
+        assert!(matches!(
+            result,
+            Err(NativeOwnerError::OwnershipUnavailable)
+        ));
+        assert!(
+            !owner
+                .coordinator
+                .operation_id_in_use("preflight-lease")
+                .unwrap()
+        );
+        assert!(!owner.coordinator.active());
+        assert!(fs::read(&store).unwrap() == before);
+        assert_eq!(owner.host().observations, 0);
+        assert_eq!(owner.host().effects, 0);
+        assert_eq!(owner.revision(), 0);
+        assert!(
+            outcome(
+                owner
+                    .execute_candidate_profile(import(), "preflight-lease", 0)
+                    .unwrap()
+            )
+            .1
+            .is_ok()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn lease_substitution_at_effect_boundary_blocks_without_publication() {
+    let (root, store, mut owner) = fixture();
+    let paths = owner.transaction.cutover_paths().clone();
+    let before = fs::read(&store).unwrap();
+    let (cached, result) = outcome(
+        owner
+            .execute_candidate_with_commit(replace(), "effect-lease", 0, |plan, lock| {
+                substitute_lease(&paths, false);
+                plan.commit_locked(lock)
+            })
+            .unwrap(),
+    );
+    assert_eq!(
+        result,
+        Err(NativeTransactionError::Profile(
+            ProfileTransactionError::ManualRecoveryRequired
+        ))
+    );
+    assert_eq!(cached.revision, 1);
+    assert!(fs::read(&store).unwrap() == before);
+    assert_eq!(owner.actual(), ActualState::ManualRecoveryRequired);
+    assert_eq!(owner.host().effects, 0);
+    assert!(matches!(
+        owner.candidate_edit_input(1, WG_ID),
+        Err(NativeOwnerError::ManualRecoveryRequired)
+    ));
     fs::remove_dir_all(root).unwrap();
 }

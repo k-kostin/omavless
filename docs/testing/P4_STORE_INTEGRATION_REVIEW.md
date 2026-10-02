@@ -266,3 +266,29 @@ and must not be reported as success. The integration tests must
 exercise these refusals first, then mixed synthetic import/edit/export/delete,
 replay and compensation scenarios. Active lifecycle and restart recovery remain
 unimplemented gates, not successful acceptance evidence.
+
+The lease integration reuses #510 commit
+`74962160bfceab117b9955a3e1dbef6304230046` with `cherry-pick -x` provenance,
+not a second lease implementation. This older P4 base lacked its existing-only
+constructor/test; conflict resolution retains them and the exact changed lease
+logic. The unrelated later T4 roadmap was absent in the P4 base and is not
+resurrected; this section records the relevant contract instead. Private owner
+reads use existing-only acquisition and cannot create or repair a missing lock.
+Both read and write authority now depends on the held/current lock inode and
+the pinned private runtime-directory identity, not UID/path alone. Checks are
+point-in-time gates: they do not claim atomic protection from arbitrary hostile
+same-UID replacement/restoration between a check and an effect.
+
+The shared native admission and preflight gates also recheck live lease identity
+after marker proof, before replay-cache access or effect admission. These are
+the existing shared gates, not a separate candidate registry. Synthetic tests
+substitute both the file and its runtime directory, cover a second flock on a
+replacement inode, deny private export/editor/preparation/publication/restore
+through a stale holder, and retain normal Busy when the original locked inode
+is moved. Replay refusal preserves the cache; preflight refusal releases the
+uncached token for connection/profile/subscription families. A lease lost at
+the publication boundary raises the conservative recovery barrier even if the
+private source bytes remain original: restoration authority cannot be proved.
+
+The earlier scoped security scan remains incomplete and is not acceptance
+evidence. This implementation follow-up neither seals nor retries that scan.

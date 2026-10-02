@@ -175,8 +175,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if self.actual() == ActualState::ManualRecoveryRequired || self.transaction.blocked() {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }
-        let lock = self.transaction.acquire_lock().map_err(|error| {
-            if error == ConnectionTransactionError::Busy {
+        let lock = MigrationLock::acquire_existing(
+            self.transaction.cutover_paths(),
+            self.transaction.uid(),
+        )
+        .map_err(|error| {
+            if error == crate::cutover::CutoverError::Busy {
                 NativeOwnerError::OwnershipBusy
             } else {
                 NativeOwnerError::OwnershipUnavailable
