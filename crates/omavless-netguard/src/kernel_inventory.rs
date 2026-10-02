@@ -210,10 +210,9 @@ fn classify(
         && table.userdata.is_none()
         && extras_empty
         && chains == LocalChainInventory::ExpectedOutputChainUntrusted
+        && let LocalRuleInventory::ExactRulesUntrusted(policy) = rules
     {
-        if let LocalRuleInventory::ExactRulesUntrusted(policy) = rules {
-            return LocalPolicyInventory::ExactUntrusted(policy);
-        }
+        return LocalPolicyInventory::ExactUntrusted(policy);
     }
     LocalPolicyInventory::OtherUntrusted
 }
