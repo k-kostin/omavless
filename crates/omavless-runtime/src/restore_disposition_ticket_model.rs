@@ -87,6 +87,23 @@ impl Ticket {
                 .terminal()
                 .matches_owner_desired(generation, desired)
     }
+
+    /// Historical identity only. Current desired/live state must be validated
+    /// independently; this never authenticates an archive or grants effects.
+    pub(crate) fn matches_history(
+        &self,
+        closure: &ClosureRecord,
+        uid: u32,
+        generation: u64,
+    ) -> bool {
+        self.uid == uid
+            && self.generation == generation
+            && self.closure.encode() == closure.encode()
+            && closure
+                .receipt()
+                .terminal()
+                .matches_owner_generation(generation)
+    }
 }
 #[cfg(test)]
 mod tests {

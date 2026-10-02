@@ -124,6 +124,20 @@ fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, Bac
 /// template. The passphrase is supplied as private in-memory bytes, never argv
 /// or environment data. The caller is responsible for clearing its own copy.
 /// Random salt and nonce come from the OS CSPRNG; RNG failure refuses output.
+/// Validate exact current data against the restricted bundled-pair contract.
+/// No archive authentication, normalization, filesystem effect or startup
+/// authority is inferred. The temporary plaintext framing is zeroized.
+pub fn validate_bundled_data(store: &[u8], template: &[u8]) -> Result<(), BackupError> {
+    let framed = Zeroizing::new(
+        crate::backup_payload_candidate::encode(store, template)
+            .map_err(|_| BackupError::Unreadable)?,
+    );
+    crate::backup_payload_candidate::decode(&framed)
+        .and_then(|value| value.validate_bundled_pair())
+        .map(|_| ())
+        .map_err(|_| BackupError::Unreadable)
+}
+
 pub fn seal(store: &[u8], template: &[u8], passphrase: &[u8]) -> Result<Vec<u8>, BackupError> {
     if !passphrase_allowed(passphrase) {
         return Err(BackupError::InvalidInput);

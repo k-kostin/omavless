@@ -1530,3 +1530,31 @@ current boot/login epoch or startup admission. Its strict historical live/desire
 equality is specific to the initial-output experiment; later legitimate edits
 require independent ordinary-state validation. Existing normal startup remains
 blocked until a separately reviewed typed policy can discharge every obligation.
+
+### Inactive independent current-live review
+
+The `dev/t4-product-recovery-admission` candidate separates exact historical
+closure/ticket/completion identity from present ordinary data. Same UID and
+exact Rust ownership generation remain mandatory; a later desired generation
+does not redefine the historical terminal or authorize another owner. Current
+v3 private-store semantics, exact known bundled template (Rule/Global/Direct)
+and current desired schema/profile reference are validated independently.
+This avoids imposing original restored-byte equality forever after legitimate
+ordinary edits. The initial-output reader and resync retain their older strict
+contract unchanged.
+
+The new reader pins historical and current file/directory identities across
+two fresh caller gates and final readback. Missing or crossed evidence, new
+ownership generation, malformed/current unsupported store, custom/partial
+template, missing desired target, duplicate desired fields, late transient,
+valid concurrent edit or same-byte inode replacement refuses. It never rewrites
+history or removes a fence. Both Commit and Abort remain repeatable read-only
+observations, and the normal pending classifier still reports pending.
+
+This result is explicitly `ValidHistoricalAndCurrentLiveStillFenced`, not a
+durability receipt or startup permit. Connected desired state may be inspected,
+but cannot authorize disconnected recovery. Matching template mode to an
+actual connected owner, fixed rendered-config validation, startup Off, trusted
+current user-manager epoch, empty-host proof, provenance and a one-shot typed
+normal-admission boundary remain separate obligations. No production caller,
+IPC, CLI backup/restore or installed state change is enabled by this checkpoint.

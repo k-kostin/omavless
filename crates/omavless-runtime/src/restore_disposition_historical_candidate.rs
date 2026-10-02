@@ -1,12 +1,24 @@
 // SPDX-License-Identifier: MIT
 //! Inactive archive-free historical observation. This only verifies that the
 //! private records agree across fresh observations; it proves neither prior fsync
-//! completion nor ordinary startup authority. All records remain fences.
+//! completion nor ordinary startup authority. Current-state semantic review is
+//! separate from the original terminal output. All records remain fences.
 use super::*;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum HistoricalReview {
     ConsistentStillFenced,
+}
+
+#[derive(Clone, Copy)]
+enum LivePolicy {
+    InitialOutput,
+    ValidCurrentBundled,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CurrentLiveReview {
+    ValidHistoricalAndCurrentLiveStillFenced,
 }
 
 struct Snapshot {
@@ -68,6 +80,24 @@ impl Snapshot {
         generation: u64,
         lock: &MigrationLock,
     ) -> Result<Self, ExecutionError> {
+        Self::read_policy(
+            config,
+            paths,
+            uid,
+            generation,
+            lock,
+            LivePolicy::InitialOutput,
+        )
+    }
+
+    fn read_policy(
+        config: &Path,
+        paths: &CutoverPaths,
+        uid: u32,
+        generation: u64,
+        lock: &MigrationLock,
+        policy: LivePolicy,
+    ) -> Result<Self, ExecutionError> {
         if !lock.authorizes(paths, uid) {
             return Err(REFUSE);
         }
@@ -98,16 +128,27 @@ impl Snapshot {
         let canonical = ClosureRecord::decode(&closure.0).map_err(|_| REFUSE)?;
         let ticket_record = Ticket::decode(&ticket.0).ok_or(REFUSE)?;
         let complete_record = CompleteRecord::decode(&complete.0).ok_or(REFUSE)?;
-        if !ticket_record.matches(
-            &canonical,
-            uid,
-            generation,
-            source_boundary[1]
-                .as_ref()
-                .map(|(bytes, _)| bytes.as_slice()),
-        ) || !complete_record.matches_ticket(&ticket_record)
-            || !canonical.receipt().matches_pair(&store.0, &template.0)
-        {
+        let live_matches = match policy {
+            LivePolicy::InitialOutput => {
+                ticket_record.matches(
+                    &canonical,
+                    uid,
+                    generation,
+                    source_boundary[1]
+                        .as_ref()
+                        .map(|(bytes, _)| bytes.as_slice()),
+                ) && canonical.receipt().matches_pair(&store.0, &template.0)
+            }
+            LivePolicy::ValidCurrentBundled => {
+                ticket_record.matches_history(&canonical, uid, generation)
+                    && valid_current_bundled(
+                        &store.0,
+                        &template.0,
+                        source_boundary[1].as_ref().map(|(v, _)| v.as_slice()),
+                    )
+            }
+        };
+        if !live_matches || !complete_record.matches_ticket(&ticket_record) {
             return Err(REFUSE);
         }
         no_other_transients(&state, &config_dir)?;
@@ -215,6 +256,74 @@ impl Snapshot {
                 .zip(&other.members)
                 .all(|((a, am), (b, bm))| a == b && same_member(am, bm))
     }
+}
+
+/// Ordinary complete-store semantics, separately from historical digests.
+/// This deliberately recognizes only exact bundled templates; custom-template
+/// and installed-core validation remain a later product admission obligation.
+fn valid_current_bundled(store: &[u8], template: &[u8], desired: Option<&[u8]>) -> bool {
+    if omavless_domain::private_backup::validate_bundled_data(store, template).is_err() {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(store) else {
+        return false;
+    };
+    let Ok(current) = omavless_domain::private_store::parse_private_store(text) else {
+        return false;
+    };
+    let desired = match desired {
+        None => crate::desired::DesiredState::default(),
+        Some(raw) => match serde_json::from_slice::<crate::desired::DesiredState>(raw) {
+            Ok(value) => value,
+            Err(_) => return false,
+        },
+    };
+    if desired.validate().is_err() {
+        return false;
+    }
+    !desired.connected
+        || current
+            .list_projection()
+            .profiles()
+            .iter()
+            .any(|profile| profile.id() == desired.profile_id)
+}
+
+/// Read-only candidate for the same UID/exact ownership generation after
+/// legitimate ordinary edits. No historical output equality is inferred.
+/// Pins all records and current live/desired/login members over two host gates.
+/// Still no durability, current-epoch proof, startup exception or owner permit.
+#[allow(dead_code)]
+pub(crate) fn review_current_live(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    mut gate: impl FnMut() -> bool,
+) -> Result<CurrentLiveReview, ExecutionError> {
+    let read = || {
+        Snapshot::read_policy(
+            config,
+            paths,
+            uid,
+            generation,
+            lock,
+            LivePolicy::ValidCurrentBundled,
+        )
+    };
+    let first = read()?;
+    if !gate() {
+        return Err(REFUSE);
+    }
+    let second = read()?;
+    if !first.same(&second) || !gate() {
+        return Err(REFUSE);
+    }
+    if !first.same(&read()?) {
+        return Err(REFUSE);
+    }
+    Ok(CurrentLiveReview::ValidHistoricalAndCurrentLiveStillFenced)
 }
 
 /// The caller holds an existing exclusive migration lease and supplies a
@@ -386,6 +495,153 @@ mod tests {
         let (f, lock) = published(commit);
         complete_disposition(&f.config, &f.paths, f.uid, 2, &lock, second(), || true).unwrap();
         (f, lock)
+    }
+
+    fn ordinary_edit(f: &crate::restore_successor_publication_candidate::tests::Fixture) {
+        let path = f.config.join(LIVE[0]);
+        let mut store: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let was = store["onboardingComplete"].as_bool().unwrap_or(false);
+        store["onboardingComplete"] = (!was).into();
+        fs::write(path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let template = omavless_domain::routing::template_with_mode(
+            include_str!("../../../templates/default.yaml"),
+            "direct",
+        )
+        .unwrap();
+        fs::write(f.config.join(LIVE[1]), template).unwrap();
+        let desired = crate::desired::DesiredState {
+            generation: 19,
+            mode: crate::desired::RoutingMode::Direct,
+            ..crate::desired::DesiredState::default()
+        };
+        let path = f.paths.state_directory.join("desired.json");
+        fs::write(&path, serde_json::to_vec(&desired).unwrap()).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn current_live_accepts_valid_ordinary_edits_without_rebinding_history() {
+        for commit in [false, true] {
+            let (f, lock) = prepared(commit);
+            let history: Vec<_> = [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
+                .iter()
+                .map(|name| fs::read(f.paths.state_directory.join(name)).unwrap())
+                .collect();
+            ordinary_edit(&f);
+            assert!(review_historical(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+            for _ in 0..2 {
+                assert_eq!(
+                    review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                    Ok(CurrentLiveReview::ValidHistoricalAndCurrentLiveStillFenced)
+                );
+            }
+            for (name, bytes) in [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
+                .iter()
+                .zip(history)
+            {
+                assert_eq!(fs::read(f.paths.state_directory.join(name)).unwrap(), bytes);
+            }
+            assert!(crate::pending_private_transaction::pending_at(
+                &f.paths.state_directory
+            ));
+        }
+    }
+
+    #[test]
+    fn current_live_requires_independent_store_template_and_desired_semantics() {
+        for kind in 0..9 {
+            let (f, lock) = prepared(true);
+            ordinary_edit(&f);
+            match kind {
+                0 => fs::write(f.config.join(LIVE[0]), b"{}").unwrap(),
+                1 => fs::write(f.config.join(LIVE[1]), b"mode: direct\n").unwrap(),
+                2 => fs::write(f.paths.state_directory.join("desired.json"), b"{}").unwrap(),
+                3 => fs::write(f.paths.state_directory.join("desired.json"),
+                    br#"{"schemaVersion":1,"generation":1,"connected":true,"profileId":"missing","mode":"direct"}"#).unwrap(),
+                4 => fs::write(f.paths.state_directory.join("desired.json"),
+                    br#"{"schemaVersion":1,"generation":1,"generation":2,"connected":false,"profileId":"","mode":"direct"}"#).unwrap(),
+                5 => {
+                    let path = f.config.join(LIVE[0]);
+                    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    value["version"] = 4.into();
+                    fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+                }
+                6 => {
+                    let path = f.config.join(LIVE[0]);
+                    let text = fs::read_to_string(&path).unwrap();
+                    fs::write(path, text.replacen("\"version\":3", "\"version\":3,\"version\":3", 1)).unwrap();
+                }
+                7 => {
+                    let path = f.config.join(LIVE[0]);
+                    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    value["activeId"] = "10000000-0000-4000-8000-000000000099".into();
+                    fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+                }
+                _ => {
+                    let path = f.config.join(LIVE[0]);
+                    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    value["unexpectedPrivateState"] = "synthetic-private".into();
+                    fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+                }
+            }
+            assert!(
+                review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err(),
+                "kind={kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn current_live_never_converts_missing_history_or_new_generation_into_admission() {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        assert!(review_current_live(&f.config, &f.paths, f.uid, 3, &lock, || true).is_err());
+        assert!(
+            review_current_live(&f.config, &f.paths, f.uid.wrapping_add(1), 2, &lock, || {
+                true
+            })
+            .is_err()
+        );
+        assert!(review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || false).is_err());
+        fs::remove_file(f.paths.state_directory.join(COMPLETE_MEMBER)).unwrap();
+        assert!(review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+    }
+
+    #[test]
+    fn current_live_refuses_late_valid_edits_transients_and_same_byte_inode_replacement() {
+        for callback in [1, 2] {
+            for kind in 0..3 {
+                let (f, lock) = prepared(true);
+                ordinary_edit(&f);
+                let mut calls = 0;
+                let result = review_current_live(&f.config, &f.paths, f.uid, 2, &lock, || {
+                    calls += 1;
+                    if calls == callback {
+                        match kind {
+                            0 => {
+                                let path = f.paths.state_directory.join("desired.json");
+                                let mut value: serde_json::Value =
+                                    serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                                value["generation"] = 20.into();
+                                fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+                            }
+                            1 => fs::write(f.paths.state_directory.join(INTENT), b"late").unwrap(),
+                            _ => {
+                                let path = f.config.join(LIVE[0]);
+                                let bytes = fs::read(&path).unwrap();
+                                fs::rename(&path, path.with_extension("old-inode-test")).unwrap();
+                                fs::write(&path, bytes).unwrap();
+                                fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                                    .unwrap();
+                            }
+                        }
+                    }
+                    true
+                });
+                assert!(result.is_err(), "callback={callback} kind={kind}");
+            }
+        }
     }
 
     #[test]
