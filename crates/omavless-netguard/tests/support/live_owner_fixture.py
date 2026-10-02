@@ -194,19 +194,21 @@ def stage(name):
     print("K1_LIVE_OWNER_STAGE=" + name, flush=True)
 
 
-def isolated_test():
+def isolated_test(factory=LiveEmergency, prelude=None):
     stage("namespace")
     require(os.environ.get("OMAVLESS_K1_LIVE_OWNER_CHILD") == "1")
     guard = Guard()
     observer = Netlink(guard)
     require(table(observer) is None)
+    if prelude is not None:
+        prelude(guard, observer)
     require(not observer.batch(observer.generation(), [core["create"](core["SENTINEL"])]))
     sentinel = observer.table(core["SENTINEL"])
     stage("collision")
     # Identical policy from a different retained creator is not adoptable.
-    foreign = LiveEmergency(guard)
+    foreign = factory(guard)
     prior = table(observer)
-    refuses(lambda: LiveEmergency(guard))
+    refuses(lambda: factory(guard))
     require(table(observer) == prior)
     stage("drift")
     # A still-owned, same-handle table with a late extra rule is not the policy.
@@ -219,7 +221,7 @@ def isolated_test():
     require(not foreign.wire.batch(foreign.wire.generation(), [core["delete"](struct.unpack("!Q", prior[4])[0])]))
     foreign.close()
     stage("create")
-    live = LiveEmergency(guard)
+    live = factory(guard)
     stage("readback")
     live.verify()
     stage("foreign")
@@ -235,7 +237,7 @@ def isolated_test():
     require(orphan[4] == stable[4] and orphan[2] == u32(4) and 7 not in orphan)
     exact_shape(readback(guard), ["persist"])
     # A new creator refuses even a byte-for-byte policy-shaped orphan.
-    refuses(lambda: LiveEmergency(guard))
+    refuses(lambda: factory(guard))
     require(table(observer) == orphan and observer.table(core["SENTINEL"]) == sentinel)
     guard.check()
     observer.sock.close()

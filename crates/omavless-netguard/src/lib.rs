@@ -5,6 +5,7 @@
 
 pub mod coordinator;
 pub mod effect_port;
+pub mod emergency_wire;
 mod enrollment;
 mod enrollment_provision_candidate;
 #[cfg(target_os = "linux")]

@@ -20,6 +20,8 @@ use std::{
 
 const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
+#[path = "support/atomic_emergency.rs"]
+mod atomic_emergency;
 #[path = "support/capability.rs"]
 mod capability;
 #[path = "support/live_owner.rs"]
@@ -189,6 +191,7 @@ impl Drop for Scratch {
             "capability.py",
             "owner.py",
             "live_owner.py",
+            "atomic_emergency.py",
             "expected.json",
         ] {
             let _ = fs::remove_file(self.0.join(name));
