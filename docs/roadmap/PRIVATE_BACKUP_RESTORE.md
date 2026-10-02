@@ -683,3 +683,23 @@ post-reboot missing `/run` lock, retention/replacement of a prior completion
 record before a second restore, and a separately reviewed transition from
 verified completion to ordinary owner startup. Neither the existence of a
 completion file nor a locally green test removes these requirements.
+
+## Inactive successor handoff model
+
+A second restore cannot delete or overwrite the previous
+`restore-closure.complete` merely to clear admission. A separate pure model
+now binds the complete predecessor completion record to a distinct successor
+intent, exact Off desired snapshot, owner generation and the planned staged
+pair. The planned old pair must match the predecessor's completed live pair.
+The fixed-size record contains no raw profile/template bytes and rejects
+tears, wrong phase, reused transaction ID and owner/desired/stage/old-pair
+drift. The fixed `restore-successor.pending` name is already included in the
+ordinary existence fence, before any writer creates it.
+
+This is **not** a second-restore implementation. There is no on-disk handoff
+publisher, predecessor-unlink operation, restart continuation or product
+admission. A later writer must durably publish the handoff while the previous
+completion record remains, then stage and commit the matching intent before
+it can even consider retiring the predecessor record. During coexistence it
+must use a separate verifier; the existing completion-only inspector correctly
+rejects new stage/journal artifacts and must not be weakened globally.

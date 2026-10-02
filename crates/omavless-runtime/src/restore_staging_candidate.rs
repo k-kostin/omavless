@@ -183,6 +183,23 @@ fn ready_bytes(members: [&[u8]; 4]) -> [u8; READY_BYTES] {
     ready
 }
 
+/// Compute the exact identity that a future stage would publish, without
+/// writing it. A successor handoff can bind this plan before stage creation;
+/// it must still inspect and compare the actual stage after publication.
+pub(crate) fn planned_stage_identity(members: [&[u8]; 4]) -> Result<StageIdentity, StageError> {
+    for (index, bytes) in members.iter().enumerate() {
+        let limit = if index % 2 == 0 {
+            MAX_PRIVATE_STORE_BYTES
+        } else {
+            MAX_TEMPLATE_BYTES
+        };
+        if bytes.is_empty() || bytes.len() > limit {
+            return Err(StageError::InvalidPair);
+        }
+    }
+    Ok(StageIdentity(Sha256::digest(ready_bytes(members)).into()))
+}
+
 fn matches_member(bytes: &[u8], ready: &[u8; READY_BYTES], index: usize) -> bool {
     ready[8 + index * 4..12 + index * 4] == (bytes.len() as u32).to_be_bytes()
         && ready[24 + index * 32..56 + index * 32] == Sha256::digest(bytes)[..]
@@ -536,16 +553,7 @@ fn stage_with_hook(
     members: [&[u8]; 4],
     mut proceed: impl FnMut(Step) -> bool,
 ) -> Result<(), StageError> {
-    for (index, bytes) in members.iter().enumerate() {
-        let limit = if index % 2 == 0 {
-            MAX_PRIVATE_STORE_BYTES
-        } else {
-            MAX_TEMPLATE_BYTES
-        };
-        if bytes.is_empty() || bytes.len() > limit {
-            return Err(StageError::InvalidPair);
-        }
-    }
+    let _planned = planned_stage_identity(members)?;
     let parent =
         open_private_directory(state_directory, uid).map_err(|_| StageError::UnsafeState)?;
     let parent_before = parent.metadata().map_err(|_| StageError::UnsafeState)?;
@@ -664,6 +672,7 @@ mod tests {
     #[test]
     fn stages_only_fixed_private_members_and_refuses_second_attempt() {
         let (root, uid) = root();
+        let planned = planned_stage_identity(PAIR).unwrap();
         assert_eq!(
             stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]),
             Ok(())
@@ -690,6 +699,10 @@ mod tests {
             assert!(fs::read(file).unwrap() == bytes);
         }
         assert_eq!(inspect_staged_pair(&root, uid), Ok(()));
+        assert_eq!(
+            inspect_stage_identity(&root, uid).unwrap().digest(),
+            planned.digest()
+        );
         assert_eq!(
             stage_private_pair(&root, uid, PAIR[0], PAIR[1], PAIR[2], PAIR[3]),
             Err(StageError::AlreadyPending)
