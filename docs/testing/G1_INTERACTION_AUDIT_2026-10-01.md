@@ -221,3 +221,24 @@ Still **NOT RUN**: real screen-reader navigation/announcements, IME
 composition, live Omarchy theme-file changes, measured interaction latency,
 ARM64, optional package lifecycle and any read-only daemon binding. G1a is
 still an experiment; G1b has not started.
+
+### Shell narrow keyboard Details fallback — 2026-10-02
+
+The comparison above found that a keyboard-only visitor could not reach the
+offscreen Details panel in the pinned Shell host's 400×700 logical-pixel
+window. This host exposes a handle for virtual-list scrolling but not for
+the ordinary outer scroll area through its script API. The Shell trial now
+provides an explicit read-only Details page, opened with the header button
+or `Page Down` and closed with the header button or `Page Up`. It is a page
+transition, not a claim that the outer scroll problem was fixed. The
+original combined page retains mouse-wheel access to its lower Details.
+
+The x86_64 Omarchy Dev VM rendered both states at 400×700. `Page Down`
+displayed the complete details card; `Page Up` returned to Profiles. North
+remained selected for inspection while South stayed the separate synthetic
+confirmed connection on the Details page and after returning. The trial
+used only invented `.example` fixture rows; screenshots remain outside Git.
+This closes the narrow *keyboard reachability* gap via an alternative view,
+not full keyboard, accessibility, screen-reader, IME, latency or package
+acceptance. GPUI Shell's native accessibility tree remains incomplete and
+G1a is not accepted for production.

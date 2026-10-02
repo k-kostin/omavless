@@ -82,6 +82,14 @@ In the direct Rust trial, a narrow window also supports `Page Down` and
 or the profile list has keyboard focus. These keys move only the viewport;
 they do not inspect a different profile or alter the simulated connection.
 
+The pinned GPUI Shell host does not expose a script-controlled handle for
+its ordinary outer scroll area. Its synthetic trial therefore offers an
+explicit read-only Details page: the header button or `Page Down` opens it,
+and the header button or `Page Up` returns to Profiles. This is page
+navigation, **not** equivalent scroll behavior. The inspected profile and
+separately confirmed synthetic connection remain unchanged. Mouse-wheel
+scrolling of the original combined page remains available.
+
 For deterministic visual review, the direct Rust trial accepts only
 `--scene <synthetic-id>` (for example, `--scene switching`). An unknown ID
 refuses without echoing it. This chooses fixture state before the window opens;
