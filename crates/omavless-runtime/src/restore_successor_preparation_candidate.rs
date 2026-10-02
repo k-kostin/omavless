@@ -240,75 +240,231 @@ fn prepare_with_hook(
         )
         .map_err(|_| REFUSE)?;
         let staged = context.phase(PreparationPhase::StageWithoutIntent, &mut gate)?;
-        let handoff = SuccessorHandoff::decode(&context.original.handoff).map_err(|_| REFUSE)?;
-        let bytes = handoff.successor_intent().encode();
-        let mut file = File::from(
-            openat(
-                &context.state,
-                Path::new("restore-decision.intent"),
-                OFlag::O_WRONLY
-                    | OFlag::O_CREAT
-                    | OFlag::O_EXCL
-                    | OFlag::O_NOFOLLOW
-                    | OFlag::O_CLOEXEC,
-                Mode::S_IRUSR | Mode::S_IWUSR,
-            )
-            .map_err(|_| REFUSE)?,
-        );
-        let created = file.metadata().map_err(|_| REFUSE)?;
-        if !created.is_file()
-            || created.uid() != uid
-            || created.mode() & 0o7777 != 0o600
-            || created.nlink() != 1
-            || !hook(Checkpoint::IntentCreated)
+        publish_intent(&context, &staged, &mut gate, &mut hook)
+    };
+    effects().map_err(|_| PrepareError::Ambiguous)
+}
+
+fn publish_intent(
+    context: &Context<'_>,
+    staged: &Snapshot,
+    gate: &mut impl FnMut() -> bool,
+    hook: &mut impl FnMut(Checkpoint) -> bool,
+) -> Result<PrepareResult> {
+    let uid = context.uid;
+    let handoff = SuccessorHandoff::decode(&context.original.handoff).map_err(|_| REFUSE)?;
+    let bytes = handoff.successor_intent().encode();
+    let mut file = File::from(
+        openat(
+            &context.state,
+            Path::new("restore-decision.intent"),
+            OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::S_IRUSR | Mode::S_IWUSR,
+        )
+        .map_err(|_| REFUSE)?,
+    );
+    let created = file.metadata().map_err(|_| REFUSE)?;
+    if !created.is_file()
+        || created.uid() != uid
+        || created.mode() & 0o7777 != 0o600
+        || created.nlink() != 1
+        || !hook(Checkpoint::IntentCreated)
+    {
+        return Err(REFUSE);
+    }
+    file.write_all(&bytes).map_err(|_| REFUSE)?;
+    if !hook(Checkpoint::IntentWritten) {
+        return Err(REFUSE);
+    }
+    file.sync_all().map_err(|_| REFUSE)?;
+    if !hook(Checkpoint::IntentSynced) {
+        return Err(REFUSE);
+    }
+    context.state.sync_all().map_err(|_| REFUSE)?;
+    if !hook(Checkpoint::DirectorySynced) {
+        return Err(REFUSE);
+    }
+    let durable = file.metadata().map_err(|_| REFUSE)?;
+    let verify = || -> Result<()> {
+        let (raw, meta) = read_optional(
+            &context.state,
+            "restore-decision.intent",
+            uid,
+            DECISION_BYTES,
+        )
+        .map_err(|_| REFUSE)?
+        .ok_or(REFUSE)?;
+        if raw.as_slice() != bytes
+            || created.dev() != durable.dev()
+            || created.ino() != durable.ino()
+            || !same_member(&durable, &meta)
+            || !same_member(&durable, &file.metadata().map_err(|_| REFUSE)?)
         {
             return Err(REFUSE);
         }
-        file.write_all(&bytes).map_err(|_| REFUSE)?;
-        if !hook(Checkpoint::IntentWritten) {
+        Ok(())
+    };
+    verify()?;
+    if !hook(Checkpoint::Reopened) {
+        return Err(REFUSE);
+    }
+    let prepared = context.phase(PreparationPhase::StageWithIntent, gate)?;
+    if !staged.same_stage(&prepared) {
+        return Err(REFUSE);
+    }
+    context.base(false)?;
+    verify()?;
+    Ok(PrepareResult::PreparedStillFenced)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecoveryCheckpoint {
+    FileSynced,
+    StageDirectorySynced,
+    StateDirectorySynced,
+    Rechecked,
+}
+
+/// Explicit inactive recovery of an exact authenticated phase. Complete
+/// existing bytes are resynchronized before continuation; partial stage/intent
+/// and terminal evidence are never overwritten, rolled back or auto-repaired.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn recover_successor_preparation(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &OpenedBackup,
+    phase: PreparationPhase,
+    gate: impl FnMut() -> bool,
+) -> std::result::Result<PrepareResult, PrepareError> {
+    recover_with_hook(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        backup,
+        phase,
+        gate,
+        |_| true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recover_with_hook(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &OpenedBackup,
+    phase: PreparationPhase,
+    mut gate: impl FnMut() -> bool,
+    mut hook: impl FnMut(RecoveryCheckpoint) -> bool,
+) -> std::result::Result<PrepareResult, PrepareError> {
+    if phase == PreparationPhase::HandoffOnly {
+        return prepare_successor(config, paths, uid, generation, lock, backup, gate);
+    }
+    let original = inspect_snapshot(
+        config, paths, uid, generation, lock, backup, phase, &mut gate,
+    )
+    .map_err(|_| PrepareError::Admission)?;
+    let context = Context {
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        backup,
+        state: open_private_directory(&paths.state_directory, uid)
+            .map_err(|_| PrepareError::Admission)?,
+        config_dir: open_private_directory(config, uid).map_err(|_| PrepareError::Admission)?,
+        original,
+    };
+    let mut resume = || -> Result<PrepareResult> {
+        let stage = open_private_directory(&paths.state_directory.join(PENDING_DIRECTORY), uid)
+            .map_err(|_| REFUSE)?;
+        if !same_directory(
+            &context.original.directories[2],
+            &stage.metadata().map_err(|_| REFUSE)?,
+        ) {
             return Err(REFUSE);
         }
-        file.sync_all().map_err(|_| REFUSE)?;
-        if !hook(Checkpoint::IntentSynced) {
+        // Same ordering as observe(): closure, handoff, optional intent,
+        // live pair, then all five stage files. Synchronize only those pinned
+        // exact members, never a path discovered from credential-bearing data.
+        let mut members: Vec<(&File, &str)> = vec![
+            (&context.state, CLOSURE_MEMBER),
+            (&context.state, SUCCESSOR_MEMBER),
+        ];
+        if phase == PreparationPhase::StageWithIntent {
+            members.push((&context.state, "restore-decision.intent"));
+        }
+        members.extend([
+            (&context.config_dir, "profiles.json"),
+            (&context.config_dir, "route-template.yaml"),
+        ]);
+        members.extend(
+            MEMBERS
+                .into_iter()
+                .chain([READY_MEMBER])
+                .map(|name| (&stage, name)),
+        );
+        if members.len() != context.original.members.len() {
             return Err(REFUSE);
         }
-        context.state.sync_all().map_err(|_| REFUSE)?;
-        if !hook(Checkpoint::DirectorySynced) {
-            return Err(REFUSE);
-        }
-        let durable = file.metadata().map_err(|_| REFUSE)?;
-        let verify = || -> Result<()> {
-            let (raw, meta) = read_optional(
-                &context.state,
-                "restore-decision.intent",
-                uid,
-                DECISION_BYTES,
-            )
-            .map_err(|_| REFUSE)?
-            .ok_or(REFUSE)?;
-            if raw.as_slice() != bytes
-                || created.dev() != durable.dev()
-                || created.ino() != durable.ino()
-                || !same_member(&durable, &meta)
-                || !same_member(&durable, &file.metadata().map_err(|_| REFUSE)?)
-            {
+        for ((parent, name), expected) in members.iter().zip(&context.original.members) {
+            if !gate() {
                 return Err(REFUSE);
             }
-            Ok(())
-        };
-        verify()?;
-        if !hook(Checkpoint::Reopened) {
+            let checked = context.phase(phase, &mut gate)?;
+            if !context.original.same(&checked) {
+                return Err(REFUSE);
+            }
+            let file = File::from(
+                openat(
+                    *parent,
+                    Path::new(name),
+                    OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(|_| REFUSE)?,
+            );
+            if !same_member(expected, &file.metadata().map_err(|_| REFUSE)?) {
+                return Err(REFUSE);
+            }
+            file.sync_all().map_err(|_| REFUSE)?;
+            if !hook(RecoveryCheckpoint::FileSynced) {
+                return Err(REFUSE);
+            }
+        }
+        stage.sync_all().map_err(|_| REFUSE)?;
+        if !hook(RecoveryCheckpoint::StageDirectorySynced) {
             return Err(REFUSE);
         }
-        let prepared = context.phase(PreparationPhase::StageWithIntent, &mut gate)?;
-        if !staged.same_stage(&prepared) {
+        context.config_dir.sync_all().map_err(|_| REFUSE)?;
+        context.state.sync_all().map_err(|_| REFUSE)?;
+        if !hook(RecoveryCheckpoint::StateDirectorySynced) {
             return Err(REFUSE);
         }
-        context.base(false)?;
-        verify()?;
-        Ok(PrepareResult::PreparedStillFenced)
+        let synced = context.phase(phase, &mut gate)?;
+        if !context.original.same(&synced) || !hook(RecoveryCheckpoint::Rechecked) {
+            return Err(REFUSE);
+        }
+        // No hook or host callback may leave stale evidence before intent create.
+        let final_check = context.phase(phase, &mut gate)?;
+        if !synced.same(&final_check) {
+            return Err(REFUSE);
+        }
+        if phase == PreparationPhase::StageWithoutIntent {
+            publish_intent(&context, &final_check, &mut gate, &mut |_| true)
+        } else {
+            Ok(PrepareResult::PreparedStillFenced)
+        }
     };
-    effects().map_err(|_| PrepareError::Ambiguous)
+    resume().map_err(|_| PrepareError::Ambiguous)
 }
 
 #[cfg(test)]
@@ -513,7 +669,198 @@ mod tests {
                 assert_eq!(result, if expected { Ok(phase) } else { Err(REFUSE) });
             }
             preserved(&f, &before, &h);
+            let phase = match stopped {
+                5 | 6 => PreparationPhase::StageWithoutIntent,
+                _ => PreparationPhase::StageWithIntent,
+            };
+            let recovered = recover_successor_preparation(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                backup(),
+                phase,
+                || true,
+            );
+            assert_eq!(
+                recovered,
+                if matches!(stopped, 5 | 6 | 8..=11) {
+                    Ok(PrepareResult::PreparedStillFenced)
+                } else {
+                    Err(PrepareError::Admission)
+                }
+            );
+            preserved(&f, &before, &h);
         }
+    }
+
+    #[test]
+    fn recovery_resync_interruptions_preserve_exact_fences_and_can_be_reinspected() {
+        for (phase, count) in [
+            (PreparationPhase::StageWithoutIntent, 12),
+            (PreparationPhase::StageWithIntent, 13),
+        ] {
+            for stopped in 0..count {
+                let (f, lock) = handoff();
+                let mut index = 0;
+                let _ = prepare(&f, &lock, |_| {
+                    let keep = phase == PreparationPhase::StageWithIntent || index != 5;
+                    index += 1;
+                    keep
+                });
+                let before = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+                let h = fs::read(f.paths.state_directory.join(SUCCESSOR_MEMBER)).unwrap();
+                let mut index = 0;
+                assert_eq!(
+                    recover_with_hook(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        backup(),
+                        phase,
+                        || true,
+                        |_| {
+                            let keep = index != stopped;
+                            index += 1;
+                            keep
+                        }
+                    ),
+                    Err(PrepareError::Ambiguous)
+                );
+                assert_eq!(index, stopped + 1);
+                preserved(&f, &before, &h);
+                assert_eq!(
+                    recover_successor_preparation(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        backup(),
+                        phase,
+                        || true
+                    ),
+                    Ok(PrepareResult::PreparedStillFenced)
+                );
+                preserved(&f, &before, &h);
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_final_recheck_rejects_same_byte_replacement_and_late_gate() {
+        for target in ["intent", "receipt", "gate"] {
+            let (f, lock) = handoff();
+            prepare(&f, &lock, |_| true).unwrap();
+            let allowed = std::cell::Cell::new(true);
+            assert_eq!(
+                recover_with_hook(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    PreparationPhase::StageWithIntent,
+                    || allowed.get(),
+                    |point| {
+                        if point == RecoveryCheckpoint::Rechecked {
+                            match target {
+                                "intent" => {
+                                    let path =
+                                        f.paths.state_directory.join("restore-decision.intent");
+                                    let raw = fs::read(&path).unwrap();
+                                    fs::rename(&path, f.root.join("old-intent")).unwrap();
+                                    write(&path, &raw);
+                                }
+                                "receipt" => {
+                                    write(&f.paths.state_directory.join(RECEIPT_MEMBER), b"late")
+                                }
+                                "gate" => allowed.set(false),
+                                _ => unreachable!(),
+                            }
+                        }
+                        true
+                    }
+                ),
+                Err(PrepareError::Ambiguous)
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_requires_fresh_matching_authenticated_archive() {
+        let (f, lock) = handoff();
+        prepare(&f, &lock, |_| true).unwrap();
+        let before = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+        let h = fs::read(f.paths.state_directory.join(SUCCESSOR_MEMBER)).unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(backup().store()).unwrap();
+        value["onboardingComplete"] = true.into();
+        let encrypted = omavless_domain::private_backup::seal(
+            &serde_json::to_vec(&value).unwrap(),
+            backup().template(),
+            b"synthetic recovery archive",
+        )
+        .unwrap();
+        assert!(omavless_domain::private_backup::open(&encrypted, b"wrong passphrase").is_err());
+        assert!(omavless_domain::private_backup::open(&[], b"missing archive").is_err());
+        let other =
+            omavless_domain::private_backup::open(&encrypted, b"synthetic recovery archive")
+                .unwrap();
+        assert_eq!(
+            recover_successor_preparation(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                &other,
+                PreparationPhase::StageWithIntent,
+                || true
+            ),
+            Err(PrepareError::Admission)
+        );
+        preserved(&f, &before, &h);
+    }
+
+    #[test]
+    fn composed_publication_preparation_recovery_stays_fenced_without_live_effects() {
+        let (f, lock) = handoff();
+        let before = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+        let h = fs::read(f.paths.state_directory.join(SUCCESSOR_MEMBER)).unwrap();
+        assert_eq!(
+            recover_successor_preparation(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                backup(),
+                PreparationPhase::HandoffOnly,
+                || true
+            ),
+            Ok(PrepareResult::PreparedStillFenced)
+        );
+        let path = f.paths.state_directory.join("restore-decision.intent");
+        let inode = fs::metadata(&path).unwrap().ino();
+        assert_eq!(
+            recover_successor_preparation(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                backup(),
+                PreparationPhase::StageWithIntent,
+                || true
+            ),
+            Ok(PrepareResult::PreparedStillFenced)
+        );
+        assert_eq!(fs::metadata(path).unwrap().ino(), inode);
+        preserved(&f, &before, &h);
     }
 
     #[test]
@@ -536,6 +883,85 @@ mod tests {
             index += 1;
             true
         });
+        panic!("expected synthetic worker termination");
+    }
+
+    #[test]
+    fn actual_resync_crashes_reopen_and_recover_without_live_effects() {
+        for stopped in [0, 11] {
+            let (f, lock) = handoff();
+            let mut index = 0;
+            let _ = prepare(&f, &lock, |_| {
+                let keep = index != 5;
+                index += 1;
+                keep
+            });
+            drop(lock);
+            let before = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+            let h = fs::read(f.paths.state_directory.join(SUCCESSOR_MEMBER)).unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "restore_successor_coexistence_candidate::preparation::tests::resync_crash_worker"])
+                .env("OMAVLESS_SYNTHETIC_PREPARATION_ROOT", &f.root)
+                .env("OMAVLESS_SYNTHETIC_PREPARATION_POINT", stopped.to_string())
+                .output().unwrap();
+            assert_eq!(output.status.signal(), Some(9));
+            let lock = f.lock();
+            assert!(
+                !f.paths
+                    .state_directory
+                    .join("restore-decision.intent")
+                    .exists()
+            );
+            assert_eq!(
+                recover_successor_preparation(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    PreparationPhase::StageWithoutIntent,
+                    || true
+                ),
+                Ok(PrepareResult::PreparedStillFenced)
+            );
+            preserved(&f, &before, &h);
+        }
+    }
+
+    #[test]
+    #[ignore = "internal synthetic resync crash worker"]
+    fn resync_crash_worker() {
+        let f = std::mem::ManuallyDrop::new(Fixture::reopen(PathBuf::from(
+            std::env::var_os("OMAVLESS_SYNTHETIC_PREPARATION_ROOT").unwrap(),
+        )));
+        let selected: usize = std::env::var("OMAVLESS_SYNTHETIC_PREPARATION_POINT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let lock = f.lock();
+        let mut index = 0;
+        let _ = recover_with_hook(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            backup(),
+            PreparationPhase::StageWithoutIntent,
+            || true,
+            |_| {
+                if index == selected {
+                    nix::sys::signal::kill(
+                        nix::unistd::getpid(),
+                        nix::sys::signal::Signal::SIGKILL,
+                    )
+                    .unwrap();
+                }
+                index += 1;
+                true
+            },
+        );
         panic!("expected synthetic worker termination");
     }
 }
