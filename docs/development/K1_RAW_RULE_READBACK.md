@@ -29,7 +29,9 @@ prerequisites, not a working root service or product kill switch.
 The opt-in unit fixture `raw_rules_in_disposable_vm` creates each fixed policy
 in a new user/network namespace with only loopback. Its test-only creator uses
 the same retained Rust socket for atomic creation, strict ACK/barrier parsing,
-two raw rule reads and the independent full JSON policy check. The parent
+two raw rule reads. It also verifies that the older JSON classifier continues
+to return OtherUntrusted for owner,persist table flags, which its original
+creation template did not support. The parent
 namespace descriptor stays pinned and is compared after child exit. Direct
 child invocation without the fixture environment refuses before socket work;
 the outer fixture requires `OMAVLESS_K1_RAW_RULE_VM=1`. No production executor

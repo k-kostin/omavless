@@ -346,9 +346,11 @@ fn raw_rules_child() {
             Ok(LocalRuleInventory::ExactRulesUntrusted(policy))
         );
     }
+    // The old JSON classifier deliberately does not accept owner,persist table
+    // flags. Preserve its refusal rather than normalizing away ownership facts.
     assert_eq!(
         session.inspect_policy_shape(),
-        Ok(crate::nft::UntrustedPolicyShape::Exact(policy))
+        Ok(crate::nft::UntrustedPolicyShape::OtherUntrusted)
     );
     assert_eq!(
         namespace_identity(&namespace_file().unwrap()).unwrap(),
