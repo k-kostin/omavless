@@ -105,6 +105,7 @@ impl Snapshot {
                 .as_ref()
                 .map(|(bytes, _)| bytes.as_slice()),
         ) || !complete_record.matches_ticket(&ticket_record)
+            || !canonical.receipt().matches_pair(&store.0, &template.0)
         {
             return Err(REFUSE);
         }
@@ -281,6 +282,18 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn historical_read_refuses_live_bytes_outside_terminal_pair() {
+        for name in LIVE {
+            let (f, lock) = prepared(true);
+            let path = f.config.join(name);
+            let mut bytes = fs::read(&path).unwrap();
+            bytes[0] ^= 1;
+            fs::write(path, bytes).unwrap();
+            assert!(review_historical(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+        }
     }
 
     #[test]

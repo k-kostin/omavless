@@ -1491,14 +1491,15 @@ the exact current UID and generation, safe private state/config/runtime paths,
 canonical mutually bound records, and observed absence of every other restore,
 routing and slot transient. It pins file and directory descriptors, compares
 bounded live pair and owner/desired/login member identities across callbacks,
-and returns only `ConsistentStillFenced`. Missing, torn, crossed, replaced or
+and returns only `ConsistentStillFenced`. The live pair must still match the
+terminal pair digest embedded in C1. Missing, torn, crossed, replaced or
 orphan records refuse. Existing normal-startup and direct-effect fences remain
 unchanged. Synthetic process re-entry without an archive returns the same
-still-fenced result; it is not a power-loss test. This conservative reader also
-requires current desired bytes to match the historical ticket, so legitimate
-later desired changes refuse. Future typed admission must use independently
-validated ordinary live state instead of treating that historical match as a
-permanent requirement.
+still-fenced result; it is not a power-loss test. This conservative initial-output
+reader also requires current desired bytes and live pair to match historical
+evidence, so legitimate later edits refuse. Future typed admission must use
+independently validated ordinary live state instead of treating either
+historical match as a permanent requirement.
 
 This reader verifies internal consistency, **not** completion durability,
 archive authentication, current boot/login epoch, live semantic validity or
