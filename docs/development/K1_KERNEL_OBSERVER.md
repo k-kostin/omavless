@@ -123,16 +123,17 @@ one-second observation deadline. It reports only `TableAbsent`, `Empty`,
 drop policy; no rule inventory or ownership has been established.
 
 The kernel's chain dump spans the namespace, not just the requested table.
-This first candidate refuses if another table has a chain rather than
-mistaking it for OmaVLESS evidence. That conservative behavior is **not**
-the required foreign-firewall coexistence behavior for product K1; a later
-observer must distinguish and safely skip unrelated chains without losing
-the complete fixed-table inventory.
+Every record must first pass the supported schema, generation, framing and
+resource bounds. A validated foreign-table record does not contribute to the
+fixed-table count or expected-chain shape; duplicate identity is checked per
+table and chain. Malformed or unsupported foreign records still refuse rather
+than silently disappearing. This is bounded coexistence with supported chain
+schemas, **not** a promise that every foreign firewall shape is supported.
 
 The opt-in integration gate runs only in a disposable user/network namespace
 inside Omarchy Dev VM. It checks absent and empty states, the expected base
-chain, extra fixed-table chain, wrong hook/priority/policy, conservative
-foreign-chain refusal and cleanup to absent, then rechecks the parent
+chain, extra fixed-table chain, wrong hook/priority/policy, foreign-table
+coexistence with an identically named base chain and cleanup to absent, then rechecks the parent
 namespace. No host firewall, route or VPN is changed:
 
 ```sh
