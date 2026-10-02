@@ -10,6 +10,7 @@ python3 -m unittest -v \
   "$here/test_marketplace_setup.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
+  "$here/test_k1_launch_fixture_boundary.py" \
   "$here/test_release_candidate.py" \
   "$here/test_frontend_pair.py" \
   "$here/test_installed_native_acceptance.py" \

@@ -99,6 +99,41 @@ do not expand the tested code's evidence.
 
 ## Still required
 
+### Non-installed launch/package boundary candidate
+
+`crates/omavless-netguard/tests/fixtures/omavless-k1-openfile-fixture.service`
+records one fixed descriptor-inspection launch for review. It stays under test
+fixtures, outside all installed unit search paths and package inputs. It has
+no install section, socket/D-Bus activation, boot ordering, state/enrollment
+directories or preparatory/cleanup commands. Its only executable is the existing
+standalone probe at the fixed developer staging path. Empty capability sets
+grant no NetGuard networking capability; this extra restriction has not been
+exercised in a service launch.
+
+The existing transient VM runner does **not** load this unit. Its earlier
+exact-head VM evidence above remains unchanged and does not validate this new
+configuration. No service is loaded, started, enabled or installed by this
+candidate or its tests.
+
+`tests/test_k1_launch_fixture_boundary.py`, included in `tests/run.sh`, checks
+the complete fixed directive allowlist and executes the real Arch payload
+stager against a temporary destination with synthetic executable bytes. The
+positive complete file/directory inventory, byte/mode checks and symlink
+rejection prove that normal payload staging excludes the fixture, probe,
+NetGuard system service, activation links and hooks. This needs no root,
+package manager, Cargo build or running service; it is payload evidence, not
+an installed-package acceptance test. Python remains developer test tooling.
+
+These checks establish configuration and package exclusion only. They do not
+establish systemd execution, safe production FD adoption, namespace type/ID,
+socket cookie, host-manager provenance, prevention of switch-and-return,
+canonical authority or nft ownership. Private PID/user/mount/proc views and
+substituted real namespace descriptors remain untested launch scenarios.
+`DescriptorMatch` cannot be converted into `NamespaceObservation::Canonical`
+or an `EffectPort`. K1 stays unavailable.
+
+### Production prerequisites
+
 Reviewed safe `NS_GET_NSTYPE`, `NS_GET_ID`, `SO_NETNS_COOKIE` wrappers; trusted
 host-only system-manager/package launch; safe production descriptor adoption;
 structural namespace-transition prohibition; retained socket/session poisoning;

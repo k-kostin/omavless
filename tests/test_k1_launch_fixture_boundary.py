@@ -1,0 +1,95 @@
+"""Offline launch/package boundary checks; never load or start a system unit."""
+import configparser
+from pathlib import Path
+import stat
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = (ROOT / "crates/omavless-netguard/tests/fixtures/"
+           "omavless-k1-openfile-fixture.service")
+
+
+class K1LaunchFixtureBoundaryTests(unittest.TestCase):
+    def test_fixture_has_only_fixed_bounded_descriptor_inspection(self):
+        # Exact allowlist: duplicate/unknown directives, activation sections,
+        # extra commands, production paths and capability grants need review.
+        unit = configparser.ConfigParser(interpolation=None, strict=True)
+        unit.optionxform = str
+        unit.read_string(FIXTURE.read_text())
+        self.assertEqual(dict(unit.defaults()), {})
+        self.assertEqual(unit.sections(), ["Unit", "Service"])
+        self.assertEqual(dict(unit["Unit"]), {
+            "Description": "OmaVLESS K1 descriptor-match fixture (not protection)",
+        })
+        self.assertEqual(dict(unit["Service"]), {
+            "Type": "exec",
+            "User": "root",
+            "ExecStart": "/run/omavless-k1-openfile-fixture/probe",
+            "Environment": "OMAVLESS_K1_OPENFILE_FIXTURE=1",
+            "OpenFile": "/proc/1/ns/net:k1-host-netns:read-only",
+            "PrivateUsers": "no",
+            "PrivatePIDs": "no",
+            "PrivateNetwork": "no",
+            "NoNewPrivileges": "yes",
+            "CapabilityBoundingSet": "",
+            "AmbientCapabilities": "",
+            "RuntimeMaxSec": "10s",
+            "TimeoutStopSec": "2s",
+        })
+
+    def test_actual_arch_stager_excludes_fixture_and_root_activation_payload(self):
+        # Run the real stager against the real source tree, so accidentally
+        # broadening its copy scope to include this fixture is detectable.
+        # No Cargo build, makepkg, root, service manager or installed binary.
+        with tempfile.TemporaryDirectory(prefix="omavless-k1-payload-") as temp:
+            scratch = Path(temp)
+            payload = scratch / "payload"
+            payload.mkdir()
+            binary = scratch / "synthetic-binary"
+            binary.write_bytes(b"synthetic package bytes; must never execute\n")
+            binary.chmod(0o700)
+            result = subprocess.run(
+                ["bash", str(ROOT / "packaging/arch/stage-payload.sh"),
+                 str(payload), str(binary)],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            members = list(payload.rglob("*"))
+            self.assertFalse(any(path.is_symlink() for path in members))
+            files = {str(path.relative_to(payload)): path for path in members
+                     if path.is_file()}
+            expected = {
+                "usr/bin/omavless": (binary, 0o755),
+                "usr/lib/systemd/user/omavless-runtime.service":
+                    (ROOT / "packaging/systemd/omavless-runtime.service", 0o644),
+                "usr/lib/systemd/user/omavless-login-prepare.service":
+                    (ROOT / "packaging/systemd/omavless-login-prepare.service", 0o644),
+                "usr/share/licenses/omavless/LICENSE": (ROOT / "LICENSE", 0o644),
+                "usr/share/licenses/omavless/THIRD_PARTY_NOTICES.md":
+                    (ROOT / "THIRD_PARTY_NOTICES.md", 0o644),
+                "usr/share/doc/omavless/README.md":
+                    (ROOT / "packaging/arch/README.md", 0o644),
+            }
+            # A positive complete inventory prevents vacuous absence checks
+            # against an empty payload. It also rejects future root units,
+            # activation hooks, NetGuard binaries and developer fixture copies.
+            self.assertEqual(set(files), set(expected))
+            for name, (source, mode) in expected.items():
+                with self.subTest(member=name):
+                    self.assertEqual(files[name].read_bytes(), source.read_bytes())
+                    self.assertEqual(stat.S_IMODE(files[name].stat().st_mode), mode)
+            allowed_directories = {
+                str(parent) for name in expected
+                for parent in Path(name).parents if str(parent) != "."
+            }
+            self.assertEqual(
+                {str(path.relative_to(payload)) for path in members if path.is_dir()},
+                allowed_directories,
+            )
+            self.assertTrue(all(path.is_file() or path.is_dir() for path in members))
+
+
+if __name__ == "__main__":
+    unittest.main()
