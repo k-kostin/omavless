@@ -9,10 +9,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import selectors
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
+import time
 
 import stage
 
@@ -26,6 +30,8 @@ PATCH_SHA = {
     "sing-tun-descriptor.patch": "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab",
 }
 MAX_ARCHIVE = 128 * 1024 * 1024
+MAX_GIT_VALUE = 4096
+MAX_GIT_ERROR = 4096
 GO_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 
 
@@ -51,28 +57,109 @@ def command(arguments, *, cwd=None, env=None, output=None):
     return result.stderr
 
 
+def git_environment():
+    return {"PATH": "/usr/bin:/bin", "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_ATTR_NOSYSTEM": "1", "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0"}
+
+
+def git_command(arguments, *, env=None, output=None, timeout=20):
+    """Bound Git pipes while running, without exposing private stderr/paths.
+
+    Only an owned child process group is stopped on timeout/output overflow.
+    The object-store commands below are read-only; hooks, fsmonitor and lazy
+    downloads must not turn observation into a source mutation or network step.
+    """
+    arguments = ["/usr/bin/git", "-c", "core.fsmonitor=false", "-c",
+                 "core.hooksPath=/dev/null", "-c", "core.attributesFile=/dev/null",
+                 *arguments]
+    captured = bytearray()
+    size = error_size = 0
+    sink = output.open("xb") if output is not None else None
+    process = None
+    waited = False
+    poller = selectors.DefaultSelector()
+    deadline = time.monotonic() + timeout
+    try:
+        process = subprocess.Popen(arguments, env=env or git_environment(),
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, start_new_session=True)
+        poller.register(process.stdout, selectors.EVENT_READ, "output")
+        poller.register(process.stderr, selectors.EVENT_READ, "error")
+        while poller.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise stage.Refused("Offline Git source step exceeded its bound.")
+            for key, _ in poller.select(min(remaining, 0.1)):
+                block = os.read(key.fileobj.fileno(), 65536)
+                if not block:
+                    poller.unregister(key.fileobj)
+                    continue
+                if key.data == "error":
+                    error_size += len(block)
+                    if error_size > MAX_GIT_ERROR:
+                        raise stage.Refused("Offline Git source step exceeded its bound.")
+                else:
+                    size += len(block)
+                    if size > (MAX_ARCHIVE if sink is not None else MAX_GIT_VALUE):
+                        raise stage.Refused("Offline Git source step exceeded its bound.")
+                    if sink is not None:
+                        sink.write(block)
+                    else:
+                        captured.extend(block)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise stage.Refused("Offline Git source step exceeded its bound.")
+        result = process.wait(timeout=remaining)
+        waited = True
+        if result != 0:
+            raise stage.Refused("Offline Git source step failed.")
+        return bytes(captured)
+    finally:
+        poller.close()
+        try:
+            if process is not None and not waited:
+                # Leader is still unreaped: its PID cannot be reused for an
+                # unrelated process group while we cancel these owned children.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+        finally:
+            if process is not None:
+                process.stdout.close()
+                process.stderr.close()
+            if sink is not None:
+                sink.close()
+
+
 def git_value(repository, *arguments):
-    result = subprocess.run(["/usr/bin/git", "-C", str(repository), *arguments],
-                            stdin=subprocess.DEVNULL, capture_output=True, timeout=20,
-                            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C",
-                                 "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
-                            check=False)
-    if result.returncode != 0 or len(result.stdout) > 4096:
-        raise stage.Refused("Pinned source identity is unavailable.")
-    return result.stdout.decode("ascii").strip()
+    return git_command(["-C", str(repository), *arguments]).decode("ascii").strip()
 
 
 def export_git(repository, revision, destination):
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise stage.Refused("An exact source commit is required.")
     if git_value(repository, "rev-parse", "--verify", f"{revision}^{{commit}}") != revision:
         raise stage.Refused("Pinned upstream commit is absent.")
+    objects = Path(git_value(repository, "rev-parse", "--path-format=absolute",
+                             "--git-path", "objects"))
+    if not objects.is_absolute() or not objects.is_dir():
+        raise stage.Refused("Pinned source object directory is unavailable.")
     archive = destination.parent / (destination.name + ".tar")
-    git_env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C",
-               "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
-    command(["/usr/bin/git", "-C", str(repository), "archive", "--format=tar",
-             revision], env=git_env, output=archive)
-    if archive.stat().st_size > MAX_ARCHIVE:
-        raise stage.Refused("Pinned source archive exceeds its bound.")
-    destination.mkdir()
+    # archive honors source $GIT_DIR/info/attributes, even for an exact commit.
+    # A fresh template-free repository sees only original object bytes, never
+    # source config, replacement refs, info attributes, index or working files.
+    with tempfile.TemporaryDirectory(prefix=".source-export-", dir=destination.parent) as name:
+        isolated = Path(name)
+        git_command(["init", "--quiet", "--bare", "--template=", str(isolated)])
+        git_env = dict(git_environment(), GIT_OBJECT_DIRECTORY=str(objects))
+        git_command(["--git-dir=" + str(isolated), "archive", "--format=tar", revision],
+                    env=git_env, output=archive, timeout=60)
+    destination.mkdir(mode=0o700)
     with tarfile.open(archive, "r:") as stream:
         stream.extractall(destination, filter="data")
     archive.unlink()
@@ -125,8 +212,7 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         for name, directory in (("mihomo-dns-broker.patch", "mihomo"),
                                 ("sing-tun-descriptor.patch", "sing-tun")):
             patch = PATCHES / name
-            git_env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C",
-                       "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+            git_env = git_environment()
             command(["/usr/bin/git", "apply", "--check", str(patch)],
                     cwd=sources / directory, env=git_env)
             command(["/usr/bin/git", "apply", str(patch)],
