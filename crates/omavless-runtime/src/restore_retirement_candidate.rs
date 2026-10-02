@@ -138,7 +138,7 @@ impl RetirementReceipt {
         Ok(Self { terminal, expected })
     }
 
-    fn matches_live(&self, config: &Path, uid: u32) -> Result<bool, RetirementError> {
+    pub(crate) fn matches_live(&self, config: &Path, uid: u32) -> Result<bool, RetirementError> {
         let directory =
             open_private_directory(config, uid).map_err(|_| RetirementError::ManualRecovery)?;
         let before = directory

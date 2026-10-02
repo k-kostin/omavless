@@ -2805,7 +2805,7 @@ mod tests {
     }
 
     #[test]
-    fn inactive_owner_retirement_composes_terminal_slots_and_artifacts_without_releasing_fence() {
+    fn inactive_owner_retirement_closes_fence_only_after_terminal_cleanup() {
         use crate::restore_cleanup_candidate::CleanupResult;
         use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
         use crate::restore_retirement_candidate::RECEIPT_MEMBER;
@@ -2875,6 +2875,15 @@ mod tests {
             } else {
                 assert_ne!(fs::read(&store).unwrap(), original_store);
             }
+            assert_eq!(
+                owner.finalize_terminal_restore_candidate(),
+                Ok(crate::restore_cleanup_candidate::FinalizeResult::Closed)
+            );
+            assert!(!receipt_path.exists());
+            assert!(!crate::pending_private_transaction::pending_at(&state));
+            assert!(!owner.transaction.blocked());
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert_eq!(owner.host_mut().calls, 0);
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -2896,6 +2905,68 @@ mod tests {
         assert!(state.join("restore-finalization.pending").exists());
         assert!(store.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn inactive_owner_final_closure_refuses_owner_host_and_queue_drift() {
+        use crate::restore_cleanup_candidate::CleanupResult;
+
+        for change in 0..6 {
+            let (root, store, mut owner, _) =
+                terminal_retirement_fixture("final-closure-refusal", false);
+            assert_eq!(
+                owner.retire_terminal_restore_candidate(),
+                Ok(CleanupResult::RetiredStillFenced)
+            );
+            let paths = owner.transaction.cutover_paths().clone();
+            let receipt = paths.state_directory.join("restore-finalization.pending");
+            let receipt_before = fs::read(&receipt).unwrap();
+            let live_before = fs::read(&store).unwrap();
+            let mut auxiliary_lease = None;
+            match change {
+                0 => fs::write(
+                    &paths.ownership_marker,
+                    br#"{"schemaVersion":1,"generation":3,"phase":"rust"}"#,
+                )
+                .unwrap(),
+                1 => {
+                    let mut desired = owner.desired().unwrap();
+                    desired.generation += 1;
+                    write_desired(owner.transaction.desired_paths(), owner.uid(), &desired)
+                        .unwrap();
+                }
+                2 => {
+                    owner.host_mut().support_observation =
+                        Some(crate::lifecycle::NativeLocalObservation {
+                            owned_core_running: true,
+                            ..empty_local_observation()
+                        })
+                }
+                3 => {
+                    let request = MutationRequest::new(
+                        MutationKind::Other,
+                        Some("synthetic-final-closure-queue"),
+                        Some(0),
+                        MutationDigest::from_semantic_bytes(b"synthetic-final-closure-queue"),
+                    )
+                    .unwrap();
+                    owner.coordinator.submit(request).unwrap();
+                }
+                4 => auxiliary_lease = Some(owner.host_mut().auxiliary.reserve().unwrap()),
+                _ => owner.transaction.block(),
+            }
+            assert!(
+                owner.finalize_terminal_restore_candidate().is_err(),
+                "{change}"
+            );
+            assert_eq!(fs::read(&receipt).unwrap(), receipt_before);
+            assert_eq!(fs::read(&store).unwrap(), live_before);
+            assert!(crate::pending_private_transaction::pending_at(
+                &paths.state_directory
+            ));
+            drop(auxiliary_lease);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

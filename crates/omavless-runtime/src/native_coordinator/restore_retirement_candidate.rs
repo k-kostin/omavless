@@ -6,7 +6,8 @@
 use super::*;
 use crate::desired::read_desired_snapshot;
 use crate::restore_cleanup_candidate::{
-    CleanupError, CleanupResult, retire_fixed_restore_artifacts,
+    CleanupError, CleanupResult, FinalizeError, FinalizeResult, finalize_fenced_restore,
+    retire_fixed_restore_artifacts,
 };
 use crate::restore_retirement_candidate::{RetirementError, durable_retirement_receipt};
 use crate::restore_slot_retirement_candidate::{SlotError, retire_replacement_slots};
@@ -21,7 +22,65 @@ pub(crate) enum RestoreRetireError {
     Artifacts(CleanupError),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RestoreFinalizeError {
+    Owner(RestoreAdmissionError),
+    Receipt(RetirementError),
+    Closure(FinalizeError),
+}
+
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    /// Close the final restore existence fence only after the separate
+    /// retirement step completed. This remains an inactive internal path;
+    /// no product startup, IPC, UI or CLI call reaches it.
+    #[allow(dead_code)]
+    pub(crate) fn finalize_terminal_restore_candidate(
+        &mut self,
+    ) -> Result<FinalizeResult, RestoreFinalizeError> {
+        let lock = self.transaction.acquire_lock().map_err(|error| {
+            RestoreFinalizeError::Owner(match error {
+                ConnectionTransactionError::Busy => RestoreAdmissionError::Busy,
+                _ => RestoreAdmissionError::OwnershipUnavailable,
+            })
+        })?;
+        let config = self
+            .transaction
+            .store_path()
+            .parent()
+            .filter(|_| {
+                self.transaction
+                    .store_path()
+                    .file_name()
+                    .is_some_and(|name| name == "profiles.json")
+            })
+            .ok_or(RestoreFinalizeError::Owner(
+                RestoreAdmissionError::OwnershipUnavailable,
+            ))?
+            .to_path_buf();
+        let paths = self.transaction.cutover_paths().clone();
+        let uid = self.transaction.uid();
+        let readiness = self
+            .retirement_readiness_locked(&lock)
+            .map_err(RestoreFinalizeError::Owner)?;
+        let generation = readiness.owner_generation;
+        let (receipt, receipt_identity) =
+            durable_retirement_receipt(&config, &paths, uid, generation, &lock)
+                .map_err(RestoreFinalizeError::Receipt)?;
+        let terminal = receipt.terminal().encode();
+        let gate = || {
+            self.retirement_readiness_locked(&lock)
+                .is_ok_and(|current| current == readiness)
+                && durable_retirement_receipt(&config, &paths, uid, generation, &lock).is_ok_and(
+                    |(current, identity)| {
+                        current.terminal().encode() == terminal
+                            && same_member(&receipt_identity, &identity)
+                    },
+                )
+        };
+        finalize_fenced_restore(&config, &paths, uid, generation, &lock, gate)
+            .map_err(RestoreFinalizeError::Closure)
+    }
+
     /// Only a terminal transaction with a durable receipt can enter this
     /// internal path. Complete staging permits slot retirement first; an
     /// already-started cleanup prefix continues directly. Both children
