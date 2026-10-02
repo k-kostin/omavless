@@ -265,6 +265,10 @@ fn captured_nft_1_1_7_synthetic_readback_requires_independent_receipt() {
     // Captured in a new loopback-only child netns in the development VM, not
     // from a host ruleset. All addresses and rules are compiled test literals.
     let bytes = include_bytes!("fixtures/nft-1.1.7-full.json");
+    assert_eq!(
+        classify_untrusted_shape(bytes),
+        UntrustedPolicyShape::Exact(Policy::FullVpn)
+    );
     let identity = TrustedTableIdentity {
         table_handle: 4,
         ..receipt()
@@ -281,6 +285,10 @@ fn captured_nft_1_1_7_synthetic_readback_requires_independent_receipt() {
     let mut changed: Value = serde_json::from_slice(bytes).unwrap();
     changed["nftables"][2]["chain"]["policy"] = json!("accept");
     assert_eq!(
+        classify_untrusted_shape(&serde_json::to_vec(&changed).unwrap()),
+        UntrustedPolicyShape::OtherUntrusted
+    );
+    assert_eq!(
         classify_readback(
             &serde_json::to_vec(&changed).unwrap(),
             BOOT,
@@ -288,5 +296,41 @@ fn captured_nft_1_1_7_synthetic_readback_requires_independent_receipt() {
             Some(identity)
         ),
         Table::OwnedUnrecognized
+    );
+}
+
+#[test]
+fn complete_untrusted_inventory_rejects_extra_objects_and_partial_output() {
+    let expected = readback(Policy::Emergency);
+    let bytes = serde_json::to_vec(&expected).unwrap();
+    assert_eq!(
+        classify_untrusted_shape(&bytes),
+        UntrustedPolicyShape::Exact(Policy::Emergency)
+    );
+    for object in [
+        json!({"set":{"family":"inet","table":"omavless_netguard","name":"extra","handle":51}}),
+        json!({"chain":{"family":"inet","table":"omavless_netguard","name":"extra","handle":52}}),
+        json!({"rule":{"family":"inet","table":"omavless_netguard","chain":"output_guard","expr":[{"accept":null}],"handle":53}}),
+    ] {
+        let mut changed = expected.clone();
+        changed["nftables"].as_array_mut().unwrap().push(object);
+        assert_eq!(
+            classify_untrusted_shape(&serde_json::to_vec(&changed).unwrap()),
+            UntrustedPolicyShape::OtherUntrusted
+        );
+    }
+    assert_eq!(
+        classify_untrusted_shape(b"{\"nftables\":[]}"),
+        UntrustedPolicyShape::Unreadable
+    );
+    assert_eq!(
+        classify_untrusted_shape(&bytes[..bytes.len() - 1]),
+        UntrustedPolicyShape::Unreadable
+    );
+    let mut wrong = expected;
+    wrong["nftables"][1]["table"]["name"] = json!("unrelated");
+    assert_eq!(
+        classify_untrusted_shape(&serde_json::to_vec(&wrong).unwrap()),
+        UntrustedPolicyShape::ForeignTable
     );
 }

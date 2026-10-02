@@ -140,6 +140,17 @@ pub struct TrustedTableIdentity {
     pub table_handle: u64,
 }
 
+/// Complete *shape* of a scoped numeric nft readback, without any ownership
+/// claim. In particular, `Exact` is not an `OwnedVerified` table: another
+/// writer can create precisely the same policy under the fixed name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UntrustedPolicyShape {
+    Exact(Policy),
+    OtherUntrusted,
+    ForeignTable,
+    Unreadable,
+}
+
 struct Strict(Value);
 impl<'de> Deserialize<'de> for Strict {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -190,31 +201,26 @@ impl<'de> Deserialize<'de> for Strict {
 /// only. Failed commands, missing/truncated output and table absence must be
 /// handled by the adapter; an empty JSON array is never proof of absence here.
 /// `boot`/`netns_inode` come from the trusted observation, not peer input.
-pub fn classify_readback(
-    bytes: &[u8],
-    boot: [u8; 16],
-    netns_inode: u64,
-    receipt: Option<TrustedTableIdentity>,
-) -> Table {
+fn parse_readback(bytes: &[u8]) -> (UntrustedPolicyShape, Option<u64>) {
     if bytes.len() > MAX_READBACK_BYTES {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     }
     let Ok(Strict(mut document)) = serde_json::from_slice(bytes) else {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     };
     let Some(root) = document.as_object_mut() else {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     };
     if root.len() != 1 {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     }
     let Some(entries) = root.get_mut("nftables").and_then(Value::as_array_mut) else {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     };
     if entries.first().and_then(|v| v.get("metainfo")).is_some() {
         let first = entries.remove(0);
         let Some(info) = first.get("metainfo").and_then(Value::as_object) else {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         };
         if first.as_object().map(|o| o.len()) != Some(1)
             || info.len() != 3
@@ -222,41 +228,31 @@ pub fn classify_readback(
             || !info.get("version").is_some_and(Value::is_string)
             || !info.get("release_name").is_some_and(Value::is_string)
         {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         }
     }
     let Some(table) = entries.first().and_then(|v| v.get("table")) else {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     };
     if table.get("family") != Some(&json!(TABLE_FAMILY))
         || table.get("name") != Some(&json!(TABLE_NAME))
     {
-        return Table::Foreign;
+        return (UntrustedPolicyShape::ForeignTable, None);
     }
     let Some(handle) = table
         .get("handle")
         .and_then(Value::as_u64)
         .filter(|v| *v > 0)
     else {
-        return Table::Unreadable;
+        return (UntrustedPolicyShape::Unreadable, None);
     };
-    if netns_inode == 0
-        || receipt
-            != Some(TrustedTableIdentity {
-                boot,
-                netns_inode,
-                table_handle: handle,
-            })
-    {
-        return Table::Foreign;
-    }
     let mut handles = std::collections::BTreeSet::new();
     for (index, entry) in entries.iter_mut().enumerate() {
         let Some(object) = entry.as_object_mut() else {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         };
         if object.len() != 1 {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         }
         let kind = if index == 0 {
             "table"
@@ -266,24 +262,61 @@ pub fn classify_readback(
             "rule"
         };
         let Some(value) = object.get_mut(kind).and_then(Value::as_object_mut) else {
-            return Table::OwnedUnrecognized;
+            return (UntrustedPolicyShape::OtherUntrusted, Some(handle));
         };
         let Some(h) = value
             .remove("handle")
             .and_then(|v| v.as_u64())
             .filter(|v| *v > 0)
         else {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         };
         // Table handles use a different namespace from chains and rules.
         if index > 0 && !handles.insert(h) {
-            return Table::Unreadable;
+            return (UntrustedPolicyShape::Unreadable, None);
         }
     }
     for policy in [Policy::FullVpn, Policy::Emergency] {
         if *entries == objects(policy) || *entries == kernel_objects(policy) {
-            return Table::OwnedVerified(policy);
+            return (UntrustedPolicyShape::Exact(policy), Some(handle));
         }
     }
-    Table::OwnedUnrecognized
+    (UntrustedPolicyShape::OtherUntrusted, Some(handle))
+}
+
+/// Parse the entire table, chain, and ordered rule/object list, without a
+/// receipt or ownership conversion. Extra objects, chains or rules are never
+/// reported as the fixed policy. A failed/absent command is not represented by
+/// an empty document; its caller must fail closed before using this function.
+pub fn classify_untrusted_shape(bytes: &[u8]) -> UntrustedPolicyShape {
+    parse_readback(bytes).0
+}
+
+pub fn classify_readback(
+    bytes: &[u8],
+    boot: [u8; 16],
+    netns_inode: u64,
+    receipt: Option<TrustedTableIdentity>,
+) -> Table {
+    let (shape, handle) = parse_readback(bytes);
+    match shape {
+        UntrustedPolicyShape::Unreadable => Table::Unreadable,
+        UntrustedPolicyShape::ForeignTable => Table::Foreign,
+        UntrustedPolicyShape::Exact(_) | UntrustedPolicyShape::OtherUntrusted => {
+            if netns_inode == 0
+                || receipt
+                    != handle.map(|table_handle| TrustedTableIdentity {
+                        boot,
+                        netns_inode,
+                        table_handle,
+                    })
+            {
+                return Table::Foreign;
+            }
+            match shape {
+                UntrustedPolicyShape::Exact(policy) => Table::OwnedVerified(policy),
+                _ => Table::OwnedUnrecognized,
+            }
+        }
+    }
 }
