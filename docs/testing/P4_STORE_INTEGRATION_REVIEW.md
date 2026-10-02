@@ -206,3 +206,30 @@ It changes no native parser fields or Mihomo rendering/minimum-version policy.
 This limited storage review is not installed-core compatibility, a full
 intervening-release/advisory audit or permission to use new upstream fields;
 those checks remain required for protocol/core activation.
+
+### Inactive private-file editor/export readers
+
+The native-export successor adds canonical native conf and private standalone
+editor seeds in the domain. A separate reader follow-up binds those deliberate
+private reads to an actual already-v4 `profiles.json` file. The matching
+migration lease and committed Rust generation are checked before loading and
+after projection; the whole original-byte document validates, and an exact
+second file read rejects unexpected concurrent edits. Private parent/file,
+permission and symlink rules reuse the existing store boundary. Unsafe,
+revoked/stale/missing ownership, corrupt unrelated rows and missing targets
+refuse without releasing a projection or changing private state. Managed URI
+editor refusal remains the domain contract.
+
+The isolated full-file regression composes private editor/export reads, native
+reimport, standalone replacement, atomic publication, subsequent editor read
+and byte-exact compensation. It preserves unrelated URI credentials and
+active/last/pinned/extension state; no-op reads preserve file inode and bytes.
+Injected file and owner-generation changes during projection discard the
+private result. Synthetic file modes are restrictive before payload writes.
+
+These remain **inactive library prerequisites**, with no registered IPC,
+semantic CLI, frontend, startup, v3 migration or core/lifecycle caller. The
+production owner still refuses v4. The future bridge must provide explicit
+same-user action/authentication and reviewed bounded credential framing, then
+complete revision/replay/recovery, lifecycle, old-reader/rollback and all
+consumer gates described above before any user exposure.
