@@ -53,6 +53,9 @@ turn a historical failed probe into PASS.
 `./tests/run.sh` runs reference/launcher/JS/QML contracts;
 `./tests/run-rust.sh` runs Rust formatting, workspace tests, Clippy and R0 parity.
 Installed-core opt-ins use synthetic configurations, not private live fixtures.
+The [P4 AWG 3/3.1 loopback checkpoint](P4_AWG_LOOPBACK_SMOKE_2026-10-03.md)
+and [fixture contract](P4_AWG_LOOPBACK_SMOKE_PLAN.md) cover a developer-only,
+explicitly handed-off disposable-VM transport smoke, not installed activation.
 The [QML component gate](../../tests/qml-load/README.md) compiles without
 instantiating the plugin and is explicitly opt-in on an installed desktop.
 
