@@ -542,6 +542,35 @@ class GitExportTests(unittest.TestCase):
         self.assertTrue(children[0].stdout.closed)
         self.assertTrue(children[0].stderr.closed)
 
+    def test_wait_interrupted_after_reaping_never_signals_a_reusable_group_id(self):
+        children = []
+        original = subprocess.Popen
+
+        def interrupted_child(*arguments, **keywords):
+            child = original(*arguments, **keywords)
+            children.append(child)
+            original_wait = child.wait
+
+            def interrupt_after_reaping(*wait_arguments, **wait_keywords):
+                original_wait(*wait_arguments, **wait_keywords)
+                raise KeyboardInterrupt("synthetic interruption after reaping")
+
+            child.wait = mock.Mock(side_effect=interrupt_after_reaping)
+            child.poll = mock.Mock(side_effect=AssertionError("must not poll before cancellation"))
+            return child
+
+        with mock.patch.object(build_pair.subprocess, "Popen", side_effect=interrupted_child), \
+                mock.patch.object(build_pair.os, "killpg") as kill_group:
+            with self.assertRaises(KeyboardInterrupt):
+                build_pair.git_command(["-C", str(self.repository), "rev-parse", "HEAD"])
+        kill_group.assert_not_called()
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].returncode, 0)
+        children[0].wait.assert_called_once()
+        children[0].poll.assert_not_called()
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -120,9 +120,10 @@ def git_command(arguments, *, env=None, output=None, timeout=20):
     finally:
         poller.close()
         try:
-            if process is not None and not waited:
-                # Leader is still unreaped: its PID cannot be reused for an
-                # unrelated process group while we cancel these owned children.
+            if process is not None and not waited and process.returncode is None:
+                # wait() may reap the leader before an interruption prevents
+                # setting waited. Inspect its recorded result without polling
+                # or reaping; only an unreaped leader protects group identity.
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
