@@ -21,6 +21,8 @@ const ROOT_ENV: &str = "OMAVLESS_TEST_DCONF_ROOT";
 const ROLE_ENV: &str = "OMAVLESS_TEST_DCONF_ROLE";
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+mod transaction;
+
 struct OwnedChild(Child);
 
 impl OwnedChild {
@@ -278,7 +280,12 @@ fn private_dconf_child() {
     let source = gio::SettingsSchemaSource::default().unwrap();
     let schemas = validate_schemas(&source).unwrap();
     match std::env::var(ROLE_ENV).unwrap().as_str() {
+        "transaction-crash" => transaction::crash_child(&root, &schemas),
         "baseline" => private_file(&root.join("baseline"), &snapshot_bytes(&schemas)),
+        "transaction-observe" => private_file(
+            &root.join("transaction-observation"),
+            &snapshot_bytes(&schemas),
+        ),
         "seed" => {
             for (i, key) in DesktopKey::ALL.into_iter().enumerate() {
                 if i % 3 == 0 {

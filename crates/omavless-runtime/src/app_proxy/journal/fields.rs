@@ -84,6 +84,25 @@ impl FieldJournal {
         self.planner.phase()
     }
 
+    pub(crate) fn recovered(&self) -> bool {
+        self.recovered
+    }
+
+    /// Used only by an executor retaining its original host port. Reacquire
+    /// the fixed journal and require exactly the same durable bytes; a new
+    /// record/binding must never inherit this executor's drain capability.
+    pub(crate) fn reopen_exact(self, private_root: &Path) -> Result<Self, Error> {
+        self.check(self.binding)?;
+        let binding = self.binding;
+        let expected = self.persisted.clone();
+        drop(self);
+        let reopened = Self::open(private_root, binding)?;
+        if reopened.persisted != expected {
+            return Err(Error::ForeignChange);
+        }
+        Ok(reopened)
+    }
+
     fn check(&self, binding: Binding) -> Result<(), Error> {
         if self.poisoned {
             return Err(Error::RecoveryRequired);

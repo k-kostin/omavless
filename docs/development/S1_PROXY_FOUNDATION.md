@@ -336,6 +336,14 @@ host writes, package installation and VPN/network changes are absent.
 
 ## Verification and remaining gates
 
+The [fixed transaction writer checkpoint](S1_FIXED_TRANSACTION_WRITER.md)
+reconciles the field-journal/quiescence stack with independent readback and adds
+an inactive one-field executor. Its test-only dconf port exercises real private
+writes, same-connection/owner drain, every partial journal reentry and a process
+crash whose queued write commits after the writer dies. A new port cannot claim
+that predecessor journal. This is private fixture evidence, not production
+GSettings/systemd write admission or safe cross-owner crash takeover.
+
 Deterministic tests cover exact absence/empty restoration, complete apply and
 reverse restore, partial application, failed/unknown write outcomes, failed
 restoration retry, foreign edits, stale generation/instance, pre-existing target
