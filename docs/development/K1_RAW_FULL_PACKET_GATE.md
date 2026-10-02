@@ -20,6 +20,14 @@ The worker retains its exclusive creator socket through baseline, complete
 FullVpn readback, FullVpn packet checks, and the same-index output-interface
 rename to `omavless0`. Cookie, socket address, exact owner/persist table metadata,
 generation and ordered full policy are checked around each protected phase.
+The outer isolated child now also installs the existing fixed, synthetic
+foreign-accept table before the raw-wire worker starts. Its priority-0 and
+priority-400 output chains accept before and after the candidate priority-300
+drop. The same 53 positive-control/Full/TUN vectors run with those foreign
+accept chains present. Exact numeric foreign readback must remain unchanged,
+then only that child-namespace foreign fixture is deleted and its absence
+verified. This extends the earlier JSON-renderer coexistence gate to the
+actual fixed raw FullVpn bytes; it does not model the installed host firewall.
 Each vector has a positive baseline before negative observations; the unchanged
 helper emits via the IP stack and captures only the peer. Loopback remains
 checked. No target deletion, acquisition or operation after creator loss occurs;
@@ -37,7 +45,7 @@ The parent has a 45-second bound, worker 30 seconds and individual commands
 one second; encoder/readback/netlink exchanges retain their existing bounds.
 Only fixed stages/vector numbers are exposed, never packet bytes or private data.
 
-This adds no new Emergency, foreign-firewall or fragment/extension matrix.
+This adds no new Emergency, foreign-drop or fragment/extension matrix.
 Even a green exact-head result would prove only these fixed synthetic vectors,
 not actual TUN ownership, comprehensive core marks, DHCP/ND client behavior,
 physical NIC/boot/suspend or K1 product readiness. FullVpn ACK validation remains

@@ -175,6 +175,11 @@ fn raw_packet_child() {
         );
     }
     guard.check();
+    // Use the already reviewed fixed foreign accept fixture in this raw-wire
+    // test too: an earlier accept and a later accept must not bypass the
+    // candidate's priority-300 drop. Both tables stay inside this child netns.
+    guard.install_foreign_accepts();
+    let foreign_before = guard.foreign_snapshot();
     let scratch = scratch();
     let mut command = Command::new("/usr/bin/python3");
     command
@@ -211,8 +216,18 @@ fn raw_packet_child() {
         println!("K1_PACKET_CASE={case}");
     }
     assert!(result.success, "guarded raw packet worker failed");
+    // The worker renamed the fixed output at the end of its matrix.
+    // Rebind the topology guard before any further child-namespace readback.
     guard.output = nft::TUN;
     guard.check();
+    let foreign_after = guard.foreign_snapshot();
+    assert_eq!(foreign_after, foreign_before);
+    assert!(
+        guard
+            .command("/usr/bin/nft", &["delete", "table", "inet", FOREIGN])
+            .success
+    );
+    assert!(!guard.foreign_snapshot_exists());
     // Worker closed its creator only after the full matrix. No target delete,
     // acquisition or effect after socket loss; child namespace exit reclaims it.
 }
