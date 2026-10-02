@@ -364,6 +364,15 @@ fn nft_roundtrip_child() {
     println!("K1_NFT_STAGE=isolation");
     let namespace = guard.check().expect("child isolation required");
     assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
+    let mut missing = LocalReadSession::open().expect("retained child read session");
+    assert!(
+        missing.inspect_policy_shape().is_err(),
+        "missing table is command failure, never an exact empty policy"
+    );
+    assert!(
+        missing.inspect_policy_shape().is_err(),
+        "failed read poisons session"
+    );
     // Test-only boot receipt. The namespace is freshly created by this harness;
     // production root receipt issuance/persistence is deliberately not exercised.
     for policy in [Policy::Emergency, Policy::FullVpn] {
