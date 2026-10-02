@@ -25,6 +25,7 @@ CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo test --manifest-path ex
 CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo build --release --manifest-path experiments/g1/direct/Cargo.toml --locked
 CARGO_TARGET_DIR="$HOME/.cache/omavless-g1-target" cargo run --release --manifest-path experiments/g1/direct/Cargo.toml --locked
 node experiments/g1/tests/fixture-parity.mjs
+node experiments/g1/tests/freshness.mjs
 ```
 
 The GPUI Shell runtime is a separate, upstream, non-published binary; the
@@ -56,6 +57,30 @@ platform acceptance.
 The sample list can expand to 10,006 rows. Selection, search, collection,
 language and simulated states are local UI actions only. There is deliberately
 no Connect, Disconnect, Quit, daemon bridge or credential input.
+
+### Synthetic freshness boundary
+
+The direct Rust and Shell trials include separate, test-only freshness
+components (`direct/src/freshness.rs` and `shell/freshness.js`). Their user goal
+is to keep a future read-only status view honest if a response arrives after
+the client loses contact with its source or that source changes instance.
+The primary action in these components is a simulated status read; its target
+is the instance named by a locally issued request ticket. The visible result
+would be a confirmed connection only after a newer accepted snapshot says
+`connected`. A navigation highlight or inspected profile never changes this
+fact. Selection and the current rendered prototype are outside this model.
+
+The model clears confirmation immediately on simulated transport loss or new
+hello, rejects a late response from a prior client epoch, and accepts a lower
+revision only after an explicit new-instance attachment. Recovery and other
+non-connected phases clear confirmation even if a stale ID is carried along.
+It has no socket, wire decoder, daemon API or user-facing control; both
+implementations use invented instance IDs and profile names. This is a G1a
+architecture probe, not G1b read-only client acceptance. Exact semantic IPC
+fields and lifecycle behavior remain owned by the established control-plane
+contract. The test-only components are not rendered, so their tests make no
+new visual claim.
+
 In both synthetic candidates, `Tab` reaches the profile list, `Up`/`Down` move a
 highlight without changing the inspected or confirmed profile, `Enter`
 inspects the highlighted row, and `Escape` returns focus from the list. An

@@ -14,6 +14,9 @@ use gpui_omarchy::{
 use serde::Deserialize;
 use std::rc::Rc;
 
+#[cfg(test)]
+mod freshness;
+
 // Keep these synthetic inputs byte-for-byte aligned with shell/palette.js.
 // They are not loaded from the user's Omarchy theme files.
 const SYNTHETIC_DARK: &str = r##"
