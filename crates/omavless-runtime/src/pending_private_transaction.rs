@@ -22,6 +22,7 @@ pub(crate) fn pending_at(directory: &Path) -> bool {
         || journal_member_pending(directory, "restore-finalization.pending")
         || journal_member_pending(directory, crate::restore_closure_model::CLOSURE_MEMBER)
         || journal_member_pending(directory, crate::restore_closure_model::NEXT_CLOSURE_MEMBER)
+        || crate::restore_disposition_ticket_model::pending_at(directory)
         || journal_member_pending(
             directory,
             crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
@@ -51,6 +52,7 @@ mod tests {
             "restore-finalization.pending",
             crate::restore_closure_model::CLOSURE_MEMBER,
             crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
             crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
         ] {
             fs::write(root.join(name), b"incomplete").unwrap();

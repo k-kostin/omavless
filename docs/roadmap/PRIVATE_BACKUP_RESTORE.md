@@ -1333,3 +1333,61 @@ do not import the model. **This is not behavioral integration coverage of future
 admission.** Each row still needs its real admission/effect/crash tests, plus
 installed restore, private UI/IPC and normal-owner acceptance after owner policy
 approval. No current normal-startup or mutation fence is weakened.
+
+## Inactive create-only disposition-ticket candidate
+
+`restore-disposition.pending` is a new conservative existence fence, not an
+approved historical disposition or startup permission. Empty, partial, complete,
+inaccessible, symlink, directory and other unexpected forms all block normal
+startup. The successor publisher, public final-closure review and pre-auth
+status also refuse it. No ticket-presence exception is added to `pending_at`.
+Independent review identified direct inactive-effect paths that do not enter
+normal startup. Their shared gates now also refuse the fixed ticket: first-cycle
+staging/executor/receipt/slot/cleanup/finalization, successor coexistence and
+preparation, successor execution/receipt evidence, rotation and the repeated
+next-publication check. The exception remains solely the ticket publisher's
+private exact-owned-destination path, not a generic "ticket exists" permission.
+
+The fixed candidate record contains versioned magic, UID, exact owner generation,
+zero reserved bytes, the entire canonical C1 record and a domain-separated SHA256
+checksum. Nested terminal outcome, transaction, desired/output and stage digest
+bindings remain exact. Unsupported size/version/reserved fields, torn checksum,
+noncanonical nested C1 and crossed generation refuse; current UID/generation/C1
+are independently checked. A checksum is corruption detection, not authentication.
+No passphrase, profile/template bytes, selected archive path or ciphertext-file
+identity is persisted. This candidate format is not a product compatibility or
+historical-admission commitment.
+
+The low-level inactive publisher borrows one continuously held existing lease
+and an authenticated `OpenedBackup`. Freshness and retained-source lifetime remain
+the caller's boundary obligation; the ticket itself authenticates nothing.
+Admission requires exact C1-only terminal
+output. Its caller must provide fresh Off/idle-host and login/owner-boundary
+gates; there is no product adapter or listener. Internally it pins C1/live bytes
+and metadata, state/config/runtime directories, ownership/desired/login member
+identities and the lease. It synchronizes C1/live files and state/config parents
+before exclusively creating the fixed 0600, single-link ticket. Each source and
+destination checkpoint rechecks the same original evidence. File sync, parent
+sync, descriptor-relative reopen and exact bytes/inode re-verification precede
+`PublishedStillFenced`. The just-created zero-length prefix has a separate strict
+metadata check; it is never accepted as a valid source record.
+
+After successful exclusive creation, any write/sync/reopen/gate error is ambiguous
+and leaves the prefix intact. There is **no unlink, rollback, existing-ticket
+retry, repair, resync-to-history or ordinary-owner grant**, even for apparently
+complete bytes after process death. Public final evidence refuses all tickets;
+only the publisher's private source observation can coexist with its exact held
+destination, without weakening public reader semantics. C1 remains unchanged.
+
+Tests cover Commit/Abort publication and replay refusal, bounded canonical format,
+rechecksummed invalid metadata, unsafe/partial existing destinations, immutable source
+and destination substitution, late marker/pending/directory/gate changes and
+actual process SIGKILL at five publication checkpoints for both outcomes. These
+include initial/late ticket injection against direct successor execution, next
+publication, exchange, displaced/H/R retirement and direct staging; a static
+source matrix only protects retention of the other shared gates, not behavioral
+coverage of every leaf operation. These
+are synthetic filesystem/process tests, not power-cut or installed product
+acceptance. Host observation integration, a reviewed interrupted-ticket protocol,
+owner-approved historical policy and typed normal-admission integration remain
+separate gates; subsequent restore must not ignore or silently delete this ticket.

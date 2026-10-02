@@ -82,6 +82,10 @@ impl Context<'_> {
         }
         self.check_directories()?;
         absent(&self.directories[0], "routing-preset.pending.json")?;
+        absent(
+            &self.directories[0],
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        )?;
         if self.snapshot.desired
             != read_desired_for_decision(self.paths, self.uid, self.lock).map_err(|_| REFUSE)?
             || inspect_cleanup_prefix(self.paths, &self.directories[0], self.uid, &self.receipt)

@@ -144,7 +144,10 @@ struct Bound<'a, G: FnMut() -> bool> {
 
 impl<G: FnMut() -> bool> Bound<'_, G> {
     fn check_common(&mut self) -> Result<(), ExecutionError> {
-        if !(self.gate)() || !self.lock.authorizes(self.paths, self.uid) {
+        if !(self.gate)()
+            || !self.lock.authorizes(self.paths, self.uid)
+            || crate::restore_disposition_ticket_model::pending_at(&self.paths.state_directory)
+        {
             return Err(ExecutionError::Admission);
         }
         let marker =

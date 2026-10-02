@@ -383,6 +383,9 @@ fn inspect_inventory_with_stage_check(
     receipt: &RetirementReceipt,
     before_stage_read: impl FnOnce(&File) -> Result<(), CleanupError>,
 ) -> Result<Observed, CleanupError> {
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
+        return Err(CleanupError::ManualRecovery);
+    }
     let parent = state.metadata().map_err(|_| CleanupError::ManualRecovery)?;
     let staged = stage_step(state, uid, receipt, before_stage_read)?;
     let terminal = read_optional(state, TERMINAL, uid, RECORD_BYTES)?;
@@ -464,7 +467,9 @@ impl<'a> Context<'a> {
     }
 
     fn check_bindings(&mut self) -> Result<Observed, CleanupError> {
-        if !self.lock.authorizes(self.paths, self.uid) {
+        if !self.lock.authorizes(self.paths, self.uid)
+            || crate::restore_disposition_ticket_model::pending_at(&self.paths.state_directory)
+        {
             return Err(CleanupError::Admission);
         }
         let (receipt, identity) = durable_retirement_receipt(
@@ -798,7 +803,12 @@ fn publish_completion_with_hook<G: FnMut() -> bool, H: FnMut(ClosurePublishCheck
 }
 
 fn fixed_artifacts_absent(state: &File, config: &File) -> Result<bool, FinalizeError> {
-    for name in [PENDING_DIRECTORY, TERMINAL, INTENT] {
+    for name in [
+        PENDING_DIRECTORY,
+        TERMINAL,
+        INTENT,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    ] {
         if !absent(state, name)? {
             return Ok(false);
         }

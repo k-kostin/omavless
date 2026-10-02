@@ -127,6 +127,10 @@ fn observe_rotation(
     let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
     absent(&state, "routing-preset.pending.json")?;
+    absent(
+        &state,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    )?;
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
     let mut members = Vec::new();
     for (name, limit) in [

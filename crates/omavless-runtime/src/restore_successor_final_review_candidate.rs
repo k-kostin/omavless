@@ -8,6 +8,16 @@ use crate::restore_staging_candidate::planned_stage_identity;
 #[path = "restore_successor_handoff_retirement_candidate.rs"]
 pub(crate) mod handoff_retirement;
 
+#[path = "restore_disposition_publication_candidate.rs"]
+pub(crate) mod disposition;
+
+fn ticket_absent(paths: &CutoverPaths, uid: u32) -> Result<(), ExecutionError> {
+    absent(
+        &open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FinalPhase {
     BeforeHandoffRetirement,
@@ -45,16 +55,18 @@ impl FinalEvidence<'_> {
         generation: u64,
         lock: &MigrationLock,
     ) -> bool {
-        observe_final(
-            config,
-            paths,
-            uid,
-            generation,
-            lock,
-            &self.off,
-            self.template,
-        )
-        .is_ok_and(|now| self.snapshot.same(&now))
+        ticket_absent(paths, uid).is_ok()
+            && observe_final(
+                config,
+                paths,
+                uid,
+                generation,
+                lock,
+                &self.off,
+                self.template,
+            )
+            .is_ok_and(|now| self.snapshot.same(&now))
+            && ticket_absent(paths, uid).is_ok()
     }
 }
 
@@ -80,6 +92,33 @@ fn observe_final(
     new_store: &[u8],
     new_template: &[u8],
 ) -> Result<FinalSnapshot, ExecutionError> {
+    ticket_absent(paths, uid)?;
+    let snapshot = observe_final_sources(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        new_store,
+        new_template,
+    )?;
+    ticket_absent(paths, uid)?;
+    Ok(snapshot)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_final_sources(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    new_store: &[u8],
+    new_template: &[u8],
+) -> Result<FinalSnapshot, ExecutionError> {
+    // Low-level source observation only. Public readers separately require
+    // ticket absence. The sole create-only child binds its own exact ticket
+    // descriptor around this observation; no ticket-exists admission exists.
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
@@ -243,6 +282,7 @@ pub(crate) fn capture_final_closure<'a>(
     if !gate() {
         return Err(REFUSE);
     }
+    ticket_absent(paths, uid)?;
     let off = backup.restore_store_off().map_err(|_| REFUSE)?;
     let first = observe_final(
         config,
@@ -256,6 +296,7 @@ pub(crate) fn capture_final_closure<'a>(
     if !gate() {
         return Err(REFUSE);
     }
+    ticket_absent(paths, uid)?;
     let second = observe_final(
         config,
         paths,
@@ -268,6 +309,7 @@ pub(crate) fn capture_final_closure<'a>(
     if !first.same(&second) {
         return Err(REFUSE);
     }
+    ticket_absent(paths, uid)?;
     Ok(FinalEvidence {
         snapshot: second,
         off,

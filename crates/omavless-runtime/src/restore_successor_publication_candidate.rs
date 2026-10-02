@@ -104,6 +104,7 @@ impl Context<'_> {
         // This publisher requires completion-only, not that dual-fence state.
         for name in [
             NEXT_CLOSURE_MEMBER,
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
             RECEIPT_MEMBER,
             PENDING_DIRECTORY,
             "restore-decision.intent",
@@ -198,6 +199,10 @@ fn publish_with_hook(
     // Completion inspection predates the rotation slot. Its presence always
     // fences a new successor, even if canonical C1 and the live pair match.
     absent(&state, NEXT_CLOSURE_MEMBER)?;
+    absent(
+        &state,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+    )?;
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
     let (_, predecessor_identity) = read_optional(&state, CLOSURE_MEMBER, uid, CLOSURE_BYTES)
         .map_err(|_| REFUSE)?
