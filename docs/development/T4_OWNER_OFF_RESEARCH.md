@@ -35,7 +35,15 @@ reader in research; normal reads retain their existing prepare/chmod behavior.
 Success tests assert the original state-directory ctime is unchanged.
 It is compiled, not executed against installed state in this checkpoint. Fixture
 tests enter the same initialization seam with private real files and an explicit
-host whose effect methods panic; no primary-host or VM operations occur.
+host whose effect methods panic; no primary-host runtime operations occur.
+
+The same five tests passed sequentially in the isolated Dev VM (43.83 seconds)
+at implementation `e363327fb68296c306655bff71c072ce6417696b`, test-binary SHA-256
+`490ee8d5983f45022f4d243fea312922cd6cabcae2aa70e7f909490592c898c8`.
+The installed runtime PID and fixed desired/profile/template fingerprints were
+unchanged. Only the uploaded test binary and empty private scratch directories
+were removed afterward. This is actual-caller synthetic filesystem acceptance,
+not installed System-proof/current-path, normal admission or network acceptance.
 
 ## Evidence and limits
 
