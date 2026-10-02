@@ -98,3 +98,8 @@ provenance, target/schema/profile continuity, fixed installed writes/drain,
 exclusive loopback/TUN-disabled listener readiness tied to the current owner
 and revision, new-app UWSM consumption and conflict escape. Full prior Manual/PAC
 staged recovery, ARM64/VM and NixOS acceptance remain separate unrun gates.
+
+The [desktop-only staged successor](S1_STAGED_QUIESCENCE.md) separately models
+the missing explicit-none transitions and exercises them in private dconf.
+It does not relax this v3 refusal, create installed admission or solve
+identical-value external edits/cross-owner crash takeover.

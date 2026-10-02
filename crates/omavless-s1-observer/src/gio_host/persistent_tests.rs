@@ -282,6 +282,7 @@ fn private_dconf_child() {
     match std::env::var(ROLE_ENV).unwrap().as_str() {
         "transaction-crash" => transaction::crash_child(&root, &schemas),
         "ordered-mode-crash" => transaction::ordering::crash_child(&root, &schemas),
+        "staged-mode-crash" => transaction::staged::crash_child(&root, &schemas),
         "baseline" => private_file(&root.join("baseline"), &snapshot_bytes(&schemas)),
         "transaction-observe" => private_file(
             &root.join("transaction-observation"),
@@ -328,8 +329,10 @@ fn private_dconf_child() {
             }
             gio::Settings::sync();
         }
-        role @ ("foreign-mode" | "foreign-host") => {
-            let (key, value) = if role == "foreign-mode" {
+        role @ ("foreign-mode" | "foreign-none" | "foreign-host") => {
+            let (key, value) = if role == "foreign-none" {
+                (DesktopKey::Mode, "none")
+            } else if role == "foreign-mode" {
                 (DesktopKey::Mode, "auto")
             } else {
                 (DesktopKey::HttpHost, "external.invalid")

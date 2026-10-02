@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, path::Path};
 
 pub mod fields;
+pub mod staged;
 mod storage;
 use storage::Storage;
 

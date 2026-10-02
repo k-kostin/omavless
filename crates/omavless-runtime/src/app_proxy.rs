@@ -15,6 +15,7 @@ use std::fmt;
 pub mod codec;
 pub mod fields;
 pub mod journal;
+pub mod staged;
 pub mod takeover;
 pub mod transaction;
 
