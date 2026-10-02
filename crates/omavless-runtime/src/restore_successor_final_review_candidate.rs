@@ -5,6 +5,9 @@
 use super::*;
 use crate::restore_staging_candidate::planned_stage_identity;
 
+#[path = "restore_successor_handoff_retirement_candidate.rs"]
+pub(crate) mod handoff_retirement;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FinalPhase {
     BeforeHandoffRetirement,
@@ -231,7 +234,7 @@ mod tests {
         os::unix::fs::{PermissionsExt, symlink},
     };
 
-    fn ready(commit: bool) -> (Fixture, MigrationLock) {
+    pub(super) fn ready(commit: bool) -> (Fixture, MigrationLock) {
         let (f, lock, _, _) = setup(commit);
         publication::publish_next_closure(&f.config, &f.paths, f.uid, 2, &lock, second(), || true)
             .unwrap();
