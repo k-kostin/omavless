@@ -6,6 +6,9 @@ use super::*;
 use crate::restore_disposition_complete_model::{COMPLETE_BYTES, COMPLETE_MEMBER, CompleteRecord};
 use std::io::Write;
 
+#[path = "restore_disposition_historical_candidate.rs"]
+pub(crate) mod historical;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CompletionResult {
     CompletedStillFenced,
