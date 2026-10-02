@@ -11,11 +11,13 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
+mod candidate;
 mod onboarding;
 mod probe;
 mod provider;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
+pub use candidate::CandidateProfileMutation;
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 
@@ -223,6 +225,7 @@ pub enum NativeOwnerError {
     LongOperation(crate::long_operation::LongOperationError),
     Coordinator(CoordinatorError),
     Subscription(SubscriptionTransactionError),
+    Candidate(ProfileTransactionError),
     OwnershipBusy,
     RecordNotFound,
     OwnershipUnavailable,
@@ -250,6 +253,7 @@ impl NativeOwnerError {
             Self::Coordinator(error) => error.stable_code(),
             Self::Subscription(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
+            Self::Candidate(error) => error.stable_code(),
             Self::RecordNotFound => StableErrorCode::NotFound,
             Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
@@ -267,6 +271,7 @@ impl fmt::Display for NativeOwnerError {
             Self::LongOperation(_) => "Native batch operation failed",
             Self::Coordinator(_) => "Native mutation scheduling failed",
             Self::Subscription(_) => "Native subscription refresh failed",
+            Self::Candidate(_) => "Native candidate profile operation failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
             Self::RecordNotFound => "Requested record was not found",
             Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
