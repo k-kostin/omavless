@@ -22,6 +22,8 @@ const PASS: &str = "K1_NFT_CHILD_PASS";
 const LIMIT: u64 = 32768;
 #[path = "support/capability.rs"]
 mod capability;
+#[path = "support/live_owner.rs"]
+mod live_owner;
 #[path = "support/observer.rs"]
 mod observer;
 #[path = "support/owner.rs"]
@@ -186,6 +188,8 @@ impl Drop for Scratch {
             "packet.py",
             "capability.py",
             "owner.py",
+            "live_owner.py",
+            "expected.json",
         ] {
             let _ = fs::remove_file(self.0.join(name));
         }

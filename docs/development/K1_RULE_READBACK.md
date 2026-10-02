@@ -41,3 +41,8 @@ effects to that proof, durable orphan disposition after helper loss, installed
 root-service integration and the mandatory physical NIC/suspend/boot egress
 matrix. Neither this result nor the VM gate can be labelled a working kill
 switch or protection PASS.
+
+A subsequent [isolated live Emergency creator experiment](K1_LIVE_EMERGENCY_OWNER.md)
+combines complete Emergency-policy readback with the socket that exclusively
+created it, and refuses after its loss. It does not promote this observer's
+shape result to ownership or implement a production effect adapter.
