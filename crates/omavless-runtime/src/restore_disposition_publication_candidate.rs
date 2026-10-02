@@ -279,6 +279,11 @@ fn publish(
         context
             .sources(&mut gate)
             .map_err(|_| ExecutionError::Ambiguous)?;
+        absent(
+            &context.directories[0],
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+        )
+        .map_err(|_| ExecutionError::Ambiguous)?;
         context
             .destination(file, expected, raw)
             .map_err(|_| ExecutionError::Ambiguous)
@@ -597,6 +602,24 @@ mod tests {
         );
         assert!(f.paths.state_directory.join(TICKET_MEMBER).exists());
     }
+
+    #[test]
+    fn disposition_ticket_late_completion_record_stops_publication() {
+        let (f, lock) = ready(true);
+        let complete = f
+            .paths
+            .state_directory
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let result = run(&f, &lock, |point| {
+            if point == Checkpoint::Created {
+                member(&complete, b"orphan");
+            }
+            true
+        });
+        assert_eq!(result, Err(ExecutionError::Ambiguous));
+        assert!(complete.exists());
+        assert!(f.paths.state_directory.join(TICKET_MEMBER).exists());
+    }
     #[test]
     fn disposition_ticket_actual_prefix_sigkill_never_retries_or_unfences() {
         for commit in [false, true] {
@@ -871,6 +894,10 @@ mod tests {
         ] {
             assert!(
                 source.contains("restore_disposition_ticket_model::"),
+                "{name}"
+            );
+            assert!(
+                source.contains("restore_disposition_complete_model::"),
                 "{name}"
             );
         }

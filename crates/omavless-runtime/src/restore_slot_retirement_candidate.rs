@@ -161,6 +161,7 @@ impl<'a> Context<'a> {
     fn check_bindings(&mut self) -> Result<Observation, SlotError> {
         if !self.lock.authorizes(self.paths, self.uid)
             || crate::restore_disposition_ticket_model::pending_at(&self.paths.state_directory)
+            || crate::restore_disposition_complete_model::pending_at(&self.paths.state_directory)
         {
             return Err(SlotError::Admission);
         }

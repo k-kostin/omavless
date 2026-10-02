@@ -95,6 +95,10 @@ fn observe_evidence(
         &state,
         crate::restore_disposition_ticket_model::TICKET_MEMBER,
     )?;
+    absent(
+        &state,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+    )?;
     absent(&state, crate::restore_closure_model::NEXT_CLOSURE_MEMBER)?;
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
     let stage = read_staged_pair(&paths.state_directory, uid).map_err(|_| REFUSE)?;

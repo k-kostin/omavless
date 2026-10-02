@@ -1259,11 +1259,12 @@ labels are simulation inputs, not an on-disk format or reserved path. It has no
 writer, persistence observer, normal-owner admission or reusable capability;
 all candidate results explicitly remain fenced.
 
-The product decision still required is whether a durably committed disposition
-may replace fresh archive re-supply on later startups **within the exact same
-Rust ownership generation and UID**, while ordinary native validation handles
-subsequent live edits. This must not become a `generation >= old_generation`
-rule. Rollover, missing/torn/orphan evidence or ticket/C1 mismatch refuses.
+Dev-VM research of a completed disposition replacing fresh archive re-supply on
+later startups is approved **only within the exact same Rust ownership generation
+and UID**. Product admission remains unapproved until its reader, effect gates
+and acceptance are reviewed. Ordinary native validation must handle subsequent
+live edits. This must not become a `generation >= old_generation` rule. Rollover,
+missing/torn/orphan evidence or ticket/C1 mismatch refuses.
 
 ### Before disposition
 
@@ -1296,7 +1297,7 @@ requires the archive input to be explicitly `NotSupplied` in that phase: a
 supplied valid or invalid archive fact refuses rather than being silently
 ignored. The other before-publication output/Off facts are inapplicable after
 completion; current live validity is independently required. This is
-the unapproved policy choice, not existing product behavior.
+the Dev-VM-only policy choice, not existing product behavior.
 
 Any transient fence still overrides the historical candidate. A subsequent
 restore must first establish a durable transient fence, then invalidate the old
@@ -1452,3 +1453,32 @@ wrong archive/UID/generation/Off/login/host state, source substitutions in the f
 and later host callbacks, late transient evidence and final-observation refusal.
 Wrapper process SIGKILL/re-entry complements the lower-level per-fsync matrix;
 neither proves physical power-loss, installed clean restore or product acceptance.
+
+### Inactive ordered-completion candidate
+
+The next Dev-VM-only slice adds a second fixed private record,
+`restore-disposition.complete`. It is **not** a startup exception: both the
+pending ticket and the completion record are conservative existence fences in
+normal runtime and direct inactive successor effects. The public final review
+also requires both to be absent. The new record embeds the complete canonical
+ticket (UID, exact generation, C1, transaction and terminal outcome) with a
+separate versioned, domain-separated checksum. It contains no profile payload,
+passphrase, subscription URL or archive path; the checksum is not authentication.
+
+Its inactive create-only entry retains one existing lease and the same pinned
+sources across authenticated complete-ticket resync and completion publication.
+It requires the caller's fresh owner/Off/login/empty-host observation throughout.
+After source resync and re-verification, it exclusively creates a private 0600,
+single-link record, writes and syncs its bytes and parent, then reopens and
+checks exact bytes, inode, ticket and original sources. Any error after creation
+leaves the visible prefix and both fences in place; no retry, repair, unlink,
+ordinary-owner admission or VPN effect follows. A complete record without the
+pending ticket is an orphan that still blocks startup.
+
+Synthetic Commit/Abort, wrong-prefix and late-gate tests plus actual process
+SIGKILL at each completion checkpoint cover this ordering. They do not prove
+power-cut durability, authenticated archive UX, current boot/user-manager
+epoch, or installed product behavior. A future typed historical reader must
+bind both records to a fresh owner and live-store review before any startup
+exception. The generic presence predicate must remain conservative; every
+normal-runtime caller and mutation effect needs its own reviewed integration.

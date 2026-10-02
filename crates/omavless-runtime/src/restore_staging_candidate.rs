@@ -565,7 +565,9 @@ fn stage_with_hook(
     mut proceed: impl FnMut(Step) -> bool,
 ) -> Result<(), StageError> {
     let _planned = planned_stage_identity(members)?;
-    if crate::restore_disposition_ticket_model::pending_at(state_directory) {
+    if crate::restore_disposition_ticket_model::pending_at(state_directory)
+        || crate::restore_disposition_complete_model::pending_at(state_directory)
+    {
         return Err(StageError::AlreadyPending);
     }
     let parent =
@@ -583,6 +585,7 @@ fn stage_with_hook(
     parent.sync_all().map_err(|_| StageError::Ambiguous)?;
     if !proceed(Step::Directory)
         || crate::restore_disposition_ticket_model::pending_at(state_directory)
+        || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
         return Err(StageError::Ambiguous);
     }
@@ -603,6 +606,7 @@ fn stage_with_hook(
         write_member(&directory, MEMBERS[index], uid, bytes)?;
         if !proceed(Step::Member(index))
             || crate::restore_disposition_ticket_model::pending_at(state_directory)
+            || crate::restore_disposition_complete_model::pending_at(state_directory)
         {
             return Err(StageError::Ambiguous);
         }
@@ -610,13 +614,16 @@ fn stage_with_hook(
     directory.sync_all().map_err(|_| StageError::Ambiguous)?;
     let ready = ready_bytes(members);
     write_member(&directory, READY_MEMBER, uid, &ready)?;
-    if !proceed(Step::Ready) || crate::restore_disposition_ticket_model::pending_at(state_directory)
+    if !proceed(Step::Ready)
+        || crate::restore_disposition_ticket_model::pending_at(state_directory)
+        || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
         return Err(StageError::Ambiguous);
     }
     directory.sync_all().map_err(|_| StageError::Ambiguous)?;
     if !proceed(Step::Complete)
         || crate::restore_disposition_ticket_model::pending_at(state_directory)
+        || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
         return Err(StageError::Ambiguous);
     }
@@ -663,10 +670,24 @@ mod tests {
     const PAIR: [&[u8]; 4] = [b"old store", b"old template", b"new store", b"new template"];
 
     #[test]
-    fn disposition_ticket_blocks_direct_stage_initial_and_callback_prefix() {
-        for late in [false, true] {
+    fn disposition_records_block_direct_stage_initial_and_callback_prefix() {
+        for (member, late) in [
+            (
+                crate::restore_disposition_ticket_model::TICKET_MEMBER,
+                false,
+            ),
+            (crate::restore_disposition_ticket_model::TICKET_MEMBER, true),
+            (
+                crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+                false,
+            ),
+            (
+                crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+                true,
+            ),
+        ] {
             let (root, uid) = root();
-            let ticket = root.join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+            let ticket = root.join(member);
             if !late {
                 fs::write(&ticket, b"foreign").unwrap();
             }

@@ -3,6 +3,9 @@
 //! admission, repairs a partial ticket, unlinks a fence or starts an owner.
 use super::*;
 
+#[path = "restore_disposition_completion_candidate.rs"]
+pub(crate) mod completion;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RecoveryResult {
     ResynchronizedStillFenced,
@@ -39,9 +42,39 @@ fn run(
     generation: u64,
     lock: &MigrationLock,
     backup: &OpenedBackup,
-    mut gate: impl FnMut() -> bool,
-    mut hook: impl FnMut(Checkpoint) -> bool,
+    gate: impl FnMut() -> bool,
+    hook: impl FnMut(Checkpoint) -> bool,
 ) -> Result<RecoveryResult, ExecutionError> {
+    run_with_final(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        backup,
+        gate,
+        hook,
+        |_, _, _, _, _, _| Ok(RecoveryResult::ResynchronizedStillFenced),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_with_final<R, G, H, P>(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &OpenedBackup,
+    mut gate: G,
+    mut hook: H,
+    finalizer: P,
+) -> Result<R, ExecutionError>
+where
+    G: FnMut() -> bool,
+    H: FnMut(Checkpoint) -> bool,
+    P: FnOnce(&Context<'_>, &File, &Metadata, &[u8], &Ticket, &mut G) -> Result<R, ExecutionError>,
+{
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
@@ -53,6 +86,10 @@ fn run(
         open_private_directory(config, uid).map_err(|_| REFUSE)?,
     ];
     let runtime = open_private_directory(&paths.runtime_base, uid).map_err(|_| REFUSE)?;
+    absent(
+        &directories[0],
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+    )?;
     let (raw, identity) = read_optional(&directories[0], TICKET_MEMBER, uid, TICKET_BYTES)
         .map_err(|_| REFUSE)?
         .ok_or(REFUSE)?;
@@ -126,74 +163,82 @@ fn run(
             template: backup.template(),
         },
     };
-    let mut check = || {
-        // Refuse stale original evidence before invoking the host observer,
-        // then recheck after it; observing is not authority to rebind sources.
-        context.sources(&mut || true)?;
-        context.destination(&file, &identity, &raw)?;
-        context.sources(&mut gate)?;
-        context.destination(&file, &identity, &raw)
-    };
-    check()?;
-    // No pre-existing durability inference: every entry and parent is freshly
-    // synchronized from pinned descriptors before the final still-fenced result.
-    for (index, directory, name) in [(0, 0, CLOSURE_MEMBER), (4, 1, LIVE[0]), (5, 1, LIVE[1])] {
-        check()?;
-        let source = File::from(
-            openat(
-                &context.directories[directory],
-                Path::new(name),
-                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
-                Mode::empty(),
+    {
+        let mut check = || {
+            // Refuse stale original evidence before invoking the host observer,
+            // then recheck after it; observing is not authority to rebind sources.
+            context.sources(&mut || true)?;
+            context.destination(&file, &identity, &raw)?;
+            context.sources(&mut gate)?;
+            context.destination(&file, &identity, &raw)?;
+            absent(
+                &context.directories[0],
+                crate::restore_disposition_complete_model::COMPLETE_MEMBER,
             )
-            .map_err(|_| REFUSE)?,
-        );
-        let expected = &context.evidence.snapshot.evidence.members[index]
-            .as_ref()
-            .ok_or(REFUSE)?
-            .1;
-        if !same_member(expected, &source.metadata().map_err(|_| REFUSE)?) {
-            return Err(REFUSE);
+        };
+        check()?;
+        // No pre-existing durability inference: every entry and parent is freshly
+        // synchronized from pinned descriptors before the final still-fenced result.
+        for (index, directory, name) in [(0, 0, CLOSURE_MEMBER), (4, 1, LIVE[0]), (5, 1, LIVE[1])] {
+            check()?;
+            let source = File::from(
+                openat(
+                    &context.directories[directory],
+                    Path::new(name),
+                    OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(|_| REFUSE)?,
+            );
+            let expected = &context.evidence.snapshot.evidence.members[index]
+                .as_ref()
+                .ok_or(REFUSE)?
+                .1;
+            if !same_member(expected, &source.metadata().map_err(|_| REFUSE)?) {
+                return Err(REFUSE);
+            }
+            source.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
+            if !hook(Checkpoint::SourceSynced(index)) {
+                return Err(ExecutionError::Ambiguous);
+            }
+            check().map_err(|_| ExecutionError::Ambiguous)?;
         }
-        source.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
-        if !hook(Checkpoint::SourceSynced(index)) {
+        for index in [1, 0, 2] {
+            check()?;
+            let directory = if index == 2 {
+                &context.runtime
+            } else {
+                &context.directories[index]
+            };
+            directory
+                .sync_all()
+                .map_err(|_| ExecutionError::Ambiguous)?;
+            if !hook(Checkpoint::DirectorySynced(index)) {
+                return Err(ExecutionError::Ambiguous);
+            }
+            check().map_err(|_| ExecutionError::Ambiguous)?;
+        }
+        check()?;
+        file.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
+        if !hook(Checkpoint::TicketSynced) {
             return Err(ExecutionError::Ambiguous);
         }
         check().map_err(|_| ExecutionError::Ambiguous)?;
-    }
-    for index in [1, 0, 2] {
-        check()?;
-        let directory = if index == 2 {
-            &context.runtime
-        } else {
-            &context.directories[index]
-        };
-        directory
+        context.directories[0]
             .sync_all()
             .map_err(|_| ExecutionError::Ambiguous)?;
-        if !hook(Checkpoint::DirectorySynced(index)) {
+        if !hook(Checkpoint::ParentSynced) {
+            return Err(ExecutionError::Ambiguous);
+        }
+        check().map_err(|_| ExecutionError::Ambiguous)?;
+        if !hook(Checkpoint::Reopened) {
             return Err(ExecutionError::Ambiguous);
         }
         check().map_err(|_| ExecutionError::Ambiguous)?;
     }
-    check()?;
-    file.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
-    if !hook(Checkpoint::TicketSynced) {
-        return Err(ExecutionError::Ambiguous);
-    }
-    check().map_err(|_| ExecutionError::Ambiguous)?;
-    context.directories[0]
-        .sync_all()
-        .map_err(|_| ExecutionError::Ambiguous)?;
-    if !hook(Checkpoint::ParentSynced) {
-        return Err(ExecutionError::Ambiguous);
-    }
-    check().map_err(|_| ExecutionError::Ambiguous)?;
-    if !hook(Checkpoint::Reopened) {
-        return Err(ExecutionError::Ambiguous);
-    }
-    check().map_err(|_| ExecutionError::Ambiguous)?;
-    Ok(RecoveryResult::ResynchronizedStillFenced)
+    // The finalizer owns the last check. A host callback after publishing a
+    // completion record could otherwise change it without a subsequent check.
+    finalizer(&context, &file, &identity, &raw, &ticket, &mut gate)
 }
 
 #[cfg(test)]
@@ -205,7 +250,7 @@ mod tests {
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
     use std::{fs, path::PathBuf, process::Command};
 
-    fn published(commit: bool) -> (Fixture, MigrationLock) {
+    pub(super) fn published(commit: bool) -> (Fixture, MigrationLock) {
         let (f, lock) = ready(commit);
         publish_disposition(&f.config, &f.paths, f.uid, 2, &lock, second(), || true).unwrap();
         (f, lock)

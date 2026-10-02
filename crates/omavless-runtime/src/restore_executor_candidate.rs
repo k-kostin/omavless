@@ -147,6 +147,7 @@ impl<G: FnMut() -> bool> Bound<'_, G> {
         if !(self.gate)()
             || !self.lock.authorizes(self.paths, self.uid)
             || crate::restore_disposition_ticket_model::pending_at(&self.paths.state_directory)
+            || crate::restore_disposition_complete_model::pending_at(&self.paths.state_directory)
         {
             return Err(ExecutionError::Admission);
         }

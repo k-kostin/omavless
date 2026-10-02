@@ -131,6 +131,10 @@ fn observe_rotation(
         &state,
         crate::restore_disposition_ticket_model::TICKET_MEMBER,
     )?;
+    absent(
+        &state,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+    )?;
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
     let mut members = Vec::new();
     for (name, limit) in [
