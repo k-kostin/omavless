@@ -1,5 +1,6 @@
 use crate::listener_admission::{AdmittedListener, ListenerError};
-use crate::listener_publisher_candidate::{PublishError, publish_test_parent};
+use crate::listener_publisher_candidate::{PublishError, publish_test_parent, publish_test_with_group};
+use crate::package_group_candidate::PackageGroup;
 use crate::session_owner_candidate::{SessionOwner, SessionProgress};
 use std::io::ErrorKind;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, symlink};
@@ -49,6 +50,67 @@ fn publication_site(f: &Fixture) -> (PathBuf, PathBuf, (u32, u32)) {
     let path = parent.join("omavless-netguard/control.sock");
     let meta = fs::metadata(&parent).unwrap();
     (parent, path, (meta.uid(), meta.gid()))
+}
+
+#[test]
+fn package_group_binding_refuses_mutation_replacement_and_symlink() {
+    let f = Fixture::new();
+    let etc = f.0.join("etc");
+    fs::DirBuilder::new().mode(0o700).create(&etc).unwrap();
+    let path = etc.join("group");
+    fs::write(&path, b"root:x:0:\nomavless-netguard:x:995:\nother:x:996:\n").unwrap();
+    let meta = fs::metadata(&etc).unwrap();
+    let owner = (meta.uid(), meta.gid());
+    let binding = PackageGroup::open_test_parent(File::open(&etc).unwrap(), owner).unwrap();
+    assert_eq!(binding.gid(), 995);
+    assert_eq!(binding.validate(), Ok(()));
+    fs::write(&path, b"root:x:0:\nomavless-netguard:x:997:\nother:x:996:\n").unwrap();
+    assert!(binding.validate().is_err());
+
+    let f = Fixture::new();
+    let etc = f.0.join("etc");
+    fs::DirBuilder::new().mode(0o700).create(&etc).unwrap();
+    let path = etc.join("group");
+    fs::write(&path, b"root:x:0:\nomavless-netguard:x:995:\n").unwrap();
+    let meta = fs::metadata(&etc).unwrap();
+    let owner = (meta.uid(), meta.gid());
+    let binding = PackageGroup::open_test_parent(File::open(&etc).unwrap(), owner).unwrap();
+    fs::rename(&path, etc.join("old-group")).unwrap();
+    fs::write(&path, b"root:x:0:\nomavless-netguard:x:995:\n").unwrap();
+    assert!(binding.validate().is_err());
+    fs::remove_file(&path).unwrap();
+    symlink(etc.join("old-group"), &path).unwrap();
+    assert!(PackageGroup::open_test_parent(File::open(&etc).unwrap(), owner).is_err());
+}
+
+#[test]
+fn changing_package_group_before_publication_leaves_socket_directory_private() {
+    for late in [false, true] {
+        let f = Fixture::new();
+        let (parent, path, owner) = publication_site(&f);
+        if owner.1 == 0 {
+            // A root-run test cannot exercise non-root package-group identity.
+            continue;
+        }
+        let etc = f.0.join("etc");
+        fs::DirBuilder::new().mode(0o700).create(&etc).unwrap();
+        let group_path = etc.join("group");
+        fs::write(&group_path, format!("root:x:0:\nomavless-netguard:x:{}:\n", owner.1)).unwrap();
+        let etc_meta = fs::metadata(&etc).unwrap();
+        let group = PackageGroup::open_test_parent(
+            File::open(&etc).unwrap(), (etc_meta.uid(), etc_meta.gid()),
+        ).unwrap();
+        let change = || {
+            fs::write(&group_path, format!("root:x:0:\nomavless-netguard:x:{}:\n", owner.1 + 1)).unwrap();
+        };
+        let result = if late {
+            publish_test_with_group(File::open(&parent).unwrap(), &path, owner, &group, || (), change)
+        } else {
+            publish_test_with_group(File::open(&parent).unwrap(), &path, owner, &group, change, || ())
+        };
+        assert!(matches!(result, Err(PublishError::Ambiguous)));
+        assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().mode() & 0o7777, 0o700);
+    }
 }
 
 #[test]
