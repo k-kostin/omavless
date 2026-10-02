@@ -140,6 +140,16 @@ binary hashes and host/VM repetitions belong to the owning PR. They do not
 activate installed packages or establish normal owner-lock/revision/operation
 admission, detached scheduling, ABI package attestation or installed EN/RU UI.
 
+The [managed composition gate](../../tests/core_connections_adapter/README.md#exact-managed-dns-composition-gate)
+exports exact managed-DNS/sing-tun patch snapshots and compiles them together
+with this conditional protocol using production `with_gvisor`/CGO-off tags.
+Its Go matrices and real synthetic loopback close check do not replace DNS
+broker/interoperability acceptance or a root-owned matched-package receipt.
+Local archive attributes are excluded through an isolated export repository;
+the test-only short-socket overlay is reversed before the binary build.
+Exact toolchain/binary and optional Rust transport repetitions belong to the
+owning PR, not the accepted package allowlist.
+
 Focused synthetic tests cover every context component, admission/recovery gates,
 expiry/clock discontinuity, refresh and identical displayed targets, disappeared
 or reused IDs, wrong/cancelled/replaced confirmation, malformed/duplicate IDs,

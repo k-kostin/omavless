@@ -1,5 +1,18 @@
 # Third-party notices
 
+## Review-only managed-core patches
+
+The patch artifacts under `tests/core_connections_adapter/` modify
+[Mihomo](https://github.com/MetaCubeX/mihomo) at exact upstream revision
+`ab405bad5beeeac8b003bb01f60f134f6df54471`. Upstream code and these derived
+patches retain GPL-3.0; its unmodified license is included as
+[`LICENSE.Mihomo`](tests/core_connections_adapter/LICENSE.Mihomo).
+The separate short-socket patch modifies only upstream test code and is removed
+before the disposable core build. The Python review tools are MIT-licensed and
+are not a production runtime fallback. No new core binary or package is bundled
+or published by this review checkpoint. Source composition and scope are
+documented in the [review guide](tests/core_connections_adapter/README.md).
+
 ## Omarchy VPN
 
 Parts of the OmaVLESS interface and interaction model are adapted from

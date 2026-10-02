@@ -83,3 +83,51 @@ bounded responses and rejection of unsafe inputs before process creation.
 The exact candidate binary and VM results are recorded in the owning PR; this
 is real candidate-core behavior, **not** matched native package, production
 owner admission or installed TUI acceptance. No private profiles are used.
+
+## Exact managed-DNS composition gate
+
+`managed_composition.py` combines the conditional-close patch with the managed
+DNS patches from exact OmaVLESS snapshot
+`c4e800425243c1b02165f82153e4bf418fe465e6`, not whichever branch is currently
+checked out. The DNS patch SHA-256 is
+`d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37`;
+the sing-tun patch SHA-256 is
+`2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab`
+against upstream commit `b50ae28a1409c7bce8e96e6c6966cf57d8ace754`.
+Unknown bytes or unavailable Git objects refuse before building. Local dirty
+source, Git replacement objects, user configuration and hooks are not input.
+
+```sh
+python3 tests/core_connections_adapter/managed_composition.py \
+  --mihomo-source /absolute/local/mihomo \
+  --sing-tun-source /absolute/local/sing-tun \
+  --dns-repository /absolute/local/omavless \
+  --scratch-parent /absolute/private/home-scratch
+```
+
+With dependencies already cached, it exports pinned objects into private
+disposable HOME scratch and vendors the exact locally patched sing-tun.
+Module/toolchain downloads and ambient Go workspaces are disabled. Conditional
+tests run 20 times with race instrumentation; 11 managed-DNS Go cases run 20
+times. Bounded Go JSON receipts must prove execution of all seven conditional
+cases and these DNS cases; a zero-test success or unexpected skip refuses.
+The separate opt-in Rust↔Go DNS interop case is explicitly skipped, not PASS.
+A separate GPL-3.0 **test-only** overlay shortens temporary DNS socket paths;
+it is hash-checked and reversed before compiling the core. The two production
+DNS patches remain byte-for-byte unchanged. This avoids Linux Unix-socket path
+overflow, not a runtime DNS change.
+
+The disposable binary is built with `with_gvisor`, CGO off and explicit
+`-buildvcs=false`: provenance comes from the pinned archives/patches, not a
+possibly unrelated parent repository. Its build metadata is checked and the
+real two-tunnel loopback gate runs. The runner reports source/patch/toolchain
+and binary identities, then deletes its scratch and binary. The executed
+toolchain and binary hash are review evidence, **not** a release artifact,
+production package receipt or architecture-independent identity.
+
+This gate does not build/install the DNS broker, exercise Rust↔Go DNS interop,
+enable system DNS/TUN, use provider credentials or replace the installed core.
+It proves that the pinned source patches coexist and that conditional close
+works in that composition. Managed DNS-pair acceptance, matched immutable
+companion-package receipt, owner admission/operation reservation and installed
+EN/RU close-confirmation review are separate requirements.
