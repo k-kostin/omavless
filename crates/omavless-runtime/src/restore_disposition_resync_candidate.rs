@@ -66,7 +66,7 @@ fn run(
         )
         .map_err(|_| REFUSE)?,
     );
-    if !same_member(&identity, &file.metadata().map_err(|_| REFUSE)?) || !gate() {
+    if !same_member(&identity, &file.metadata().map_err(|_| REFUSE)?) {
         return Err(REFUSE);
     }
     let off = backup.restore_store_off().map_err(|_| REFUSE)?;
@@ -79,6 +79,9 @@ fn run(
         &off,
         backup.template(),
     )?;
+    // Pin authenticated output evidence before the first external observation;
+    // a semantically identical C1/live replacement in that callback must not
+    // silently become the resynchronization baseline.
     if !gate() {
         return Err(REFUSE);
     }
@@ -124,6 +127,10 @@ fn run(
         },
     };
     let mut check = || {
+        // Refuse stale original evidence before invoking the host observer,
+        // then recheck after it; observing is not authority to rebind sources.
+        context.sources(&mut || true)?;
+        context.destination(&file, &identity, &raw)?;
         context.sources(&mut gate)?;
         context.destination(&file, &identity, &raw)
     };

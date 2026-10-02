@@ -1427,3 +1427,28 @@ last callback now rechecks ticket absence before reporting its still-fenced
 outcome, closing the previous diagnostic-only gap without adding authority.
 An authenticated `OpenedBackup` reference is mandatory in the API; missing-input
 UX and passphrase transport are not exercised by these tests and have no fallback.
+
+### Private one-shot ticket recovery boundary candidate
+
+The separate inactive production-boundary adapter retains one existing migration
+lease from admission through complete-ticket resync. Its private consuming session
+pins the Rust ownership marker, desired Off state and login receipt boundary;
+the inner resync pins the original authenticated C1/live/config and exact ticket
+before the first host callback. No phase/result can be carried out and reused as
+recovery authority. Every later callback is bracketed by original evidence and
+lease checks, plus fresh complete empty-owned-host observation and owner/Off/login
+checks. Only `ResynchronizedStillFenced` is returned, without constructing an owner,
+creating a missing lock, listener registration or any historical/startup override.
+
+Caller obligations remain explicit: paths must come from trusted product path
+derivation, not merely pass shape validation; the borrowed `OpenedBackup` must be
+freshly authenticated by the eventual private request flow. Borrowing alone proves
+neither passphrase freshness nor original ciphertext-file identity. Consumed login
+generation does not establish the current boot/user-manager epoch. No integration
+currently discharges these product obligations, and ordinary startup remains fenced.
+
+Synthetic checks cover Commit/Abort, lease contention and missing/stale leases,
+wrong archive/UID/generation/Off/login/host state, source substitutions in the first
+and later host callbacks, late transient evidence and final-observation refusal.
+Wrapper process SIGKILL/re-entry complements the lower-level per-fsync matrix;
+neither proves physical power-loss, installed clean restore or product acceptance.

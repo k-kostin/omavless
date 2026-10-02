@@ -10,6 +10,9 @@ use crate::restore_executor_candidate::successor::rotation::final_review::{
 };
 use std::path::PathBuf;
 
+#[path = "restore_ticket_recovery_candidate.rs"]
+mod ticket;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClosureRecoveryResult {
     ResynchronizedStillFenced,
