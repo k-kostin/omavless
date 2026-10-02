@@ -71,7 +71,7 @@ def peer_get(root, pid):
 
 def observation(root,pid):
     data = json.loads(socket_payload(root/"stats.sock",pid))
-    wg.require(set(data)=={"junk","special","init","response","transport","protected","trailers","padding_size_matches"}
+    wg.require(set(data)=={"junk","special","special_mask","init","response","transport","protected","trailers","padding_size_matches"}
                and all(type(n) is int and 0 <= n <= 10000 for n in data.values()),"awg_observation")
     return data
 
@@ -186,7 +186,7 @@ def namespace_run(args):
                     wg.phase(round_root,Path(args.core),"positive","positive",public,result["net_inode"],observe=stats)
                     result["positive"]+=1
                     active=observation(round_root,peer.pid)
-                    wg.require(active["junk"]>=4 and active["special"]>=5 and active["init"]>=1
+                    wg.require(active["junk"]>=4 and active["special"]>=5 and active["special_mask"]==31 and active["init"]>=1
                                and active["response"]>=1 and active["transport"]>=1 and active["protected"]>=3
                                and active["padding_size_matches"]>=1,"awg_wire_fields")
                     wg.require(active["trailers"]>0 if generation=="3.1" else active["trailers"]==0,"awg_generation_wire")
@@ -217,6 +217,18 @@ def namespace_run(args):
                     result["recovery"]+=1
                     result["generations"][generation].append(observation(round_root,peer.pid))
                     wg.check_process(peer,result["net_inode"])
+            except BaseException as error:
+                if peer is not None and peer.poll() is not None:
+                    log=(round_root/"peer.log").read_bytes()
+                    for name in ("RoutineReceiveIncoming","HeaderProtectionCipher","RoutineReadFromTUN","RoutineEncryption","RoutineSequentialReceiver","SendKeepalive"):
+                        if name.encode() in log and b"panic:" in log:
+                            raise wg.Refused("awg_peer_panic_"+name) from None
+                    raise wg.Refused("awg_peer_exited") from None
+                if isinstance(error,wg.Refused) and peer is not None:
+                    error.facts=observation(round_root,peer.pid)
+                    values=peer_get(round_root,peer.pid)
+                    error.facts.update(handshake=int(values[b"last_handshake_time_sec"]),rx=int(values[b"rx_bytes"]),tx=int(values[b"tx_bytes"]))
+                raise
             finally:
                 wg.stop(http); wg.stop(peer)
                 for descriptor in (http_fd,tun_fd):
@@ -289,7 +301,11 @@ def outer(args):
             # Never forward arbitrary child text, even when it happens to look
             # like an exception. Only our finite literal refusal vocabulary.
             wg.require(stage in SAFE_STAGES,"namespace_smoke")
-            raise wg.Refused(stage)
+            if stage=="unexpected_fixed_failure":
+                diagnostic(outcome.get("failure_class"),outcome.get("failure_line"),outcome.get("failure_function"))
+            error=wg.Refused(stage)
+            if isinstance(outcome.get("facts"),dict): error.facts=outcome["facts"]
+            raise error
         wg.require(all(outcome.get(name)==2*args.rounds for name in ("positive","negative","header_negative","recovery","rekey"))
                    and outcome.get("private_roundtrip")==6*args.rounds and outcome.get("interface_cleanup") is True,"namespace_result")
     finally:
@@ -329,6 +345,8 @@ SAFE_STAGES={"namespace_identity","namespace_interfaces","namespace_inventory","
              "controller_bound","no_direct_fallback","transport_request","positive_transport","handshake_transfer",
              "negative_direct_bypass","negative_peer_unchanged","owned_child_cleanup","controller_cleanup",
              "key_generation","negative_key_identity","unexpected_fixed_failure"}
+SAFE_STAGES.update("awg_peer_panic_"+name for name in ("RoutineReceiveIncoming","HeaderProtectionCipher","RoutineReadFromTUN","RoutineEncryption","RoutineSequentialReceiver","SendKeepalive"))
+SAFE_STAGES.add("awg_peer_exited")
 
 
 def main():
@@ -345,10 +363,27 @@ def main():
     try:
         namespace_run(args) if args.namespace_child else outer(args)
     except wg.Refused as error:
-        print(json.dumps({"status":"REFUSED","stage":error.stage},sort_keys=True)); return 2
-    except (Exception,KeyboardInterrupt):
-        print(json.dumps({"status":"REFUSED","stage":"unexpected_fixed_failure"},sort_keys=True)); return 2
+        outcome={"status":"REFUSED","stage":error.stage}
+        facts=getattr(error,"facts",None)
+        allowed={"junk","special","special_mask","init","response","transport","protected","trailers","padding_size_matches","handshake","rx","tx"}
+        if isinstance(facts,dict) and set(facts)<=allowed and all(type(value) is int and 0<=value<=2**63 for value in facts.values()): outcome["facts"]=facts
+        print(json.dumps(outcome,sort_keys=True)); return 2
+    except (Exception,KeyboardInterrupt) as error:
+        trace=error.__traceback__
+        while trace.tb_next is not None: trace=trace.tb_next
+        diagnostic(type(error).__name__,trace.tb_lineno,trace.tb_frame.f_code.co_name)
+        return 2
     return 0
+
+
+def diagnostic(kind,line,function):
+    # Class/function identifiers come from trusted fixture/interpreter code,
+    # never an exception's message, arguments, locals or private file contents.
+    def identifier(value):
+        return value if isinstance(value,str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",value) else "other"
+    print(json.dumps({"status":"REFUSED","stage":"unexpected_fixed_failure",
+                      "failure_class":identifier(kind),"failure_function":identifier(function),
+                      "failure_line":line if type(line) is int and 1<=line<=2000 else 0},sort_keys=True))
 
 
 if __name__=="__main__": sys.exit(main())

@@ -3,9 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -23,8 +25,8 @@ import (
 
 type observations struct {
 	sync.Mutex
-	Junk, Special, Init, Response, Transport, Protected, Trailers, Padding int
-	Wire, Plain                                                            map[int]int
+	Junk, Special, SpecialMask, Init, Response, Transport, Protected, Trailers int
+	Wire, Plain                                                                map[int]int
 }
 
 func (o *observations) snapshot() map[string]int {
@@ -34,7 +36,7 @@ func (o *observations) snapshot() map[string]int {
 	for size, n := range o.Plain {
 		padding += min(n, o.Wire[size+48+32+37])
 	}
-	return map[string]int{"junk": o.Junk, "special": o.Special, "init": o.Init,
+	return map[string]int{"junk": o.Junk, "special": o.Special, "special_mask": o.SpecialMask, "init": o.Init,
 		"response": o.Response, "transport": o.Transport, "protected": o.Protected,
 		"trailers": o.Trailers, "padding_size_matches": padding}
 }
@@ -48,8 +50,13 @@ func (t *observedTun) Write(bufs [][]byte, offset int) (int, error) {
 	n, err := t.Device.Write(bufs, offset)
 	t.observations.Lock()
 	defer t.observations.Unlock()
-	for _, packet := range bufs[:n] {
-		t.observations.Plain[len(packet)-offset]++
+	// The upstream Linux NativeTun returns the number of bytes written (not
+	// packets). Record the input packet shapes only after a successful batch;
+	// never use that byte count as a slice bound or change its return value.
+	if err == nil && n > 0 {
+		for _, packet := range bufs {
+			t.observations.Plain[len(packet)-offset]++
+		}
 	}
 	return n, err
 }
@@ -58,9 +65,22 @@ func (t *observedTun) Write(bufs [][]byte, offset int) (int, error) {
 // addresses or peer identities are returned. Header decoding independently
 // checks the configured padding/magic values rather than trusting a YAML flag.
 func relay(root string, o *observations) (*net.UDPConn, error) {
-	encoded, err := os.ReadFile(filepath.Join(root, "header.key"))
+	fd, err := unix.Open(filepath.Join(root, "header.key"), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), "header.key")
+	defer file.Close()
+	var before, after unix.Stat_t
+	if unix.Fstat(fd, &before) != nil || before.Mode&unix.S_IFMT != unix.S_IFREG || before.Mode&0077 != 0 || before.Uid != uint32(os.Getuid()) || before.Nlink != 1 || before.Size != 44 {
+		return nil, syscall.EINVAL
+	}
+	encoded, err := io.ReadAll(io.LimitReader(file, 45))
+	if err != nil {
+		return nil, err
+	}
+	if unix.Fstat(fd, &after) != nil || before.Dev != after.Dev || before.Ino != after.Ino || before.Mode != after.Mode || before.Uid != after.Uid || before.Nlink != after.Nlink || before.Size != after.Size || before.Mtim != after.Mtim || before.Ctim != after.Ctim {
+		return nil, syscall.EINVAL
 	}
 	key, err := base64.StdEncoding.DecodeString(string(encoded))
 	if err != nil || len(key) != 32 {
@@ -85,8 +105,9 @@ func relay(root string, o *observations) (*net.UDPConn, error) {
 			if n >= 64 && n <= 66 {
 				o.Junk++
 			}
-			if n >= 20 && n <= 24 && string(buf[:4]) == "P4AW" {
+			if n >= 20 && n <= 24 && string(buf[:4]) == "P4AW" && buf[4] == byte(49+n-20) && bytes.Equal(buf[5:n], bytes.Repeat([]byte{'x'}, n-5)) {
 				o.Special++
+				o.SpecialMask |= 1 << (n - 20)
 			}
 			if n >= 16 {
 				for i, padding := range []int{24, 32, 40, 48} {
@@ -99,7 +120,9 @@ func relay(root string, o *observations) (*net.UDPConn, error) {
 					if binary.LittleEndian.Uint32(header[:]) != uint32(101+i*101) {
 						continue
 					}
-					o.Protected++
+					if !bytes.Equal(header[:], buf[padding:padding+4]) {
+						o.Protected++
+					}
 					switch i {
 					case 0:
 						o.Init++
@@ -147,9 +170,24 @@ func run(root string) error {
 			return e
 		}
 		var held, current unix.Stat_t
-		if unix.Fstat(fd, &held) != nil || unix.Stat("/proc/self/ns/"+name, &current) != nil || held.Ino == current.Ino {
+		var fs unix.Statfs_t
+		label, e := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd))
+		if e != nil || len(label) < len(name)+2 || label[:len(name)+2] != name+":[" || unix.Fstatfs(fd, &fs) != nil || fs.Type != unix.NSFS_MAGIC || unix.Fstat(fd, &held) != nil || unix.Stat("/proc/self/ns/"+name, &current) != nil || held.Ino == current.Ino {
 			return syscall.EINVAL
 		}
+	}
+	capabilities := [2]unix.CapUserData{}
+	if unix.Capget(&unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}, &capabilities[0]) != nil {
+		return syscall.EPERM
+	}
+	for _, c := range capabilities {
+		if c.Effective|c.Permitted|c.Inheritable != 0 {
+			return syscall.EPERM
+		}
+	}
+	nnp, e := unix.PrctlRetInt(unix.PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)
+	if e != nil || nnp != 1 {
+		return syscall.EPERM
 	}
 	fd, err := strconv.Atoi(os.Getenv("P4_TUN_FD"))
 	if err != nil {
