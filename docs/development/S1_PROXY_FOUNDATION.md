@@ -336,6 +336,12 @@ host writes, package installation and VPN/network changes are absent.
 
 ## Verification and remaining gates
 
+The [mode-last successor](S1_MODE_LAST_ORDERING.md) adds an explicitly versioned
+ordering model for an originally disabled desktop. It enables mode last and
+restores saved inactive mode first in private dconf fixtures, while refusing
+runtime activation and saved Manual/PAC baselines without their required staged
+quiescence/authority protocol. Existing v2 order is never reinterpreted.
+
 The [fixed transaction writer checkpoint](S1_FIXED_TRANSACTION_WRITER.md)
 reconciles the field-journal/quiescence stack with independent readback and adds
 an inactive one-field executor. Its test-only dconf port exercises real private

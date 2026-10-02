@@ -7,12 +7,53 @@
 
 use super::{Error, Owner, Phase, Snapshot};
 use crate::app_proxy::codec::{
-    DesktopEntry, DesktopKey, DesktopSnapshot, EnvironmentEntry, EnvironmentKey,
-    EnvironmentSnapshot,
+    DesktopEntry, DesktopKey, DesktopSnapshot, DesktopValue, EnvironmentEntry, EnvironmentKey,
+    EnvironmentSnapshot, Override,
 };
 use std::fmt;
 
 pub const FIELD_COUNT: usize = DesktopKey::ALL.len() + EnvironmentKey::ALL.len();
+
+/// Ordering is a journal/model property, never listener readiness or authority.
+/// Legacy records retain their historical order; they must not be reinterpreted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    LegacyModeFirst,
+    ModeLastOriginalNone,
+}
+
+impl Order {
+    pub fn fields(self) -> impl DoubleEndedIterator<Item = Field> {
+        let mut fields: Vec<_> = Field::all().collect();
+        if self == Self::ModeLastOriginalNone {
+            let mode = Field::Desktop(DesktopKey::Mode);
+            fields.retain(|field| *field != mode);
+            fields.push(mode);
+        }
+        fields.into_iter()
+    }
+
+    fn admit(self, original: &State, intended: &State) -> Result<(), Error> {
+        if self == Self::ModeLastOriginalNone {
+            let field = Field::Desktop(DesktopKey::Mode);
+            let (Value::Desktop(before), Value::Desktop(after)) =
+                (original.value(field), intended.value(field))
+            else {
+                unreachable!()
+            };
+            // Prior manual/auto requires a third-value quiesce stage, then old
+            // mode LAST after restoring every consumed field. Two-side intent
+            // cannot represent that stage; refuse rather than guess/reset.
+            if before.effective != DesktopValue::String("none".into())
+                || after.effective != DesktopValue::String("manual".into())
+                || after.user != Override::Present(DesktopValue::String("manual".into()))
+            {
+                return Err(Error::UnsupportedOrder);
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -142,6 +183,7 @@ pub struct Effect {
 /// fields. Third values and changes to unattempted fields always refuse.
 #[derive(Clone)]
 pub struct Planner {
+    pub(super) order: Order,
     pub(super) owner: Owner,
     pub(super) original: State,
     pub(super) intended: State,
@@ -153,6 +195,17 @@ pub struct Planner {
 
 impl Planner {
     pub fn prepare(owner: Owner, original: State, intended: State) -> Result<Self, Error> {
+        Self::prepare_ordered(owner, original, intended, Order::LegacyModeFirst)
+    }
+
+    /// Effect-free model only. An eligible order does not establish loopback
+    /// listener readiness, ownership, lifetime, session or installed admission.
+    pub fn prepare_ordered(
+        owner: Owner,
+        original: State,
+        intended: State,
+        order: Order,
+    ) -> Result<Self, Error> {
         original
             .desktop
             .admit_writes()
@@ -161,6 +214,7 @@ impl Planner {
             .desktop
             .admit_writes()
             .map_err(|_| Error::InvalidSnapshot)?;
+        order.admit(&original, &intended)?;
         // Defaults and locks cannot be changed by the future user-value API.
         for key in DesktopKey::ALL {
             let Value::Desktop(before) = original.value(Field::Desktop(key)) else {
@@ -174,6 +228,7 @@ impl Planner {
             }
         }
         Ok(Self {
+            order,
             owner,
             expected: original.clone(),
             original,
@@ -186,6 +241,10 @@ impl Planner {
 
     pub fn phase(&self) -> Phase {
         self.phase
+    }
+
+    pub fn order(&self) -> Order {
+        self.order
     }
 
     fn check_owner(&self, owner: Owner) -> Result<(), Error> {
@@ -212,7 +271,7 @@ impl Planner {
         } else {
             &self.original
         };
-        let mut fields: Vec<_> = Field::all().collect();
+        let mut fields: Vec<_> = self.order.fields().collect();
         if self.phase == Phase::Restoring {
             fields.reverse();
         }

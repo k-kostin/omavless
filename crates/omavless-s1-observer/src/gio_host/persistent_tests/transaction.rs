@@ -16,6 +16,8 @@ use std::{cell::RefCell, rc::Rc};
 const WRITER_PATH: &str = "/ca/desrt/dconf/Writer/user";
 const WRITER_IFACE: &str = "ca.desrt.dconf.Writer";
 
+pub(super) mod ordering;
+
 fn binding() -> Binding {
     Binding {
         owner_instance: [1; 16],
@@ -391,6 +393,10 @@ pub(super) fn crash_child(root: &Path, schemas: &[gio::SettingsSchema]) {
         FieldJournal::create(root, binding(), original.clone(), intended(&original)).unwrap();
     let effect = journal.begin_next(binding(), &original).unwrap().unwrap();
     assert_eq!(effect.field, Field::Desktop(DesktopKey::Mode));
+    send_mode_then_exit(root);
+}
+
+fn send_mode_then_exit(root: &Path) -> ! {
     let socket = gio::Socket::new(
         gio::SocketFamily::Unix,
         gio::SocketType::Stream,

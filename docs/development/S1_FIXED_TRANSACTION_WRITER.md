@@ -8,6 +8,11 @@ host constructor, write helper, CLI/IPC capability, package or UI control.
 The [private exact-source evidence](../testing/S1_FIXED_WRITER_PRIVATE_2026-10-03.md)
 records the executed fixture gates and their limits.
 
+The [mode-last successor](S1_MODE_LAST_ORDERING.md) records safer ordering for
+an originally disabled desktop without silently changing v2 recovery meaning.
+Its explicit new-order runtime refusal and saved Manual/PAC refusal preserve
+the missing production authority/readiness and staged-quiescence gates.
+
 ## Executor contract
 
 `app_proxy::transaction::Transaction` advances at most one of the existing 26
