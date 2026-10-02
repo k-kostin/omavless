@@ -39,7 +39,17 @@ cases delete only the selected table and preserve an independent foreign table.
 Foreign changes after inventory must produce strict generation refusal and
 leave both table byte projections unchanged. Cancellation and expiry preserve
 the selected table. Exact VM source/binary identity and repeat results belong
-to the owning PR; until executed, this gate is pending.
+to [Draft PR #547](https://github.com/k-kostin/omavless/pull/547).
+
+On the Omarchy x86_64 development VM the six-scenario gate passed, followed by
+ten consecutive complete repetitions (60 scenario executions). The exact
+tested implementation is `803982824637d506f5937fb58aab3fe9cd5f51c9` and test
+binary SHA-256 is
+`b0b516abbdc5a4fcbc8ddf9132a51d08b6b937a245470f8f8a40741c1d786d00`.
+The ordinary netguard suite passed 191 tests, with 27 opt-in tests ignored;
+strict fmt/clippy passed. These are disposable namespace mechanism checks,
+not a normal installed disarm, namespace-identity authority or physical-PC
+firewall acceptance. No host/guest parent firewall or VPN was changed.
 
 Remaining K1 gates include adopted reviewed namespace APIs, canonical launch,
 creator/durable ownership, generation-wrap/namespace continuity, replacement
