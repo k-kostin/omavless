@@ -453,6 +453,13 @@ fn process_crash_cannot_replace_the_predecessor_drain_connection() {
     }
     let pending = record(&fixture.borrow());
     let reopened = FieldJournal::open(&fixture.borrow().root, binding()).unwrap();
+    assert_eq!(
+        reopened
+            .recovery_review(binding(), &original)
+            .unwrap()
+            .decision,
+        omavless_runtime::app_proxy::journal::fields::RecoveryDecision::RetainUnsettledEvidence
+    );
     // This parent's otherwise valid connection is not the exited writer's
     // origin. It cannot make that writer's journal eligible for compensation.
     assert!(matches!(
@@ -485,4 +492,19 @@ fn process_crash_cannot_replace_the_predecessor_drain_connection() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(record(&fixture.borrow()), pending);
+    let reopened = FieldJournal::open(&fixture.borrow().root, binding()).unwrap();
+    let changed = State::new(
+        read_independently(&fixture.borrow()),
+        crate::project_manager_environment(&[]).unwrap(),
+    );
+    let review = reopened.recovery_review(binding(), &changed).unwrap();
+    assert_eq!(
+        review.observed,
+        omavless_runtime::app_proxy::journal::fields::ObservedRelationship::RecordedMixture
+    );
+    assert_eq!(
+        review.decision,
+        omavless_runtime::app_proxy::journal::fields::RecoveryDecision::RetainUnsettledEvidence
+    );
+    assert_eq!(review.different_from_original, 1);
 }

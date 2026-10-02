@@ -35,6 +35,14 @@ with the same binding also refuses. An actual process crash loses the retained
 port and remains fenced under the separate unclosed takeover contract; reading
 stored instance/owner identifiers is not authority to recreate that port.
 
+The journal also provides a read-only recovery review, checked against its exact
+private record and absence of interrupted staging. Only phase, fixed pending
+field, bounded counts and original/intended/mixed/foreign relationship leave
+that projection. Before and after a dead writer's delayed commit, its decision
+remains `RetainUnsettledEvidence`; matching either value never yields a restore
+permit. Foreign values require `PreserveForeignEdits`. Only an unchanged released
+original reports `RetainReleasedTombstone`, which still authorizes no deletion.
+
 ## Private dconf writer experiment
 
 The real dconf port exists only inside `#[cfg(test)]` in the opt-in GIO crate.
@@ -82,3 +90,8 @@ private data; no desktop proxy, user-manager environment, real bus, private
 profile, host service, VPN/TUN or route state is used. ARM64/VM acceptance and
 production installed restoration are unrun; these tests prove the declared
 private x86_64 fixture only.
+
+The existing short socket fixture correction from #382 is reused verbatim at
+source `702b0b2f61e4b5b7e56a1677bde7b865e7d165ce`. It changes only two test helpers,
+preserving their private create-only directory implementation. Normal build
+outputs and temporary compilation remain under the user's home directory.

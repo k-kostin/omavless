@@ -147,6 +147,15 @@ impl Storage {
         Ok(Some(bytes))
     }
 
+    pub(super) fn review_exact(&self, expected: &[u8]) -> Result<(), Error> {
+        self.no_staging()?;
+        if self.read()?.as_deref() != Some(expected) {
+            return Err(Error::ForeignChange);
+        }
+        self.no_staging()?;
+        self.revalidate()
+    }
+
     pub(super) fn replace(&self, expected: Option<&[u8]>, payload: &[u8]) -> Result<(), Error> {
         if payload.len() > MAX_JOURNAL_BYTES {
             return Err(Error::Invalid);

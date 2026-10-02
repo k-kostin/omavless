@@ -14,6 +14,35 @@ use fields::{Effect, FIELD_COUNT, Field, Planner, State};
 
 const FIELD_DIRECTORY: &str = "app-proxy-fields";
 
+/// Value relationships only. These names deliberately make no lifetime,
+/// exclusive ownership, connectivity or permission-to-restore claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservedRelationship {
+    Original,
+    Intended,
+    RecordedMixture,
+    Foreign,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryDecision {
+    RetainUnsettledEvidence,
+    PreserveForeignEdits,
+    RetainReleasedTombstone,
+}
+
+/// Bounded diagnostic data only: no settings, environment values, owner IDs,
+/// record bytes/digests or authority can be extracted from this projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryReview {
+    pub phase: Phase,
+    pub pending_field: Option<Field>,
+    pub attempted_fields: u8,
+    pub different_from_original: u8,
+    pub observed: ObservedRelationship,
+    pub decision: RecoveryDecision,
+}
+
 fn field_directory(private_root: &Path) -> std::path::PathBuf {
     private_root.join(FIELD_DIRECTORY)
 }
@@ -82,6 +111,64 @@ impl FieldJournal {
 
     pub fn phase(&self) -> Phase {
         self.planner.phase()
+    }
+
+    /// Read-only review against the exact still-pinned journal. Matching
+    /// original/intended values never prove a crashed writer's requests have
+    /// drained. This method emits neither an effect nor a replacement binding.
+    pub fn recovery_review(
+        &self,
+        binding: Binding,
+        observed: &State,
+    ) -> Result<RecoveryReview, Error> {
+        self.check(binding)?;
+        self.storage.review_exact(&self.persisted)?;
+        let mut different = 0;
+        let mut foreign = false;
+        for field in Field::all() {
+            let actual = observed.value(field);
+            let original = self.planner.original.value(field);
+            if actual != original {
+                different += 1;
+                if !self.planner.attempted[field.index()]
+                    || actual != self.planner.intended.value(field)
+                {
+                    foreign = true;
+                }
+            }
+        }
+        if self.phase() == Phase::Released && observed != &self.planner.original {
+            foreign = true;
+        }
+        let relationship = if foreign {
+            ObservedRelationship::Foreign
+        } else if observed == &self.planner.original {
+            ObservedRelationship::Original
+        } else if observed == &self.planner.intended {
+            ObservedRelationship::Intended
+        } else {
+            ObservedRelationship::RecordedMixture
+        };
+        let decision = if foreign {
+            RecoveryDecision::PreserveForeignEdits
+        } else if self.phase() == Phase::Released {
+            RecoveryDecision::RetainReleasedTombstone
+        } else {
+            RecoveryDecision::RetainUnsettledEvidence
+        };
+        Ok(RecoveryReview {
+            phase: self.phase(),
+            pending_field: self.planner.pending,
+            attempted_fields: self
+                .planner
+                .attempted
+                .iter()
+                .filter(|attempted| **attempted)
+                .count() as u8,
+            different_from_original: different,
+            observed: relationship,
+            decision,
+        })
     }
 
     pub(crate) fn recovered(&self) -> bool {

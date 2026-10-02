@@ -9,6 +9,114 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 mod transfer;
 
+#[test]
+fn review_of_unknown_effect_keeps_both_original_and_delayed_commit_fenced() {
+    let temp = Temp::new();
+    let (original, intended) = states();
+    let mut journal =
+        FieldJournal::create(&temp.0, binding(), original.clone(), intended.clone()).unwrap();
+    let effect = journal.begin_next(binding(), &original).unwrap().unwrap();
+    let pending = fs::read(temp.record()).unwrap();
+    for (observed, relationship, changed) in [
+        (original.clone(), ObservedRelationship::Original, 0),
+        (
+            original.with(effect.field, effect.replacement).unwrap(),
+            ObservedRelationship::RecordedMixture,
+            1,
+        ),
+    ] {
+        let review = journal.recovery_review(binding(), &observed).unwrap();
+        assert_eq!(review.observed, relationship);
+        assert_eq!(review.decision, RecoveryDecision::RetainUnsettledEvidence);
+        assert_eq!(review.pending_field, Some(effect.field));
+        assert_eq!(review.attempted_fields, 1);
+        assert_eq!(review.different_from_original, changed);
+        assert!(!format!("{review:?}").contains("synthetic"));
+        assert_eq!(fs::read(temp.record()).unwrap(), pending);
+    }
+    let foreign = original
+        .with(
+            Field::all().last().unwrap(),
+            intended.value(Field::all().last().unwrap()),
+        )
+        .unwrap();
+    assert_eq!(
+        journal
+            .recovery_review(binding(), &foreign)
+            .unwrap()
+            .decision,
+        RecoveryDecision::PreserveForeignEdits
+    );
+    assert_eq!(fs::read(temp.record()).unwrap(), pending);
+}
+
+#[test]
+fn review_of_active_target_is_not_a_crash_recovery_receipt() {
+    let temp = Temp::new();
+    let (original, intended) = states();
+    let mut observed = original.clone();
+    let mut journal =
+        FieldJournal::create(&temp.0, binding(), original.clone(), intended.clone()).unwrap();
+    while let Some(effect) = journal.begin_next(binding(), &observed).unwrap() {
+        observed = observed.with(effect.field, effect.replacement).unwrap();
+        journal.confirm(binding(), &observed).unwrap();
+    }
+    let active = journal.recovery_review(binding(), &intended).unwrap();
+    assert_eq!(active.observed, ObservedRelationship::Intended);
+    assert_eq!(active.decision, RecoveryDecision::RetainUnsettledEvidence);
+    assert_eq!(active.attempted_fields, FIELD_COUNT as u8);
+    assert_eq!(active.pending_field, None);
+    journal.begin_restore(binding(), &observed).unwrap();
+    while let Some(effect) = journal.begin_next(binding(), &observed).unwrap() {
+        observed = observed.with(effect.field, effect.replacement).unwrap();
+        journal.confirm(binding(), &observed).unwrap();
+    }
+    let released = journal.recovery_review(binding(), &original).unwrap();
+    assert_eq!(released.decision, RecoveryDecision::RetainReleasedTombstone);
+    assert_eq!(
+        journal
+            .recovery_review(binding(), &intended)
+            .unwrap()
+            .decision,
+        RecoveryDecision::PreserveForeignEdits
+    );
+    assert!(temp.record().is_file());
+}
+
+#[test]
+fn review_rechecks_binding_exact_record_and_interrupted_staging_without_writes() {
+    let temp = Temp::new();
+    let (original, intended) = states();
+    let journal = FieldJournal::create(&temp.0, binding(), original.clone(), intended).unwrap();
+    assert_eq!(
+        journal.recovery_review(
+            Binding {
+                owner_generation: 6,
+                ..binding()
+            },
+            &original
+        ),
+        Err(Error::BindingMismatch)
+    );
+    let staging = temp
+        .0
+        .join(FIELD_DIRECTORY)
+        .join(".app-proxy-journal.pending");
+    fs::write(&staging, b"private interrupted intent").unwrap();
+    assert_eq!(
+        journal.recovery_review(binding(), &original),
+        Err(Error::Interrupted)
+    );
+    fs::remove_file(staging).unwrap();
+    let before = fs::read(temp.record()).unwrap();
+    fs::write(temp.record(), b"private foreign bytes").unwrap();
+    assert_eq!(
+        journal.recovery_review(binding(), &original),
+        Err(Error::ForeignChange)
+    );
+    assert_ne!(fs::read(temp.record()).unwrap(), before);
+}
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
