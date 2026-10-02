@@ -132,3 +132,7 @@ This research performed no new VM test, namespace transition, socket operation,
 host firewall/VPN change or package installation. #487's prior isolated result
 remains evidence for its exact source and test mechanism; it cannot be relabelled
 as acceptance of the proposed Rust authenticator.
+
+The separately reviewable [fixed atomic Emergency wire candidate](K1_ATOMIC_EMERGENCY_WIRE.md)
+can encode and isolate-test the complete creation transaction without resolving
+this authority boundary. It supplies no production executor or authenticator.
