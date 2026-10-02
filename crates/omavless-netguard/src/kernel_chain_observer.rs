@@ -42,7 +42,7 @@ fn nul_string(bytes: &[u8], max: usize) -> Result<&[u8]> {
     Ok(bytes)
 }
 
-fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, bool)> {
+fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, Vec<u8>, bool)> {
     require(
         body.len() >= 4
             && body[0] == 1
@@ -51,10 +51,9 @@ fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, bool)> {
     )?;
     let values = attributes(&body[4..], 12)?;
     let table = nul_string(values[1].ok_or(REFUSE)?, 256)?;
-    // The kernel dump is namespace-wide; a foreign table is not evidence for
-    // ours. Rejecting it here is safe but makes this inactive reader narrower
-    // than a future coexistence-capable product adapter.
-    require(table == TABLE)?;
+    // A dump is namespace-wide. Validate the complete supported schema before
+    // a foreign record can be excluded from our fixed-table summary.
+    let table = table.to_vec();
     let name = nul_string(values[3].ok_or(REFUSE)?, 256)?.to_vec();
     let handle = u64::from_be_bytes(values[2].ok_or(REFUSE)?.try_into().map_err(|_| REFUSE)?);
     require(handle != 0)?;
@@ -78,9 +77,12 @@ fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, bool)> {
 
     let hook = values[4].map(|raw| attributes(raw, 4)).transpose()?;
     let hook_exact = if let Some(hook) = hook {
+        // Device-bound hooks are outside this fixed observer schema. Even a
+        // foreign chain must not be skipped with unparsed hook data.
+        require(hook[3].is_none() && hook[4].is_none())?;
         let number = u32b(hook[1].ok_or(REFUSE)?)?;
         let priority = i32::from_be_bytes(hook[2].ok_or(REFUSE)?.try_into().map_err(|_| REFUSE)?);
-        number == 3 && priority == 300 && hook[3].is_none() && hook[4].is_none()
+        number == 3 && priority == 300
     } else {
         false
     };
@@ -88,8 +90,10 @@ fn parse_chain(body: &[u8], generation: u32) -> Result<(Vec<u8>, bool)> {
     let kind = values[7].map(|value| nul_string(value, 64)).transpose()?;
     let flags = values[10].map(u32b).transpose()?;
     Ok((
+        table.clone(),
         name.clone(),
-        name == EXPECTED_CHAIN
+        table == TABLE
+            && name == EXPECTED_CHAIN
             && hook_exact
             && policy == Some(0)
             && kind == Some(FILTER)
@@ -105,7 +109,8 @@ struct ChainDump {
     datagrams: usize,
     messages: usize,
     done: bool,
-    names: BTreeSet<Vec<u8>>,
+    names: BTreeSet<(Vec<u8>, Vec<u8>)>,
+    target_count: usize,
     expected: bool,
 }
 
@@ -121,6 +126,7 @@ impl ChainDump {
             messages: 0,
             done: false,
             names: BTreeSet::new(),
+            target_count: 0,
             expected: false,
         })
     }
@@ -148,9 +154,13 @@ impl ChainDump {
             match kind {
                 NEW_CHAIN => {
                     require(flags == MULTI && !self.done)?;
-                    let (name, expected) = parse_chain(body, self.generation)?;
-                    require(self.names.insert(name))?;
-                    self.expected |= expected;
+                    let (table, name, expected) = parse_chain(body, self.generation)?;
+                    let is_target = table == TABLE;
+                    require(self.names.insert((table, name)))?;
+                    if is_target {
+                        self.target_count += 1;
+                        self.expected |= expected;
+                    }
                 }
                 DONE => {
                     require(
@@ -169,9 +179,9 @@ impl ChainDump {
 
     fn classify(&self) -> Result<LocalChainInventory> {
         require(self.done)?;
-        Ok(if self.names.is_empty() {
+        Ok(if self.target_count == 0 {
             LocalChainInventory::Empty
-        } else if self.names.len() == 1 && self.expected {
+        } else if self.target_count == 1 && self.expected {
             LocalChainInventory::ExpectedOutputChainUntrusted
         } else {
             LocalChainInventory::OtherUntrusted
@@ -227,8 +237,8 @@ impl LocalReadSession {
     }
 
     /// Read-only, complete fixed-table chain inventory. It is not rule
-    /// inventory or authority to arm/disarm/adopt any policy. Foreign chain
-    /// responses currently refuse instead of being ignored.
+    /// inventory or authority to arm/disarm/adopt any policy. Fully validated
+    /// foreign chain records are excluded from the fixed-table summary.
     pub fn inspect_chains(&mut self) -> Result<LocalChainInventory> {
         let result = self.inspect_chains_once();
         if result.is_err() {
@@ -271,9 +281,19 @@ mod tests {
     }
 
     fn chain_body(name: &[u8], hook: u32, priority: i32, policy: u32) -> Vec<u8> {
+        chain_body_for_table(TABLE, name, hook, priority, policy)
+    }
+
+    fn chain_body_for_table(
+        table: &[u8],
+        name: &[u8],
+        hook: u32,
+        priority: i32,
+        policy: u32,
+    ) -> Vec<u8> {
         let mut body = vec![1, 0];
         body.extend_from_slice(&(GENERATION as u16).to_be_bytes());
-        body.extend(attribute(1, TABLE));
+        body.extend(attribute(1, table));
         body.extend(attribute(2, &17_u64.to_be_bytes()));
         body.extend(attribute(3, name));
         let mut hooks = attribute(1, &hook.to_be_bytes());
@@ -348,7 +368,7 @@ mod tests {
             assert!(receive(&mut ChainDump::new(2, PORT, GENERATION).unwrap(), &bad).is_err());
         }
         let mut foreign = chain_body(EXPECTED_CHAIN, 3, 300, 0);
-        foreign[8] = b'x';
+        foreign[8 + TABLE.len() - 1] = b'x';
         assert!(
             receive(
                 &mut ChainDump::new(2, PORT, GENERATION).unwrap(),
@@ -452,5 +472,83 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn validated_foreign_chains_do_not_change_fixed_table_shape() {
+        const FOREIGN: &[u8] = b"unrelated_synthetic\0";
+        let foreign = frame(
+            NEW_CHAIN,
+            MULTI,
+            2,
+            &chain_body_for_table(FOREIGN, EXPECTED_CHAIN, 3, 300, 0),
+        );
+        let target = frame(NEW_CHAIN, MULTI, 2, &chain_body(EXPECTED_CHAIN, 3, 300, 0));
+        let mut only_foreign = ChainDump::new(2, PORT, GENERATION).unwrap();
+        receive(&mut only_foreign, &foreign).unwrap();
+        assert!(only_foreign.classify().is_err());
+        assert_eq!(finish(&mut only_foreign), Ok(LocalChainInventory::Empty));
+        for first_target in [false, true] {
+            let mut dump = ChainDump::new(2, PORT, GENERATION).unwrap();
+            let mut datagram = if first_target {
+                target.clone()
+            } else {
+                foreign.clone()
+            };
+            datagram.extend(if first_target { &foreign } else { &target });
+            receive(&mut dump, &datagram).unwrap();
+            assert!(dump.classify().is_err());
+            assert_eq!(
+                finish(&mut dump),
+                Ok(LocalChainInventory::ExpectedOutputChainUntrusted)
+            );
+        }
+        let mut separated = ChainDump::new(2, PORT, GENERATION).unwrap();
+        receive(&mut separated, &target).unwrap();
+        receive(&mut separated, &foreign).unwrap();
+        assert_eq!(
+            finish(&mut separated),
+            Ok(LocalChainInventory::ExpectedOutputChainUntrusted)
+        );
+        let mut duplicate_foreign = ChainDump::new(2, PORT, GENERATION).unwrap();
+        receive(&mut duplicate_foreign, &foreign).unwrap();
+        assert!(receive(&mut duplicate_foreign, &foreign).is_err());
+
+        let mut malformed_foreign = chain_body_for_table(FOREIGN, EXPECTED_CHAIN, 3, 300, 0);
+        malformed_foreign.extend(attribute(13, &[0; 4]));
+        assert!(
+            receive(
+                &mut ChainDump::new(2, PORT, GENERATION).unwrap(),
+                &frame(NEW_CHAIN, MULTI, 2, &malformed_foreign),
+            )
+            .is_err()
+        );
+        let mut wrong_generation = chain_body_for_table(FOREIGN, EXPECTED_CHAIN, 3, 300, 0);
+        wrong_generation[2..4].copy_from_slice(&((GENERATION + 1) as u16).to_be_bytes());
+        assert!(
+            receive(
+                &mut ChainDump::new(2, PORT, GENERATION).unwrap(),
+                &frame(NEW_CHAIN, MULTI, 2, &wrong_generation),
+            )
+            .is_err()
+        );
+        for hook_kind in [3, 4] {
+            let mut body = vec![1, 0];
+            body.extend_from_slice(&(GENERATION as u16).to_be_bytes());
+            body.extend(attribute(1, FOREIGN));
+            body.extend(attribute(2, &17_u64.to_be_bytes()));
+            body.extend(attribute(3, EXPECTED_CHAIN));
+            let mut hook = attribute(1, &3_u32.to_be_bytes());
+            hook.extend(attribute(2, &300_i32.to_be_bytes()));
+            hook.extend(attribute(hook_kind, &[1, 2, 3]));
+            body.extend(attribute(4, &hook));
+            assert!(
+                receive(
+                    &mut ChainDump::new(2, PORT, GENERATION).unwrap(),
+                    &frame(NEW_CHAIN, MULTI, 2, &body),
+                )
+                .is_err()
+            );
+        }
     }
 }

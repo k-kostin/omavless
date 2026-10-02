@@ -20,6 +20,8 @@ fn last_chain_stage(bytes: &[u8]) -> &'static str {
                 Some("error") => "error",
                 Some("expected") => "expected",
                 Some("foreign") => "foreign",
+                Some("foreign_empty") => "foreign_empty",
+                Some("foreign_expected") => "foreign_expected",
                 Some("foreign_added") => "foreign_added",
                 Some("foreign_refused") => "foreign_refused",
                 Some("foreign_removed") => "foreign_removed",
@@ -275,6 +277,18 @@ fn chain_inventory_child() {
     nft_ok(&["add", "table", "inet", "omavless_netguard"]);
     assert_eq!(retained.inspect_chains(), Ok(LocalChainInventory::Empty));
     println!("K1_CHAIN_STAGE=table");
+    nft_ok(&["add", "table", "inet", "unrelated_synthetic"]);
+    nft_ok(&["add", "chain", "inet", "unrelated_synthetic", "foreign"]);
+    nft_ok(&[
+        "add",
+        "chain",
+        "inet",
+        "unrelated_synthetic",
+        "output_guard",
+        "{ type filter hook output priority 301 ; policy accept ; }",
+    ]);
+    assert_eq!(retained.inspect_chains(), Ok(LocalChainInventory::Empty));
+    println!("K1_CHAIN_STAGE=foreign_empty");
     nft_ok(&[
         "add",
         "chain",
@@ -298,16 +312,13 @@ fn chain_inventory_child() {
         Ok(LocalChainInventory::ExpectedOutputChainUntrusted)
     );
     println!("K1_CHAIN_STAGE=expected");
-    nft_ok(&["add", "table", "inet", "unrelated_synthetic"]);
-    nft_ok(&["add", "chain", "inet", "unrelated_synthetic", "foreign"]);
-    println!("K1_CHAIN_STAGE=foreign_added");
-    assert!(retained.inspect_chains().is_err());
-    println!("K1_CHAIN_STAGE=foreign_refused");
-    assert!(retained.inspect().is_err());
+    assert_eq!(
+        retained.inspect_chains(),
+        Ok(LocalChainInventory::ExpectedOutputChainUntrusted)
+    );
+    println!("K1_CHAIN_STAGE=foreign_expected");
     nft_ok(&["delete", "table", "inet", "unrelated_synthetic"]);
     println!("K1_CHAIN_STAGE=foreign_removed");
-    assert!(retained.inspect_chains().is_err());
-    retained = LocalReadSession::open().unwrap();
     assert_eq!(
         retained.inspect_chains(),
         Ok(LocalChainInventory::ExpectedOutputChainUntrusted)
