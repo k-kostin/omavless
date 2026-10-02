@@ -885,4 +885,83 @@ mod tests {
         });
         panic!("expected synthetic worker termination");
     }
+
+    #[test]
+    fn actual_resync_crashes_reopen_and_recover_without_live_effects() {
+        for stopped in [0, 11] {
+            let (f, lock) = handoff();
+            let mut index = 0;
+            let _ = prepare(&f, &lock, |_| {
+                let keep = index != 5;
+                index += 1;
+                keep
+            });
+            drop(lock);
+            let before = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+            let h = fs::read(f.paths.state_directory.join(SUCCESSOR_MEMBER)).unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "restore_successor_coexistence_candidate::preparation::tests::resync_crash_worker"])
+                .env("OMAVLESS_SYNTHETIC_PREPARATION_ROOT", &f.root)
+                .env("OMAVLESS_SYNTHETIC_PREPARATION_POINT", stopped.to_string())
+                .output().unwrap();
+            assert_eq!(output.status.signal(), Some(9));
+            let lock = f.lock();
+            assert!(
+                !f.paths
+                    .state_directory
+                    .join("restore-decision.intent")
+                    .exists()
+            );
+            assert_eq!(
+                recover_successor_preparation(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    PreparationPhase::StageWithoutIntent,
+                    || true
+                ),
+                Ok(PrepareResult::PreparedStillFenced)
+            );
+            preserved(&f, &before, &h);
+        }
+    }
+
+    #[test]
+    #[ignore = "internal synthetic resync crash worker"]
+    fn resync_crash_worker() {
+        let f = std::mem::ManuallyDrop::new(Fixture::reopen(PathBuf::from(
+            std::env::var_os("OMAVLESS_SYNTHETIC_PREPARATION_ROOT").unwrap(),
+        )));
+        let selected: usize = std::env::var("OMAVLESS_SYNTHETIC_PREPARATION_POINT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let lock = f.lock();
+        let mut index = 0;
+        let _ = recover_with_hook(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            backup(),
+            PreparationPhase::StageWithoutIntent,
+            || true,
+            |_| {
+                if index == selected {
+                    nix::sys::signal::kill(
+                        nix::unistd::getpid(),
+                        nix::sys::signal::Signal::SIGKILL,
+                    )
+                    .unwrap();
+                }
+                index += 1;
+                true
+            },
+        );
+        panic!("expected synthetic worker termination");
+    }
 }
