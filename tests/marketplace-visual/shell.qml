@@ -135,6 +135,15 @@ ShellRoot {
       })
       return "ready"
     }
+    function reviewSettingsEnd(): string {
+      if (product.page !== "settings") return "refused"
+      var quit = review.find(product, function(o) {
+        return "focusTarget" in o && "title" in o && o.title === product.textFor("native.quit.title")
+      })
+      if (!quit) return "not-ready"
+      product.scrollPanelControlIntoView(quit.focusTarget)
+      return "scrolled"
+    }
     function reviewCapture(slug: string): string {
       if (review.reviewKind === "") return "not-ready"
       return review.captureCard(slug)

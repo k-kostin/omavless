@@ -81,6 +81,8 @@ still requires Disconnected. These captures are development evidence only.
 and adjacent passive version/credit into view without activating that action.
 `inspect` also reports this public manifest-derived credit, never runtime or
 package identity. Use it to check the footer in both languages and widths.
+After layout settles, `reviewSettingsEnd` repeats the production scroll-to-Quit
+path without a click; real Shift+Tab navigation remains a separate review.
 
 Inspect EN/RU empty/unavailable/missing-subscription guidance, focus and actual
 pointer hover at both widths. During `search`, the matching subscription must
