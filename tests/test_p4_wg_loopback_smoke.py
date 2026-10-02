@@ -106,8 +106,8 @@ class P4LoopbackGuardTests(unittest.TestCase):
                 self.assertEqual(raised.exception.stage, "no_direct_fallback")
 
     def test_same_parent_namespace_refuses_before_effects(self):
-        args = argparse.Namespace(scratch="/synthetic", parent_pid="9", parent_net="10", parent_user="11")
-        with patch.object(subject, "private_directory", return_value=True), patch.object(subject.os, "getuid", return_value=0), patch.object(subject.os, "getppid", return_value=9), patch.object(subject, "namespace", side_effect=lambda name, pid="self": 10 if name == "net" else 11), patch.object(subject, "private_write") as write, patch.object(subject, "command") as command:
+        args = argparse.Namespace(scratch="/synthetic", parent_pid="9", parent_net="10", parent_user="11", parent_net_fd="20", parent_user_fd="21")
+        with patch.object(subject, "private_directory", return_value=True), patch.object(subject.os, "getuid", return_value=0), patch.object(subject.os, "getppid", return_value=9), patch.object(subject.os, "fstat", side_effect=lambda fd: argparse.Namespace(st_ino=10 if fd == 20 else 11)), patch.object(subject, "namespace", side_effect=lambda name, pid="self": 10 if name == "net" else 11), patch.object(subject, "private_write") as write, patch.object(subject, "command") as command:
             with self.assertRaises(subject.Refused) as raised:
                 subject.namespace_run(args)
             self.assertEqual(raised.exception.stage, "namespace_identity")

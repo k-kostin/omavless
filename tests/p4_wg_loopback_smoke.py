@@ -242,8 +242,8 @@ def namespace_run(args):
     root = Path(args.scratch)
     require(private_directory(root) and os.getuid() == 0
             and os.getppid() == int(args.parent_pid)
-            and namespace("net", os.getppid()) == int(args.parent_net)
-            and namespace("user", os.getppid()) == int(args.parent_user)
+            and os.fstat(int(args.parent_net_fd)).st_ino == int(args.parent_net)
+            and os.fstat(int(args.parent_user_fd)).st_ino == int(args.parent_user)
             and namespace("net") != int(args.parent_net)
             and namespace("user") != int(args.parent_user), "namespace_identity")
     private_write(root / "namespace-identity.json", json.dumps({
@@ -333,17 +333,21 @@ def outer(args):
     root = Path(tempfile.mkdtemp(prefix="run-", dir=cache))
     outcome = None
     child = None
+    parent_fds = []
     try:
         copy_binary(Path(args.core), root / "core", args.expected_core_sha256)
         copy_binary(Path(args.renderer), root / "renderer", args.expected_renderer_sha256)
+        parent_fds.append(os.open("/proc/self/ns/net", os.O_RDONLY | os.O_CLOEXEC))
+        parent_fds.append(os.open("/proc/self/ns/user", os.O_RDONLY | os.O_CLOEXEC))
         argv = ["/usr/bin/unshare", "--user", "--map-root-user", "--net", sys.executable,
                 str(Path(__file__).resolve()), "--namespace-child", "--scratch", str(root),
                 "--parent-net", str(namespace("net")), "--parent-user", str(namespace("user")),
                 "--parent-pid", str(os.getpid()),
+                "--parent-net-fd", str(parent_fds[0]), "--parent-user-fd", str(parent_fds[1]),
                 "--core", str(root / "core"), "--renderer", str(root / "renderer"), "--rounds", str(args.rounds)]
         with log_handle(root / "namespace-result.json") as log:
             child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                     env=ENV, start_new_session=True)
+                                     env=ENV, start_new_session=True, pass_fds=parent_fds)
             try:
                 return_code = child.wait(timeout=100)
             except subprocess.TimeoutExpired:
@@ -384,6 +388,8 @@ def outer(args):
                     except subprocess.TimeoutExpired:
                         pass
             require(child.poll() is not None, "owned_namespace_cleanup")
+        for descriptor in parent_fds:
+            os.close(descriptor)
         identity_file = root / "namespace-identity.json"
         if identity_file.exists():
             identity = json.loads(identity_file.read_bytes())
@@ -436,6 +442,8 @@ def main():
     parser.add_argument("--parent-net", help=argparse.SUPPRESS)
     parser.add_argument("--parent-user", help=argparse.SUPPRESS)
     parser.add_argument("--parent-pid", help=argparse.SUPPRESS)
+    parser.add_argument("--parent-net-fd", help=argparse.SUPPRESS)
+    parser.add_argument("--parent-user-fd", help=argparse.SUPPRESS)
     parser.add_argument("--core", default="/usr/bin/mihomo")
     parser.add_argument("--renderer")
     parser.add_argument("--expected-core-sha256")
