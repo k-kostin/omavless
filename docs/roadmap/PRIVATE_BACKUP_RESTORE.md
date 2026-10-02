@@ -1027,3 +1027,24 @@ In particular, the earlier handoff publisher's completion inspection does not
 yet exclude the next-closure slot. Third-cycle admission must first harden that
 publisher's exact absence/pinned-source checks; this reader does not repair or
 authorize that earlier path.
+
+## Inactive handoff-only retirement
+
+The next mutation slice admits only BeforeHandoffRetirement with complete
+authenticated predecessor evidence, fixed absences and the exact C1/H/R1/live
+snapshot. It synchronizes all five surviving files and both directories, pins
+H, rechecks the snapshot, and unlinks only H. The accepted post-effect snapshot
+is exactly HandoffAbsentReceiptPresent with unchanged C1/R1/live bytes and
+inodes. Directory synchronization and fresh readback are required afterward.
+Any failure after unlink is ambiguous, with no rollback or recreation.
+
+Restart in HandoffAbsentReceiptPresent has a separate resynchronizer. It
+reauthenticates terminal output (not predecessor lineage), synchronizes the
+four remaining files and both directories, and never unlinks anything. Retire
+on that phase refuses; missing R1 also refuses this slice even when C1 survives.
+Tests cover same-byte H replacement after pin, all synchronization/effect
+interruptions, retained-source substitutions, Commit/Abort and actual process
+death before unlink, after unlink, after directory sync and during restart.
+
+The result remains HandoffRetiredStillFenced. R1-last retirement, third-cycle
+publisher hardening and normal-owner/installed admission remain separate gates.
