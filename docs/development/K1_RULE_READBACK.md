@@ -1,5 +1,9 @@
 # K1 fixed-table full-rule observation candidate
 
+The later [raw retained-socket reader](K1_RAW_RULE_READBACK.md) checks ordered
+rule expressions on the retained descriptor. It does not yet replace this
+whole-table JSON check, whose extra-object rejection remains necessary.
+
 This inactive development slice follows the retained read-only metadata and
 chain observers. `LocalReadSession::inspect_policy_shape` reads the entire
 `inet omavless_netguard` table with the fixed `/usr/bin/nft` numeric JSON
