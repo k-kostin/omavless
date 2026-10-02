@@ -4,11 +4,13 @@ This slice stacks on #373's effect-only boundary. `kernel_observer` adds a safe
 Rust netlink reader with no `EffectPort` implementation, production caller,
 service, provisioning, mutation, receipt writer or ownership conversion.
 
-The only request sequence is GETGEN, GETTABLE for `inet omavless_netguard`,
-GETGEN. A fresh nonblocking CLOEXEC socket and a retained calling-thread network
-namespace descriptor span the entire sequence. Current and pinned namespace
+Each inspection's only request sequence is GETGEN, GETTABLE for `inet omavless_netguard`,
+GETGEN. `LocalReadSession` retains one nonblocking CLOEXEC socket and the
+calling-thread network namespace descriptor across repeated inspections.
+The one-shot API uses the same session internally. Sequences increase without
+reuse; exhaustion refuses instead of wrapping. Current and pinned namespace
 device/inode labels and local socket address are rechecked before and after
-each exchange. Requests have fixed types, family, name and sequences; callers
+each exchange. Requests have fixed types, family and name; callers
 cannot select a path, table, command, payload or namespace.
 
 Each exchange requires exact kernel sender address, destination port ID,
@@ -68,7 +70,8 @@ OMAVLESS_K1_OBSERVER_VM=1 cargo test -p omavless-netguard --locked \
 
 It inherits a pinned parent namespace FD into a fresh unprivileged user/network
 namespace, verifies that the child differs and has only loopback, then performs
-two actual Rust observations of fixed-table absence. It creates no table, rule,
+two actual Rust observations of fixed-table absence on the same retained
+session. It creates no table, rule,
 interface, route or IP connection. The parent rechecks its original namespace.
 Only a fixed PASS category escapes the bounded child output; there is no sudo
 fallback. Shared test scratch now honors TMPDIR so tmpfs quota exhaustion need
@@ -76,10 +79,11 @@ not masquerade as a storage implementation failure. Exact source and binary
 identities and VM result belong on the owning Draft PR.
 
 The separate opt-in **present-but-untrusted** gate uses the same disposable-VM
-boundary. After verifying a new loopback-only user/network namespace, it creates
-one fixed empty `inet omavless_netguard` table there, checks that two independent
-Rust observations say `PresentUntrusted`, then removes only that fixture and
-checks `Absent` again. The parent namespace identity is rechecked; no service,
+boundary. After verifying a new loopback-only user/network namespace, it opens
+one retained session, creates a fixed empty `inet omavless_netguard` table there,
+checks that two observations say `PresentUntrusted`, then removes only that
+fixture and checks `Absent` on the same session. The parent namespace identity is
+rechecked; no service,
 host firewall or production policy is changed. Run only in the delegated VM:
 
 ```sh

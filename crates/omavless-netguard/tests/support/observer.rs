@@ -1,6 +1,8 @@
 //! Read-only Rust observer opt-in: no nft executable, table creation or mutation.
 use super::*;
-use omavless_netguard::kernel_observer::{LocalTablePresence, inspect_current_namespace};
+use omavless_netguard::kernel_observer::{
+    LocalReadSession, LocalTablePresence, inspect_current_namespace,
+};
 const PASS: &str = "K1_OBSERVER_PASS";
 const PRESENT_PASS: &str = "K1_OBSERVER_PRESENT_PASS";
 
@@ -68,7 +70,9 @@ fn read_only_observer_child() {
     };
     let child = guard.check().expect("isolated loopback namespace required");
     assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
-    assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
+    let mut retained = LocalReadSession::open().unwrap();
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
     assert_eq!(guard.check().unwrap(), child);
     println!("{PASS}");
 }
@@ -136,27 +140,22 @@ fn present_untrusted_observer_child() {
         claimed_parent: parent,
     };
     let child = guard.check().expect("isolated loopback namespace required");
-    assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
+    let mut retained = LocalReadSession::open().unwrap();
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
     assert!(
         nft_command(&guard, &["add", "table", "inet", "omavless_netguard"])
             .unwrap()
             .success
     );
     assert_eq!(guard.check().unwrap(), child);
-    assert_eq!(
-        inspect_current_namespace(),
-        Ok(LocalTablePresence::PresentUntrusted)
-    );
-    assert_eq!(
-        inspect_current_namespace(),
-        Ok(LocalTablePresence::PresentUntrusted)
-    );
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::PresentUntrusted));
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::PresentUntrusted));
     assert!(
         nft_command(&guard, &["delete", "table", "inet", "omavless_netguard"])
             .unwrap()
             .success
     );
-    assert_eq!(inspect_current_namespace(), Ok(LocalTablePresence::Absent));
+    assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
     assert_eq!(guard.check().unwrap(), child);
     println!("{PRESENT_PASS}");
 }

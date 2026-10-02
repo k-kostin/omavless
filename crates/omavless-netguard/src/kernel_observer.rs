@@ -7,7 +7,10 @@ use nix::sys::socket::{
 use std::{
     fs::File,
     io::IoSliceMut,
-    os::{fd::AsRawFd, unix::fs::MetadataExt},
+    os::{
+        fd::{AsRawFd, OwnedFd},
+        unix::fs::MetadataExt,
+    },
     time::{Duration, Instant},
 };
 
@@ -245,42 +248,72 @@ fn namespace_file() -> Result<File> {
     File::open("/proc/thread-self/ns/net").map_err(|_| REFUSE)
 }
 
-/// Inspect exactly `inet omavless_netguard` with a fresh private socket. This is
-/// explicit developer/library I/O, not called by CLI, runtime, or `EffectPort`.
-/// Holds a namespace descriptor and one nonblocking socket until all three
-/// replies complete. No caller supplies commands, names, payloads or identities.
-///
-/// Canonical-host provenance and socket-cookie binding are NOT authenticated.
-/// This observation cannot authorize even creation after an absent result.
-pub fn inspect_current_namespace() -> Result<LocalTablePresence> {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let namespace = namespace_file()?;
-    let identity = namespace_identity(&namespace)?;
-    let socket = socket(
-        AddressFamily::Netlink,
-        SockType::Raw,
-        SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
-        SockProtocol::NetlinkNetFilter,
-    )
-    .map_err(|_| REFUSE)?;
-    bind(socket.as_raw_fd(), &NetlinkAddr::new(0, 0)).map_err(|_| REFUSE)?;
-    let local: NetlinkAddr = getsockname(socket.as_raw_fd()).map_err(|_| REFUSE)?;
-    require(local.pid() != 0 && local.groups() == 0)?;
-    let check = || -> Result<()> {
+fn take_sequences(next: &mut u32) -> Result<[u32; 3]> {
+    let first = *next;
+    require(first != 0)?;
+    let second = first.checked_add(1).ok_or(REFUSE)?;
+    let third = second.checked_add(1).ok_or(REFUSE)?;
+    *next = third.checked_add(1).ok_or(REFUSE)?;
+    Ok([first, second, third])
+}
+
+/// A retained, read-only descriptor pair. Repeated inspections cannot swap in
+/// caller-provided namespace/socket descriptors or replay a previous sequence.
+/// This is not a canonical-host proof, an ownership receipt or an EffectPort.
+/// No installed helper uses it.
+pub struct LocalReadSession {
+    namespace: File,
+    identity: (u64, u64),
+    socket: OwnedFd,
+    local: NetlinkAddr,
+    next_sequence: u32,
+}
+
+impl LocalReadSession {
+    pub fn open() -> Result<Self> {
+        let namespace = namespace_file()?;
+        let identity = namespace_identity(&namespace)?;
+        let socket = socket(
+            AddressFamily::Netlink,
+            SockType::Raw,
+            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+            SockProtocol::NetlinkNetFilter,
+        )
+        .map_err(|_| REFUSE)?;
+        bind(socket.as_raw_fd(), &NetlinkAddr::new(0, 0)).map_err(|_| REFUSE)?;
+        let local: NetlinkAddr = getsockname(socket.as_raw_fd()).map_err(|_| REFUSE)?;
+        require(local.pid() != 0 && local.groups() == 0)?;
+        let session = Self {
+            namespace,
+            identity,
+            socket,
+            local,
+            next_sequence: 1,
+        };
+        session.check(Instant::now() + Duration::from_secs(1))?;
+        Ok(session)
+    }
+
+    fn check(&self, deadline: Instant) -> Result<()> {
         require(
             Instant::now() < deadline
-                && namespace_identity(&namespace)? == identity
-                && namespace_identity(&namespace_file()?)? == identity,
+                && namespace_identity(&self.namespace)? == self.identity
+                && namespace_identity(&namespace_file()?)? == self.identity,
         )?;
-        let actual: NetlinkAddr = getsockname(socket.as_raw_fd()).map_err(|_| REFUSE)?;
-        require(actual == local)
-    };
-    let exchange = |kind, seq| -> Result<Exchange> {
-        check()?;
-        let mut exchange = Exchange::new(kind, seq, local.pid())?;
+        let actual: NetlinkAddr = getsockname(self.socket.as_raw_fd()).map_err(|_| REFUSE)?;
+        require(actual == self.local)
+    }
+
+    fn sequences(&mut self) -> Result<[u32; 3]> {
+        take_sequences(&mut self.next_sequence)
+    }
+
+    fn exchange(&self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
+        self.check(deadline)?;
+        let mut exchange = Exchange::new(kind, seq, self.local.pid())?;
         require(
             sendto(
-                socket.as_raw_fd(),
+                self.socket.as_raw_fd(),
                 &exchange.request,
                 &NetlinkAddr::new(0, 0),
                 MsgFlags::MSG_DONTWAIT,
@@ -289,11 +322,15 @@ pub fn inspect_current_namespace() -> Result<LocalTablePresence> {
                 == exchange.request.len(),
         )?;
         while !exchange.complete() {
-            check()?;
+            self.check(deadline)?;
             let mut bytes = [0; LIMIT];
             let mut iov = [IoSliceMut::new(&mut bytes)];
-            match recvmsg::<NetlinkAddr>(socket.as_raw_fd(), &mut iov, None, MsgFlags::MSG_DONTWAIT)
-            {
+            match recvmsg::<NetlinkAddr>(
+                self.socket.as_raw_fd(),
+                &mut iov,
+                None,
+                MsgFlags::MSG_DONTWAIT,
+            ) {
                 Ok(reply) => {
                     let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
                     require(length <= LIMIT)?;
@@ -303,21 +340,48 @@ pub fn inspect_current_namespace() -> Result<LocalTablePresence> {
                 Err(_) => return Err(REFUSE),
             }
         }
-        check()?;
+        self.check(deadline)?;
         Ok(exchange)
-    };
-    let before = exchange(GET_GEN, 1)?.generation()?;
-    let table = exchange(GET_TABLE, 2)?.table(before)?;
-    let after = exchange(GET_GEN, 3)?.generation()?;
-    require(before == after)?;
-    check()?;
-    Ok(table)
+    }
+
+    /// Inspect exactly `inet omavless_netguard` with one bounded three-request
+    /// pass. Canonical-host provenance and socket-cookie binding remain
+    /// unauthenticated; even an absent result cannot authorize creation.
+    pub fn inspect(&mut self) -> Result<LocalTablePresence> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        self.check(deadline)?;
+        let [before_seq, table_seq, after_seq] = self.sequences()?;
+        let before = self.exchange(GET_GEN, before_seq, deadline)?.generation()?;
+        let table = self
+            .exchange(GET_TABLE, table_seq, deadline)?
+            .table(before)?;
+        let after = self.exchange(GET_GEN, after_seq, deadline)?.generation()?;
+        require(before == after)?;
+        self.check(deadline)?;
+        Ok(table)
+    }
+}
+
+/// One-shot compatibility wrapper for the inactive developer observation.
+pub fn inspect_current_namespace() -> Result<LocalTablePresence> {
+    LocalReadSession::open()?.inspect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     const PORT: u32 = 123;
+    #[test]
+    fn retained_sequence_space_never_wraps_or_reuses_a_reply() {
+        let mut next = 1;
+        assert_eq!(take_sequences(&mut next), Ok([1, 2, 3]));
+        assert_eq!(take_sequences(&mut next), Ok([4, 5, 6]));
+        next = u32::MAX - 2;
+        assert!(take_sequences(&mut next).is_err());
+        assert_eq!(next, u32::MAX - 2);
+        next = 0;
+        assert!(take_sequences(&mut next).is_err());
+    }
     fn receive(exchange: &mut Exchange, bytes: &[u8]) -> Result<()> {
         exchange.receive(bytes, Some(NetlinkAddr::new(0, 0)), MsgFlags::empty())
     }
