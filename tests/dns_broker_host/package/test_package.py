@@ -362,5 +362,215 @@ class PackageTests(unittest.TestCase):
         self.assertTrue(path.is_symlink())
 
 
+class GitExportTests(unittest.TestCase):
+    """Actual offline Git fixtures; no upstream/build/install/host input."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="omavless-git-export-test-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repository = self.root / "repository"
+        self.git("init", "--quiet", "--template=", str(self.repository), repository=None)
+        (self.repository / "keep.txt").write_text("original committed source\n")
+        (self.repository / "format.txt").write_text("$Format:%H$\n")
+        (self.repository / "ignored.txt").write_text("committed export exclusion\n")
+        (self.repository / ".gitattributes").write_text("ignored.txt export-ignore\n")
+        self.revision = self.commit()
+
+    def git(self, *arguments, repository=True, replacements=False):
+        env = build_pair.git_environment()
+        if replacements:
+            env.pop("GIT_NO_REPLACE_OBJECTS")
+        prefix = [] if repository is None else ["-C", str(
+            self.repository if repository is True else repository)]
+        result = subprocess.run(["/usr/bin/git", "-c", "core.hooksPath=/dev/null",
+                                 "-c", "core.fsmonitor=false", *prefix, *arguments],
+                                env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, "synthetic Git fixture failed")
+        return result.stdout
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("-c", "user.name=Synthetic", "-c", "user.email=synthetic@example.invalid",
+                 "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture")
+        return self.git("rev-parse", "HEAD").decode().strip()
+
+    def export(self, repository=None, destination="export"):
+        destination = self.root / destination
+        build_pair.export_git(repository or self.repository, self.revision, destination)
+        return destination
+
+    def test_source_info_attributes_poison_is_excluded_and_preserved(self):
+        attributes = self.repository / ".git/info/attributes"
+        poison = "keep.txt export-ignore\nformat.txt export-subst\n"
+        attributes.parent.mkdir()
+        attributes.write_text(poison)
+        # Demonstrate that an exact SHA alone did not protect the old exporter.
+        raw = self.git("archive", "--format=tar", self.revision)
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+            self.assertNotIn("keep.txt", archive.getnames())
+            self.assertEqual(archive.extractfile("format.txt").read(),
+                             (self.revision + "\n").encode())
+        exported = self.export()
+        self.assertEqual((exported / "keep.txt").read_text(), "original committed source\n")
+        self.assertEqual((exported / "format.txt").read_text(), "$Format:%H$\n")
+        self.assertFalse((exported / "ignored.txt").exists())
+        self.assertEqual(attributes.read_text(), poison)
+        self.assertFalse(list(self.root.glob(".source-export-*")))
+
+    def test_source_local_attributes_configuration_is_excluded(self):
+        attributes = self.root / "external-attributes"
+        attributes.write_text("keep.txt export-ignore\n")
+        self.git("config", "core.attributesFile", str(attributes))
+        with tarfile.open(fileobj=io.BytesIO(self.git("archive", self.revision)), mode="r:") as archive:
+            self.assertNotIn("keep.txt", archive.getnames())
+        self.assertTrue((self.export() / "keep.txt").is_file())
+        self.assertEqual(self.git("config", "--get", "core.attributesFile").decode().strip(),
+                         str(attributes))
+
+    def test_dirty_source_and_untracked_files_do_not_enter_export(self):
+        (self.repository / "keep.txt").write_text("dirty working source\n")
+        (self.repository / "untracked.txt").write_text("untracked fixture\n")
+        index = self.repository / ".git/index"
+        index_before = index.read_bytes()
+        exported = self.export()
+        self.assertEqual((exported / "keep.txt").read_text(), "original committed source\n")
+        self.assertFalse((exported / "untracked.txt").exists())
+        self.assertEqual((self.repository / "keep.txt").read_text(), "dirty working source\n")
+        self.assertEqual((self.repository / "untracked.txt").read_text(), "untracked fixture\n")
+        self.assertEqual(index.read_bytes(), index_before)
+
+    def test_actual_replacement_commit_cannot_change_observation_or_export(self):
+        (self.repository / "keep.txt").write_text("replacement source\n")
+        replacement = self.commit()
+        self.git("replace", self.revision, replacement)
+        reference = self.repository / ".git/refs/replace" / self.revision
+        before = reference.read_bytes()
+        self.assertEqual(self.git("show", self.revision + ":keep.txt", replacements=True),
+                         b"replacement source\n")
+        self.assertEqual(build_pair.git_value(self.repository, "show", self.revision + ":keep.txt"),
+                         "original committed source")
+        self.assertEqual((self.export() / "keep.txt").read_text(), "original committed source\n")
+        self.assertEqual(reference.read_bytes(), before)
+
+    def test_linked_worktree_uses_common_object_store_not_its_dirty_files(self):
+        linked = self.root / "linked"
+        self.git("worktree", "add", "--quiet", "--detach", str(linked), self.revision)
+        (linked / "keep.txt").write_text("dirty linked source\n")
+        self.assertEqual((self.export(repository=linked) / "keep.txt").read_text(),
+                         "original committed source\n")
+        self.assertEqual((linked / "keep.txt").read_text(), "dirty linked source\n")
+
+    def test_bare_source_object_store_is_supported(self):
+        bare = self.root / "bare"
+        self.git("clone", "--quiet", "--bare", "--no-hardlinks", str(self.repository), str(bare),
+                 repository=None)
+        self.assertEqual((self.export(repository=bare) / "keep.txt").read_text(),
+                         "original committed source\n")
+
+    def test_ambient_git_configuration_and_template_are_not_inherited(self):
+        template = self.root / "poison-template"
+        (template / "info").mkdir(parents=True)
+        (template / "info/attributes").write_text("keep.txt export-ignore\n")
+        global_config = self.root / "poison-global"
+        global_config.write_text(f"[init]\n\ttemplateDir = {template}\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(global_config),
+                                          "GIT_TEMPLATE_DIR": str(template),
+                                          "GIT_DIR": str(self.root / "absent"),
+                                          "GIT_CONFIG_COUNT": "1",
+                                          "GIT_CONFIG_KEY_0": "core.attributesFile",
+                                          "GIT_CONFIG_VALUE_0": str(template / "info/attributes")}):
+            self.assertTrue((self.export() / "keep.txt").is_file())
+        env = build_pair.git_environment()
+        self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
+        self.assertEqual(env["GIT_CONFIG_NOSYSTEM"], "1")
+        self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
+        self.assertEqual(env["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(env["GIT_OPTIONAL_LOCKS"], "0")
+
+    def test_nonexact_or_absent_revision_refuses_without_destination(self):
+        for revision in ("HEAD", self.revision.upper(), "0" * 40):
+            with self.subTest(revision=revision), self.assertRaises(stage.Refused):
+                build_pair.export_git(self.repository, revision, self.root / "refused")
+            self.assertFalse((self.root / "refused").exists())
+            self.assertFalse((self.root / "refused.tar").exists())
+
+    def test_existing_archive_is_not_overwritten(self):
+        archive = self.root / "export.tar"
+        archive.write_bytes(b"existing private fixture")
+        with self.assertRaises(FileExistsError):
+            self.export()
+        self.assertEqual(archive.read_bytes(), b"existing private fixture")
+        self.assertFalse((self.root / "export").exists())
+
+    def test_git_metadata_and_error_pipes_are_bounded_without_content_disclosure(self):
+        secret = "synthetic private marker " * 1000
+        (self.repository / "oversize.txt").write_text(secret)
+        revision = self.commit()
+        with self.assertRaisesRegex(stage.Refused, "exceeded its bound") as refusal:
+            build_pair.git_value(self.repository, "show", revision + ":oversize.txt")
+        self.assertNotIn("marker", str(refusal.exception))
+        with mock.patch.object(build_pair, "MAX_GIT_ERROR", 8):
+            with self.assertRaisesRegex(stage.Refused, "exceeded its bound") as refusal:
+                build_pair.git_value(self.repository, "rev-parse", "--verify", "synthetic-private-name")
+        self.assertNotIn("synthetic-private-name", str(refusal.exception))
+
+    def test_archive_bound_is_enforced_before_oversized_write(self):
+        with mock.patch.object(build_pair, "MAX_ARCHIVE", 16):
+            with self.assertRaisesRegex(stage.Refused, "exceeded its bound"):
+                self.export()
+        self.assertLessEqual((self.root / "export.tar").stat().st_size, 16)
+        self.assertFalse((self.root / "export").exists())
+        self.assertFalse(list(self.root.glob(".source-export-*")))
+        self.assertEqual((self.repository / "keep.txt").read_text(), "original committed source\n")
+
+    def test_expired_deadline_reaps_only_the_owned_git_child(self):
+        children = []
+        original = subprocess.Popen
+
+        def record_child(*arguments, **keywords):
+            child = original(*arguments, **keywords)
+            children.append(child)
+            return child
+
+        with mock.patch.object(build_pair.subprocess, "Popen", side_effect=record_child):
+            with self.assertRaisesRegex(stage.Refused, "exceeded its bound"):
+                build_pair.git_command(["-C", str(self.repository), "rev-parse", "HEAD"], timeout=0)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+
+    def test_wait_interrupted_after_reaping_never_signals_a_reusable_group_id(self):
+        children = []
+        original = subprocess.Popen
+
+        def interrupted_child(*arguments, **keywords):
+            child = original(*arguments, **keywords)
+            children.append(child)
+            original_wait = child.wait
+
+            def interrupt_after_reaping(*wait_arguments, **wait_keywords):
+                original_wait(*wait_arguments, **wait_keywords)
+                raise KeyboardInterrupt("synthetic interruption after reaping")
+
+            child.wait = mock.Mock(side_effect=interrupt_after_reaping)
+            child.poll = mock.Mock(side_effect=AssertionError("must not poll before cancellation"))
+            return child
+
+        with mock.patch.object(build_pair.subprocess, "Popen", side_effect=interrupted_child), \
+                mock.patch.object(build_pair.os, "killpg") as kill_group:
+            with self.assertRaises(KeyboardInterrupt):
+                build_pair.git_command(["-C", str(self.repository), "rev-parse", "HEAD"])
+        kill_group.assert_not_called()
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].returncode, 0)
+        children[0].wait.assert_called_once()
+        children[0].poll.assert_not_called()
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+
+
 if __name__ == "__main__":
     unittest.main()

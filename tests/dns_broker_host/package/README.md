@@ -44,6 +44,17 @@ Use `--arch aarch64` on a native Linux aarch64 builder. The requested
 architecture must match both the host and the absolute local Go toolchain;
 the builder does not silently cross-compile or accept a mismatched receipt.
 
+Each source export uses a fresh, template-free bare Git view of the local
+object directory. Replacement objects, source-local `info/attributes` and
+configuration, ambient Git variables, global/system configuration and dirty
+working files cannot select different source bytes. Committed `.gitattributes`
+still retain Git's normal archive semantics. Git source observations disable
+optional index writes and lazy object fetching; missing local objects refuse
+the offline step. Metadata and stderr are bounded to 4 KiB each, archives to
+128 MiB while streaming, with bounded child lifetime and generic refusal
+messages. This hardens the existing receipt's source export; it does not add
+an artifact identity, admission decision, signature or installed acceptance.
+
 The OmaVLESS checkout must be committed and clean. The build uses the full
 `mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older
 alternative DNS-off patch. It runs with `GOPROXY=off`, `GOSUMDB=off`,
