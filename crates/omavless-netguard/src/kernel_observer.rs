@@ -16,6 +16,9 @@ pub use rule_wire::LocalRuleInventory;
 #[path = "kernel_inventory.rs"]
 mod inventory;
 pub use inventory::LocalPolicyInventory;
+#[cfg(test)]
+#[path = "kernel_conditional_delete.rs"]
+mod conditional_delete;
 use std::{
     fs::File,
     io::IoSliceMut,
