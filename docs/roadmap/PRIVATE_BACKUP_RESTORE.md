@@ -1558,3 +1558,27 @@ actual connected owner, fixed rendered-config validation, startup Off, trusted
 current user-manager epoch, empty-host proof, provenance and a one-shot typed
 normal-admission boundary remain separate obligations. No production caller,
 IPC, CLI backup/restore or installed state change is enabled by this checkpoint.
+
+### Inactive current-Off durability resync after ordinary edits
+
+`dev/t4-current-live-resync` retains the exact historical disposition, but
+independently validates and synchronizes the current complete bundled pair.
+Current desired state must be explicitly present, valid and disconnected;
+startup must be disabled, and the exact bundled template mode must match
+current desired. A changed ordinary desired generation is not a new ownership
+generation and never rewrites the historical ticket or terminal digest.
+
+One existing lease and the original file/directory descriptors remain retained
+through every file, present boundary and directory sync. Each effect is followed
+by a fresh exact source, inode, lease and caller host/login recheck. Missing Off
+intent, connected intent, enabled startup, mismatched template mode or incomplete
+ordinary semantics refuses before any sync. Late drift, replacement, failed
+sync/hook or process interruption keeps every recovery fence in place.
+
+Synthetic Commit/Abort, repeated resync, zero-effect refusal and every-checkpoint
+replacement and SIGKILL/re-entry cover this continuation without an archive.
+The original initial-output resync remains unchanged. The result remains
+`ResynchronizedStillFenced`: it is not a power-cut test, current trusted
+user-manager epoch, fixed installed-core validation, one-shot owner permit or
+ordinary startup exception. No normal pending predicate or product caller is
+relaxed by this candidate.
