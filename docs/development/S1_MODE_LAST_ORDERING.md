@@ -4,6 +4,9 @@ Development successor to [the fixed writer](S1_FIXED_TRANSACTION_WRITER.md),
 2026-10-03. This is an explicit per-field journal/model and private installed-dconf
 experiment, not installed activation. App proxy remains unavailable. No live host
 constructor, readiness Boolean, helper, IPC/CLI verb, package or UI control is added.
+The [exact-source private evidence](../testing/S1_MODE_LAST_PRIVATE_2026-10-03.md)
+records the completed developer and private-dconf gates separately from those
+unrun installed admission requirements.
 
 ## Bounded order and refusal
 
