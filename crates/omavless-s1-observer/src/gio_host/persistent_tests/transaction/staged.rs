@@ -63,6 +63,26 @@ impl Driver {
             .unwrap();
         let mut host = DconfHost::new(fixture.clone());
         let original = host.observe(binding()).unwrap();
+        let Value::Desktop(mode) = original.value(MODE) else {
+            unreachable!()
+        };
+        let saved = match role {
+            "seed" => "none",
+            "seed-manual" => "manual",
+            "seed-auto" => "auto",
+            _ => panic!("fixed staged baseline"),
+        };
+        // Seed setters/sync are not evidence. Require the independent persisted
+        // read to establish the exact case before claiming baseline coverage.
+        assert!(mode.effective == DesktopValue::String(saved.into()));
+        assert!(
+            mode.user
+                == if role == "seed" {
+                    Override::Absent
+                } else {
+                    Override::Present(DesktopValue::String(saved.into()))
+                }
+        );
         let journal = StagedJournal::create(
             &fixture.borrow().root,
             binding(),
