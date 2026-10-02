@@ -870,3 +870,26 @@ the next step after SIGKILL as well: a partial publication is a fence, never
 automatic authority to retry, execute, retire or rotate. Receipt presence blocks
 the earlier executor entry points. Receipt-driven restart/retirement and closure
 rotation remain separate work: no canonical closure is deleted or replaced here.
+
+## Read-only successor rotation phases
+
+The reserved fixed `restore-closure.next` path is an existence fence at mutation
+and startup admission before any writer exists. A new pure helper reconstructs
+the successor stage identity from C0's retained OLD lengths/digests and freshly
+authenticated NEW bytes, so retiring raw OLD does not discard archive binding.
+This is identity proof only, never inode, durability or mutation authority.
+
+The read-only reader pins C0/H/R1/C1, desired bytes, current live pair and every
+surviving fixed artifact across two observations. Before next publication, only
+complete stage and exact journals are admitted. With canonical C0 and next C1,
+only the validated cleanup prefix is admitted; slots must all be absent once
+stage cleanup starts. Canonical C1 with displaced C0 in next, or with next absent,
+requires cleanup Done and no slots. Missing canonical, crossed/equal closures,
+torn/unknown artifacts, partial stage without next, and late inode substitution
+refuse. Commit receipts bind authenticated NEW; abort receipts bind C0's pair.
+
+The prefix parser performs no synchronization. Existing cleanup keeps its prior
+state/stage sync behavior through a separate callback, with a test hook forbidding
+those synchronization paths during read-only phase checks. Every phase remains
+fenced by H and R1. No next-closure publication, cleanup, exchange, displaced
+record removal, third live restore cycle or product owner admission is provided.

@@ -87,7 +87,7 @@ enum FinalizeCheckpoint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Step {
+pub(crate) enum Step {
     StageMember(usize),
     Ready,
     StageDirectory,
@@ -252,11 +252,12 @@ fn stage_step(
     state: &File,
     uid: u32,
     receipt: &RetirementReceipt,
+    before_read: impl FnOnce(&File) -> Result<(), CleanupError>,
 ) -> Result<Option<Observed>, CleanupError> {
     let Some((stage, identity)) = open_stage(state, uid)? else {
         return Ok(None);
     };
-    stage.sync_all().map_err(|_| CleanupError::Ambiguous)?;
+    before_read(&stage)?;
     let before = names(&stage)?;
     let ready = read_optional(&stage, READY_MEMBER, uid, READY_BYTES)?;
     let observed = if let Some((ready, ready_identity)) = ready {
@@ -338,9 +339,52 @@ fn inspect_inventory(
     uid: u32,
     receipt: &RetirementReceipt,
 ) -> Result<Observed, CleanupError> {
-    state.sync_all().map_err(|_| CleanupError::Ambiguous)?;
+    inventory_sync(state)?;
+    inspect_inventory_with_stage_check(paths, state, uid, receipt, inventory_sync)
+}
+
+fn inventory_sync(file: &File) -> Result<(), CleanupError> {
+    #[cfg(test)]
+    FORBID_INVENTORY_SYNC
+        .with(|flag| assert!(!flag.get(), "read-only inventory attempted synchronization"));
+    file.sync_all().map_err(|_| CleanupError::Ambiguous)
+}
+
+#[cfg(test)]
+thread_local! { static FORBID_INVENTORY_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+#[cfg(test)]
+pub(crate) fn without_inventory_sync<T>(read: impl FnOnce() -> T) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            FORBID_INVENTORY_SYNC.with(|flag| flag.set(false));
+        }
+    }
+    FORBID_INVENTORY_SYNC.with(|flag| assert!(!flag.replace(true)));
+    let _reset = Reset;
+    read()
+}
+
+/// Strict prefix classification only; no sync or filesystem effects.
+pub(crate) fn inspect_cleanup_prefix(
+    paths: &CutoverPaths,
+    state: &File,
+    uid: u32,
+    receipt: &RetirementReceipt,
+) -> Result<Step, CleanupError> {
+    Ok(inspect_inventory_with_stage_check(paths, state, uid, receipt, |_| Ok(()))?.step)
+}
+
+fn inspect_inventory_with_stage_check(
+    paths: &CutoverPaths,
+    state: &File,
+    uid: u32,
+    receipt: &RetirementReceipt,
+    before_stage_read: impl FnOnce(&File) -> Result<(), CleanupError>,
+) -> Result<Observed, CleanupError> {
     let parent = state.metadata().map_err(|_| CleanupError::ManualRecovery)?;
-    let staged = stage_step(state, uid, receipt)?;
+    let staged = stage_step(state, uid, receipt, before_stage_read)?;
     let terminal = read_optional(state, TERMINAL, uid, RECORD_BYTES)?;
     let intent = read_optional(state, INTENT, uid, RECORD_BYTES)?;
     if let Some((bytes, _)) = &terminal
