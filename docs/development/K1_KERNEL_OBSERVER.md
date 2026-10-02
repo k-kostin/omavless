@@ -109,6 +109,43 @@ each stage: absent before create, `PresentUntrusted` for both exact Emergency
 and Full policy-shaped fixtures, and absent after each fixture cleanup. Even a
 table whose rules match the offline renderer never acquires observer authority.
 
+## Inactive complete chain inventory
+
+A separate retained-session read now brackets one fixed-table GETCHAIN dump
+with generation reads. It uses a dedicated multipart parser; the earlier
+non-dump GETTABLE/GETGEN exchange is unchanged. The dump must end with a
+successful `NLMSG_DONE`, matching sender/port/sequence, unchanged generation
+and no interruption, unknown frame, duplicate name, malformed attribute or
+truncation. It is limited to 64 KiB, 32 datagrams, 64 messages and the same
+one-second observation deadline. It reports only `TableAbsent`, `Empty`,
+`ExpectedOutputChainUntrusted` or `OtherUntrusted`. A syntactically matching
+`output_guard` means only one base chain has output hook, priority 300 and
+drop policy; no rule inventory or ownership has been established.
+
+The kernel's chain dump spans the namespace, not just the requested table.
+This first candidate refuses if another table has a chain rather than
+mistaking it for OmaVLESS evidence. That conservative behavior is **not**
+the required foreign-firewall coexistence behavior for product K1; a later
+observer must distinguish and safely skip unrelated chains without losing
+the complete fixed-table inventory.
+
+The opt-in integration gate runs only in a disposable user/network namespace
+inside Omarchy Dev VM. It checks absent and empty states, the expected base
+chain, extra fixed-table chain, wrong hook/priority/policy, conservative
+foreign-chain refusal and cleanup to absent, then rechecks the parent
+namespace. No host firewall, route or VPN is changed:
+
+```sh
+OMAVLESS_K1_CHAIN_VM=1 cargo test -p omavless-netguard --locked \
+  --test nft_namespace observer::chain_inventory_in_disposable_vm \
+  -- --ignored --exact --nocapture
+```
+
+This is a prerequisite for later complete policy readback, not that readback
+itself. Full rule/set inventory, canonical namespace/socket binding,
+independently authenticated ownership, conditional effects, root service and
+the required bare-metal acceptance remain open.
+
 Wire behavior is based on the
 [Linux v6.18 table and generation implementation](https://github.com/torvalds/linux/blob/v6.18/net/netfilter/nf_tables_api.c)
 and [netlink framing semantics](https://man7.org/linux/man-pages/man7/netlink.7.html).
