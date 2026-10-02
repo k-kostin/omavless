@@ -1202,3 +1202,34 @@ clean restore, user-manager epoch freshness or physical power-loss acceptance.
 Product passphrase transport, destination UX, independent encrypted-format
 review, installed synthetic restore, and EN/RU rendered recovery states remain
 separate gates. This is not RC readiness or normal-owner startup admission.
+
+## Pure closure disposition policy model
+
+The inactive in-memory model distinguishes no closure evidence, unresolved C1,
+transient fences, missing authenticated recovery, unresolved policy, manual
+recovery and a hypothetical historical candidate that remains fenced. Its
+opaque binding covers exact closure identity, terminal transaction/outcome and
+owner generation. A matching disposition assertion is only an input to this
+model: there is no disk format, encoder, publisher, filesystem observer or
+normal-owner admission capability. Neither checksums nor caller-supplied facts
+prove authenticated recovery or durability.
+
+All unresolved H/R/next/stage/journal/slot/routing evidence overrides hypothetical
+history. Invalid or unknown evidence refuses. Commit and Abort remain distinct
+even for identical output bytes. A wrong archive refuses; absent fresh archive
+does not become acceptable because a hypothetical disposition exists. After H
+retirement the claim is terminal output/completion only, not predecessor lineage.
+
+Normal operation will legitimately change profiles/templates after a restore.
+Consequently a permanent C1-to-current-live equality check would prevent later
+startup, while ignoring divergence without a reviewed disposition policy would
+lose the recovery boundary. Generation rollover, later edits and unknown live
+state therefore return policy-unresolved, not permission. This model does not
+choose whether a future durable disposition may replace archive re-supply.
+
+Before any writer or startup change, review durable publication and restart
+ordering under one lease, current user-manager/login epoch semantics, missing
+volatile runtime state, first-run versus lost evidence, private bounded secret
+transport, and authorized ordinary mutation after admission. Preserve C1 rather
+than deleting the last provenance record; transient artifacts must always retain
+priority. Existing normal startup and mutation existence fences are unchanged.
