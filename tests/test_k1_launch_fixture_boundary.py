@@ -41,9 +41,10 @@ class K1LaunchFixtureBoundaryTests(unittest.TestCase):
         self.assertEqual(NEGATIVE_DROPIN.read_text(),
                          "# SPDX-License-Identifier: MIT\n"
                          "# Benign VM-only negative case: runner must refuse any effective drop-in.\n"
+                         "[Unit]\n"
+                         "PropagatesStopTo=omavless-k1-openfile-stop-recipient.service\n"
                          "[Service]\n"
-                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n"
-                         "PropagatesStopTo=omavless-k1-openfile-stop-recipient.service\n")
+                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n")
 
     def test_fixture_has_only_fixed_bounded_descriptor_inspection(self):
         # Exact allowlist: duplicate/unknown directives, activation sections,

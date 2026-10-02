@@ -160,8 +160,11 @@ The fixed unit returned `K1_OPENFILE_UNIT_VM_PASS`; afterward `LoadState` was
 `not-found` and the `/run` unit link, private staging directory and user
 transfer directory were absent. A second run with the benign, unit-specific
 `omavless-k1-openfile-negative-dropin.conf` returned exit 2 before the probe
-started. Its stop-propagation target was a synthetic one-shot unit created for
-this test; that unit remained active after refusal, proving the cleanup sent no
+started. Before this run, the manager's effective `DropInPaths` and
+`PropagatesStopTo=omavless-k1-openfile-stop-recipient.service` were read back
+with the fixture unit loaded; the latter was not merely present in a source
+file. Its target was a synthetic one-shot unit created for this test, and that
+unit remained active after refusal, proving the cleanup sent no
 stop request. Both temporary units and the drop-in were then removed, and both
 `LoadState` values became `not-found`. This is evidence of that exact temporary unit
 launch, not of an installed root NetGuard service or K1 readiness. Kernel
