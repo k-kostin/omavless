@@ -258,7 +258,7 @@ mod tests {
 
     const PASSPHRASE: &[u8] = b"synthetic passphrase only";
     const STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
-    const TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
+    const TEMPLATE: &[u8] = include_bytes!("backup_payload_candidate/catalog/v1/default.yaml");
 
     #[test]
     fn caller_owned_kdf_workspace_is_cleared_on_success_and_failure() {

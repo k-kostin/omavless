@@ -14,11 +14,32 @@ pub(crate) struct ValidatedPair<'a> {
 
 fn bundled(preset: &str) -> Option<&'static str> {
     match preset {
-        "roscomvpn-default" => Some(include_str!("../../../../templates/default.yaml")),
-        "china-cn-direct" => Some(include_str!("../../../../templates/china.yaml")),
-        "iran-ir-direct" => Some(include_str!("../../../../templates/iran.yaml")),
+        "roscomvpn-default" => Some(include_str!("catalog/v1/default.yaml")),
+        "china-cn-direct" => Some(include_str!("catalog/v1/china.yaml")),
+        "iran-ir-direct" => Some(include_str!("catalog/v1/iran.yaml")),
         _ => None,
     }
+}
+
+// V1 catalog recognition, not a renderer or YAML parser. Only this exact byte
+// slot in immutable source snapshots varies; ordinary template/helper edits
+// cannot redefine the accepted archive bytes. Never normalize the input.
+fn matches_v1(expected: &str, input: &[u8]) -> bool {
+    let Some((prefix, suffix)) = expected.split_once("\nmode: rule\n") else {
+        return false;
+    };
+    if suffix.contains("\nmode: rule\n") {
+        return false;
+    }
+    ["rule", "global", "direct"].iter().any(|mode| {
+        prefix
+            .bytes()
+            .chain(b"\nmode: ".iter().copied())
+            .chain(mode.bytes())
+            .chain(*b"\n")
+            .chain(suffix.bytes())
+            .eq(input.iter().copied())
+    })
 }
 
 impl<'a> FramedPayload<'a> {
@@ -27,11 +48,7 @@ impl<'a> FramedPayload<'a> {
         let expected = bundled(&store.routing_preset).ok_or(InvalidPayload)?;
         // Recognize trusted source bytes only. This is not a YAML security
         // parser or permission to carry arbitrary paths, providers or scripts.
-        let matches = ["rule", "global", "direct"].iter().any(|mode| {
-            crate::routing::template_with_mode(expected, mode)
-                .is_ok_and(|candidate| candidate.as_bytes() == self.template)
-        });
-        if !matches {
+        if !matches_v1(expected, self.template) {
             return Err(InvalidPayload);
         }
         Ok(ValidatedPair {
@@ -49,6 +66,56 @@ mod tests {
 
     const PRESETS: [&str; 3] = ["roscomvpn-default", "china-cn-direct", "iran-ir-direct"];
     const MODES: [&str; 3] = ["rule", "global", "direct"];
+
+    #[test]
+    fn v1_snapshots_have_fixed_provenance_not_mutable_runtime_templates() {
+        use sha2::{Digest, Sha256};
+        for (preset, digest) in PRESETS.into_iter().zip([
+            "1e5ad1aeb3149c73b1ae5dfffe21c9043b56662d220ae84c9af047a36c2c2f5c",
+            "b2f027d9f46fa7557b0343e33e65490321560bdb4179ba92caf1d90f2c522e9e",
+            "2cbe97008efd5859bfb20055472a15650e85375a270dcc8a57c31e3537fde4e8",
+        ]) {
+            assert_eq!(
+                format!("{:x}", Sha256::digest(bundled(preset).unwrap())),
+                digest
+            );
+        }
+    }
+
+    #[test]
+    fn simulated_runtime_template_and_renderer_changes_do_not_redefine_v1() {
+        for preset in PRESETS {
+            let frozen = bundled(preset).unwrap();
+            let future_template = format!("# future runtime template\n{frozen}");
+            // Deliberately different hypothetical renderer. Neither it nor
+            // the mutable source is consulted by archive recognition.
+            let future_renderer = |text: &str, mode: &str| {
+                text.replace("mode: rule\n", &format!("mode: {mode} # future\n"))
+            };
+            for mode in MODES {
+                let legacy = template(preset, mode);
+                for rejected in [
+                    future_renderer(frozen, mode),
+                    future_renderer(&future_template, mode),
+                ] {
+                    let wire = encode(store(preset).as_bytes(), rejected.as_bytes()).unwrap();
+                    assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
+                }
+                let wire = encode(store(preset).as_bytes(), legacy.as_bytes()).unwrap();
+                let pair = decode(&wire).unwrap().validate_bundled_pair().unwrap();
+                assert_eq!(pair.template, legacy.as_bytes());
+            }
+            // Pre-fix historical proxy selection is not implicitly trusted
+            // merely because those bytes once appeared in the repository.
+            let obsolete = frozen.replace(
+                "    include-all-proxies: true\n    exclude-type: Direct|Reject|Pass|Compatible\n  - name: GLOBAL\n    type: select\n    proxies:\n      - PROXY\n    default-selected: PROXY\n",
+                "    include-all: true\n",
+            );
+            assert_ne!(obsolete, frozen);
+            let wire = encode(store(preset).as_bytes(), obsolete.as_bytes()).unwrap();
+            assert!(decode(&wire).unwrap().validate_bundled_pair().is_err());
+        }
+    }
 
     fn store(preset: &str) -> String {
         json!({"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"",

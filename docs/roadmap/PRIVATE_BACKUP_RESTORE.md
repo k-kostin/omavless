@@ -195,9 +195,17 @@ lossy backup conversion. Invalid UTF-8 and private-looking rejected content
 produce only fixed diagnostics. No private result exposes formatting, cloning
 or serialization, and no filesystem, IPC or export/restore caller is added.
 
+The inactive [frozen V1 catalog](../../crates/omavless-domain/src/backup_payload_candidate/catalog/README.md)
+now preserves this exact three-preset/three-mode byte set independently of future
+runtime-template or routing-helper edits. Existing wire bytes and the independent
+encrypted-envelope vector are unchanged; accepted archive members are never
+rewritten. New supported versions need separate reviewed immutable entries;
+unknown/custom and pre-fix historical templates still refuse. This does not
+resolve future store-schema, revocation or core-execution compatibility policy.
+
 This bounded subset is an executable candidate, **not** a decision that the
-product should permanently reject custom templates. It is version-sensitive to
-the checked-in template snapshots and makes no cross-version portability claim.
+product should permanently reject custom templates. The catalog preserves only
+its explicitly approved bytes, not general cross-version store/core compatibility.
 A broader portable-template policy still needs an explicit contract. The
 authenticated envelope's runtime integration, complete native-owner snapshot, private
 transfer and exclusive destination publication, disconnected owner/revision
