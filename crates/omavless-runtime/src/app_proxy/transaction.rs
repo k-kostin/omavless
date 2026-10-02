@@ -6,7 +6,7 @@
 
 use super::{
     Phase,
-    fields::{Effect, State},
+    fields::{Effect, Order, State},
     journal::{Binding, Error as JournalError, fields::FieldJournal},
 };
 
@@ -34,6 +34,7 @@ pub enum Error {
     Journal(JournalError),
     Host(HostError),
     DrainRequired,
+    ActivationNotAdmitted,
 }
 
 pub struct Transaction<H> {
@@ -50,6 +51,12 @@ impl<H: FixedHost> Transaction<H> {
     pub fn new(journal: FieldJournal, host: H, binding: Binding) -> Result<Self, Error> {
         if journal.recovered() {
             return Err(Error::Journal(JournalError::RecoveryRequired));
+        }
+        // Mode ordering alone is not admission. No trusted listener/revision,
+        // AUTH-writer lifetime/session capability exists in this checkpoint.
+        // Real ordered writes are confined to the private test-only fixture.
+        if journal.order() != Order::LegacyModeFirst {
+            return Err(Error::ActivationNotAdmitted);
         }
         Ok(Self {
             journal,

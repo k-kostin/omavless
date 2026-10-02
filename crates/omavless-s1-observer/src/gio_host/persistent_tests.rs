@@ -281,6 +281,7 @@ fn private_dconf_child() {
     let schemas = validate_schemas(&source).unwrap();
     match std::env::var(ROLE_ENV).unwrap().as_str() {
         "transaction-crash" => transaction::crash_child(&root, &schemas),
+        "ordered-mode-crash" => transaction::ordering::crash_child(&root, &schemas),
         "baseline" => private_file(&root.join("baseline"), &snapshot_bytes(&schemas)),
         "transaction-observe" => private_file(
             &root.join("transaction-observation"),
@@ -303,6 +304,42 @@ fn private_dconf_child() {
             gio::Settings::sync();
         }
         "capture" => private_file(&root.join("original"), &snapshot_bytes(&schemas)),
+        role @ ("seed-manual" | "seed-auto") => {
+            // Synthetic saved settings only, on this process's private backend.
+            for (key, value) in [
+                (DesktopKey::HttpHost, "saved.invalid"),
+                (
+                    DesktopKey::AutoconfigUrl,
+                    "https://synthetic.invalid/prior.pac",
+                ),
+                (
+                    DesktopKey::Mode,
+                    if role == "seed-auto" {
+                        "auto"
+                    } else {
+                        "manual"
+                    },
+                ),
+            ] {
+                let (_, name, _) = key.schema_key_type();
+                setting(&schemas, key)
+                    .set_value(name, &value.to_variant())
+                    .unwrap();
+            }
+            gio::Settings::sync();
+        }
+        role @ ("foreign-mode" | "foreign-host") => {
+            let (key, value) = if role == "foreign-mode" {
+                (DesktopKey::Mode, "auto")
+            } else {
+                (DesktopKey::HttpHost, "external.invalid")
+            };
+            let (_, name, _) = key.schema_key_type();
+            setting(&schemas, key)
+                .set_value(name, &value.to_variant())
+                .unwrap();
+            gio::Settings::sync();
+        }
         "apply" => {
             for key in DesktopKey::ALL {
                 let s = setting(&schemas, key);

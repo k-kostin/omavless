@@ -105,6 +105,26 @@ fn transaction(temp: &Temp) -> Transaction<Host> {
 }
 
 #[test]
+fn mode_last_journal_cannot_construct_an_executor_from_unverified_host_readiness() {
+    let temp = Temp::new();
+    let (original, intended) = states();
+    let journal = FieldJournal::create_ordered(
+        &temp.0,
+        binding(),
+        original.clone(),
+        intended,
+        Order::ModeLastOriginalNone,
+    )
+    .unwrap();
+    let bytes = temp.record();
+    assert!(matches!(
+        Transaction::new(journal, Host::new(original), binding()),
+        Err(Error::ActivationNotAdmitted)
+    ));
+    assert_eq!(temp.record(), bytes);
+}
+
+#[test]
 fn all_fields_commit_only_after_drain_then_reverse_restore() {
     let temp = Temp::new();
     let mut txn = transaction(&temp);

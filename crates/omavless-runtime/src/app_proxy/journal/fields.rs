@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Durable per-field S1 intent, still unregistered and without a host adapter.
-//! The trusted caller MUST provide a dedicated private directory for this v2
+//! The trusted caller MUST provide a dedicated private directory for this v2/v3
 //! journal, separate from the earlier two-surface v1 journal. Neither record
 //! may be inferred from the other or used as a fresh baseline on restart.
 
@@ -10,7 +10,7 @@ use crate::app_proxy::{Phase, fields};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::Path};
 
-use fields::{Effect, FIELD_COUNT, Field, Planner, State};
+use fields::{Effect, FIELD_COUNT, Field, Order, Planner, State};
 
 const FIELD_DIRECTORY: &str = "app-proxy-fields";
 
@@ -66,11 +66,30 @@ impl FieldJournal {
         original: State,
         intended: State,
     ) -> Result<Self, Error> {
+        Self::create_ordered(
+            private_root,
+            binding,
+            original,
+            intended,
+            Order::LegacyModeFirst,
+        )
+    }
+
+    /// Persist an explicit model order. This is not installed write admission;
+    /// the executor refuses the new order until a reviewed readiness/lifetime
+    /// capability exists. v2 bytes/order are never migrated implicitly.
+    pub fn create_ordered(
+        private_root: &Path,
+        binding: Binding,
+        original: State,
+        intended: State,
+        order: Order,
+    ) -> Result<Self, Error> {
         if !binding.valid() {
             return Err(Error::BindingMismatch);
         }
-        let planner =
-            Planner::prepare(binding.owner(), original, intended).map_err(Error::Planner)?;
+        let planner = Planner::prepare_ordered(binding.owner(), original, intended, order)
+            .map_err(Error::Planner)?;
         let persisted = encode(binding, &planner)?;
         let storage = Storage::acquire(&field_directory(private_root))?;
         if storage.read()?.is_some() {
@@ -111,6 +130,10 @@ impl FieldJournal {
 
     pub fn phase(&self) -> Phase {
         self.planner.phase()
+    }
+
+    pub fn order(&self) -> Order {
+        self.planner.order()
     }
 
     /// Read-only review against the exact still-pinned journal. Matching
@@ -263,6 +286,12 @@ impl fmt::Debug for FieldJournal {
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u8,
+    #[serde(
+        default,
+        deserialize_with = "decode_order",
+        skip_serializing_if = "Option::is_none"
+    )]
+    order: Option<StoredOrder>,
     binding: Binding,
     original: Pair,
     intended: Pair,
@@ -272,10 +301,24 @@ struct Record {
     phase: StoredPhase,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredOrder {
+    ModeLastOriginalNone,
+}
+
+// Missing is v2 only. Explicit null was an unknown field in v2 and must remain
+// invalid; v3 requires a named order, not a default that changes replay meaning.
+fn decode_order<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<StoredOrder>, D::Error> {
+    StoredOrder::deserialize(decoder).map(Some)
+}
+
 fn validate(planner: &Planner) -> Result<(), Error> {
     let mut gap = false;
     let mut last_attempted = None;
-    for field in Field::all() {
+    for field in planner.order.fields() {
         let index = field.index();
         let original = planner.original.value(field);
         let intended = planner.intended.value(field);
@@ -337,7 +380,12 @@ fn validate(planner: &Planner) -> Result<(), Error> {
                 {
                     return Err(Error::Invalid);
                 }
-                for field in Field::all().skip(pending.index() + 1) {
+                for field in planner
+                    .order
+                    .fields()
+                    .skip_while(|field| *field != pending)
+                    .skip(1)
+                {
                     if planner.expected.value(field) != planner.original.value(field) {
                         return Err(Error::Invalid);
                     }
@@ -366,7 +414,15 @@ fn encode(binding: Binding, planner: &Planner) -> Result<Vec<u8>, Error> {
         }
     });
     let record = Record {
-        version: 2,
+        version: if planner.order == Order::LegacyModeFirst {
+            2
+        } else {
+            3
+        },
+        order: match planner.order {
+            Order::LegacyModeFirst => None,
+            Order::ModeLastOriginalNone => Some(StoredOrder::ModeLastOriginalNone),
+        },
         binding,
         original,
         intended,
@@ -392,13 +448,18 @@ fn decode(bytes: &[u8]) -> Result<(Binding, Planner), Error> {
         return Err(Error::Invalid);
     }
     let record: Record = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
-    if record.version != 2 || !record.binding.valid() {
+    let order = match (record.version, record.order) {
+        (2, None) => Order::LegacyModeFirst,
+        (3, Some(StoredOrder::ModeLastOriginalNone)) => Order::ModeLastOriginalNone,
+        _ => return Err(Error::Invalid),
+    };
+    if !record.binding.valid() {
         return Err(Error::Invalid);
     }
     let original = State::decode(&record.original.decode()?).map_err(Error::Planner)?;
     let intended = State::decode(&record.intended.decode()?).map_err(Error::Planner)?;
-    let mut planner =
-        Planner::prepare(record.binding.owner(), original, intended).map_err(Error::Planner)?;
+    let mut planner = Planner::prepare_ordered(record.binding.owner(), original, intended, order)
+        .map_err(Error::Planner)?;
     for (index, side) in record.expected.iter().enumerate() {
         let field = Field::all().nth(index).expect("fixed field");
         let value = match side {

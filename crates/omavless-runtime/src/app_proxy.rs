@@ -81,6 +81,7 @@ pub enum Phase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     InvalidSnapshot,
+    UnsupportedOrder,
     StaleOwner,
     ForeignChange,
     WrongPhase,

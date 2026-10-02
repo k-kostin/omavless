@@ -81,6 +81,146 @@ fn apply_and_confirm(planner: &mut Planner, current: &mut State) -> bool {
 }
 
 #[test]
+fn mode_last_is_a_complete_fixed_permutation_and_none_first_compensation() {
+    let order = Order::ModeLastOriginalNone;
+    let sequence: Vec<_> = order.fields().collect();
+    let mode = Field::Desktop(DesktopKey::Mode);
+    assert_eq!(sequence.len(), FIELD_COUNT);
+    assert_eq!(sequence.last(), Some(&mode));
+    for field in Field::all() {
+        assert_eq!(sequence.iter().filter(|item| **item == field).count(), 1);
+    }
+    let (original, intended) = states();
+    for confirmed in 0..=FIELD_COUNT {
+        for uncertain_written in [false, true] {
+            let mut current = original.clone();
+            let mut planner =
+                Planner::prepare_ordered(owner(), original.clone(), intended.clone(), order)
+                    .unwrap();
+            for field in sequence.iter().take(confirmed) {
+                let effect = planner.begin_next(owner(), &current).unwrap().unwrap();
+                assert_eq!(effect.field, *field);
+                if effect.field != mode {
+                    assert_eq!(current.value(mode), original.value(mode));
+                }
+                current = current.with(effect.field, effect.replacement).unwrap();
+                planner.confirm(owner(), &current).unwrap();
+            }
+            if confirmed < FIELD_COUNT {
+                let effect = planner.begin_next(owner(), &current).unwrap().unwrap();
+                if uncertain_written {
+                    current = current.with(effect.field, effect.replacement).unwrap();
+                }
+            }
+            let active = current.value(mode) != original.value(mode);
+            planner.begin_restore(owner(), &current).unwrap();
+            let mut restored = Vec::new();
+            while let Some(effect) = planner.begin_next(owner(), &current).unwrap() {
+                if restored.is_empty() && active {
+                    assert_eq!(effect.field, mode);
+                }
+                restored.push(
+                    sequence
+                        .iter()
+                        .position(|field| *field == effect.field)
+                        .unwrap(),
+                );
+                current = current.with(effect.field, effect.replacement).unwrap();
+                planner.confirm(owner(), &current).unwrap();
+                assert_eq!(current.value(mode), original.value(mode));
+            }
+            assert!(restored.windows(2).all(|pair| pair[0] > pair[1]));
+            assert_eq!(current, original);
+        }
+    }
+}
+
+pub(crate) fn mode_state(state: &State, value: &str, present: bool) -> State {
+    let field = Field::Desktop(DesktopKey::Mode);
+    let Value::Desktop(mut entry) = state.value(field) else {
+        unreachable!()
+    };
+    entry.effective = DesktopValue::String(value.into());
+    entry.user = if present {
+        Override::Present(entry.effective.clone())
+    } else {
+        Override::Absent
+    };
+    state.with(field, Value::Desktop(entry)).unwrap()
+}
+
+#[test]
+fn prior_manual_pac_and_nonmanual_target_refuse_order_before_effects() {
+    let (original, intended) = states();
+    for mode in ["manual", "auto"] {
+        assert!(matches!(
+            Planner::prepare_ordered(
+                owner(),
+                mode_state(&original, mode, true),
+                intended.clone(),
+                Order::ModeLastOriginalNone
+            ),
+            Err(Error::UnsupportedOrder)
+        ));
+    }
+    for target in [
+        mode_state(&intended, "none", true),
+        mode_state(&intended, "auto", true),
+    ] {
+        assert!(matches!(
+            Planner::prepare_ordered(
+                owner(),
+                original.clone(),
+                target,
+                Order::ModeLastOriginalNone
+            ),
+            Err(Error::UnsupportedOrder)
+        ));
+    }
+    // Restoring an explicit none override must not turn it into absence.
+    let original = mode_state(&original, "none", true);
+    let mut planner = Planner::prepare_ordered(
+        owner(),
+        original.clone(),
+        intended,
+        Order::ModeLastOriginalNone,
+    )
+    .unwrap();
+    let mut current = original.clone();
+    while apply_and_confirm(&mut planner, &mut current) {}
+    planner.begin_restore(owner(), &current).unwrap();
+    let effect = planner.begin_next(owner(), &current).unwrap().unwrap();
+    assert_eq!(effect.field, Field::Desktop(DesktopKey::Mode));
+    assert_eq!(effect.replacement, original.value(effect.field));
+}
+
+#[test]
+fn naive_prior_manual_or_pac_mode_first_restores_the_wrong_live_endpoints() {
+    let (original, intended) = states();
+    let mode = Field::Desktop(DesktopKey::Mode);
+    let pac = Field::Desktop(DesktopKey::AutoconfigUrl);
+    let http = Field::Desktop(DesktopKey::HttpHost);
+    for prior in ["manual", "auto"] {
+        let original = mode_state(&original, prior, true);
+        // A naive mode-first restore exposes the intended, not saved host/PAC.
+        let naive = intended.with(mode, original.value(mode)).unwrap();
+        assert_ne!(naive.value(pac), original.value(pac));
+        assert_ne!(naive.value(http), original.value(http));
+        // A safe future three-state plan would remain disabled throughout its
+        // controls restore, then restore saved prior mode only at the end.
+        assert!(matches!(
+            Planner::prepare_ordered(
+                owner(),
+                original,
+                intended.clone(),
+                Order::ModeLastOriginalNone
+            ),
+            Err(Error::UnsupportedOrder)
+        ));
+    }
+}
+
+#[test]
 fn all_26_fields_restore_in_reverse_after_each_partial_apply_and_unknown_write() {
     let (original, intended) = states();
     assert_eq!(Field::all().count(), FIELD_COUNT);
