@@ -1233,3 +1233,20 @@ volatile runtime state, first-run versus lost evidence, private bounded secret
 transport, and authorized ordinary mutation after admission. Preserve C1 rather
 than deleting the last provenance record; transient artifacts must always retain
 priority. Existing normal startup and mutation existence fences are unchanged.
+
+## Inactive pre-authentication closure status
+
+A separate read-only diagnostic can request archive re-supply without already
+having one. It uses only an existing verified lease and accepts only a private,
+bounded C1 with exact owner/Off desired binding, private live members, and no
+H/R/next/stage/journal/slots/routing pending evidence. Two exact source/boundary
+snapshots bracket fresh empty-owned-host observations. Unsafe, missing, unknown
+or changing evidence refuses; no lock or directory is created or repaired.
+
+Its sole status is `NeedsAuthenticatedArchiveStillFenced`. Decoding a checksum-
+valid C1 is not authenticated Commit/Abort, live-pair equality, compatibility,
+completion, durability or startup authority. Even pre-existing changed live
+bytes can only request authentication; the later authenticated adapter must
+independently reject inappropriate output. No raw bytes, outcome or phase is
+returned. Login absence/consumed checks still do not prove current boot epoch.
+There is no public IPC, secret input, recovery effect or normal-owner caller.
