@@ -240,6 +240,64 @@ pub struct MigrationLock {
 }
 
 impl MigrationLock {
+    /// Recovery inspection must serialize with writers without creating or
+    /// repairing the operation lock. A missing/unsafe lock is not an empty
+    /// transaction; it is a refusal to classify the state as recoverable.
+    pub(crate) fn acquire_existing(paths: &CutoverPaths, uid: u32) -> Result<Self, CutoverError> {
+        let runtime = fs::symlink_metadata(&paths.runtime_base)
+            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
+        if runtime.file_type().is_symlink()
+            || !runtime.is_dir()
+            || runtime.uid() != uid
+            || runtime.permissions().mode() & 0o077 != 0
+        {
+            return Err(CutoverError::UnsafeRuntimeDirectory);
+        }
+        let prior = fs::symlink_metadata(&paths.operation_lock)
+            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
+        let safe = |metadata: &fs::Metadata| {
+            metadata.is_file()
+                && !metadata.file_type().is_symlink()
+                && metadata.uid() == uid
+                && metadata.mode() & 0o7777 == 0o600
+                && metadata.nlink() == 1
+        };
+        if !safe(&prior) {
+            return Err(CutoverError::UnsafeRuntimeDirectory);
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(OFlag::O_NOFOLLOW.bits())
+            .open(&paths.operation_lock)
+            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
+        let file =
+            Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_file, error)| {
+                if matches!(error, Errno::EAGAIN) {
+                    CutoverError::Busy
+                } else {
+                    CutoverError::Io
+                }
+            })?;
+        let current = fs::symlink_metadata(&paths.operation_lock)
+            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
+        let held = file.metadata().map_err(|_| CutoverError::Io)?;
+        if !safe(&current)
+            || !safe(&held)
+            || prior.dev() != current.dev()
+            || prior.ino() != current.ino()
+            || current.dev() != held.dev()
+            || current.ino() != held.ino()
+        {
+            return Err(CutoverError::UnsafeRuntimeDirectory);
+        }
+        Ok(Self {
+            path: paths.operation_lock.clone(),
+            uid,
+            _file: file,
+        })
+    }
+
     pub fn acquire(paths: &CutoverPaths, uid: u32) -> Result<Self, CutoverError> {
         let metadata = fs::symlink_metadata(&paths.runtime_base)
             .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
@@ -665,6 +723,55 @@ mod tests {
         ));
         drop(lock);
         assert!(MigrationLock::acquire(&paths, uid).is_ok());
+        fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn recovery_inspection_lock_never_creates_or_repairs_unsafe_inode() {
+        let (runtime, state, uid) = roots("inspect-lock");
+        let paths = CutoverPaths::below(&runtime, &state, uid);
+        assert!(matches!(
+            MigrationLock::acquire_existing(&paths, uid),
+            Err(CutoverError::UnsafeRuntimeDirectory)
+        ));
+        assert!(!paths.operation_lock.exists());
+        let held = MigrationLock::acquire(&paths, uid).unwrap();
+        assert!(matches!(
+            MigrationLock::acquire_existing(&paths, uid),
+            Err(CutoverError::Busy)
+        ));
+        drop(held);
+        drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
+
+        fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            MigrationLock::acquire_existing(&paths, uid),
+            Err(CutoverError::UnsafeRuntimeDirectory)
+        ));
+        assert_eq!(
+            fs::metadata(&paths.operation_lock).unwrap().mode() & 0o777,
+            0o644
+        );
+        fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = runtime.join("synthetic-hardlink");
+        fs::hard_link(&paths.operation_lock, &alias).unwrap();
+        assert!(matches!(
+            MigrationLock::acquire_existing(&paths, uid),
+            Err(CutoverError::UnsafeRuntimeDirectory)
+        ));
+        fs::remove_file(&alias).unwrap();
+        fs::remove_file(&paths.operation_lock).unwrap();
+        symlink(&alias, &paths.operation_lock).unwrap();
+        assert!(matches!(
+            MigrationLock::acquire_existing(&paths, uid),
+            Err(CutoverError::UnsafeRuntimeDirectory)
+        ));
+        assert!(
+            fs::symlink_metadata(&paths.operation_lock)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
     }
 

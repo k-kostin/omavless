@@ -261,6 +261,21 @@ pub(crate) fn check_startup_receipt(
     if pending_private_transaction::pending_at(&paths.state_directory) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
+    check_login_receipt_without_private_fence(paths, uid, lock, committed_generation)
+}
+
+/// Restore recovery inspection has its own existence fence. It may inspect a
+/// committed login receipt without treating a pending restore as login intent
+/// or admitting an ordinary production owner.
+pub(crate) fn check_login_receipt_without_private_fence(
+    paths: &CutoverPaths,
+    uid: u32,
+    lock: &MigrationLock,
+    committed_generation: Option<u64>,
+) -> Result<()> {
+    if !lock.authorizes(paths, uid) {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
     match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
         None => Ok(()),
         Some(value)

@@ -605,3 +605,30 @@ private-transaction recovery fence. This is **not** backup availability for
 users: explicit destination authority, passphrase-entry UX, operational
 cancellation/latency, installed-host review and a separately approved client
 protocol remain open before activation.
+
+## Inactive restore startup and imported-login gate
+
+The restore candidate now derives a separate store copy with
+`startup.enabled=false` **after authentication but before staging or journal
+digest binding**. The authenticated archive remains unchanged. Last/pinned
+startup choices and other records survive as data, but cannot automatically
+reconnect on the restored installation. Synthetic tests cover both choices and
+the exact staged copy; there is no user-facing restore operation yet.
+
+A separate read-only production-boundary review can inspect a surviving stage,
+intent/terminal journal or final receipt while holding the migration lease.
+It requires an existing safe operation lock without creating or repairing it,
+and checks committed Rust ownership, the existing login receipt, Off desired
+state and two fresh empty-owned-host observations; it never constructs a normal
+owner, repairs a pointer, mutates a file or starts/stops a core. An undecided
+transaction remains a recovery candidate, not permission to roll it back.
+Unsafe, unrelated or incomplete evidence remains manual recovery. A same-process
+ambiguous final receipt removal also latches the coordinator into manual
+recovery even if the existence fence may have disappeared.
+
+These checks do **not** activate automatic startup recovery. A post-restart
+final-unlink ambiguity with no surviving receipt still needs an explicit
+durable outcome/recovery design; absence alone cannot prove closure succeeded.
+The complete crash-checkpoint matrix, packaged recovery-only owner path,
+installed synthetic restore, private transfer/confirmation UX and independent
+format review remain open before T4 can be exposed to users.

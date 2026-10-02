@@ -77,8 +77,18 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     },
                 )
         };
-        finalize_fenced_restore(&config, &paths, uid, generation, &lock, gate)
-            .map_err(RestoreFinalizeError::Closure)
+        let result = finalize_fenced_restore(&config, &paths, uid, generation, &lock, gate)
+            .map_err(RestoreFinalizeError::Closure);
+        // The final unlink can succeed before a later fsync/readback fails.
+        // In that case the filesystem existence fence may be gone, but this
+        // owner must not resume ordinary mutations as if closure succeeded.
+        if matches!(
+            result,
+            Err(RestoreFinalizeError::Closure(FinalizeError::Ambiguous))
+        ) {
+            self.transaction.block();
+        }
+        result
     }
 
     /// Only a terminal transaction with a durable receipt can enter this
