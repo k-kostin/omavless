@@ -186,3 +186,38 @@ independent identities. Eight direct Rust unit tests and its release build
 passed. Captures remain private and outside Git. This is native rendered GUI
 evidence for one direct-Rust interaction, not Shell parity, accessibility,
 daemon binding, package acceptance or VPN health.
+
+### Native accessibility comparison follow-up — 2026-10-02
+
+The G1a comparison found a concrete difference between the synthetic hosts.
+With the VM accessibility bus enabled, the pinned Shell trial registered an
+application but exposed unnamed buttons and search, with no useful status,
+profile or Details semantics. In its 400×700 logical-pixel window, `Page Down`
+also did not reach the offscreen Details panel, including when the scene
+control had focus. Shell mouse-wheel reachability remains as documented above;
+this is not a general rejection of GPUI Shell.
+
+The direct Rust trial now gives the status, search, list, visible rows and
+Details explicit native accessibility roles and names. Row names distinguish
+*selected for inspection* from *confirmed connection*, in English and Russian.
+An accessibility action on an East row changed the inspected Details while
+the separately confirmed South remained unchanged. In the switching scene,
+South became *previous, not verified now* rather than Connected. The failed
+scene exposed an alert instead of presenting a routine transition as an error.
+The search remains only a local fixture filter; no native action can connect.
+
+The tested direct release binary SHA-256 was
+`03534d5bb2ebb5bf8a2e5caefa846e5579ffea4fa6e30be60dcaf44b240c158a`.
+At 400×700 logical pixels the amended frame retained the single-column
+layout. Expanding to 10,006 synthetic rows left only eight visible options
+in the native accessibility tree; process PSS rose from 51,962 to 55,343 KiB
+in this one VM run. This is a bounded observation, **not** a latency or memory
+budget pass. The trial used invented `.example` rows, temporary binaries and
+a transient user unit; no OmaVLESS runtime, profiles, routes or VPN were touched.
+Screenshots and accessibility probes remain outside Git. The VM accessibility
+bus was restored to its prior disabled state after the probe.
+
+Still **NOT RUN**: real screen-reader navigation/announcements, IME
+composition, live Omarchy theme-file changes, measured interaction latency,
+ARM64, optional package lifecycle and any read-only daemon binding. G1a is
+still an experiment; G1b has not started.

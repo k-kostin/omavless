@@ -4,9 +4,9 @@
 use gpui_kit::base::VirtualListScrollHandle;
 use gpui_kit::base::input::{InputEvent, InputState};
 use gpui_kit::{
-    AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, ParentElement, Pixels,
-    Render, ScrollHandle, ScrollStrategy, Size, Styled, Window, WindowOptions, div, point,
-    prelude::*, px, rems,
+    AccessibleAction, AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
+    ParentElement, Pixels, Render, Role, ScrollHandle, ScrollStrategy, Size, Styled, Window,
+    WindowOptions, div, point, prelude::*, px, rems,
 };
 use gpui_omarchy::{
     ActiveTheme, ButtonVariant, Theme, button, focus_scope, input, panel, virtual_list,
@@ -179,6 +179,20 @@ fn page_offset(current: f32, max: f32, viewport: f32, key: &str) -> Option<f32> 
         _ => return None,
     };
     Some(next.clamp(-max.max(0.), 0.))
+}
+
+fn row_accessible_name(name: &str, selected: bool, confirmed: bool, russian: bool) -> String {
+    let (selected_label, connection_label) = match (selected, confirmed, russian) {
+        (true, true, false) => ("selected for inspection", "confirmed connection"),
+        (true, false, false) => ("selected for inspection", "not connected"),
+        (false, true, false) => ("not selected", "confirmed connection"),
+        (false, false, false) => ("not selected", "not connected"),
+        (true, true, true) => ("выбран для просмотра", "подтверждённое подключение"),
+        (true, false, true) => ("выбран для просмотра", "не подключён"),
+        (false, true, true) => ("не выбран", "подтверждённое подключение"),
+        (false, false, true) => ("не выбран", "не подключён"),
+    };
+    format!("{name} · {selected_label} · {connection_label}")
 }
 
 struct Trial {
@@ -363,6 +377,10 @@ impl Trial {
         let is_connected = connected == Some(profile.id.as_str());
         let theme = cx.omarchy().clone();
         let id = profile.id.clone();
+        let accessible_target = id.clone();
+        let view = cx.entity();
+        let accessible_name =
+            row_accessible_name(&profile.name, selected, is_connected, self.russian);
         let marker = if is_connected {
             self.label("Connected", "Подключено")
         } else {
@@ -370,6 +388,10 @@ impl Trial {
         };
         div()
             .id(format!("profile-{id}"))
+            .role(Role::ListBoxOption)
+            .aria_label(accessible_name)
+            .aria_selected(selected)
+            .when(highlighted, |row| row.aria_active_descendant())
             .flex()
             .items_center()
             .justify_between()
@@ -395,6 +417,13 @@ impl Trial {
                 this.selected = Some(id.clone());
                 cx.notify();
             }))
+            .on_a11y_action(AccessibleAction::Click, move |_, _, cx| {
+                view.update(cx, |this, cx| {
+                    this.highlighted = Some(accessible_target.clone());
+                    this.selected = Some(accessible_target.clone());
+                    cx.notify();
+                });
+            })
             .child(
                 div()
                     .flex()
@@ -571,12 +600,28 @@ impl Render for Trial {
             .as_ref()
             .map(|profile| profile.name.as_str())
             .unwrap_or(self.label("None confirmed", "Нет подтверждённого соединения"));
+        let details_summary = format!(
+            "{}: {selected_name}; {}: {selected_source}; {}: {connected_name}",
+            self.label("Selected for inspection", "Выбрано для просмотра"),
+            self.label("Source", "Источник"),
+            if scene.previous_id().is_some() {
+                self.label(
+                    "Previous server, not verified now",
+                    "Прежний сервер, сейчас не подтверждён",
+                )
+            } else {
+                self.label("Confirmed connection", "Подтверждённое соединение")
+            }
+        );
         let narrow = window.bounds().size.width < rems(60.).to_pixels(window.rem_size());
         let viewport_rems = window.viewport_size().height.as_f32() / window.rem_size().as_f32();
         let list_height = rems((viewport_rems - 27.).clamp(8., 24.));
         let confirmed_id = scene.confirmed_id().map(str::to_owned);
         let list: AnyElement = if visible.is_empty() {
             div()
+                .id("g1-no-matches")
+                .role(Role::Status)
+                .aria_label(self.label("No matching profiles", "Профили не найдены"))
                 .h(list_height)
                 .p(rems(0.625))
                 .text_color(theme.secondary)
@@ -621,11 +666,16 @@ impl Render for Trial {
                     .gap(rems(0.35))
                     .children(collection_buttons),
             )
-            .child(input("g1-search", &self.search, window, cx))
+            .child(
+                input("g1-search", &self.search, window, cx)
+                    .aria_label(self.label("Search profiles", "Поиск профилей")),
+            )
             .child(div().text_color(theme.secondary).child(list_note))
             .child(
                 div()
                     .id("g1-list-focus")
+                    .role(Role::ListBox)
+                    .aria_label(self.label("Profiles", "Профили"))
                     .track_focus(&self.list_focus.clone().tab_stop(true))
                     .border_1()
                     .border_color(if self.list_focus.is_focused(window) {
@@ -741,7 +791,18 @@ impl Render for Trial {
                         })),
                     ),
             )
-            .child(div().text_color(status_color).child(status))
+            .child(
+                div()
+                    .id("g1-status")
+                    .role(if matches!(scene.phase.as_str(), "failed" | "recovery") {
+                        Role::Alert
+                    } else {
+                        Role::Status
+                    })
+                    .aria_label(status)
+                    .text_color(status_color)
+                    .child(status),
+            )
             .child(
                 div()
                     .flex()
@@ -822,7 +883,15 @@ impl Render for Trial {
                     .flex_1()
                     .gap(rems(0.75))
                     .child(profile_panel)
-                    .child(details),
+                    .child(
+                        div()
+                            .id("g1-details-summary")
+                            .role(Role::Group)
+                            .aria_label(details_summary)
+                            .min_w(rems(16.))
+                            .flex_1()
+                            .child(details),
+                    ),
             )
     }
 }
@@ -902,6 +971,25 @@ mod tests {
             assert_eq!(scene.confirmed_id(), None);
             assert_eq!(scene.previous_id(), None);
         }
+    }
+
+    #[test]
+    fn accessible_rows_never_conflate_inspection_and_confirmation() {
+        let en_selected = row_accessible_name("North", true, false, false);
+        let en_connected = row_accessible_name("South", false, true, false);
+        assert!(en_selected.contains("selected for inspection · not connected"));
+        assert!(en_connected.contains("not selected · confirmed connection"));
+        let ru_selected = row_accessible_name("Север", true, false, true);
+        let ru_connected = row_accessible_name("Юг", false, true, true);
+        assert!(ru_selected.contains("выбран для просмотра · не подключён"));
+        assert!(ru_connected.contains("не выбран · подтверждённое подключение"));
+        let switching = Fixtures::load()
+            .scenes
+            .into_iter()
+            .find(|scene| scene.phase == "switching")
+            .unwrap();
+        assert!(switching.confirmed_id().is_none());
+        assert!(row_accessible_name("South", false, false, false).contains("not connected"));
     }
 
     #[test]
