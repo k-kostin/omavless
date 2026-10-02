@@ -13,6 +13,7 @@ struct Snapshot {
     directories: [Metadata; 3],
     directory_handles: [File; 3],
     boundary: BoundaryMembers,
+    boundary_handles: [Option<File>; 3],
     members: [(Zeroizing<Vec<u8>>, Metadata); 5],
     member_handles: [File; 5],
 }
@@ -137,6 +138,22 @@ impl Snapshot {
             pin_member(&config_dir, LIVE[0], &members[3].1)?,
             pin_member(&config_dir, LIVE[1], &members[4].1)?,
         ];
+        let boundary_handles = [
+            source_boundary[0]
+                .as_ref()
+                .map(|(_, metadata)| {
+                    pin_member(&state, crate::cutover::OWNERSHIP_MARKER_NAME, metadata)
+                })
+                .transpose()?,
+            source_boundary[1]
+                .as_ref()
+                .map(|(_, metadata)| pin_member(&state, "desired.json", metadata))
+                .transpose()?,
+            source_boundary[2]
+                .as_ref()
+                .map(|(_, metadata)| pin_member(&runtime, "omavless-login.receipt", metadata))
+                .transpose()?,
+        ];
         let snapshot = Self {
             directories: [
                 state.metadata().map_err(|_| REFUSE)?,
@@ -145,6 +162,7 @@ impl Snapshot {
             ],
             directory_handles: [state, config_dir, runtime],
             boundary: source_boundary,
+            boundary_handles,
             members,
             member_handles,
         };
@@ -162,6 +180,17 @@ impl Snapshot {
                 file.metadata()
                     .is_ok_and(|now| same_directory(expected, &now))
             })
+            && self
+                .boundary
+                .iter()
+                .zip(&self.boundary_handles)
+                .all(|(member, file)| match (member, file) {
+                    (None, None) => true,
+                    (Some((_, expected)), Some(file)) => {
+                        file.metadata().is_ok_and(|now| same_member(expected, &now))
+                    }
+                    _ => false,
+                })
             && self
                 .members
                 .iter()
@@ -216,12 +245,136 @@ pub(crate) fn review_historical(
     Ok(HistoricalReview::ConsistentStillFenced)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum HistoricalResyncResult {
+    ResynchronizedStillFenced,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoricalSyncCheckpoint {
+    File(usize),
+    Boundary(usize),
+    Directory(usize),
+    Final,
+}
+
+fn recheck(
+    original: &Snapshot,
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: &mut impl FnMut() -> bool,
+) -> Result<(), ExecutionError> {
+    if !original.pins_intact() {
+        return Err(REFUSE);
+    }
+    let before = Snapshot::read(config, paths, uid, generation, lock)?;
+    if !original.same(&before) || !gate() {
+        return Err(REFUSE);
+    }
+    let after = Snapshot::read(config, paths, uid, generation, lock)?;
+    if !original.same(&after) {
+        return Err(REFUSE);
+    }
+    Ok(())
+}
+
+/// Inactive archive-free durability resync of an already complete, mutually
+/// bound disposition. This retains one existing lease and original FDs through
+/// all syncs; it neither repairs records nor grants normal owner admission.
+/// The supplied host/Off/login gate and trusted path derivation remain caller
+/// obligations. No production caller exists.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn resync_historical(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    run_resync(config, paths, uid, generation, lock, gate, |_| true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_resync(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+    hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    run_resync_with_sync(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        gate,
+        hook,
+        |_, file| file.sync_all(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_resync_with_sync(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    mut gate: impl FnMut() -> bool,
+    mut hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    mut sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    // Capture the original source and path identities before the first host
+    // callback. A later observation can reject drift, never redefine source.
+    let original = Snapshot::read(config, paths, uid, generation, lock)?;
+    let mut check = || recheck(&original, config, paths, uid, generation, lock, &mut gate);
+    check()?;
+    for (index, file) in original.member_handles.iter().enumerate() {
+        sync(HistoricalSyncCheckpoint::File(index), file).map_err(|_| ExecutionError::Ambiguous)?;
+        if !hook(HistoricalSyncCheckpoint::File(index)) {
+            return Err(ExecutionError::Ambiguous);
+        }
+        check().map_err(|_| ExecutionError::Ambiguous)?;
+    }
+    for (index, file) in original.boundary_handles.iter().enumerate() {
+        if let Some(file) = file {
+            sync(HistoricalSyncCheckpoint::Boundary(index), file)
+                .map_err(|_| ExecutionError::Ambiguous)?;
+            if !hook(HistoricalSyncCheckpoint::Boundary(index)) {
+                return Err(ExecutionError::Ambiguous);
+            }
+            check().map_err(|_| ExecutionError::Ambiguous)?;
+        }
+    }
+    for (index, directory) in original.directory_handles.iter().enumerate() {
+        sync(HistoricalSyncCheckpoint::Directory(index), directory)
+            .map_err(|_| ExecutionError::Ambiguous)?;
+        if !hook(HistoricalSyncCheckpoint::Directory(index)) {
+            return Err(ExecutionError::Ambiguous);
+        }
+        check().map_err(|_| ExecutionError::Ambiguous)?;
+    }
+    if !hook(HistoricalSyncCheckpoint::Final) {
+        return Err(ExecutionError::Ambiguous);
+    }
+    check().map_err(|_| ExecutionError::Ambiguous)?;
+    Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::tests::published;
     use super::*;
     use crate::restore_executor_candidate::successor::tests::second;
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::ExitStatusExt;
     use std::{fs, path::PathBuf, process::Command};
 
     fn prepared(
@@ -436,6 +589,389 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn historical_resync_commit_abort_is_repeatable_archive_free_and_still_fenced() {
+        for commit in [false, true] {
+            let (f, lock) = prepared(commit);
+            let paths = [
+                f.paths.state_directory.join(CLOSURE_MEMBER),
+                f.paths.state_directory.join(TICKET_MEMBER),
+                f.paths.state_directory.join(COMPLETE_MEMBER),
+                f.config.join(LIVE[0]),
+                f.config.join(LIVE[1]),
+            ];
+            let before: Vec<_> = paths.iter().map(|path| fs::read(path).unwrap()).collect();
+            for _ in 0..2 {
+                assert_eq!(
+                    resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                    Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+                );
+                for (path, bytes) in paths.iter().zip(&before) {
+                    assert_eq!(&fs::read(path).unwrap(), bytes);
+                }
+                assert!(crate::pending_private_transaction::pending_at(
+                    &f.paths.state_directory
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn historical_resync_refuses_missing_crossed_tampered_and_stale_sources() {
+        for kind in 0..5 {
+            let (f, lock) = prepared(true);
+            match kind {
+                0 => fs::remove_file(f.paths.state_directory.join(COMPLETE_MEMBER)).unwrap(),
+                1 => fs::write(f.paths.state_directory.join(COMPLETE_MEMBER), b"partial").unwrap(),
+                2 => {
+                    let (other, _) = prepared(false);
+                    fs::write(
+                        f.paths.state_directory.join(COMPLETE_MEMBER),
+                        fs::read(other.paths.state_directory.join(COMPLETE_MEMBER)).unwrap(),
+                    )
+                    .unwrap();
+                }
+                3 => {
+                    let path = f.config.join(LIVE[0]);
+                    let mut bytes = fs::read(&path).unwrap();
+                    bytes[0] ^= 1;
+                    fs::write(path, bytes).unwrap();
+                }
+                _ => {
+                    fs::remove_file(&f.paths.operation_lock).unwrap();
+                }
+            }
+            assert!(resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+        }
+        let (f, lock) = prepared(true);
+        assert!(resync_historical(&f.config, &f.paths, f.uid, 3, &lock, || true).is_err());
+    }
+
+    #[test]
+    fn historical_resync_refuses_original_source_replacement_after_each_effect() {
+        let (f, lock) = prepared(true);
+        let mut points = Vec::new();
+        assert_eq!(
+            run_resync(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                || true,
+                |point| {
+                    points.push(point);
+                    true
+                }
+            ),
+            Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+        );
+        assert!(points.contains(&HistoricalSyncCheckpoint::Final));
+        for selected in 0..points.len() {
+            let (f, lock) = prepared(true);
+            let path = f.paths.state_directory.join(COMPLETE_MEMBER);
+            let raw = fs::read(&path).unwrap();
+            let mut index = 0;
+            assert_eq!(
+                run_resync(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    || true,
+                    |_| {
+                        if index == selected {
+                            fs::rename(&path, path.with_extension("replaced-test")).unwrap();
+                            fs::write(&path, &raw).unwrap();
+                            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+                        }
+                        index += 1;
+                        true
+                    }
+                ),
+                Err(ExecutionError::Ambiguous),
+                "checkpoint {}",
+                selected
+            );
+            assert!(crate::pending_private_transaction::pending_at(
+                &f.paths.state_directory
+            ));
+        }
+    }
+
+    #[test]
+    fn historical_resync_sync_failure_at_each_file_or_directory_stays_fenced() {
+        let (f, lock) = prepared(true);
+        let mut points = Vec::new();
+        run_resync(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            || true,
+            |point| {
+                if point != HistoricalSyncCheckpoint::Final {
+                    points.push(point);
+                }
+                true
+            },
+        )
+        .unwrap();
+        for selected in points {
+            let (f, lock) = prepared(true);
+            let path = f.paths.state_directory.join(COMPLETE_MEMBER);
+            let before = fs::read(&path).unwrap();
+            assert_eq!(
+                run_resync_with_sync(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    || true,
+                    |_| true,
+                    |point, file| {
+                        if point == selected {
+                            Err(std::io::Error::other("synthetic sync failure"))
+                        } else {
+                            file.sync_all()
+                        }
+                    }
+                ),
+                Err(ExecutionError::Ambiguous),
+                "{selected:?}"
+            );
+            assert_eq!(fs::read(path).unwrap(), before);
+            assert!(crate::pending_private_transaction::pending_at(
+                &f.paths.state_directory
+            ));
+        }
+    }
+
+    #[test]
+    fn historical_resync_refuses_late_host_gate_boundary_and_transient() {
+        for kind in 0..5 {
+            let (f, lock) = prepared(true);
+            let refuse = std::cell::Cell::new(false);
+            assert!(
+                run_resync(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    || !refuse.get(),
+                    |point| {
+                        if point == HistoricalSyncCheckpoint::File(0) {
+                            match kind {
+                                0 => refuse.set(true),
+                                1 => {
+                                    let path = f
+                                        .paths
+                                        .state_directory
+                                        .join(crate::cutover::OWNERSHIP_MARKER_NAME);
+                                    let raw = fs::read(&path).unwrap();
+                                    fs::rename(&path, path.with_extension("replaced-test"))
+                                        .unwrap();
+                                    fs::write(&path, raw).unwrap();
+                                    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                                        .unwrap();
+                                }
+                                2 | 3 => {
+                                    let (directory, name) = if kind == 2 {
+                                        (&f.paths.state_directory, "desired.json")
+                                    } else {
+                                        (&f.paths.runtime_base, "omavless-login.receipt")
+                                    };
+                                    let path = directory.join(name);
+                                    if path.exists() {
+                                        let raw = fs::read(&path).unwrap();
+                                        fs::rename(&path, path.with_extension("replaced-test"))
+                                            .unwrap();
+                                        fs::write(&path, raw).unwrap();
+                                    } else {
+                                        fs::write(&path, b"late-boundary").unwrap();
+                                    }
+                                    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                                        .unwrap();
+                                }
+                                _ => {
+                                    fs::write(f.paths.state_directory.join(INTENT), b"late-intent")
+                                        .unwrap();
+                                }
+                            }
+                        }
+                        true
+                    }
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn historical_resync_initial_or_final_gate_and_final_hook_refuse() {
+        let (f, lock) = prepared(true);
+        assert!(resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || false).is_err());
+        let refuse = std::cell::Cell::new(false);
+        assert_eq!(
+            run_resync(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                || !refuse.get(),
+                |point| {
+                    if point == HistoricalSyncCheckpoint::Final {
+                        refuse.set(true);
+                    }
+                    true
+                }
+            ),
+            Err(ExecutionError::Ambiguous)
+        );
+        assert_eq!(
+            run_resync(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                || true,
+                |point| { point != HistoricalSyncCheckpoint::Final }
+            ),
+            Err(ExecutionError::Ambiguous)
+        );
+        assert!(crate::pending_private_transaction::pending_at(
+            &f.paths.state_directory
+        ));
+    }
+
+    #[test]
+    fn historical_resync_process_reentry_without_archive_remains_fenced() {
+        for commit in [false, true] {
+            let (f, lock) = prepared(commit);
+            drop(lock);
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::tests::historical_resync_process_worker",
+                ])
+                .env("OMAVLESS_SYNTHETIC_HISTORICAL_ROOT", &f.root)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let lock = f.lock();
+            assert_eq!(
+                resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+            );
+            assert!(crate::pending_private_transaction::pending_at(
+                &f.paths.state_directory
+            ));
+        }
+    }
+
+    #[test]
+    fn historical_resync_sigkill_at_every_checkpoint_reenters_still_fenced() {
+        let (f, lock) = prepared(true);
+        let mut points = Vec::new();
+        run_resync(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            || true,
+            |point| {
+                points.push(point);
+                true
+            },
+        )
+        .unwrap();
+        for commit in [false, true] {
+            for selected in 0..points.len() {
+                let (f, lock) = prepared(commit);
+                drop(lock);
+                let output = Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::tests::historical_resync_crash_worker",
+                    ])
+                    .env("OMAVLESS_SYNTHETIC_HISTORICAL_ROOT", &f.root)
+                    .env("OMAVLESS_SYNTHETIC_HISTORICAL_POINT", selected.to_string())
+                    .output()
+                    .unwrap();
+                assert_eq!(output.status.signal(), Some(9), "checkpoint {selected}");
+                let lock = f.lock();
+                assert!(crate::pending_private_transaction::pending_at(
+                    &f.paths.state_directory
+                ));
+                assert_eq!(
+                    resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                    Ok(HistoricalResyncResult::ResynchronizedStillFenced),
+                    "checkpoint {selected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "internal synthetic historical resync crash worker"]
+    fn historical_resync_crash_worker() {
+        let f = std::mem::ManuallyDrop::new(
+            crate::restore_successor_publication_candidate::tests::Fixture::reopen(PathBuf::from(
+                std::env::var_os("OMAVLESS_SYNTHETIC_HISTORICAL_ROOT").unwrap(),
+            )),
+        );
+        let selected: usize = std::env::var("OMAVLESS_SYNTHETIC_HISTORICAL_POINT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let lock = f.lock();
+        let mut index = 0;
+        let _ = run_resync(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            || true,
+            |_| {
+                if index == selected {
+                    nix::sys::signal::kill(
+                        nix::unistd::getpid(),
+                        nix::sys::signal::Signal::SIGKILL,
+                    )
+                    .unwrap();
+                }
+                index += 1;
+                true
+            },
+        );
+        panic!("expected synthetic kill");
+    }
+
+    #[test]
+    #[ignore = "internal synthetic historical resync reentry worker"]
+    fn historical_resync_process_worker() {
+        let f = std::mem::ManuallyDrop::new(
+            crate::restore_successor_publication_candidate::tests::Fixture::reopen(PathBuf::from(
+                std::env::var_os("OMAVLESS_SYNTHETIC_HISTORICAL_ROOT").unwrap(),
+            )),
+        );
+        let lock = f.lock();
+        assert_eq!(
+            resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true),
+            Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+        );
     }
 
     #[test]

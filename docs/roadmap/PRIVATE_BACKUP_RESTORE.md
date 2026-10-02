@@ -1503,5 +1503,30 @@ historical match as a permanent requirement.
 
 This reader verifies internal consistency, **not** completion durability,
 archive authentication, current boot/login epoch, live semantic validity or
-permission to construct an owner. A later archive-free resync and narrow typed
-startup candidate need separate review; raw presence checks must not be relaxed.
+permission to construct an owner. A narrow typed startup candidate needs
+separate review; raw presence checks must not be relaxed.
+
+### Inactive archive-free historical resync
+
+A separate inactive continuation pins C1, pending ticket, completion record,
+the live pair, owner/desired/login members and their private directories under
+one pre-existing lease. It requires the same mutually bound initial-output
+snapshot and a fresh caller-supplied Off/idle-host boundary. Before any sync,
+and after each one, it reopens the original names, rechecks exact bytes/member
+identities and the lease, and brackets the external gate with source checks.
+It syncs the pinned records, live pair, present boundary members and the three
+private directories. Missing, torn, crossed, replaced or late transient
+evidence refuses; an error after the first sync is ambiguous and leaves all
+fences intact. No archive is required for this narrow check because the
+complete record embeds the canonical ticket and C1. The function never writes
+record content, deletes a fence, constructs an owner or enables a listener.
+
+Commit/Abort, replay, wrong evidence, injected file/directory-sync errors,
+late owner/desired/login changes, each effect checkpoint substitution and
+actual synthetic SIGKILL/re-entry tests return only
+`ResynchronizedStillFenced`. This makes no claim of power-cut durability,
+semantic validity of the current live store, trusted product path provenance,
+current boot/login epoch or startup admission. Its strict historical live/desired
+equality is specific to the initial-output experiment; later legitimate edits
+require independent ordinary-state validation. Existing normal startup remains
+blocked until a separately reviewed typed policy can discharge every obligation.
