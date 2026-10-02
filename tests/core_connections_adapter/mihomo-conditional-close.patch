@@ -1,0 +1,368 @@
+diff --git i/hub/route/conditional_close_test.go w/hub/route/conditional_close_test.go
+new file mode 100644
+index 0000000..a4b5b93
+--- /dev/null
++++ w/hub/route/conditional_close_test.go
+@@ -0,0 +1,48 @@
++package route
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/metacubex/http"
++	"github.com/metacubex/http/httptest"
++)
++
++func TestConditionalCloseStrictRequest(t *testing.T) {
++	for _, value := range []string{"", "*", "1", `"0"`, `"01"`, `"+1"`, `"-1"`, `"18446744073709551616"`, `"1", "2"`} {
++		r := httptest.NewRequest(http.MethodPost, "/id/close-conditional", nil)
++		r.Header.Set("If-Match", value)
++		w := httptest.NewRecorder()
++		connectionRouter().ServeHTTP(w, r)
++		if w.Code != http.StatusBadRequest {
++			t.Fatalf("malformed token status %d", w.Code)
++		}
++	}
++	for _, variant := range []string{"duplicate", "query", "body"} {
++		url := "/id/close-conditional"
++		body := ""
++		if variant == "query" {
++			url += "?x=1"
++		}
++		if variant == "body" {
++			body = "x"
++		}
++		r := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
++		r.Header.Set("If-Match", `"1"`)
++		if variant == "duplicate" {
++			r.Header.Add("If-Match", `"2"`)
++		}
++		w := httptest.NewRecorder()
++		connectionRouter().ServeHTTP(w, r)
++		if w.Code != http.StatusBadRequest {
++			t.Fatal("ambiguous request accepted")
++		}
++	}
++	r := httptest.NewRequest(http.MethodPost, "/missing/close-conditional", nil)
++	r.Header.Set("If-Match", `"1"`)
++	w := httptest.NewRecorder()
++	connectionRouter().ServeHTTP(w, r)
++	if w.Code != http.StatusNotFound {
++		t.Fatal("missing target not explicit")
++	}
++}
+diff --git i/hub/route/connections.go w/hub/route/connections.go
+index ddfa6c5..eb3464a 100644
+--- i/hub/route/connections.go
++++ w/hub/route/connections.go
+@@ -18,9 +18,42 @@ func connectionRouter() http.Handler {
+ 	r.Get("/", getConnections)
+ 	r.Delete("/", closeAllConnections)
+ 	r.Delete("/{id}", closeConnection)
++	r.Post("/{id}/close-conditional", closeConnectionConditional)
+ 	return r
+ }
+ 
++func closeConnectionConditional(w http.ResponseWriter, r *http.Request) {
++	// No JSON parser ambiguity, wildcard, query, body or legacy fallback.
++	values := r.Header.Values("If-Match")
++	if len(values) != 1 || r.ContentLength != 0 || r.URL.RawQuery != "" {
++		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	value := values[0]
++	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
++		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	token := value[1 : len(value)-1]
++	n, err := strconv.ParseUint(token, 10, 64)
++	if err != nil || n == 0 || strconv.FormatUint(n, 10) != token {
++		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	switch statistic.DefaultManager.CloseIfToken(chi.URLParam(r, "id"), token) {
++	case statistic.ConditionalClosed:
++		w.WriteHeader(http.StatusNoContent)
++	case statistic.ConditionalMissing:
++		w.WriteHeader(http.StatusNotFound)
++	case statistic.ConditionalMismatch:
++		w.WriteHeader(http.StatusConflict)
++	case statistic.ConditionalUnavailable:
++		w.WriteHeader(http.StatusServiceUnavailable)
++	default:
++		w.WriteHeader(http.StatusBadGateway)
++	}
++}
++
+ func getConnections(w http.ResponseWriter, r *http.Request) {
+ 	if !(r.Header.Get("Upgrade") == "websocket") {
+ 		snapshot := statistic.DefaultManager.Snapshot()
+diff --git i/tunnel/statistic/conditional_close_test.go w/tunnel/statistic/conditional_close_test.go
+new file mode 100644
+index 0000000..ea94d3e
+--- /dev/null
++++ w/tunnel/statistic/conditional_close_test.go
+@@ -0,0 +1,126 @@
++package statistic
++
++import (
++	"errors"
++	"math"
++	"sync"
++	"sync/atomic"
++	"testing"
++
++	C "github.com/metacubex/mihomo/constant"
++)
++
++type conditionalFixture struct {
++	C.Connection
++	id      string
++	info    *TrackerInfo
++	manager *Manager
++	closed  atomic.Int32
++	entered chan struct{}
++	release chan struct{}
++	fail    bool
++}
++
++func (c *conditionalFixture) ID() string         { return c.id }
++func (c *conditionalFixture) Info() *TrackerInfo { return c.info }
++func (c *conditionalFixture) Close() error {
++	c.closed.Add(1)
++	if c.entered != nil {
++		close(c.entered)
++		<-c.release
++	}
++	c.manager.Leave(c)
++	if c.fail {
++		return errors.New("synthetic close failure")
++	}
++	return nil
++}
++func fixture(m *Manager, id string) *conditionalFixture {
++	c := &conditionalFixture{id: id, info: &TrackerInfo{}, manager: m}
++	m.Join(c)
++	return c
++}
++
++func TestConditionalCloseReusedID(t *testing.T) {
++	m := &Manager{}
++	old := fixture(m, "same")
++	token := old.Info().OmavlessCloseToken
++	m.Leave(old)
++	next := fixture(m, "same")
++	if m.CloseIfToken("same", token) != ConditionalMismatch || next.closed.Load() != 0 {
++		t.Fatal("stale token closed successor")
++	}
++	if old.Info().OmavlessCloseToken == next.Info().OmavlessCloseToken {
++		t.Fatal("token reused")
++	}
++	if m.CloseIfToken("same", next.Info().OmavlessCloseToken) != ConditionalClosed {
++		t.Fatal("matching close refused")
++	}
++	if m.CloseIfToken("same", next.Info().OmavlessCloseToken) != ConditionalMissing {
++		t.Fatal("replay effects")
++	}
++}
++
++func TestConditionalCloseCannotReenroll(t *testing.T) {
++	m := &Manager{}
++	c := fixture(m, "same")
++	token := c.Info().OmavlessCloseToken
++	m.Leave(c)
++	m.Join(c)
++	if c.Info().OmavlessCloseToken != token || m.Get("same") != nil {
++		t.Fatal("already enrolled identity republished")
++	}
++}
++
++func TestConditionalCloseDelayedLeave(t *testing.T) {
++	m := &Manager{}
++	old := fixture(m, "same")
++	old.entered = make(chan struct{})
++	old.release = make(chan struct{})
++	done := make(chan ConditionalCloseResult, 1)
++	go func() { done <- m.CloseIfToken("same", old.Info().OmavlessCloseToken) }()
++	<-old.entered
++	next := fixture(m, "same")
++	close(old.release)
++	if <-done != ConditionalClosed || m.Get("same") != next || next.closed.Load() != 0 {
++		t.Fatal("delayed close damaged successor")
++	}
++}
++
++func TestConditionalCloseConcurrentConfirm(t *testing.T) {
++	m := &Manager{}
++	c := fixture(m, "only")
++	var wg sync.WaitGroup
++	for i := 0; i < 64; i++ {
++		wg.Add(1)
++		go func() { defer wg.Done(); m.CloseIfToken(c.ID(), c.Info().OmavlessCloseToken) }()
++	}
++	wg.Wait()
++	if c.closed.Load() != 1 {
++		t.Fatal("more than one close")
++	}
++}
++
++func TestConditionalCloseExhaustionAndFailure(t *testing.T) {
++	m := &Manager{closeSequence: math.MaxUint64 - 1}
++	last := fixture(m, "last")
++	last.fail = true
++	if last.Info().OmavlessCloseToken != "18446744073709551615" {
++		t.Fatal("last token")
++	}
++	if m.CloseIfToken("last", last.Info().OmavlessCloseToken) != ConditionalCloseFailed {
++		t.Fatal("lost failure")
++	}
++	c := fixture(m, "exhausted")
++	if c.Info().OmavlessCloseToken != "" || m.CloseIfToken(c.ID(), "1") != ConditionalUnavailable || c.closed.Load() != 0 {
++		t.Fatal("wrap or absent wildcard")
++	}
++	if m.CloseIfToken(c.ID(), "") != ConditionalUnavailable {
++		t.Fatal("empty wildcard")
++	}
++	m.Leave(c)
++	m.Join(c)
++	if m.Get(c.ID()) != nil {
++		t.Fatal("exhausted tracker reenrolled")
++	}
++}
+diff --git i/tunnel/statistic/manager.go w/tunnel/statistic/manager.go
+index c69746d..481e622 100644
+--- i/tunnel/statistic/manager.go
++++ w/tunnel/statistic/manager.go
+@@ -1,7 +1,10 @@
+ package statistic
+ 
+ import (
++	"math"
+ 	"os"
++	"strconv"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/metacubex/mihomo/common/atomic"
+@@ -26,6 +29,9 @@ func init() {
+ }
+ 
+ type Manager struct {
++	// Serializes tracker publication, exact removal and snapshot identity.
++	connectionMu  sync.Mutex
++	closeSequence uint64
+ 	connections   xsync.Map[string, Tracker]
+ 	uploadTemp    atomic.Int64
+ 	downloadTemp  atomic.Int64
+@@ -38,11 +44,67 @@ type Manager struct {
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
++	m.connectionMu.Lock()
++	defer m.connectionMu.Unlock()
++	// Production tracker constructors enroll once, before publishing Info.
++	// Never reassign a token to an already enrolled object.
++	if c.Info().conditionalEnrolled {
++		return
++	}
++	c.Info().conditionalEnrolled = true
++	// Never wrap. Exhausted managers retain ordinary tracking, but no
++	// conditional-close capability for newly admitted connections.
++	c.Info().OmavlessCloseToken = ""
++	if m.closeSequence != math.MaxUint64 {
++		m.closeSequence++
++		c.Info().OmavlessCloseToken = strconv.FormatUint(m.closeSequence, 10)
++	}
+ 	m.connections.Store(c.ID(), c)
+ }
+ 
+ func (m *Manager) Leave(c Tracker) {
+-	m.connections.Delete(c.ID())
++	m.connectionMu.Lock()
++	defer m.connectionMu.Unlock()
++	// A delayed Close on a removed tracker must not delete its successor.
++	if current := m.Get(c.ID()); current != nil && current.Info() == c.Info() {
++		m.connections.Delete(c.ID())
++	}
++}
++
++type ConditionalCloseResult uint8
++
++const (
++	ConditionalClosed ConditionalCloseResult = iota
++	ConditionalMissing
++	ConditionalMismatch
++	ConditionalUnavailable
++	ConditionalCloseFailed
++)
++
++// CloseIfToken removes only the exact observed incarnation under the same
++// publication lock, then closes that retained tracker outside the lock.
++// The token is meaningful only within this manager/core process lifetime.
++func (m *Manager) CloseIfToken(id, token string) ConditionalCloseResult {
++	m.connectionMu.Lock()
++	c := m.Get(id)
++	if c == nil {
++		m.connectionMu.Unlock()
++		return ConditionalMissing
++	}
++	if token == "" || c.Info().OmavlessCloseToken == "" {
++		m.connectionMu.Unlock()
++		return ConditionalUnavailable
++	}
++	if c.Info().OmavlessCloseToken != token {
++		m.connectionMu.Unlock()
++		return ConditionalMismatch
++	}
++	m.connections.Delete(id)
++	m.connectionMu.Unlock()
++	if c.Close() != nil {
++		return ConditionalCloseFailed
++	}
++	return ConditionalClosed
+ }
+ 
+ func (m *Manager) Get(id string) (c Tracker) {
+@@ -82,6 +144,8 @@ func (m *Manager) Memory() uint64 {
+ }
+ 
+ func (m *Manager) Snapshot() *Snapshot {
++	m.connectionMu.Lock()
++	defer m.connectionMu.Unlock()
+ 	var connections []*TrackerInfo
+ 	m.Range(func(c Tracker) bool {
+ 		connections = append(connections, c.Info())
+diff --git i/tunnel/statistic/tracker.go w/tunnel/statistic/tracker.go
+index 2fbb1cf..7c4b517 100644
+--- i/tunnel/statistic/tracker.go
++++ w/tunnel/statistic/tracker.go
+@@ -22,15 +22,18 @@ type Tracker interface {
+ }
+ 
+ type TrackerInfo struct {
+-	UUID          uuid.UUID    `json:"id"`
+-	Metadata      *C.Metadata  `json:"metadata"`
+-	UploadTotal   atomic.Int64 `json:"upload"`
+-	DownloadTotal atomic.Int64 `json:"download"`
+-	Start         time.Time    `json:"start"`
+-	Chain         C.Chain      `json:"chains"`
+-	ProviderChain C.Chain      `json:"providerChains"`
+-	Rule          string       `json:"rule"`
+-	RulePayload   string       `json:"rulePayload"`
++	// Immutable after Join; private controller identity, never a destination.
++	OmavlessCloseToken  string `json:"omavlessCloseToken,omitempty"`
++	conditionalEnrolled bool
++	UUID                uuid.UUID    `json:"id"`
++	Metadata            *C.Metadata  `json:"metadata"`
++	UploadTotal         atomic.Int64 `json:"upload"`
++	DownloadTotal       atomic.Int64 `json:"download"`
++	Start               time.Time    `json:"start"`
++	Chain               C.Chain      `json:"chains"`
++	ProviderChain       C.Chain      `json:"providerChains"`
++	Rule                string       `json:"rule"`
++	RulePayload         string       `json:"rulePayload"`
+ }
+ 
+ type tcpTracker struct {
