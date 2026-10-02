@@ -356,6 +356,67 @@ fn raw_rules_child() {
         namespace_identity(&namespace_file().unwrap()).unwrap(),
         child_id
     );
+    // Mutation is test-only, uses the still-held exclusive creator socket and
+    // fixed synthetic bytes, and never touches the parent's namespace.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let request = message(
+        NEW_RULE,
+        0xc05,
+        200,
+        0,
+        &[
+            vec![1, 0, 0, 0],
+            attribute(1, TABLE),
+            attribute(2, CHAIN),
+            emergency_wire::nested(4, &emergency_wire::verdict(1)),
+        ]
+        .concat(),
+    );
+    let mut ack = Exchange {
+        request,
+        port: session.local.pid(),
+        ack: false,
+        absent: false,
+        body: None,
+        total: 0,
+        datagrams: 0,
+    };
+    assert_eq!(
+        sendto(
+            session.socket.as_raw_fd(),
+            &ack.request,
+            &NetlinkAddr::new(0, 0),
+            MsgFlags::MSG_DONTWAIT
+        )
+        .unwrap(),
+        ack.request.len()
+    );
+    while !ack.ack {
+        session.check(deadline).unwrap();
+        let mut bytes = [0; LIMIT];
+        let mut iov = [IoSliceMut::new(&mut bytes)];
+        match recvmsg::<NetlinkAddr>(
+            session.socket.as_raw_fd(),
+            &mut iov,
+            None,
+            MsgFlags::MSG_DONTWAIT,
+        ) {
+            Ok(reply) => {
+                let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
+                ack.receive(&bytes[..length], sender, flags).unwrap();
+            }
+            Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
+            Err(_) => panic!("isolated extra-rule acknowledgement"),
+        }
+    }
+    session.next_sequence = 201;
+    assert_eq!(
+        session.inspect_rules(),
+        Ok(LocalRuleInventory::OtherUntrusted)
+    );
+    nix::sched::unshare(nix::sched::CloneFlags::CLONE_NEWNET).unwrap();
+    assert!(session.inspect_rules().is_err());
+    assert!(session.inspect_rules().is_err());
     // Destroy this isolated namespace at child exit; never delete a host table.
     println!("K1_RAW_RULE_CHILD_PASS");
 }
