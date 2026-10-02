@@ -17,6 +17,8 @@ use crate::restore_successor_handoff_model::{
 use omavless_domain::private_backup::OpenedBackup;
 
 const REFUSE: ExecutionError = ExecutionError::ManualRecovery;
+#[path = "restore_successor_receipt_candidate.rs"]
+pub(crate) mod receipt;
 struct Evidence {
     directories: [Metadata; 3],
     members: Vec<(Zeroizing<Vec<u8>>, Metadata)>,
@@ -46,6 +48,34 @@ fn observe(
     new_store: &[u8],
     new_template: &[u8],
 ) -> Result<Evidence, ExecutionError> {
+    let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
+    absent(&state, RECEIPT_MEMBER)?;
+    let evidence = observe_evidence(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        new_store,
+        new_template,
+    )?;
+    let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
+    absent(&state, RECEIPT_MEMBER)?;
+    Ok(evidence)
+}
+
+/// Immutable evidence only, not execution or receipt admission. The receipt
+/// publisher separately owns and checks its exclusive publication inode.
+#[allow(clippy::too_many_arguments)]
+fn observe_evidence(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    new_store: &[u8],
+    new_template: &[u8],
+) -> Result<Evidence, ExecutionError> {
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
@@ -57,9 +87,7 @@ fn observe(
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
     let stage_dir = open_private_directory(&paths.state_directory.join(PENDING_DIRECTORY), uid)
         .map_err(|_| REFUSE)?;
-    for name in [RECEIPT_MEMBER, "routing-preset.pending.json"] {
-        absent(&state, name)?;
-    }
+    absent(&state, "routing-preset.pending.json")?;
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
     let stage = read_staged_pair(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     if stage.new_store() != new_store || stage.new_template() != new_template {
@@ -425,7 +453,7 @@ mod tests {
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
     use std::{fs, path::PathBuf, process::Command, sync::OnceLock};
 
-    fn second() -> &'static OpenedBackup {
+    pub(super) fn second() -> &'static OpenedBackup {
         static BACKUP: OnceLock<OpenedBackup> = OnceLock::new();
         BACKUP.get_or_init(|| {
             let mut store: serde_json::Value = serde_json::from_slice(backup().store()).unwrap();
@@ -444,7 +472,7 @@ mod tests {
             omavless_domain::private_backup::open(&encrypted, b"synthetic second restore").unwrap()
         })
     }
-    fn prepared() -> (Fixture, MigrationLock) {
+    pub(super) fn prepared() -> (Fixture, MigrationLock) {
         let f = Fixture::new();
         let lock = f.lock();
         // Replace fixture's synthetic closure with the real complete first
@@ -481,7 +509,7 @@ mod tests {
         prepare_successor(&f.config, &f.paths, f.uid, 2, &lock, second(), || true).unwrap();
         (f, lock)
     }
-    fn drive(
+    pub(super) fn drive(
         f: &Fixture,
         lock: &MigrationLock,
         recovery: bool,
@@ -500,7 +528,7 @@ mod tests {
             |_| true,
         )
     }
-    fn pair(f: &Fixture, new: bool) {
+    pub(super) fn pair(f: &Fixture, new: bool) {
         let b = if new { second() } else { backup() };
         assert_eq!(
             fs::read(f.config.join(LIVE[0])).unwrap(),
