@@ -193,8 +193,11 @@ the change.
 - Use narrow `dev/<topic>` branches and PRs; optional kind prefixes are
   `dev/fix/<topic>` and `dev/docs/<topic>`. Temporary `beta/<version>` development
   assemblies and `rc/<version>` release candidates follow the canonical
-  workflow; `rc/0.9.6` is scope-frozen pending acceptance, while the current
-  accepted candidate is `rc/0.9.5`. Preserve `rc/0.9.0` as
+  workflow; current assembly is `beta/0.9.8` from internal `rc/0.9.7`.
+  The publicly accepted artifact baseline remains `rc/0.9.5`. Internal source
+  freeze follows the declared risk-based checks; public provisioning gates do
+  not repeat at every internal version. Installed private-restore integration
+  is still necessary. Preserve `rc/0.9.0` as
   superseded acceptance history, without rewriting its branch or public assets.
   Do not rename active/evidence branches just
   for cosmetics or commit implementation work directly to `main`.

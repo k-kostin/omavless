@@ -1,8 +1,9 @@
 # Native release, beta and RC preparation
 
-Current release-candidate source version: **0.9.7-rc.1**, not stable or marketplace-ready.
-Its scope and remaining gates are in [the 0.9.7 RC ledger](../../docs/development/RC_097.md).
-Its package pins are empty; do not relabel 0.9.5 assets. See the
+Current assembly source version: **0.9.8-beta.1**, not stable or marketplace-ready.
+The [0.9.8 selection](../../docs/development/BETA_098.md) retains the 0.9.7
+maintenance source and defers T4 selection until its latest owning checkpoint
+is reviewed. Package pins are empty; do not relabel 0.9.5 assets. See the
 [RC scope and remaining gates](../../docs/development/RC_096.md) and its
 [beta selection](../../docs/development/BETA_096.md).
 

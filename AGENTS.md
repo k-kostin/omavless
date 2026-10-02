@@ -29,12 +29,14 @@ not replaced by this short entry point.
   follow the separate [procedure](docs/testing/HOST_AUTHORIZATION_ACCEPTANCE.md).
 - New task branches use `dev/<topic>`; temporary development assemblies use
   `beta/<version>`, and scope-frozen release candidates use `rc/<version>`.
-  `rc/0.9.6` is a scope-frozen, not-yet-accepted successor.
-  Current accepted candidate is `rc/0.9.5`; preserve `rc/0.9.0` and its assets as
+  Current assembly is `beta/0.9.8`, based on the internal `rc/0.9.7` source
+  checkpoint. Publicly accepted artifact baseline is `rc/0.9.5`; preserve `rc/0.9.0` and its assets as
   superseded acceptance history. Beta/task branches are not release readiness. No permanent
   develop/beta/rc lane or direct implementation on main.
   `main` is the stable release snapshot, including its documentation. Keep
   ongoing decisions/status in issues, PRs and the next candidate's docs.
+  Internal RC freeze uses declared risk-based gates, not repeated public
+  provisioning per version; private restore still needs installed integration.
 - Merge and release/marketplace publication need their own applicable owner
   authorization; a green test or a cleanup task is not that authorization.
   This includes documentation-only merges: the former standing authorization
