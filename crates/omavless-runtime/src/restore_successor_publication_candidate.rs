@@ -7,7 +7,9 @@
 use crate::backup_source_candidate::open_private_directory;
 use crate::cutover::{CutoverPaths, MigrationLock};
 use crate::restore_cleanup_candidate::{inspect_completion_record, read_optional};
-use crate::restore_closure_model::{CLOSURE_MEMBER, ClosureRecord, RECORD_BYTES as CLOSURE_BYTES};
+use crate::restore_closure_model::{
+    CLOSURE_MEMBER, ClosureRecord, NEXT_CLOSURE_MEMBER, RECORD_BYTES as CLOSURE_BYTES,
+};
 use crate::restore_decision_candidate::DecisionRecord;
 use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
 use crate::restore_journal_candidate::read_desired_for_decision;
@@ -101,6 +103,7 @@ impl Context<'_> {
         // The older inspector intentionally allows a finalization receipt.
         // This publisher requires completion-only, not that dual-fence state.
         for name in [
+            NEXT_CLOSURE_MEMBER,
             RECEIPT_MEMBER,
             PENDING_DIRECTORY,
             "restore-decision.intent",
@@ -192,6 +195,9 @@ fn publish_with_hook(
     let predecessor =
         inspect_completion_record(config, paths, uid, generation, lock).map_err(|_| REFUSE)?;
     let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
+    // Completion inspection predates the rotation slot. Its presence always
+    // fences a new successor, even if canonical C1 and the live pair match.
+    absent(&state, NEXT_CLOSURE_MEMBER)?;
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
     let (_, predecessor_identity) = read_optional(&state, CLOSURE_MEMBER, uid, CLOSURE_BYTES)
         .map_err(|_| REFUSE)?
@@ -284,18 +290,22 @@ fn publish_with_hook(
         {
             return Err(REFUSE);
         }
+        context.check(false)?;
         file.write_all(&handoff.encode()).map_err(|_| REFUSE)?;
         if !hook(Checkpoint::Written) {
             return Err(REFUSE);
         }
+        context.check(false)?;
         file.sync_all().map_err(|_| REFUSE)?;
         if !hook(Checkpoint::FileSynced) {
             return Err(REFUSE);
         }
+        context.check(false)?;
         context.state.sync_all().map_err(|_| REFUSE)?;
         if !hook(Checkpoint::DirectorySynced) {
             return Err(REFUSE);
         }
+        context.check(false)?;
         let durable = file.metadata().map_err(|_| REFUSE)?;
         let verify = || -> Result<()> {
             let (raw, identity) =
@@ -639,6 +649,114 @@ pub(crate) mod tests {
             );
             assert_eq!(result, Err(PublicationError::Ambiguous));
         }
+    }
+
+    #[test]
+    fn any_next_entry_refuses_successor_publication_before_creation() {
+        for kind in 0..4 {
+            let f = Fixture::new();
+            let lock = f.lock();
+            let prior = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+            let next = f.paths.state_directory.join(NEXT_CLOSURE_MEMBER);
+            match kind {
+                0 => member(&next, &prior),
+                1 => member(&next, b"torn"),
+                2 => symlink(f.root.join("missing"), &next).unwrap(),
+                3 => {
+                    fs::create_dir(&next).unwrap();
+                    fs::set_permissions(&next, fs::Permissions::from_mode(0o700)).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                publish_successor_handoff(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    [2; 16],
+                    || true
+                ),
+                Err(PublicationError::Admission)
+            );
+            assert!(!f.paths.state_directory.join(SUCCESSOR_MEMBER).exists());
+            assert_eq!(
+                fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap(),
+                prior
+            );
+        }
+    }
+    #[test]
+    fn late_next_reappearance_stops_every_publication_checkpoint_without_removing_fences() {
+        for stopped in 0..5 {
+            let f = Fixture::new();
+            let lock = f.lock();
+            let mut index = 0;
+            let prior = fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+            let identity = fs::metadata(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+            let result = publish_with_hook(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                backup(),
+                [2; 16],
+                || true,
+                |_| {
+                    if index == stopped {
+                        member(&f.paths.state_directory.join(NEXT_CLOSURE_MEMBER), &prior);
+                    }
+                    index += 1;
+                    true
+                },
+            );
+            assert_eq!(result, Err(PublicationError::Ambiguous));
+            assert_eq!(index, stopped + 1);
+            assert!(f.paths.state_directory.join(SUCCESSOR_MEMBER).exists());
+            assert!(f.paths.state_directory.join(NEXT_CLOSURE_MEMBER).exists());
+            assert_eq!(
+                fs::read(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap(),
+                prior
+            );
+            assert!(same_member(
+                &identity,
+                &fs::metadata(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap()
+            ));
+            if stopped == 0 {
+                assert_eq!(
+                    fs::metadata(f.paths.state_directory.join(SUCCESSOR_MEMBER))
+                        .unwrap()
+                        .len(),
+                    0
+                );
+            }
+        }
+        let f = Fixture::new();
+        let lock = f.lock();
+        let mut calls = 0;
+        assert_eq!(
+            publish_successor_handoff(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                backup(),
+                [2; 16],
+                || {
+                    calls += 1;
+                    if calls == 2 {
+                        member(&f.paths.state_directory.join(NEXT_CLOSURE_MEMBER), b"late");
+                    }
+                    true
+                }
+            ),
+            Err(PublicationError::Admission)
+        );
+        assert!(!f.paths.state_directory.join(SUCCESSOR_MEMBER).exists());
     }
 
     #[test]

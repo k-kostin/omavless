@@ -3,6 +3,10 @@
 //! fences startup; this is neither third-cycle nor normal-owner admission.
 use super::*;
 
+#[cfg(all(test, target_os = "linux", target_env = "gnu"))]
+#[path = "restore_successor_cycle_acceptance.rs"]
+mod cycle_acceptance;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReceiptResult {
     ReceiptRetiredStillFenced,
@@ -181,7 +185,7 @@ mod tests {
     use crate::restore_successor_publication_candidate::tests::{Fixture, backup};
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
     use std::{fs, path::PathBuf, process::Command};
-    fn ready(commit: bool) -> (Fixture, MigrationLock) {
+    pub(super) fn ready(commit: bool) -> (Fixture, MigrationLock) {
         let (f, lock) = before_handoff(commit);
         retire_successor_handoff(&f.config, &f.paths, f.uid, 2, &lock, second(), || true).unwrap();
         (f, lock)

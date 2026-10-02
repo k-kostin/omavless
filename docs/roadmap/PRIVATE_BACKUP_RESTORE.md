@@ -1023,10 +1023,9 @@ phase, exact presence, bytes, inode metadata, directory identities and desired
 state; the reader performs no sync, unlink or repair. Canonical C1 remains the
 startup fence. A phase-specific H-then-R1-last writer, restart resynchronization,
 third-cycle admission and installed product acceptance are still separate gates.
-In particular, the earlier handoff publisher's completion inspection does not
-yet exclude the next-closure slot. Third-cycle admission must first harden that
-publisher's exact absence/pinned-source checks; this reader does not repair or
-authorize that earlier path.
+In particular, the older completion inspector does not itself exclude the
+next-closure slot. The separately described publisher hardening below supplies
+that exact absence/pinned-source gate; this reader does not authorize that path.
 
 ## Inactive handoff-only retirement
 
@@ -1079,3 +1078,30 @@ receipt/H/next/intent reappearance, and repeated real SIGKILL/reopen around the
 last unlink. They do not certify physical power loss. Third-cycle publisher
 next-slot hardening, reusable-name composition and installed normal-owner
 acceptance remain separate gates.
+
+## Inactive reusable-name three-cycle synthetic acceptance
+
+The handoff publisher now excludes every next-slot entry at initial admission
+and every source check, including after each create/write/file-sync/directory-
+sync checkpoint. A late next entry stops publication immediately and retains
+all fences; no old or foreign slot is deleted. Source pinning is rechecked at
+those boundaries as well. The prior operation's archive-specific final reader
+is deliberately not called with the newly selected successor archive.
+
+The composed synthetic fixture performs a real first stage/execution/receipt/
+closure, then a full second Commit or Abort through last-receipt retirement.
+Actual SIGKILL after the second last unlink and again during completion resync
+requires a new lease and fresh authenticated resynchronization. All four
+second/third Commit/Abort combinations then publish a fresh third handoff,
+prepare, execute/recover, publish receipt/next, clean, exchange and retire the
+displaced record, handoff and last receipt using the same fixed names. Final
+checks require the third transaction ID and recorded terminal choice, exact
+decided live bytes, all reserved transient-name absences and the third canonical
+completion still present. Reusing the predecessor transaction ID refuses before
+publication.
+
+This is inactive synthetic reusable-name/protocol acceptance, including repeated
+process-crash recovery. It is not installed normal-owner, reboot/power-cut,
+private provider, CLI/QML recovery UX or marketplace/release acceptance. The
+permanent canonical closure still fences normal startup. Abort archive re-supply
+and a separately reviewed product recovery owner remain explicit product gates.
