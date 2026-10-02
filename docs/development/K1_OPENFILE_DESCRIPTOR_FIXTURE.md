@@ -140,7 +140,10 @@ temporary `/run/systemd/system/` symlink in the dedicated KVM VM, starts it,
 waits for the fixed descriptor probe to exit successfully, then unloads the
 unit. The runner requires root, an explicit VM-only opt-in, a previously absent
 unit, a private root-owned staging directory, fixed probe/unit modes and the
-exact unit-file SHA256. It removes only its own fixed symlink and leaves the
+exact unit-file SHA256. Before start, it also rejects effective systemd
+drop-ins, extra dependencies or commands and an unexpected start executable;
+verifying the fragment alone would not exclude these additions. It removes
+only its own fixed symlink and leaves the
 probe staging files for the caller to remove. It does not enable a service or
 run the normal VPN/runtime, nftables, TUN or routing. An interrupted run
 requires verifying the exact unit and link state before a retry; it must not
@@ -151,11 +154,14 @@ The 2026-10-02 VM test of this candidate used systemd
 `36fe02473a34c4ef094bb6bdf2d7b15df30c60aeda745eab8ac81b99067fc728`;
 the unit SHA256 was
 `753c11ee3f6bbfb9f259097f6455ba9fb5d185045d94c6f6f2c937b496bca6ab`.
-The runner SHA256 was
-`36dea56a614134ed1bdfe18541d0c7a83e93f28232fff4ad0b4e3fcffc8213e1`.
+The revised runner SHA256 was
+`ab113a8d5addcea7f7cb80e2241f5387679cf291867f29eb8914d7ecf5d2b1e6`.
 The fixed unit returned `K1_OPENFILE_UNIT_VM_PASS`; afterward `LoadState` was
 `not-found` and the `/run` unit link, private staging directory and user
-transfer directory were absent. This is evidence of that exact temporary unit
+transfer directory were absent. A second run with the benign, unit-specific
+`omavless-k1-openfile-negative-dropin.conf` returned exit 2 before the probe
+started; its temporary unit link and the drop-in were removed, and `LoadState`
+again became `not-found`. This is evidence of that exact temporary unit
 launch, not of an installed root NetGuard service or K1 readiness. Kernel
 namespace type/ID, socket namespace cookie, canonical system-manager
 provenance, switch-and-return prevention and nft ownership remain open.

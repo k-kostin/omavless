@@ -44,6 +44,18 @@ owned=1
 systemctl daemon-reload
 [[ $(systemctl show "$unit" -p LoadState --value) == loaded ]] || exit 2
 [[ $(systemctl show "$unit" -p FragmentPath --value) == "$linked_unit" ]] || exit 2
+# A verified fragment alone is insufficient: manager-wide/hierarchical drop-ins
+# or .wants/.requires links can add privileged commands or other units.
+[[ -z $(systemctl show "$unit" -p DropInPaths --value) ]] || exit 2
+[[ $(systemctl show "$unit" -p Requires --value) == 'sysinit.target system.slice' ]] || exit 2
+[[ $(systemctl show "$unit" -p Conflicts --value) == shutdown.target ]] || exit 2
+expected_exec="{ path=$probe ; argv[]=$probe ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+[[ $(systemctl show "$unit" -p ExecStart --value) == "$expected_exec" ]] || exit 2
+for property in DropInPaths Wants BindsTo PartOf Upholds OnFailure OnSuccess \
+    TriggeredBy Requisite PropagatesStopTo StopPropagatedFrom \
+    ExecCondition ExecStartPre ExecStartPost ExecReload ExecStop ExecStopPost; do
+    [[ -z $(systemctl show "$unit" -p "$property" --value) ]] || exit 2
+done
 systemctl start "$unit"
 
 # A successful systemctl start may precede the short-lived probe's exit.
@@ -58,7 +70,7 @@ done
 
 systemctl reset-failed "$unit" >/dev/null 2>&1 || true
 unlink "$linked_unit"
-owned=0
 systemctl daemon-reload
 [[ $(systemctl show "$unit" -p LoadState --value 2>/dev/null || true) == not-found ]] || exit 2
+owned=0
 printf 'K1_OPENFILE_UNIT_VM_PASS\n'

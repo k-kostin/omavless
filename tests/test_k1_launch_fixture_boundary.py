@@ -12,6 +12,8 @@ FIXTURE = (ROOT / "crates/omavless-netguard/tests/fixtures/"
            "omavless-k1-openfile-fixture.service")
 UNIT_RUNNER = (ROOT / "crates/omavless-netguard/tests/support/"
                "openfile_unit_vm_fixture.sh")
+NEGATIVE_DROPIN = (ROOT / "crates/omavless-netguard/tests/fixtures/"
+                   "omavless-k1-openfile-negative-dropin.conf")
 
 
 class K1LaunchFixtureBoundaryTests(unittest.TestCase):
@@ -21,11 +23,22 @@ class K1LaunchFixtureBoundaryTests(unittest.TestCase):
         self.assertIn(f"expected_unit_sha={digest}", source)
         self.assertIn("systemd-detect-virt --vm", source)
         self.assertIn("OMAVLESS_K1_OPENFILE_UNIT_VM", source)
+        self.assertIn("-p DropInPaths", source)
+        self.assertIn("-p Requires", source)
+        self.assertIn("-p ExecStart", source)
+        self.assertIn("for property in DropInPaths Wants", source)
         self.assertIn("ln -s \"$source_unit\" \"$linked_unit\"", source)
         self.assertIn("unlink \"$linked_unit\"", source)
         self.assertNotIn("nft ", source)
         self.assertEqual(subprocess.run(["bash", "-n", str(UNIT_RUNNER)],
                                         capture_output=True, text=True).returncode, 0)
+
+    def test_negative_dropin_has_no_effect_except_extra_environment(self):
+        self.assertEqual(NEGATIVE_DROPIN.read_text(),
+                         "# SPDX-License-Identifier: MIT\n"
+                         "# Benign VM-only negative case: runner must refuse any effective drop-in.\n"
+                         "[Service]\n"
+                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n")
 
     def test_fixture_has_only_fixed_bounded_descriptor_inspection(self):
         # Exact allowlist: duplicate/unknown directives, activation sections,
