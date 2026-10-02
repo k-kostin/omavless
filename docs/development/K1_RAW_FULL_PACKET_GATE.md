@@ -42,3 +42,22 @@ Even a green exact-head result would prove only these fixed synthetic vectors,
 not actual TUN ownership, comprehensive core marks, DHCP/ND client behavior,
 physical NIC/boot/suspend or K1 product readiness. FullVpn ACK validation remains
 a test-only collector until its separate bounded Rust transcript candidate.
+
+## Exact isolated result
+
+On 2026-10-02 code head `18f7387e4a369e1896800fc3446da2971f5609db` passed
+the complete baseline/FullVpn/interface sequence in the dedicated x86_64
+Omarchy Dev KVM (kernel `7.2.5-3-omarchy`, nftables `1:1.1.7-3`, Omarchy
+`4.0.4-1`). The exact transferred executable SHA256 was
+`82d43c605b2390dbcd9e4eaf9976c6ae11da0494642b262d02e504bb62663f33`, verified
+before and after execution. The ignored test printed `K1_RAW_PACKET_PASS` and
+completed in 6.63 seconds. All 53 vectors were positively controlled before
+policy, checked under raw FullVpn, and admitted by the same-index TUN-name
+predicate, with IPv4/IPv6 loopback retained. The exact staged executable and
+empty scratch directory were removed; child namespace exit reclaimed both
+veth endpoints and the table. No PC or VM primary network/VPN changed.
+
+The standard `tests/run-rust.sh` gate passed with `RUST_TEST_THREADS=1` and
+`TMPDIR=/tmp`, keeping Cargo output under home; `tests/run.sh` also passed
+(318 Python cases, two skipped, JS/QML contracts). These results do not widen
+the mechanism, protocol or physical-host limitations stated above.
