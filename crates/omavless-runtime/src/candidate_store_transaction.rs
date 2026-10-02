@@ -9,10 +9,13 @@
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::private_store_transaction::{
     PreparedPrivateStoreWrite, PreparedWrite, PrivateStoreWriteError, prepare_private_store_write,
+    validate_store_path,
 };
 use omavless_domain::private_store::{
-    CandidatePrivateStore, PrivateStoreError, parse_candidate_private_store,
+    CandidatePrivateStore, CandidateProfileEditInput, CandidateProfileExport, PrivateStoreError,
+    parse_candidate_private_store,
 };
+use omavless_store::read_private_utf8;
 use std::fmt;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -145,6 +148,67 @@ where
     })
 }
 
+fn read_candidate_locked<T>(
+    store_path: &Path,
+    uid: u32,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
+    generation: u64,
+    project: impl FnOnce(&CandidatePrivateStore) -> Result<T, PrivateStoreError>,
+) -> Result<T, CandidateStoreWriteError> {
+    authorize(lock, paths, uid, generation)?;
+    validate_store_path(store_path, uid).map_err(CandidateStoreWriteError::Write)?;
+    let source = read_private_utf8(store_path, uid)
+        .map_err(|_| CandidateStoreWriteError::Write(PrivateStoreWriteError::StoreIo))?;
+    let candidate = parse_candidate_private_store(&source).map_err(|error| {
+        CandidateStoreWriteError::Write(PrivateStoreWriteError::Mutation(error))
+    })?;
+    let result = project(&candidate).map_err(|error| {
+        CandidateStoreWriteError::Write(PrivateStoreWriteError::Mutation(error))
+    })?;
+    authorize(lock, paths, uid, generation)?;
+    validate_store_path(store_path, uid).map_err(CandidateStoreWriteError::Write)?;
+    let current = read_private_utf8(store_path, uid)
+        .map_err(|_| CandidateStoreWriteError::Write(PrivateStoreWriteError::StoreIo))?;
+    if current != source {
+        return Err(CandidateStoreWriteError::Write(
+            PrivateStoreWriteError::StoreChanged,
+        ));
+    }
+    Ok(result)
+}
+
+/// Inactive deliberate private native export from an already-v4 file. No
+/// registered client can call this; eventual same-user IPC authentication,
+/// explicit action and bounded credential framing remain required.
+pub fn read_candidate_native_export_locked(
+    store_path: &Path,
+    uid: u32,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
+    generation: u64,
+    profile_id: &str,
+) -> Result<CandidateProfileExport, CandidateStoreWriteError> {
+    read_candidate_locked(store_path, uid, lock, paths, generation, |candidate| {
+        candidate.export_private_native_credential(profile_id)
+    })
+}
+
+/// Inactive standalone editor seed under the same complete-file and exact
+/// owner checks as native export. Managed records cannot be edited.
+pub fn read_candidate_edit_input_locked(
+    store_path: &Path,
+    uid: u32,
+    lock: &MigrationLock,
+    paths: &CutoverPaths,
+    generation: u64,
+    profile_id: &str,
+) -> Result<CandidateProfileEditInput, CandidateStoreWriteError> {
+    read_candidate_locked(store_path, uid, lock, paths, generation, |candidate| {
+        candidate.private_edit_input(profile_id)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,7 +217,8 @@ mod tests {
     use omavless_profile::wireguard::parse_wireguard_config;
     use serde_json::json;
     use std::fs;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+    use std::io::Write as _;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
     use std::path::PathBuf;
 
     const ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -181,8 +246,16 @@ mod tests {
             )
             .unwrap();
         let store = root.join("profiles.json");
-        fs::write(&store, candidate.into_private_bytes().unwrap()).unwrap();
-        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&store)
+            .unwrap();
+        output
+            .write_all(&candidate.into_private_bytes().unwrap())
+            .unwrap();
+        drop(output);
         (root, store, paths, uid, lock)
     }
 
@@ -379,6 +452,139 @@ mod tests {
         );
         assert!(!paths.state_directory.exists());
         assert!(fs::read(&store).unwrap() == before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_private_editor_roundtrip_commits_and_restores_one_complete_file() {
+        let (root, store, paths, uid, lock) = fixture();
+        let uri_id = "00000000-0000-0000-0000-000000000002";
+        let source = fs::read_to_string(&store).unwrap();
+        let candidate = parse_candidate_private_store(&source).unwrap().with_profile(uri_id, "URI", CandidateProfileInput::Uri("vless://11111111-1111-4111-8111-111111111111@192.0.2.3:443?security=none&type=tcp".into())).unwrap();
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+        document["activeId"] = ID.into();
+        document["lastId"] = ID.into();
+        document["startup"] =
+            json!({"enabled":true,"target":"profile","profileId":ID,"mode":"rule"});
+        document["extension"] = json!({"preserve":true});
+        fs::write(&store, document.to_string()).unwrap();
+        let before = fs::read(&store).unwrap();
+        let inode = fs::metadata(&store).unwrap().ino();
+        let editor = read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID).unwrap();
+        assert!(editor.private_name() == "WG");
+        let export =
+            read_candidate_native_export_locked(&store, uid, &lock, &paths, 2, ID).unwrap();
+        assert!(
+            export.expose_private_bytes() == editor.private_credential().expose_private_bytes()
+        );
+        assert_eq!(fs::metadata(&store).unwrap().ino(), inode);
+        assert!(fs::read(&store).unwrap() == before);
+        let text = std::str::from_utf8(export.expose_private_bytes())
+            .unwrap()
+            .replace("10.8.0.2/32", "10.8.0.3/32");
+        let replacement = parse_wireguard_config(&text).unwrap();
+        let prepared = prepare_candidate_store_write(&store, uid, &lock, &paths, 2, |candidate| {
+            candidate.replace_standalone(
+                ID,
+                "Edited WG",
+                CandidateProfileInput::WireGuard(replacement),
+            )
+        })
+        .unwrap();
+        assert_eq!(prepared.commit_locked(&lock), Ok(PreparedWrite::Changed));
+        let after: serde_json::Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        assert!(after["profiles"][1] == document["profiles"][1]);
+        for field in ["activeId", "lastId", "startup", "extension"] {
+            assert!(after[field] == document[field]);
+        }
+        let edited = read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID).unwrap();
+        assert!(edited.private_name() == "Edited WG");
+        let restored = parse_wireguard_config(
+            std::str::from_utf8(edited.private_credential().expose_private_bytes()).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            restored.subscription_identity()
+                != parse_wireguard_config(
+                    std::str::from_utf8(export.expose_private_bytes()).unwrap()
+                )
+                .unwrap()
+                .subscription_identity()
+        );
+        assert_eq!(prepared.restore_locked(&lock), Ok(PreparedWrite::Changed));
+        assert!(fs::read(&store).unwrap() == before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_private_reads_refuse_whole_store_errors_and_revoked_ownership() {
+        let (root, store, paths, uid, lock) = fixture();
+        let original = fs::read(&store).unwrap();
+        for phase in ["legacy", "cutoverPreparing", "rollbackPreparing"] {
+            set_marker(&paths, phase, 2);
+            assert!(matches!(
+                read_candidate_native_export_locked(&store, uid, &lock, &paths, 2, ID),
+                Err(CandidateStoreWriteError::OwnershipUnavailable)
+            ));
+            assert!(matches!(
+                read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID),
+                Err(CandidateStoreWriteError::OwnershipUnavailable)
+            ));
+        }
+        set_marker(&paths, "rust", 4);
+        assert!(read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID).is_err());
+        set_marker(&paths, "rust", 2);
+        let mut invalid: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        invalid["profiles"].as_array_mut().unwrap().push(json!({"id":"00000000-0000-0000-0000-000000000002","name":"Bad unrelated URI","uri":"invalid-private-input","protocol":"vless"}));
+        fs::write(&store, invalid.to_string()).unwrap();
+        assert!(read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID).is_err());
+        assert!(read_candidate_native_export_locked(&store, uid, &lock, &paths, 2, ID).is_err());
+        fs::write(&store, &original).unwrap();
+        assert!(
+            read_candidate_native_export_locked(
+                &store,
+                uid,
+                &lock,
+                &paths,
+                2,
+                "00000000-0000-0000-0000-000000000099"
+            )
+            .is_err()
+        );
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(read_candidate_edit_input_locked(&store, uid, &lock, &paths, 2, ID).is_err());
+        assert!(fs::read(&store).unwrap() == original);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_private_read_discards_projection_after_unexpected_file_or_owner_change() {
+        let (root, store, paths, uid, lock) = fixture();
+        let original = fs::read(&store).unwrap();
+        let result = read_candidate_locked(&store, uid, &lock, &paths, 2, |candidate| {
+            let export = candidate.export_private_native_credential(ID)?;
+            fs::write(&store, b"unrelated\n").unwrap();
+            Ok(export)
+        });
+        assert!(matches!(
+            result,
+            Err(CandidateStoreWriteError::Write(
+                PrivateStoreWriteError::StoreChanged
+            ))
+        ));
+        assert!(fs::read(&store).unwrap() == b"unrelated\n");
+        fs::write(&store, &original).unwrap();
+        let result = read_candidate_locked(&store, uid, &lock, &paths, 2, |candidate| {
+            let export = candidate.export_private_native_credential(ID)?;
+            set_marker(&paths, "rust", 4);
+            Ok(export)
+        });
+        assert!(matches!(
+            result,
+            Err(CandidateStoreWriteError::OwnershipUnavailable)
+        ));
+        assert!(fs::read(&store).unwrap() == original);
         fs::remove_dir_all(root).unwrap();
     }
 }
