@@ -1582,3 +1582,29 @@ The original initial-output resync remains unchanged. The result remains
 user-manager epoch, fixed installed-core validation, one-shot owner permit or
 ordinary startup exception. No normal pending predicate or product caller is
 relaxed by this candidate.
+
+### Inactive retained current-manager epoch and current-Off resync
+
+`dev/t4-current-epoch-resync` factors strict consumed-receipt identity from the
+ordinary login admission check without changing any normal pending guard. Its
+non-cloneable epoch proof uses the existing fixed package and system-manager
+checks, pins the original private receipt descriptor before reading, and
+brackets rechecks with fresh manager identity and package observations. Missing,
+unconsumed, old-manager or wrong-generation receipts refuse; this continuation
+does not mint a receipt for a new manager or login.
+
+The opaque current-Off witness retains the original complete snapshot before
+external epoch acquisition. It consumes that proof once under the same lease,
+rechecks receipt, manager, source and caller host gate around every durability
+checkpoint, and returns only `ResynchronizedStillFenced`. Receipt replacement,
+source drift, manager drift, gate loss and synthetic process death never remove
+the historical fence or construct a normal owner. Existing normal startup and
+current-receipt checks still reject the pending disposition.
+
+This closes a source-level same-manager proof prerequisite, not product
+admission. Installed positive package/manager acceptance, fixed rendered-core
+validation, complete host provenance and typed integration through every
+transaction/coordinator/effect guard remain outstanding. Cross-manager recovery
+also needs a separately authorized crash-safe fresh-receipt transition; an old
+receipt cannot attest the new manager. See the bounded
+[evidence and remaining gates](../development/T4_CURRENT_EPOCH_RESYNC.md).

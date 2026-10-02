@@ -519,14 +519,31 @@ fn run_resync_policy(
     generation: u64,
     lock: &MigrationLock,
     policy: LivePolicy,
-    mut gate: impl FnMut() -> bool,
-    mut hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
-    mut sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
+    gate: impl FnMut() -> bool,
+    hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
 ) -> Result<HistoricalResyncResult, ExecutionError> {
     // Capture the original source and path identities before the first host
     // callback. A later observation can reject drift, never redefine source.
     let original = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
-    let mut check = || recheck(&original, config, paths, uid, generation, lock, &mut gate);
+    sync_snapshot(
+        &original, config, paths, uid, generation, lock, gate, hook, sync,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sync_snapshot(
+    original: &Snapshot,
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    mut gate: impl FnMut() -> bool,
+    mut hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    mut sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    let mut check = || recheck(original, config, paths, uid, generation, lock, &mut gate);
     check()?;
     for (index, file) in original.member_handles.iter().enumerate() {
         sync(HistoricalSyncCheckpoint::File(index), file).map_err(|_| ExecutionError::Ambiguous)?;
@@ -560,6 +577,93 @@ fn run_resync_policy(
     Ok(HistoricalResyncResult::ResynchronizedStillFenced)
 }
 
+/// The retained sources predate epoch acquisition, including its external
+/// system-manager queries. No status enum can reconstruct this witness.
+struct RetainedCurrentOff<'a> {
+    original: Snapshot,
+    config: &'a Path,
+    paths: &'a CutoverPaths,
+    lock: &'a MigrationLock,
+    uid: u32,
+    generation: u64,
+}
+impl<'a> RetainedCurrentOff<'a> {
+    fn capture(
+        config: &'a Path,
+        paths: &'a CutoverPaths,
+        uid: u32,
+        generation: u64,
+        lock: &'a MigrationLock,
+    ) -> Result<Self, ExecutionError> {
+        Ok(Self {
+            original: Snapshot::read_policy(
+                config,
+                paths,
+                uid,
+                generation,
+                lock,
+                LivePolicy::ValidCurrentOff,
+            )?,
+            config,
+            paths,
+            lock,
+            uid,
+            generation,
+        })
+    }
+    fn consume(
+        self,
+        mut proof: crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
+        mut gate: impl FnMut() -> bool,
+        hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    ) -> Result<HistoricalResyncResult, ExecutionError> {
+        let mut fresh = || {
+            proof
+                .recheck(self.paths, self.uid, self.generation, self.lock)
+                .is_ok()
+                && gate()
+                && proof
+                    .recheck(self.paths, self.uid, self.generation, self.lock)
+                    .is_ok()
+        };
+        sync_snapshot(
+            &self.original,
+            self.config,
+            self.paths,
+            self.uid,
+            self.generation,
+            self.lock,
+            &mut fresh,
+            hook,
+            |_, file| file.sync_all(),
+        )
+    }
+}
+
+/// Inactive production-source composition, not normal-owner admission. The
+/// existing host gate remains a caller obligation; only epoch/package/receipt
+/// proof is concretely supplied here. No receipt is created or rewritten.
+#[allow(dead_code)]
+pub(crate) fn resync_current_epoch_off(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    let retained = RetainedCurrentOff::capture(config, paths, uid, generation, lock)?;
+    let proof = crate::login_activation::epoch_candidate::CurrentEpochProof::capture(
+        paths, uid, generation, lock,
+    )
+    .map_err(|_| REFUSE)?;
+    retained.consume(proof, gate, |_| true)
+}
+
+#[cfg(test)]
+#[path = "restore_current_epoch_tests.rs"]
+mod epoch_tests;
+
 #[cfg(test)]
 mod tests {
     use super::super::super::tests::published;
@@ -569,7 +673,7 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
     use std::{fs, path::PathBuf, process::Command};
 
-    fn prepared(
+    pub(super) fn prepared(
         commit: bool,
     ) -> (
         crate::restore_successor_publication_candidate::tests::Fixture,
@@ -580,7 +684,9 @@ mod tests {
         (f, lock)
     }
 
-    fn ordinary_edit(f: &crate::restore_successor_publication_candidate::tests::Fixture) {
+    pub(super) fn ordinary_edit(
+        f: &crate::restore_successor_publication_candidate::tests::Fixture,
+    ) {
         let path = f.config.join(LIVE[0]);
         let mut store: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
