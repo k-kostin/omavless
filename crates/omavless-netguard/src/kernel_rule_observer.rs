@@ -35,18 +35,19 @@ fn fixed_scoped_readback(deadline: Instant) -> Result<Vec<u8>> {
     let stdout = child.stdout.take().ok_or(REFUSE)?;
     // Reading in parallel avoids pipe back-pressure without `Command::output`'s
     // unbounded allocation. An oversized or hung child is killed, never parsed.
-    let reader = std::thread::spawn(move || {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stdout
+        let result = stdout
             .take((nft::MAX_READBACK_BYTES + 1) as u64)
             .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .map(|_| bytes);
+        let _ = sender.send(result);
     });
     let status = loop {
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = reader.join();
             return Err(REFUSE);
         }
         match child.try_wait() {
@@ -55,12 +56,17 @@ fn fixed_scoped_readback(deadline: Instant) -> Result<Vec<u8>> {
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = reader.join();
                 return Err(REFUSE);
             }
         }
     };
-    let bytes = reader.join().map_err(|_| REFUSE)?.map_err(|_| REFUSE)?;
+    // A child that exited after handing its stdout pipe to another process
+    // cannot strand the caller in `join`: the same deadline bounds EOF too.
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let bytes = receiver
+        .recv_timeout(remaining)
+        .map_err(|_| REFUSE)?
+        .map_err(|_| REFUSE)?;
     require(status.success() && !bytes.is_empty() && bytes.len() <= nft::MAX_READBACK_BYTES)?;
     Ok(bytes)
 }
