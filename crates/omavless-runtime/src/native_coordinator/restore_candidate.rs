@@ -12,6 +12,7 @@ use crate::backup_source_candidate::{PrivateSourcePair, capture_current_pair};
 use crate::desired::read_desired_snapshot;
 use crate::restore_staging_candidate::{StageError, stage_private_pair};
 use omavless_domain::private_backup::OpenedBackup;
+use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RestoreAdmissionError {
@@ -42,6 +43,7 @@ pub(crate) struct RestorePreview {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RestorePrepareError {
     Backup(ReadError),
+    ImportedStartup,
     Owner(RestoreAdmissionError),
     CurrentPairUnavailable,
 }
@@ -60,6 +62,7 @@ pub(crate) enum RestoreStageError {
 pub(crate) struct PreparedRestorePair {
     original: PrivateSourcePair,
     incoming: OpenedBackup,
+    restore_store: Zeroizing<Vec<u8>>,
     readiness: RestoreReadiness,
 }
 
@@ -74,7 +77,7 @@ impl PreparedRestorePair {
     }
 
     pub(crate) fn incoming_store(&self) -> &[u8] {
-        self.incoming.store()
+        &self.restore_store
     }
 
     pub(crate) fn incoming_template(&self) -> &[u8] {
@@ -157,6 +160,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         incoming: OpenedBackup,
         lock: &MigrationLock,
     ) -> Result<PreparedRestorePair, RestorePrepareError> {
+        let restore_store = incoming
+            .restore_store_off()
+            .map_err(|_| RestorePrepareError::ImportedStartup)?;
         let readiness = self
             .restore_readiness_locked(lock)
             .map_err(RestorePrepareError::Owner)?;
@@ -190,6 +196,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         Ok(PreparedRestorePair {
             original,
             incoming,
+            restore_store,
             readiness,
         })
     }

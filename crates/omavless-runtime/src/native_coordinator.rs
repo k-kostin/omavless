@@ -2721,6 +2721,67 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn inactive_restore_stages_imported_startup_off_before_decision_binding() {
+        let (root, store, mut owner) = private_support_fixture("restore-startup-off");
+        owner.host_mut().support_observation = Some(empty_local_observation());
+        let template_path = store.parent().unwrap().join("route-template.yaml");
+        fs::write(&template_path, b"synthetic old custom template\n").unwrap();
+        fs::set_permissions(&template_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut imported: serde_json::Value =
+            serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+        imported["routingPreset"] = "roscomvpn-default".into();
+        imported["startup"] = serde_json::json!({
+            "enabled": true, "target": "last", "profileId": "", "mode": "rule"
+        });
+        let imported = imported.to_string();
+        let backup = root.join("synthetic.ovb");
+        let passphrase = b"synthetic passphrase only";
+        fs::write(
+            &backup,
+            omavless_domain::private_backup::seal(
+                imported.as_bytes(),
+                include_bytes!("../../../templates/default.yaml"),
+                passphrase,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&backup, fs::Permissions::from_mode(0o600)).unwrap();
+        owner.stage_restore_candidate(&backup, passphrase).unwrap();
+        let stage = owner
+            .transaction
+            .desired_paths()
+            .directory
+            .join("restore-pair.pending");
+        let staged = fs::read(stage.join("new-profiles.json")).unwrap();
+        let staged_json: serde_json::Value = serde_json::from_slice(&staged).unwrap();
+        assert_eq!(staged_json["startup"]["enabled"], false);
+        assert_eq!(staged_json["startup"]["target"], "last");
+        let restored = omavless_domain::private_store::parse_private_store(
+            std::str::from_utf8(&staged).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            crate::login_intent::plan_login_intent(
+                crate::login_intent::LoginTrigger::FirstLogin,
+                &crate::desired::DesiredState::default(),
+                &restored,
+            ),
+            Ok(None),
+        );
+        assert_eq!(
+            staged_json["profiles"],
+            imported.parse::<serde_json::Value>().unwrap()["profiles"]
+        );
+        assert_eq!(
+            fs::read(&store).unwrap(),
+            fs::read(stage.join("old-profiles.json")).unwrap()
+        );
+        assert_eq!(owner.host_mut().calls, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn terminal_retirement_fixture(
         label: &str,
         aborted: bool,

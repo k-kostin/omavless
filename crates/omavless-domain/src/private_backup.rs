@@ -12,6 +12,7 @@ use chacha20poly1305::{
     KeyInit, XChaCha20Poly1305, XNonce,
     aead::{Aead, Payload},
 };
+use serde_json::Value;
 use zeroize::Zeroizing;
 
 const MAGIC: &[u8; 8] = b"OVBKUP01";
@@ -77,6 +78,31 @@ impl OpenedBackup {
 
     pub fn subscription_count(&self) -> usize {
         self.subscriptions
+    }
+
+    /// Construct the restore-specific store before staging or binding any
+    /// transaction digest. Portable startup preferences are readable backup
+    /// data, never authority to reconnect on the destination machine.
+    pub fn restore_store_off(&self) -> Result<Zeroizing<Vec<u8>>, BackupError> {
+        let mut document: Value =
+            serde_json::from_slice(self.store()).map_err(|_| BackupError::Unreadable)?;
+        let enabled = document
+            .get_mut("startup")
+            .and_then(Value::as_object_mut)
+            .and_then(|startup| startup.get_mut("enabled"))
+            .ok_or(BackupError::Unreadable)?;
+        if enabled == &Value::Bool(false) {
+            return Ok(Zeroizing::new(self.store().to_vec()));
+        }
+        if enabled != &Value::Bool(true) {
+            return Err(BackupError::Unreadable);
+        }
+        *enabled = Value::Bool(false);
+        let output =
+            Zeroizing::new(serde_json::to_vec(&document).map_err(|_| BackupError::Unreadable)?);
+        crate::private_store::backup_candidate::validate(&output)
+            .map_err(|_| BackupError::Unreadable)?;
+        Ok(output)
     }
 }
 
@@ -238,6 +264,51 @@ mod tests {
         assert_eq!(opened.template(), TEMPLATE);
         assert_eq!(opened.profile_count(), 0);
         assert_eq!(opened.subscription_count(), 0);
+    }
+
+    #[test]
+    fn restore_copy_disables_imported_last_and_pinned_startup_before_staging() {
+        const PROFILE: &str = "10000000-0000-4000-8000-000000000001";
+        for target in ["last", "profile"] {
+            let mut store: serde_json::Value = serde_json::from_slice(STORE).unwrap();
+            store["profiles"] = serde_json::json!([{
+                "id": PROFILE, "name": "Synthetic",
+                "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic",
+                "protocol": "vless", "favorite": false
+            }]);
+            store["activeId"] = PROFILE.into();
+            store["lastId"] = PROFILE.into();
+            store["startup"] = serde_json::json!({
+                "enabled": true, "target": target,
+                "profileId": if target == "profile" { PROFILE } else { "" },
+                "mode": "rule"
+            });
+            let input = store.to_string();
+            crate::private_store::parse_private_store(&input)
+                .expect("synthetic fixture must satisfy ordinary store semantics");
+            assert!(
+                crate::private_store::backup_candidate::validate(input.as_bytes()).is_ok(),
+                "synthetic fixture must satisfy strict backup admission"
+            );
+            let encrypted = seal(input.as_bytes(), TEMPLATE, PASSPHRASE).unwrap();
+            let opened = open(&encrypted, PASSPHRASE).unwrap();
+            assert_eq!(opened.store(), input.as_bytes());
+            let restored = opened.restore_store_off().unwrap();
+            let output: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+            assert_eq!(output["startup"]["enabled"], false);
+            assert_eq!(output["startup"]["target"], target);
+            assert_eq!(
+                output["startup"]["profileId"],
+                store["startup"]["profileId"]
+            );
+            assert_eq!(output["profiles"], store["profiles"]);
+            assert_eq!(output["subscriptions"], store["subscriptions"]);
+            assert_eq!(output["lastId"], store["lastId"]);
+            assert_eq!(output["activeId"], store["activeId"]);
+        }
+        let encrypted = seal(STORE, TEMPLATE, PASSPHRASE).unwrap();
+        let opened = open(&encrypted, PASSPHRASE).unwrap();
+        assert_eq!(opened.restore_store_off().unwrap().as_slice(), STORE);
     }
 
     #[test]
