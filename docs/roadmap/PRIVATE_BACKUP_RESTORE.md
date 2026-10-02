@@ -1149,3 +1149,28 @@ gates remain necessary; cooperating processes must not delete or replace an
 active lease. Missing `/run` recovery construction, reboot/epoch provenance and
 normal-owner startup remain separate gates. Package units specify private runtime
 directories and `UMask=0077`; the accepted runtime parent is exactly mode 0700.
+
+## Inactive lost-lease final-closure diagnostic
+
+The separate missing-name adapter requires fixed paths, preliminary Rust/Off
+state and a valid canonical closure, then exclusively creates an absent fixed
+lock within an already-existing private runtime directory. Any existing name,
+including a safe unlocked 0600 file, refuses: this is not an unchecked retry or
+legacy permission migration. It passes the same newly held lease directly into
+the authenticated final-review boundary with two empty-owned-host observations
+and exact source/owner/desired/login/lock snapshots; it never drops and reacquires
+between creation and review.
+
+Only the inert lock file may be created. Failure after creation retains that
+file and every restore fence; re-entry must deliberately use existing-only
+review. There is no runtime-directory creation, source repair, effect-capability
+return, C1 removal, normal-owner construction or product caller. A returned phase
+is informational, never a grant for later mutation. Archive re-supply and the
+post-H output-only lineage limitation are unchanged.
+
+Synthetic checks cover every final phase and Commit/Abort, existing/unsafe/raced
+names, missing runtime parent, old held-inode invalidation, unchanged source bytes
+and inodes, late closure substitution under the same flock, and actual SIGKILL
+after lock creation followed by existing-only re-entry. A fixture recreates its
+own volatile directory to model missing runtime state; that is not an actual
+reboot, user-manager epoch proof, old-process-death proof or power-loss acceptance.

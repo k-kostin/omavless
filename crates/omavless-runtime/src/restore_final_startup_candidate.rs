@@ -86,13 +86,85 @@ impl Boundary {
 impl<H: LifecycleHost> ProductionNativeOwner<H> {
     #[allow(dead_code)]
     pub(crate) fn review_final_restore_startup(
-        mut host: H,
+        host: H,
         desired_paths: DesiredPaths,
         store_path: &Path,
         paths: CutoverPaths,
         uid: u32,
         backup: &OpenedBackup,
     ) -> Result<FinalPhase, ProductionOwnerError> {
+        Self::validate_review_paths(&desired_paths, store_path, &paths, uid)?;
+        let lock_identity = std::fs::symlink_metadata(&paths.operation_lock)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        let lock = MigrationLock::acquire_existing(&paths, uid).map_err(lock_error)?;
+        Self::review_final_restore_locked(
+            host,
+            desired_paths,
+            store_path,
+            paths,
+            uid,
+            backup,
+            lock,
+            lock_identity,
+        )
+    }
+
+    /// Inactive lost-name diagnostic. Only an inert fixed lock may be created.
+    /// The existing runtime parent must already be private; no state directory,
+    /// owner, desired, login, live pair or restore evidence is repaired/retired.
+    #[allow(dead_code)]
+    pub(crate) fn review_lost_lease_final_restore_startup(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        paths: CutoverPaths,
+        uid: u32,
+        backup: &OpenedBackup,
+    ) -> Result<FinalPhase, ProductionOwnerError> {
+        Self::validate_review_paths(&desired_paths, store_path, &paths, uid)?;
+        let marker = read_marker_existing(&paths, uid).map_err(|_| REFUSE)?;
+        if marker.phase() != OwnershipPhase::Rust
+            || read_desired_snapshot(&desired_paths, uid)
+                .map_err(|_| REFUSE)?
+                .connected
+        {
+            return Err(REFUSE);
+        }
+        // Preliminary existence is never authority: the complete authenticated
+        // reader repeats all phase/output/owner proofs under the newly held lease.
+        let state =
+            crate::backup_source_candidate::open_private_directory(&paths.state_directory, uid)
+                .map_err(|_| REFUSE)?;
+        let closure = read_optional(
+            &state,
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            uid,
+            crate::restore_closure_model::RECORD_BYTES,
+        )
+        .map_err(|_| REFUSE)?
+        .ok_or(REFUSE)?;
+        crate::restore_closure_model::ClosureRecord::decode(&closure.0).map_err(|_| REFUSE)?;
+        let lock = MigrationLock::acquire_absent(&paths, uid).map_err(lock_error)?;
+        let lock_identity = std::fs::symlink_metadata(&paths.operation_lock).map_err(|_| REFUSE)?;
+        // No drop/reacquire window: this exact new flock spans both observations.
+        Self::review_final_restore_locked(
+            host,
+            desired_paths,
+            store_path,
+            paths,
+            uid,
+            backup,
+            lock,
+            lock_identity,
+        )
+    }
+
+    fn validate_review_paths(
+        desired_paths: &DesiredPaths,
+        store_path: &Path,
+        paths: &CutoverPaths,
+        uid: u32,
+    ) -> Result<(), ProductionOwnerError> {
         if desired_paths.directory != paths.state_directory
             || desired_paths.file != paths.state_directory.join("desired.json")
             || paths.ownership_marker != paths.state_directory.join(OWNERSHIP_MARKER_NAME)
@@ -100,13 +172,28 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         {
             return Err(REFUSE);
         }
-        let config = store_path
+        store_path
             .parent()
             .filter(|_| store_path.file_name().is_some_and(|n| n == "profiles.json"))
             .ok_or(REFUSE)?;
-        let lock_identity = std::fs::symlink_metadata(&paths.operation_lock)
-            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
-        let lock = MigrationLock::acquire_existing(&paths, uid).map_err(lock_error)?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn review_final_restore_locked(
+        mut host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        paths: CutoverPaths,
+        uid: u32,
+        backup: &OpenedBackup,
+        lock: MigrationLock,
+        lock_identity: Metadata,
+    ) -> Result<FinalPhase, ProductionOwnerError> {
+        let config = store_path.parent().ok_or(REFUSE)?;
+        if !lock.authorizes(&paths, uid) {
+            return Err(REFUSE);
+        }
         let marker = read_marker_existing(&paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
         if marker.phase() != OwnershipPhase::Rust {
@@ -276,6 +363,209 @@ mod tests {
     fn private(path: &Path, bytes: &[u8]) {
         fs::write(path, bytes).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn lost_review(
+        f: &Fixture,
+        host: Host,
+        archive: &OpenedBackup,
+    ) -> Result<FinalPhase, ProductionOwnerError> {
+        ProductionNativeOwner::review_lost_lease_final_restore_startup(
+            host,
+            desired(f),
+            &f.config.join("profiles.json"),
+            f.paths.clone(),
+            f.uid,
+            archive,
+        )
+    }
+
+    fn source_snapshot(f: &Fixture) -> Vec<(std::path::PathBuf, Vec<u8>, Metadata)> {
+        let mut values = Vec::new();
+        for dir in [&f.paths.state_directory, &f.config] {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                values.push((
+                    path.clone(),
+                    fs::read(&path).unwrap(),
+                    fs::symlink_metadata(path).unwrap(),
+                ));
+            }
+        }
+        values.sort_by(|a, b| a.0.cmp(&b.0));
+        values
+    }
+    fn unchanged(f: &Fixture, before: &[(std::path::PathBuf, Vec<u8>, Metadata)]) {
+        let now = source_snapshot(f);
+        assert_eq!(before.len(), now.len());
+        for (a, b) in before.iter().zip(&now) {
+            assert_eq!(a.0, b.0);
+            assert_eq!(a.1, b.1);
+            assert!(same_member(&a.2, &b.2));
+        }
+    }
+
+    #[test]
+    fn lost_lease_review_creates_only_lock_and_keeps_every_phase_fenced() {
+        for commit in [false, true] {
+            for (phase, expected) in [
+                FinalPhase::BeforeHandoffRetirement,
+                FinalPhase::HandoffAbsentReceiptPresent,
+                FinalPhase::HandoffAbsentReceiptAbsent,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let f = ready(commit, phase);
+                let before = source_snapshot(&f);
+                fs::remove_file(&f.paths.operation_lock).unwrap();
+                let h = host();
+                let calls = h.calls.clone();
+                assert_eq!(lost_review(&f, h, second()), Ok(expected));
+                assert_eq!(calls.get(), 2);
+                assert_eq!(
+                    fs::metadata(&f.paths.operation_lock).unwrap().mode() & 0o7777,
+                    0o600
+                );
+                unchanged(&f, &before);
+                assert!(lost_review(&f, host(), second()).is_err());
+                assert_eq!(review(&f, host(), second()), Ok(expected));
+                assert!(matches!(
+                    ProductionNativeOwner::initialize(
+                        host(),
+                        desired(&f),
+                        &f.config.join("profiles.json"),
+                        f.paths.clone(),
+                        f.uid
+                    ),
+                    Err(ProductionOwnerError::ManualRecoveryRequired)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn lost_lease_review_requires_existing_parent_and_stales_old_held_inode() {
+        let f = ready(false, 2);
+        let old = MigrationLock::acquire_existing(&f.paths, f.uid).unwrap();
+        let before = source_snapshot(&f);
+        let saved = f.root.join("runtime-saved");
+        fs::rename(&f.paths.runtime_base, &saved).unwrap();
+        assert!(lost_review(&f, host(), second()).is_err());
+        assert!(!f.paths.runtime_base.exists());
+        // Fixture-only simulation of a user manager recreating volatile space;
+        // no reboot/epoch or old-process-death proof is inferred from this.
+        fs::create_dir(&f.paths.runtime_base).unwrap();
+        fs::set_permissions(&f.paths.runtime_base, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            lost_review(&f, host(), second()),
+            Ok(FinalPhase::HandoffAbsentReceiptAbsent)
+        );
+        assert!(!old.authorizes(&f.paths, f.uid));
+        unchanged(&f, &before);
+    }
+
+    #[test]
+    fn lost_lease_review_failure_retains_inert_lock_without_repair_or_authority() {
+        for wrong_archive in [false, true] {
+            let f = ready(false, 2);
+            fs::remove_file(&f.paths.operation_lock).unwrap();
+            let before = source_snapshot(&f);
+            let mut h = host();
+            h.owned = !wrong_archive;
+            assert_eq!(
+                lost_review(&f, h, if wrong_archive { backup() } else { second() }),
+                Err(REFUSE)
+            );
+            assert!(f.paths.operation_lock.is_file());
+            unchanged(&f, &before);
+            assert!(lost_review(&f, host(), second()).is_err());
+            assert_eq!(
+                review(&f, host(), second()),
+                Ok(FinalPhase::HandoffAbsentReceiptAbsent)
+            );
+        }
+        let f = ready(true, 2);
+        let before = source_snapshot(&f);
+        fs::set_permissions(&f.paths.operation_lock, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(lost_review(&f, host(), second()).is_err());
+        assert_eq!(
+            fs::metadata(&f.paths.operation_lock).unwrap().mode() & 0o7777,
+            0o644
+        );
+        unchanged(&f, &before);
+    }
+
+    #[test]
+    fn lost_lease_review_late_substitution_refuses_under_same_new_flock() {
+        let f = ready(true, 2);
+        fs::remove_file(&f.paths.operation_lock).unwrap();
+        let paths = f.paths.clone();
+        let uid = f.uid;
+        let mut h = host();
+        h.action = Box::new(move |n| {
+            assert!(matches!(
+                MigrationLock::acquire_existing(&paths, uid),
+                Err(crate::cutover::CutoverError::Busy)
+            ));
+            if n == 2 {
+                let c = paths
+                    .state_directory
+                    .join(crate::restore_closure_model::CLOSURE_MEMBER);
+                let bytes = fs::read(&c).unwrap();
+                let replacement = c.with_extension("replacement");
+                private(&replacement, &bytes);
+                fs::rename(replacement, c).unwrap();
+            }
+        });
+        assert_eq!(lost_review(&f, h, second()), Err(REFUSE));
+    }
+
+    const LOST_WORKER: &str =
+        "production_owner::final_restore_review::tests::lost_lease_crash_worker";
+    #[test]
+    #[ignore = "internal synthetic lost-lease process-death worker"]
+    fn lost_lease_crash_worker() {
+        let f = Fixture::reopen(
+            std::env::var_os("OMAVLESS_T4_LOST_LEASE_ROOT")
+                .unwrap()
+                .into(),
+        );
+        let mut h = host();
+        h.action = Box::new(|n| {
+            if n == 1 {
+                nix::sys::signal::kill(nix::unistd::Pid::this(), nix::sys::signal::Signal::SIGKILL)
+                    .unwrap();
+                panic!("SIGKILL returned");
+            }
+        });
+        let _ = lost_review(&f, h, second());
+        panic!("worker did not reach post-create observation");
+    }
+    #[test]
+    fn lost_lease_review_process_death_reenters_existing_only_without_source_changes() {
+        use std::os::unix::process::ExitStatusExt;
+        for commit in [false, true] {
+            let f = ready(commit, 2);
+            fs::remove_file(&f.paths.operation_lock).unwrap();
+            let before = source_snapshot(&f);
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", LOST_WORKER, "--ignored"])
+                .env("OMAVLESS_T4_LOST_LEASE_ROOT", &f.root)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert_eq!(status.signal(), Some(9));
+            assert!(f.paths.operation_lock.is_file());
+            unchanged(&f, &before);
+            assert!(lost_review(&f, host(), second()).is_err());
+            assert_eq!(
+                review(&f, host(), second()),
+                Ok(FinalPhase::HandoffAbsentReceiptAbsent)
+            );
+            unchanged(&f, &before);
+        }
     }
     #[test]
     fn final_startup_review_is_read_only_diagnostic_for_all_phases() {
