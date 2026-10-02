@@ -6,7 +6,9 @@ This compiles only a disposable core, not a broker/package/release. No installed
 core, DNS, TUN, runtime, provider or credentials are accessed or modified.
 """
 import argparse
+from collections import Counter
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -26,6 +28,21 @@ MAX_ARCHIVE = 128 * 1024 * 1024
 MAX_PATCH = 1024 * 1024
 SOCKET_TEST_PATCH = Path(__file__).with_name("mihomo-dns-test-sockets.patch")
 SOCKET_TEST_SHA256 = "38eeedf8ac00cf387138a50107f87a392f17ef65607710a3cc6e34d320e0c169"
+CONDITIONAL_TESTS = (
+    "TestConditionalCloseExplicitReadiness", "TestConditionalCloseStrictRequest",
+    "TestConditionalCloseReusedID", "TestConditionalCloseCannotReenroll",
+    "TestConditionalCloseDelayedLeave", "TestConditionalCloseConcurrentConfirm",
+    "TestConditionalCloseExhaustionAndFailure",
+)
+DNS_TESTS = (
+    "TestSystemDNSOption", "TestSystemDNSBrokerReadyCannotBeConfigured",
+    "TestSystemDNSBrokerFixedVirtualResolver", "TestSystemDNSOwnershipChangeRequiresTunReplacement",
+    "TestSystemDNSBrokerRefusesPolicyBeforeDeviceAccess", "TestSystemDNSBrokerRejectsUnsolicitedCompletionAndJoins",
+    "TestSystemDNSBrokerAcquireRelease", "TestSystemDNSBrokerRejectsMalformedReplies",
+    "TestSystemDNSBrokerRequiresExpectedPeer", "TestSystemDNSBrokerLossInvalidatesReady",
+    "TestSystemDNSBrokerRefusesUnexpectedRights",
+)
+DNS_INTEROP_SKIP = "TestSystemDNSRustChannelInterop"
 
 
 def git_environment():
@@ -89,6 +106,26 @@ def apply(path, patch, *, reverse=False):
                     *arguments, str(patch)], cwd=path, env=git_environment())
 
 
+def matrix_receipt(raw, tests, skips=()):
+    passed, skipped = Counter(), Counter()
+    try:
+        for line in raw.splitlines():
+            event = json.loads(line)
+            if not isinstance(event, dict) or event.get("Action") == "fail":
+                raise ValueError("Invalid Go matrix receipt")
+            name = event.get("Test")
+            if not isinstance(name, str) or "/" in name:
+                continue
+            if event.get("Action") == "pass":
+                passed[name] += 1
+            if event.get("Action") == "skip":
+                skipped[name] += 1
+    except (ValueError, TypeError):
+        raise RuntimeError("Composition test execution receipt refused") from None
+    if passed != Counter({name: 20 for name in tests}) or skipped != Counter({name: 20 for name in skips}):
+        raise RuntimeError("Composition test execution receipt refused")
+
+
 def exercise(mihomo, sing_tun, repository, scratch):
     validate_paths((mihomo, sing_tun, repository), scratch)
     patches = dns_patches(repository)  # Refuse unknown patch bytes before compilation.
@@ -117,11 +154,13 @@ def exercise(mihomo, sing_tun, repository, scratch):
         review.run(["go", "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"], cwd=source, env=env)
         review.run(["go", "mod", "vendor"], cwd=source, env=env)
         # Race instrumentation requires cgo; it is never used in the core build.
-        review.run(["go", "test", "-race", "-mod=vendor", "-tags=with_gvisor",
-                    "./tunnel/statistic", "./hub/route", "-run", "TestConditional", "-count=20"],
-                   cwd=source, env=dict(env, CGO_ENABLED="1"))
-        review.run(["go", "test", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
-                    "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=20"], cwd=source, env=env)
+        conditional = review.run(["go", "test", "-json", "-race", "-mod=vendor", "-tags=with_gvisor",
+                                  "./tunnel/statistic", "./hub/route", "-run", "TestConditional", "-count=20"],
+                                 cwd=source, env=dict(env, CGO_ENABLED="1"))
+        matrix_receipt(conditional, CONDITIONAL_TESTS)
+        dns = review.run(["go", "test", "-json", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
+                          "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=20"], cwd=source, env=env)
+        matrix_receipt(dns, DNS_TESTS, (DNS_INTEROP_SKIP,))
         # Restore the exact production composition before compiling its binary.
         # Test source is not linked by Go build, but keeping the two identities
         # visibly separate avoids treating a modified test tree as a package.
@@ -145,6 +184,7 @@ def main():
     print("managed_conditional_composition: passed; offline; synthetic loopback; no installation")
     print("mihomo_sha=" + review.PIN + " sing_tun_sha=" + SING_TUN)
     print("dns_adapter_sha=" + DNS_REVISION)
+    print("go_cases=7_conditional_and_11_dns_x20; rust_dns_interop=not_run_explicit_optin")
     print("conditional_patch_sha256=" + hashlib.sha256(review.PATCH.read_bytes()).hexdigest())
     print("socket_test_patch_sha256=" + hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest())
     print("go_toolchain=" + review.run(["go", "version"]).decode("ascii").strip())

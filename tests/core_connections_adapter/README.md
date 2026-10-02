@@ -108,7 +108,10 @@ python3 tests/core_connections_adapter/managed_composition.py \
 With dependencies already cached, it exports pinned objects into private
 disposable HOME scratch and vendors the exact locally patched sing-tun.
 Module/toolchain downloads and ambient Go workspaces are disabled. Conditional
-tests run 20 times with race instrumentation; managed-DNS Go tests run 20 times.
+tests run 20 times with race instrumentation; 11 managed-DNS Go cases run 20
+times. Bounded Go JSON receipts must prove execution of all seven conditional
+cases and these DNS cases; a zero-test success or unexpected skip refuses.
+The separate opt-in Rust↔Go DNS interop case is explicitly skipped, not PASS.
 A separate GPL-3.0 **test-only** overlay shortens temporary DNS socket paths;
 it is hash-checked and reversed before compiling the core. The two production
 DNS patches remain byte-for-byte unchanged. This avoids Linux Unix-socket path

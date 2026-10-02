@@ -24,6 +24,17 @@ with patch.dict("sys.modules", {"loopback": LIVE, "review": REVIEW}):
 
 
 class ConditionalCoreAdapterTests(unittest.TestCase):
+    def test_composition_requires_actual_go_cases_not_zero_tests_or_unexpected_skips(self):
+        events = [{"Action": "pass", "Test": "TestFixture"}] * 20
+        events += [{"Action": "skip", "Test": "TestExplicitOptin"}] * 20
+        def receipt(values):
+            return b"\n".join(json.dumps(value).encode("ascii") for value in values)
+        COMPOSITION.matrix_receipt(receipt(events), ("TestFixture",), ("TestExplicitOptin",))
+        for invalid in ([], events[:-1], events + events[:1], events + [{"Action": "fail"}],
+                        events + [{"Action": "skip", "Test": "TestUnknown"}]):
+            with self.assertRaisesRegex(RuntimeError, "^Composition test execution receipt refused$"):
+                COMPOSITION.matrix_receipt(receipt(invalid), ("TestFixture",), ("TestExplicitOptin",))
+
     def test_composition_export_ignores_local_archive_attributes_and_dirty_source(self):
         with tempfile.TemporaryDirectory(prefix="composition-unit-") as name:
             root = Path(name)
