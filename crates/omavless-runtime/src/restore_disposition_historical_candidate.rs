@@ -14,6 +14,7 @@ pub(crate) enum HistoricalReview {
 enum LivePolicy {
     InitialOutput,
     ValidCurrentBundled,
+    ValidCurrentOff,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -139,13 +140,19 @@ impl Snapshot {
                         .map(|(bytes, _)| bytes.as_slice()),
                 ) && canonical.receipt().matches_pair(&store.0, &template.0)
             }
-            LivePolicy::ValidCurrentBundled => {
+            LivePolicy::ValidCurrentBundled | LivePolicy::ValidCurrentOff => {
                 ticket_record.matches_history(&canonical, uid, generation)
                     && valid_current_bundled(
                         &store.0,
                         &template.0,
                         source_boundary[1].as_ref().map(|(v, _)| v.as_slice()),
                     )
+                    && (!matches!(policy, LivePolicy::ValidCurrentOff)
+                        || valid_current_off(
+                            &store.0,
+                            &template.0,
+                            source_boundary[1].as_ref().map(|(v, _)| v.as_slice()),
+                        ))
             }
         };
         if !live_matches || !complete_record.matches_ticket(&ticket_record) {
@@ -289,6 +296,28 @@ fn valid_current_bundled(store: &[u8], template: &[u8], desired: Option<&[u8]>) 
             .any(|profile| profile.id() == desired.profile_id)
 }
 
+// This is deliberately narrower than ordinary connected-state observation:
+// resync must never authorize login/startup or reinterpret a live connection.
+fn valid_current_off(store: &[u8], template: &[u8], desired: Option<&[u8]>) -> bool {
+    let Some(desired) = desired else { return false };
+    let Ok(desired) = serde_json::from_slice::<crate::desired::DesiredState>(desired) else {
+        return false;
+    };
+    let Some(store) = std::str::from_utf8(store)
+        .ok()
+        .and_then(|text| omavless_domain::private_store::parse_private_store(text).ok())
+    else {
+        return false;
+    };
+    if desired.validate().is_err() || desired.connected || store.startup_preferences().enabled {
+        return false;
+    }
+    std::str::from_utf8(template).is_ok_and(|text| {
+        omavless_domain::routing::template_with_mode(text, desired.mode.as_str())
+            .is_ok_and(|expected| expected == text)
+    })
+}
+
 /// Read-only candidate for the same UID/exact ownership generation after
 /// legitimate ordinary edits. No historical output equality is inferred.
 /// Pins all records and current live/desired/login members over two host gates.
@@ -374,16 +403,17 @@ fn recheck(
     uid: u32,
     generation: u64,
     lock: &MigrationLock,
+    policy: LivePolicy,
     gate: &mut impl FnMut() -> bool,
 ) -> Result<(), ExecutionError> {
     if !original.pins_intact() {
         return Err(REFUSE);
     }
-    let before = Snapshot::read(config, paths, uid, generation, lock)?;
+    let before = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
     if !original.same(&before) || !gate() {
         return Err(REFUSE);
     }
-    let after = Snapshot::read(config, paths, uid, generation, lock)?;
+    let after = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
     if !original.same(&after) {
         return Err(REFUSE);
     }
@@ -436,14 +466,69 @@ fn run_resync_with_sync(
     uid: u32,
     generation: u64,
     lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+    hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+    sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    run_resync_policy(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        LivePolicy::InitialOutput,
+        gate,
+        hook,
+        sync,
+    )
+}
+
+/// Inactive current-state durability resync after ordinary edits. The current
+/// complete bundled pair must be semantically valid, desired explicitly Off,
+/// startup disabled and template mode equal to desired. Historical records are
+/// never rewritten. Caller host/login gate is not an owner admission permit.
+#[allow(dead_code)]
+pub(crate) fn resync_current_off(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<HistoricalResyncResult, ExecutionError> {
+    run_resync_policy(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        LivePolicy::ValidCurrentOff,
+        gate,
+        |_| true,
+        |_, file| file.sync_all(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_resync_policy(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    policy: LivePolicy,
     mut gate: impl FnMut() -> bool,
     mut hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
     mut sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
 ) -> Result<HistoricalResyncResult, ExecutionError> {
     // Capture the original source and path identities before the first host
     // callback. A later observation can reject drift, never redefine source.
-    let original = Snapshot::read(config, paths, uid, generation, lock)?;
-    let mut check = || recheck(&original, config, paths, uid, generation, lock, &mut gate);
+    let original = Snapshot::read_policy(config, paths, uid, generation, lock, policy)?;
+    let mut check = || {
+        recheck(
+            &original, config, paths, uid, generation, lock, policy, &mut gate,
+        )
+    };
     check()?;
     for (index, file) in original.member_handles.iter().enumerate() {
         sync(HistoricalSyncCheckpoint::File(index), file).map_err(|_| ExecutionError::Ambiguous)?;
@@ -545,6 +630,199 @@ mod tests {
             assert!(crate::pending_private_transaction::pending_at(
                 &f.paths.state_directory
             ));
+        }
+    }
+
+    fn current_off_run(
+        f: &crate::restore_successor_publication_candidate::tests::Fixture,
+        lock: &MigrationLock,
+        hook: impl FnMut(HistoricalSyncCheckpoint) -> bool,
+        sync: impl FnMut(HistoricalSyncCheckpoint, &File) -> std::io::Result<()>,
+    ) -> Result<HistoricalResyncResult, ExecutionError> {
+        run_resync_policy(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            lock,
+            LivePolicy::ValidCurrentOff,
+            || true,
+            hook,
+            sync,
+        )
+    }
+
+    #[test]
+    fn current_off_resync_after_edits_preserves_history_and_all_fences() {
+        for commit in [false, true] {
+            let (f, lock) = prepared(commit);
+            ordinary_edit(&f);
+            let paths: Vec<_> = [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
+                .map(|name| f.paths.state_directory.join(name))
+                .into_iter()
+                .chain(LIVE.map(|name| f.config.join(name)))
+                .chain([f.paths.state_directory.join("desired.json")])
+                .collect();
+            let before: Vec<_> = paths.iter().map(|p| fs::read(p).unwrap()).collect();
+            assert!(resync_historical(&f.config, &f.paths, f.uid, 2, &lock, || true).is_err());
+            for _ in 0..2 {
+                assert_eq!(
+                    resync_current_off(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                    Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+                );
+                for (path, bytes) in paths.iter().zip(&before) {
+                    assert_eq!(&fs::read(path).unwrap(), bytes);
+                }
+                assert!(crate::pending_private_transaction::pending_at(
+                    &f.paths.state_directory
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn current_off_resync_refuses_unsafe_intent_before_any_sync() {
+        for kind in 0..5 {
+            let (f, lock) = prepared(true);
+            ordinary_edit(&f);
+            let desired = f.paths.state_directory.join("desired.json");
+            match kind {
+                0 => fs::remove_file(&desired).unwrap(),
+                1 => {
+                    let store = fs::read_to_string(f.config.join(LIVE[0])).unwrap();
+                    let store =
+                        omavless_domain::private_store::parse_private_store(&store).unwrap();
+                    let projection = store.list_projection();
+                    let id = projection.profiles()[0].id();
+                    let mut state: serde_json::Value =
+                        serde_json::from_slice(&fs::read(&desired).unwrap()).unwrap();
+                    state["connected"] = true.into();
+                    state["profileId"] = id.into();
+                    fs::write(&desired, serde_json::to_vec(&state).unwrap()).unwrap();
+                }
+                2 => {
+                    let path = f.config.join(LIVE[0]);
+                    let mut store: serde_json::Value =
+                        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    store["startup"] = serde_json::json!({"enabled":true,"target":"last","profileId":"","mode":"global"});
+                    fs::write(path, serde_json::to_vec(&store).unwrap()).unwrap();
+                }
+                3 => {
+                    let mut state: serde_json::Value =
+                        serde_json::from_slice(&fs::read(&desired).unwrap()).unwrap();
+                    state["mode"] = "global".into();
+                    fs::write(&desired, serde_json::to_vec(&state).unwrap()).unwrap();
+                }
+                _ => fs::write(f.config.join(LIVE[1]), b"mode: direct\n").unwrap(),
+            }
+            if matches!(kind, 1..=3) {
+                assert!(valid_current_bundled(
+                    &fs::read(f.config.join(LIVE[0])).unwrap(),
+                    &fs::read(f.config.join(LIVE[1])).unwrap(),
+                    Some(&fs::read(&desired).unwrap())
+                ));
+            }
+            let effects = std::cell::Cell::new(0);
+            assert!(
+                current_off_run(
+                    &f,
+                    &lock,
+                    |_| true,
+                    |_, _| {
+                        effects.set(effects.get() + 1);
+                        Ok(())
+                    }
+                )
+                .is_err(),
+                "kind={kind}"
+            );
+            assert_eq!(effects.get(), 0, "kind={kind}");
+        }
+    }
+
+    #[test]
+    fn current_off_resync_failure_or_late_replacement_at_every_checkpoint_stays_fenced() {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        let mut points = Vec::new();
+        current_off_run(
+            &f,
+            &lock,
+            |p| {
+                points.push(p);
+                true
+            },
+            |_, file| file.sync_all(),
+        )
+        .unwrap();
+        for point in points {
+            for drift in [false, true] {
+                let (f, lock) = prepared(true);
+                ordinary_edit(&f);
+                let result = current_off_run(
+                    &f,
+                    &lock,
+                    |p| {
+                        if p == point && drift {
+                            let path = f.paths.state_directory.join("desired.json");
+                            let bytes = fs::read(&path).unwrap();
+                            fs::rename(&path, path.with_extension("old-test")).unwrap();
+                            fs::write(&path, bytes).unwrap();
+                            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+                        }
+                        p != point || drift
+                    },
+                    |_, file| file.sync_all(),
+                );
+                assert_eq!(
+                    result,
+                    Err(ExecutionError::Ambiguous),
+                    "{point:?} drift={drift}"
+                );
+                assert!(crate::pending_private_transaction::pending_at(
+                    &f.paths.state_directory
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn current_off_resync_sigkill_every_checkpoint_reenters_without_archive() {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        let mut points = Vec::new();
+        current_off_run(
+            &f,
+            &lock,
+            |p| {
+                points.push(p);
+                true
+            },
+            |_, file| file.sync_all(),
+        )
+        .unwrap();
+        for commit in [false, true] {
+            for selected in 0..points.len() {
+                let (f, lock) = prepared(commit);
+                ordinary_edit(&f);
+                drop(lock);
+                let output = Command::new(std::env::current_exe().unwrap())
+                    .args(["--ignored", "--exact",
+                        "restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::tests::historical_resync_crash_worker"])
+                    .env("OMAVLESS_SYNTHETIC_HISTORICAL_ROOT", &f.root)
+                    .env("OMAVLESS_SYNTHETIC_HISTORICAL_POINT", selected.to_string())
+                    .env("OMAVLESS_SYNTHETIC_CURRENT_OFF", "1")
+                    .output().unwrap();
+                assert_eq!(output.status.signal(), Some(9), "checkpoint={selected}");
+                let lock = f.lock();
+                assert_eq!(
+                    resync_current_off(&f.config, &f.paths, f.uid, 2, &lock, || true),
+                    Ok(HistoricalResyncResult::ResynchronizedStillFenced)
+                );
+                assert!(crate::pending_private_transaction::pending_at(
+                    &f.paths.state_directory
+                ));
+            }
         }
     }
 
@@ -1193,12 +1471,18 @@ mod tests {
             .unwrap();
         let lock = f.lock();
         let mut index = 0;
-        let _ = run_resync(
+        let policy = if std::env::var("OMAVLESS_SYNTHETIC_CURRENT_OFF").as_deref() == Ok("1") {
+            LivePolicy::ValidCurrentOff
+        } else {
+            LivePolicy::InitialOutput
+        };
+        let _ = run_resync_policy(
             &f.config,
             &f.paths,
             f.uid,
             2,
             &lock,
+            policy,
             || true,
             |_| {
                 if index == selected {
@@ -1211,6 +1495,7 @@ mod tests {
                 index += 1;
                 true
             },
+            |_, file| file.sync_all(),
         );
         panic!("expected synthetic kill");
     }
