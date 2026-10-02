@@ -645,9 +645,14 @@ remain fenced. Missing both records proves nothing about an interrupted
 restore. Corruption, mismatched identities, unretired fixed artifacts or
 owner/Off/live-pair drift demand manual recovery.
 
-The model tests the crash-observable evidence combinations, but no completion
-record is written or read from disk yet. Its authenticated fixed format,
-exclusive publication, restart inspection, retention/replacement across a
+The model tests the crash-observable evidence combinations. A separate
+fixed-size candidate record wraps the complete validated terminal receipt,
+with domain-separated checksum and strict decode, so a future restart reader
+could recheck its owner/desired/live-pair binding even after the pending
+receipt disappears. This is tear detection, not authentication against a
+hostile same-user writer. No completion record is written or read from disk
+yet. Independent format review, exclusive durable publication, restart
+inspection, retention/replacement across a
 second restore and product startup interpretation need separate review and
 implementation before the final pending receipt may be removed in a product
 flow. The existing inactive final-unlink candidate remains insufficient for
