@@ -1482,3 +1482,26 @@ epoch, or installed product behavior. A future typed historical reader must
 bind both records to a fresh owner and live-store review before any startup
 exception. The generic presence predicate must remain conservative; every
 normal-runtime caller and mutation effect needs its own reviewed integration.
+
+### Inactive archive-free historical reader
+
+A separate read-only candidate can compare complete C1, pending ticket and
+completion record without receiving an archive. It requires one existing lease,
+the exact current UID and generation, safe private state/config/runtime paths,
+canonical mutually bound records, and observed absence of every other restore,
+routing and slot transient. It pins file and directory descriptors, compares
+bounded live pair and owner/desired/login member identities across callbacks,
+and returns only `ConsistentStillFenced`. The live pair must still match the
+terminal pair digest embedded in C1. Missing, torn, crossed, replaced or
+orphan records refuse. Existing normal-startup and direct-effect fences remain
+unchanged. Synthetic process re-entry without an archive returns the same
+still-fenced result; it is not a power-loss test. This conservative initial-output
+reader also requires current desired bytes and live pair to match historical
+evidence, so legitimate later edits refuse. Future typed admission must use
+independently validated ordinary live state instead of treating either
+historical match as a permanent requirement.
+
+This reader verifies internal consistency, **not** completion durability,
+archive authentication, current boot/login epoch, live semantic validity or
+permission to construct an owner. A later archive-free resync and narrow typed
+startup candidate need separate review; raw presence checks must not be relaxed.
