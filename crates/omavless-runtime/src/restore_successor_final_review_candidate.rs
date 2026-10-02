@@ -224,7 +224,7 @@ pub(crate) fn review_final_closure(
 }
 
 #[cfg(all(test, target_os = "linux", target_env = "gnu"))]
-mod tests {
+pub(crate) mod tests {
     use super::super::super::tests::second;
     use super::super::tests::setup;
     use super::*;
@@ -234,7 +234,7 @@ mod tests {
         os::unix::fs::{PermissionsExt, symlink},
     };
 
-    pub(super) fn ready(commit: bool) -> (Fixture, MigrationLock) {
+    pub(crate) fn ready(commit: bool) -> (Fixture, MigrationLock) {
         let (f, lock, _, _) = setup(commit);
         publication::publish_next_closure(&f.config, &f.paths, f.uid, 2, &lock, second(), || true)
             .unwrap();

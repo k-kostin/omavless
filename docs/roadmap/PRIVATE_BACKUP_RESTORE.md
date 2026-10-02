@@ -1105,3 +1105,22 @@ process-crash recovery. It is not installed normal-owner, reboot/power-cut,
 private provider, CLI/QML recovery UX or marketplace/release acceptance. The
 permanent canonical closure still fences normal startup. Abort archive re-supply
 and a separately reviewed product recovery owner remain explicit product gates.
+
+## Inactive final-closure startup review adapter
+
+The production-boundary adapter acquires only an existing migration lease and
+requires committed Rust ownership, exact fixed desired/owner paths, desired Off,
+and two fresh observations with no owned runtime objects. Foreign visibility is
+not ownership. The existing login check permits absence or a matching consumed
+receipt; this diagnostic does not prove current user-manager epoch freshness.
+It never constructs a coordinator, reconciles, repairs permissions, syncs files,
+retires evidence or admits the ordinary owner.
+
+The authenticated final reader's exact two-pass evidence spans the second host
+observation. Separate snapshots pin owner, desired and optional login bytes and
+member identity, plus state/runtime directory identity, before and after both
+host observations and before return. All three final phases remain fenced;
+normal startup's existing refusal is unchanged. Post-handoff output/completion
+evidence is not reconstructed predecessor lineage or durability proof. Abort
+still requires re-supply of the authenticated new archive. This adapter has no
+product caller and grants no mutation, login or IPC capability.
