@@ -17,10 +17,11 @@ const copy = {
     profiles: "Profiles", details: "Details", sources: "Subscriptions / sources", selected: "Selected for inspection",
     connected: "Confirmed connection", previous: "Previous server · not verified now", none: "None confirmed", invalid: "No valid selection",
     source: "Source",
-    note: "Tab to list: arrows move, Enter inspects; never connects", large: "10,005 synthetic rows · virtualized", noResults: "No matching profiles",
+    note: "Tab to list: arrows move, Enter inspects; Page Down opens Details", large: "10,005 synthetic rows · virtualized", noResults: "No matching profiles",
     readonly: "No VPN action exists in this experiment.", search: "Search sample profiles…",
     theme: "Synthetic theme", dark: "Dark", light: "Light", broken: "Broken → default", fallback: "Default palette restored",
     largeList: "10k samples", smallList: "5 samples",
+    viewDetails: "Details", viewProfiles: "Profiles", returnHint: "Page Up or Profiles returns to the list",
     phases: { connected: "Connected (synthetic)", connecting: "Connecting… (synthetic)", switching: "Switching server… (synthetic)", reconnecting: "Reconnecting… (synthetic)", unverified: "State unverified (synthetic)", failed: "Connection failed (synthetic)", recovery: "Recovery required (synthetic)", disconnected: "Disconnected (synthetic)" },
     scenes: { connected: "connected", connecting: "connecting", switching: "switching", reconnecting: "reconnecting", unverified: "unverified", failed: "failed", recovery: "recovery", removed: "removed" },
   },
@@ -28,10 +29,11 @@ const copy = {
     profiles: "Профили", details: "Детали", sources: "Подписки / источники", selected: "Выбрано для просмотра",
     connected: "Подтверждённое соединение", previous: "Прежний сервер · сейчас не подтверждён", none: "Нет подтверждённого соединения", invalid: "Нет выбранного профиля",
     source: "Источник",
-    note: "Tab — к списку, стрелки — перемещение, Enter — просмотр; без подключения", large: "10 005 демонстрационных строк · виртуализация", noResults: "Профили не найдены",
+    note: "Tab — к списку, стрелки — выбор, Enter — просмотр; Page Down — детали", large: "10 005 демонстрационных строк · виртуализация", noResults: "Профили не найдены",
     readonly: "В этом эксперименте нет управления VPN.", search: "Поиск демонстрационных профилей…",
     theme: "Тема макета", dark: "Тёмная", light: "Светлая", broken: "Сбой → стандартная", fallback: "Стандартная палитра восстановлена",
     largeList: "10 тыс. строк", smallList: "5 строк",
+    viewDetails: "Детали", viewProfiles: "Профили", returnHint: "Page Up или «Профили» вернёт к списку",
     phases: { connected: "Подключено (макет)", connecting: "Подключаемся… (макет)", switching: "Меняем сервер… (макет)", reconnecting: "Переподключаемся… (макет)", unverified: "Состояние не подтверждено (макет)", failed: "Подключение не удалось (макет)", recovery: "Требуется восстановление (макет)", disconnected: "Отключено (макет)" },
     scenes: { connected: "подключено", connecting: "подключение", switching: "смена", reconnecting: "переподключение", unverified: "не проверено", failed: "сбой", recovery: "восстановление", removed: "удалён" },
   },
@@ -63,6 +65,7 @@ export default class G1Trial extends View {
     this.listScroll = VirtualListScrollHandle.new();
     this.panelFocus.focus();
     this.scene = 0;
+    this.detailsOnly = false;
     this.selected = fixture.scenes[0].selected;
     this.highlighted = this.selected;
     this.locale = "en";
@@ -185,30 +188,58 @@ export default class G1Trial extends View {
     // A wrapped Details panel must contribute to the outer scroll extent in
     // a short window. Flexing this row to the viewport clipped it below the
     // Profiles panel even though the body advertised vertical scrolling.
-    const panels = h_flex().flex_none().flex_wrap()
+    const panels = this.detailsOnly ? null : h_flex().flex_none().flex_wrap()
       .items_start().min_w_0().gap(12)
       .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
         .child(new Panel("profiles").title(strings.profiles).content(list).build(cx).min_w_0()))
       .child(v_flex().min_w_0().flex_basis("30rem").flex_grow(1)
         .child(new Panel("details").title(strings.details).content(details).build(cx).min_w_0()));
+    // The pinned Shell host does not expose a script-controlled ScrollHandle
+    // for an ordinary outer scroll area. A compact read-only Details page is
+    // the keyboard fallback; it is an explicit page transition, not scroll.
     const body = v_flex().size_full().min_h_0().p(18).gap(12)
       .track_focus(this.panelFocus)
       .overflow_y_scrollbar()
-      .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx))
-      .child(scenes)
-      .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
-        .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
-      .child(h_flex().flex_wrap().gap(6)
-        .child(new MutedText(strings.theme).build(cx))
-        .children([["dark", strings.dark], ["light", strings.light], ["broken", strings.broken]].map(([choice, label]) =>
-          new Button(`theme-${choice}`).label(label).outlined().selected(this.themeChoice === choice)
-            .onClick((_event, context) => this.applyPalette(choice, context)).build(cx))))
-      .when(this.themeFallback, (element) => element.child(new MutedText(strings.fallback).build(cx)))
-      .child(panels);
+      .on_key_down((event, context) => {
+        if (event.keystroke === "pagedown" && !this.detailsOnly) {
+          this.detailsOnly = true;
+        } else if (event.keystroke === "pageup" && this.detailsOnly) {
+          this.detailsOnly = false;
+        } else {
+          return;
+        }
+        this.panelFocus.focus();
+        context.notify();
+        context.stop_propagation();
+      })
+      .child(new Badge("state").label(strings.phases[scene.phase]).tone(statusTone).build(cx));
+    if (this.detailsOnly) {
+      body.child(new MutedText(strings.returnHint).build(cx))
+        .child(new Panel("details-page").title(strings.details).content(details).build(cx).min_w_0());
+    } else {
+      body.child(scenes)
+        .child(new Button("large-list").label(this.large ? strings.smallList : strings.largeList).outlined()
+          .onClick((_event, context) => { this.large = !this.large; context.notify(); }).build(cx))
+        .child(h_flex().flex_wrap().gap(6)
+          .child(new MutedText(strings.theme).build(cx))
+          .children([["dark", strings.dark], ["light", strings.light], ["broken", strings.broken]].map(([choice, label]) =>
+            new Button(`theme-${choice}`).label(label).outlined().selected(this.themeChoice === choice)
+              .onClick((_event, context) => this.applyPalette(choice, context)).build(cx))))
+        .when(this.themeFallback, (element) => element.child(new MutedText(strings.fallback).build(cx)))
+        .child(panels);
+    }
     return new AppShell()
       .top(new TitleBar().brand(new Title("OmaVLESS · G1").build(cx))
-        .actions(new Button("locale").label(this.locale === "ru" ? "EN" : "RU").outlined()
-          .onClick((_event, context) => { this.locale = this.locale === "ru" ? "en" : "ru"; context.notify(); }).build(cx))
+        .actions(h_flex().gap(6)
+          .child(new Button("view-toggle")
+            .label(this.detailsOnly ? strings.viewProfiles : strings.viewDetails).outlined()
+            .onClick((_event, context) => {
+              this.detailsOnly = !this.detailsOnly;
+              this.panelFocus.focus();
+              context.notify();
+            }).build(cx))
+          .child(new Button("locale").label(this.locale === "ru" ? "EN" : "RU").outlined()
+            .onClick((_event, context) => { this.locale = this.locale === "ru" ? "en" : "ru"; context.notify(); }).build(cx)))
         .build(cx))
       .content(body)
       .build(cx);
