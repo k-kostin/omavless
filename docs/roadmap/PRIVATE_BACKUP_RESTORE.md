@@ -820,3 +820,33 @@ exact-intent execution handoff, predecessor-fence lifecycle, recovery-owner
 admission and installed startup/UI acceptance remain required. Synthetic composed
 publication/preparation/recovery tests do not claim a second live restore or
 product recovery acceptance; passphrases are not persisted.
+
+## Inactive exact-intent successor execution
+
+A separate internal executor consumes the authenticated prepublished intent,
+without recreating it. Its immutable-evidence guard binds predecessor closure to
+staged OLD and the supplied archive's Off copy to staged NEW; it pins all eight
+closure/handoff/intent/stage records and their private directories. Matching
+temporary slots may appear and live bytes may progress old/mixed/new, but the
+existing transaction classifier and phase-aware journal checks remain responsible
+for those mutable states. Terminal evidence is pinned once first observed.
+Every link and rename is surrounded by current owner/desired/host and immutable
+evidence checks. Wrong archive, foreign slots, unsafe records, changed identities
+and terminal/live mismatches refuse without repair or predecessor deletion.
+
+Restart re-synchronizes immutable source files and directories before rollback.
+Current live bytes need not be considered durable before rollback: each observed
+old/mixed/new state without terminal is restored from the resynchronized OLD
+source, and both resulting live inodes plus their directory are synchronized
+before Abort is published. Another crash before that terminal remains fenced and
+reclassifiable; it cannot become successful merely because both new files were
+visible. Committed terminals only verify NEW, aborted terminals only verify OLD.
+
+Synthetic coverage composes a real first stage/execution/retirement/closure with
+successor publication/preparation/execution, including forward and rollback
+rename-before-directory-sync process loss. This is not product acceptance or
+second-restore retirement: both predecessor and successor fences remain. Normal
+owner admission, successor closure lifecycle, authenticated recovery UI/API and
+installed boot acceptance are still separately gated. Foreign same-user live
+inode swaps beyond the existing byte/classifier trust boundary are not a new
+guarantee; immutable-evidence same-byte inode substitution is explicitly refused.
