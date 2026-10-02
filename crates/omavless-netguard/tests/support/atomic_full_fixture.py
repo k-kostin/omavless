@@ -171,6 +171,22 @@ def self_test():
         live["refuses"](lambda: checked((result[0], {}, result[2]-{missing}), 1))
     live["refuses"](lambda: checked((result[0], {}, result[2] | {1}), 1))
     live["refuses"](lambda: checked(({}, {}, result[2]), 1))
+    objects = copy.deepcopy(live["expected"]())
+    for i, obj in enumerate(objects):
+        value = next(iter(obj.values()))
+        value["handle"] = i + 1
+        if i == 0:
+            value["flags"] = ["owner", "persist"]
+    shape(json.dumps({"nftables": objects}).encode(), ["owner", "persist"])
+    elided = copy.deepcopy(objects)
+    for obj in elided[5:11]:
+        del obj["rule"]["expr"][0]
+    shape(json.dumps({"nftables": elided}).encode(), ["owner", "persist"])
+    for mutation in [objects + [objects[-1]], objects[:-1], objects[::-1]]:
+        live["refuses"](lambda: shape(json.dumps({"nftables": mutation}).encode(), ["owner", "persist"]))
+    wrong = copy.deepcopy(objects)
+    wrong[4]["rule"]["expr"][0]["match"]["right"] = 0
+    live["refuses"](lambda: shape(json.dumps({"nftables": wrong}).encode(), ["owner", "persist"]))
     print("K1_FULL_CODEC_PASS")
 
 

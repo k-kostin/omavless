@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Pure fixed FullVpn atomic-create candidate. No I/O, ownership or executor.
-//! Kernel compatibility and packet enforcement of these bytes are NOT proven.
+//! General kernel compatibility and packet enforcement are NOT proven; the
+//! separate opt-in fixture supplies only its exact documented mechanism gate.
 //! This is not a selectable-policy or general expression-building API.
 
 use crate::emergency_wire::{attr, expression, message, nested, nf, verdict};
