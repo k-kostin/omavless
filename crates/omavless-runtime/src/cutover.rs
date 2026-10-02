@@ -360,7 +360,18 @@ impl MigrationLock {
                 flags,
                 Mode::from_bits_truncate(0o600),
             )
-            .map_err(|_| refuse)?,
+            .map_err(|error| {
+                // A concurrent normal creator won the name. Report contention
+                // without opening, repairing or acquiring its new inode.
+                if matches!(mode, LockOpen::CreateIfAbsent)
+                    && prior.is_none()
+                    && error == nix::errno::Errno::EEXIST
+                {
+                    CutoverError::Busy
+                } else {
+                    refuse
+                }
+            })?,
         );
         let opened = file.metadata().map_err(|_| refuse)?;
         if !opened.is_file()
@@ -899,6 +910,54 @@ mod tests {
                 .is_symlink()
         );
         fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn migration_lease_normal_create_race_is_busy_without_touching_winner() {
+        for normal in [false, true] {
+            let (runtime, state, uid) = roots("lease-create-race");
+            let paths = CutoverPaths::below(&runtime, &state, uid);
+            let mut winner = None;
+            let result = MigrationLock::acquire_checked(
+                &paths,
+                uid,
+                if normal {
+                    LockOpen::CreateIfAbsent
+                } else {
+                    LockOpen::AbsentOnly
+                },
+                |point| {
+                    if point == LockCheckpoint::PriorChecked {
+                        fs::write(&paths.operation_lock, b"concurrent synthetic winner").unwrap();
+                        fs::set_permissions(
+                            &paths.operation_lock,
+                            fs::Permissions::from_mode(0o644),
+                        )
+                        .unwrap();
+                        winner = Some(fs::metadata(&paths.operation_lock).unwrap());
+                    }
+                    true
+                },
+            );
+            assert!(matches!(result, Err(error) if error == if normal {
+                CutoverError::Busy
+            } else {
+                CutoverError::UnsafeRuntimeDirectory
+            }));
+            let before = winner.unwrap();
+            let after = fs::metadata(&paths.operation_lock).unwrap();
+            assert!(same_inode(&before, &after));
+            assert_eq!(before.mode(), after.mode());
+            assert_eq!(
+                (before.ctime(), before.ctime_nsec()),
+                (after.ctime(), after.ctime_nsec())
+            );
+            assert_eq!(
+                fs::read(&paths.operation_lock).unwrap(),
+                b"concurrent synthetic winner"
+            );
+            fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+        }
     }
 
     #[test]
