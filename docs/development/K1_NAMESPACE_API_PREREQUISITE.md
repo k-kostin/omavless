@@ -25,6 +25,15 @@ reviewed typed namespace API. The workspace's `unsafe_code = "forbid"` remains
 unchanged. Hiding a new binding in a local helper crate or executing the
 developer Python fixture from production would not satisfy this prerequisite.
 
+The exported nix `sockopt_impl!` macro with `GetStruct<u64>` is a possible
+custom `SO_NETNS_COOKIE` binding to review, not an absent macro capability.
+Its expansion performs unsafe libc access and `GetStruct::assume_init` asserts
+the returned length before reading the value. A successful syscall with an
+unexpected length therefore panics rather than returning the required bounded
+refusal. A local macro invocation would still need explicit binding and failure
+semantics review; it does not provide the two missing namespace ioctl wrappers.
+It is not adopted here as a shortcut around the safety contract.
+
 ## Minimum reviewed dependency API
 
 The following are proposed signatures, **not available APIs or implementation**:
