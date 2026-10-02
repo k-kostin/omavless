@@ -68,6 +68,7 @@ pub(crate) enum RestoreStartupReview {
     VerifyCommitted,
     VerifyAborted,
     FinalReceipt,
+    VerifyCompleted,
     ManualRecovery,
 }
 
@@ -127,6 +128,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         uid: u32,
     ) -> Result<RestoreStartupReview, ProductionOwnerError> {
         use crate::desired::read_desired_snapshot;
+        use crate::restore_cleanup_candidate::inspect_completion_record;
+        use crate::restore_closure_model::CLOSURE_MEMBER;
         use crate::restore_decision_candidate::RecoveryReview;
         use crate::restore_journal_candidate::{
             inspect_decision_journal, read_desired_for_decision,
@@ -178,13 +181,35 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         let receipt_path = cutover_paths
             .state_directory
             .join("restore-finalization.pending");
+        let completion_path = cutover_paths.state_directory.join(CLOSURE_MEMBER);
+        let completion_present = !matches!(
+            std::fs::symlink_metadata(&completion_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
         let review = if !matches!(
             std::fs::symlink_metadata(&receipt_path),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound
         ) {
-            inspect_retirement_receipt(config, &cutover_paths, uid, marker.generation(), &lock)
-                .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+            let pending =
+                inspect_retirement_receipt(config, &cutover_paths, uid, marker.generation(), &lock)
+                    .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+            if completion_present
+                && !inspect_completion_record(
+                    config,
+                    &cutover_paths,
+                    uid,
+                    marker.generation(),
+                    &lock,
+                )
+                .is_ok_and(|completed| completed.matches_pending(&pending))
+            {
+                return Err(ProductionOwnerError::ManualRecoveryRequired);
+            }
             RestoreStartupReview::FinalReceipt
+        } else if completion_present {
+            inspect_completion_record(config, &cutover_paths, uid, marker.generation(), &lock)
+                .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+            RestoreStartupReview::VerifyCompleted
         } else {
             match inspect_decision_journal(&cutover_paths, uid, &lock) {
                 Ok(chain) => {
@@ -901,7 +926,17 @@ mod tests {
         use crate::restore_decision_candidate::{DecisionRecord, TerminalChoice};
         use crate::restore_staging_candidate::{inspect_stage_identity, stage_private_pair};
 
-        for phase in ["stage", "intent", "commit", "abort", "receipt"] {
+        for phase in [
+            "stage",
+            "intent",
+            "commit",
+            "abort",
+            "receipt",
+            "receipt-completion",
+            "receipt-completion-corrupt",
+            "completion",
+            "completion-corrupt",
+        ] {
             let fixture = Fixture::new_private(OwnershipPhase::Rust);
             let config = fixture.store.parent().unwrap();
             let template = config.join("route-template.yaml");
@@ -929,7 +964,16 @@ mod tests {
                     .join("restore-decision.intent");
                 fs::write(&intent_path, intent.encode()).unwrap();
                 fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
-                if phase == "commit" || phase == "abort" || phase == "receipt" {
+                if matches!(
+                    phase,
+                    "commit"
+                        | "abort"
+                        | "receipt"
+                        | "receipt-completion"
+                        | "receipt-completion-corrupt"
+                        | "completion"
+                        | "completion-corrupt"
+                ) {
                     let choice = if phase != "abort" {
                         TerminalChoice::Commit
                     } else {
@@ -946,7 +990,14 @@ mod tests {
                         fs::write(&fixture.store, new_store).unwrap();
                         fs::write(&template, b"new synthetic template").unwrap();
                     }
-                    if phase == "receipt" {
+                    if matches!(
+                        phase,
+                        "receipt"
+                            | "receipt-completion"
+                            | "receipt-completion-corrupt"
+                            | "completion"
+                            | "completion-corrupt"
+                    ) {
                         let lock = MigrationLock::acquire(&fixture.cutover, fixture.uid).unwrap();
                         assert_eq!(
                             crate::restore_retirement_candidate::publish_retirement_receipt(
@@ -959,6 +1010,50 @@ mod tests {
                             ),
                             Ok(crate::restore_executor_candidate::PendingOutcome::Committed)
                         );
+                        if matches!(
+                            phase,
+                            "receipt-completion"
+                                | "receipt-completion-corrupt"
+                                | "completion"
+                                | "completion-corrupt"
+                        ) {
+                            crate::restore_cleanup_candidate::retire_fixed_restore_artifacts(
+                                config,
+                                &fixture.cutover,
+                                fixture.uid,
+                                1,
+                                &lock,
+                                || true,
+                            )
+                            .unwrap();
+                            crate::restore_cleanup_candidate::publish_completion_record(
+                                config,
+                                &fixture.cutover,
+                                fixture.uid,
+                                1,
+                                &lock,
+                                || true,
+                            )
+                            .unwrap();
+                            if matches!(phase, "completion" | "completion-corrupt") {
+                                crate::restore_cleanup_candidate::finalize_fenced_restore(
+                                    config,
+                                    &fixture.cutover,
+                                    fixture.uid,
+                                    1,
+                                    &lock,
+                                    || true,
+                                )
+                                .unwrap();
+                            }
+                            if phase.ends_with("corrupt") {
+                                let completion = fixture
+                                    .cutover
+                                    .state_directory
+                                    .join(crate::restore_closure_model::CLOSURE_MEMBER);
+                                fs::write(&completion, b"torn synthetic completion").unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -975,12 +1070,33 @@ mod tests {
                 ),
                 Err(ProductionOwnerError::ManualRecoveryRequired)
             ));
+            if phase.ends_with("corrupt") {
+                assert_eq!(
+                    ProductionNativeOwner::review_restore_startup(
+                        host,
+                        fixture.desired.clone(),
+                        &fixture.store,
+                        fixture.cutover.clone(),
+                        fixture.uid,
+                    ),
+                    Err(ProductionOwnerError::ManualRecoveryRequired),
+                );
+                assert_eq!(
+                    calls.get(),
+                    1,
+                    "corrupt evidence never gets final admission"
+                );
+                assert_eq!(fs::read(&fixture.store).unwrap(), before);
+                continue;
+            }
             let expected = match phase {
                 "stage" => RestoreStartupReview::ManualRecovery,
                 "intent" => RestoreStartupReview::Undecided,
                 "commit" => RestoreStartupReview::VerifyCommitted,
                 "abort" => RestoreStartupReview::VerifyAborted,
                 "receipt" => RestoreStartupReview::FinalReceipt,
+                "receipt-completion" => RestoreStartupReview::FinalReceipt,
+                "completion" => RestoreStartupReview::VerifyCompleted,
                 _ => unreachable!(),
             };
             assert_eq!(

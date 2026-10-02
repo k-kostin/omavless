@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! Inactive fixed-artifact retirement. A finalization receipt always remains
-//! as a startup/mutation fence; there is no installed product caller.
+//! Inactive fixed-artifact retirement and final receipt closure. The pending
+//! receipt may be retired only after a separate durable completion record is
+//! bound; that record remains a startup/mutation fence. No product caller.
 
 use crate::backup_source_candidate::open_private_directory;
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
+use crate::restore_closure_model::{CLOSURE_MEMBER, ClosureRecord, RECORD_BYTES as CLOSURE_BYTES};
 use crate::restore_decision_candidate::{DecisionRecord, RECORD_BYTES};
 use crate::restore_executor_candidate::{NEW_SLOT, OLD_SLOT};
 use crate::restore_journal_candidate::read_desired_for_decision;
@@ -21,7 +23,7 @@ use nix::unistd::{UnlinkatFlags, unlinkat};
 use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
 use sha2::{Digest, Sha256};
 use std::fs::{File, Metadata};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -61,7 +63,21 @@ impl From<CleanupError> for FinalizeError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FinalizeResult {
-    Closed,
+    ReceiptRetiredStillFenced,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClosurePublicationResult {
+    PublishedStillFenced,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClosurePublishCheckpoint {
+    Created,
+    Written,
+    FileSynced,
+    DirectorySynced,
+    Reopened,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -490,6 +506,253 @@ fn absent(directory: &File, name: &str) -> Result<bool, FinalizeError> {
     }
 }
 
+fn read_completion_member(
+    state: &File,
+    uid: u32,
+) -> Result<(ClosureRecord, Metadata), FinalizeError> {
+    let (raw, identity) = read_optional(state, CLOSURE_MEMBER, uid, CLOSURE_BYTES)
+        .map_err(FinalizeError::from)?
+        .ok_or(FinalizeError::ManualRecovery)?;
+    let record = ClosureRecord::decode(&raw).map_err(|_| FinalizeError::ManualRecovery)?;
+    Ok((record, identity))
+}
+
+/// Read-only candidate usable after the pending receipt is gone. It checks
+/// both fixed live members and exact owner/desired bindings independently;
+/// it does not grant normal-owner startup or permit removing the record.
+pub(crate) fn inspect_completion_record(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<ClosureRecord, FinalizeError> {
+    if !lock.authorizes(paths, uid) {
+        return Err(FinalizeError::Admission);
+    }
+    let state = open_private_directory(&paths.state_directory, uid)
+        .map_err(|_| FinalizeError::ManualRecovery)?;
+    let state_identity = state
+        .metadata()
+        .map_err(|_| FinalizeError::ManualRecovery)?;
+    let config_dir =
+        open_private_directory(config, uid).map_err(|_| FinalizeError::ManualRecovery)?;
+    let config_identity = config_dir
+        .metadata()
+        .map_err(|_| FinalizeError::ManualRecovery)?;
+    let (record, identity) = read_completion_member(&state, uid)?;
+    let marker = read_marker_existing(paths, uid).map_err(|_| FinalizeError::ManualRecovery)?;
+    let desired =
+        read_desired_for_decision(paths, uid, lock).map_err(|_| FinalizeError::ManualRecovery)?;
+    if marker.phase() != OwnershipPhase::Rust
+        || marker.generation() != generation
+        || !record
+            .receipt()
+            .terminal()
+            .matches_owner_desired(generation, desired.as_ref().map(|value| value.as_slice()))
+        || record.receipt().matches_live(config, uid) != Ok(true)
+        || !fixed_artifacts_absent(&state, &config_dir)?
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    let (again, after) = read_completion_member(&state, uid)?;
+    if !same_member(&identity, &after)
+        || again.encode() != record.encode()
+        || read_marker_existing(paths, uid).ok() != Some(marker)
+        || read_desired_for_decision(paths, uid, lock).ok() != Some(desired)
+        || record.receipt().matches_live(config, uid) != Ok(true)
+        || !fixed_artifacts_absent(&state, &config_dir)?
+        || !same_directory(
+            &state_identity,
+            &open_private_directory(&paths.state_directory, uid)
+                .map_err(|_| FinalizeError::ManualRecovery)?
+                .metadata()
+                .map_err(|_| FinalizeError::ManualRecovery)?,
+        )
+        || !same_directory(
+            &config_identity,
+            &open_private_directory(config, uid)
+                .map_err(|_| FinalizeError::ManualRecovery)?
+                .metadata()
+                .map_err(|_| FinalizeError::ManualRecovery)?,
+        )
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    Ok(record)
+}
+
+/// A visible record is not sufficient to authorize removing the older
+/// receipt: the member and its directory name must first be synchronized and
+/// independently rebound. This also handles a retry after interrupted
+/// completion publication, without overwriting the existing record.
+fn durable_completion_record(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+) -> Result<(ClosureRecord, Metadata), FinalizeError> {
+    let before = inspect_completion_record(config, paths, uid, generation, lock)?;
+    let state = open_private_directory(&paths.state_directory, uid)
+        .map_err(|_| FinalizeError::ManualRecovery)?;
+    let (_, identity) = read_completion_member(&state, uid)?;
+    let file = File::from(
+        openat(
+            &state,
+            Path::new(CLOSURE_MEMBER),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| FinalizeError::ManualRecovery)?,
+    );
+    if !same_member(
+        &identity,
+        &file.metadata().map_err(|_| FinalizeError::ManualRecovery)?,
+    ) {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    file.sync_all().map_err(|_| FinalizeError::Ambiguous)?;
+    state.sync_all().map_err(|_| FinalizeError::Ambiguous)?;
+    let after = inspect_completion_record(config, paths, uid, generation, lock)?;
+    let (_, rebound) = read_completion_member(&state, uid)?;
+    if before.encode() != after.encode() || !same_member(&identity, &rebound) {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    Ok((after, rebound))
+}
+
+/// Inactive first half of last-fence closure. It creates no normal-owner
+/// authority and leaves the pending receipt intact. Any uncertainty after
+/// exclusive creation retains both names as startup fences.
+#[allow(dead_code)]
+pub(crate) fn publish_completion_record(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<ClosurePublicationResult, FinalizeError> {
+    publish_completion_with_hook(config, paths, uid, generation, lock, gate, |_| true)
+}
+
+fn publish_completion_with_hook<G: FnMut() -> bool, H: FnMut(ClosurePublishCheckpoint) -> bool>(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    mut gate: G,
+    mut hook: H,
+) -> Result<ClosurePublicationResult, FinalizeError> {
+    let mut context =
+        Context::new(config, paths, uid, generation, lock).map_err(FinalizeError::from)?;
+    let config_dir =
+        open_private_directory(config, uid).map_err(|_| FinalizeError::ManualRecovery)?;
+    let observed = context.check(&mut gate).map_err(FinalizeError::from)?;
+    if observed.step != Step::Done
+        || !fixed_artifacts_absent(&context.state, &config_dir)?
+        || !absent(&context.state, CLOSURE_MEMBER)?
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    let (pending, pending_identity) =
+        durable_retirement_receipt(config, paths, uid, generation, lock)
+            .map_err(|_| FinalizeError::ManualRecovery)?;
+    if context
+        .receipt_identity
+        .as_ref()
+        .is_none_or(|prior| !same_member(prior, &pending_identity))
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    let record = ClosureRecord::from_verified_receipt(&pending)
+        .map_err(|_| FinalizeError::ManualRecovery)?;
+    let again = context.check(&mut gate).map_err(FinalizeError::from)?;
+    if again.step != Step::Done
+        || !fixed_artifacts_absent(&context.state, &config_dir)?
+        || !absent(&context.state, CLOSURE_MEMBER)?
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
+    let mut file = File::from(
+        openat(
+            &context.state,
+            Path::new(CLOSURE_MEMBER),
+            OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::S_IRUSR | Mode::S_IWUSR,
+        )
+        .map_err(|_| FinalizeError::Ambiguous)?,
+    );
+    let created = file.metadata().map_err(|_| FinalizeError::Ambiguous)?;
+    if !created.is_file()
+        || created.uid() != uid
+        || created.mode() & 0o7777 != 0o600
+        || created.nlink() != 1
+        || !hook(ClosurePublishCheckpoint::Created)
+    {
+        return Err(FinalizeError::Ambiguous);
+    }
+    file.write_all(&record.encode())
+        .map_err(|_| FinalizeError::Ambiguous)?;
+    if !hook(ClosurePublishCheckpoint::Written) {
+        return Err(FinalizeError::Ambiguous);
+    }
+    file.sync_all().map_err(|_| FinalizeError::Ambiguous)?;
+    if !hook(ClosurePublishCheckpoint::FileSynced) {
+        return Err(FinalizeError::Ambiguous);
+    }
+    context
+        .state
+        .sync_all()
+        .map_err(|_| FinalizeError::Ambiguous)?;
+    if !hook(ClosurePublishCheckpoint::DirectorySynced) {
+        return Err(FinalizeError::Ambiguous);
+    }
+    let durable_identity = file.metadata().map_err(|_| FinalizeError::Ambiguous)?;
+    let (reopened, identity) =
+        read_completion_member(&context.state, uid).map_err(|_| FinalizeError::Ambiguous)?;
+    if created.dev() != durable_identity.dev()
+        || created.ino() != durable_identity.ino()
+        || !same_member(&durable_identity, &identity)
+        || !same_member(
+            &durable_identity,
+            &file.metadata().map_err(|_| FinalizeError::Ambiguous)?,
+        )
+        || !reopened.matches_pending(&pending)
+        || !hook(ClosurePublishCheckpoint::Reopened)
+    {
+        return Err(FinalizeError::Ambiguous);
+    }
+    let checked = context
+        .check(&mut gate)
+        .map_err(|_| FinalizeError::Ambiguous)?;
+    let (pending_again, pending_after) =
+        durable_retirement_receipt(config, paths, uid, generation, lock)
+            .map_err(|_| FinalizeError::Ambiguous)?;
+    let (completion_after, completion_identity) =
+        read_completion_member(&context.state, uid).map_err(|_| FinalizeError::Ambiguous)?;
+    if checked.step != Step::Done
+        || !fixed_artifacts_absent(&context.state, &config_dir)
+            .map_err(|_| FinalizeError::Ambiguous)?
+        || !same_member(&pending_identity, &pending_after)
+        || !reopened.matches_pending(&pending_again)
+        || completion_after.encode() != reopened.encode()
+        || !same_member(&identity, &completion_identity)
+        || !same_directory(
+            &context.state_identity,
+            &open_private_directory(&paths.state_directory, uid)
+                .map_err(|_| FinalizeError::Ambiguous)?
+                .metadata()
+                .map_err(|_| FinalizeError::Ambiguous)?,
+        )
+    {
+        return Err(FinalizeError::Ambiguous);
+    }
+    Ok(ClosurePublicationResult::PublishedStillFenced)
+}
+
 fn fixed_artifacts_absent(state: &File, config: &File) -> Result<bool, FinalizeError> {
     for name in [PENDING_DIRECTORY, TERMINAL, INTENT] {
         if !absent(state, name)? {
@@ -504,11 +767,10 @@ fn fixed_artifacts_absent(state: &File, config: &File) -> Result<bool, FinalizeE
     Ok(true)
 }
 
-/// Inactive last step, after all fixed artifacts have been retired. Unlinking
-/// the *last* fence is safe only while the matching owner lease is held and
-/// the terminal receipt still authenticates the complete live pair. A crash
-/// before directory sync may leave either an intact fence or a clean state;
-/// it must never make an incomplete cleanup appear complete.
+/// Inactive last step after all fixed artifacts are retired and a completion
+/// record is durable. This unlinks only the older pending receipt, never the
+/// retained completion fence. A crash before directory sync can leave either
+/// or both records; neither state admits the ordinary owner.
 #[allow(dead_code)]
 pub(crate) fn finalize_fenced_restore(
     config: &Path,
@@ -543,10 +805,13 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
     }
     let (receipt, identity) = durable_retirement_receipt(config, paths, uid, generation, lock)
         .map_err(|_| FinalizeError::ManualRecovery)?;
+    let (completion, completion_identity) =
+        durable_completion_record(config, paths, uid, generation, lock)?;
     if context
         .receipt_identity
         .as_ref()
         .is_none_or(|prior| !same_member(prior, &identity))
+        || !completion.matches_pending(&receipt)
     {
         return Err(FinalizeError::ManualRecovery);
     }
@@ -554,7 +819,13 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
     // effect. A stale first check must not become permission to remove the
     // final startup fence.
     let again = context.check(&mut gate).map_err(FinalizeError::from)?;
-    if again.step != Step::Done || !fixed_artifacts_absent(&context.state, &config_dir)? {
+    let (checked_completion, completion_before) =
+        durable_completion_record(config, paths, uid, generation, lock)?;
+    if again.step != Step::Done
+        || !fixed_artifacts_absent(&context.state, &config_dir)?
+        || !same_member(&completion_identity, &completion_before)
+        || !checked_completion.matches_pending(&receipt)
+    {
         return Err(FinalizeError::ManualRecovery);
     }
     let entry = File::from(
@@ -580,6 +851,24 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
     ) {
         return Err(FinalizeError::ManualRecovery);
     }
+    if !gate() {
+        return Err(FinalizeError::Admission);
+    }
+    let final_bindings = context.check_bindings().map_err(FinalizeError::from)?;
+    let (completion_last, completion_last_identity) = read_completion_member(&context.state, uid)?;
+    if final_bindings.step != Step::Done
+        || !fixed_artifacts_absent(&context.state, &config_dir)?
+        || !same_member(&completion_identity, &completion_last_identity)
+        || !completion_last.matches_pending(&receipt)
+        || !same_member(
+            &identity,
+            &entry
+                .metadata()
+                .map_err(|_| FinalizeError::ManualRecovery)?,
+        )
+    {
+        return Err(FinalizeError::ManualRecovery);
+    }
     unlinkat(
         &context.state,
         Path::new(RECEIPT_MEMBER),
@@ -599,6 +888,10 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
     let marker = read_marker_existing(paths, uid).map_err(|_| FinalizeError::Ambiguous)?;
     let desired =
         read_desired_for_decision(paths, uid, lock).map_err(|_| FinalizeError::Ambiguous)?;
+    let completed = inspect_completion_record(config, paths, uid, generation, lock)
+        .map_err(|_| FinalizeError::Ambiguous)?;
+    let (_, completed_identity) =
+        read_completion_member(&context.state, uid).map_err(|_| FinalizeError::Ambiguous)?;
     if !lock.authorizes(paths, uid)
         || marker.phase() != OwnershipPhase::Rust
         || marker.generation() != generation
@@ -606,6 +899,8 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
             .terminal()
             .matches_owner_desired(generation, desired.as_ref().map(|value| value.as_slice()))
         || receipt.matches_live(config, uid) != Ok(true)
+        || !completed.matches_pending(&receipt)
+        || !same_member(&completion_identity, &completed_identity)
         || !same_directory(
             &context.state_identity,
             &open_private_directory(&paths.state_directory, uid)
@@ -626,7 +921,7 @@ fn finalize_with_hook<G: FnMut() -> bool, H: FnMut(FinalizeCheckpoint) -> bool>(
     {
         return Err(FinalizeError::Ambiguous);
     }
-    Ok(FinalizeResult::Closed)
+    Ok(FinalizeResult::ReceiptRetiredStillFenced)
 }
 
 fn retire_with_hook<G: FnMut() -> bool, H: FnMut(HookPoint) -> bool>(
@@ -850,6 +1145,13 @@ mod tests {
             );
         }
 
+        fn completed(&self, lock: &MigrationLock) {
+            assert_eq!(
+                publish_completion_record(&self.config, &self.paths, self.uid, 2, lock, || true,),
+                Ok(ClosurePublicationResult::PublishedStillFenced)
+            );
+        }
+
         fn assert_fenced_live(&self, lock: &MigrationLock) {
             assert_eq!(
                 fs::read(self.config.join("profiles.json")).unwrap(),
@@ -906,6 +1208,188 @@ mod tests {
     }
 
     #[test]
+    fn completion_publication_requires_retirement_and_leaves_both_fences() {
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.committed(&lock);
+        assert_eq!(
+            publish_completion_record(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            ),
+            Err(FinalizeError::ManualRecovery)
+        );
+        assert!(!fixture.paths.state_directory.join(CLOSURE_MEMBER).exists());
+        retire_fixed_restore_artifacts(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &lock,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            publish_completion_record(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            ),
+            Ok(ClosurePublicationResult::PublishedStillFenced)
+        );
+        let state = open_private_directory(&fixture.paths.state_directory, fixture.uid).unwrap();
+        let (closure, _) = read_completion_member(&state, fixture.uid).unwrap();
+        let pending =
+            inspect_retirement_receipt(&fixture.config, &fixture.paths, fixture.uid, 2, &lock)
+                .unwrap();
+        assert!(closure.matches_pending(&pending));
+        assert!(fixture.paths.state_directory.join(RECEIPT_MEMBER).exists());
+        assert!(crate::pending_private_transaction::pending_at(
+            &fixture.paths.state_directory
+        ));
+        assert_eq!(
+            publish_completion_record(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            ),
+            Err(FinalizeError::ManualRecovery)
+        );
+    }
+
+    #[test]
+    fn completion_publication_crashes_never_erase_pending_fence() {
+        for phase in ["created", "written", "file", "directory", "reopened"] {
+            let fixture = Fixture::new();
+            let lock = fixture.lock();
+            fixture.committed(&lock);
+            retire_fixed_restore_artifacts(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            )
+            .unwrap();
+            drop(lock);
+            let child = Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("restore_cleanup_candidate::tests::completion_publication_crash_worker")
+                .env("OMAVLESS_COMPLETION_TEST_ROOT", &fixture.root)
+                .env("OMAVLESS_COMPLETION_TEST_PHASE", phase)
+                .status()
+                .unwrap();
+            assert_eq!(child.signal(), Some(9), "{phase}");
+            let lock = fixture.lock();
+            fixture.assert_fenced_live(&lock);
+            assert!(crate::pending_private_transaction::pending_at(
+                &fixture.paths.state_directory
+            ));
+            let completed =
+                inspect_completion_record(&fixture.config, &fixture.paths, fixture.uid, 2, &lock);
+            if matches!(phase, "directory" | "reopened") {
+                assert!(completed.is_ok(), "{phase}");
+            }
+            if let Ok(record) = completed {
+                let pending = inspect_retirement_receipt(
+                    &fixture.config,
+                    &fixture.paths,
+                    fixture.uid,
+                    2,
+                    &lock,
+                )
+                .unwrap();
+                assert!(record.matches_pending(&pending));
+            }
+        }
+    }
+
+    #[test]
+    fn completion_change_after_reopen_cannot_report_durable_publication() {
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.committed(&lock);
+        retire_fixed_restore_artifacts(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &lock,
+            || true,
+        )
+        .unwrap();
+        let completion = fixture.paths.state_directory.join(CLOSURE_MEMBER);
+        assert_eq!(
+            publish_completion_with_hook(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+                |point| {
+                    if point == ClosurePublishCheckpoint::Reopened {
+                        fs::write(&completion, b"torn synthetic completion").unwrap();
+                    }
+                    true
+                },
+            ),
+            Err(FinalizeError::Ambiguous)
+        );
+        fixture.assert_fenced_live(&lock);
+        assert!(crate::pending_private_transaction::pending_at(
+            &fixture.paths.state_directory
+        ));
+    }
+
+    #[test]
+    fn completion_publication_crash_worker() {
+        let Some(root) = std::env::var_os("OMAVLESS_COMPLETION_TEST_ROOT") else {
+            return;
+        };
+        let fixture = Fixture::reopen(PathBuf::from(root));
+        let lock = fixture.lock();
+        let phase = std::env::var("OMAVLESS_COMPLETION_TEST_PHASE").unwrap();
+        let _ = publish_completion_with_hook(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &lock,
+            || true,
+            |point| {
+                let selected = match point {
+                    ClosurePublishCheckpoint::Created => phase == "created",
+                    ClosurePublishCheckpoint::Written => phase == "written",
+                    ClosurePublishCheckpoint::FileSynced => phase == "file",
+                    ClosurePublishCheckpoint::DirectorySynced => phase == "directory",
+                    ClosurePublishCheckpoint::Reopened => phase == "reopened",
+                };
+                if selected {
+                    nix::sys::signal::kill(
+                        nix::unistd::Pid::this(),
+                        nix::sys::signal::Signal::SIGKILL,
+                    )
+                    .unwrap();
+                }
+                true
+            },
+        );
+        panic!("expected abrupt completion publication worker termination");
+    }
+
+    #[test]
     fn final_closure_requires_complete_cleanup_and_preserves_live_pair() {
         let fixture = Fixture::new();
         let lock = fixture.lock();
@@ -934,6 +1418,7 @@ mod tests {
         )
         .unwrap();
         fixture.assert_fenced_live(&lock);
+        fixture.completed(&lock);
         assert_eq!(
             finalize_fenced_restore(
                 &fixture.config,
@@ -955,10 +1440,10 @@ mod tests {
                 &lock,
                 || true
             ),
-            Ok(FinalizeResult::Closed)
+            Ok(FinalizeResult::ReceiptRetiredStillFenced)
         );
         assert!(!receipt_path.exists());
-        assert!(!crate::pending_private_transaction::pending_at(
+        assert!(crate::pending_private_transaction::pending_at(
             &fixture.paths.state_directory
         ));
         assert_eq!(
@@ -996,6 +1481,7 @@ mod tests {
             || true,
         )
         .unwrap();
+        fixture.completed(&lock);
         let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
         let original = fs::read(&receipt).unwrap();
         let slot = fixture.config.join(NEW_SLOT[0]);
@@ -1049,6 +1535,77 @@ mod tests {
     }
 
     #[test]
+    fn final_closure_refuses_absent_torn_unsafe_or_foreign_completion() {
+        for case in ["absent", "torn", "symlink", "hardlink", "foreign"] {
+            let fixture = Fixture::new();
+            let lock = fixture.lock();
+            fixture.committed(&lock);
+            retire_fixed_restore_artifacts(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            )
+            .unwrap();
+            let completion = fixture.paths.state_directory.join(CLOSURE_MEMBER);
+            if case != "absent" {
+                fixture.completed(&lock);
+            }
+            match case {
+                "torn" => fs::write(&completion, b"torn synthetic completion").unwrap(),
+                "symlink" => {
+                    fs::remove_file(&completion).unwrap();
+                    symlink("missing-synthetic-completion", &completion).unwrap();
+                }
+                "hardlink" => {
+                    fs::hard_link(&completion, fixture.root.join("synthetic-alias")).unwrap();
+                }
+                "foreign" => {
+                    let other = Fixture::new_pair(b"different synthetic store", NEW_TEMPLATE);
+                    let other_lock = other.lock();
+                    other.committed(&other_lock);
+                    retire_fixed_restore_artifacts(
+                        &other.config,
+                        &other.paths,
+                        other.uid,
+                        2,
+                        &other_lock,
+                        || true,
+                    )
+                    .unwrap();
+                    other.completed(&other_lock);
+                    fs::write(
+                        &completion,
+                        fs::read(other.paths.state_directory.join(CLOSURE_MEMBER)).unwrap(),
+                    )
+                    .unwrap();
+                }
+                _ => {}
+            }
+            let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
+            let before = fs::read(&receipt).unwrap();
+            assert!(
+                finalize_fenced_restore(
+                    &fixture.config,
+                    &fixture.paths,
+                    fixture.uid,
+                    2,
+                    &lock,
+                    || true,
+                )
+                .is_err(),
+                "{case}"
+            );
+            assert_eq!(fs::read(&receipt).unwrap(), before, "{case}");
+            assert!(crate::pending_private_transaction::pending_at(
+                &fixture.paths.state_directory
+            ));
+        }
+    }
+
+    #[test]
     fn final_closure_rechecks_the_owner_gate_before_unlink() {
         let fixture = Fixture::new();
         let lock = fixture.lock();
@@ -1062,6 +1619,7 @@ mod tests {
             || true,
         )
         .unwrap();
+        fixture.completed(&lock);
         let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
         let original = fs::read(&receipt).unwrap();
         let mut checks = 0;
@@ -1083,6 +1641,60 @@ mod tests {
     }
 
     #[test]
+    fn partial_completion_write_keeps_pending_and_refuses_final_unlink() {
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.committed(&lock);
+        retire_fixed_restore_artifacts(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &lock,
+            || true,
+        )
+        .unwrap();
+        let completion = fixture.paths.state_directory.join(CLOSURE_MEMBER);
+        let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
+        let pending = fs::read(&receipt).unwrap();
+        assert_eq!(
+            publish_completion_with_hook(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+                |point| {
+                    if point == ClosurePublishCheckpoint::Created {
+                        fs::write(&completion, vec![0x41; CLOSURE_BYTES / 2]).unwrap();
+                        return false;
+                    }
+                    true
+                },
+            ),
+            Err(FinalizeError::Ambiguous)
+        );
+        assert_eq!(fs::read(&receipt).unwrap(), pending);
+        assert!(
+            inspect_completion_record(&fixture.config, &fixture.paths, fixture.uid, 2, &lock)
+                .is_err()
+        );
+        assert!(
+            finalize_fenced_restore(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            )
+            .is_err()
+        );
+        fixture.assert_fenced_live(&lock);
+    }
+
+    #[test]
     fn last_gate_desired_replacement_keeps_final_fence() {
         let baseline = Fixture::new();
         let lock = baseline.lock();
@@ -1096,6 +1708,7 @@ mod tests {
             || true,
         )
         .unwrap();
+        baseline.completed(&lock);
         let mut total = 0;
         assert_eq!(
             finalize_fenced_restore(
@@ -1109,7 +1722,7 @@ mod tests {
                     true
                 }
             ),
-            Ok(FinalizeResult::Closed)
+            Ok(FinalizeResult::ReceiptRetiredStillFenced)
         );
         assert!(total >= 4);
 
@@ -1125,6 +1738,7 @@ mod tests {
             || true,
         )
         .unwrap();
+        fixture.completed(&lock);
         let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
         let original = fs::read(&receipt).unwrap();
         let desired = fixture.paths.state_directory.join("desired.json");
@@ -1154,6 +1768,78 @@ mod tests {
     }
 
     #[test]
+    fn last_gate_completion_replacement_keeps_pending_receipt() {
+        let baseline = Fixture::new();
+        let lock = baseline.lock();
+        baseline.committed(&lock);
+        retire_fixed_restore_artifacts(
+            &baseline.config,
+            &baseline.paths,
+            baseline.uid,
+            2,
+            &lock,
+            || true,
+        )
+        .unwrap();
+        baseline.completed(&lock);
+        let mut total = 0;
+        assert_eq!(
+            finalize_fenced_restore(
+                &baseline.config,
+                &baseline.paths,
+                baseline.uid,
+                2,
+                &lock,
+                || {
+                    total += 1;
+                    true
+                }
+            ),
+            Ok(FinalizeResult::ReceiptRetiredStillFenced)
+        );
+
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.committed(&lock);
+        retire_fixed_restore_artifacts(
+            &fixture.config,
+            &fixture.paths,
+            fixture.uid,
+            2,
+            &lock,
+            || true,
+        )
+        .unwrap();
+        fixture.completed(&lock);
+        let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
+        let original = fs::read(&receipt).unwrap();
+        let completion = fixture.paths.state_directory.join(CLOSURE_MEMBER);
+        let mut count = 0;
+        assert!(
+            finalize_fenced_restore(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || {
+                    count += 1;
+                    if count == total {
+                        fs::write(&completion, b"torn synthetic completion").unwrap();
+                    }
+                    true
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(count, total);
+        assert_eq!(fs::read(&receipt).unwrap(), original);
+        assert!(crate::pending_private_transaction::pending_at(
+            &fixture.paths.state_directory
+        ));
+    }
+
+    #[test]
     fn abrupt_worker_loss_during_last_fence_closure_never_leaves_incomplete_cleanup_unfenced() {
         for phase in ["unlinked", "synced"] {
             let fixture = Fixture::new();
@@ -1166,6 +1852,11 @@ mod tests {
                 2,
                 &lock,
                 || true,
+            )
+            .unwrap();
+            fixture.completed(&lock);
+            let expected_receipt = RetirementReceipt::decode(
+                &fs::read(fixture.paths.state_directory.join(RECEIPT_MEMBER)).unwrap(),
             )
             .unwrap();
             drop(lock);
@@ -1196,10 +1887,14 @@ mod tests {
                 NEW_TEMPLATE
             );
             let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
+            let completed =
+                inspect_completion_record(&fixture.config, &fixture.paths, fixture.uid, 2, &lock)
+                    .unwrap();
+            assert!(completed.matches_pending(&expected_receipt), "{phase}");
             if receipt.exists() {
                 fixture.assert_fenced_live(&lock);
             } else {
-                assert!(!crate::pending_private_transaction::pending_at(
+                assert!(crate::pending_private_transaction::pending_at(
                     &fixture.paths.state_directory
                 ));
             }
