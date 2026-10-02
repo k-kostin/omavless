@@ -239,7 +239,18 @@ fn raw_rules_child() {
     let selected = std::env::var("OMAVLESS_K1_RAW_RULE_CHILD").unwrap();
     assert!(matches!(
         selected.as_str(),
-        "full" | "emergency" | "set" | "object" | "flowtable" | "chain"
+        "full"
+            | "emergency"
+            | "set"
+            | "object"
+            | "flowtable"
+            | "chain"
+            | "delete-full"
+            | "delete-emergency"
+            | "stale-full"
+            | "stale-emergency"
+            | "expired-full"
+            | "cancel-full"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let parent_id = namespace_identity(&parent).unwrap();
@@ -267,7 +278,7 @@ fn raw_rules_child() {
     let first = 51;
     let full = full_vpn_wire::encode(generation, first).unwrap();
     let emergency = emergency_wire::encode(generation, first).unwrap();
-    let is_full = selected != "emergency";
+    let is_full = !selected.ends_with("emergency");
     let (batch, barrier) = if is_full {
         (full.batch(), full.barrier())
     } else {
@@ -371,6 +382,87 @@ fn raw_rules_child() {
         namespace_identity(&namespace_file().unwrap()).unwrap(),
         child_id
     );
+    if selected.starts_with("delete-")
+        || selected.starts_with("stale-")
+        || selected == "expired-full"
+        || selected == "cancel-full"
+    {
+        use crate::kernel_observer::conditional_delete::DeleteOutcome;
+        // Independent, fixed foreign table exists before the inventory. It is
+        // never selected by the handle-only delete. No nft invocation occurs
+        // outside this verified disposable user+network namespace child.
+        let nft = |arguments: &[&str]| {
+            let output = std::process::Command::new("/usr/bin/nft")
+                .env_clear()
+                .args(arguments)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "isolated fixed nft fixture failed");
+            output.stdout
+        };
+        nft(&["add", "table", "inet", "k1_fixture_foreign"]);
+        let before_table = nft(&["--json", "list", "table", "inet", "omavless_netguard"]);
+        // This witness retains this exact mutable creator session and the
+        // generation from the COMPLETE inventory; no later GETGEN refresh.
+        let witness = session.prepare_inventory_delete().unwrap();
+        if selected == "cancel-full" {
+            witness.cancel();
+            assert_eq!(
+                nft(&["--json", "list", "table", "inet", "omavless_netguard"]),
+                before_table
+            );
+            assert_eq!(
+                session.inspect_policy_inventory(),
+                Ok(LocalPolicyInventory::ExactUntrusted(policy))
+            );
+            println!("K1_CONDITIONAL_DELETE_CHILD_PASS");
+            return;
+        }
+        let stale = selected.starts_with("stale-");
+        if stale {
+            nft(&["add", "chain", "inet", "k1_fixture_foreign", "late"]);
+        }
+        let foreign_before = nft(&["--json", "list", "table", "inet", "k1_fixture_foreign"]);
+        let expired = selected == "expired-full";
+        if expired {
+            std::thread::sleep(Duration::from_millis(1100));
+        }
+        assert_eq!(
+            witness.consume(),
+            if expired {
+                DeleteOutcome::RefusedBeforeSend
+            } else if stale {
+                DeleteOutcome::GenerationChanged
+            } else {
+                DeleteOutcome::AcknowledgedAndAbsent
+            }
+        );
+        assert_eq!(
+            nft(&["--json", "list", "table", "inet", "k1_fixture_foreign"]),
+            foreign_before
+        );
+        let mut independent = LocalReadSession::open().unwrap();
+        if stale || expired {
+            assert_eq!(
+                independent.inspect(),
+                Ok(LocalTablePresence::PresentUntrusted)
+            );
+            assert_eq!(
+                nft(&["--json", "list", "table", "inet", "omavless_netguard"]),
+                before_table
+            );
+            assert!(session.inspect().is_err()); // permanently refused after stale attempt
+        } else {
+            assert_eq!(independent.inspect(), Ok(LocalTablePresence::Absent));
+            assert!(session.prepare_inventory_delete().is_err()); // absence is not delete authority
+        }
+        assert_eq!(
+            namespace_identity(&namespace_file().unwrap()).unwrap(),
+            child_id
+        );
+        println!("K1_CONDITIONAL_DELETE_CHILD_PASS");
+        return;
+    }
     // Mutation is test-only, uses the still-held exclusive creator socket and
     // fixed synthetic bytes, and never touches the parent's namespace.
     let deadline = Instant::now() + Duration::from_secs(1);
@@ -521,6 +613,63 @@ fn raw_rules_child() {
     assert!(session.inspect_rules().is_err());
     // Destroy this isolated namespace at child exit; never delete a host table.
     println!("K1_RAW_RULE_CHILD_PASS");
+}
+
+#[test]
+#[ignore = "VM-only conditional deletion in disposable user+network namespaces"]
+fn conditional_delete_in_disposable_vm() {
+    use std::{
+        os::fd::AsFd,
+        process::{Command, Stdio},
+    };
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_CONDITIONAL_DELETE_VM").as_deref(),
+        Ok("1")
+    );
+    let parent = File::open("/proc/thread-self/ns/net").unwrap();
+    let identity = namespace_identity(&parent).unwrap();
+    for scenario in [
+        "delete-full",
+        "delete-emergency",
+        "stale-full",
+        "stale-emergency",
+        "expired-full",
+        "cancel-full",
+    ] {
+        let mut child = Command::new("/usr/bin/unshare")
+            .env_clear()
+            .env("OMAVLESS_K1_RAW_RULE_CHILD", scenario)
+            .args(["--user", "--map-root-user", "--net", "--"])
+            .arg(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "kernel_observer::rule_wire::tests::raw_rules_child",
+                "--nocapture",
+            ])
+            .stdin(Stdio::from(parent.as_fd().try_clone_to_owned().unwrap()))
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("isolated conditional-delete deadline");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(namespace_identity(&parent).unwrap(), identity);
+        assert_eq!(
+            namespace_identity(&namespace_file().unwrap()).unwrap(),
+            identity
+        );
+    }
+    println!("K1_CONDITIONAL_DELETE_VM_PASS");
 }
 
 #[test]

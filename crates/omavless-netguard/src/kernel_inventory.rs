@@ -264,13 +264,15 @@ impl LocalReadSession {
     /// inside one bounded generation window on this retained descriptor. Even
     /// ExactUntrusted cannot become a receipt, Table::OwnedVerified or EffectPort.
     pub fn inspect_policy_inventory(&mut self) -> Result<LocalPolicyInventory> {
-        let result = self.inspect_policy_inventory_once();
+        let result = self.inspect_policy_inventory_once().map(|v| v.0);
         if result.is_err() {
             self.poisoned = true;
         }
         result
     }
-    fn inspect_policy_inventory_once(&mut self) -> Result<LocalPolicyInventory> {
+    pub(super) fn inspect_policy_inventory_once(
+        &mut self,
+    ) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
         let deadline = Instant::now() + Duration::from_secs(1);
         self.check(deadline)?;
         let first = self.next_sequence;
@@ -301,7 +303,7 @@ impl LocalReadSession {
         require(before == after)?;
         require(self.exchange(GET_GEN, first + 8, deadline)?.generation()? == generation)?;
         self.check(deadline)?;
-        Ok(result)
+        Ok((result, generation, before))
     }
 }
 
