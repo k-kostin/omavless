@@ -17,6 +17,8 @@ mod restore_decision_candidate;
 #[allow(dead_code)]
 mod restore_disposition_model;
 #[allow(dead_code)]
+mod restore_disposition_ticket_model;
+#[allow(dead_code)]
 mod restore_executor_candidate;
 #[allow(dead_code)]
 mod restore_journal_candidate;

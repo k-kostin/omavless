@@ -565,6 +565,9 @@ fn stage_with_hook(
     mut proceed: impl FnMut(Step) -> bool,
 ) -> Result<(), StageError> {
     let _planned = planned_stage_identity(members)?;
+    if crate::restore_disposition_ticket_model::pending_at(state_directory) {
+        return Err(StageError::AlreadyPending);
+    }
     let parent =
         open_private_directory(state_directory, uid).map_err(|_| StageError::UnsafeState)?;
     let parent_before = parent.metadata().map_err(|_| StageError::UnsafeState)?;
@@ -578,7 +581,9 @@ fn stage_with_hook(
     // Once the fixed name exists, every failure is ambiguous. Keep the
     // directory, even if it is partial, so nothing retries over it blindly.
     parent.sync_all().map_err(|_| StageError::Ambiguous)?;
-    if !proceed(Step::Directory) {
+    if !proceed(Step::Directory)
+        || crate::restore_disposition_ticket_model::pending_at(state_directory)
+    {
         return Err(StageError::Ambiguous);
     }
     let directory = File::from(
@@ -596,18 +601,23 @@ fn stage_with_hook(
     }
     for (index, bytes) in members.iter().enumerate() {
         write_member(&directory, MEMBERS[index], uid, bytes)?;
-        if !proceed(Step::Member(index)) {
+        if !proceed(Step::Member(index))
+            || crate::restore_disposition_ticket_model::pending_at(state_directory)
+        {
             return Err(StageError::Ambiguous);
         }
     }
     directory.sync_all().map_err(|_| StageError::Ambiguous)?;
     let ready = ready_bytes(members);
     write_member(&directory, READY_MEMBER, uid, &ready)?;
-    if !proceed(Step::Ready) {
+    if !proceed(Step::Ready) || crate::restore_disposition_ticket_model::pending_at(state_directory)
+    {
         return Err(StageError::Ambiguous);
     }
     directory.sync_all().map_err(|_| StageError::Ambiguous)?;
-    if !proceed(Step::Complete) {
+    if !proceed(Step::Complete)
+        || crate::restore_disposition_ticket_model::pending_at(state_directory)
+    {
         return Err(StageError::Ambiguous);
     }
     let current = File::from(
@@ -651,6 +661,30 @@ mod tests {
     }
 
     const PAIR: [&[u8]; 4] = [b"old store", b"old template", b"new store", b"new template"];
+
+    #[test]
+    fn disposition_ticket_blocks_direct_stage_initial_and_callback_prefix() {
+        for late in [false, true] {
+            let (root, uid) = root();
+            let ticket = root.join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+            if !late {
+                fs::write(&ticket, b"foreign").unwrap();
+            }
+            let result = stage_with_hook(&root, uid, PAIR, |step| {
+                if late && matches!(step, Step::Directory) {
+                    fs::write(&ticket, b"late").unwrap();
+                }
+                true
+            });
+            assert!(result.is_err());
+            assert!(!root.join(PENDING_DIRECTORY).join(MEMBERS[0]).exists());
+            if late {
+                fs::remove_dir(root.join(PENDING_DIRECTORY)).unwrap();
+            }
+            fs::remove_file(ticket).unwrap();
+            fs::remove_dir(root).unwrap();
+        }
+    }
 
     #[test]
     fn classification_distinguishes_identical_mixed_and_diverged_pairs() {

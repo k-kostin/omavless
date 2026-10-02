@@ -243,6 +243,11 @@ impl DecisionRecord {
         })
     }
 
+    /// Fixed-record consistency only; not current ownership or admission.
+    pub(crate) fn matches_owner_generation(&self, generation: u64) -> bool {
+        self.owner_generation == generation
+    }
+
     pub(crate) fn encode(&self) -> [u8; RECORD_BYTES] {
         let mut raw = [0_u8; RECORD_BYTES];
         raw[..8].copy_from_slice(MAGIC);

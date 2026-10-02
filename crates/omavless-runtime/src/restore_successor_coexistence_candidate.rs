@@ -154,6 +154,7 @@ fn observe(
         RECEIPT_MEMBER,
         "restore-decision.terminal",
         "routing-preset.pending.json",
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
     ] {
         absent(&state, name)?;
     }

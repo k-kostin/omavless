@@ -301,7 +301,9 @@ pub(crate) fn inspect_retirement_receipt(
     generation: u64,
     lock: &MigrationLock,
 ) -> Result<RetirementReceipt, RetirementError> {
-    if !lock.authorizes(paths, uid) {
+    if !lock.authorizes(paths, uid)
+        || crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+    {
         return Err(RetirementError::Admission);
     }
     let (receipt, before) = read_receipt_member(paths, uid)?;
@@ -517,7 +519,10 @@ pub(crate) fn publish_retirement_receipt(
     lock: &MigrationLock,
     mut gate: impl FnMut() -> bool,
 ) -> Result<PendingOutcome, RetirementError> {
-    if !gate() || !lock.authorizes(paths, uid) {
+    if !gate()
+        || !lock.authorizes(paths, uid)
+        || crate::restore_disposition_ticket_model::pending_at(&paths.state_directory)
+    {
         return Err(RetirementError::Admission);
     }
     // Retirement evidence is never a way to finish an undecided restore.
@@ -548,6 +553,9 @@ pub(crate) fn publish_retirement_receipt(
     ) || !receipt.matches_live(config, uid)?
         || !gate()
     {
+        return Err(RetirementError::ManualRecovery);
+    }
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
         return Err(RetirementError::ManualRecovery);
     }
     let written = write_receipt(paths, uid, &receipt.encode())?;
