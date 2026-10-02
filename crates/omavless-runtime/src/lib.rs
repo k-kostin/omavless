@@ -11,6 +11,8 @@ mod pending_private_transaction;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
 #[allow(dead_code)]
+mod restore_closure_model;
+#[allow(dead_code)]
 mod restore_decision_candidate;
 #[allow(dead_code)]
 mod restore_executor_candidate;

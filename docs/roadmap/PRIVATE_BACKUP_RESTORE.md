@@ -632,3 +632,28 @@ durable outcome/recovery design; absence alone cannot prove closure succeeded.
 The complete crash-checkpoint matrix, packaged recovery-only owner path,
 installed synthetic restore, private transfer/confirmation UX and independent
 format review remain open before T4 can be exposed to users.
+
+## Inactive last-fence completion model
+
+The final receipt unlink cannot be treated as proof of success after a
+post-unlink I/O failure and restart. An internal pure decision model now
+requires a separately durable completion record for that interval: publish
+and synchronize the record while the pending receipt still exists, then
+consider unlinking the pending receipt. The completed-only state is a
+**verification candidate**, not normal-owner admission; both records present
+remain fenced. Missing both records proves nothing about an interrupted
+restore. Corruption, mismatched identities, unretired fixed artifacts or
+owner/Off/live-pair drift demand manual recovery.
+
+The model tests the crash-observable evidence combinations. A separate
+fixed-size candidate record wraps the complete validated terminal receipt,
+with domain-separated checksum and strict decode, so a future restart reader
+could recheck its owner/desired/live-pair binding even after the pending
+receipt disappears. This is tear detection, not authentication against a
+hostile same-user writer. No completion record is written or read from disk
+yet. Independent format review, exclusive durable publication, restart
+inspection, retention/replacement across a
+second restore and product startup interpretation need separate review and
+implementation before the final pending receipt may be removed in a product
+flow. The existing inactive final-unlink candidate remains insufficient for
+post-restart admission.

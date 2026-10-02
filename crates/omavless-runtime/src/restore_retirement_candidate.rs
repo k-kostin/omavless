@@ -25,7 +25,7 @@ pub(crate) const RECEIPT_MEMBER: &str = "restore-finalization.pending";
 const MAGIC: &[u8; 8] = b"OVRFIN01";
 const CHECKSUM_DOMAIN: &[u8] = b"omavless-restore-finalization-v1\0";
 const BODY_BYTES: usize = 8 + RECORD_BYTES + (4 + 32) * 2;
-const RECEIPT_BYTES: usize = BODY_BYTES + 32;
+pub(crate) const RECEIPT_BYTES: usize = BODY_BYTES + 32;
 const LIVE: [&str; 2] = ["profiles.json", "route-template.yaml"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +86,7 @@ impl RetirementReceipt {
         })
     }
 
-    fn encode(&self) -> [u8; RECEIPT_BYTES] {
+    pub(crate) fn encode(&self) -> [u8; RECEIPT_BYTES] {
         let mut raw = [0_u8; RECEIPT_BYTES];
         raw[..8].copy_from_slice(MAGIC);
         raw[8..8 + RECORD_BYTES].copy_from_slice(&self.terminal.encode());
@@ -103,7 +103,7 @@ impl RetirementReceipt {
         raw
     }
 
-    fn decode(raw: &[u8]) -> Result<Self, RetirementError> {
+    pub(crate) fn decode(raw: &[u8]) -> Result<Self, RetirementError> {
         if raw.len() != RECEIPT_BYTES || &raw[..8] != MAGIC {
             return Err(RetirementError::ManualRecovery);
         }
@@ -732,5 +732,52 @@ mod tests {
                 &fixture.paths.state_directory
             ));
         }
+    }
+
+    #[test]
+    fn closure_record_retains_full_terminal_binding_after_pending_receipt_is_gone() {
+        use crate::restore_closure_model::{ClosureRecord, ReceiptIdentity};
+
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.commit(&lock);
+        assert_eq!(
+            publish_retirement_receipt(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || true,
+            ),
+            Ok(PendingOutcome::Committed)
+        );
+        let pending =
+            inspect_retirement_receipt(&fixture.config, &fixture.paths, fixture.uid, 2, &lock)
+                .unwrap();
+        let closure = ClosureRecord::from_verified_receipt(&pending).unwrap();
+        let raw = closure.encode();
+        let decoded = ClosureRecord::decode(&raw).unwrap();
+        assert!(decoded.matches_pending(&pending));
+        assert!(decoded.identity() == ReceiptIdentity::from_receipt(&pending));
+        for bad in [&raw[..raw.len() - 1], &[0][..]] {
+            assert!(ClosureRecord::decode(bad).is_err());
+        }
+        let mut torn = raw;
+        torn[8] ^= 1;
+        assert!(ClosureRecord::decode(&torn).is_err());
+
+        // Format-only synthetic check: an independently decoded completion
+        // still carries the original receipt's live-pair expectation.
+        fs::remove_file(fixture.paths.state_directory.join(RECEIPT_MEMBER)).unwrap();
+        assert_eq!(
+            decoded.receipt().matches_live(&fixture.config, fixture.uid),
+            Ok(true)
+        );
+        Fixture::member(&fixture.config.join(LIVE[1]), b"synthetic drift");
+        assert_eq!(
+            decoded.receipt().matches_live(&fixture.config, fixture.uid),
+            Ok(false)
+        );
     }
 }
