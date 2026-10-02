@@ -661,6 +661,10 @@ pub(crate) fn resync_current_epoch_off(
 }
 
 #[cfg(test)]
+#[path = "restore_current_epoch_tests.rs"]
+mod epoch_tests;
+
+#[cfg(test)]
 mod tests {
     use super::super::super::tests::published;
     use super::*;
@@ -669,7 +673,7 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
     use std::{fs, path::PathBuf, process::Command};
 
-    fn prepared(
+    pub(super) fn prepared(
         commit: bool,
     ) -> (
         crate::restore_successor_publication_candidate::tests::Fixture,
@@ -680,7 +684,9 @@ mod tests {
         (f, lock)
     }
 
-    fn ordinary_edit(f: &crate::restore_successor_publication_candidate::tests::Fixture) {
+    pub(super) fn ordinary_edit(
+        f: &crate::restore_successor_publication_candidate::tests::Fixture,
+    ) {
         let path = f.config.join(LIVE[0]);
         let mut store: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();

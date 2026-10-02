@@ -10,6 +10,8 @@ use crate::restore_staging_candidate::{same_directory, same_member};
 use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::Mode;
 use std::fs::{File, Metadata};
+use std::io::Read;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use zeroize::Zeroizing;
 
@@ -50,10 +52,7 @@ impl PinnedReceipt {
         let directory =
             open_private_directory(&paths.runtime_base, uid).map_err(|_| Error::Recovery)?;
         let directory_metadata = directory.metadata().map_err(|_| Error::Recovery)?;
-        let (bytes, metadata) = read_optional(&directory, MEMBER, uid, LIMIT)
-            .map_err(|_| Error::Recovery)?
-            .ok_or(Error::Recovery)?;
-        let file = File::from(
+        let mut file = File::from(
             openat(
                 &directory,
                 Path::new(MEMBER),
@@ -62,6 +61,24 @@ impl PinnedReceipt {
             )
             .map_err(|_| Error::Recovery)?,
         );
+        let metadata = file.metadata().map_err(|_| Error::Recovery)?;
+        if !metadata.is_file()
+            || metadata.uid() != uid
+            || metadata.mode() & 0o7777 != 0o600
+            || metadata.nlink() != 1
+            || metadata.len() == 0
+            || metadata.len() > LIMIT as u64
+        {
+            return Err(Error::Recovery);
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        Read::by_ref(&mut file)
+            .take(LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::Recovery)?;
+        if bytes.len() as u64 != metadata.len() {
+            return Err(Error::Recovery);
+        }
         let pinned = Self {
             directory,
             directory_metadata,
