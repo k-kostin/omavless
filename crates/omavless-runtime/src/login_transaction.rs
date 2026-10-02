@@ -227,23 +227,24 @@ fn receipt(paths: &LoginPaths) -> Result<Option<Receipt>> {
 fn read_receipt(path: &Path, uid: u32) -> Result<Option<Receipt>> {
     let raw = private_optional(path, uid, MAX_RECEIPT_BYTES)
         .map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
-    raw.map(|raw| {
-        let parsed: Receipt = serde_json::from_str(&raw)
-            .map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
-        if parsed.schema_version != 1
-            || parsed.epoch_hash.len() != 64
-            || !parsed
-                .epoch_hash
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            || parsed.ownership_generation == 0
-            || parsed.ownership_generation > MAX_GENERATION
-        {
-            return Err(LoginTransactionError::ManualRecoveryRequired);
-        }
-        Ok(parsed)
-    })
-    .transpose()
+    raw.map(|raw| decode_receipt(&raw)).transpose()
+}
+
+fn decode_receipt(raw: &str) -> Result<Receipt> {
+    let parsed: Receipt =
+        serde_json::from_str(raw).map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
+    if parsed.schema_version != 1
+        || parsed.epoch_hash.len() != 64
+        || !parsed
+            .epoch_hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || parsed.ownership_generation == 0
+        || parsed.ownership_generation > MAX_GENERATION
+    {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    Ok(parsed)
 }
 
 /// Read-only startup fence under the exact migration lease. `None` denotes a
@@ -312,20 +313,40 @@ pub(crate) fn check_current_receipt(
     if pending_private_transaction::pending_at(&paths.state_directory) {
         return Err(LoginTransactionError::ManualRecoveryRequired);
     }
+    match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
+        Some(value) => consumed_identity(&value, generation, epoch),
+        None => Err(LoginTransactionError::ManualRecoveryRequired),
+    }
+}
+
+fn consumed_identity(value: &Receipt, generation: u64, epoch: &str) -> Result<()> {
     let expected = format!(
         "{:x}",
         Sha256::digest([b"omavless-login-epoch-v1\0".as_slice(), epoch.as_bytes()].concat())
     );
-    match read_receipt(&paths.runtime_base.join(RECEIPT_NAME), uid)? {
-        Some(value)
-            if value.phase == Phase::Consumed
-                && value.ownership_generation == generation
-                && value.epoch_hash == expected =>
-        {
-            Ok(())
-        }
-        _ => Err(LoginTransactionError::ManualRecoveryRequired),
+    if value.phase == Phase::Consumed
+        && value.ownership_generation == generation
+        && value.epoch_hash == expected
+    {
+        Ok(())
+    } else {
+        Err(LoginTransactionError::ManualRecoveryRequired)
     }
+}
+
+/// Identity-only parser for already pinned recovery evidence. This is NOT a
+/// pending-fence exception, trusted epoch source or owner admission.
+pub(crate) fn validate_consumed_receipt_identity(
+    raw: &[u8],
+    generation: u64,
+    epoch: &str,
+) -> Result<()> {
+    let text =
+        std::str::from_utf8(raw).map_err(|_| LoginTransactionError::ManualRecoveryRequired)?;
+    if raw.len() as u64 > MAX_RECEIPT_BYTES {
+        return Err(LoginTransactionError::ManualRecoveryRequired);
+    }
+    consumed_identity(&decode_receipt(text)?, generation, epoch)
 }
 
 fn desired_from_snapshot(raw: Option<&str>) -> Result<DesiredState> {

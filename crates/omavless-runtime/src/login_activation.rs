@@ -24,6 +24,9 @@ const LOGIN_BYTES: &[u8] =
     include_bytes!("../../../packaging/systemd/omavless-login-prepare.service");
 const RUNTIME_BYTES: &[u8] = include_bytes!("../../../packaging/systemd/omavless-runtime.service");
 
+#[path = "login_epoch_candidate.rs"]
+pub(crate) mod epoch_candidate;
+
 /// These fixed errors deliberately contain no account paths, epochs or input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
