@@ -547,6 +547,17 @@ pub(crate) fn stage_private_pair(
     )
 }
 
+/// Internal composition seam: after each fixed publication boundary the
+/// enclosing owner can recheck its independent lease/host/record bindings.
+pub(crate) fn stage_private_pair_checked(
+    state_directory: &Path,
+    uid: u32,
+    members: [&[u8]; 4],
+    mut check: impl FnMut() -> bool,
+) -> Result<(), StageError> {
+    stage_with_hook(state_directory, uid, members, |_| check())
+}
+
 fn stage_with_hook(
     state_directory: &Path,
     uid: u32,
