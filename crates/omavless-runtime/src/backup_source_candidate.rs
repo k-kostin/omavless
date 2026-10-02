@@ -5,14 +5,13 @@
 
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::desired::DesiredPaths;
-use nix::fcntl::{OFlag, open, openat};
-use nix::sys::stat::Mode;
+use nix::fcntl::{AtFlags, OFlag, open, openat};
+use nix::sys::stat::{FileStat, Mode, SFlag, fstat, fstatat};
 use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
-use std::fs::{self, File, Metadata, OpenOptions};
+use std::fs::{self, File, Metadata};
 use std::io::Read;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::{Component, Path, PathBuf};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Component, Path};
 use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -159,37 +158,66 @@ fn admit(
     Ok(())
 }
 
-struct Member {
+struct Member<'a> {
     file: File,
-    path: PathBuf,
-    before: Metadata,
+    directory: &'a File,
+    name: &'static str,
+    before: FileStat,
     limit: usize,
 }
 
-impl Member {
-    fn open(directory: &File, name: &str, uid: u32, limit: usize) -> Result<Self, SnapshotError> {
-        let path = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd())).join(name);
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-            .open(&path)
-            .map_err(|_| SnapshotError::UnsafeSource)?;
-        let before = file.metadata().map_err(|_| SnapshotError::UnsafeSource)?;
-        if !before.is_file()
-            || before.uid() != uid
-            || before.mode() & 0o7777 != 0o600
-            || before.nlink() != 1
-            || before.len() == 0
-            || before.len() > limit as u64
+fn stable_member(left: &FileStat, right: &FileStat) -> bool {
+    left.st_dev == right.st_dev
+        && left.st_ino == right.st_ino
+        && left.st_uid == right.st_uid
+        && left.st_gid == right.st_gid
+        && left.st_mode == right.st_mode
+        && left.st_nlink == right.st_nlink
+        && left.st_size == right.st_size
+        && left.st_mtime == right.st_mtime
+        && left.st_mtime_nsec == right.st_mtime_nsec
+        && left.st_ctime == right.st_ctime
+        && left.st_ctime_nsec == right.st_ctime_nsec
+}
+
+impl<'a> Member<'a> {
+    fn open(
+        directory: &'a File,
+        name: &'static str,
+        uid: u32,
+        limit: usize,
+    ) -> Result<Self, SnapshotError> {
+        if !matches!(name, "profiles.json" | "route-template.yaml") {
+            return Err(SnapshotError::UnsafeSource);
+        }
+        let file = File::from(
+            openat(
+                directory,
+                Path::new(name),
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| SnapshotError::UnsafeSource)?,
+        );
+        let before = fstat(&file).map_err(|_| SnapshotError::UnsafeSource)?;
+        if SFlag::from_bits_truncate(before.st_mode) != SFlag::S_IFREG
+            || before.st_uid != uid
+            || before.st_mode & 0o7777 != 0o600
+            || before.st_nlink != 1
+            || before.st_size <= 0
+            || before.st_size as u64 > limit as u64
         {
             return Err(SnapshotError::UnsafeSource);
         }
-        Ok(Self {
+        let member = Self {
             file,
-            path,
+            directory,
+            name,
             before,
             limit,
-        })
+        };
+        member.verify()?;
+        Ok(member)
     }
 
     fn read(&mut self) -> Result<Zeroizing<Vec<u8>>, SnapshotError> {
@@ -198,7 +226,7 @@ impl Member {
             .take(self.limit as u64 + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| SnapshotError::UnsafeSource)?;
-        if bytes.len() as u64 != self.before.len() || bytes.len() > self.limit {
+        if bytes.len() as u64 != self.before.st_size as u64 || bytes.len() > self.limit {
             return Err(SnapshotError::SourceChanged);
         }
         self.verify()?;
@@ -206,12 +234,14 @@ impl Member {
     }
 
     fn verify(&self) -> Result<(), SnapshotError> {
-        let held = self
-            .file
-            .metadata()
-            .map_err(|_| SnapshotError::SourceChanged)?;
-        let current = fs::symlink_metadata(&self.path).map_err(|_| SnapshotError::SourceChanged)?;
-        if !stable(&self.before, &held) || !stable(&self.before, &current) {
+        let held = fstat(&self.file).map_err(|_| SnapshotError::SourceChanged)?;
+        let current = fstatat(
+            self.directory,
+            Path::new(self.name),
+            AtFlags::AT_SYMLINK_NOFOLLOW,
+        )
+        .map_err(|_| SnapshotError::SourceChanged)?;
+        if !stable_member(&self.before, &held) || !stable_member(&self.before, &current) {
             return Err(SnapshotError::SourceChanged);
         }
         Ok(())
@@ -294,6 +324,7 @@ pub(crate) fn seal_current_pair(
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::PathBuf;
 
     const VALID_STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     const VALID_TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
@@ -372,6 +403,71 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn backup_member_uses_pinned_dirfd_after_directory_name_replacement() {
+        let fixture = Fixture::new();
+        let directory = open_private_directory(&fixture.config, fixture.uid).unwrap();
+        let saved = fixture.root.join("saved-config");
+        fs::rename(&fixture.config, &saved).unwrap();
+        fs::create_dir(&fixture.config).unwrap();
+        fs::set_permissions(&fixture.config, fs::Permissions::from_mode(0o700)).unwrap();
+        write(&fixture.config.join("profiles.json"), b"different-source");
+        let mut member = Member::open(
+            &directory,
+            "profiles.json",
+            fixture.uid,
+            MAX_PRIVATE_STORE_BYTES,
+        )
+        .unwrap();
+        assert_eq!(member.read().unwrap().as_slice(), b"synthetic-store");
+        assert_eq!(
+            fs::read(fixture.config.join("profiles.json")).unwrap(),
+            b"different-source"
+        );
+        for name in [
+            "../profiles.json",
+            "/profiles.json",
+            "unknown",
+            "sub/profiles.json",
+        ] {
+            assert!(Member::open(&directory, name, fixture.uid, MAX_PRIVATE_STORE_BYTES).is_err());
+        }
+        // The whole-pair capture independently rejects a changed config path;
+        // this lower-level check proves name resolution uses the held dirfd.
+        let production = include_str!("backup_source_candidate.rs")
+            .split("\n#[cfg(test)]\nmod tests")
+            .next()
+            .unwrap();
+        assert!(!production.contains("/proc/"));
+    }
+
+    #[test]
+    fn backup_source_refuses_late_symlink_hardlink_and_same_byte_inode_swaps() {
+        for name in ["profiles.json", "route-template.yaml"] {
+            for kind in ["symlink", "hardlink", "replacement"] {
+                let fixture = Fixture::new();
+                let path = fixture.config.join(name);
+                let original = fs::read(&path).unwrap();
+                let result = fixture.read(|| {
+                    let other = fixture.config.join("other");
+                    match kind {
+                        "hardlink" => fs::hard_link(&path, &other).unwrap(),
+                        "symlink" => {
+                            fs::rename(&path, &other).unwrap();
+                            symlink(&other, &path).unwrap();
+                        }
+                        _ => {
+                            write(&other, &original);
+                            fs::rename(&other, &path).unwrap();
+                        }
+                    }
+                });
+                assert!(result.is_err(), "{name}/{kind}");
+                assert_eq!(fs::read(&path).unwrap(), original);
+            }
+        }
     }
 
     #[test]
