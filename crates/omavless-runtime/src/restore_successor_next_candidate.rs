@@ -20,7 +20,7 @@ enum Checkpoint {
 
 // Indices deliberately match the reviewed rotation snapshot. Explicit length
 // checks below prevent future vector changes from silently truncating a zip.
-fn locations() -> [(usize, &'static str, usize); 17] {
+pub(super) fn locations() -> [(usize, &'static str, usize); 17] {
     [
         (0, CLOSURE_MEMBER, CLOSURE_BYTES),
         (0, NEXT_CLOSURE_MEMBER, CLOSURE_BYTES),
