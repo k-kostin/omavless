@@ -148,6 +148,134 @@ unresolved; the normal runtime does not build or call the optional GIO helper.
 No privileged helper is needed for this scope. NixOS needs its own adapter and
 generation/session acceptance; Arch/Omarchy evidence cannot establish it.
 
+### Per-field recovery candidate (stacked, not installed)
+
+`app_proxy::fields` addresses a limitation of the earlier two-surface lease:
+one GSettings operation may update only some of its 16 fields. It models the
+fixed 16 desktop keys and 10 manager variables individually. Each field intent
+is marked before an effect is returned; confirmation requires a fresh complete
+readback in which exactly that field changed. On compensation, only fields
+whose intent was marked may be either original or intended, and they are
+restored in reverse order. Every never-attempted field must remain original.
+Unexpected third values, changed defaults/locks, stale owner or an unconfirmed
+effect refuse progress. Synthetic tests cover every partial-apply boundary and
+both outcomes of an uncertain write, without touching the host.
+
+This is a **pure in-memory planner**, not the production recovery solution.
+Its 26 intent bits and pending field still need a durable private journal,
+crash/reopen tests, exact host readback and owner takeover proof before any
+adapter may execute its effects. The previous two-surface journal is not
+silently reinterpreted as a per-field record. App proxy remains unavailable.
+
+The stacked field-journal candidate adds that private intent persistence in a
+fixed `app-proxy-fields` child of a trusted private root (pre-created 0700;
+symlinks refuse). Its version-2 record uses fixed basenames,
+0600 files, exclusive locking, a durable write-before-effect sequence and exact
+previous-record comparison from the existing storage layer. It keeps all 26
+attempted bits, the pending field and each field's expected original/intended
+side. Reopening refuses to continue applying; it allows only compensation
+after a complete fresh observation under the same binding. Tests restart at
+every partial-apply boundary, exercise both outcomes of a lost confirmation,
+and check storage failure, foreign fields, stale binding and malformed state.
+
+This remains an unregistered library, not App proxy availability. The version-1
+two-surface journal is **not** auto-migrated or deleted. Production code still
+needs a proved native-owner takeover, session/broker provenance, per-key typed
+host adapter, complete readback and installed crash/new-app acceptance. In
+particular a new daemon cannot simply reuse the old instance ID to open either
+journal. Both private journal formats remain isolated development checkpoints.
+
+### Inactive takeover admission candidate
+
+`app_proxy::takeover` is a pure refusal-first model stacked after the field
+journal. It returns a compensation-transfer *plan*, never a host effect or a
+rewritten binding. It accepts only an exact private record identity and
+sequence, distinct monotonic native-owner generations, matching UID/boot/session
+and verified manager, bus, settings-profile and shared-activation scope.
+It additionally requires an exact graceful handoff receipt saying the old
+workers were joined and all asynchronous effects settled. Missing/released
+records, unknown predecessor state, changed scope or a stale receipt refuse.
+An ordinary crash does **not** produce that receipt, so the model intentionally
+does not authorize automatic crash takeover.
+
+All these inputs are supplied by a future trusted coordinator; constructing a
+Rust receipt or comparing two snapshots does not prove the operating-system
+facts. The current read-only observer verifies identities within one read but
+does not carry manager/bus incarnation, settings backend/profile selection or
+broker provenance into a transferable proof. A future storage slice would
+need to atomically record the new binding and incremented sequence under the
+same private journal lock, preserving every original value, attempted bit and
+pending effect. It must reject uncertain publication and stale predecessor
+handles. A future installed-VM gate must prove actual old-worker quiescence,
+session/broker provenance, and exact partial-write restoration. No production
+caller, automatic transfer, S1 availability or network change follows from
+this model.
+
+### Test-only durable compensation transfer experiment
+
+The field-journal tests now compose the takeover decision with the real private
+storage lock, exact-byte comparison and durable replacement sequence. The
+experiment stores a canonical bounded envelope containing the unchanged field
+record, a nonzero monotonic sequence and synthetic manager/bus/settings scope.
+Its identity hashes the complete private bytes. The model changes only the
+owner binding and sequence during transfer: original/intended values, expected
+sides, attempted bits, pending field and phase are preserved. A successful
+transfer or reopen remains compensation-only; it cannot resume application or
+confirm the predecessor's unknown write. Every later restoration publication
+also advances the sequence, invalidating old receipts.
+
+This is compiled only inside `cfg(test)`, not a new journal version, production
+transfer API, migration or host lease. Its scope and joined/settled receipt are
+deliberately synthetic inputs; they do not close any identity edge. The normal
+v1/v2 journal decoders and all production paths are unchanged. The experimental
+format is used only in disposable private fixture directories.
+
+The matrix transfers at all 27 partial-apply boundaries, including both possible
+outcomes of the pending write, then reopens under the successor and restores the
+exact original state. It rejects predecessor bindings, stale receipts, changed
+scope, unknown quiescence, competing lock holders, foreign bytes, missing or
+released records, sequence overflow and invalid/duplicate envelope fields.
+Injected failures and actual owned-child exit after staging creation, write,
+file sync, rename and directory sync prove refusal ordering: pre-rename staging
+blocks both owners; a visible post-rename record retires the predecessor and
+permits only modeled compensation under the successor. Foreign field edits
+still refuse without changing the record. These are process-exit and storage
+ordering tests, not power-loss durability or automatic crash-handoff proof.
+
+Before promoting this experiment, the remaining gate is a separately reviewed
+coordinator that proves old-worker quiescence and the unchanged installed host
+scope, binds a receipt to the exact locked record, and revalidates that authority
+before each typed effect. An ordinary daemon crash still supplies no graceful
+receipt. The read-only manager diagnostic's unverified success cannot create
+one. Installed exact restoration, listener readiness and new-app consumption
+remain later gates; this experiment does not access proxy settings or a VM.
+
+### Test-only tracked-worker quiescence experiment
+
+The transfer fixture now has a synthetic worker registry with real Rust threads
+and separately retained effect tickets. It closes new worker/effect admission,
+joins every registered worker, and refuses a modeled graceful receipt while any
+effect is pending or any completion is unknown. Dropping an unsettled ticket or
+joining a panicked worker sets an irreversible unknown-outcome flag; an empty
+ticket count is not success. Cancellation alone cannot settle an already
+admitted write, and joining its initiating worker cannot settle a later callback.
+
+Channel-controlled tests prove these boundaries without timing-based assumptions.
+An admitted synthetic field write can complete after cancellation; only after
+tracked quiescence does the model transfer and restore the exact saved original.
+A child callback deliberately outlives its parent worker and blocks the receipt
+until its own tracked completion. Known completion before worker join is also
+insufficient. A subsequent durable record revision invalidates an otherwise
+settled receipt, so the storage identity check remains mandatory.
+
+This registry is test-only and covers only the workers and effects it explicitly
+tracks. Its `settle` call is a synthetic executor acknowledgment, not evidence
+that a host API committed a write. It cannot discover detached/unregistered
+work, quiesce GIO/D-Bus operations, rule out foreign writes, authenticate a host
+scope or provide a production lease. The promotion gate must first define all
+real asynchronous effect owners and require bounded known completion or
+conservative refusal for each, alongside the still-open provenance gates above.
+
 ## Private durable journal foundation
 
 `app_proxy::journal` supplies an unregistered, fixed-schema library over the

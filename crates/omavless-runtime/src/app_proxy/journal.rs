@@ -9,6 +9,7 @@ use super::{Effect, Owner, Phase, ProxyLease, Snapshot, Surface};
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::Path};
 
+pub mod fields;
 mod storage;
 use storage::Storage;
 
