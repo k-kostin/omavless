@@ -27,6 +27,10 @@ use omavless_domain::{
 };
 use std::fs::{File, Metadata};
 use std::path::Path;
+use zeroize::Zeroizing;
+
+#[path = "restore_successor_preparation_candidate.rs"]
+pub(crate) mod preparation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CoexistenceError {
@@ -51,8 +55,35 @@ struct Snapshot {
     directories: Vec<Metadata>,
     members: Vec<Metadata>,
     handoff: [u8; RECORD_BYTES],
+    old: [Zeroizing<Vec<u8>>; 2],
+    base_identities: [Metadata; 4],
 }
 impl Snapshot {
+    fn same_stage(&self, other: &Self) -> bool {
+        self.directories.len() == 3
+            && other.directories.len() == 3
+            && same_directory(&self.directories[2], &other.directories[2])
+            && self
+                .members
+                .iter()
+                .rev()
+                .take(5)
+                .zip(other.members.iter().rev().take(5))
+                .all(|(a, b)| same_member(a, b))
+    }
+    fn same_base(&self, other: &Self) -> bool {
+        self.handoff == other.handoff
+            && self.old == other.old
+            && self.directories[..2]
+                .iter()
+                .zip(&other.directories[..2])
+                .all(|(a, b)| same_directory(a, b))
+            && self
+                .base_identities
+                .iter()
+                .zip(&other.base_identities)
+                .all(|(a, b)| same_member(a, b))
+    }
     fn same(&self, other: &Self) -> bool {
         self.handoff == other.handoff
             && self.directories.len() == other.directories.len()
@@ -216,8 +247,18 @@ fn observe(
     // identities. No caller callback runs after the final verification pass.
     Ok(Snapshot {
         directories,
+        base_identities: {
+            let offset = usize::from(phase == PreparationPhase::StageWithIntent);
+            [
+                identities[0].clone(),
+                identities[1].clone(),
+                identities[2 + offset].clone(),
+                identities[3 + offset].clone(),
+            ]
+        },
         members: identities,
         handoff: handoff.encode(),
+        old: [old_store, old_template],
     })
 }
 
@@ -257,8 +298,23 @@ pub(crate) fn inspect_successor_preparation(
     lock: &MigrationLock,
     backup: &OpenedBackup,
     phase: PreparationPhase,
-    mut gate: impl FnMut() -> bool,
+    gate: impl FnMut() -> bool,
 ) -> Result<PreparationPhase> {
+    inspect_snapshot(config, paths, uid, generation, lock, backup, phase, gate)?;
+    Ok(phase)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspect_snapshot(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &OpenedBackup,
+    phase: PreparationPhase,
+    mut gate: impl FnMut() -> bool,
+) -> Result<Snapshot> {
     if !gate() {
         return Err(REFUSE);
     }
@@ -309,7 +365,7 @@ pub(crate) fn inspect_successor_preparation(
             return Err(REFUSE);
         }
     }
-    Ok(phase)
+    Ok(after)
 }
 
 #[cfg(test)]

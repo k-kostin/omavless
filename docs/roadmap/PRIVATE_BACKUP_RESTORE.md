@@ -777,3 +777,25 @@ the fresh gate, and remains a read-only fact. Crash-reopen tests cover all five
 preparation checkpoints against all three phase requests. This supplies admission
 checks for a future create-only preparer; it is not that preparer and does not
 grant durability, retry, predecessor-retirement or normal-startup authority.
+
+## Inactive create-only successor preparation
+
+An internal preparer can now advance an authenticated handoff-only state to a
+complete stage and the exact intent embedded in that handoff. It first rechecks
+the lease, owner/Off/idle gates and pinned predecessor/handoff/live identities,
+then synchronizes both retained fences. It exclusively creates the four-member
+stage with a binding check after each publication boundary; any partial stage
+remains ambiguous. Only a complete independently reopened matching stage admits
+exclusive intent creation, file synchronization, directory synchronization and
+same-inode readback. Final authenticated coexistence review must preserve both
+the original live/fence identities and the stage identities observed before
+intent publication. Same-byte stage or intent replacement refuses success.
+
+The result is only `PreparedStillFenced`. No live member, desired state or prior
+fence is changed or removed; there is no product caller or executor invocation.
+Existing stage or intent entries, including apparently complete ones, refuse this
+create-only API. Twelve interruption boundaries, actual SIGKILL/reopen checks,
+owner drift during a partial stage and final artifact substitution are exercised
+with synthetic data. Readable stage/intent bytes after a crash remain evidence,
+not proof of prior synchronization or automatic restart permission. A separate
+recovery admission/durability step is still needed before any continuation.
