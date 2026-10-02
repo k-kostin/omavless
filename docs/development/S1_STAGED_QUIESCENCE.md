@@ -6,6 +6,8 @@ remains unavailable. No ordinary executor accepts the staged journal, and no
 production host constructor, helper, IPC/CLI/UI capability or package is added.
 Shared backend/runtime contracts, existing v2/v3 interpretation and the frozen
 Python archive are unchanged.
+The [exact-source private evidence](../testing/S1_STAGED_PRIVATE_2026-10-03.md)
+records the completed declared gates separately from unrun installed admission.
 
 ## Fixed staged plan
 
