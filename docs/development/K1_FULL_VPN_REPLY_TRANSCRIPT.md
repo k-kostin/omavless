@@ -53,6 +53,26 @@ packet fixture is unchanged semantically and does not opt into this bridge.
 VM results must identify the exact tested commit/artifact; no kernel acceptance
 is inferred merely from synthetic parser tests.
 
+Exact developer evidence, 2026-10-02:
+
+- Code `07405b4f28b8d8b6da28a6775a9006046e1e0c15`: all twelve focused
+  parser tests and full `tests/run-rust.sh` with `RUST_TEST_THREADS=1 TMPDIR=/tmp`
+  PASS; full `tests/run.sh` PASS. Cargo artifacts remained in the home worktree.
+- Dedicated disposable Omarchy Dev VM, exact transferred `nft_namespace` binary
+  SHA-256 `624b450c6d1c6029a84ac5399743ccdf76092b8eea2f3ed17cf53b15785c9cfc`:
+  `OMAVLESS_K1_FULL_VM=1 nft-tests --ignored --exact
+  atomic_full::atomic_full_in_disposable_vm --nocapture` PASS in 0.05 seconds,
+  including exactly one `K1_FULL_RAW_REPLY_PASS` from actual kernel replies.
+  Artifact hash verified before and after; transferred binary and its empty
+  temporary directory removed. Child namespace lifetime ended normally.
+- Independent exact-code review found no blocking source issue. Emergency
+  decoder and tests were unchanged; their synthetic tests passed in the full
+  suite. Its opt-in VM gate was not rerun for this separate decoder.
+
+This is exact fixture compatibility, not a production transport test. It adds
+no new packet-enforcement claim beyond the separately documented raw matrix.
+PC network and the VM primary network/VPN were not changed.
+
 K1 remains unavailable. Safe namespace API, trusted launch, retained transport
 authentication, production effect authorization, installed acceptance and owner
 recovery are separate prerequisites. No dependency, installed unit/package,
