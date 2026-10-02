@@ -131,9 +131,9 @@ def child_limit():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
-def launch(argv, log):
+def launch(argv, log, pass_fds=()):
     return subprocess.Popen(dropped(argv), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                            env=ENV, preexec_fn=child_limit)
+                            env=ENV, preexec_fn=child_limit, pass_fds=pass_fds)
 
 
 def controller(path, pid):
@@ -255,6 +255,7 @@ def namespace_run(args):
     command(["/usr/bin/ip", "link", "set", "lo", "up"], "namespace_loopback")
     command(["/usr/bin/ip", "link", "add", DEVICE, "type", "wireguard"], "namespace_wireguard")
     http = None
+    http_net_fd = None
     result = {"positive": 0, "negative": 0, "recovery": 0, "private_roundtrip": 0,
               "net_inode": namespace("net"), "user_inode": namespace("user")}
     try:
@@ -262,8 +263,10 @@ def namespace_run(args):
         command(["/usr/bin/ip", "link", "set", DEVICE, "up"], "peer_link")
         command(["/usr/bin/ip", "route", "add", "10.203.0.2/32", "dev", DEVICE], "peer_return_route")
         with log_handle(root / "http.log") as log:
+            http_net_fd = os.open("/proc/self/ns/net", os.O_RDONLY | os.O_CLOEXEC)
             http = launch([sys.executable, Path(__file__).resolve(), "--http-child",
-                           "--parent-pid", str(os.getpid())], log)
+                           "--parent-pid", str(os.getpid()),
+                           "--parent-net-fd", str(http_net_fd)], log, pass_fds=(http_net_fd,))
             deadline = time.monotonic() + 3
             while True:
                 require(http.poll() is None and time.monotonic() < deadline, "http_readiness")
@@ -291,6 +294,8 @@ def namespace_run(args):
             check_process(http, result["net_inode"])
     finally:
         stop(http)
+        if http_net_fd is not None:
+            os.close(http_net_fd)
         command(["/usr/bin/ip", "link", "del", DEVICE], "namespace_interface_cleanup")
     result["interface_cleanup"] = True
     print(json.dumps(result, sort_keys=True))
@@ -418,7 +423,7 @@ def outer(args):
 
 def http_child(args):
     require(os.getuid() == 0 and os.getppid() == int(args.parent_pid)
-            and namespace("net") == namespace("net", os.getppid()), "http_namespace")
+            and namespace("net") == os.fstat(int(args.parent_net_fd)).st_ino, "http_namespace")
     links = json.loads(command(["/usr/bin/ip", "-j", "link", "show"], "http_namespace").stdout)
     require(sorted(row["ifname"] for row in links) == ["lo", DEVICE], "http_namespace")
     class Handler(http.server.BaseHTTPRequestHandler):
