@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Developer-only bridge from the pure Rust encoder to isolated kernel evidence.
 use super::*;
+use std::io::Read;
 
 fn fixture() -> Scratch {
     let scratch = Scratch::new().unwrap();
@@ -40,6 +41,44 @@ fn encoder_child() {
         let hex: String = bytes.iter().map(|v| format!("{v:02x}")).collect();
         println!("K1_ATOMIC_{key}={hex}");
     }
+}
+
+#[test]
+#[ignore = "pure raw-reply decoder child used only by explicit developer harness"]
+fn decoder_child() {
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(32 * 1024 + 16 * 16 + 17)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let mut rest = bytes.as_slice();
+    let next = |rest: &mut &[u8]| -> u32 {
+        let (value, tail) = rest.split_at(4);
+        *rest = tail;
+        u32::from_ne_bytes(value.try_into().unwrap())
+    };
+    let generation = next(&mut rest);
+    let first = next(&mut rest);
+    let port = next(&mut rest);
+    let count = next(&mut rest);
+    assert!((1..=16).contains(&count));
+    let mut collector =
+        omavless_netguard::emergency_wire::reply::EmergencyTranscript::new(generation, first, port)
+            .unwrap();
+    for _ in 0..count {
+        let length = usize::try_from(next(&mut rest)).unwrap();
+        let sender_port = next(&mut rest);
+        let sender_groups = next(&mut rest);
+        let flags = next(&mut rest);
+        let (data, tail) = rest.split_at(length);
+        rest = tail;
+        collector
+            .push_datagram(data, sender_port, sender_groups, flags)
+            .unwrap();
+    }
+    assert!(rest.is_empty());
+    assert!(collector.finish().is_ok());
+    println!("K1_ATOMIC_RAW_REPLY_PASS");
 }
 
 fn command(scratch: &Scratch) -> Command {
@@ -82,6 +121,7 @@ fn atomic_emergency_in_disposable_vm() {
     let mut cmd = Command::new("/usr/bin/unshare");
     cmd.env_clear()
         .env("OMAVLESS_K1_ATOMIC_EXE", std::env::current_exe().unwrap())
+        .env("OMAVLESS_K1_RAW_REPLY_VM", "1")
         .env("OMAVLESS_K1_LIVE_OWNER_CHILD", "1")
         .env("OMAVLESS_K1_CAPABILITY_CHILD", "1")
         .env("OMAVLESS_K1_NFT_PARENT_DEV", parent.dev.to_string())
@@ -107,6 +147,9 @@ fn atomic_emergency_in_disposable_vm() {
         .unwrap_or("")
         .lines()
         .filter(|line| {
+            if line.starts_with("K1_RAW_REPLY_META=") {
+                return true;
+            }
             [
                 "K1_LIVE_OWNER_STAGE=namespace",
                 "K1_LIVE_OWNER_STAGE=rollback",

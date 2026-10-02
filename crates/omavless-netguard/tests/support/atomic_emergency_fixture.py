@@ -56,6 +56,31 @@ def checked_reply(result, first, extra=False):
     return set(errors.values())
 
 
+def check_rust_raw_reply(generation, first, port, datagrams):
+    # Developer-only bridge: bounded kernel transcript, never a product socket.
+    require(0 < len(datagrams) <= 16 and sum(len(item[0]) for item in datagrams) <= 32768)
+    blob = struct.pack("=IIII", generation, first, port, len(datagrams))
+    for data, sender, flags in datagrams:
+        blob += struct.pack("=IIII", len(data), sender[0], sender[1], flags) + data
+    proc = subprocess.Popen(
+        [os.environ["OMAVLESS_K1_ATOMIC_EXE"], "--ignored", "--exact",
+         "atomic_emergency::decoder_child", "--nocapture"],
+        env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        output, _ = proc.communicate(blob, timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    if proc.returncode != 0:
+        for data, _, _ in datagrams:
+            for kind, flags, sequence, pid, body in core["messages"](data):
+                print(f"K1_RAW_REPLY_META={kind},{flags},{sequence - first},"
+                      f"{pid == port},{len(body)}", flush=True)
+    require(proc.returncode == 0 and len(output) <= 4096
+            and b"K1_ATOMIC_RAW_REPLY_PASS" in output)
+
+
 def batch(wire, generation, collision=False):
     first = wire.next_seq()
     request, barrier = encoded(generation, first)
@@ -69,7 +94,18 @@ def batch(wire, generation, collision=False):
         barrier = core["message"](NFT + 16, 5, first + 7, nf(0))
         expected.update({first + 5: NFT, first + 6: 17, first + 7: NFT + 16})
     wire.seq = first + (7 if collision else 6)
-    return checked_reply(wire.exchange(request, expected, barrier), first, collision)
+    datagrams = []
+    if not collision and os.environ.get("OMAVLESS_K1_RAW_REPLY_VM") == "1":
+        wire.capture = lambda data, sender, flags: datagrams.append((data, sender, flags))
+    try:
+        result = wire.exchange(request, expected, barrier)
+    finally:
+        if hasattr(wire, "capture"):
+            del wire.capture
+    errors = checked_reply(result, first, collision)
+    if datagrams and not errors:
+        check_rust_raw_reply(generation, first, wire.port, datagrams)
+    return errors
 
 
 class AtomicEmergency(live["LiveEmergency"]):

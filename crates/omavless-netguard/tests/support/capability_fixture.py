@@ -160,6 +160,9 @@ class Netlink:
             self.sock.settimeout(max(0.001, deadline - time.monotonic()))
             require(time.monotonic() < deadline)
             data, _, flags, sender = self.sock.recvmsg(LIMIT)
+            capture = getattr(self, "capture", None)
+            if capture is not None:
+                capture(data, sender, flags)
             total += len(data)
             require(sender == (0, 0) and not flags & socket.MSG_TRUNC and total <= LIMIT)
             for kind, _, seq, pid, body in messages(data):

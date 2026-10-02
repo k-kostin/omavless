@@ -29,5 +29,13 @@ canonical host namespace, reviewed safe syscall bindings and durable receipt
 ordering remain separate gates. The complete K1 product matrix, including
 installed boot and physical NIC/suspend cases, remains open.
 
-Only synthetic transcripts are used in these unit tests. They contain no VPN
-profile, subscription URL, firewall mutation or host-network operation.
+Unit tests use only synthetic transcripts. An additional opt-in exact-head
+developer gate feeds the raw successful ACK/GETGEN datagrams from the existing
+disposable-network-namespace VM fixture into the Rust decoder; it refuses
+kernel errors such as a stale-generation batch before that success-only check.
+On 2026-10-02 the gate passed in Omarchy Dev VM using exact test binary SHA-256
+`be96c754212422c084b2c7e39e3ff69a59228939a76065734aea69493f331a00`.
+The temporary VM binary and its dedicated directory were removed afterward.
+No real VPN profile or host firewall is used. This demonstrates compatibility
+with that VM kernel's success replies, not complete transport, ownership,
+physical-host or startup acceptance.
