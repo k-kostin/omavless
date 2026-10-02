@@ -442,7 +442,7 @@ fn run(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::restore_cleanup_candidate::{
         finalize_fenced_restore, publish_completion_record, retire_fixed_restore_artifacts,
@@ -457,7 +457,7 @@ mod tests {
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
     use std::{fs, path::PathBuf, process::Command, sync::OnceLock};
 
-    pub(super) fn second() -> &'static OpenedBackup {
+    pub(crate) fn second() -> &'static OpenedBackup {
         static BACKUP: OnceLock<OpenedBackup> = OnceLock::new();
         BACKUP.get_or_init(|| {
             let mut store: serde_json::Value = serde_json::from_slice(backup().store()).unwrap();

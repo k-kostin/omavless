@@ -36,6 +36,9 @@ use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 
+#[path = "restore_final_startup_candidate.rs"]
+mod final_restore_review;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductionOwnerError {
     Busy,
