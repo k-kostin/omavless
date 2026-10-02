@@ -703,3 +703,8 @@ completion record remains, then stage and commit the matching intent before
 it can even consider retiring the predecessor record. During coexistence it
 must use a separate verifier; the existing completion-only inspector correctly
 rejects new stage/journal artifacts and must not be weakened globally.
+Structural decode alone never authorizes a successor: a future reader must
+also repeat `matches_verified_plan()` against authenticated staged members and
+current owner/desired evidence. Before activation, the v1 formats need frozen
+test vectors and an installed downgrade policy; an older runtime that does not
+recognize the new fence name must not start over it.
