@@ -1048,3 +1048,34 @@ death before unlink, after unlink, after directory sync and during restart.
 
 The result remains HandoffRetiredStillFenced. R1-last retirement, third-cycle
 publisher hardening and normal-owner/installed admission remain separate gates.
+
+## Inactive last successor receipt retirement
+
+Only HandoffAbsentReceiptPresent admits R1-last removal. Canonical C1, R1 and
+both live members are pinned and resynchronized together with both directories.
+The final reader independently requires H/next/stage/journals/slots/routing
+absence before and after effects. The writer pins R1, checks again, and unlinks
+only R1. It accepts exactly HandoffAbsentReceiptAbsent with the same C1/live
+bytes and inode metadata, then syncs the state directory and reopens evidence.
+Failure after unlink is ambiguous; no receipt recreation or fallback occurs.
+
+A separate completion resynchronizer requires C1-only and freshly authenticated
+output binding. Visible C1 after a process crash is not treated as durable until
+C1, the live pair and both directories are synchronized and rechecked. This
+resynchronizer never unlinks anything; repeated Retire on C1-only refuses.
+C1 remains the permanent startup fence, not normal-owner permission.
+
+Abort recovery still needs the authenticated NEW archive to reconstruct its
+stage digest from live OLD plus NEW. Missing archive, wrong passphrase or an
+archive containing only the OLD output cannot substitute for that input. This
+is a manual-recovery boundary if the user-selected archive is unavailable after
+restart; no NEW data is inferred from C1/OLD and no passphrase is persisted.
+Future product acceptance needs an explicit archive-re-supply/recovery UX and
+must not claim unattended recovery here.
+
+Synthetic Commit/Abort checks cover all ten operation checkpoints, five final
+resync checkpoints, pinned R1/source swaps, C1 same-byte substitution, late
+receipt/H/next/intent reappearance, and repeated real SIGKILL/reopen around the
+last unlink. They do not certify physical power loss. Third-cycle publisher
+next-slot hardening, reusable-name composition and installed normal-owner
+acceptance remain separate gates.
