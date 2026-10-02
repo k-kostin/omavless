@@ -6,6 +6,8 @@ use crate::restore_cleanup_candidate::{Step, inspect_cleanup_prefix};
 use crate::restore_closure_model::NEXT_CLOSURE_MEMBER;
 use crate::restore_retirement_candidate::{RECEIPT_BYTES, RetirementReceipt};
 
+#[path = "restore_successor_cleanup_candidate.rs"]
+pub(crate) mod cleanup;
 #[path = "restore_successor_next_candidate.rs"]
 pub(crate) mod publication;
 

@@ -917,3 +917,35 @@ A complete next visible after process loss is not proof of durability: a later
 separately reviewed recovery/cleanup candidate must re-establish it. Cleanup
 prefix advancement, atomic canonical exchange, displaced closure retirement,
 handoff/receipt retirement and third-cycle/product acceptance remain open.
+
+## Inactive successor cleanup under both closures
+
+A separate cleanup-only candidate freshly authenticates NextPublished evidence,
+pins every surviving source and private directory, and synchronizes all surviving
+files plus their directories before its first deletion. Restart from every valid
+prefix repeats this durability step; visible C1 or a previous reader result is
+never cached mutation authority. Wrong archives, missing/torn/crossed closures,
+unknown stage contents, unsafe members and journal holes remain fenced.
+
+An initial executor result may contain any of the sixteen matching replacement
+slot subsets while the complete stage and journals survive. Missing slots are
+not attributed to this cleanup writer or used as proof of previous progress.
+Each present slot is independently verified against the complete stage, and
+fresh authenticated closure/receipt/live proofs supply the separate authority.
+The writer removes present slots in fixed order before beginning stage cleanup.
+During an invocation, any non-selected disappearance or same-byte substitution
+poisons the exact expected transition.
+
+After all slots are absent, the four stage members, ready marker, empty stage
+directory, terminal and intent are retired in their fixed order. Each unlink is
+followed by fresh two-pass verification permitting only that one absence and the
+exact next prefix, parent-directory synchronization, and another complete check.
+The maximum is twelve removals; there is no repair loop or recursive deletion.
+C0, C1, handoff and receipt keep their original bytes and inodes throughout.
+The live decided pair and desired Off binding are unchanged.
+
+Hook interruptions and actual SIGKILL/reopen cover every unlink and directory
+sync, including repeated process loss during restart resynchronization. Even Done
+remains `CleanedStillFenced`: canonical exchange, displaced closure retirement,
+last handoff/receipt closure, third-cycle and normal-owner/UI/installed acceptance
+are separate gates. No product caller or startup permission is introduced.
