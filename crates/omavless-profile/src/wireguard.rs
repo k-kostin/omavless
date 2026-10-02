@@ -1365,6 +1365,31 @@ mod tests {
                     == restored.private_record().unwrap().expose_private_bytes()
             );
             assert_eq!(format!("{encoded:?}"), "PrivateWireGuardRecord([REDACTED])");
+            let exported = original.private_config().unwrap();
+            assert_eq!(
+                format!("{exported:?}"),
+                "PrivateWireGuardConfig([REDACTED])"
+            );
+            let native = std::str::from_utf8(exported.expose_private_bytes()).unwrap();
+            let restored = parse_wireguard_config(native).unwrap();
+            assert!(original.subscription_identity() == restored.subscription_identity());
+            assert!(
+                original.render_mihomo_proxy("test", None)
+                    == restored.render_mihomo_proxy("test", None)
+            );
+            assert!(native.contains("PrivateKey = "));
+            assert!(native.contains("Address = "));
+            assert!(native.contains("AllowedIPs = "));
+            assert!(native.contains("PublicKey = "));
+            if original.facts().keepalive_range_normalized {
+                assert!(native.contains("PersistentKeepalive = 25-35\n"));
+                assert!(native.contains("ContentPaddingAddition = 10-100\n"));
+                assert!(native.contains("RekeyAfterTime = 100-120\n"));
+            }
+            assert!(
+                exported.expose_private_bytes()
+                    == restored.private_config().unwrap().expose_private_bytes()
+            );
         }
     }
 
@@ -1385,6 +1410,50 @@ mod tests {
                     == profile.private_record().unwrap().expose_private_bytes()
             );
         }
+    }
+
+    #[test]
+    fn private_native_export_preserves_all_optional_junk_and_guest_source_equivalence() {
+        let native = awg3().replace(
+            "I1 = <r 2><b 0x0102>\n",
+            "I1 = <r 2><b 0x0102>\nI2 = <r 3>\nI3 = <b 0x1234>\nI4 = <t>\nI5 = <r 4>\n",
+        );
+        let expected = parse_wireguard_config(&native)
+            .unwrap()
+            .private_config()
+            .unwrap();
+        for source in [
+            vpn_link(&native),
+            vpn_link(&guest("amnezia-awg2", "awg", &native)),
+        ] {
+            let actual = parse_amnezia_vpn_link(&source)
+                .unwrap()
+                .private_config()
+                .unwrap();
+            assert!(actual.expose_private_bytes() == expected.expose_private_bytes());
+        }
+        let text = std::str::from_utf8(expected.expose_private_bytes()).unwrap();
+        for field in ["I2 = <r 3>", "I3 = <b 0x1234>", "I4 = <t>", "I5 = <r 4>"] {
+            assert!(text.contains(field));
+        }
+        assert!(!text.contains("defaultContainer"));
+        assert!(!text.contains("last_config"));
+    }
+
+    #[test]
+    fn private_native_export_refuses_canonical_line_growth_without_releasing_text() {
+        use private_record::PrivateRecordError;
+        let mut prefixes = vec!["0.0.0.0/0"; 818];
+        prefixes[0] = "10.0.0.0/0";
+        let input = standard().replace(
+            "AllowedIPs = 0.0.0.0/0, ::/0",
+            &format!("AllowedIPs={}", prefixes.join(",")),
+        );
+        let profile = parse_wireguard_config(&input).expect("source fits native line bound");
+        let error = profile.private_config().unwrap_err();
+        assert_eq!(error, PrivateRecordError::InvalidRecord);
+        assert!(!error.to_string().contains(PRIVATE_KEY));
+        assert!(!error.to_string().contains(PUBLIC_KEY));
     }
 
     #[test]

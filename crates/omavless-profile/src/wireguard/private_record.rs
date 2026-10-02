@@ -33,6 +33,22 @@ impl std::error::Error for PrivateRecordError {}
 /// Deliberately not serializable, cloneable, or printable as credential bytes.
 pub struct PrivateWireGuardRecord(Vec<u8>);
 
+/// Canonical credential-bearing native conf. No implicit serialization or
+/// display; only the deliberate private-byte accessor releases this material.
+pub struct PrivateWireGuardConfig(Vec<u8>);
+
+impl fmt::Debug for PrivateWireGuardConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PrivateWireGuardConfig([REDACTED])")
+    }
+}
+impl PrivateWireGuardConfig {
+    #[must_use]
+    pub fn expose_private_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl fmt::Debug for PrivateWireGuardRecord {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("PrivateWireGuardRecord([REDACTED])")
@@ -99,6 +115,29 @@ pub fn parse_private_wireguard_record(
 }
 
 impl WireGuardProfile {
+    /// Canonical native export for a future explicit same-user editor/file
+    /// action. Preserves complete source semantics (including AWG ranges),
+    /// rather than exporting Mihomo's normalized runtime projection.
+    pub fn private_config(&self) -> Result<PrivateWireGuardConfig, PrivateRecordError> {
+        let bytes = self.private_record()?;
+        let record: Record = serde_json::from_slice(bytes.expose_private_bytes())
+            .map_err(|_| PrivateRecordError::InvalidRecord)?;
+        let mut config = String::new();
+        for (section, fields) in [("Interface", record.interface), ("Peer", record.peer)] {
+            config.push_str(&format!("[{section}]\n"));
+            for (field, value) in fields {
+                let name = native_field_name(&field).ok_or(PrivateRecordError::InvalidRecord)?;
+                config.push_str(&format!("{name} = {value}\n"));
+            }
+        }
+        let restored =
+            parse_wireguard_config(&config).map_err(|_| PrivateRecordError::InvalidRecord)?;
+        if restored.subscription_identity() != self.subscription_identity() {
+            return Err(PrivateRecordError::InvalidRecord);
+        }
+        Ok(PrivateWireGuardConfig(config.into_bytes()))
+    }
+
     /// Encodes canonical credentials, never the original guest container or
     /// administrator metadata. This does not persist or activate the profile.
     pub fn private_record(&self) -> Result<PrivateWireGuardRecord, PrivateRecordError> {
@@ -159,4 +198,45 @@ impl WireGuardProfile {
         }
         Ok(PrivateWireGuardRecord(bytes))
     }
+}
+
+fn native_field_name(field: &str) -> Option<&'static str> {
+    Some(match field {
+        "privatekey" => "PrivateKey",
+        "address" => "Address",
+        "dns" => "DNS",
+        "mtu" => "MTU",
+        "publickey" => "PublicKey",
+        "presharedkey" => "PresharedKey",
+        "allowedips" => "AllowedIPs",
+        "endpoint" => "Endpoint",
+        "persistentkeepalive" => "PersistentKeepalive",
+        "jc" => "Jc",
+        "jmin" => "Jmin",
+        "jmax" => "Jmax",
+        "s1" => "S1",
+        "s2" => "S2",
+        "s3" => "S3",
+        "s4" => "S4",
+        "h1" => "H1",
+        "h2" => "H2",
+        "h3" => "H3",
+        "h4" => "H4",
+        "i1" => "I1",
+        "i2" => "I2",
+        "i3" => "I3",
+        "i4" => "I4",
+        "i5" => "I5",
+        "headerprotectionkey" => "HeaderProtectionKey",
+        "contentpaddingaddition" => "ContentPaddingAddition",
+        "rekeyaftertime" => "RekeyAfterTime",
+        "rekeytimeout" => "RekeyTimeout",
+        "rejectaftertime" => "RejectAfterTime",
+        "keepalivetimeout" => "KeepaliveTimeout",
+        "maxhandshakeattempts" => "MaxHandshakeAttempts",
+        "randomtrailers" => "RandomTrailers",
+        "disablecookies" => "DisableCookies",
+        // Unsupported 1.5-only fields must never enter a validated export.
+        _ => return None,
+    })
 }

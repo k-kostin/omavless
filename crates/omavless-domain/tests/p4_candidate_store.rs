@@ -121,6 +121,48 @@ fn replacement_and_typed_export_preserve_identity_favorite_and_pointers() {
 }
 
 #[test]
+fn native_export_and_editor_seed_restore_every_credential_without_store_changes() {
+    let source = mixed().to_string();
+    let candidate = parse_candidate_private_store(&source).unwrap();
+    for (id, name, amnezia) in [(WG_ID, "WG", false), (AWG_ID, "AWG", true)] {
+        let original = parse_wireguard_config(&native(amnezia)).unwrap();
+        let export = candidate.export_private_native_credential(id).unwrap();
+        assert_eq!(export.format(), CandidateExportFormat::WireGuardConfig);
+        let text = std::str::from_utf8(export.expose_private_bytes()).unwrap();
+        let restored = parse_wireguard_config(text).unwrap();
+        assert!(restored.subscription_identity() == original.subscription_identity());
+        assert!(
+            restored.render_mihomo_proxy("test", None)
+                == original.render_mihomo_proxy("test", None)
+        );
+        let editor = candidate.private_edit_input(id).unwrap();
+        assert!(editor.private_name() == name);
+        assert!(
+            editor.private_credential().expose_private_bytes() == export.expose_private_bytes()
+        );
+    }
+    let export = candidate.export_private_native_credential(URI_ID).unwrap();
+    assert_eq!(export.format(), CandidateExportFormat::Uri);
+    assert!(export.expose_private_bytes() == URI.as_bytes());
+    assert!(matches!(
+        candidate.private_edit_input(URI_ID),
+        Err(PrivateStoreError::SubscribedProfile)
+    ));
+    assert!(matches!(
+        candidate.private_edit_input(SUB_ID),
+        Err(PrivateStoreError::ProfileNotFound)
+    ));
+    assert_eq!(candidate.profile_counts(), (1, 2, 1));
+    assert_eq!(candidate.pointer_presence(), (true, true, true));
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    let before: Value = serde_json::from_str(&source).unwrap();
+    assert!(
+        output == before,
+        "explicit private reads must not mutate complete candidate"
+    );
+}
+
+#[test]
 fn cross_family_import_replace_refuse_loss_and_preserve_unrelated_credentials() {
     let source = mixed();
     let candidate = parse_candidate_private_store(&source.to_string()).unwrap();

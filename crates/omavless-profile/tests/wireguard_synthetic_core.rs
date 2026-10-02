@@ -14,7 +14,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
-use omavless_profile::import::parse_import;
+use omavless_profile::import::{ImportedProfile, parse_import};
 
 const PRIVATE: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const PUBLIC: &str = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
@@ -59,9 +59,17 @@ fn synthetic_structured_wg_and_awg3_are_accepted_by_installed_mihomo() {
         ),
     ];
     for (container, protocol, config) in configs {
-        let parsed = parse_import(&guest(container, protocol, &config)).unwrap();
+        let original = parse_import(&guest(container, protocol, &config)).unwrap();
+        let ImportedProfile::WireGuard(profile) = &original else {
+            panic!("synthetic WG family expected")
+        };
+        let exported = profile.private_config().unwrap();
+        let parsed =
+            parse_import(std::str::from_utf8(exported.expose_private_bytes()).unwrap()).unwrap();
+        assert!(original.subscription_identity() == parsed.subscription_identity());
         let name = "Synthetic WG validation";
         let proxy = parsed.render_mihomo_proxy(name, None);
+        assert!(proxy == original.render_mihomo_proxy(name, None));
         let full = format!(
             "mixed-port: 7890\nmode: rule\nlog-level: silent\nproxies:\n{proxy}\nproxy-groups:\n  - name: Validation\n    type: select\n    proxies:\n      - {name}\nrules:\n  - MATCH,Validation\n"
         );
