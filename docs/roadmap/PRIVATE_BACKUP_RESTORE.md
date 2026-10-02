@@ -766,3 +766,14 @@ changed bindings and same-byte inode substitutions refuse. Synthetic subprocess
 termination after handoff, partial stage, complete stage, partial intent and
 complete intent exercises the restart-observable states without invoking an
 executor. No production writer, automatic recovery or fence deletion is added.
+
+The same authenticated reader now also verifies two explicitly selected earlier
+phases: handoff-only (stage and intent both absent), and a complete matching stage
+without an intent. Wrong-phase, intent-without-stage, partial-stage and torn-intent
+states refuse rather than being guessed or repaired. Every phase binds the
+planned old pair to the unchanged completed live pair and the new pair to the
+authenticated startup-Off archive, repeats all owner/desired/fence checks around
+the fresh gate, and remains a read-only fact. Crash-reopen tests cover all five
+preparation checkpoints against all three phase requests. This supplies admission
+checks for a future create-only preparer; it is not that preparer and does not
+grant durability, retry, predecessor-retirement or normal-startup authority.
