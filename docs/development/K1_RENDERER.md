@@ -56,13 +56,15 @@ actions must match exactly. Other omissions, extra accept expressions, wrong
 families and unmeasured partial elision remain unrecognized.
 
 Name, comment and policy equality do **not** establish ownership. The caller must
-supply a `TrustedTableIdentity` from the future root adapter's independently
-verified exclusive-creation receipt, tied to boot ID, network namespace inode
-and table handle. No receipt, different epoch/namespace or changed handle yields
-Foreign even when every rule matches. A matching receipt with changed policy
-yields OwnedUnrecognized. This is a pure trust-boundary representation; its
-Rust constructor is not authentication and no receipt persistence exists yet.
-An unprivileged request must never supply these trusted facts.
+supply a `TrustedTableIdentity` from a future root adapter's authenticated
+*live* exclusive creator session, tied to boot ID, network namespace inode and
+table handle. A durable receipt may cross-check that session; it cannot
+reconstruct ownership after the creator socket/helper dies. No proof,
+different epoch/namespace or changed handle yields Foreign even when every
+rule matches. A matching live proof with changed policy yields
+OwnedUnrecognized. This is a pure trust-boundary representation; its Rust
+constructor is not authentication. An unprivileged request must never supply
+these trusted facts.
 
 No replace/delete renderer is provided. The root executor must solve ownership
 receipt publication after an uncertain create, serialization, revalidation at
