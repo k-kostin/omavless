@@ -5,6 +5,7 @@
 //! namespace provenance and installed service behavior remain separate gates.
 
 use crate::listener_admission::AdmittedListener;
+use crate::package_group_candidate::PackageGroup;
 use nix::errno::Errno;
 use nix::fcntl::{AtFlags, OFlag, open, openat};
 use nix::sys::socket::{
@@ -99,11 +100,15 @@ fn bind_private(path: &Path) -> Result<UnixListener> {
     Ok(UnixListener::from(fd))
 }
 
-/// Create a *new* first-publication listener only. The supplied GID has not
-/// been proven to name the installed package group. Nothing calls this in the
+/// Create a *new* first-publication listener only. The GID comes from a
+/// pinned, unique local package-group entry. Nothing calls this in the
 /// shipped service or product runtime. An existing directory is never adopted
 /// or removed, even if it appears to contain an old socket.
-pub(crate) fn publish_fixed_first(package_gid: u32) -> Result<AdmittedListener> {
+pub(crate) fn publish_fixed_first() -> Result<AdmittedListener> {
+    let group = PackageGroup::open_fixed().map_err(|_| PublishError::UnsafeOrExisting)?;
+    group
+        .validate()
+        .map_err(|_| PublishError::UnsafeOrExisting)?;
     let root = File::from(
         open("/", DIRECTORY, Mode::empty()).map_err(|_| PublishError::UnsafeOrExisting)?,
     );
@@ -113,7 +118,14 @@ pub(crate) fn publish_fixed_first(package_gid: u32) -> Result<AdmittedListener> 
             .map_err(|_| PublishError::UnsafeOrExisting)?,
     );
     parent_is_safe(&run, (0, 0))?;
-    publish_under(run, Path::new(FIXED_PATH), (0, 0), package_gid, || true)
+    publish_under(
+        run,
+        Path::new(FIXED_PATH),
+        (0, 0),
+        group.gid(),
+        || group.validate().is_ok(),
+        || group.validate().is_ok(),
+    )
 }
 
 #[cfg(test)]
@@ -124,7 +136,35 @@ pub(crate) fn publish_test_parent(
     group: u32,
     before_access: impl FnOnce() -> bool,
 ) -> Result<AdmittedListener> {
-    publish_under(parent, path, owner, group, before_access)
+    publish_under(parent, path, owner, group, before_access, || true)
+}
+
+#[cfg(test)]
+pub(crate) fn publish_test_with_group(
+    parent: File,
+    path: &Path,
+    owner: (u32, u32),
+    group: &PackageGroup,
+    before_access: impl FnOnce(),
+    before_publish: impl FnOnce(),
+) -> Result<AdmittedListener> {
+    group
+        .validate()
+        .map_err(|_| PublishError::UnsafeOrExisting)?;
+    publish_under(
+        parent,
+        path,
+        owner,
+        group.gid(),
+        || {
+            before_access();
+            group.validate().is_ok()
+        },
+        || {
+            before_publish();
+            group.validate().is_ok()
+        },
+    )
 }
 
 fn publish_under(
@@ -133,6 +173,7 @@ fn publish_under(
     owner: (u32, u32),
     group: u32,
     before_access: impl FnOnce() -> bool,
+    before_publish: impl FnOnce() -> bool,
 ) -> Result<AdmittedListener> {
     parent_is_safe(&parent, owner)?;
     if path.file_name().and_then(|name| name.to_str()) != Some(LEAF)
@@ -207,6 +248,9 @@ fn publish_under(
     }
     let admission_directory = directory.try_clone().map_err(|_| PublishError::Ambiguous)?;
     let admission_entry = entry.try_clone().map_err(|_| PublishError::Ambiguous)?;
+    if !before_publish() {
+        return Err(PublishError::Ambiguous);
+    }
     // Last step opens group traversal. A failed final admission attempts to
     // close the *pinned original* again, never a freshly resolved pathname.
     fchmod(&directory, Mode::from_bits_truncate(0o750)).map_err(|_| PublishError::Ambiguous)?;

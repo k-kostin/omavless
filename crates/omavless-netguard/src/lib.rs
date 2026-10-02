@@ -15,6 +15,8 @@ mod listener_admission;
 mod listener_publisher_candidate;
 pub mod locked_state;
 pub mod nft;
+#[allow(dead_code)] // Inactive local package-group identity candidate.
+mod package_group_candidate;
 pub mod policy;
 pub mod protocol;
 pub mod receipt;
