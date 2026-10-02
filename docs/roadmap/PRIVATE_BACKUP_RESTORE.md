@@ -1250,3 +1250,86 @@ bytes can only request authentication; the later authenticated adapter must
 independently reject inappropriate output. No raw bytes, outcome or phase is
 returned. Login absence/consumed checks still do not prove current boot epoch.
 There is no public IPC, secret input, recovery effect or normal-owner caller.
+
+## Proposed two-phase disposition policy — owner decision required
+
+The separate pure model explores, but does not approve or implement, a transition
+from unresolved C1 to historical terminal-output evidence. Its schema/domain
+labels are simulation inputs, not an on-disk format or reserved path. It has no
+writer, persistence observer, normal-owner admission or reusable capability;
+all candidate results explicitly remain fenced.
+
+The product decision still required is whether a durably committed disposition
+may replace fresh archive re-supply on later startups **within the exact same
+Rust ownership generation and UID**, while ordinary native validation handles
+subsequent live edits. This must not become a `generation >= old_generation`
+rule. Rollover, missing/torn/orphan evidence or ticket/C1 mismatch refuses.
+
+### Before disposition
+
+- Require one continuous verified lease and pinned C1/source boundaries, exact
+  current owner/desired binding, Off, fresh empty-owned-host observations and
+  C1-only state with every H/R/next/stage/journal/slot/routing fence absent.
+- Require a freshly authenticated archive whose payload matches staged NEW,
+  including Abort where current output is OLD. If OLD and NEW payloads are
+  byte-identical, any correctly authenticated envelope carrying those exact
+  payload bytes is semantically equivalent: C1 does not identify the originally
+  selected ciphertext file. Commit and Abort remain distinct terminal outcomes.
+- A future publication protocol must be create-only, bounded and private, sync
+  its bytes and parent, reopen and recheck exact evidence before the first
+  ordinary effect. A visible checksum-valid ticket after interruption is not
+  durability; it requires a separately reviewed resync/restart path.
+- Define the durable commit/linearization point and ambiguity handling before
+  implementing publication. Successful process return is not that definition.
+  Observable source drift before commit must refuse; a checksum or model fact
+  does not establish authentication, provenance, durability or absence of drift.
+
+### Proposed completed disposition
+
+Under the proposed policy, immutable exact C1 plus UID/generation/schema/domain
+binding would describe historical terminal output, **not current live lineage**.
+Legitimate later edits and Connect must use normal native schema/revision/lease
+checks rather than permanent equality to archived profile/template bytes. The
+model therefore requires a separate ordinary-live-validation fact and does not
+require re-supplying an archive in this hypothetical completed phase. The model
+requires the archive input to be explicitly `NotSupplied` in that phase: a
+supplied valid or invalid archive fact refuses rather than being silently
+ignored. The other before-publication output/Off facts are inapplicable after
+completion; current live validity is independently required. This is
+the unapproved policy choice, not existing product behavior.
+
+Any transient fence still overrides the historical candidate. A subsequent
+restore must first establish a durable transient fence, then invalidate the old
+ticket through a separately reviewed operation. An old ticket never authorizes
+rotated successor C1. Missing ticket after legitimate later edits means manual
+recovery, not silently replaying an archive or deleting C1. Canonical C1 remains
+retained; these records are not a complete predecessor audit history after H is
+retired and do not protect against arbitrary hostile same-UID rewrites.
+
+### Caller matrix before any startup exception
+
+Never change the existence-only `pending_private_transaction::pending_at` into
+“ticket exists, therefore clear.” A future ticket path must itself be registered
+as a conservative existence fence before any writer. Only separately reviewed
+typed, lease-bound admission could distinguish historical evidence at each
+caller; all unknown/transient evidence remains refusal.
+
+| Current caller | Required future integration/re-entry tests |
+| --- | --- |
+| `login_transaction` receipt review, startup consume and start gates | Current user-manager/login epoch remains independent; stale epoch and C1/ticket swap between checks refuse. |
+| `connection_transaction` blocked-state gate | Connection/mutation effects retain the same lease and recheck historical identity plus all transient fences. |
+| `native_coordinator` admission snapshot, mutation and replay paths | Admission replay cannot reuse stale generation/ticket evidence; late H/next/journal appearance blocks each effect. |
+| `native_coordinator::batch` background admission | Async refresh/fetch cannot regain authority from a cached status; publication revalidates exact owner and fences. |
+| `native_coordinator::restore_candidate` restore admission | Historical disposition never grants successor authority; a fresh durable transient fence must precede separately reviewed old-ticket invalidation. |
+| `backup_source_candidate` source capture | Historical permission cannot mix store/template generations or override pending restore evidence. |
+| `production_cutover` ownership transition | Exact-generation policy refuses rollover until an explicit new transition design is approved. |
+| `production_owner` restart/recovery reviews | Diagnostic phases remain non-authoritative; normal startup requires a new typed integration, not a Copy status. |
+
+The pure matrix tests cover before/visible/completed hypothetical states,
+identity/UID/generation/schema/domain mismatch, missing archive, later edits,
+successor mismatch and transient precedence. A static source-retention test
+checks that these eight callers still use the existing presence predicate and
+do not import the model. **This is not behavioral integration coverage of future
+admission.** Each row still needs its real admission/effect/crash tests, plus
+installed restore, private UI/IPC and normal-owner acceptance after owner policy
+approval. No current normal-startup or mutation fence is weakened.
