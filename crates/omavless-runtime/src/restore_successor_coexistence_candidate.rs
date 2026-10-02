@@ -36,17 +36,26 @@ pub(crate) enum CoexistenceError {
 pub(crate) enum CoexistenceReview {
     MatchingIntentStillFenced,
 }
+/// Exact expected preparation phase, never an instruction to advance it.
+#[allow(dead_code)] // Earlier phases have only synthetic callers until preparation is reviewed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PreparationPhase {
+    HandoffOnly,
+    StageWithoutIntent,
+    StageWithIntent,
+}
 type Result<T> = std::result::Result<T, CoexistenceError>;
 const REFUSE: CoexistenceError = CoexistenceError::UnavailableOrUncertain;
 
 struct Snapshot {
-    directories: [Metadata; 3],
+    directories: Vec<Metadata>,
     members: Vec<Metadata>,
     handoff: [u8; RECORD_BYTES],
 }
 impl Snapshot {
     fn same(&self, other: &Self) -> bool {
         self.handoff == other.handoff
+            && self.directories.len() == other.directories.len()
             && self
                 .directories
                 .iter()
@@ -82,19 +91,29 @@ fn observe(
     lock: &MigrationLock,
     new_store: &[u8],
     new_template: &[u8],
+    phase: PreparationPhase,
 ) -> Result<Snapshot> {
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
     let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     let config_dir = open_private_directory(config, uid).map_err(|_| REFUSE)?;
-    let stage_dir = open_private_directory(&paths.state_directory.join(PENDING_DIRECTORY), uid)
-        .map_err(|_| REFUSE)?;
-    let directories = [
+    let stage_dir = if phase == PreparationPhase::HandoffOnly {
+        absent(&state, PENDING_DIRECTORY)?;
+        None
+    } else {
+        Some(
+            open_private_directory(&paths.state_directory.join(PENDING_DIRECTORY), uid)
+                .map_err(|_| REFUSE)?,
+        )
+    };
+    let mut directories = vec![
         state.metadata().map_err(|_| REFUSE)?,
         config_dir.metadata().map_err(|_| REFUSE)?,
-        stage_dir.metadata().map_err(|_| REFUSE)?,
     ];
+    if let Some(stage) = &stage_dir {
+        directories.push(stage.metadata().map_err(|_| REFUSE)?);
+    }
     let marker = read_marker_existing(paths, uid).map_err(|_| REFUSE)?;
     if marker.phase() != OwnershipPhase::Rust || marker.generation() != generation {
         return Err(REFUSE);
@@ -110,8 +129,13 @@ fn observe(
         absent(&config_dir, name)?;
     }
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
-    let stage = read_staged_pair(&paths.state_directory, uid).map_err(|_| REFUSE)?;
-    if stage.new_store() != new_store || stage.new_template() != new_template {
+    let stage = stage_dir
+        .as_ref()
+        .map(|_| read_staged_pair(&paths.state_directory, uid).map_err(|_| REFUSE))
+        .transpose()?;
+    if let Some(stage) = &stage
+        && (stage.new_store() != new_store || stage.new_template() != new_template)
+    {
         return Err(REFUSE);
     }
     let mut identities = Vec::new();
@@ -126,8 +150,21 @@ fn observe(
     let prior = ClosureRecord::decode(&prior_raw).map_err(|_| REFUSE)?;
     let raw = read(&state, SUCCESSOR_MEMBER, RECORD_BYTES)?;
     let handoff = SuccessorHandoff::decode(&raw).map_err(|_| REFUSE)?;
-    let intent_raw = read(&state, "restore-decision.intent", DECISION_BYTES)?;
-    let intent = DecisionRecord::decode(&intent_raw).map_err(|_| REFUSE)?;
+    let intent = if phase == PreparationPhase::StageWithIntent {
+        DecisionRecord::decode(&read(&state, "restore-decision.intent", DECISION_BYTES)?)
+            .map_err(|_| REFUSE)?
+    } else {
+        absent(&state, "restore-decision.intent")?;
+        DecisionRecord::decode(&handoff.successor_intent().encode()).map_err(|_| REFUSE)?
+    };
+    let old_store = read(&config_dir, "profiles.json", MAX_PRIVATE_STORE_BYTES)?;
+    let old_template = read(&config_dir, "route-template.yaml", MAX_TEMPLATE_BYTES)?;
+    if let Some(stage) = &stage
+        && (stage.old_store() != old_store.as_slice()
+            || stage.old_template() != old_template.as_slice())
+    {
+        return Err(REFUSE);
+    }
     if intent.phase() != DecisionPhase::Intent
         || !handoff.matches_verified_plan(
             &prior,
@@ -135,8 +172,8 @@ fn observe(
             generation,
             desired.as_ref().map(|bytes| bytes.as_slice()),
             [
-                stage.old_store(),
-                stage.old_template(),
+                old_store.as_slice(),
+                old_template.as_slice(),
                 new_store,
                 new_template,
             ],
@@ -146,37 +183,27 @@ fn observe(
     }
     // Reopen actual staged entries against verified bytes while pinning their
     // inode identities across the external gate; identical substitution refuses.
-    for (index, bytes) in [
-        stage.old_store(),
-        stage.old_template(),
-        stage.new_store(),
-        stage.new_template(),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let limit = if index % 2 == 0 {
-            MAX_PRIVATE_STORE_BYTES
-        } else {
-            MAX_TEMPLATE_BYTES
-        };
-        if read(&stage_dir, MEMBERS[index], limit)?.as_slice() != bytes {
-            return Err(REFUSE);
-        }
-    }
-    let ready = read(&stage_dir, READY_MEMBER, READY_BYTES)?;
-    if !intent.matches_stage_ready(&ready) {
-        return Err(REFUSE);
-    }
-    for (name, bytes, limit) in [
-        ("profiles.json", stage.old_store(), MAX_PRIVATE_STORE_BYTES),
-        (
-            "route-template.yaml",
+    if let (Some(stage), Some(stage_dir)) = (&stage, &stage_dir) {
+        for (index, bytes) in [
+            stage.old_store(),
             stage.old_template(),
-            MAX_TEMPLATE_BYTES,
-        ),
-    ] {
-        if read(&config_dir, name, limit)?.as_slice() != bytes {
+            stage.new_store(),
+            stage.new_template(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let limit = if index % 2 == 0 {
+                MAX_PRIVATE_STORE_BYTES
+            } else {
+                MAX_TEMPLATE_BYTES
+            };
+            if read(stage_dir, MEMBERS[index], limit)?.as_slice() != bytes {
+                return Err(REFUSE);
+            }
+        }
+        let ready = read(stage_dir, READY_MEMBER, READY_BYTES)?;
+        if !intent.matches_stage_ready(&ready) {
             return Err(REFUSE);
         }
     }
@@ -204,8 +231,34 @@ pub(crate) fn inspect_successor_coexistence(
     generation: u64,
     lock: &MigrationLock,
     backup: &OpenedBackup,
-    mut gate: impl FnMut() -> bool,
+    gate: impl FnMut() -> bool,
 ) -> Result<CoexistenceReview> {
+    inspect_successor_preparation(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        backup,
+        PreparationPhase::StageWithIntent,
+        gate,
+    )?;
+    Ok(CoexistenceReview::MatchingIntentStillFenced)
+}
+
+/// Verify one exact pre-execution phase. Missing, partial and contradictory
+/// evidence refuses; this never creates, repairs or advances a preparation.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn inspect_successor_preparation(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    backup: &OpenedBackup,
+    phase: PreparationPhase,
+    mut gate: impl FnMut() -> bool,
+) -> Result<PreparationPhase> {
     if !gate() {
         return Err(REFUSE);
     }
@@ -218,6 +271,7 @@ pub(crate) fn inspect_successor_coexistence(
         lock,
         &off,
         backup.template(),
+        phase,
     )?;
     if !gate() {
         return Err(REFUSE);
@@ -230,19 +284,21 @@ pub(crate) fn inspect_successor_coexistence(
         lock,
         &off,
         backup.template(),
+        phase,
     )?;
     if !before.same(&after) {
         return Err(REFUSE);
     }
     // Bind final directory names again, after the final file reads.
+    let stage_path = paths.state_directory.join(PENDING_DIRECTORY);
     for (path, identity) in [
-        (&paths.state_directory as &Path, &after.directories[0]),
-        (config, &after.directories[1]),
-        (
-            &paths.state_directory.join(PENDING_DIRECTORY),
-            &after.directories[2],
-        ),
-    ] {
+        paths.state_directory.as_path(),
+        config,
+        stage_path.as_path(),
+    ]
+    .into_iter()
+    .zip(&after.directories)
+    {
         if !same_directory(
             identity,
             &open_private_directory(path, uid)
@@ -253,7 +309,7 @@ pub(crate) fn inspect_successor_coexistence(
             return Err(REFUSE);
         }
     }
-    Ok(CoexistenceReview::MatchingIntentStillFenced)
+    Ok(phase)
 }
 
 #[cfg(test)]
@@ -374,6 +430,97 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn preparation_review_matches_only_the_exact_complete_phase() {
+        let f = Fixture::new();
+        let lock = f.lock();
+        publish(&f, &lock);
+        for expected in [
+            PreparationPhase::HandoffOnly,
+            PreparationPhase::StageWithoutIntent,
+            PreparationPhase::StageWithIntent,
+        ] {
+            if expected == PreparationPhase::StageWithoutIntent {
+                stage(&f);
+            }
+            if expected == PreparationPhase::StageWithIntent {
+                intent(&f);
+            }
+            for requested in [
+                PreparationPhase::HandoffOnly,
+                PreparationPhase::StageWithoutIntent,
+                PreparationPhase::StageWithIntent,
+            ] {
+                let result = inspect_successor_preparation(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    requested,
+                    || true,
+                );
+                assert_eq!(
+                    result,
+                    if requested == expected {
+                        Ok(expected)
+                    } else {
+                        Err(REFUSE)
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn early_phases_refuse_late_artifacts_and_changed_handoff() {
+        for phase in [
+            PreparationPhase::HandoffOnly,
+            PreparationPhase::StageWithoutIntent,
+        ] {
+            for drift in ["intent", "receipt", "handoff", "gate"] {
+                let f = Fixture::new();
+                let lock = f.lock();
+                publish(&f, &lock);
+                if phase == PreparationPhase::StageWithoutIntent {
+                    stage(&f);
+                }
+                let mut calls = 0;
+                let result = inspect_successor_preparation(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    backup(),
+                    phase,
+                    || {
+                        calls += 1;
+                        if calls == 2 {
+                            match drift {
+                                "intent" => intent(&f),
+                                "receipt" => {
+                                    write(&f.paths.state_directory.join(RECEIPT_MEMBER), b"late")
+                                }
+                                "handoff" => {
+                                    let path = f.paths.state_directory.join(SUCCESSOR_MEMBER);
+                                    let raw = fs::read(&path).unwrap();
+                                    fs::rename(&path, f.root.join("replaced")).unwrap();
+                                    write(&path, &raw);
+                                }
+                                "gate" => return false,
+                                _ => unreachable!(),
+                            }
+                        }
+                        true
+                    },
+                );
+                assert_eq!(result, Err(REFUSE));
+            }
+        }
     }
 
     #[test]
@@ -559,6 +706,31 @@ mod tests {
                 Err(REFUSE)
             };
             assert_eq!(inspect(&f, &lock), expected);
+            for phase in [
+                PreparationPhase::HandoffOnly,
+                PreparationPhase::StageWithoutIntent,
+                PreparationPhase::StageWithIntent,
+            ] {
+                let matches = matches!(
+                    (checkpoint, phase),
+                    (0, PreparationPhase::HandoffOnly)
+                        | (2, PreparationPhase::StageWithoutIntent)
+                        | (4, PreparationPhase::StageWithIntent)
+                );
+                assert_eq!(
+                    inspect_successor_preparation(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        backup(),
+                        phase,
+                        || true
+                    ),
+                    if matches { Ok(phase) } else { Err(REFUSE) }
+                );
+            }
             unchanged(&f, &prior, &handoff);
         }
     }
