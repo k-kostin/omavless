@@ -34,6 +34,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+pub mod candidate_store_transaction;
 mod connection_test;
 pub mod connection_transaction;
 mod controller_permissions;

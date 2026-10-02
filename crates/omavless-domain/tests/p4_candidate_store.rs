@@ -5,8 +5,8 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use omavless_domain::private_store::{
-    PrivateStoreError, migrate_legacy_store_candidate, parse_candidate_private_store,
-    parse_private_store,
+    CandidateExportFormat, CandidateProfileInput, PrivateStoreError,
+    migrate_legacy_store_candidate, parse_candidate_private_store, parse_private_store,
 };
 use omavless_profile::wireguard::parse_wireguard_config;
 use serde_json::{Value, json};
@@ -29,6 +29,158 @@ fn native(amnezia: bool) -> String {
         STANDARD.encode([7_u8; 32]),
         STANDARD.encode([9_u8; 32])
     )
+}
+
+#[test]
+fn deletion_repairs_only_target_references_across_the_complete_graph() {
+    let mut source = mixed();
+    source["activeId"] = AWG_ID.into();
+    source["lastId"] = AWG_ID.into();
+    let candidate = parse_candidate_private_store(&source.to_string())
+        .unwrap()
+        .delete_standalone(AWG_ID)
+        .unwrap();
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert_eq!(output["activeId"], "");
+    assert_eq!(
+        output["lastId"], URI_ID,
+        "first member is in the complete mixed order"
+    );
+    assert_eq!(output["startup"]["enabled"], false);
+    assert_eq!(output["startup"]["profileId"], "");
+    assert!(output["profiles"][0] == source["profiles"][0]);
+    assert!(output["profiles"][1] == source["profiles"][1]);
+    assert!(output["subscriptions"] == source["subscriptions"]);
+    assert!(output["vendorExtension"] == source["vendorExtension"]);
+
+    let candidate = parse_candidate_private_store(&mixed().to_string())
+        .unwrap()
+        .delete_standalone(WG_ID)
+        .unwrap();
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert_eq!(output["activeId"], "");
+    assert_eq!(output["lastId"], AWG_ID);
+    assert_eq!(output["startup"]["profileId"], AWG_ID);
+    assert_eq!(output["startup"]["enabled"], true);
+    assert!(matches!(
+        parse_candidate_private_store(&mixed().to_string())
+            .unwrap()
+            .delete_standalone(URI_ID),
+        Err(PrivateStoreError::SubscribedProfile)
+    ));
+    assert!(matches!(
+        parse_candidate_private_store(&mixed().to_string())
+            .unwrap()
+            .delete_standalone(SUB_ID),
+        Err(PrivateStoreError::ProfileNotFound)
+    ));
+}
+
+#[test]
+fn replacement_and_typed_export_preserve_identity_favorite_and_pointers() {
+    let source = mixed();
+    let (candidate, changed) = parse_candidate_private_store(&source.to_string())
+        .unwrap()
+        .replace_standalone(
+            WG_ID,
+            "WG",
+            CandidateProfileInput::WireGuard(parse_wireguard_config(&native(false)).unwrap()),
+        )
+        .unwrap();
+    assert!(!changed);
+    let (candidate, changed) = candidate
+        .replace_standalone(
+            WG_ID,
+            "New AWG",
+            CandidateProfileInput::WireGuard(parse_wireguard_config(&native(true)).unwrap()),
+        )
+        .unwrap();
+    assert!(changed);
+    let exported = candidate.export_private_credential(WG_ID).unwrap();
+    assert_eq!(exported.format(), CandidateExportFormat::WireGuardRecord);
+    let restored = omavless_profile::wireguard::private_record::parse_private_wireguard_record(
+        exported.expose_private_bytes(),
+    )
+    .unwrap();
+    assert_eq!(restored.facts().flavor.protocol_name(), "amneziawg");
+    let uri_export = candidate.export_private_credential(URI_ID).unwrap();
+    assert_eq!(uri_export.format(), CandidateExportFormat::Uri);
+    assert!(uri_export.expose_private_bytes() == URI.as_bytes());
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert_eq!(output["profiles"][1]["id"], WG_ID);
+    assert_eq!(output["profiles"][1]["favorite"], true);
+    assert_eq!(output["activeId"], WG_ID);
+    assert_eq!(output["lastId"], AWG_ID);
+    assert_eq!(output["startup"]["profileId"], AWG_ID);
+    assert!(output["profiles"][0] == source["profiles"][0]);
+    assert!(output["profiles"][2] == source["profiles"][2]);
+    assert!(
+        parse_private_store(std::str::from_utf8(&serde_json::to_vec(&output).unwrap()).unwrap())
+            .is_err()
+    );
+}
+
+#[test]
+fn cross_family_import_replace_refuse_loss_and_preserve_unrelated_credentials() {
+    let source = mixed();
+    let candidate = parse_candidate_private_store(&source.to_string()).unwrap();
+    let (candidate, changed) = candidate
+        .replace_standalone(
+            WG_ID,
+            "Converted",
+            CandidateProfileInput::Uri(URI.to_owned()),
+        )
+        .unwrap();
+    assert!(changed);
+    let output: Value = serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+    assert!(output["profiles"][1].get("wireguard").is_none());
+    assert_eq!(output["profiles"][1]["favorite"], true);
+    assert_eq!(output["activeId"], WG_ID);
+    assert!(output["profiles"][2] == source["profiles"][2]);
+    let candidate = parse_candidate_private_store(&output.to_string())
+        .unwrap()
+        .with_profile(
+            "00000000-0000-0000-0000-000000000099",
+            "New URI",
+            CandidateProfileInput::Uri(URI.to_owned()),
+        )
+        .unwrap();
+    assert_eq!(candidate.profile_counts(), (3, 1, 1));
+    assert!(matches!(
+        parse_candidate_private_store(&source.to_string())
+            .unwrap()
+            .replace_standalone(
+                URI_ID,
+                "Managed",
+                CandidateProfileInput::Uri(URI.to_owned())
+            ),
+        Err(PrivateStoreError::SubscribedProfile)
+    ));
+    assert!(matches!(
+        parse_candidate_private_store(&source.to_string())
+            .unwrap()
+            .replace_standalone(WG_ID, "AWG", CandidateProfileInput::Uri(URI.to_owned())),
+        Err(PrivateStoreError::DuplicateProfileName)
+    ));
+    let mut standalone = source;
+    let row = standalone["profiles"][0].as_object_mut().unwrap();
+    row.remove("subscriptionId");
+    row.remove("subscriptionKey");
+    assert!(
+        matches!(
+            parse_candidate_private_store(&standalone.to_string())
+                .unwrap()
+                .replace_standalone(
+                    URI_ID,
+                    "Converted",
+                    CandidateProfileInput::WireGuard(
+                        parse_wireguard_config(&native(false)).unwrap()
+                    )
+                ),
+            Err(PrivateStoreError::InvalidShape)
+        ),
+        "legacy extensions cannot disappear during conversion"
+    );
 }
 
 fn wireguard_value(amnezia: bool) -> Value {
@@ -107,6 +259,10 @@ fn mixed_store_rejects_conflicts_and_missing_sources() {
     assert!(parse_candidate_private_store(&wrong.to_string()).is_err());
 
     let mut wrong = mixed();
+    wrong["profiles"][1]["id"] = SUB_ID.into();
+    assert!(parse_candidate_private_store(&wrong.to_string()).is_err());
+
+    let mut wrong = mixed();
     wrong["profiles"][1]["uri"] = URI.into();
     assert!(parse_candidate_private_store(&wrong.to_string()).is_err());
 
@@ -128,6 +284,55 @@ fn mixed_store_rejects_conflicts_and_missing_sources() {
     let mut wrong = mixed();
     wrong["profiles"][2]["wireguard"]["interface"]["postup"] = "echo bad".into();
     assert!(parse_candidate_private_store(&wrong.to_string()).is_err());
+}
+
+#[test]
+fn candidate_uri_delete_and_replace_match_existing_v3_semantics() {
+    use omavless_domain::private_store::{ProfileMutation, apply_profile_mutation};
+    let source = json!({
+        "version":3,
+        "profiles":[
+            {"id":URI_ID,"name":"First","protocol":"vless","uri":URI,"favorite":true,"extension":{"keep":true}},
+            {"id":WG_ID,"name":"Second","protocol":"vless","uri":URI}
+        ],
+        "activeId":URI_ID,"lastId":URI_ID,
+        "startup":{"enabled":true,"target":"profile","profileId":URI_ID,"mode":"rule"}
+    }).to_string();
+    for replace in [false, true] {
+        let mutation = if replace {
+            ProfileMutation::Replace {
+                profile_id: URI_ID.into(),
+                new_name: "Renamed".into(),
+                new_input: format!("{URI}#Changed"),
+            }
+        } else {
+            ProfileMutation::Delete {
+                profile_id: URI_ID.into(),
+            }
+        };
+        let expected = apply_profile_mutation(&source, mutation).unwrap();
+        let mut expected: Value = serde_json::from_slice(expected.payload()).unwrap();
+        expected["version"] = 4.into();
+        let candidate = migrate_legacy_store_candidate(&source).unwrap();
+        let candidate = if replace {
+            candidate
+                .replace_standalone(
+                    URI_ID,
+                    "Renamed",
+                    CandidateProfileInput::Uri(format!("{URI}#Changed")),
+                )
+                .unwrap()
+                .0
+        } else {
+            candidate.delete_standalone(URI_ID).unwrap()
+        };
+        let actual: Value =
+            serde_json::from_slice(&candidate.into_private_bytes().unwrap()).unwrap();
+        assert!(
+            actual == expected,
+            "candidate URI mutation matches established v3 normalization"
+        );
+    }
 }
 
 #[test]

@@ -156,10 +156,53 @@ subscriptions and active/last/startup references across those updates; missing
 IDs and ambiguous names refuse. There is deliberately no delete/replace,
 filesystem publication, IPC method or lifecycle transition in this slice.
 
-This is **not a store migration or product activation**. The production
-`parse_private_store` still refuses v4; no filesystem writer, IPC method,
-profile import/edit/export, renderer, probe, backup/restore or core operation
-accepts these rows. In particular, successful candidate validation gives no
-permission to write a v4 artifact that the installed owner cannot read. The
-next slice must couple owner-bound atomic publication with an old-reader and
-rollback policy, followed by typed consumers and installed/real-server gates.
+### Inactive mutation and persistence prerequisite
+
+The successor adds typed candidate URI/WG inputs for standalone import and
+replacement, standalone deletion, and an explicit private credential export.
+Export reports its format: a URI remains a stored URI, while WG/AWG remains
+the strict versioned private record. No native `.conf` or QR export is claimed.
+Replacement preserves ID, favorite and active/last/pinned references; URI
+extensions survive URI replacement. Converting an extended URI row into the
+strict WG shape refuses instead of dropping extensions. Deletion clears only
+references to its target and selects the first remaining member of the complete
+mixed array for a deleted last selection. Managed URI deletion/replacement
+refuses. Candidate loading also rejects profile/subscription ID collisions.
+Existing v3 URI delete/replace outputs are the independent semantic comparison
+for the URI case; synthetic mixed WG/AWG tests verify unrelated credential,
+subscription, pointer and extension preservation and typed export restoration.
+
+The inactive `candidate_store_transaction` runtime module composes this complete
+validator with the existing exact-byte private-store writer. Preparation holds
+the matching migration lease and pins a durable committed Rust generation;
+commit and restore recheck that same lease/generation. Whole-store validation,
+private parent/file rules, atomic `0600` replacement, exact source-byte
+comparison and byte-exact verified compensation are reused. A semantic no-op
+does not replace the file. Concurrent edits and revoked/stale/unsafe ownership
+refuse; restoration never overwrites unrelated bytes. Tests publish only
+synthetic candidate files beneath a disposable private directory.
+
+Crucially, this constructor accepts **already-v4 stores only**. It cannot
+migrate or replace a production v1-v3 source with v4, and it has no daemon,
+IPC, CLI, bootstrap, backup, renderer or core caller. Production
+`parse_private_store` still refuses v4. Thus no installed store migration or
+product activation is performed, and successful candidate validation gives no
+permission to write an unreadable installed artifact. Publication experiments
+must remain isolated synthetic files. Exact check results and tested SHA belong
+to the owning Draft PR.
+
+The next integration must bind this persistence primitive to the one native
+owner's revision/replay/recovery admission and active-profile lifecycle
+compensation. It must also select a reviewed v4 startup/old-reader refusal and
+rollback policy without dropping structured records, compose typed editor and
+native export/preview framing, and cover every subscription/backup consumer.
+Installed-core compatibility/version gates and matching real-server modes,
+lifecycle, IP-family and privacy gates remain prerequisites for user exposure.
+
+The October 2 storage follow-up revisited the official WG documentation and
+pinned `v1.19.30` option implementation linked above, plus the
+[current `v1.19.32` release notes](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32).
+It changes no native parser fields or Mihomo rendering/minimum-version policy.
+This limited storage review is not installed-core compatibility, a full
+intervening-release/advisory audit or permission to use new upstream fields;
+those checks remain required for protocol/core activation.
