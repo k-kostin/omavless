@@ -111,6 +111,10 @@ impl OwnedCore {
         self.child.as_ref().map(Child::id)
     }
 
+    pub(crate) fn controller_path(&self) -> &Path {
+        &self.controller_socket
+    }
+
     pub fn running(&mut self) -> Result<bool, CoreError> {
         let pid = self.pid().ok_or(CoreError::StopFailed)?;
         let pid = i32::try_from(pid).map_err(|_| CoreError::StopFailed)?;

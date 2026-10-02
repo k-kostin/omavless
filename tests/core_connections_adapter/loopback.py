@@ -82,6 +82,18 @@ def echo_loop(listener, stopped):
             thread.join(timeout=1)
 
 
+def conditional_ready(controller, secret):
+    status, raw = control(controller, secret, "GET", "/connections/conditional-capabilities")
+    if status != 200:
+        raise ValueError("Conditional ABI unavailable")
+    report = json.loads(raw, object_pairs_hook=exact_pairs)
+    if (not isinstance(report, dict) or set(report) != {"abi", "ready"}
+            or type(report["abi"]) is not int or report["abi"] != 1
+            or type(report["ready"]) is not bool):
+        raise ValueError("Conditional ABI ambiguous")
+    return report["ready"]
+
+
 def tunnel(mixed, target):
     connection = socket.create_connection(("127.0.0.1", mixed), timeout=2)
     try:
@@ -143,7 +155,7 @@ def exercise(core, scratch_parent):
                 if process.poll() is not None:
                     raise ValueError("Isolated core exited")
                 try:
-                    if control(controller, secret, "GET", "/connections")[0] == 200:
+                    if conditional_ready(controller, secret):
                         break
                 except OSError:
                     pass

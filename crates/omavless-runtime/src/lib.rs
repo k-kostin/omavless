@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+#[allow(dead_code)]
+mod conditional_close_candidate;
 #[cfg(test)]
 mod connection_close_admission;
 mod connection_overview;

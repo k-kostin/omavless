@@ -101,6 +101,45 @@ desired VPN state as a consequence of closing one connection.
 
 ## Evidence boundary
 
+### Inactive peer-bound conditional transport continuation
+
+`dev/t3-conditional-owner-adapter` adds a separate review-only Mihomo patch and
+Rust transport candidate; the normal test-only admission registry above still
+returns `CoreIdentityGuaranteeMissing`. No production effect permit constructor,
+public method, client-provided controller ID or TUI close button is added.
+
+The exact upstream source remains v1.19.31 at
+`ab405bad5beeeac8b003bb01f60f134f6df54471`. The core assigns non-reused
+manager-lifetime incarnation tokens and conditionally closes the retained object
+under atomic ID/token comparison. A fixed typed ABI/readiness endpoint reports
+Running explicitly. This matters because upstream publishes config/rules and
+listeners before Running, and CONNECT 200 precedes actual tunnel admission.
+The handler also refuses effects while suspended/loading. Protocol readiness
+is not immutable package attestation or concurrent reload serialization.
+
+The inactive Rust session borrows an unreaped parent-owned child and retains
+directory/socket descriptors, exact UID/mode/inode and per-request peer PID/UID.
+Each selected target retains a non-reusable Arc session identity; even a new
+session for the same numeric PID/socket rejects an older selection. Discovery
+strictly parses bounded raw JSON, duplicate keys/IDs/tokens and canonical tokens;
+private IDs/tokens never have a public formatting or serialization path.
+Only fixed capability/snapshot reads and one semantic conditional POST exist.
+
+Pre-write child/socket/session/ABI failure sends no effect. After the first POST
+write attempt, lost/partial/malformed responses are Unknown and never resent.
+Empty exact typed status receipts distinguish Closed/Missing/Changed/Unsupported;
+a generic 404 page does not establish a missing target. No DELETE, close-all,
+desired-state change or inference from later absence is used.
+
+Synthetic subprocess tests cover stale session, waitable child death, replaced
+socket, ABI mismatch/duplicate fields/suspension and lost/partial replies. The
+opt-in real patched-core test uses a separate loopback-only core (TUN/DNS off)
+and two echo tunnels: wrong token preserves both; matching token closes only
+the selected original while the other remains usable. Exact source, patch and
+binary hashes and host/VM repetitions belong to the owning PR. They do not
+activate installed packages or establish normal owner-lock/revision/operation
+admission, detached scheduling, ABI package attestation or installed EN/RU UI.
+
 Focused synthetic tests cover every context component, admission/recovery gates,
 expiry/clock discontinuity, refresh and identical displayed targets, disappeared
 or reused IDs, wrong/cancelled/replaced confirmation, malformed/duplicate IDs,

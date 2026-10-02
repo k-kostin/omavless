@@ -22,6 +22,18 @@ REVIEW = load("review")
 
 
 class ConditionalCoreAdapterTests(unittest.TestCase):
+    def test_explicit_readiness_rejects_older_ambiguous_or_changed_abi(self):
+        with patch.object(LIVE, "control") as control:
+            for raw in [b'{}', b'{"abi":2,"ready":true}', b'{"abi":true,"ready":true}',
+                        b'{"abi":1,"ready":1}', b'{"abi":1,"ready":true,"extra":0}',
+                        b'{"abi":1,"abi":1,"ready":true}']:
+                control.return_value = (200, raw)
+                with self.assertRaises(ValueError):
+                    LIVE.conditional_ready(12345, "synthetic")
+            for ready in [False, True]:
+                control.return_value = (200, json.dumps({"abi": 1, "ready": ready}).encode())
+                self.assertIs(LIVE.conditional_ready(12345, "synthetic"), ready)
+
     def test_duplicate_keys_refuse_without_exposing_input(self):
         with self.assertRaisesRegex(ValueError, "^Duplicate controller key$"):
             json.loads('{"secret":"synthetic-private","secret":"other"}', object_pairs_hook=LIVE.exact_pairs)

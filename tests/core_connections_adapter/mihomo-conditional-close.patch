@@ -1,12 +1,14 @@
 diff --git i/hub/route/conditional_close_test.go w/hub/route/conditional_close_test.go
 new file mode 100644
-index 0000000..a4b5b93
+index 0000000..2286149
 --- /dev/null
 +++ w/hub/route/conditional_close_test.go
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,80 @@
 +package route
 +
 +import (
++	"encoding/json"
++	"github.com/metacubex/mihomo/tunnel"
 +	"strings"
 +	"testing"
 +
@@ -14,7 +16,37 @@ index 0000000..a4b5b93
 +	"github.com/metacubex/http/httptest"
 +)
 +
++func TestConditionalCloseExplicitReadiness(t *testing.T) {
++	defer tunnel.OnRunning()
++	for _, ready := range []bool{false, true} {
++		if ready {
++			tunnel.OnRunning()
++		} else {
++			tunnel.OnInnerLoading()
++		}
++		w := httptest.NewRecorder()
++		connectionRouter().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/conditional-capabilities", nil))
++		var got struct {
++			ABI   uint8 `json:"abi"`
++			Ready bool  `json:"ready"`
++		}
++		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.ABI != 1 || got.Ready != ready {
++			t.Fatal("explicit conditional ABI/readiness mismatch")
++		}
++		if !ready {
++			r := httptest.NewRequest(http.MethodPost, "/missing/close-conditional", nil)
++			r.Header.Set("If-Match", `"1"`)
++			w := httptest.NewRecorder()
++			connectionRouter().ServeHTTP(w, r)
++			if w.Code != http.StatusServiceUnavailable {
++				t.Fatal("suspended core attempted close")
++			}
++		}
++	}
++}
++
 +func TestConditionalCloseStrictRequest(t *testing.T) {
++	tunnel.OnRunning()
 +	for _, value := range []string{"", "*", "1", `"0"`, `"01"`, `"+1"`, `"-1"`, `"18446744073709551616"`, `"1", "2"`} {
 +		r := httptest.NewRequest(http.MethodPost, "/id/close-conditional", nil)
 +		r.Header.Set("If-Match", value)
@@ -53,17 +85,41 @@ index 0000000..a4b5b93
 +	}
 +}
 diff --git i/hub/route/connections.go w/hub/route/connections.go
-index ddfa6c5..eb3464a 100644
+index ddfa6c5..43868e2 100644
 --- i/hub/route/connections.go
 +++ w/hub/route/connections.go
-@@ -18,9 +18,42 @@ func connectionRouter() http.Handler {
+@@ -6,6 +6,7 @@ import (
+ 	"strconv"
+ 	"time"
+ 
++	"github.com/metacubex/mihomo/tunnel"
+ 	"github.com/metacubex/mihomo/tunnel/statistic"
+ 
+ 	"github.com/metacubex/chi"
+@@ -16,11 +17,62 @@ import (
+ func connectionRouter() http.Handler {
+ 	r := chi.NewRouter()
  	r.Get("/", getConnections)
++	r.Get("/conditional-capabilities", conditionalCloseCapabilities)
  	r.Delete("/", closeAllConnections)
  	r.Delete("/{id}", closeConnection)
 +	r.Post("/{id}/close-conditional", closeConnectionConditional)
  	return r
  }
  
++// This explicit, read-only ABI/readiness report is not inferred from version,
++// configured listeners, loaded rules, logs or a successful CONNECT response.
++func conditionalCloseCapabilities(w http.ResponseWriter, r *http.Request) {
++	if r.URL.RawQuery != "" || r.ContentLength != 0 {
++		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	render.JSON(w, r, struct {
++		ABI   uint8 `json:"abi"`
++		Ready bool  `json:"ready"`
++	}{1, tunnel.Status() == tunnel.Running})
++}
++
 +func closeConnectionConditional(w http.ResponseWriter, r *http.Request) {
 +	// No JSON parser ambiguity, wildcard, query, body or legacy fallback.
 +	values := r.Header.Values("If-Match")
@@ -80,6 +136,10 @@ index ddfa6c5..eb3464a 100644
 +	n, err := strconv.ParseUint(token, 10, 64)
 +	if err != nil || n == 0 || strconv.FormatUint(n, 10) != token {
 +		w.WriteHeader(http.StatusBadRequest)
++		return
++	}
++	if tunnel.Status() != tunnel.Running {
++		w.WriteHeader(http.StatusServiceUnavailable)
 +		return
 +	}
 +	switch statistic.DefaultManager.CloseIfToken(chi.URLParam(r, "id"), token) {

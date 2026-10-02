@@ -22,16 +22,30 @@ retained original object outside the lock. A delayed old Leave cannot remove
 a successor. Failure has no unconditional DELETE fallback or close-all effect.
 
 Responses are 204 for this successful close, 404 for missing, 409 for changed
-incarnation, 503 for unavailable identity, 502 for an effect failure, and 400
+incarnation, 503 for unavailable identity/not-running, 502 for an effect failure, and 400
 for malformed input. A lost reply stays unknown; later absence is not a
 receipt and must not trigger an automatic resend. Tokens are scoped to the
 verified owned core incarnation, not globally stable or user-facing identity.
+
+The fixed read-only `GET /connections/conditional-capabilities` reports exact
+ABI 1 and `ready` only when Mihomo's tunnel is Running. Configs/rules/listeners
+and CONNECT 200 appear earlier during startup and are not a readiness proof.
+The close handler also refuses while suspended/loading. This protocol report
+is not immutable package attestation or serialization against concurrent reload.
+The normal owner must supply the latter independently before activation.
 
 The existing ordinary controller DELETE remains upstream behavior. OmaVLESS
 does not call it or expose either endpoint to its clients in this checkpoint.
 Matched-core package attestation, bounded owner-private row handles,
 confirmation/replay/expiry, pre-effect child/controller and revision checks,
 concurrency integration and installed EN/RU review are still required.
+
+The inactive Rust candidate binds an unreaped child, retained directory/socket
+FDs, exact peer credentials and a non-reusable session identity. Discovery and
+close require the exact typed capability report; stale targets, dead children,
+replaced sockets and suspended/ambiguous ABI send no effect. A private effect
+permit has no production constructor. Unknown/partial receipts are never
+retried. This is a transport prerequisite, not new runtime/IPC/TUI behavior.
 
 ## Offline review
 
