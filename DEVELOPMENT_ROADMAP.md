@@ -2,6 +2,14 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**0.9.8 assembly, 2026-10-02:** owner selected the 0.9.7 maintenance source as
+the base of `beta/0.9.8`, with T4 private backup/restore reviewed last to avoid
+freezing another agent's active work prematurely. The
+[selection](docs/development/BETA_098.md) distinguishes the unchanged base,
+late T4 admission and declared integration gates. Internal RC source checkpoints
+do not require repeating public distribution gates at each version; installed
+checks follow affected behavior. No backup/restore availability is claimed yet.
+
 **0.9.7 maintenance RC source, 2026-10-01:** the owner selected the checked
 0.9.6 source plus a narrow TUI Connections loading correction and installed
 manifest-based Settings credit. The [RC ledger](docs/development/RC_097.md)

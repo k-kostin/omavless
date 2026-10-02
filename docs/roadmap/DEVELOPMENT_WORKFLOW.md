@@ -65,6 +65,28 @@ independent accepted artifact identity.
 The owner-approved `archive/python-legacy` exception is a frozen full-repository
 snapshot at `aa5873783c019edc303a732e55ea8c85f1f0b090`. It preserves the Python
 reference and its tests, not a supported parallel release or development branch.
+
+### Internal candidate checkpoints (owner decision, 2026-10-02)
+
+An internal `rc/<version>` can freeze an explicitly selected, checked source
+composition without publishing packages or repeating clean first-use on every
+architecture at every number. Record its exact source, included scope, declared
+checks and unrun checks; do not transfer earlier artifact identities or rename
+an unrun check PASS. The 0.9.7 source checkpoint is the input to 0.9.8, not a
+reason to repeat unchanged 0.9.7 ARM64/distribution acceptance first.
+
+Installed checks remain necessary where the affected behavior needs them:
+presentation needs rendered review, while private restore requires real
+filesystem/owner integration and its interruption/recovery tests. Pure models
+and green CI alone cannot establish a working backup/restore feature.
+Architecture-specific checks require a concrete reason, not a routine label.
+
+Public release acceptance is separate: before separately authorized publication,
+complete the applicable package/provenance/pin, supported-architecture,
+anonymous-download and clean guided-install gates. Existing 0.9.5 public
+acceptance and pending historical 0.9.6/0.9.7 release gates retain their scope;
+this policy does not retroactively claim them passed. Main, stable assets and
+Marketplace updates still require their own owner authorization.
 Retain it during cleanup; new work follows the selected development candidate
 and ultimately an owner-authorized main update. See the
 [retirement sequence](LEGACY_RETIREMENT.md).

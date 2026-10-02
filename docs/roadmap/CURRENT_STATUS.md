@@ -1,12 +1,19 @@
 # Current delivery status
 
-Updated 2026-10-01. This is the compact current-state entry point; the detailed
+Updated 2026-10-02. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
 
-- **0.9.7 maintenance RC source in preparation:** selected 0.9.6 read-side
+- **0.9.8 assembly:** `beta/0.9.8` starts from 0.9.7 source merge
+  `c4e800425243c1b02165f82153e4bf418fe465e6`. Version `0.9.8-beta.1`, empty
+  unpublished pins. The [selection](../development/BETA_098.md) reserves T4
+  review for the session's end; internal primitives are not a backup/restore
+  product. Installed checks are risk-based, not a repeat of every predecessor's
+  distribution gate. Main and Marketplace stay on stable 0.8.2.
+
+- **0.9.7 maintenance RC source selected via #438:** selected 0.9.6 read-side
   scope plus #435's honest Connections loading state and a small Settings
   credit from the installed plugin manifest. #433's socket-fixture correction
   was already integrated into 0.9.6, so its changes are not duplicated. See

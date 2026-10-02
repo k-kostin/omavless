@@ -5,9 +5,9 @@ umask 077
 [[ $# == 1 && $1 == /* && -d $1 && ! -L $1 ]] || exit 64
 source_root=$(realpath -e -- "$1")
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-git -C "$source_root" diff --quiet HEAD -- plugin
+git -C "$source_root" diff --quiet HEAD -- plugin manifest.json
 capture_dir=$(mktemp -d /tmp/omavless-marketplace.XXXXXX)
-git -C "$source_root" archive HEAD plugin | tar -x -C "$capture_dir"
+git -C "$source_root" archive HEAD plugin manifest.json | tar -x -C "$capture_dir"
 cp -- "$here/backend.sh" "$here/backend.mjs" "$here/shell.qml" "$capture_dir/"
 cp -- "$here/setup-runtime.sh" "$capture_dir/plugin/setup-runtime.sh"
 mkdir -m 700 -- "$capture_dir/fixtures" "$capture_dir/runtime"

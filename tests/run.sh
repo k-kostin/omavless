@@ -8,6 +8,7 @@ python3 -m unittest -v \
   "$here/test_native_launcher_no_python.py" \
   "$here/test_install_picker_policy.py" \
   "$here/test_marketplace_setup.py" \
+  "$here/test_marketplace_visual.py" \
   "$here/test_mihomo_validation_effects.py" \
   "$here/test_local_arch_package.py" \
   "$here/test_release_candidate.py" \

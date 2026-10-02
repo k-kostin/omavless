@@ -30,9 +30,11 @@ Use a narrow `dev/<topic>` branch from the declared main or versioned candidate
 base and an early meaningful Draft PR. Optional kind prefixes include
 `dev/fix/<topic>` and `dev/docs/<topic>`. A temporary `beta/<version>` assembles
 selected development checkpoints; a later `rc/<version>` freezes release scope.
-Neither is a second permanent product or a separate set of docs. The 0.9.6
-scope is frozen in `rc/0.9.6`, with [acceptance still pending](docs/development/RC_096.md).
-The latest accepted candidate is `rc/0.9.5`; `beta/0.9.5` retains development history and
+Neither is a second permanent product or a separate set of docs. Current
+assembly is `beta/0.9.8`, based on the internal `rc/0.9.7` source checkpoint;
+see [selection and affected gates](docs/development/BETA_098.md). Internal RC
+freeze need not repeat public provisioning at each version. The publicly
+accepted artifact baseline is `rc/0.9.5`; `beta/0.9.5` retains development history and
 `rc/0.9.0` remains unchanged as superseded acceptance history. Only release
 fixes belong in the selected RC; new scope needs a separately declared branch.
 Follow [the canonical workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) for ownership,

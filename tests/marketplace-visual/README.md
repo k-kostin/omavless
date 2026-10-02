@@ -16,7 +16,9 @@ bash tests/marketplace-visual/prepare.sh /absolute/reviewed/source
 
 The preparation command prints a fresh `/tmp/omavless-marketplace.XXXXXX`
 directory, records its source commit/tree and stages only committed plugin
-blobs. `backend.sh` and `plugin/setup-runtime.sh` are replaced with the included
+blobs plus the adjacent public `manifest.json` used by the Settings credit.
+Dirty plugin/manifest changes refuse staging. `backend.sh` and
+`plugin/setup-runtime.sh` are replaced with the included
 read fixtures; **no QML or presentation JS is modified**. Node is a developer
 fixture generator, not a plugin dependency. Nothing under tests is shipped.
 
@@ -74,6 +76,13 @@ only state/row counts, expansion and hint geometry/focus booleans.
 panel's presentation, never runtime mutations. `reviewCapture PUBLIC-SLUG`
 also permits the explicit unavailable state; the ordinary marketing `capture`
 still requires Disconnected. These captures are development evidence only.
+
+`reviewSettings LOCALE WIDTH` opens Settings and scrolls its existing Quit row
+and adjacent passive version/credit into view without activating that action.
+`inspect` also reports this public manifest-derived credit, never runtime or
+package identity. Use it to check the footer in both languages and widths.
+After layout settles, `reviewSettingsEnd` repeats the production scroll-to-Quit
+path without a click; real Shift+Tab navigation remains a separate review.
 
 Inspect EN/RU empty/unavailable/missing-subscription guidance, focus and actual
 pointer hover at both widths. During `search`, the matching subscription must
