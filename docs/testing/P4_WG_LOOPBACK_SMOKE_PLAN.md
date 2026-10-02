@@ -1,7 +1,8 @@
 # P4 synthetic WireGuard loopback smoke design
 
-Status: **fixture implementation in progress; no transport PASS yet**. The owning
-domain-preparation Draft records the exact candidate/checks. This proposes one
+Status: **implemented; scoped standard-WG transport smoke passed**. The
+[exact evidence](P4_WG_LOOPBACK_SMOKE_2026-10-03.md) records artifact identities,
+preparation actions, repeated positive/negative results and cleanup. This is one
 standard-WG transport smoke on a newly authorized disposable VM, not product
 activation or Full/Routing/Direct, AWG, autoconnect or real-provider acceptance.
 The root owner must explicitly hand off that VM before any operation. Do not
