@@ -483,6 +483,10 @@ K1 should remain reviewable:
 No slice adds Routing protection, LAN exceptions, permanent Lockdown,
 WireGuard/AWG, arbitrary firewall configuration or a generic privileged IPC.
 
+The [2026-10-02 first-listener publication checkpoint](../testing/K1_FIRST_LISTENER_PUBLICATION_2026-10-02.md)
+records an inactive bind-before-group-access candidate. It is not a packaged
+helper or evidence that any kill switch is available.
+
 ## 11. Source basis
 
 - nftables atomic transactions:

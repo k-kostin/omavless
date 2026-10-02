@@ -1,7 +1,8 @@
 use crate::listener_admission::{AdmittedListener, ListenerError};
+use crate::listener_publisher_candidate::{PublishError, publish_test_parent};
 use crate::session_owner_candidate::{SessionOwner, SessionProgress};
 use std::io::ErrorKind;
-use std::os::unix::fs::{DirBuilderExt, symlink};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, symlink};
 use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
@@ -40,6 +41,124 @@ fn admitted_listener(f: &Fixture) -> (AdmittedListener, PathBuf) {
         .unwrap(),
         path,
     )
+}
+
+fn publication_site(f: &Fixture) -> (PathBuf, PathBuf, (u32, u32)) {
+    let parent = f.0.join("run");
+    fs::DirBuilder::new().mode(0o700).create(&parent).unwrap();
+    let path = parent.join("omavless-netguard/control.sock");
+    let meta = fs::metadata(&parent).unwrap();
+    (parent, path, (meta.uid(), meta.gid()))
+}
+
+#[test]
+fn trusted_first_publisher_opens_group_only_after_private_bind() {
+    let f = Fixture::new();
+    let (parent, path, owner) = publication_site(&f);
+    let mut inspected = false;
+    let admitted = publish_test_parent(
+        File::open(&parent).unwrap(),
+        &path,
+        owner,
+        owner.1,
+        || {
+            inspected = true;
+            let directory = fs::metadata(path.parent().unwrap()).unwrap();
+            assert_eq!(directory.mode() & 0o7777, 0o700);
+            assert!(fs::metadata(&path).unwrap().file_type().is_socket());
+            true
+        },
+    )
+    .unwrap();
+    assert!(inspected);
+    assert_eq!(admitted.validate(), Ok(()));
+    assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().mode() & 0o7777, 0o750);
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o660);
+    let mut owner = SessionOwner::from_admitted(
+        admitted,
+        bound_state(&f, peer_uid()),
+        Kernel::new(&f),
+        NS,
+    )
+    .unwrap();
+    let mut status = client(&path, Request::Status {});
+    assert_eq!(owner.poll_one(), SessionProgress::Served);
+    assert!(matches!(receive(&mut status), Response::Status { .. }));
+    assert_eq!(owner.test_kernel().effects, 0);
+}
+
+#[test]
+fn interrupted_first_publication_stays_private_and_cannot_be_adopted() {
+    let f = Fixture::new();
+    let (parent, path, owner) = publication_site(&f);
+    let result = publish_test_parent(
+        File::open(&parent).unwrap(), &path, owner, owner.1, || false,
+    );
+    assert!(matches!(result, Err(PublishError::Ambiguous)));
+    assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().mode() & 0o7777, 0o700);
+    assert!(fs::metadata(&path).unwrap().file_type().is_socket());
+    let retry = publish_test_parent(
+        File::open(&parent).unwrap(), &path, owner, owner.1, || true,
+    );
+    assert!(matches!(retry, Err(PublishError::UnsafeOrExisting)));
+}
+
+#[test]
+fn replaced_socket_during_private_publication_is_never_admitted() {
+    let f = Fixture::new();
+    let (parent, path, owner) = publication_site(&f);
+    let mut replacement = None;
+    let result = publish_test_parent(
+        File::open(&parent).unwrap(), &path, owner, owner.1, || {
+            fs::remove_file(&path).unwrap();
+            replacement = Some(UnixListener::bind(&path).unwrap());
+            true
+        },
+    );
+    assert!(matches!(result, Err(PublishError::Ambiguous)));
+    assert!(replacement.is_some());
+    assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().mode() & 0o7777, 0o700);
+}
+
+#[test]
+fn replaced_directory_during_private_publication_is_never_admitted() {
+    let f = Fixture::new();
+    let (parent, path, owner) = publication_site(&f);
+    let original = parent.join("moved-private-directory");
+    let mut replacement = None;
+    let result = publish_test_parent(
+        File::open(&parent).unwrap(), &path, owner, owner.1, || {
+            fs::rename(path.parent().unwrap(), &original).unwrap();
+            fs::DirBuilder::new().mode(0o750).create(path.parent().unwrap()).unwrap();
+            replacement = Some(UnixListener::bind(&path).unwrap());
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+            true
+        },
+    );
+    assert!(matches!(result, Err(PublishError::Ambiguous)));
+    assert!(replacement.is_some());
+    assert_eq!(fs::metadata(&original).unwrap().mode() & 0o7777, 0o700);
+    assert_eq!(fs::metadata(path.parent().unwrap()).unwrap().mode() & 0o7777, 0o750);
+}
+
+#[test]
+fn first_publisher_refuses_existing_or_symlinked_directory() {
+    for symlinked in [false, true] {
+        let f = Fixture::new();
+        let (parent, path, owner) = publication_site(&f);
+        let directory = path.parent().unwrap();
+        if symlinked {
+            let destination = f.0.join("elsewhere");
+            fs::DirBuilder::new().mode(0o700).create(&destination).unwrap();
+            symlink(destination, directory).unwrap();
+        } else {
+            fs::DirBuilder::new().mode(0o700).create(directory).unwrap();
+        }
+        let result = publish_test_parent(
+            File::open(&parent).unwrap(), &path, owner, owner.1, || true,
+        );
+        assert!(matches!(result, Err(PublishError::UnsafeOrExisting)));
+    }
 }
 
 #[test]

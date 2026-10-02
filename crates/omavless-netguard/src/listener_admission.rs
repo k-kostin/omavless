@@ -4,7 +4,7 @@
 //! to the current filesystem entry after an unlink/rebind. This module does not
 //! create the directory, resolve the package group, bind, or start a service.
 
-use nix::fcntl::{OFlag, open, openat};
+use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::Mode;
 use std::fs::File;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -13,7 +13,6 @@ use std::path::Path;
 
 const DIR: &str = "omavless-netguard";
 const LEAF: &str = "control.sock";
-const FIXED_PATH: &str = "/run/omavless-netguard/control.sock";
 const DIRECTORY: OFlag = OFlag::O_RDONLY
     .union(OFlag::O_DIRECTORY)
     .union(OFlag::O_NOFOLLOW)
@@ -86,12 +85,33 @@ pub(crate) struct AdmittedListener {
 }
 
 impl AdmittedListener {
-    pub(crate) fn open_fixed(listener: UnixListener, package_gid: u32) -> Result<Self> {
-        let root = File::from(open("/", DIRECTORY, Mode::empty()).map_err(|_| REFUSE)?);
-        ancestor(&root, (0, 0))?;
-        let run = File::from(openat(&root, "run", DIRECTORY, Mode::empty()).map_err(|_| REFUSE)?);
-        ancestor(&run, (0, 0))?;
-        Self::admit(listener, run, Path::new(FIXED_PATH), (0, 0), package_gid)
+    /// Accept only the descriptors pinned by the private-bind publisher.
+    /// Reopening the path here would allow an already replaced socket and
+    /// directory to be treated as the publisher's own entry.
+    pub(crate) fn open_published_pinned(
+        listener: UnixListener,
+        parent: File,
+        directory: File,
+        leaf: File,
+        expected_path: &Path,
+        owner: (u32, u32),
+        group: u32,
+    ) -> Result<Self> {
+        ancestor(&parent, owner)?;
+        if listener.local_addr().map_err(|_| REFUSE)?.as_pathname() != Some(expected_path) {
+            return Err(REFUSE);
+        }
+        let admitted = Self {
+            listener,
+            parent: Some(parent),
+            directory: Some(directory),
+            leaf: Some(leaf),
+            parent_owner: owner,
+            owner_uid: owner.0,
+            group,
+        };
+        admitted.validate()?;
+        Ok(admitted)
     }
 
     #[cfg(test)]

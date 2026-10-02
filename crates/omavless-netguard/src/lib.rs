@@ -11,6 +11,8 @@ mod enrollment_provision_candidate;
 pub mod kernel_observer;
 #[allow(dead_code)] // Inactive prerequisite, not an installed socket publisher.
 mod listener_admission;
+#[allow(dead_code)] // Inactive first publication candidate; no installed service.
+mod listener_publisher_candidate;
 pub mod locked_state;
 pub mod nft;
 pub mod policy;
