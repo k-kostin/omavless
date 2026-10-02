@@ -44,7 +44,26 @@ OMAVLESS_K1_RAW_RULE_VM=1 cargo test --locked -p omavless-netguard --lib \
   kernel_observer::rule_wire::tests::raw_rules_in_disposable_vm -- --ignored --exact --nocapture
 ```
 
-Local pure tests and strict crate clippy pass; exact-head VM evidence is pending.
+Exact code `a0d925e344233609914629972bc0e5b3889586b4` passed the isolated
+x86_64 Omarchy Dev KVM gate on kernel 7.2.5-3-omarchy and systemd 261.2-1-arch.
+Transferred test-binary SHA256:
+`9abcafddbddc8929a44b18998abb0b700b7ee8833c4b0e20524b21b19ca2cda6`.
+Both FullVpn and Emergency passed strict atomic-create replies, repeated raw
+readback, live appended-accept detection and permanent refusal after a thread
+namespace change. No sudo, guest VPN/service action or parent firewall change
+occurred. The transferred binary and empty private staging directory were
+removed; child namespaces were destroyed on process exit. This is isolated
+mechanism evidence, not physical/canonical-host protection acceptance.
+
+The first fixture failed because it expected the older JSON classifier to
+accept owner,persist flags; that classifier correctly returns OtherUntrusted.
+A second fixture correction enclosed the test-only extra-rule mutation in a
+required atomic nft batch. Both failed attempts stayed inside disposable
+namespaces; the final head above reran both complete policy cases successfully.
+
+The full NetGuard crate passes 181 tests (26 ignored) including doctests, and
+strict all-target crate clippy passes on the same code. Cloud CI belongs to its
+own exact PR head, not automatically to later documentation commits.
 Namespace safe APIs, trusted system-manager launch, structural prohibition of
 namespace transitions, complete same-socket object inventory, conditional
 effects, orphan recovery, root package/runtime wiring and physical acceptance
