@@ -26,6 +26,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use zeroize::Zeroizing;
 
+#[path = "restore_successor_executor_candidate.rs"]
+pub(crate) mod successor;
+
 const INTENT: &str = "restore-decision.intent";
 const TERMINAL: &str = "restore-decision.terminal";
 const LIVE: [&str; 2] = ["profiles.json", "route-template.yaml"];
@@ -250,6 +253,7 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     {
         return Err(ExecutionError::Ambiguous);
     }
+    bound.check(DecisionPhase::Intent)?;
     match linkat(
         &temporary,
         Path::new(""),
@@ -344,12 +348,14 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     if !hook(EffectStep::RenameApplied(index)) {
         return Err(ExecutionError::Ambiguous);
     }
+    bound.check(DecisionPhase::Intent)?;
     directory
         .sync_all()
         .map_err(|_| ExecutionError::Ambiguous)?;
     if !hook(EffectStep::Renamed(index)) {
         return Err(ExecutionError::Ambiguous);
     }
+    bound.check(DecisionPhase::Intent)?;
     if live_bytes(&directory, index, bound.uid)?.as_slice() != target
         || !same_parent(
             &before,
@@ -629,17 +635,25 @@ pub(crate) fn execute_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool
     if !hook(EffectStep::Intent) {
         return Err(ExecutionError::Ambiguous);
     }
+    finish_execution(&mut bound, &stage, &mut hook)
+}
+
+fn finish_execution<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
+    bound: &mut Bound<'_, G>,
+    stage: &VerifiedStage,
+    hook: &mut H,
+) -> Result<PendingOutcome, ExecutionError> {
     for (index, slot) in NEW_SLOT.iter().enumerate() {
         replace_member(
-            &mut bound,
+            bound,
             index,
-            stage_bytes(&stage, false, index),
-            stage_bytes(&stage, true, index),
+            stage_bytes(stage, false, index),
+            stage_bytes(stage, true, index),
             slot,
-            &mut hook,
+            hook,
         )?;
     }
-    sync_and_verify_pair(&mut bound, &stage, false, DecisionPhase::Intent)?;
+    sync_and_verify_pair(bound, stage, false, DecisionPhase::Intent)?;
     bound.check(DecisionPhase::Intent)?;
     if !matches!(
         bound.classify()?,
@@ -648,10 +662,11 @@ pub(crate) fn execute_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool
         return Err(ExecutionError::ManualRecovery);
     }
     write_record(
-        paths,
-        uid,
+        bound.paths,
+        bound.uid,
         TERMINAL,
-        &intent
+        &bound
+            .intent
             .terminal(TerminalChoice::Commit)
             .map_err(|_| ExecutionError::ManualRecovery)?
             .encode(),
@@ -660,8 +675,8 @@ pub(crate) fn execute_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool
     if !hook(EffectStep::Terminal) {
         return Err(ExecutionError::Ambiguous);
     }
-    sync_and_verify_pair(&mut bound, &stage, false, DecisionPhase::Committed)?;
-    sync_decision_journal(&mut bound, DecisionPhase::Committed)?;
+    sync_and_verify_pair(bound, stage, false, DecisionPhase::Committed)?;
+    sync_decision_journal(bound, DecisionPhase::Committed)?;
     Ok(PendingOutcome::Committed)
 }
 
