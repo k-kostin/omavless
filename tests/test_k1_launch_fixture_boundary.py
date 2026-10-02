@@ -27,18 +27,23 @@ class K1LaunchFixtureBoundaryTests(unittest.TestCase):
         self.assertIn("-p Requires", source)
         self.assertIn("-p ExecStart", source)
         self.assertIn("for property in DropInPaths Wants", source)
+        self.assertIn("start_attempted=0", source)
+        self.assertIn("if [[ $start_attempted == 1 ]]", source)
+        self.assertLess(source.index("start_attempted=1"),
+                        source.index('systemctl start "$unit"'))
         self.assertIn("ln -s \"$source_unit\" \"$linked_unit\"", source)
         self.assertIn("unlink \"$linked_unit\"", source)
         self.assertNotIn("nft ", source)
         self.assertEqual(subprocess.run(["bash", "-n", str(UNIT_RUNNER)],
                                         capture_output=True, text=True).returncode, 0)
 
-    def test_negative_dropin_has_no_effect_except_extra_environment(self):
+    def test_negative_dropin_targets_only_the_owned_synthetic_stop_recipient(self):
         self.assertEqual(NEGATIVE_DROPIN.read_text(),
                          "# SPDX-License-Identifier: MIT\n"
                          "# Benign VM-only negative case: runner must refuse any effective drop-in.\n"
                          "[Service]\n"
-                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n")
+                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n"
+                         "PropagatesStopTo=omavless-k1-openfile-stop-recipient.service\n")
 
     def test_fixture_has_only_fixed_bounded_descriptor_inspection(self):
         # Exact allowlist: duplicate/unknown directives, activation sections,

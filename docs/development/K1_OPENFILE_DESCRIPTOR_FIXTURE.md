@@ -155,13 +155,15 @@ The 2026-10-02 VM test of this candidate used systemd
 the unit SHA256 was
 `753c11ee3f6bbfb9f259097f6455ba9fb5d185045d94c6f6f2c937b496bca6ab`.
 The revised runner SHA256 was
-`ab113a8d5addcea7f7cb80e2241f5387679cf291867f29eb8914d7ecf5d2b1e6`.
+`317f17132240a9a76ea7bd9fb4860f07287db5a4eea8378198463a8b0e505eb7`.
 The fixed unit returned `K1_OPENFILE_UNIT_VM_PASS`; afterward `LoadState` was
 `not-found` and the `/run` unit link, private staging directory and user
 transfer directory were absent. A second run with the benign, unit-specific
 `omavless-k1-openfile-negative-dropin.conf` returned exit 2 before the probe
-started; its temporary unit link and the drop-in were removed, and `LoadState`
-again became `not-found`. This is evidence of that exact temporary unit
+started. Its stop-propagation target was a synthetic one-shot unit created for
+this test; that unit remained active after refusal, proving the cleanup sent no
+stop request. Both temporary units and the drop-in were then removed, and both
+`LoadState` values became `not-found`. This is evidence of that exact temporary unit
 launch, not of an installed root NetGuard service or K1 readiness. Kernel
 namespace type/ID, socket namespace cookie, canonical system-manager
 provenance, switch-and-return prevention and nft ownership remain open.

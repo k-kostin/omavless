@@ -26,11 +26,16 @@ expected_unit_sha=753c11ee3f6bbfb9f259097f6455ba9fb5d185045d94c6f6f2c937b496bca6
 [[ $(systemctl show "$unit" -p LoadState --value 2>/dev/null || true) == not-found ]] || exit 2
 
 owned=0
+start_attempted=0
 cleanup() {
     if [[ $owned == 1 ]]; then
         # Only the exact symlink exclusively created by this runner is removed.
-        systemctl stop "$unit" >/dev/null 2>&1 || true
-        systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+        # Do not send even a stop request before effective-unit validation:
+        # a rejected drop-in could propagate it to an unrelated unit.
+        if [[ $start_attempted == 1 ]]; then
+            systemctl stop "$unit" >/dev/null 2>&1 || true
+            systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+        fi
         if [[ -L $linked_unit && $(readlink "$linked_unit") == "$source_unit" ]]; then
             unlink "$linked_unit" || true
         fi
@@ -56,6 +61,7 @@ for property in DropInPaths Wants BindsTo PartOf Upholds OnFailure OnSuccess \
     ExecCondition ExecStartPre ExecStartPost ExecReload ExecStop ExecStopPost; do
     [[ -z $(systemctl show "$unit" -p "$property" --value) ]] || exit 2
 done
+start_attempted=1
 systemctl start "$unit"
 
 # A successful systemctl start may precede the short-lived probe's exit.
