@@ -189,6 +189,10 @@ records five warm starts per candidate and a 10,006-row expansion under
 preregistered *research* bounds. All those VM bounds passed, but the sample
 does not measure first-frame latency, frame pacing, cold install, ARM64 or a
 real daemon/client workload, and does not select a production GUI toolkit.
+The same exact binaries also rendered from local assets in separate
+network-isolated VM launches with fresh home/cache directories; this covers
+ordinary warm-binary offline startup only, not clean offline installation or
+package/update/remove behavior.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)

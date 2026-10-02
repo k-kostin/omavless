@@ -84,3 +84,20 @@ but are not a steady-state subscription memory budget. No screen-reader,
 real provider, VPN, backend IPC, cold install, frame pacing, ARM64 or
 production integration was tested. Neither prototype is ready to replace
 the QML frontend on the strength of this sampling alone.
+
+## Follow-up: ordinary launch without network
+
+Each exact candidate above was also launched separately under the VM's
+`bubblewrap --unshare-net` network namespace, with a fresh temporary `HOME`
+and `XDG_CACHE_HOME`. The trial process had a different network namespace
+inode from the VM session; inside the namespace only loopback existed and
+there was no IPv4 route. Both candidates rendered their normal synthetic
+connected screen from their local binary/app files. The two trial windows
+were stopped, and only their isolated temporary cache directories (about
+2.2 MiB of Mesa shader cache each) were removed.
+
+This checks a *warm binary's offline launch*, not a clean installation or
+proof that the Shell host never tries network access in every code path.
+The whole-filesystem bind left system and pre-existing non-HOME caches
+available, and neither candidate had external app dependencies. A clean
+machine package/update/remove trial is still NOT RUN.
