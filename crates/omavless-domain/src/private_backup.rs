@@ -7,13 +7,13 @@
 use crate::backup_payload_candidate::{
     HEADER_BYTES as INNER_HEADER_BYTES, MAX_PAYLOAD_BYTES, decode, encode,
 };
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Block, Params, Version};
 use chacha20poly1305::{
     KeyInit, XChaCha20Poly1305, XNonce,
     aead::{Aead, Payload},
 };
 use serde_json::Value;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAGIC: &[u8; 8] = b"OVBKUP01";
 const SALT_BYTES: usize = 16;
@@ -113,10 +113,36 @@ fn passphrase_allowed(passphrase: &[u8]) -> bool {
 fn derive_key(passphrase: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, BackupError> {
     let params = Params::new(ARGON2_MEMORY_KIB, ARGON2_ITERATIONS, ARGON2_LANES, Some(32))
         .map_err(|_| BackupError::Unavailable)?;
+    // Argon2's allocating convenience method drops an ordinary Vec<Block>.
+    // Its zeroize feature alone does not clear that memory-hard workspace.
+    let mut workspace = Zeroizing::new(vec![Block::default(); params.block_count()]);
+    derive_with_workspace(
+        &Argon2::new(Algorithm::Argon2id, Version::V0x13, params),
+        passphrase,
+        salt,
+        &mut workspace,
+    )
+}
+
+fn derive_with_workspace(
+    argon: &Argon2<'_>,
+    passphrase: &[u8],
+    salt: &[u8],
+    workspace: &mut Zeroizing<Vec<Block>>,
+) -> Result<Zeroizing<[u8; 32]>, BackupError> {
     let mut key = Zeroizing::new([0_u8; 32]);
-    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(passphrase, salt, key.as_mut())
-        .map_err(|_| BackupError::Unavailable)?;
+    let result = argon.hash_password_into_with_memory(
+        passphrase,
+        salt,
+        key.as_mut(),
+        workspace.as_mut_slice(),
+    );
+    // Clear before returning on either normal result; owning Zeroizing also
+    // covers unwinding. It cannot run after SIGKILL, abort or process death.
+    for block in workspace.iter_mut() {
+        block.zeroize();
+    }
+    result.map_err(|_| BackupError::Unavailable)?;
     Ok(key)
 }
 
@@ -233,6 +259,38 @@ mod tests {
     const PASSPHRASE: &[u8] = b"synthetic passphrase only";
     const STORE: &[u8] = br#"{"version":3,"profiles":[],"subscriptions":[],"activeId":"","lastId":"","routingPreset":"roscomvpn-default","customRules":[],"rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},"startupConfigured":true,"onboardingComplete":false}"#;
     const TEMPLATE: &[u8] = include_bytes!("../../../templates/default.yaml");
+
+    #[test]
+    fn caller_owned_kdf_workspace_is_cleared_on_success_and_failure() {
+        let params =
+            Params::new(ARGON2_MEMORY_KIB, ARGON2_ITERATIONS, ARGON2_LANES, Some(32)).unwrap();
+        let count = params.block_count();
+        let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        let mut workspace = Zeroizing::new(vec![Block::default(); count]);
+        for valid in [true, false] {
+            // Seed every word: even early refusal must clear prior material.
+            for block in workspace.iter_mut() {
+                block.as_mut().fill(0xa5a5_a5a5_a5a5_a5a5);
+            }
+            let salt: &[u8] = if valid { &[7; SALT_BYTES] } else { b"short" };
+            let result = derive_with_workspace(&argon, PASSPHRASE, salt, &mut workspace);
+            if valid {
+                assert!(result.is_ok());
+            } else {
+                assert_eq!(result.err(), Some(BackupError::Unavailable));
+            }
+            assert_eq!(workspace.len(), count);
+            assert!(
+                workspace
+                    .iter()
+                    .all(|block| block.as_ref().iter().all(|word| *word == 0))
+            );
+        }
+        // Compile-time guarantee for the owning unwind/drop path; do not read
+        // freed allocator memory to pretend to test process-death cleanup.
+        fn clears_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        clears_on_drop::<Zeroizing<Vec<Block>>>();
+    }
 
     #[test]
     fn independent_libargon2_libsodium_envelope_vector() {

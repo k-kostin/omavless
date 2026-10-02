@@ -240,6 +240,28 @@ private destination publication, disconnected restore admission, durable
 multi-file recovery or installed acceptance. No backup or restore feature is
 available to users.
 
+### Inactive KDF workspace lifetime hardening
+
+The caller now owns Argon2's fixed 64-MiB workspace in
+`Zeroizing<Vec<argon2::Block>>` and uses `hash_password_into_with_memory`.
+The pinned Argon2 0.5.3 `zeroize` feature supplies block erasure and clears
+selected internal intermediates; enabling that feature alone would not erase
+the ordinary vector used by its allocating convenience method. Every initialized
+workspace block is explicitly erased before either normal success or error
+return, with the owning guard additionally covering unwinding. The key remains
+separately zeroizing. Fixed parameters, envelope bytes, independent cross-library
+vector and public errors are unchanged.
+
+A synthetic test seeds the complete workspace and checks every word after
+successful derivation and an invalid-salt KDF failure, while the independent
+envelope vector and wrong-passphrase test remain unchanged. This is not a claim
+that destructors run after SIGKILL, abort or OOM, nor a guarantee covering swap,
+core dumps, registers or every internal cryptographic temporary. The caller's
+passphrase and allocated private-store/JSON copies remain separate memory-lifetime
+review obligations. Versioned template portability, frozen format compatibility,
+bounded concurrent KDF admission and private input UX still gate product
+activation; this hardening introduces no product caller or new authority.
+
 ## Inactive fixed-member source snapshot
 
 The runtime's internal `backup_source_candidate` compiles in normal Rust builds
