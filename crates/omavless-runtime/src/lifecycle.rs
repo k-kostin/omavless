@@ -692,7 +692,7 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
         admission
             .recheck()
             .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
-        let desired = self.read()?;
+        let desired = admission.desired(&self.paths, self.uid)?;
         let observed = self.observe_or_manual(&desired)?;
         let action = reconcile(&desired, observed);
         admission

@@ -9,6 +9,35 @@ pub(crate) enum StartupAdmission<'a, 'b> {
     HistoricalOff(&'a mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'b>),
 }
 impl StartupAdmission<'_, '_> {
+    pub(crate) fn desired(
+        &mut self,
+        paths: &crate::desired::DesiredPaths,
+        uid: u32,
+    ) -> Result<crate::desired::DesiredState, crate::desired::DesiredError> {
+        match self {
+            Self::Ordinary(_) => crate::desired::read_desired(paths, uid),
+            #[cfg(test)]
+            Self::HistoricalOff(_) => {
+                self.recheck()
+                    .map_err(|_| crate::desired::DesiredError::UnsafeStateDirectory)?;
+                crate::desired::read_desired_snapshot(paths, uid)
+            }
+        }
+    }
+    pub(crate) fn marker(
+        &mut self,
+        paths: &CutoverPaths,
+        uid: u32,
+    ) -> Result<crate::cutover::OwnershipMarker, ()> {
+        match self {
+            Self::Ordinary(_) => crate::cutover::read_marker(paths, uid).map_err(|_| ()),
+            #[cfg(test)]
+            Self::HistoricalOff(_) => {
+                self.recheck()?;
+                crate::cutover::read_marker_existing(paths, uid).map_err(|_| ())
+            }
+        }
+    }
     pub(crate) fn ordinary() -> Self {
         Self::Ordinary(PhantomData)
     }

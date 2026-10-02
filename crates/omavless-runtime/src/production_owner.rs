@@ -338,7 +338,8 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         ),
     ) -> Result<Self, ProductionOwnerError> {
         let (lock, admission) = startup;
-        let marker = read_marker(&cutover_paths, uid)
+        let marker = admission
+            .marker(&cutover_paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
         if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
@@ -755,7 +756,7 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let paths =
             CutoverPaths::current(uid).map_err(|_| ProductionOwnerError::HostUnavailable)?;
-        let lock = MigrationLock::acquire(&paths, uid).map_err(lock_error)?;
+        let lock = MigrationLock::acquire_existing(&paths, uid).map_err(lock_error)?;
         let marker = read_marker_existing(&paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
@@ -776,7 +777,7 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let evidence = retained
             .research(proof, || {
-                crate::desired::read_desired(&desired_paths, uid).is_ok_and(|desired| {
+                crate::desired::read_desired_snapshot(&desired_paths, uid).is_ok_and(|desired| {
                     !desired.connected
                         && host.fresh_observation(&desired).is_ok_and(|o| {
                             !o.owned_core_running

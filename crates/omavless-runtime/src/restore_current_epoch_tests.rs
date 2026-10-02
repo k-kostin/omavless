@@ -5,7 +5,10 @@ use crate::login_activation::epoch_candidate::CurrentEpochProof;
 use crate::restore_successor_publication_candidate::tests::Fixture;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
+use std::os::unix::{
+    fs::{MetadataExt, PermissionsExt},
+    process::ExitStatusExt,
+};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{
@@ -95,6 +98,7 @@ fn real_owner_off_research_reconciles_nochange_and_keeps_normal_entry_fenced() {
         let retained = witness(&f, &lock)
             .research(proof(&f, &lock), || true)
             .unwrap();
+        let state_before = fs::metadata(&f.paths.state_directory).unwrap();
         let owner = crate::production_owner::ProductionNativeOwner::initialize_off_research(
             OffHost {
                 before_observe: Box::new(|| {}),
@@ -110,6 +114,12 @@ fn real_owner_off_research_reconciles_nochange_and_keeps_normal_entry_fenced() {
         assert_eq!(owner.actual(), crate::lifecycle::ActualState::Disconnected);
         assert!(!owner.startup_outcome().changed);
         assert!(!owner.login_ready());
+        let state_after = fs::metadata(&f.paths.state_directory).unwrap();
+        assert_eq!(
+            (state_before.ctime(), state_before.ctime_nsec()),
+            (state_after.ctime(), state_after.ctime_nsec()),
+            "research must not chmod the state directory"
+        );
         assert_eq!(fs::read(&store).unwrap(), before);
         assert!(same_member(&identity, &fs::metadata(&store).unwrap()));
         assert!(
@@ -275,6 +285,36 @@ fn real_owner_off_research_stale_manager_and_receipt_refuse_before_observation()
         assert_eq!(fs::read(&store).unwrap(), before);
         assert_fenced(&f, &lock);
     }
+}
+
+#[test]
+fn real_owner_off_research_missing_original_state_never_recreates_directory() {
+    let (f, lock) = prepared(true);
+    ordinary_edit(&f);
+    receipt(&f);
+    let retained = witness(&f, &lock)
+        .research(proof(&f, &lock), || true)
+        .unwrap();
+    let original = f.paths.state_directory.clone();
+    fs::rename(&original, original.with_extension("retained-original")).unwrap();
+    assert!(
+        crate::production_owner::ProductionNativeOwner::initialize_off_research(
+            OffHost {
+                before_observe: Box::new(|| panic!("missing source must not observe")),
+                occupied: false
+            },
+            desired_paths(&f),
+            &f.config.join(LIVE[0]),
+            f.paths.clone(),
+            f.uid,
+            (&lock, retained)
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::symlink_metadata(&original).unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
 }
 
 fn receipt(f: &Fixture) {

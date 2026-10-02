@@ -309,7 +309,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
             )
             .map_err(|_| ConnectionTransactionError::ManualRecoveryRequired)?;
         let lifecycle = self.lifecycle.reconcile_startup_admitted(admission);
-        let desired = match read_desired(&self.desired_paths, self.uid) {
+        let desired = match admission.desired(&self.desired_paths, self.uid) {
             Ok(desired) => desired,
             Err(_) => {
                 // Reconciliation may already have changed owned host state.

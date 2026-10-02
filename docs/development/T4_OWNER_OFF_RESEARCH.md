@@ -28,16 +28,22 @@ which is why this wrapper intentionally provides no such access.
 
 The test-only fixed-path `current_off_research` composes existing System epoch
 proof and native host observations, without normal `cleanup_probe_orphans`.
+It requires the existing lock; research marker reads use `read_marker_existing`
+after proof review rather than the ordinary potentially creating reader.
+Likewise lifecycle/transaction desired reads use the existing read-only snapshot
+reader in research; normal reads retain their existing prepare/chmod behavior.
+Success tests assert the original state-directory ctime is unchanged.
 It is compiled, not executed against installed state in this checkpoint. Fixture
 tests enter the same initialization seam with private real files and an explicit
 host whose effect methods panic; no primary-host or VM operations occur.
 
 ## Evidence and limits
 
-Four focused real-caller tests cover Commit/Abort no-change success with complete
+Five focused real-caller tests cover Commit/Abort no-change success with complete
 snapshot/member preservation, normal initialization still refusing afterward,
 owned-stop refusal, late receipt loss, stale manager, missing receipt, redirected
-desired path and an otherwise valid live store needing pointer repair. Earlier
+desired path, an otherwise valid live store needing pointer repair, and a renamed
+original state directory that must not be recreated on refusal. Earlier
 epoch/resync crash tests remain in the full suite; this slice adds no new write
 or durable protocol. Exact full-suite results belong to the PR/head report.
 
