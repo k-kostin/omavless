@@ -235,112 +235,223 @@ fn prepare_state_directory(path: &Path, uid: u32) -> Result<(), CutoverError> {
 
 pub struct MigrationLock {
     path: PathBuf,
+    runtime_path: PathBuf,
+    runtime: File,
+    runtime_identity: fs::Metadata,
     uid: u32,
     _file: Flock<File>,
 }
 
+#[derive(Clone, Copy)]
+enum LockOpen {
+    Existing,
+    CreateIfAbsent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LockCheckpoint {
+    RuntimeOpened,
+    PriorChecked,
+    Opened,
+    Locked,
+    PermissionsSet,
+    Validated,
+}
+
+fn safe_runtime(metadata: &fs::Metadata, uid: u32) -> bool {
+    metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o7777 == 0o700
+}
+
+fn safe_lock(metadata: &fs::Metadata, uid: u32) -> bool {
+    metadata.is_file()
+        && metadata.uid() == uid
+        && metadata.mode() & 0o7777 == 0o600
+        && metadata.nlink() == 1
+}
+
+fn same_inode(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+fn acceptable_open_lock(metadata: &fs::Metadata, uid: u32, mode: LockOpen) -> bool {
+    safe_lock(metadata, uid)
+        || matches!(mode, LockOpen::CreateIfAbsent)
+            && metadata.is_file()
+            && metadata.uid() == uid
+            && metadata.nlink() == 1
+            && metadata.mode() & 0o7777 == 0o644
+}
+
 impl MigrationLock {
-    /// Recovery inspection must serialize with writers without creating or
-    /// repairing the operation lock. A missing/unsafe lock is not an empty
-    /// transaction; it is a refusal to classify the state as recoverable.
+    /// Read-only acquisition: never create or repair a missing/unsafe lock.
     pub(crate) fn acquire_existing(paths: &CutoverPaths, uid: u32) -> Result<Self, CutoverError> {
-        let runtime = fs::symlink_metadata(&paths.runtime_base)
-            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
-        if runtime.file_type().is_symlink()
-            || !runtime.is_dir()
-            || runtime.uid() != uid
-            || runtime.permissions().mode() & 0o077 != 0
-        {
-            return Err(CutoverError::UnsafeRuntimeDirectory);
-        }
-        let prior = fs::symlink_metadata(&paths.operation_lock)
-            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
-        let safe = |metadata: &fs::Metadata| {
-            metadata.is_file()
-                && !metadata.file_type().is_symlink()
-                && metadata.uid() == uid
-                && metadata.mode() & 0o7777 == 0o600
-                && metadata.nlink() == 1
-        };
-        if !safe(&prior) {
-            return Err(CutoverError::UnsafeRuntimeDirectory);
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(OFlag::O_NOFOLLOW.bits())
-            .open(&paths.operation_lock)
-            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
-        let file =
-            Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_file, error)| {
-                if matches!(error, Errno::EAGAIN) {
-                    CutoverError::Busy
-                } else {
-                    CutoverError::Io
-                }
-            })?;
-        let current = fs::symlink_metadata(&paths.operation_lock)
-            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
-        let held = file.metadata().map_err(|_| CutoverError::Io)?;
-        if !safe(&current)
-            || !safe(&held)
-            || prior.dev() != current.dev()
-            || prior.ino() != current.ino()
-            || current.dev() != held.dev()
-            || current.ino() != held.ino()
-        {
-            return Err(CutoverError::UnsafeRuntimeDirectory);
-        }
-        Ok(Self {
-            path: paths.operation_lock.clone(),
-            uid,
-            _file: file,
-        })
+        Self::acquire_checked(paths, uid, LockOpen::Existing, |_| true)
     }
 
     pub fn acquire(paths: &CutoverPaths, uid: u32) -> Result<Self, CutoverError> {
-        let metadata = fs::symlink_metadata(&paths.runtime_base)
-            .map_err(|_| CutoverError::UnsafeRuntimeDirectory)?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_dir()
-            || metadata.uid() != uid
-            || metadata.permissions().mode() & 0o077 != 0
-        {
-            return Err(CutoverError::UnsafeRuntimeDirectory);
-        }
-        if let Ok(metadata) = fs::symlink_metadata(&paths.operation_lock)
-            && (metadata.file_type().is_symlink() || !metadata.is_file() || metadata.uid() != uid)
-        {
-            return Err(CutoverError::UnsafeRuntimeDirectory);
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .custom_flags(OFlag::O_NOFOLLOW.bits())
-            .open(&paths.operation_lock)
-            .map_err(|_| CutoverError::Io)?;
-        let file =
-            Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_file, error)| {
-                if matches!(error, Errno::EAGAIN) {
-                    CutoverError::Busy
-                } else {
-                    CutoverError::Io
-                }
-            })?;
-        fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o600))
-            .map_err(|_| CutoverError::Io)?;
-        Ok(Self {
-            path: paths.operation_lock.clone(),
-            uid,
-            _file: file,
-        })
+        Self::acquire_checked(paths, uid, LockOpen::CreateIfAbsent, |_| true)
     }
 
+    fn acquire_checked(
+        paths: &CutoverPaths,
+        uid: u32,
+        mode: LockOpen,
+        mut hook: impl FnMut(LockCheckpoint) -> bool,
+    ) -> Result<Self, CutoverError> {
+        use nix::fcntl::openat;
+        use nix::sys::stat::Mode;
+        let refuse = CutoverError::UnsafeRuntimeDirectory;
+        let name = format!("omavless.{uid}.lock");
+        if paths.operation_lock != paths.runtime_base.join(&name) {
+            return Err(refuse);
+        }
+        let before = fs::symlink_metadata(&paths.runtime_base).map_err(|_| refuse)?;
+        if !safe_runtime(&before, uid) {
+            return Err(refuse);
+        }
+        let runtime = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC).bits())
+            .open(&paths.runtime_base)
+            .map_err(|_| refuse)?;
+        let runtime_identity = runtime.metadata().map_err(|_| refuse)?;
+        if !safe_runtime(&runtime_identity, uid)
+            || !same_inode(&before, &runtime_identity)
+            || !hook(LockCheckpoint::RuntimeOpened)
+        {
+            return Err(refuse);
+        }
+
+        // Absence is only ENOENT. An intervening creator gets EEXIST: never
+        // reopen or repair that new inode as an implicit retry.
+        let prior = match fs::symlink_metadata(&paths.operation_lock) {
+            Ok(value) if acceptable_open_lock(&value, uid, mode) => Some(value),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && matches!(mode, LockOpen::CreateIfAbsent) =>
+            {
+                None
+            }
+            _ => return Err(refuse),
+        };
+        if !hook(LockCheckpoint::PriorChecked) {
+            return Err(refuse);
+        }
+        let mut flags = OFlag::O_RDWR | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK;
+        if prior.is_none() {
+            flags |= OFlag::O_CREAT | OFlag::O_EXCL;
+        }
+        let file = File::from(
+            openat(
+                &runtime,
+                Path::new(&name),
+                flags,
+                Mode::from_bits_truncate(0o600),
+            )
+            .map_err(|_| refuse)?,
+        );
+        let opened = file.metadata().map_err(|_| refuse)?;
+        if !opened.is_file()
+            || opened.uid() != uid
+            || opened.nlink() != 1
+            || prior.as_ref().is_some_and(|p| !same_inode(p, &opened))
+            || !hook(LockCheckpoint::Opened)
+        {
+            return Err(refuse);
+        }
+        let file = Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_, error)| {
+            if matches!(error, Errno::EAGAIN) {
+                CutoverError::Busy
+            } else {
+                CutoverError::Io
+            }
+        })?;
+        if !hook(LockCheckpoint::Locked) {
+            return Err(refuse);
+        }
+        let current = fs::symlink_metadata(&paths.operation_lock).map_err(|_| refuse)?;
+        let held = file.metadata().map_err(|_| refuse)?;
+        let current_runtime = fs::symlink_metadata(&paths.runtime_base).map_err(|_| refuse)?;
+        if !current.is_file()
+            || current.uid() != uid
+            || current.nlink() != 1
+            || !held.is_file()
+            || held.uid() != uid
+            || held.nlink() != 1
+            || !same_inode(&opened, &current)
+            || !same_inode(&opened, &held)
+            || current.mode() != opened.mode()
+            || held.mode() != opened.mode()
+            || !safe_runtime(&current_runtime, uid)
+            || !same_inode(&runtime_identity, &current_runtime)
+            || prior.is_some()
+                && (!acceptable_open_lock(&current, uid, mode)
+                    || !acceptable_open_lock(&held, uid, mode))
+        {
+            return Err(refuse);
+        }
+        // Restrictive umask may remove owner bits on our new inode. Frozen
+        // Python used open('a'), so normal acquisition also tightens exactly
+        // legacy 0644 only after exclusive flock and the full identity check.
+        // Existing-only inspection never repairs, and no pathname is chmodded.
+        if prior.is_none() || opened.mode() & 0o7777 == 0o644 {
+            file.set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|_| CutoverError::Io)?;
+        }
+        if !hook(LockCheckpoint::PermissionsSet) {
+            return Err(refuse);
+        }
+        let lease = Self {
+            path: paths.operation_lock.clone(),
+            runtime_path: paths.runtime_base.clone(),
+            runtime,
+            runtime_identity,
+            uid,
+            _file: file,
+        };
+        if !lease.authorizes(paths, uid)
+            || !hook(LockCheckpoint::Validated)
+            || !lease.authorizes(paths, uid)
+        {
+            return Err(refuse);
+        }
+        Ok(lease)
+    }
+
+    /// A held flock on an unlinked inode does not serialize a replacement
+    /// pathname. Every authority check must prove the fixed name still reaches
+    /// this held inode within the originally pinned runtime directory.
+    /// This is a point-in-time check, not an atomic filesystem/effect boundary:
+    /// callers retain their per-step gates and trust cooperating same-UID
+    /// processes not to unlink/replace the lease between a check and an effect.
+    /// Arbitrary hostile same-UID replacement-and-restoration is not prevented.
     #[must_use]
     pub(crate) fn authorizes(&self, paths: &CutoverPaths, uid: u32) -> bool {
-        self.uid == uid && self.path == paths.operation_lock
+        if self.uid != uid
+            || self.path != paths.operation_lock
+            || self.runtime_path != paths.runtime_base
+        {
+            return false;
+        }
+        let Ok(runtime) = fs::symlink_metadata(&self.runtime_path) else {
+            return false;
+        };
+        let Ok(held_runtime) = self.runtime.metadata() else {
+            return false;
+        };
+        let Ok(current) = fs::symlink_metadata(&self.path) else {
+            return false;
+        };
+        let Ok(held) = self._file.metadata() else {
+            return false;
+        };
+        safe_runtime(&runtime, uid)
+            && safe_runtime(&held_runtime, uid)
+            && same_inode(&self.runtime_identity, &runtime)
+            && same_inode(&self.runtime_identity, &held_runtime)
+            && safe_lock(&current, uid)
+            && safe_lock(&held, uid)
+            && same_inode(&current, &held)
     }
 }
 
@@ -401,7 +512,7 @@ pub fn write_marker_locked(
     expected: &OwnershipMarker,
     next: &OwnershipMarker,
 ) -> Result<(), CutoverError> {
-    if lock.uid != uid || lock.path != paths.operation_lock {
+    if !lock.authorizes(paths, uid) {
         return Err(CutoverError::InvalidTransition);
     }
     let current = read_marker(paths, uid)?;
@@ -420,6 +531,9 @@ pub fn write_marker_locked(
     payload.push(b'\n');
     if payload.len() as u64 > MAX_OWNERSHIP_MARKER_BYTES {
         return Err(CutoverError::MarkerTooLarge);
+    }
+    if !lock.authorizes(paths, uid) {
+        return Err(CutoverError::InvalidTransition);
     }
     atomic_replace_private(&paths.ownership_marker, &payload, uid).map_err(Into::into)
 }
@@ -773,6 +887,264 @@ mod tests {
                 .is_symlink()
         );
         fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn migration_lease_rejects_unlinked_and_replaced_lock_even_with_second_flock() {
+        for existing in [false, true] {
+            let (runtime, state, uid) = roots("stale-lease");
+            let paths = CutoverPaths::below(&runtime, &state, uid);
+            let initial = MigrationLock::acquire(&paths, uid).unwrap();
+            drop(initial);
+            let old = if existing {
+                MigrationLock::acquire_existing(&paths, uid)
+            } else {
+                MigrationLock::acquire(&paths, uid)
+            }
+            .unwrap();
+            assert!(old.authorizes(&paths, uid));
+            fs::remove_file(&paths.operation_lock).unwrap();
+            assert!(!old.authorizes(&paths, uid));
+            let new = MigrationLock::acquire(&paths, uid).unwrap();
+            assert!(!old.authorizes(&paths, uid));
+            assert!(new.authorizes(&paths, uid));
+            assert!(matches!(
+                MigrationLock::acquire_existing(&paths, uid),
+                Err(CutoverError::Busy)
+            ));
+            drop(old);
+            drop(new);
+            fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_lease_stale_holder_cannot_write_owner_marker() {
+        let (runtime, state, uid) = roots("lease-marker");
+        let paths = CutoverPaths::below(&runtime, &state, uid);
+        let old = MigrationLock::acquire(&paths, uid).unwrap();
+        let legacy = read_marker(&paths, uid).unwrap();
+        let preparing = legacy.successor(OwnershipPhase::CutoverPreparing).unwrap();
+        fs::remove_file(&paths.operation_lock).unwrap();
+        let new = MigrationLock::acquire(&paths, uid).unwrap();
+        assert_eq!(
+            write_marker_locked(&paths, uid, &old, &legacy, &preparing),
+            Err(CutoverError::InvalidTransition)
+        );
+        assert!(!paths.ownership_marker.exists());
+        write_marker_locked(&paths, uid, &new, &legacy, &preparing).unwrap();
+        let committed = preparing.successor(OwnershipPhase::Rust).unwrap();
+        let before = fs::read(&paths.ownership_marker).unwrap();
+        assert_eq!(
+            write_marker_locked(&paths, uid, &old, &preparing, &committed),
+            Err(CutoverError::InvalidTransition)
+        );
+        assert_eq!(fs::read(&paths.ownership_marker).unwrap(), before);
+        write_marker_locked(&paths, uid, &new, &preparing, &committed).unwrap();
+        drop(old);
+        drop(new);
+        fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn migration_lease_constructor_substitution_never_repairs_foreign_path() {
+        for existing in [false, true] {
+            for point in [
+                LockCheckpoint::PriorChecked,
+                LockCheckpoint::Opened,
+                LockCheckpoint::Locked,
+                LockCheckpoint::PermissionsSet,
+                LockCheckpoint::Validated,
+            ] {
+                for foreign_mode in [0o600, 0o644] {
+                    let (runtime, state, uid) = roots("lease-substitution");
+                    let paths = CutoverPaths::below(&runtime, &state, uid);
+                    if existing {
+                        drop(MigrationLock::acquire(&paths, uid).unwrap());
+                    }
+                    let result = MigrationLock::acquire_checked(
+                        &paths,
+                        uid,
+                        if existing {
+                            LockOpen::Existing
+                        } else {
+                            LockOpen::CreateIfAbsent
+                        },
+                        |checkpoint| {
+                            if checkpoint == point {
+                                let replacement = runtime.join("replacement");
+                                fs::write(&replacement, b"foreign synthetic lock").unwrap();
+                                fs::set_permissions(
+                                    &replacement,
+                                    fs::Permissions::from_mode(foreign_mode),
+                                )
+                                .unwrap();
+                                fs::rename(replacement, &paths.operation_lock).unwrap();
+                            }
+                            true
+                        },
+                    );
+                    assert!(result.is_err(), "existing={existing} {point:?}");
+                    assert_eq!(
+                        fs::read(&paths.operation_lock).unwrap(),
+                        b"foreign synthetic lock"
+                    );
+                    assert_eq!(
+                        fs::metadata(&paths.operation_lock).unwrap().mode() & 0o7777,
+                        foreign_mode
+                    );
+                    fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn migration_lease_parent_replacement_and_unsafe_names_refuse() {
+        for existing in [false, true] {
+            for point in [
+                LockCheckpoint::RuntimeOpened,
+                LockCheckpoint::Opened,
+                LockCheckpoint::Validated,
+            ] {
+                let (runtime, state, uid) = roots("lease-parent");
+                let paths = CutoverPaths::below(&runtime, &state, uid);
+                if existing {
+                    drop(MigrationLock::acquire(&paths, uid).unwrap());
+                }
+                let result = MigrationLock::acquire_checked(
+                    &paths,
+                    uid,
+                    if existing {
+                        LockOpen::Existing
+                    } else {
+                        LockOpen::CreateIfAbsent
+                    },
+                    |checkpoint| {
+                        if checkpoint == point {
+                            let saved = runtime.with_extension("saved");
+                            fs::rename(&runtime, &saved).unwrap();
+                            fs::create_dir(&runtime).unwrap();
+                            fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700))
+                                .unwrap();
+                            if saved.join(format!("omavless.{uid}.lock")).exists() {
+                                fs::rename(
+                                    saved.join(format!("omavless.{uid}.lock")),
+                                    &paths.operation_lock,
+                                )
+                                .unwrap();
+                            }
+                        }
+                        true
+                    },
+                );
+                assert!(result.is_err(), "existing={existing} {point:?}");
+                fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+            }
+        }
+        for kind in ["mode", "hardlink", "symlink", "fifo"] {
+            let (runtime, state, uid) = roots("lease-unsafe");
+            let paths = CutoverPaths::below(&runtime, &state, uid);
+            drop(MigrationLock::acquire(&paths, uid).unwrap());
+            match kind {
+                "mode" => {
+                    fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o666))
+                        .unwrap()
+                }
+                "hardlink" => fs::hard_link(&paths.operation_lock, runtime.join("alias")).unwrap(),
+                "symlink" => {
+                    fs::remove_file(&paths.operation_lock).unwrap();
+                    symlink("missing", &paths.operation_lock).unwrap();
+                }
+                _ => {
+                    fs::remove_file(&paths.operation_lock).unwrap();
+                    nix::unistd::mkfifo(
+                        &paths.operation_lock,
+                        nix::sys::stat::Mode::from_bits_truncate(0o600),
+                    )
+                    .unwrap();
+                }
+            }
+            assert!(MigrationLock::acquire(&paths, uid).is_err(), "{kind}");
+            assert!(
+                MigrationLock::acquire_existing(&paths, uid).is_err(),
+                "{kind}"
+            );
+            fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_lease_legacy_0644_busy_is_not_repaired_until_exclusive_flock() {
+        let (runtime, state, uid) = roots("lease-legacy-mode");
+        let paths = CutoverPaths::below(&runtime, &state, uid);
+        let old = MigrationLock::acquire(&paths, uid).unwrap();
+        fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o644)).unwrap();
+        let identity = fs::metadata(&paths.operation_lock).unwrap();
+        assert!(matches!(
+            MigrationLock::acquire(&paths, uid),
+            Err(CutoverError::Busy)
+        ));
+        assert_eq!(
+            fs::metadata(&paths.operation_lock).unwrap().mode() & 0o7777,
+            0o644
+        );
+        assert!(MigrationLock::acquire_existing(&paths, uid).is_err());
+        drop(old);
+        let migrated = MigrationLock::acquire(&paths, uid).unwrap();
+        assert!(migrated.authorizes(&paths, uid));
+        let now = fs::metadata(&paths.operation_lock).unwrap();
+        assert!(same_inode(&identity, &now));
+        assert_eq!(now.mode() & 0o7777, 0o600);
+        drop(migrated);
+        drop(MigrationLock::acquire_existing(&paths, uid).unwrap());
+        fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn migration_lease_authority_rechecks_parent_mode_links_and_foreign_binding() {
+        for kind in [
+            "parent",
+            "mode",
+            "hardlink",
+            "symlink",
+            "foreign-path",
+            "foreign-uid",
+        ] {
+            let (runtime, state, uid) = roots("lease-authority");
+            let paths = CutoverPaths::below(&runtime, &state, uid);
+            let held = MigrationLock::acquire(&paths, uid).unwrap();
+            let mut check_paths = paths.clone();
+            let mut check_uid = uid;
+            match kind {
+                "parent" => {
+                    let saved = runtime.with_extension("saved");
+                    fs::rename(&runtime, &saved).unwrap();
+                    fs::create_dir(&runtime).unwrap();
+                    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+                    fs::rename(
+                        saved.join(format!("omavless.{uid}.lock")),
+                        &paths.operation_lock,
+                    )
+                    .unwrap();
+                }
+                "mode" => {
+                    fs::set_permissions(&paths.operation_lock, fs::Permissions::from_mode(0o644))
+                        .unwrap()
+                }
+                "hardlink" => fs::hard_link(&paths.operation_lock, runtime.join("alias")).unwrap(),
+                "symlink" => {
+                    let saved = runtime.join("saved-lock");
+                    fs::rename(&paths.operation_lock, &saved).unwrap();
+                    symlink(&saved, &paths.operation_lock).unwrap();
+                }
+                "foreign-path" => check_paths.operation_lock = runtime.join("other.lock"),
+                _ => check_uid = uid.wrapping_add(1),
+            }
+            assert!(!held.authorizes(&check_paths, check_uid), "{kind}");
+            drop(held);
+            fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+        }
     }
 
     #[test]

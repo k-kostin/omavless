@@ -1124,3 +1124,28 @@ normal startup's existing refusal is unchanged. Post-handoff output/completion
 evidence is not reconstructed predecessor lineage or durability proof. Abort
 still requires re-supply of the authenticated new archive. This adapter has no
 product caller and grants no mutation, login or IPC capability.
+
+## Shared migration lease identity hardening
+
+Both shared-lock constructors pin the private runtime directory and exact held
+file inode. Existing unsafe locks refuse. Normal
+creation uses exclusive create on a safely absent fixed name; an intervening
+creator causes refusal, not an unchecked reopen. Permission adjustment applies
+only to the newly created descriptor or the exact legacy 0644 inode after
+exclusive flock and full identity recheck, never a pathname. Frozen Python used
+plain append-open, so preserving Busy and tightening that bounded legacy case
+is necessary; other non-0600 modes refuse. Existing-only recovery
+review still cannot create a lock. The legacy-compatible lock name and nonblocking
+busy behavior are unchanged.
+
+Every `authorizes` call rechecks the pinned runtime directory and the held/current
+lock inode, owner, private mode and single link. An old process holding an
+unlinked lock cannot authorize merely because a replacement uses the same name.
+Ownership-marker writes use this same check before reading/preparing state and
+again immediately before replacement; they cannot bypass it with uid/path alone.
+This is a point-in-time stale-lease check, not atomic exclusion of arbitrary
+same-UID filesystem attacks between a check and an effect. Existing per-effect
+gates remain necessary; cooperating processes must not delete or replace an
+active lease. Missing `/run` recovery construction, reboot/epoch provenance and
+normal-owner startup remain separate gates. Package units specify private runtime
+directories and `UMask=0077`; the accepted runtime parent is exactly mode 0700.
