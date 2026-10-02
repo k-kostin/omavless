@@ -696,9 +696,9 @@ tears, wrong phase, reused transaction ID and owner/desired/stage/old-pair
 drift. The fixed `restore-successor.pending` name is already included in the
 ordinary existence fence, before any writer creates it.
 
-This is **not** a second-restore implementation. There is no on-disk handoff
-publisher, predecessor-unlink operation, restart continuation or product
-admission. A later writer must durably publish the handoff while the previous
+This is **not** a second-restore implementation. The following inactive slice
+only publishes the handoff; there is no predecessor-unlink operation, restart
+continuation or product admission. A writer must durably publish the handoff while the previous
 completion record remains, then stage and commit the matching intent before
 it can even consider retiring the predecessor record. During coexistence it
 must use a separate verifier; the existing completion-only inspector correctly
@@ -708,3 +708,40 @@ also repeat `matches_verified_plan()` against authenticated staged members and
 current owner/desired evidence. Before activation, the v1 formats need frozen
 test vectors and an installed downgrade policy; an older runtime that does not
 recognize the new fence name must not start over it.
+
+## Inactive successor publication only
+
+The internal successor publisher accepts an authenticated `OpenedBackup`, not
+raw new member bytes. It derives the startup-disabled store before binding its
+planned stage and distinct transaction. Under the existing migration lease it
+requires the exact Rust owner/Off desired snapshot, a caller-supplied fresh
+idle/empty-owned-host gate, unchanged private live pair and predecessor inode,
+and completion-only state. The older finalization receipt, all stage/journal
+and replacement-slot names, any successor entry and unrelated routing-preset
+transaction must be absent. The existing completion inspector alone is not
+sufficient: it intentionally allows the old receipt to coexist.
+
+It synchronizes the retained predecessor, exclusively creates the fixed
+`restore-successor.pending` private file, writes the existing v1 record,
+synchronizes file and state directory, then reopens and rechecks the same inode
+and all bindings after the last gate callback. It returns only
+`PublishedStillFenced`. Any uncertainty after creation leaves the name in place;
+existing, partial and unsafe entries are never overwritten, repaired or deleted.
+The prior closure is never removed. Synthetic fixtures exercise authentication,
+startup-Off derivation, completion-only refusal, unsafe file types, owner/desired/
+live/directory drift, partial writes, inode replacement and subprocess termination
+after create, write, file sync, directory sync and reopen.
+
+This slice does not stage the successor pair, publish a decision intent, change
+live or desired bytes, offer retry/restart continuation, or register any product
+caller. All crash states remain startup/mutation fences; a valid handoff is not
+recovery authority. The inactive read-only startup review also refuses any
+successor entry, including one appearing during its final host observation;
+it cannot classify the older closure as completed over this new transaction.
+Later staging/intent publication requires its own coexistence
+verifier and full authenticated planned-member comparison. Predecessor retirement,
+recovery-owner authority, installed synthetic crash/boot testing, frozen format
+vectors, downgrade handling and normal-owner admission remain separate gates.
+Checksums and inode checks detect tears/replacement, not hostile same-user access
+or arbitrary power-loss outcomes. No host VPN, private profile or service is used
+by these synthetic tests.
