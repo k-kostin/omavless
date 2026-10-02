@@ -1196,3 +1196,41 @@ and inodes, late closure substitution under the same flock, and actual SIGKILL
 after lock creation followed by existing-only re-entry. A fixture recreates its
 own volatile directory to model missing runtime state; that is not an actual
 reboot, user-manager epoch proof, old-process-death proof or power-loss acceptance.
+
+## Inactive private recovery request candidate
+
+This internal reader consumes one already-connected Unix stream; it does not
+create a socket, listen, register an IPC method or execute recovery. Kernel
+`SO_PEERCRED` must identify the current UID (with real/effective UID equal and
+a positive peer PID) before even the fixed header is read. No caller-supplied
+path, UID, operation override or timeout is accepted. Same-UID socket-pair tests
+exercise the kernel check; cross-UID kernel acceptance remains an installed gate.
+
+The candidate header is exactly 20 bytes: `OVRREQ01`, one fixed resync-completed-
+still-fenced opcode, three zero reserved bytes, a little-endian u32 ciphertext
+length, a little-endian u16 passphrase length, and two zero reserved bytes. Only
+nonempty ciphertext bounded by the envelope maximum and 12–1024 passphrase bytes
+are accepted. Checked total length is validated before proportional allocation.
+Ciphertext then passphrase occupy one owning zeroizing buffer; accessors borrow
+without String/JSON copies. The request has no Debug, Clone or production encoder.
+Malformed header and trailing-byte buffers are also zeroizing. This covers normal
+drop/unwind, not SIGKILL, allocator/kernel copies or physical memory forensics.
+
+One three-second absolute deadline spans header, body and exact EOF; a sender
+must half-close after its frame. Truncation, trailing data, unsupported opcode,
+version/reserved fields, oversize, peer mismatch and I/O failure yield one fixed
+non-private refusal. No archive open/KDF is called. Accepted framing is not
+archive authentication, semantic validation, lease ownership, C1 proof or
+permission to resynchronize. The future operation boundary must separately hold
+one continuous verified lease and exact C1/owner/Off/host evidence while
+authenticating an archive with payload matching the intended NEW pair.
+
+This slice depends on the reviewed caller-owned zeroizing Argon2 workspace, but
+does not connect that primitive to an operation. No general IPC protocol, CLI,
+QML property, argv, environment variable, log, normal startup or mutation is
+changed. Listener lifecycle, endpoint permissions, connection/resource limits,
+private UI secret transport, admission integration and installed synthetic clean
+restore remain separate review/acceptance gates.
+In particular a future listener must bound concurrent readers/KDF work and
+aggregate allocated memory before per-connection allocation; one maximum-size
+frame per connection is not a global resource limit.
