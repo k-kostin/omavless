@@ -381,15 +381,35 @@ fn raw_rules_child() {
         total: 0,
         datagrams: 0,
     };
+    let generation = session
+        .exchange(GET_GEN, 198, deadline)
+        .unwrap()
+        .generation()
+        .unwrap();
+    let batch = [
+        emergency_wire::message(
+            16,
+            1,
+            199,
+            &[
+                emergency_wire::nf(0, 10),
+                attribute(1, &generation.to_be_bytes()),
+            ]
+            .concat(),
+        ),
+        ack.request.clone(),
+        emergency_wire::message(17, 1, 201, &emergency_wire::nf(0, 10)),
+    ]
+    .concat();
     assert_eq!(
         sendto(
             session.socket.as_raw_fd(),
-            &ack.request,
+            &batch,
             &NetlinkAddr::new(0, 0),
             MsgFlags::MSG_DONTWAIT
         )
         .unwrap(),
-        ack.request.len()
+        batch.len()
     );
     while !ack.ack {
         session.check(deadline).unwrap();
@@ -409,7 +429,7 @@ fn raw_rules_child() {
             Err(_) => panic!("isolated extra-rule acknowledgement"),
         }
     }
-    session.next_sequence = 201;
+    session.next_sequence = 202;
     assert_eq!(
         session.inspect_rules(),
         Ok(LocalRuleInventory::OtherUntrusted)
