@@ -132,6 +132,45 @@ substituted real namespace descriptors remain untested launch scenarios.
 `DescriptorMatch` cannot be converted into `NamespaceObservation::Canonical`
 or an `EffectPort`. K1 stays unavailable.
 
+### Actual fixed-unit VM launch, still not production authority
+
+The separate `tests/support/openfile_unit_vm_fixture.sh` runner closes one
+specific gap above: it loads the exact non-installed fixture unit through a
+temporary `/run/systemd/system/` symlink in the dedicated KVM VM, starts it,
+waits for the fixed descriptor probe to exit successfully, then unloads the
+unit. The runner requires root, an explicit VM-only opt-in, a previously absent
+unit, a private root-owned staging directory, fixed probe/unit modes and the
+exact unit-file SHA256. Before start, it also rejects effective systemd
+drop-ins, extra dependencies or commands and an unexpected start executable;
+verifying the fragment alone would not exclude these additions. It removes
+only its own fixed symlink and leaves the
+probe staging files for the caller to remove. It does not enable a service or
+run the normal VPN/runtime, nftables, TUN or routing. An interrupted run
+requires verifying the exact unit and link state before a retry; it must not
+overwrite a pre-existing unit.
+
+The 2026-10-02 VM test of this candidate used systemd
+`261.2-1-arch` and Omarchy kernel `7.2.5-3-omarchy`. The probe SHA256 was
+`36fe02473a34c4ef094bb6bdf2d7b15df30c60aeda745eab8ac81b99067fc728`;
+the unit SHA256 was
+`753c11ee3f6bbfb9f259097f6455ba9fb5d185045d94c6f6f2c937b496bca6ab`.
+The revised runner SHA256 was
+`317f17132240a9a76ea7bd9fb4860f07287db5a4eea8378198463a8b0e505eb7`.
+The fixed unit returned `K1_OPENFILE_UNIT_VM_PASS`; afterward `LoadState` was
+`not-found` and the `/run` unit link, private staging directory and user
+transfer directory were absent. A second run with the benign, unit-specific
+`omavless-k1-openfile-negative-dropin.conf` returned exit 2 before the probe
+started. Before this run, the manager's effective `DropInPaths` and
+`PropagatesStopTo=omavless-k1-openfile-stop-recipient.service` were read back
+with the fixture unit loaded; the latter was not merely present in a source
+file. Its target was a synthetic one-shot unit created for this test, and that
+unit remained active after refusal, proving the cleanup sent no
+stop request. Both temporary units and the drop-in were then removed, and both
+`LoadState` values became `not-found`. This is evidence of that exact temporary unit
+launch, not of an installed root NetGuard service or K1 readiness. Kernel
+namespace type/ID, socket namespace cookie, canonical system-manager
+provenance, switch-and-return prevention and nft ownership remain open.
+
 ### Production prerequisites
 
 Reviewed safe `NS_GET_NSTYPE`, `NS_GET_ID`, `SO_NETNS_COOKIE` wrappers; trusted

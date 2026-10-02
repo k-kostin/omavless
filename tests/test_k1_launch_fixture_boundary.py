@@ -1,5 +1,6 @@
 """Offline launch/package boundary checks; never load or start a system unit."""
 import configparser
+import hashlib
 from pathlib import Path
 import stat
 import subprocess
@@ -9,9 +10,42 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = (ROOT / "crates/omavless-netguard/tests/fixtures/"
            "omavless-k1-openfile-fixture.service")
+UNIT_RUNNER = (ROOT / "crates/omavless-netguard/tests/support/"
+               "openfile_unit_vm_fixture.sh")
+NEGATIVE_DROPIN = (ROOT / "crates/omavless-netguard/tests/fixtures/"
+                   "omavless-k1-openfile-negative-dropin.conf")
 
 
 class K1LaunchFixtureBoundaryTests(unittest.TestCase):
+    def test_vm_unit_runner_pins_fixed_unit_and_has_valid_shell_syntax(self):
+        source = UNIT_RUNNER.read_text()
+        digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+        self.assertIn(f"expected_unit_sha={digest}", source)
+        self.assertIn("systemd-detect-virt --vm", source)
+        self.assertIn("OMAVLESS_K1_OPENFILE_UNIT_VM", source)
+        self.assertIn("-p DropInPaths", source)
+        self.assertIn("-p Requires", source)
+        self.assertIn("-p ExecStart", source)
+        self.assertIn("for property in DropInPaths Wants", source)
+        self.assertIn("start_attempted=0", source)
+        self.assertIn("if [[ $start_attempted == 1 ]]", source)
+        self.assertLess(source.index("start_attempted=1"),
+                        source.index('systemctl start "$unit"'))
+        self.assertIn("ln -s \"$source_unit\" \"$linked_unit\"", source)
+        self.assertIn("unlink \"$linked_unit\"", source)
+        self.assertNotIn("nft ", source)
+        self.assertEqual(subprocess.run(["bash", "-n", str(UNIT_RUNNER)],
+                                        capture_output=True, text=True).returncode, 0)
+
+    def test_negative_dropin_targets_only_the_owned_synthetic_stop_recipient(self):
+        self.assertEqual(NEGATIVE_DROPIN.read_text(),
+                         "# SPDX-License-Identifier: MIT\n"
+                         "# Benign VM-only negative case: runner must refuse any effective drop-in.\n"
+                         "[Unit]\n"
+                         "PropagatesStopTo=omavless-k1-openfile-stop-recipient.service\n"
+                         "[Service]\n"
+                         "Environment=OMAVLESS_K1_UNEXPECTED_DROPIN=1\n")
+
     def test_fixture_has_only_fixed_bounded_descriptor_inspection(self):
         # Exact allowlist: duplicate/unknown directives, activation sections,
         # extra commands, production paths and capability grants need review.
