@@ -5,6 +5,9 @@ use super::*;
 use crate::restore_disposition_ticket_model::{TICKET_BYTES, TICKET_MEMBER, Ticket};
 use std::io::Write;
 
+#[path = "restore_disposition_resync_candidate.rs"]
+pub(crate) mod recovery;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PublicationResult {
     PublishedStillFenced,
@@ -321,7 +324,7 @@ mod tests {
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
     use std::{fs, path::PathBuf, process::Command};
 
-    fn ready(commit: bool) -> (Fixture, MigrationLock) {
+    pub(super) fn ready(commit: bool) -> (Fixture, MigrationLock) {
         let (f, lock) = super::super::tests::ready(commit);
         handoff_retirement::retire_successor_handoff(
             &f.config,
@@ -352,7 +355,7 @@ mod tests {
     ) -> Result<PublicationResult, ExecutionError> {
         publish(&f.config, &f.paths, f.uid, 2, lock, second(), || true, hook)
     }
-    fn snapshots(f: &Fixture) -> Vec<(PathBuf, Vec<u8>, Metadata)> {
+    pub(super) fn snapshots(f: &Fixture) -> Vec<(PathBuf, Vec<u8>, Metadata)> {
         [
             f.paths.state_directory.join(CLOSURE_MEMBER),
             f.config.join(LIVE[0]),
@@ -366,7 +369,7 @@ mod tests {
         })
         .collect()
     }
-    fn unchanged(before: &[(PathBuf, Vec<u8>, Metadata)]) {
+    pub(super) fn unchanged(before: &[(PathBuf, Vec<u8>, Metadata)]) {
         for (path, bytes, metadata) in before {
             assert_eq!(&fs::read(path).unwrap(), bytes);
             assert!(same_member(metadata, &fs::metadata(path).unwrap()));

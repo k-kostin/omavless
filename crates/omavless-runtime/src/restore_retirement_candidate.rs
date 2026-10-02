@@ -577,6 +577,9 @@ pub(crate) fn publish_retirement_receipt(
     {
         return Err(RetirementError::ManualRecovery);
     }
+    if crate::restore_disposition_ticket_model::pending_at(&paths.state_directory) {
+        return Err(RetirementError::ManualRecovery);
+    }
     Ok(outcome)
 }
 
@@ -745,6 +748,40 @@ mod tests {
             inspect_retirement_receipt(&fixture.config, &fixture.paths, fixture.uid, 2, &lock)
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn disposition_resync_followup_receipt_final_callback_ticket_refuses_success() {
+        let fixture = Fixture::new();
+        let lock = fixture.lock();
+        fixture.commit(&lock);
+        let ticket = fixture
+            .paths
+            .state_directory
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let receipt = fixture.paths.state_directory.join(RECEIPT_MEMBER);
+        assert_eq!(
+            publish_retirement_receipt(
+                &fixture.config,
+                &fixture.paths,
+                fixture.uid,
+                2,
+                &lock,
+                || {
+                    if receipt.exists() {
+                        Fixture::member(&ticket, b"late");
+                    }
+                    true
+                }
+            ),
+            Err(RetirementError::ManualRecovery)
+        );
+        assert!(receipt.exists());
+        assert!(ticket.exists());
+        assert_eq!(fs::read(fixture.config.join(LIVE[0])).unwrap(), NEW_STORE);
+        assert!(crate::pending_private_transaction::pending_at(
+            &fixture.paths.state_directory
+        ));
     }
 
     #[test]

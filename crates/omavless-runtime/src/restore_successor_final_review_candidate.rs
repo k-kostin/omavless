@@ -117,8 +117,8 @@ fn observe_final_sources(
     new_template: &[u8],
 ) -> Result<FinalSnapshot, ExecutionError> {
     // Low-level source observation only. Public readers separately require
-    // ticket absence. The sole create-only child binds its own exact ticket
-    // descriptor around this observation; no ticket-exists admission exists.
+    // ticket absence. The create-only child and its resync child bind an exact
+    // ticket descriptor around this observation; no ticket-exists admission exists.
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
