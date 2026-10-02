@@ -28,9 +28,41 @@ pub struct CandidatePrivateStore {
     document: Value,
     state: NormalizedStoreState,
     credentials: Vec<CandidateCredential>,
+    custom_rules: Vec<CustomRule>,
 }
 
 impl CandidatePrivateStore {
+    /// Private, pure configuration preparation for an already-v4 candidate.
+    /// This performs no core/version admission, host operation or publication.
+    /// The installed owner deliberately does not call this method.
+    pub fn prepare_private_config_mode(
+        &self,
+        id: &str,
+        template: &str,
+        controller_socket: &str,
+        mode: &str,
+    ) -> Result<CandidateRuntimeConfig, PrivateStoreError> {
+        let index = self
+            .state
+            .profiles
+            .iter()
+            .position(|profile| profile.id == id)
+            .ok_or(PrivateStoreError::ProfileNotFound)?;
+        let name = required_string(object(&self.document["profiles"][index])?, "name")?;
+        let rendered = match &self.credentials[index] {
+            CandidateCredential::Uri(profile) => profile.render_mihomo_proxy(name, None),
+            CandidateCredential::WireGuard(profile) => profile.render_mihomo_proxy(name, None),
+        };
+        let template = template_with_mode(template, mode).map_err(PrivateStoreError::Routing)?;
+        let config =
+            assemble_runtime_config(&template, &rendered, controller_socket, &self.custom_rules)
+                .map_err(PrivateStoreError::Config)?;
+        Ok(CandidateRuntimeConfig {
+            config,
+            name: name.to_owned(),
+        })
+    }
+
     fn credential_fields(
         input: CandidateProfileInput,
     ) -> Result<Map<String, Value>, PrivateStoreError> {
@@ -406,6 +438,112 @@ impl CandidatePrivateStore {
     }
 }
 
+/// Credential-bearing configuration and readiness name. Deliberate private
+/// access only; never a public projection, replay outcome or client payload.
+pub struct CandidateRuntimeConfig {
+    config: String,
+    name: String,
+}
+
+impl CandidateRuntimeConfig {
+    pub fn expose_private_bytes(&self) -> &[u8] {
+        self.config.as_bytes()
+    }
+    pub fn private_name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl fmt::Debug for CandidateRuntimeConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("CandidateRuntimeConfig([REDACTED])")
+    }
+}
+
+/// Prepare pointers from a caller-verified lifecycle fact, not from this store.
+/// Strictly already-v4 and pure: no owner/lifecycle admission or file writes.
+pub fn apply_candidate_compatibility_pointer_update(
+    input: &str,
+    target: CompatibilityPointerTarget,
+) -> Result<PrivatePointerMutation, PrivateStoreError> {
+    let mut store = parse_candidate_private_store(input)?;
+    let root = object(&store.document)?;
+    let old_active = optional_string(root, "activeId", "")?.to_owned();
+    let old_last = optional_string(root, "lastId", "")?.to_owned();
+    let old_enabled = root
+        .get("startup")
+        .and_then(|value| value.get("enabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let old_pinned = root
+        .get("startup")
+        .and_then(|value| value.get("profileId"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let mut pruned = 0;
+    match target {
+        CompatibilityPointerTarget::Connected { profile_id } => {
+            if !store
+                .state
+                .profiles
+                .iter()
+                .any(|profile| profile.id == profile_id)
+            {
+                return Err(PrivateStoreError::ProfileNotFound);
+            }
+            store.state.active_id = profile_id.clone();
+            store.state.last_id = profile_id;
+        }
+        CompatibilityPointerTarget::Disconnected { prune_missing } => {
+            store.state.active_id.clear();
+            if prune_missing {
+                let rows = store.document["profiles"]
+                    .as_array_mut()
+                    .ok_or(PrivateStoreError::InvalidShape)?;
+                let before = rows.len();
+                rows.retain(|row| {
+                    row.get("wireguard").is_some()
+                        || !row.get("missing").and_then(Value::as_bool).unwrap_or(false)
+                });
+                pruned = before - rows.len();
+                let contains = |id: &str| rows.iter().any(|row| row["id"] == id);
+                if !contains(&store.state.last_id) {
+                    store.state.last_id = rows
+                        .first()
+                        .and_then(|row| row["id"].as_str())
+                        .unwrap_or("")
+                        .to_owned();
+                }
+                if !store.state.startup.profile_id.is_empty()
+                    && !contains(&store.state.startup.profile_id)
+                {
+                    store.state.startup.enabled = false;
+                    store.state.startup.profile_id.clear();
+                }
+                if store.state.startup.target == "last" && rows.is_empty() {
+                    store.state.startup.enabled = false;
+                }
+            }
+        }
+    }
+    let changed = old_active != store.state.active_id
+        || old_last != store.state.last_id
+        || old_enabled != store.state.startup.enabled
+        || old_pinned != store.state.startup.profile_id
+        || pruned != 0;
+    let payload = if changed {
+        store.into_private_bytes()?
+    } else {
+        input.as_bytes().to_vec()
+    };
+    Ok(PrivatePointerMutation {
+        payload,
+        changed,
+        pruned,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateExportFormat {
     Uri,
@@ -567,6 +705,7 @@ pub fn parse_candidate_private_store(
     }
 
     let mut custom_rule_pairs = BTreeSet::new();
+    let mut custom_rules = Vec::new();
     if let Some(value) = root.get("customRules") {
         let values = value.as_array().ok_or(PrivateStoreError::InvalidShape)?;
         if values.len() > crate::routing::MAX_CUSTOM_RULES {
@@ -586,6 +725,7 @@ pub fn parse_candidate_private_store(
             if rule.value != rule_value || !custom_rule_pairs.insert((kind, rule_value)) {
                 return Err(PrivateStoreError::InvalidShape);
             }
+            custom_rules.push(rule);
         }
     }
     let _ = optional_u64(root, "rulesUpdatedAt", 0)?;
@@ -638,5 +778,6 @@ pub fn parse_candidate_private_store(
         document: value,
         state,
         credentials,
+        custom_rules,
     })
 }

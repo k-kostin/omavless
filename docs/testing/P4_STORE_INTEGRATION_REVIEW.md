@@ -292,3 +292,42 @@ private source bytes remain original: restoration authority cannot be proved.
 
 The earlier scoped security scan remains incomplete and is not acceptance
 evidence. This implementation follow-up neither seals nor retries that scan.
+
+### Pure candidate runtime and pointer preparation
+
+The next domain-only prerequisite adds deliberately private configuration
+preparation to an already-v4 complete candidate. It selects the actual typed
+URI/WG credential by validated ID, reuses its existing renderer, and composes
+the existing mode/template/controller/config assembler with the same validated
+custom rules. The opaque result exposes private bytes and readiness name only
+through explicit accessors; Debug is redacted and there is no implicit
+serialization, formatting or cloning. No normal parser, runtime/host interface,
+installed constructor, capability or replay payload changes.
+
+Candidate pointer preparation accepts the existing lifecycle-fact target but
+does not establish that fact itself. Connected sets active and last to one
+member of the complete mixed graph. Disconnected clears active; optional
+pruning removes only missing URI rows, preserving every native row and all
+unrelated subscription/profile/extension data. Removed last/pinned references
+are repaired against the complete remaining order, including native-only and
+empty stores. Semantic no-ops retain exact original bytes. Changed outputs
+reload through the strict complete candidate validator; v1-v3 and corrupt or
+duplicate-key sources refuse. Legacy URI pointer semantics are compared
+independently, without copying its unrelated default-field serialization.
+
+Synthetic tests cover the four URI families and WG/AWG 1/2/3/3.1 in all three
+runtime modes, legacy URI config parity, native export/reimport equivalence,
+rules/controller/template bounds, complete graph and extension preservation,
+stale/missing/pruned pointers, no-op bytes and canary-safe Debug/errors. Config
+preparation is not core/version admission or proof that a rendered flavor works
+on any installed binary. Precise minimum-core/flavor admission must reject
+before quiescing an active target in the future lifecycle bridge.
+
+Remaining concrete bridge work includes candidate-aware host preparation and
+startup snapshot validation, connection-pointer publication, reuse of shared
+active profile compensation, and canonical restart/adoption proof. Production
+v4 admission, explicit migration/old-reader rollback, bounded authenticated
+editor/export framing, every subscription/backup consumer, core/privacy review
+and matching-server mode/lifecycle/IP-family acceptance remain unclosed.
+The separately scoped [loopback smoke design](P4_WG_LOOPBACK_SMOKE_PLAN.md)
+is a proposal only; no VM, namespace, peer or core is launched by this slice.

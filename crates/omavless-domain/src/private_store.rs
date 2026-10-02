@@ -30,7 +30,8 @@ mod startup;
 mod support;
 pub use candidate::{
     CandidateExportFormat, CandidatePrivateStore, CandidateProfileEditInput,
-    CandidateProfileExport, CandidateProfileInput, migrate_legacy_store_candidate,
+    CandidateProfileExport, CandidateProfileInput, CandidateRuntimeConfig,
+    apply_candidate_compatibility_pointer_update, migrate_legacy_store_candidate,
     parse_candidate_private_store,
 };
 pub use startup::{StartupPreferences, apply_startup_preferences};
