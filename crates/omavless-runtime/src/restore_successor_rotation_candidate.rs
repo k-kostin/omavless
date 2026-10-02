@@ -8,6 +8,8 @@ use crate::restore_retirement_candidate::{RECEIPT_BYTES, RetirementReceipt};
 
 #[path = "restore_successor_cleanup_candidate.rs"]
 pub(crate) mod cleanup;
+#[path = "restore_successor_exchange_candidate.rs"]
+pub(crate) mod exchange;
 #[path = "restore_successor_next_candidate.rs"]
 pub(crate) mod publication;
 

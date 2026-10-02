@@ -949,3 +949,31 @@ sync, including repeated process loss during restart resynchronization. Even Don
 remains `CleanedStillFenced`: canonical exchange, displaced closure retirement,
 last handoff/receipt closure, third-cycle and normal-owner/UI/installed acceptance
 are separate gates. No product caller or startup permission is introduced.
+
+## Inactive atomic canonical-closure exchange
+
+Only authenticated NextPublished with cleanup Done, no slots and the exact six
+retained closure/handoff/receipt/live files admits exchange. Every file and both
+private directories are resynchronized and rechecked first. A safe typed Linux
+GNU `renameat2(RENAME_EXCHANGE)` exchanges only the two fixed closure names.
+Unsupported platforms, syscalls or filesystems refuse; no sequential rename
+fallback exists. Both names remain, with C1 canonical and C0 displaced in next.
+
+The writer pins both file descriptors before the syscall. A successful exchange
+may change their ctime, so only this owned transition uses a local comparator
+that preserves device/inode, ownership, mode, link count, length and mtime.
+Post-syscall metadata is captured before any callback and installed into the
+expected swapped snapshot. All subsequent two-pass checks use ordinary strict
+member comparison, including ctime, and exact swapped bytes. The global member
+comparison is unchanged. State-directory synchronization and final readback are
+required before `ExchangedStillFenced`.
+
+Any failure after the syscall is ambiguous and never triggers a rollback. A
+separate authenticated Exchanged resynchronizer verifies that exact phase and
+only syncs/rechecks surviving evidence; it never calls exchange. Re-entering the
+Exchange operation on Exchanged refuses, preventing accidental swap-back after
+process loss. Commit and abort fixtures cover real post-syscall/directory-sync
+crashes and repeated loss during resynchronization. Neither closure, handoff nor
+receipt is removed. Displaced-record retirement and explicit post-handoff/last
+receipt phases remain separate gates; the old completion reader alone does not
+prove handoff/next absence or normal-owner readiness.
