@@ -5,6 +5,8 @@ the independently developed per-field journal/quiescence stack (#406 at
 `472b1992b1a7a09150860808b29814e6b78e1742`) with independent desktop readback
 (#424 at `1316e2ed1ec211e9c68dd1ac0f22b497549c15f8`). It adds no production
 host constructor, write helper, CLI/IPC capability, package or UI control.
+The [private exact-source evidence](../testing/S1_FIXED_WRITER_PRIVATE_2026-10-03.md)
+records the executed fixture gates and their limits.
 
 ## Executor contract
 
