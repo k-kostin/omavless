@@ -745,3 +745,24 @@ vectors, downgrade handling and normal-owner admission remain separate gates.
 Checksums and inode checks detect tears/replacement, not hostile same-user access
 or arbitrary power-loss outcomes. No host VPN, private profile or service is used
 by these synthetic tests.
+
+## Inactive authenticated successor coexistence review
+
+A separate read-only candidate now reviews exactly the coexistence state with
+the prior closure, complete successor handoff, complete four-member stage and
+matching nonterminal intent. It requires the authenticated backup again,
+derives the startup-disabled pair, compares all actual staged bytes, binds the
+old pair to both the predecessor and current live files, and checks current
+Rust ownership and exact Off desired bytes under the migration lease. It refuses
+terminal/finalization/routing markers and replacement slots rather than treating
+them as an execution or cleanup phase. Two complete observations surrounding a
+fresh host/idle gate must agree on all record/stage/live inode identities and
+private directory bindings. The older completion-only inspector stays unchanged.
+
+The only result is `MatchingIntentStillFenced`, a point-in-time observation,
+not a durability claim, durable token, predecessor-retirement permission or
+ordinary startup admission. Missing/torn stages and intents, mismatched archives,
+changed bindings and same-byte inode substitutions refuse. Synthetic subprocess
+termination after handoff, partial stage, complete stage, partial intent and
+complete intent exercises the restart-observable states without invoking an
+executor. No production writer, automatic recovery or fence deletion is added.
