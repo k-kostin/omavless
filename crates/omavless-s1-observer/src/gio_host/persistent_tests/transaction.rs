@@ -17,6 +17,7 @@ const WRITER_PATH: &str = "/ca/desrt/dconf/Writer/user";
 const WRITER_IFACE: &str = "ca.desrt.dconf.Writer";
 
 pub(super) mod ordering;
+pub(super) mod staged;
 
 fn binding() -> Binding {
     Binding {
@@ -397,6 +398,10 @@ pub(super) fn crash_child(root: &Path, schemas: &[gio::SettingsSchema]) {
 }
 
 fn send_mode_then_exit(root: &Path) -> ! {
+    send_mode_value_then_exit(root, Some("manual".to_variant()));
+}
+
+fn send_mode_value_then_exit(root: &Path, value: Option<glib::Variant>) -> ! {
     let socket = gio::Socket::new(
         gio::SocketFamily::Unix,
         gio::SocketType::Stream,
@@ -413,8 +418,7 @@ fn send_mode_then_exit(root: &Path) -> ! {
     let connection = crate::local_bus::authenticate(&socket).unwrap();
     connection.set_exit_on_close(false);
     let owner = DconfHost::current_owner(&connection).unwrap();
-    let changes = BTreeMap::from([("/system/proxy/mode".to_owned(), Some("manual".to_variant()))])
-        .to_variant();
+    let changes = BTreeMap::from([("/system/proxy/mode".to_owned(), value)]).to_variant();
     assert_eq!(changes.type_().as_str(), "a{smv}");
     let outcome = connection.call_sync(
         Some(&owner),
