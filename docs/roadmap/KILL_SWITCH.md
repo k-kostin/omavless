@@ -486,6 +486,9 @@ WireGuard/AWG, arbitrary firewall configuration or a generic privileged IPC.
 The [2026-10-02 first-listener publication checkpoint](../testing/K1_FIRST_LISTENER_PUBLICATION_2026-10-02.md)
 records an inactive bind-before-group-access candidate. It is not a packaged
 helper or evidence that any kill switch is available.
+The [fixed Emergency reply transcript candidate](../development/K1_EMERGENCY_REPLY_TRANSCRIPT.md)
+adds bounded raw-byte parsing without a socket, effect, ownership proof or
+installed caller; it does not make K1 available.
 The [package-group identity follow-up](../testing/K1_PACKAGE_GROUP_IDENTITY_2026-10-02.md)
 checks a proposed fixed local group name before publishing access; package
 creation and real session membership are still separate gates.

@@ -15,6 +15,9 @@ const APPEND: u16 = 0x800;
 const TABLE: &[u8] = b"omavless_netguard\0";
 const CHAIN: &[u8] = b"output_guard\0";
 
+#[path = "emergency_reply.rs"]
+pub mod reply;
+
 /// Invalid/ambiguous input is refused before producing any bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidFence;
