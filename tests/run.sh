@@ -18,6 +18,7 @@ python3 -m unittest -v \
   "$here/test_installed_native_package.py" \
   "$here/test_installed_python_mask.py" \
   "$here/test_human_authorization.py" \
+  "$here/test_p4_wg_loopback_smoke.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_staged_native_unit_acceptance.py" \
   "$here/test_control_protocol_parity.py" \

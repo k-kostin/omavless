@@ -1,11 +1,23 @@
 # P4 synthetic WireGuard loopback smoke design
 
-Status: **design only; not installed, executed or accepted**. The owning
-domain-preparation Draft records the exact candidate/checks. This proposes one
+Status: **implemented; scoped standard-WG transport smoke passed**. The
+[exact evidence](P4_WG_LOOPBACK_SMOKE_2026-10-03.md) records artifact identities,
+preparation actions, repeated positive/negative results and cleanup. This is one
 standard-WG transport smoke on a newly authorized disposable VM, not product
 activation or Full/Routing/Direct, AWG, autoconnect or real-provider acceptance.
 The root owner must explicitly hand off that VM before any operation. Do not
 run this procedure on the physical PC or an existing private acceptance guest.
+
+For the implementation checkpoint, the owner explicitly transferred sole
+Omarchy Dev VM use and authorized its stock `wireguard-tools` installation and
+stock kernel module registration when preflight found them unavailable. This
+is an explicit scope amendment, not an implicit fallback. The existing guest's
+installed service/network state must remain preserved; only the peer fixture
+uses a disposable namespace. The original no-install/no-module-load refusal
+below remains the harness's behavior. Tool preparation is outside the harness
+and must be recorded as a guest-wide action, including package hooks; it is not
+part of an "all actions confined to namespace" claim. Do not unload potentially
+shared stock modules after the test.
 
 ## Preconditions and isolation
 
