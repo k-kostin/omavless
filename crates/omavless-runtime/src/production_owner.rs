@@ -137,6 +137,17 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         use crate::restore_retirement_candidate::inspect_retirement_receipt;
         use crate::restore_staging_candidate::classify_live_pair_bound;
 
+        // The publication-only handoff has no restart continuation yet. Even
+        // a valid predecessor must not mask this separate existence fence.
+        let successor_pending = || {
+            !matches!(
+                std::fs::symlink_metadata(cutover_paths.state_directory.join(
+                    crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                )),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound
+            )
+        };
+
         let lock = MigrationLock::acquire_existing(&cutover_paths, uid).map_err(lock_error)?;
         let marker = read_marker_existing(&cutover_paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
@@ -153,6 +164,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             .ok_or(ProductionOwnerError::ManualRecoveryRequired)?;
         if !crate::pending_private_transaction::pending_at(&cutover_paths.state_directory)
             || crate::routing_preset::pending_at(&cutover_paths.state_directory)
+            || successor_pending()
         {
             return Err(ProductionOwnerError::ManualRecoveryRequired);
         }
@@ -245,6 +257,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             || read_desired_snapshot(&desired_paths, uid).ok().as_ref() != Some(&desired)
             || !host.fresh_observation(&desired).is_ok_and(empty)
             || !crate::pending_private_transaction::pending_at(&cutover_paths.state_directory)
+            || successor_pending()
         {
             return Err(ProductionOwnerError::ManualRecoveryRequired);
         }
@@ -736,6 +749,7 @@ mod tests {
         lock_check: Option<(CutoverPaths, u32)>,
         lock_was_held: bool,
         observed_calls: Rc<Cell<usize>>,
+        successor_after_observe: Option<(PathBuf, usize)>,
     }
 
     impl FakeHost {
@@ -751,6 +765,11 @@ mod tests {
             _desired: &DesiredState,
         ) -> Result<crate::lifecycle::NativeLocalObservation, HostStepError> {
             self.called();
+            if let Some((path, count)) = &self.successor_after_observe
+                && self.calls == *count
+            {
+                fs::write(path, b"synthetic late successor").unwrap();
+            }
             Ok(self
                 .local_observation
                 .unwrap_or(crate::lifecycle::NativeLocalObservation {
@@ -875,6 +894,7 @@ mod tests {
                 lock_check: Some((self.cutover.clone(), self.uid)),
                 lock_was_held: false,
                 observed_calls: Rc::new(Cell::new(0)),
+                successor_after_observe: None,
             }
         }
 
@@ -1111,6 +1131,35 @@ mod tests {
             );
             assert_eq!(calls.get(), 2, "read-only host observations only");
             assert_eq!(fs::read(&fixture.store).unwrap(), before);
+            if phase == "completion" {
+                let successor = fixture
+                    .cutover
+                    .state_directory
+                    .join(crate::restore_successor_handoff_model::SUCCESSOR_MEMBER);
+                for late in [false, true] {
+                    let mut host = fixture.host();
+                    let calls = host.observed_calls.clone();
+                    if late {
+                        host.successor_after_observe = Some((successor.clone(), 2));
+                    } else {
+                        // Unsafe type still fences before any host observation.
+                        symlink("missing-synthetic", &successor).unwrap();
+                    }
+                    assert_eq!(
+                        ProductionNativeOwner::review_restore_startup(
+                            host,
+                            fixture.desired.clone(),
+                            &fixture.store,
+                            fixture.cutover.clone(),
+                            fixture.uid,
+                        ),
+                        Err(ProductionOwnerError::ManualRecoveryRequired),
+                    );
+                    assert_eq!(calls.get(), if late { 2 } else { 0 });
+                    assert_eq!(fs::read(&fixture.store).unwrap(), before);
+                    fs::remove_file(&successor).unwrap();
+                }
+            }
         }
     }
 
