@@ -1,5 +1,8 @@
 //! Inactive, read-only fixed-table metadata observation in the calling namespace.
 //! No ownership, policy verification, canonical-host identity or effect authority.
+#[path = "kernel_chain_observer.rs"]
+mod chain;
+pub use chain::LocalChainInventory;
 use nix::sys::socket::{
     AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, bind, getsockname,
     recvmsg, sendto, socket,
@@ -271,6 +274,7 @@ pub struct LocalReadSession {
     socket: OwnedFd,
     local: NetlinkAddr,
     next_sequence: u32,
+    poisoned: bool,
 }
 
 impl LocalReadSession {
@@ -293,6 +297,7 @@ impl LocalReadSession {
             socket,
             local,
             next_sequence: 1,
+            poisoned: false,
         };
         session.check(Instant::now() + Duration::from_secs(1))?;
         Ok(session)
@@ -300,7 +305,8 @@ impl LocalReadSession {
 
     fn check(&self, deadline: Instant) -> Result<()> {
         require(
-            Instant::now() < deadline
+            !self.poisoned
+                && Instant::now() < deadline
                 && namespace_identity(&self.namespace)? == self.identity
                 && namespace_identity(&namespace_file()?)? == self.identity,
         )?;
@@ -352,6 +358,14 @@ impl LocalReadSession {
     /// pass. Canonical-host provenance and socket-cookie binding remain
     /// unauthenticated; even an absent result cannot authorize creation.
     pub fn inspect(&mut self) -> Result<LocalTablePresence> {
+        let result = self.inspect_once();
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+
+    fn inspect_once(&mut self) -> Result<LocalTablePresence> {
         let deadline = Instant::now() + Duration::from_secs(1);
         self.check(deadline)?;
         let [before_seq, table_seq, after_seq] = self.sequences()?;
