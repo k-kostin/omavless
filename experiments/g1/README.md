@@ -10,6 +10,10 @@ The [dated VM result](../../docs/testing/G1_SYNTHETIC_TRIAL_2026-10-01.md)
 records what actually ran and what remains unverified. The
 [interaction follow-up](../../docs/testing/G1_INTERACTION_AUDIT_2026-10-01.md)
 records the later synthetic focus and transient-state review. The
+[bounded VM resource sample](../../docs/testing/G1_RESOURCE_SAMPLING_2026-10-02.md)
+records five warm-start measurements per candidate and a separate 10,006-row
+check. Its [measurement helper](tests/measure-vm.sh) refuses to run outside
+an explicitly selected VM and measures only the trial process it starts. The
 [G1 contract](../../docs/roadmap/GUI_RESEARCH.md) remains the decision authority.
 
 ## Reproduce

@@ -166,8 +166,7 @@ not establish real theme-file watching or direct Rust theme parity. A separate
 400-pixel Shell recapture corrected horizontal panel clipping. A later
 Shell-only 400×700 VM wheel test reached the complete Details panel after
 removing the wrapped row's viewport-height cap, while 1110-pixel two-column
-layout remained intact. Keyboard-only reachability and the wider G1a/platform
-matrix remain open.
+layout remained intact. The wider G1a/platform matrix remains open.
 The later Shell keyboard-list follow-up exercised focused row navigation,
 inspection and an EN/RU zero-match state in the x86_64 VM, including a
 10,006-row synthetic fixture. The following direct Rust trial exercised the
@@ -180,6 +179,20 @@ dark/light/malformed synthetic palette inputs in the x86_64 VM. A malformed
 input falls back to the complete standalone theme. English and Russian
 400×700 layouts retained scroll access to Details. This does not test real
 system-theme replacement or production packaging.
+Later direct Rust keyboard paging and a distinct Shell read-only Details page
+made the narrow synthetic Details view reachable without a pointer; the two
+mechanisms are not equivalent. The direct candidate's native accessibility
+roles were probed in the VM, while the pinned Shell host's accessibility tree
+remains incomplete. Full screen-reader acceptance is still open. The
+[bounded VM resource sample](../testing/G1_RESOURCE_SAMPLING_2026-10-02.md)
+records five warm starts per candidate and a 10,006-row expansion under
+preregistered *research* bounds. All those VM bounds passed, but the sample
+does not measure first-frame latency, frame pacing, cold install, ARM64 or a
+real daemon/client workload, and does not select a production GUI toolkit.
+The same exact binaries also rendered from local assets in separate
+network-isolated VM launches with fresh home/cache directories; this covers
+ordinary warm-binary offline startup only, not clean offline installation or
+package/update/remove behavior.
 
 These are future scoped checkpoints, not implementation authorization or
 completed gates. Use the existing [acceptance policy](ACCEPTANCE_ENVIRONMENTS.md)
