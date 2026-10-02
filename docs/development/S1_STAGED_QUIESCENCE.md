@@ -8,6 +8,8 @@ Shared backend/runtime contracts, existing v2/v3 interpretation and the frozen
 Python archive are unchanged.
 The [exact-source private evidence](../testing/S1_STAGED_PRIVATE_2026-10-03.md)
 records the completed declared gates separately from unrun installed admission.
+The separate [Hyprland default-consumer probe](../testing/S1_GIO_HYPRLAND_2026-10-03.md)
+records a demonstrated applicability limitation, not a passing transaction gate.
 
 ## Fixed staged plan
 
@@ -104,3 +106,14 @@ Installed AUTH-writer/session/lifetime provenance, target continuity, a reviewed
 installed write/drain API, owner/revision-bound loopback/TUN-disabled listener,
 new-app UWSM consumption and conflict escape remain unclosed. Cross-owner crash
 takeover, filesystem power-loss, ARM64/VM and NixOS acceptance are unrun, not PASS.
+
+The installed default GIO resolver under the observed Hyprland desktop selectors
+was `GLibproxyResolver`. Despite fresh persisted Manual readback with a synthetic
+loopback HTTP endpoint and empty bypass, it selected only `direct://`; the private
+probe refused before any application request and restored the absent overrides.
+Installed GNOME schemas/modules alone therefore cannot admit this desktop surface
+for that default consumer. A later applicability gate must establish the actual
+supported consumer/session semantics and real listener traffic without resolver
+forcing or desktop spoofing. A separately reviewed environment/application strategy
+would need its own provenance and restoration gates; the staged desktop journal
+does not authorize it or acquire new consumer acceptance from this probe.
