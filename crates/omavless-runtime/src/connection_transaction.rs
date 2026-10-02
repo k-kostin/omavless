@@ -303,6 +303,7 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         admission
             .transaction(
                 &self.cutover_paths,
+                &self.desired_paths,
                 self.uid,
                 lock,
                 self.independently_blocked(),

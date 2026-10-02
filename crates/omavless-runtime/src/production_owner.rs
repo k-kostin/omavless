@@ -1087,6 +1087,51 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_separate_desired_directory_pending_blocks_before_host() {
+        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let other = fixture.root.join("other-state");
+        fs::create_dir(&other).unwrap();
+        fs::set_permissions(&other, fs::Permissions::from_mode(0o700)).unwrap();
+        let desired = DesiredPaths::below(&other);
+        write_desired(&desired, fixture.uid, &DesiredState::default()).unwrap();
+        fs::write(
+            desired.directory.join("restore-disposition.complete"),
+            b"pending",
+        )
+        .unwrap();
+        assert!(crate::pending_private_transaction::pending(&desired));
+        assert!(!crate::pending_private_transaction::pending_at(
+            &fixture.cutover.state_directory
+        ));
+        let mut host = fixture.host();
+        host.observation = OwnedObservation {
+            service_active: true,
+            controller_ready: true,
+            core_count: 1,
+            tun_count: 1,
+            active_profile_matches: true,
+        };
+        let calls = host.observed_calls.clone();
+        let before = fs::read(&fixture.store).unwrap();
+        assert!(
+            ProductionNativeOwner::initialize(
+                host,
+                desired,
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid
+            )
+            .is_err()
+        );
+        assert_eq!(
+            calls.get(),
+            0,
+            "pending desired directory must prevent observation and every host effect"
+        );
+        assert_eq!(fs::read(&fixture.store).unwrap(), before);
+    }
+
+    #[test]
     fn restore_restart_review_is_read_only_and_never_constructs_a_normal_owner() {
         use crate::restore_decision_candidate::{DecisionRecord, TerminalChoice};
         use crate::restore_staging_candidate::{inspect_stage_identity, stage_private_pair};

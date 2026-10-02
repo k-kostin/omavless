@@ -86,6 +86,7 @@ impl StartupAdmission<'_, '_> {
     pub(crate) fn transaction(
         &mut self,
         paths: &CutoverPaths,
+        desired: &crate::desired::DesiredPaths,
         uid: u32,
         lock: &MigrationLock,
         independently_blocked: bool,
@@ -95,11 +96,7 @@ impl StartupAdmission<'_, '_> {
             return Err(());
         }
         match self {
-            Self::Ordinary(_)
-                if crate::pending_private_transaction::pending_at(&paths.state_directory) =>
-            {
-                Err(())
-            }
+            Self::Ordinary(_) if crate::pending_private_transaction::pending(desired) => Err(()),
             _ => self.recheck(),
         }
     }

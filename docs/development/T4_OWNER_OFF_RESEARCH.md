@@ -11,6 +11,12 @@ coordinator, connection transaction, lifecycle decision and exact-byte pointer
 commit are the real implementations, not replacement models. The ordinary
 startup variant still requires normal receipts and existence fences; the
 historical variant cannot be selected in a production build.
+Ordinary transaction admission preserves its original **desired-directory**
+pending fence even when the public generic initializer is supplied a distinct
+cutover directory. A regression fixture reproduces four host calls in the
+intermediate candidate versus zero in the parent; the corrected path again
+refuses before any observation/effect. Historical research independently binds
+both caller paths to its retained snapshot rather than borrowing this latitude.
 
 After source/package/manager/receipt-bound resync, the original descriptors and
 same lease remain retained across initializer checks, observation and pointer
