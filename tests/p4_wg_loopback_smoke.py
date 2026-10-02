@@ -42,10 +42,10 @@ def require(condition, stage):
         raise Refused(stage)
 
 
-def command(argv, stage, *, data=None, timeout=5, okay=(0,)):
+def command(argv, stage, *, data=None, timeout=5, okay=(0,), env=None):
     try:
         result = subprocess.run(argv, input=data, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, env=ENV, timeout=timeout,
+                                stderr=subprocess.PIPE, env=ENV if env is None else env, timeout=timeout,
                                 check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise Refused(stage) from None
@@ -310,8 +310,11 @@ def outside_snapshot():
                 return [stable(item) for item in value]
             return value
         network.append(stable(rows))
+    runtime_dir = Path(f"/run/user/{os.getuid()}")
+    require(private_directory(runtime_dir), "runtime_snapshot")
     runtime = command(["/usr/bin/systemctl", "--user", "show", "omavless-runtime.service",
-                       "-p", "MainPID", "-p", "ActiveState", "-p", "SubState"], "runtime_snapshot").stdout
+                       "-p", "MainPID", "-p", "ActiveState", "-p", "SubState"], "runtime_snapshot",
+                      env={**ENV, "XDG_RUNTIME_DIR": str(runtime_dir)}).stdout
     core_pids = command(["/usr/bin/pgrep", "-x", "mihomo"], "runtime_snapshot", okay=(0, 1)).stdout
     return hashlib.sha256(json.dumps(network, sort_keys=True).encode()).hexdigest(), runtime, core_pids
 
