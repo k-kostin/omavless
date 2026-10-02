@@ -136,3 +136,7 @@ as acceptance of the proposed Rust authenticator.
 The separately reviewable [fixed atomic Emergency wire candidate](K1_ATOMIC_EMERGENCY_WIRE.md)
 can encode and isolate-test the complete creation transaction without resolving
 this authority boundary. It supplies no production executor or authenticator.
+
+The [OpenFile descriptor-match fixture](K1_OPENFILE_DESCRIPTOR_FIXTURE.md) separately
+investigates fixed system-manager descriptor delivery in the dedicated VM. Its
+result is not kernel namespace type, cookie or canonical-host authority.
