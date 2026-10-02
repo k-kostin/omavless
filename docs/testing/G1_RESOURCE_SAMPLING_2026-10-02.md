@@ -35,5 +35,52 @@ interactive p95, cold user install, animation jank and ARM64 remain NOT RUN.
 
 ## Observations
 
-Pending. Record exact source/binary identity, five raw rows per candidate,
-sampling limitations and result before treating any of the bounds as checked.
+The five-run series completed on the x86_64 Omarchy Dev VM (Hyprland
+0.56.2, 1890×2080 virtual output at scale 1.6667). The direct source was
+the `dev/g1-direct-a11y-scope` candidate from PR #469; its release binary
+SHA-256 was `03534d5bb2ebb5bf8a2e5caefa846e5579ffea4fa6e30be60dcaf44b240c158a`.
+The Shell app was the `dev/g1-shell-narrow-keyboard-scroll` candidate from
+PR #472; its `main.js` SHA-256 was
+`d209db2905023e85dc3bc9beed6589a43de9d1c8c3ce445934a7bcb45c49e611`.
+Its separately pinned `gpui-shell` host binary SHA-256 was
+`1ece32dceeb8ffbdb3131f5b73a6083d89c929f1407494382ecc34b1ef9b332b`.
+Both candidates used the same invented fixture and default synthetic
+connected scene. Runs were sequential and no trial windows remained afterward.
+
+| Candidate | Run | Window appearance, ms | Idle PSS, KiB | Idle CPU, % of one core |
+| --- | ---: | ---: | ---: | ---: |
+| Direct Rust | 1 | 109 | 51,481 | 0.50 |
+| Direct Rust | 2 | 110 | 50,898 | 0.40 |
+| Direct Rust | 3 | 110 | 51,363 | 0.50 |
+| Direct Rust | 4 | 113 | 51,358 | 0.40 |
+| Direct Rust | 5 | 110 | 51,324 | 0.50 |
+| GPUI Shell | 1 | 109 | 77,887 | 0.10 |
+| GPUI Shell | 2 | 109 | 77,386 | 0.10 |
+| GPUI Shell | 3 | 109 | 77,658 | 0.10 |
+| GPUI Shell | 4 | 109 | 77,059 | 0.20 |
+| GPUI Shell | 5 | 109 | 77,820 | 0.20 |
+
+Median sampled PSS was 51,358 KiB (direct) and 77,658 KiB (Shell).
+The measured window-appearance median was 110 ms and 109 ms respectively.
+All *preregistered VM research bounds* above were met. These values do not
+establish first-frame time, total application memory, or a performance winner:
+PSS accounts for shared mappings, and the two prototypes and hosts are not
+identical implementations. The 50 ms compositor polling interval also limits
+the precision of the appearance result; millisecond-looking values are not
+millisecond-resolution evidence.
+
+The large-list check was a separate fresh process for each candidate. After
+20 seconds of idle, opening the **10,006-row synthetic list** and waiting two
+seconds produced these within-process samples:
+
+| Candidate | Before, KiB PSS | After, KiB PSS | Delta, KiB |
+| --- | ---: | ---: | ---: |
+| Direct Rust | 51,123 | 54,171 | +3,048 |
+| GPUI Shell | 77,735 | 85,791 | +8,056 |
+
+The controls visibly switched to `5 samples`, and both windows stayed
+responsive. These one-shot differences meet the provisional <20 MiB bound,
+but are not a steady-state subscription memory budget. No screen-reader,
+real provider, VPN, backend IPC, cold install, frame pacing, ARM64 or
+production integration was tested. Neither prototype is ready to replace
+the QML frontend on the strength of this sampling alone.
