@@ -850,3 +850,23 @@ owner admission, successor closure lifecycle, authenticated recovery UI/API and
 installed boot acceptance are still separately gated. Foreign same-user live
 inode swaps beyond the existing byte/classifier trust boundary are not a new
 guarantee; immutable-evidence same-byte inode substitution is explicitly refused.
+
+## Inactive successor terminal receipt publication
+
+Successor receipt admission is separate from single-cycle cleanup. A freshly
+authenticated archive, exact C0/handoff/stage/intent/terminal binding and current
+terminal live pair are required. Intent-only state cannot authorize rollback or
+publication. The terminal-only verifier resynchronizes the decided live pair and
+journal; all eight immutable source members and their directories are resynced
+before exclusive receipt creation. Each publication boundary rechecks immutable
+evidence, host gates and the terminal live pair. Final readback compares both
+exact receipt bytes and the writer's created inode after the last callback.
+
+The publisher shares only the fixed receipt constructor and create-only durable
+writer, not the old single-cycle publisher's admission. Existing, partial, unsafe
+or replaced receipts refuse retry. C0, handoff, all stage bytes and both journals
+remain present even on success. Receipt presence therefore intentionally blocks
+the next step after SIGKILL as well: a partial publication is a fence, never
+automatic authority to retry, execute, retire or rotate. Receipt presence blocks
+the earlier executor entry points. Receipt-driven restart/retirement and closure
+rotation remain separate work: no canonical closure is deleted or replaced here.

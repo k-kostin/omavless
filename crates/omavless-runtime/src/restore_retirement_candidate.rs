@@ -67,7 +67,7 @@ impl RetirementReceipt {
         &self.terminal
     }
 
-    fn from_terminal(
+    pub(crate) fn from_terminal(
         terminal: &DecisionRecord,
         stage: &VerifiedStage,
     ) -> Result<Self, RetirementError> {
@@ -294,6 +294,24 @@ fn write_receipt(
     uid: u32,
     bytes: &[u8; RECEIPT_BYTES],
 ) -> Result<Metadata, RetirementError> {
+    write_receipt_with_hook(paths, uid, bytes, |_| true)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiptWriteStep {
+    Created,
+    Written,
+    FileSynced,
+    DirectorySynced,
+    Reopened,
+}
+
+pub(crate) fn write_receipt_with_hook(
+    paths: &CutoverPaths,
+    uid: u32,
+    bytes: &[u8; RECEIPT_BYTES],
+    mut hook: impl FnMut(ReceiptWriteStep) -> bool,
+) -> Result<Metadata, RetirementError> {
     let directory = open_private_directory(&paths.state_directory, uid)
         .map_err(|_| RetirementError::ManualRecovery)?;
     let before = directory
@@ -313,12 +331,19 @@ fn write_receipt(
         || identity.uid() != uid
         || identity.mode() & 0o7777 != 0o600
         || identity.nlink() != 1
+        || !hook(ReceiptWriteStep::Created)
     {
         return Err(RetirementError::Ambiguous);
     }
     file.write_all(bytes)
-        .and_then(|_| file.sync_all())
         .map_err(|_| RetirementError::Ambiguous)?;
+    if !hook(ReceiptWriteStep::Written) {
+        return Err(RetirementError::Ambiguous);
+    }
+    file.sync_all().map_err(|_| RetirementError::Ambiguous)?;
+    if !hook(ReceiptWriteStep::FileSynced) {
+        return Err(RetirementError::Ambiguous);
+    }
     let durable_identity = file.metadata().map_err(|_| RetirementError::Ambiguous)?;
     if durable_identity.len() != RECEIPT_BYTES as u64
         || durable_identity.uid() != uid
@@ -330,6 +355,9 @@ fn write_receipt(
     directory
         .sync_all()
         .map_err(|_| RetirementError::Ambiguous)?;
+    if !hook(ReceiptWriteStep::DirectorySynced) {
+        return Err(RetirementError::Ambiguous);
+    }
     let current = File::from(
         openat(
             &directory,
@@ -349,6 +377,27 @@ fn write_receipt(
         &before,
         &open_private_directory(&paths.state_directory, uid)
             .map_err(|_| RetirementError::Ambiguous)?
+            .metadata()
+            .map_err(|_| RetirementError::Ambiguous)?,
+    ) {
+        return Err(RetirementError::Ambiguous);
+    }
+    if !hook(ReceiptWriteStep::Reopened) {
+        return Err(RetirementError::Ambiguous);
+    }
+    // Hooks may expose replacement races; never return stale identity evidence.
+    let reopened = File::from(
+        openat(
+            &directory,
+            Path::new(RECEIPT_MEMBER),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| RetirementError::Ambiguous)?,
+    );
+    if !same_member(
+        &durable_identity,
+        &reopened
             .metadata()
             .map_err(|_| RetirementError::Ambiguous)?,
     ) {
