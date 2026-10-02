@@ -6,6 +6,9 @@ use crate::restore_cleanup_candidate::{Step, inspect_cleanup_prefix};
 use crate::restore_closure_model::NEXT_CLOSURE_MEMBER;
 use crate::restore_retirement_candidate::{RECEIPT_BYTES, RetirementReceipt};
 
+#[path = "restore_successor_next_candidate.rs"]
+pub(crate) mod publication;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RotationPhase {
     BeforeNext,
@@ -315,7 +318,7 @@ mod tests {
         fs::write(path, raw).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
     }
-    fn setup(commit: bool) -> (Fixture, MigrationLock, Vec<u8>, Vec<u8>) {
+    pub(super) fn setup(commit: bool) -> (Fixture, MigrationLock, Vec<u8>, Vec<u8>) {
         let (f, lock) = prepared();
         drive(&f, &lock, !commit, |_| true).unwrap();
         publish_successor_receipt(&f.config, &f.paths, f.uid, 2, &lock, second(), || true).unwrap();

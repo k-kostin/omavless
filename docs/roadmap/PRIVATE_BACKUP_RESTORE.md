@@ -893,3 +893,27 @@ state/stage sync behavior through a separate callback, with a test hook forbiddi
 those synchronization paths during read-only phase checks. Every phase remains
 fenced by H and R1. No next-closure publication, cleanup, exchange, displaced
 record removal, third live restore cycle or product owner admission is provided.
+
+## Inactive create-only next-closure publication
+
+A separate internal publisher admits only two matching authenticated BeforeNext
+observations with complete stage and journals. It pins all source bytes, optional
+slot absence/presence and private directory identities; every guard reparses the
+strict cleanup prefix to detect unexpected stage entries. All present sources
+and stage/config/state directories are synchronized and rechecked before the
+fixed next slot is exclusively created. The predecessor closure, handoff,
+successor receipt, stage and journals are never removed or changed.
+
+Each publication boundary checks those same sources and the newly created next
+inode. Only empty bytes at creation and exact C1 bytes after writing are allowed;
+same-byte inode replacement, late gate changes and source-directory swaps refuse.
+After file and parent sync, a fresh two-pass NextPublished review and final
+source/destination checks precede `PublishedStillFenced`. Neither this result nor
+the read-only phase grants normal startup or permission to retire anything.
+
+Existing, empty, partial or valid next records refuse this create-only entry.
+Actual process loss at publication checkpoints leaves all prior fences intact.
+A complete next visible after process loss is not proof of durability: a later
+separately reviewed recovery/cleanup candidate must re-establish it. Cleanup
+prefix advancement, atomic canonical exchange, displaced closure retirement,
+handoff/receipt retirement and third-cycle/product acceptance remain open.
