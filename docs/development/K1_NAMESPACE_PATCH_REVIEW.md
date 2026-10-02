@@ -43,3 +43,79 @@ Trusted system-manager launch, safe fixed descriptor adoption, structural
 prevention of namespace transitions, session poisoning, full rule/object
 ownership and conditional effects remain separate product prerequisites.
 No Canonical or EffectIdentity token is introduced by this artifact.
+
+## Isolated descriptor-relationship continuation
+
+The `dev/k1-namespace-review-vm` patch continuation adds opt-in ignored tests
+inside the same upstream-library proposal, not production OmaVLESS code.
+The outer test requires `NIX_NAMESPACE_REVIEW_VM=1`, invokes a fixed test
+worker through `unshare --user --map-root-user --net`, and checks the pinned
+parent/current namespace identifiers again after that worker exits.
+The worker retains namespace A and a socket created in A, transitions only its
+own disposable thread to namespace B, and verifies all of these relationships:
+
+- A's retained descriptor and socket cookie stay bound to A, not current B;
+- B's namespace ID differs and a newly created socket reports B's cookie;
+- comparing the old socket with B gives a genuine mismatch;
+- a safe duplicated namespace descriptor retains A after the original File drops.
+
+No datagrams are sent, interfaces/routes/firewalls are configured, parent
+namespace transitions occur or service/network settings change. The explicit
+worker guard refuses direct ordinary invocation. These tests validate local
+descriptor mechanics, never canonical-host authority or switch-and-return
+prevention in a production owner.
+
+At exact upstream source `e35c00891f52468979f92b795de2dc1f3dd58a87`, updated
+patch SHA-256 is
+`520b6f8d4ef72f122c9970c5be436823a2fcf0414faf7f000467e7a63c326d62`.
+The five ordinary API tests pass; the two disposable tests remain ignored by
+default. The explicitly delegated x86_64 Omarchy Dev VM passes outer+worker
+with transferred test-binary SHA-256
+`a38df040ab3e3042db7ce2aba2e4c8d1a915d7fe17f127958ea6b42d6327159d`.
+
+```sh
+NIX_NAMESPACE_REVIEW_VM=1 /absolute/review-test-binary \
+  --ignored --exact sys::nsfs::tests::isolated_namespace_cookie_relationships \
+  --test-threads=1
+```
+
+Full upstream MSRV/ARM64 execution, unavailable-kernel execution, upstream/security/license adoption,
+canonical manager launch and all installed K1 gates remain unpassed. The
+library proposal is still neither submitted nor adopted; workspace dependencies,
+unsafe prohibition, production namespace facts and package payload are unchanged.
+
+## Compiler-only portability continuation
+
+The [standalone consumer templates](../../tests/namespace_api_compile_review/README.md)
+compile the exact same upstream proposal with unsafe code forbidden in the
+consumer. They check all three borrowed-FD signatures plus eight-byte ID,
+`NS_GET_ID = 0x8008b70d`, `NS_GET_NSTYPE = 0xb703` and
+`SO_NETNS_COOKIE = 71`. Both checks passed:
+
+- Official Rust/Cargo **1.69.0**, x86_64, offline vendored dependencies.
+- Official Rust **1.98.1**, ARM64 Linux cross-check, no linking or execution.
+
+Consumer dependency-lock SHA-256:
+`7f680d59bfc7534c1705d368e365e5b73213d9bf98ab7e0e930d3bb7c182fa14`.
+The proposal is unchanged at the patch hash above. Source export used the
+isolated exact-object exporter, not the dirty upstream worktree. Verified
+official component identities (from fixed-version Rust distribution manifests):
+
+| Component | SHA-256 |
+| --- | --- |
+| rustc 1.69.0 x86_64 | `70e97ab5b9600328b977268fc92ca4aa53064e4e97468df35215d4396e509279` |
+| rust-std 1.69.0 x86_64 | `4c95739e6f0f1d4defd937f6d60360b566e051dfb2fa71879d0f9751392f3709` |
+| cargo 1.69.0 x86_64 | `336eeabf231a7665c26c127a37b8aefffe28cb087c5c8d4ba0460419f5f8eff2` |
+| rustc 1.98.1 x86_64 | `e974f036b28565f37c0f3bd92ddefa809bee16c04f9dcf07b9ed96e05aaaf7c4` |
+| rust-std 1.98.1 x86_64 | `fa3ff450172a16c026944030230c5069947af93c728d9179971d44e5e0cfb561` |
+| rust-std 1.98.1 ARM64 | `9bf796a6ec5b004813ebd0b650775a7c6a4f3aae97ad362ae294798dca4f3b23` |
+
+Toolchains were unpacked into private developer HOME scratch; no installer
+script, rustup/global compiler configuration, sudo or system package action
+was used. Preliminary attempts with modern Cargo/old rustc and official
+ARM64 std/Arch-distribution rustc failed due toolchain metadata incompatibility,
+not accepted results. Matching official components and old Cargo resolved
+those tooling failures. The successful checks prove library-consumer source
+compatibility and constant encoding, not a full upstream MSRV suite or
+ARM64 syscall behavior. Maintainer, security/license adoption, unsupported
+kernel, canonical launch and installed K1 gates remain open.

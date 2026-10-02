@@ -1,7 +1,7 @@
-diff --git a/src/sys/mod.rs b/src/sys/mod.rs
+diff --git i/src/sys/mod.rs w/src/sys/mod.rs
 index d07ddb7..25ca0bf 100644
---- a/src/sys/mod.rs
-+++ b/src/sys/mod.rs
+--- i/src/sys/mod.rs
++++ w/src/sys/mod.rs
 @@ -1,4 +1,6 @@
  //! Mostly platform-specific functionality
 +#[cfg(all(target_os = "linux", feature = "ioctl"))]
@@ -9,12 +9,12 @@ index d07ddb7..25ca0bf 100644
  #[cfg(any(
      freebsdlike,
      all(
-diff --git a/src/sys/nsfs.rs b/src/sys/nsfs.rs
+diff --git i/src/sys/nsfs.rs w/src/sys/nsfs.rs
 new file mode 100644
-index 0000000..0be316d
+index 0000000..d19b091
 --- /dev/null
-+++ b/src/sys/nsfs.rs
-@@ -0,0 +1,91 @@
++++ w/src/sys/nsfs.rs
+@@ -0,0 +1,166 @@
 +//! Fixed, read-only Linux namespace descriptor queries.
 +//!
 +//! Descriptor identity is not proof of a canonical host or trusted launch.
@@ -105,11 +105,86 @@ index 0000000..0be316d
 +            Err(error) => assert_eq!(error, Errno::ENOTTY),
 +        }
 +    }
++
++    #[test]
++    #[ignore = "explicit isolated development VM only"]
++    fn isolated_namespace_cookie_relationships() {
++        assert_eq!(
++            std::env::var("NIX_NAMESPACE_REVIEW_VM").as_deref(),
++            Ok("1")
++        );
++        let parent = File::open("/proc/thread-self/ns/net").unwrap();
++        let parent_id = namespace_id(parent.as_fd()).unwrap();
++        let own = std::env::current_exe().unwrap();
++        let status = std::process::Command::new("/usr/bin/unshare")
++            .args(["--user", "--map-root-user", "--net"])
++            .arg(own)
++            .args([
++                "--ignored",
++                "--exact",
++                "sys::nsfs::tests::isolated_namespace_worker",
++                "--test-threads=1",
++            ])
++            .env("NIX_NAMESPACE_REVIEW_WORKER", "1")
++            .status()
++            .unwrap();
++        assert!(status.success());
++        let current = File::open("/proc/thread-self/ns/net").unwrap();
++        assert_eq!(namespace_id(current.as_fd()), Ok(parent_id));
++        assert_eq!(namespace_id(parent.as_fd()), Ok(parent_id));
++    }
++
++    #[test]
++    #[ignore = "internal disposable namespace worker"]
++    fn isolated_namespace_worker() {
++        use crate::sys::socket::sockopt::NetnsCookie;
++        use crate::sys::socket::GetSockOpt;
++        use crate::sys::socket::{socket, AddressFamily, SockFlag, SockType};
++        assert_eq!(
++            std::env::var("NIX_NAMESPACE_REVIEW_VM").as_deref(),
++            Ok("1")
++        );
++        assert_eq!(
++            std::env::var("NIX_NAMESPACE_REVIEW_WORKER").as_deref(),
++            Ok("1")
++        );
++        // Both namespaces are disposable local fixtures, not canonical hosts.
++        let first = File::open("/proc/thread-self/ns/net").unwrap();
++        assert_eq!(namespace_type(first.as_fd()), Ok(NamespaceType::Network));
++        let first_id = namespace_id(first.as_fd()).unwrap();
++        let before = socket(
++            AddressFamily::Inet,
++            SockType::Datagram,
++            SockFlag::SOCK_CLOEXEC,
++            None,
++        )
++        .unwrap();
++        assert_eq!(NetnsCookie.get(&before), Ok(first_id));
++        crate::sched::unshare(crate::sched::CloneFlags::CLONE_NEWNET).unwrap();
++        let second = File::open("/proc/thread-self/ns/net").unwrap();
++        let second_id = namespace_id(second.as_fd()).unwrap();
++        assert_ne!(first_id, second_id);
++        assert_eq!(namespace_id(first.as_fd()), Ok(first_id));
++        assert_eq!(NetnsCookie.get(&before), Ok(first_id));
++        let after = socket(
++            AddressFamily::Inet,
++            SockType::Datagram,
++            SockFlag::SOCK_CLOEXEC,
++            None,
++        )
++        .unwrap();
++        assert_eq!(NetnsCookie.get(&after), Ok(second_id));
++        assert_ne!(NetnsCookie.get(&before).unwrap(), second_id);
++        let duplicate = first.try_clone().unwrap();
++        drop(first);
++        assert_eq!(namespace_id(duplicate.as_fd()), Ok(first_id));
++        assert_eq!(namespace_type(second.as_fd()), Ok(NamespaceType::Network));
++    }
 +}
-diff --git a/src/sys/socket/sockopt.rs b/src/sys/socket/sockopt.rs
+diff --git i/src/sys/socket/sockopt.rs w/src/sys/socket/sockopt.rs
 index cc5ed20..f452fd8 100644
---- a/src/sys/socket/sockopt.rs
-+++ b/src/sys/socket/sockopt.rs
+--- i/src/sys/socket/sockopt.rs
++++ w/src/sys/socket/sockopt.rs
 @@ -1,4 +1,75 @@
  //! Socket options as used by `setsockopt` and `getsockopt`.
 +/// Linux network namespace cookie of a socket, distinct from `SO_COOKIE`.
@@ -186,3 +261,73 @@ index cc5ed20..f452fd8 100644
  #[cfg(any(linux_android, target_os = "illumos"))]
  use super::SetSockOpt;
  use crate::sys::time::TimeVal;
+@@ -41,7 +112,7 @@ const TCP_CA_NAME_MAX: usize = 16;
+ ///   `libc::IP_ADD_MEMBERSHIP` and others. Will be passed as the third argument (`option_name`)
+ ///   to the `setsockopt` call.
+ /// * Type of the value that you are going to set.
+-/// * Type that implements the `Set` trait for the type from the previous item 
++/// * Type that implements the `Set` trait for the type from the previous item
+ ///   (like `SetBool` for `bool`, `SetUsize` for `usize`, etc.).
+ #[macro_export]
+ macro_rules! setsockopt_impl {
+@@ -364,9 +435,9 @@ sockopt_impl!(
+ sockopt_impl!(
+     #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
+     /// Used to disable Nagle's algorithm.
+-    /// 
++    ///
+     /// Nagle's algorithm:
+-    /// 
++    ///
+     /// Under most circumstances, TCP sends data when it is presented; when
+     /// outstanding data has not yet been acknowledged, it gathers small amounts
+     /// of output to be sent in a single packet once an acknowledgement is
+@@ -1233,7 +1304,7 @@ sockopt_impl!(
+ #[cfg(any(linux_android, target_os = "freebsd"))]
+ #[cfg(feature = "net")]
+ sockopt_impl!(
+-    /// Enables a receiving socket to retrieve the Time-to-Live (TTL) field 
++    /// Enables a receiving socket to retrieve the Time-to-Live (TTL) field
+     /// from incoming IPv4 packets.
+     Ipv4RecvTtl,
+     Both,
+@@ -1253,7 +1324,7 @@ sockopt_impl!(
+ #[cfg(any(linux_android, target_os = "freebsd"))]
+ #[cfg(feature = "net")]
+ sockopt_impl!(
+-    /// Enables a receiving socket to retrieve the Hop Limit field 
++    /// Enables a receiving socket to retrieve the Hop Limit field
+     /// (similar to TTL in IPv4) from incoming IPv6 packets.
+     Ipv6RecvHopLimit,
+     Both,
+@@ -1285,10 +1356,7 @@ sockopt_impl!(
+     libc::IP_DONTFRAG,
+     bool
+ );
+-#[cfg(any(
+-    all(linux_android, not(target_env = "uclibc")),
+-    apple_targets
+-))]
++#[cfg(any(all(linux_android, not(target_env = "uclibc")), apple_targets))]
+ sockopt_impl!(
+     /// Set "don't fragment packet" flag on the IPv6 packet.
+     Ipv6DontFrag,
+@@ -1877,7 +1945,6 @@ impl<'a> Set<'a, usize> for SetUsize {
+     }
+ }
+ 
+-
+ /// Getter for a `OwnedFd` value.
+ // Hide the docs, because it's an implementation detail of `sockopt_impl!`
+ #[doc(hidden)]
+@@ -1927,7 +1994,9 @@ impl<'a> Set<'a, OwnedFd> for SetOwnedFd {
+     fn new(val: &'a OwnedFd) -> SetOwnedFd {
+         use std::os::fd::AsRawFd;
+ 
+-        SetOwnedFd { val: val.as_raw_fd() as c_int }
++        SetOwnedFd {
++            val: val.as_raw_fd() as c_int,
++        }
+     }
+ 
+     fn ffi_ptr(&self) -> *const c_void {
