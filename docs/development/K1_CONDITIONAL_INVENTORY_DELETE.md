@@ -23,8 +23,10 @@ and [generation/table-handle processing](https://github.com/torvalds/linux/blob/
 This source review is not installed-kernel acceptance.
 
 Only an exact kernel-peer, sequence, original-request and `ERESTART` receipt for
-batch begin counts as GenerationChanged. Success needs both exact begin/delete
-ACKs, followed by a fresh complete absent-table readback/barrier. Unknown,
+batch begin counts as GenerationChanged. Success needs exact begin/delete/end
+ACKs, followed by a fresh complete absent-table readback/barrier. End's success
+is essential: begin/operation success may already be queued when commit fails.
+Unknown,
 lost, malformed, duplicate, truncated or other error replies poison the
 session. Once the send syscall is attempted there is no resend, reacquisition
 of a newer generation or compensating mutation. Later absence alone is not a

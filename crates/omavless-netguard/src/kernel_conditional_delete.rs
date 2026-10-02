@@ -47,6 +47,7 @@ impl LocalReadSession {
 struct Wire {
     begin: Vec<u8>,
     delete: Vec<u8>,
+    end: Vec<u8>,
     batch: Vec<u8>,
 }
 fn encode(generation: u32, handle: u64, first: u32) -> Result<Wire> {
@@ -67,11 +68,14 @@ fn encode(generation: u32, handle: u64, first: u32) -> Result<Wire> {
         0,
         &[vec![1, 0, 0, 0], attribute(4, &handle.to_be_bytes())].concat(),
     );
-    let end = message(17, 1, first + 2, 0, &[0, 0, 0, 10]);
-    let batch = [begin.clone(), delete.clone(), end].concat();
+    // BEGIN/operation successes can be queued even when final commit fails.
+    // Only END success is emitted after ss->commit succeeds.
+    let end = message(17, 5, first + 2, 0, &[0, 0, 0, 10]);
+    let batch = [begin.clone(), delete.clone(), end.clone()].concat();
     Ok(Wire {
         begin,
         delete,
+        end,
         batch,
     })
 }
@@ -81,6 +85,7 @@ struct Replies {
     port: u32,
     begin_ack: bool,
     delete_ack: bool,
+    end_ack: bool,
     changed: bool,
     poisoned: bool,
     bytes: usize,
@@ -94,6 +99,7 @@ impl Replies {
             port,
             begin_ack: false,
             delete_ack: false,
+            end_ack: false,
             changed: false,
             poisoned: false,
             bytes: 0,
@@ -101,7 +107,7 @@ impl Replies {
         })
     }
     fn complete(&self) -> bool {
-        !self.poisoned && (self.changed || (self.begin_ack && self.delete_ack))
+        !self.poisoned && (self.changed || (self.begin_ack && self.delete_ack && self.end_ack))
     }
     fn receive(
         &mut self,
@@ -147,9 +153,11 @@ impl Replies {
             let code = i32::from_ne_bytes(body[..4].try_into().map_err(|_| REFUSE)?);
             let original = if sequence == first {
                 &self.wire.begin
-            } else {
-                require(sequence == first + 1)?;
+            } else if sequence == first + 1 {
                 &self.wire.delete
+            } else {
+                require(sequence == first + 2)?;
+                &self.wire.end
             };
             // Capped errors and success echo only the original header; uncapped
             // errors must echo the entire exact request. No extack/text parsing.
@@ -165,6 +173,7 @@ impl Replies {
                     sequence == first
                         && !self.begin_ack
                         && !self.delete_ack
+                        && !self.end_ack
                         && aligned(length) == bytes.len(),
                 )?;
                 self.changed = true;
@@ -173,9 +182,12 @@ impl Replies {
                 if sequence == first {
                     require(!self.begin_ack)?;
                     self.begin_ack = true;
-                } else {
+                } else if sequence == first + 1 {
                     require(!self.delete_ack)?;
                     self.delete_ack = true;
+                } else {
+                    require(!self.end_ack)?;
+                    self.end_ack = true;
                 }
             }
             bytes = &bytes[aligned(length)..];
@@ -203,6 +215,12 @@ impl InventoryDelete<'_> {
             self.session.poisoned = true;
             return DeleteOutcome::RefusedBeforeSend;
         };
+        // Encoding/collector work may consume the budget. Recheck identity and
+        // the clock after that work, immediately before the first syscall.
+        if self.session.check(deadline).is_err() || Instant::now() >= deadline {
+            self.session.poisoned = true;
+            return DeleteOutcome::RefusedBeforeSend;
+        }
         // After the first syscall, even an error is unknown. No resend, fresh
         // generation acquisition or other cleanup mutation follows an unknown.
         let result = (|| -> Result<()> {
@@ -296,20 +314,44 @@ mod tests {
         }
     }
     #[test]
-    fn both_exact_success_acknowledgements_required_in_either_order() {
-        for reverse in [false, true] {
+    fn exact_begin_delete_and_commit_end_ack_required_in_any_order() {
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
             let mut c = collector();
-            let mut a = [ack(&c.wire.begin, 0, false), ack(&c.wire.delete, 0, true)];
-            if reverse {
-                a.reverse();
-            }
-            push(&mut c, &a[0]).unwrap();
+            let a = [
+                ack(&c.wire.begin, 0, false),
+                ack(&c.wire.delete, 0, true),
+                ack(&c.wire.end, 0, false),
+            ];
+            push(&mut c, &a[order[0]]).unwrap();
             assert!(!c.complete());
-            push(&mut c, &a[1]).unwrap();
+            push(&mut c, &a[order[1]]).unwrap();
+            assert!(!c.complete());
+            push(&mut c, &a[order[2]]).unwrap();
             assert!(c.complete());
             assert!(push(&mut c, &a[0]).is_err());
             assert!(!c.complete());
         }
+    }
+    #[test]
+    fn queued_operation_success_without_final_commit_never_completes() {
+        let mut c = collector();
+        let begin = ack(&c.wire.begin, 0, false);
+        let delete = ack(&c.wire.delete, 0, false);
+        push(&mut c, &[begin, delete].concat()).unwrap();
+        assert!(!c.complete()); // a lost commit-error cannot become success
+        let commit_error = ack(&c.wire.begin, -22, false);
+        assert!(push(&mut c, &commit_error).is_err());
+        assert!(!c.complete());
+        let mut c = collector();
+        let failed_end = ack(&c.wire.end, -22, false);
+        assert!(push(&mut c, &failed_end).is_err());
     }
     #[test]
     fn exact_restart_of_begin_only_is_changed_all_other_errors_unknown() {
