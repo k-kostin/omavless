@@ -4,6 +4,7 @@ use nix::sys::socket::{
     AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, bind, getsockname,
     recvmsg, sendto, socket,
 };
+use nix::sys::statfs::{NSFS_MAGIC, PROC_SUPER_MAGIC, fstatfs};
 use std::{
     fs::File,
     io::IoSliceMut,
@@ -238,6 +239,7 @@ impl Exchange {
 }
 
 fn namespace_identity(fd: &File) -> Result<(u64, u64)> {
+    require(fstatfs(fd).map_err(|_| REFUSE)?.filesystem_type() == NSFS_MAGIC)?;
     let metadata = fd.metadata().map_err(|_| REFUSE)?;
     let label = std::fs::read_link(format!("/proc/thread-self/fd/{}", fd.as_raw_fd()))
         .map_err(|_| REFUSE)?;
@@ -245,6 +247,8 @@ fn namespace_identity(fd: &File) -> Result<(u64, u64)> {
     Ok((metadata.dev(), metadata.ino()))
 }
 fn namespace_file() -> Result<File> {
+    let proc_ns = File::open("/proc/thread-self/ns").map_err(|_| REFUSE)?;
+    require(fstatfs(&proc_ns).map_err(|_| REFUSE)?.filesystem_type() == PROC_SUPER_MAGIC)?;
     File::open("/proc/thread-self/ns/net").map_err(|_| REFUSE)
 }
 
@@ -381,6 +385,13 @@ mod tests {
         assert_eq!(next, u32::MAX - 2);
         next = 0;
         assert!(take_sequences(&mut next).is_err());
+    }
+    #[test]
+    fn namespace_identity_rejects_procfs_and_regular_file_descriptors() {
+        let proc_status = File::open("/proc/thread-self/status").unwrap();
+        assert_eq!(namespace_identity(&proc_status), Err(REFUSE));
+        let regular = File::open(std::env::current_exe().unwrap()).unwrap();
+        assert_eq!(namespace_identity(&regular), Err(REFUSE));
     }
     fn receive(exchange: &mut Exchange, bytes: &[u8]) -> Result<()> {
         exchange.receive(bytes, Some(NetlinkAddr::new(0, 0)), MsgFlags::empty())

@@ -74,6 +74,17 @@ fn read_only_observer_child() {
     assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
     assert_eq!(retained.inspect(), Ok(LocalTablePresence::Absent));
     assert_eq!(guard.check().unwrap(), child);
+    // The retained socket must not be usable after this very thread moves to
+    // another disposable network namespace. No return to the old namespace is
+    // attempted; the isolated test process exits immediately afterwards.
+    nix::sched::unshare(nix::sched::CloneFlags::CLONE_NEWNET).unwrap();
+    assert_ne!(
+        fd_identity(&File::open("/proc/thread-self/ns/net").unwrap())
+            .unwrap()
+            .ino,
+        child
+    );
+    assert!(retained.inspect().is_err());
     println!("{PASS}");
 }
 

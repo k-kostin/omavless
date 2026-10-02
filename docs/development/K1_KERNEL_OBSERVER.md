@@ -13,6 +13,12 @@ device/inode labels and local socket address are rechecked before and after
 each exchange. Requests have fixed types, family and name; callers
 cannot select a path, table, command, payload or namespace.
 
+The retained namespace descriptor must be on `nsfs`, while the fixed
+`/proc/thread-self/ns` directory must be on procfs. A regular file, procfs
+status file or substituted namespace file type refuses. This checks descriptor
+types, not canonical host provenance or the network namespace type; it must
+not be used as an ownership proof.
+
 Each exchange requires exact kernel sender address, destination port ID,
 sequence, response type and echoed ACK header. Successful reads require both
 the data response and ACK. Only an exact GETTABLE ENOENT response establishes
@@ -71,7 +77,9 @@ OMAVLESS_K1_OBSERVER_VM=1 cargo test -p omavless-netguard --locked \
 It inherits a pinned parent namespace FD into a fresh unprivileged user/network
 namespace, verifies that the child differs and has only loopback, then performs
 two actual Rust observations of fixed-table absence on the same retained
-session. It creates no table, rule,
+session. It then moves only the isolated child thread into a second disposable
+network namespace and verifies that the retained session refuses further
+inspection. It creates no table, rule,
 interface, route or IP connection. The parent rechecks its original namespace.
 Only a fixed PASS category escapes the bounded child output; there is no sudo
 fallback. Shared test scratch now honors TMPDIR so tmpfs quota exhaustion need
