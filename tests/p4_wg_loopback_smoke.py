@@ -359,7 +359,12 @@ def outer(args):
                            "core_readiness", "positive_transport", "handshake_transfer",
                            "negative_direct_bypass", "negative_peer_unchanged", "fresh_peer",
                            "peer_configuration", "peer_observation", "controller_cleanup",
-                           "namespace_interface_cleanup", "http_readiness"}
+                           "namespace_interface_cleanup", "http_readiness", "http_namespace",
+                           "namespace_loopback", "namespace_inventory", "peer_address", "peer_link",
+                           "peer_return_route", "key_generation", "peer_count", "peer_identity",
+                           "config_policy", "controller_collision", "transport_request",
+                           "controller_peer", "controller_frame", "controller_bound", "no_direct_fallback",
+                           "owned_child_cleanup", "unexpected_fixed_failure"}
             stage = outcome.get("stage") if isinstance(outcome, dict) else None
             raise Refused(stage if stage in safe_stages else "namespace_smoke")
         require(outcome.get("positive") == outcome.get("negative") == outcome.get("recovery") == args.rounds
