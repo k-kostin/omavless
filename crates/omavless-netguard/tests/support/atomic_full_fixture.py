@@ -59,6 +59,27 @@ def checked(result, first, collision=False):
     return set(errors.values())
 
 
+def check_rust_raw_reply(generation, first, port, datagrams):
+    # Bounded developer bridge only: metadata is not authenticated by the parser.
+    require(0 < len(datagrams) <= 16 and sum(len(item[0]) for item in datagrams) <= 32768)
+    blob = struct.pack("=IIII", generation, first, port, len(datagrams))
+    for data, sender, flags in datagrams:
+        blob += struct.pack("=IIII", len(data), sender[0], sender[1], flags) + data
+    proc = subprocess.Popen(
+        [os.environ["OMAVLESS_K1_FULL_EXE"], "--ignored", "--exact",
+         "atomic_full::decoder_child", "--nocapture"],
+        env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        output, _ = proc.communicate(blob, timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    require(proc.returncode == 0 and len(output) <= 4096
+            and output.splitlines().count(b"K1_FULL_RAW_REPLY_PASS") == 1)
+    print("K1_FULL_RAW_REPLY_PASS", flush=True)
+
+
 def batch(wire, generation, collision=False):
     first = wire.next_seq()
     request, barrier = encoded(generation, first)
@@ -71,7 +92,19 @@ def batch(wire, generation, collision=False):
         barrier = core["message"](0xa10, 5, first+15, core["nf"](0))
         expected.update({first+13: 0xa00, first+14: 17, first+15: 0xa10})
     wire.seq = first + (15 if collision else 14)
-    return checked(wire.exchange(request, expected, barrier), first, collision)
+    capture = not collision and os.environ.get("OMAVLESS_K1_FULL_RAW_REPLY_VM") == "1"
+    datagrams = []
+    if capture:
+        wire.capture = lambda data, sender, flags: datagrams.append((data, sender, flags))
+    try:
+        result = wire.exchange(request, expected, barrier)
+    finally:
+        if capture:
+            del wire.capture
+    errors = checked(result, first, collision)
+    if capture and not errors:
+        check_rust_raw_reply(generation, first, wire.port, datagrams)
+    return errors
 
 
 def shape(raw, flags):
