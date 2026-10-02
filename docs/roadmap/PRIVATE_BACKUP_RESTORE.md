@@ -1391,3 +1391,39 @@ are synthetic filesystem/process tests, not power-cut or installed product
 acceptance. Host observation integration, a reviewed interrupted-ticket protocol,
 owner-approved historical policy and typed normal-admission integration remain
 separate gates; subsequent restore must not ignore or silently delete this ticket.
+
+### Existing-complete-ticket resync candidate
+
+A separate inactive entry can resynchronize an already complete ticket after
+process interruption, returning only `ResynchronizedStillFenced`. This does not
+prove that its original publication finished, establish historical admission,
+or promote the pure model's hypothetical durable-disposition input into authority.
+The create-only publisher still refuses replay. Empty, partial, missing, unsafe,
+foreign, crossed UID/generation/C1 or incompatible-output tickets refuse without
+repair, creation, overwrite or deletion; C1 and the ticket remain fences.
+
+Recovery requires an authenticated payload matching staged NEW, including Abort
+where the live pair is OLD. An unavailable/mismatching payload cannot be inferred
+from OLD or the ticket. The caller retains the same existing lease and fresh
+Off/idle/login/owner boundaries. The private recovery path opens the existing
+ticket read-only/no-follow, pins exact canonical bytes and pathname/descriptor
+identity, captures owner/desired/login and state/config/runtime boundaries before
+host callbacks, and requires matching source observations before any sync. Public
+final readers continue to require ticket absence.
+
+It synchronizes pinned C1 and live members, state/config/runtime directories, the
+existing ticket and its parent, reopening/rechecking immutable sources, ticket
+bytes/inode and lease after every effect and final callback. A resync error leaves
+the fences intact; no rollback, truncation, normal owner or IPC activation exists.
+The same-user point-in-time and installed/power-cut limitations above still apply.
+
+Synthetic tests cover Commit/Abort repeatability, wrong archive payload,
+unsafe/partial/foreign records, stale lease/generation, source and
+ticket replacement at every checkpoint, admission-boundary drift, final gate
+failure, actual writer SIGKILL before/after ticket sync and actual resync SIGKILL
+followed by fresh re-entry. Shared direct-effect fences retain their initial/late
+ticket tests and static caller matrix. The older first-cycle receipt publisher's
+last callback now rechecks ticket absence before reporting its still-fenced
+outcome, closing the previous diagnostic-only gap without adding authority.
+An authenticated `OpenedBackup` reference is mandatory in the API; missing-input
+UX and passphrase transport are not exercised by these tests and have no fallback.
