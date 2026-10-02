@@ -93,6 +93,48 @@ impl RetirementReceipt {
         self.expected[0].matches(store) && self.expected[1].matches(template)
     }
 
+    /// Identity only: reconstruct the planned stage from retained OLD hashes
+    /// and freshly authenticated NEW bytes after raw OLD has been retired.
+    /// This does not prove provenance, inode identity, durability or authority.
+    pub(crate) fn matches_successor_stage(
+        &self,
+        intent: &DecisionRecord,
+        new_store: &[u8],
+        new_template: &[u8],
+    ) -> bool {
+        use crate::restore_staging_candidate::{READY_BYTES, READY_MAGIC};
+        if new_store.is_empty()
+            || new_store.len() > MAX_PRIVATE_STORE_BYTES
+            || new_template.is_empty()
+            || new_template.len() > MAX_TEMPLATE_BYTES
+        {
+            return false;
+        }
+        let Ok(new_store) = MemberBinding::from_bytes(new_store) else {
+            return false;
+        };
+        let Ok(new_template) = MemberBinding::from_bytes(new_template) else {
+            return false;
+        };
+        let mut ready = [0; READY_BYTES];
+        ready[..8].copy_from_slice(READY_MAGIC);
+        for (index, member) in [self.expected[0], self.expected[1], new_store, new_template]
+            .iter()
+            .enumerate()
+        {
+            ready[8 + index * 4..12 + index * 4].copy_from_slice(&member.length.to_be_bytes());
+            ready[24 + index * 32..56 + index * 32].copy_from_slice(&member.digest);
+        }
+        intent.phase() == DecisionPhase::Intent && intent.matches_stage_ready(&ready)
+    }
+
+    pub(crate) fn same_pair_binding(&self, other: &Self) -> bool {
+        self.expected
+            .iter()
+            .zip(&other.expected)
+            .all(|(a, b)| a.length == b.length && a.digest == b.digest)
+    }
+
     #[cfg(test)]
     pub(crate) fn synthetic(terminal: &DecisionRecord, store: &[u8], template: &[u8]) -> Self {
         Self {

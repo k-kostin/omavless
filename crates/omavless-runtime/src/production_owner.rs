@@ -140,12 +140,17 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         // The publication-only handoff has no restart continuation yet. Even
         // a valid predecessor must not mask this separate existence fence.
         let successor_pending = || {
-            !matches!(
-                std::fs::symlink_metadata(cutover_paths.state_directory.join(
-                    crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
-                )),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound
-            )
+            [
+                crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            ]
+            .into_iter()
+            .any(|name| {
+                !matches!(
+                    std::fs::symlink_metadata(cutover_paths.state_directory.join(name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                )
+            })
         };
 
         let lock = MigrationLock::acquire_existing(&cutover_paths, uid).map_err(lock_error)?;
@@ -1132,32 +1137,34 @@ mod tests {
             assert_eq!(calls.get(), 2, "read-only host observations only");
             assert_eq!(fs::read(&fixture.store).unwrap(), before);
             if phase == "completion" {
-                let successor = fixture
-                    .cutover
-                    .state_directory
-                    .join(crate::restore_successor_handoff_model::SUCCESSOR_MEMBER);
-                for late in [false, true] {
-                    let mut host = fixture.host();
-                    let calls = host.observed_calls.clone();
-                    if late {
-                        host.successor_after_observe = Some((successor.clone(), 2));
-                    } else {
-                        // Unsafe type still fences before any host observation.
-                        symlink("missing-synthetic", &successor).unwrap();
+                for name in [
+                    crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+                    crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+                ] {
+                    let successor = fixture.cutover.state_directory.join(name);
+                    for late in [false, true] {
+                        let mut host = fixture.host();
+                        let calls = host.observed_calls.clone();
+                        if late {
+                            host.successor_after_observe = Some((successor.clone(), 2));
+                        } else {
+                            // Unsafe type still fences before any host observation.
+                            symlink("missing-synthetic", &successor).unwrap();
+                        }
+                        assert_eq!(
+                            ProductionNativeOwner::review_restore_startup(
+                                host,
+                                fixture.desired.clone(),
+                                &fixture.store,
+                                fixture.cutover.clone(),
+                                fixture.uid,
+                            ),
+                            Err(ProductionOwnerError::ManualRecoveryRequired),
+                        );
+                        assert_eq!(calls.get(), if late { 2 } else { 0 });
+                        assert_eq!(fs::read(&fixture.store).unwrap(), before);
+                        fs::remove_file(&successor).unwrap();
                     }
-                    assert_eq!(
-                        ProductionNativeOwner::review_restore_startup(
-                            host,
-                            fixture.desired.clone(),
-                            &fixture.store,
-                            fixture.cutover.clone(),
-                            fixture.uid,
-                        ),
-                        Err(ProductionOwnerError::ManualRecoveryRequired),
-                    );
-                    assert_eq!(calls.get(), if late { 2 } else { 0 });
-                    assert_eq!(fs::read(&fixture.store).unwrap(), before);
-                    fs::remove_file(&successor).unwrap();
                 }
             }
         }

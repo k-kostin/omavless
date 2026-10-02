@@ -19,6 +19,8 @@ use omavless_domain::private_backup::OpenedBackup;
 const REFUSE: ExecutionError = ExecutionError::ManualRecovery;
 #[path = "restore_successor_receipt_candidate.rs"]
 pub(crate) mod receipt;
+#[path = "restore_successor_rotation_candidate.rs"]
+pub(crate) mod rotation;
 struct Evidence {
     directories: [Metadata; 3],
     members: Vec<(Zeroizing<Vec<u8>>, Metadata)>,
@@ -50,6 +52,7 @@ fn observe(
 ) -> Result<Evidence, ExecutionError> {
     let state = open_private_directory(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     absent(&state, RECEIPT_MEMBER)?;
+    absent(&state, crate::restore_closure_model::NEXT_CLOSURE_MEMBER)?;
     let evidence = observe_evidence(
         config,
         paths,
@@ -88,6 +91,7 @@ fn observe_evidence(
     let stage_dir = open_private_directory(&paths.state_directory.join(PENDING_DIRECTORY), uid)
         .map_err(|_| REFUSE)?;
     absent(&state, "routing-preset.pending.json")?;
+    absent(&state, crate::restore_closure_model::NEXT_CLOSURE_MEMBER)?;
     let desired = read_desired_for_decision(paths, uid, lock).map_err(|_| REFUSE)?;
     let stage = read_staged_pair(&paths.state_directory, uid).map_err(|_| REFUSE)?;
     if stage.new_store() != new_store || stage.new_template() != new_template {

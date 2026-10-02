@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"OVRCLS01";
 pub(crate) const CLOSURE_MEMBER: &str = "restore-closure.complete";
+/// Reserved existence fence; no writer or exchange operation exists yet.
+pub(crate) const NEXT_CLOSURE_MEMBER: &str = "restore-closure.next";
 const CHECKSUM_DOMAIN: &[u8] = b"omavless-restore-closure-v1\0";
 const ID_DOMAIN: &[u8] = b"omavless-restore-receipt-id-v1\0";
 const BODY_BYTES: usize = 8 + RECEIPT_BYTES;
