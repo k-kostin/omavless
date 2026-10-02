@@ -3,8 +3,9 @@
 //! Inactive v4 persistence prerequisite. No daemon, IPC, CLI, bootstrap or
 //! migration caller uses this module. It accepts an already-v4 private store
 //! only; it cannot upgrade a production v1-v3 store to unreadable v4 bytes.
-//! Owner revision/replay and active-profile lifecycle admission remain required
-//! before a future registered integration can use this transaction.
+//! The inactive native-owner seam supplies shared revision/replay admission.
+//! Active-profile lifecycle support and every registered product consumer
+//! remain gates before a future installed integration can use this transaction.
 
 use crate::cutover::{CutoverPaths, MigrationLock, OwnershipPhase, read_marker_existing};
 use crate::private_store_transaction::{

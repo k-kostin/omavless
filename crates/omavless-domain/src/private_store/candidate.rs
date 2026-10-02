@@ -285,6 +285,14 @@ impl CandidatePrivateStore {
         )
     }
 
+    /// Private owner admission fact, not a public metadata/ID projection.
+    /// A matching store-active target cannot be changed before the typed
+    /// lifecycle bridge can safely compensate/recover the same credential.
+    #[must_use]
+    pub fn references_active_profile(&self, id: &str) -> bool {
+        !id.is_empty() && self.state.active_id == id
+    }
+
     /// Intentional private byte release for a future owner-bound writer only.
     /// There is currently no production caller and no filesystem publication.
     pub fn into_private_bytes(mut self) -> Result<Vec<u8>, PrivateStoreError> {

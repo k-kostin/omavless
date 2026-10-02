@@ -11,11 +11,13 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
+mod candidate;
 mod onboarding;
 mod probe;
 mod provider;
 mod startup;
 pub use batch::{NativeBatchTicket, NativeSubscriptionBatch};
+pub use candidate::CandidateProfileMutation;
 pub use probe::{NativeSubscriptionProbe, ProbeCancellation};
 pub use provider::{NativeProviderRefresh, ProviderRefreshAdmission, ProviderRefreshSnapshot};
 
@@ -223,6 +225,7 @@ pub enum NativeOwnerError {
     LongOperation(crate::long_operation::LongOperationError),
     Coordinator(CoordinatorError),
     Subscription(SubscriptionTransactionError),
+    Candidate(ProfileTransactionError),
     OwnershipBusy,
     RecordNotFound,
     OwnershipUnavailable,
@@ -250,6 +253,7 @@ impl NativeOwnerError {
             Self::Coordinator(error) => error.stable_code(),
             Self::Subscription(error) => error.stable_code(),
             Self::OwnershipBusy => StableErrorCode::Busy,
+            Self::Candidate(error) => error.stable_code(),
             Self::RecordNotFound => StableErrorCode::NotFound,
             Self::OwnershipUnavailable => StableErrorCode::CapabilityUnavailable,
             Self::ManualRecoveryRequired => StableErrorCode::ManualRecoveryRequired,
@@ -267,6 +271,7 @@ impl fmt::Display for NativeOwnerError {
             Self::LongOperation(_) => "Native batch operation failed",
             Self::Coordinator(_) => "Native mutation scheduling failed",
             Self::Subscription(_) => "Native subscription refresh failed",
+            Self::Candidate(_) => "Native candidate profile operation failed",
             Self::OwnershipBusy => "Native mutation ownership is being changed",
             Self::RecordNotFound => "Requested record was not found",
             Self::OwnershipUnavailable => "Native mutation ownership is unavailable",
@@ -1086,6 +1091,17 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        self.admit_with_lease_checkpoint(kind, operation_id, expected_revision, digest, || {})
+    }
+
+    fn admit_with_lease_checkpoint(
+        &mut self,
+        kind: MutationKind,
+        operation_id: Option<&str>,
+        expected_revision: Option<u64>,
+        digest: crate::mutation::MutationDigest,
+        checkpoint: impl FnOnce(),
+    ) -> Result<Admission, NativeOwnerError> {
         if let Some(fence) = self.required_ownership {
             let lock = self
                 .transaction
@@ -1098,6 +1114,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 && self
                     .transaction
                     .ownership_matches(fence.phase, fence.generation);
+            checkpoint();
+            let owned =
+                owned && lock.authorizes(self.transaction.cutover_paths(), self.transaction.uid());
             drop(lock);
             if !owned {
                 return Err(NativeOwnerError::OwnershipUnavailable);
@@ -1127,6 +1146,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         token: MutationToken,
         family: fn(ConnectionTransactionError) -> NativeTransactionError,
     ) -> Result<LockAdmission, NativeOwnerError> {
+        self.preflight_lock_with_lease_checkpoint(token, family, || {})
+    }
+
+    fn preflight_lock_with_lease_checkpoint(
+        &mut self,
+        token: MutationToken,
+        family: fn(ConnectionTransactionError) -> NativeTransactionError,
+        checkpoint: impl FnOnce(),
+    ) -> Result<LockAdmission, NativeOwnerError> {
         match self.transaction.acquire_lock() {
             Ok(lock) => {
                 // A durable interrupted preset must also fence the effect
@@ -1135,12 +1163,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     self.coordinator.abort_active_uncached(token)?;
                     return Err(NativeOwnerError::ManualRecoveryRequired);
                 }
-                if self.required_ownership.is_some_and(|fence| {
+                let ownership_lost = self.required_ownership.is_some_and(|fence| {
                     fence.phase != OwnershipPhase::Rust
                         || !self
                             .transaction
                             .ownership_matches(fence.phase, fence.generation)
-                }) {
+                });
+                checkpoint();
+                if ownership_lost
+                    || !lock.authorizes(self.transaction.cutover_paths(), self.transaction.uid())
+                {
                     drop(lock);
                     self.coordinator.abort_active_uncached(token)?;
                     return Err(NativeOwnerError::OwnershipUnavailable);

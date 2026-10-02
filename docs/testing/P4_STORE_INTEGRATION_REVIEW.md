@@ -233,3 +233,62 @@ production owner still refuses v4. The future bridge must provide explicit
 same-user action/authentication and reviewed bounded credential framing, then
 complete revision/replay/recovery, lifecycle, old-reader/rollback and all
 consumer gates described above before any user exposure.
+
+### Candidate native-owner admission and no-effect contract
+
+The next inactive seam belongs to the existing `OfflineNativeCoordinator`, not
+a new registry or replay cache. Typed import, replacement and deletion must use
+its shared operation-ID/digest admission, revision, recovery barrier and exact
+committed Rust generation. There is no installed-v3 upgrade or frontend/IPC
+registration. Ungated owners refuse. Exact retries return only the existing
+fixed public outcome before store access; changed inputs using the same ID
+conflict. Stale revisions, busy/revoked ownership and interrupted recovery must
+not publish private state. Private editor/native export reads require the
+current revision and exact generation; credentials never enter the replay cache.
+
+The accepted lifecycle host still loads the v1-v3 runtime store. Consequently
+candidate replacement/deletion of a currently desired or store-active target
+must refuse **before any store write, quiesce, disconnect or reconnect**. This
+is an explicit bridge boundary, not permission to remove an active profile or
+to reconnect it through an unsupported protocol. Other typed edits preserve
+unrelated active/last/pinned references; deletion repairs only its target using
+the complete mixed graph. Current desired state never changes for these
+store-only actions. Imports add a new ID and never implicitly replace.
+
+Publication reuses the real exact-byte atomic private writer. A failed or
+uncertain commit must attempt byte-exact compensation under the same lease and
+generation. Failure to prove restoration raises the existing manual-recovery
+barrier, retaining unrelated external bytes instead of overwriting them. A
+semantic no-op keeps the original inode/formatting and revision. Restored
+failures do not advance the revision; an unproved compensation advances the
+revision with a fixed committed-failure outcome, blocks subsequent mutations
+and must not be reported as success. The integration tests must
+exercise these refusals first, then mixed synthetic import/edit/export/delete,
+replay and compensation scenarios. Active lifecycle and restart recovery remain
+unimplemented gates, not successful acceptance evidence.
+
+The lease integration reuses #510 commit
+`74962160bfceab117b9955a3e1dbef6304230046` with `cherry-pick -x` provenance,
+not a second lease implementation. This older P4 base lacked its existing-only
+constructor/test; conflict resolution retains them and the exact changed lease
+logic. The unrelated later T4 roadmap was absent in the P4 base and is not
+resurrected; this section records the relevant contract instead. Private owner
+reads use existing-only acquisition and cannot create or repair a missing lock.
+Both read and write authority now depends on the held/current lock inode and
+the pinned private runtime-directory identity, not UID/path alone. Checks are
+point-in-time gates: they do not claim atomic protection from arbitrary hostile
+same-UID replacement/restoration between a check and an effect.
+
+The shared native admission and preflight gates also recheck live lease identity
+after marker proof, before replay-cache access or effect admission. These are
+the existing shared gates, not a separate candidate registry. Synthetic tests
+substitute both the file and its runtime directory, cover a second flock on a
+replacement inode, deny private export/editor/preparation/publication/restore
+through a stale holder, and retain normal Busy when the original locked inode
+is moved. Replay refusal preserves the cache; preflight refusal releases the
+uncached token for connection/profile/subscription families. A lease lost at
+the publication boundary raises the conservative recovery barrier even if the
+private source bytes remain original: restoration authority cannot be proved.
+
+The earlier scoped security scan remains incomplete and is not acceptance
+evidence. This implementation follow-up neither seals nor retries that scan.
