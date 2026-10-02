@@ -39,7 +39,7 @@ Following the Omarchy package workflow in a real SSH terminal installed
 `wireguard-tools` (one package, approximately 0.26 MiB), then loaded the stock
 kernel WireGuard module. The package hooks reloaded **system-manager
 configuration** and armed `ConditionNeedsUpdate`; these are guest-wide actions,
-not namespace-local fixture actions. No package/core/runtime update, persistent
+not namespace-local fixture actions. No existing package/core/runtime upgrade, persistent
 network/sysctl/security-policy change or private profile access was performed.
 Stock tools/module remain available and were not removed or unloaded as if
 they could not be shared.
@@ -126,8 +126,9 @@ fixed-safe errors, exact controller PID/no-DIRECT selection, parent namespace
 refusal and dropped child capabilities. They never execute a real namespace,
 network, module operation or installed acceptance action. Local full Rust gates
 passed 1,055 tests with zero failures and 12 existing ignored; formatting,
-strict all-target clippy and parity passed. Final source-suite/CI totals belong
-to the owning PR after registering the guard tests in `tests/run.sh`.
+strict all-target clippy and parity passed. With the guard tests registered in
+`tests/run.sh`, the source suite passed 285 tests with two existing skips plus
+native/QML contracts. Exact final-head CI results belong to the owning Draft.
 
 ## Remaining gates
 
