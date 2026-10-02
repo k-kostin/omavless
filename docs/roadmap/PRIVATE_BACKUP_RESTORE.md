@@ -799,3 +799,24 @@ owner drift during a partial stage and final artifact substitution are exercised
 with synthetic data. Readable stage/intent bytes after a crash remain evidence,
 not proof of prior synchronization or automatic restart permission. A separate
 recovery admission/durability step is still needed before any continuation.
+
+## Inactive interrupted successor preparation recovery
+
+An explicit internal recovery candidate requires a freshly authenticated matching
+archive and an exact caller-selected phase. Handoff-only uses the create-only
+preparer. Complete stage-only evidence is reopened, every pinned file is synced,
+then stage/config/state directories are synced and the whole authenticated phase
+is rechecked before exclusive intent publication. Complete intent evidence is
+similarly resynchronized and verified without replacing its inode. A ready marker
+visible before the stage-directory sync is not treated as prior durability proof.
+Partial stage, torn/empty intent, terminal evidence, changed identities, ownership
+or host gates remain fenced; there is no repair, deletion or plaintext-only
+recovery authority. Sync interruption is ambiguous and requires fresh admission.
+
+The result remains `PreparedStillFenced`, not permission to execute or start a
+normal owner. Current `execute_staged_pair` exclusively creates its own intent
+and therefore cannot consume this prepublished intent. A separately reviewed
+exact-intent execution handoff, predecessor-fence lifecycle, recovery-owner
+admission and installed startup/UI acceptance remain required. Synthetic composed
+publication/preparation/recovery tests do not claim a second live restore or
+product recovery acceptance; passphrases are not persisted.

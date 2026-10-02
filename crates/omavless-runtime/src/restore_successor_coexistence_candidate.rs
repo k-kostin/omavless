@@ -86,6 +86,7 @@ impl Snapshot {
     }
     fn same(&self, other: &Self) -> bool {
         self.handoff == other.handoff
+            && self.old == other.old
             && self.directories.len() == other.directories.len()
             && self
                 .directories
