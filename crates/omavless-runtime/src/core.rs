@@ -127,9 +127,9 @@ impl OwnedCore {
             return Err(CoreError::ExitedBeforeReady);
         }
         let pid = self.pid().ok_or(CoreError::StopFailed)?;
-        Ok(Arc::clone(self.conditional_lifetime.get_or_insert_with(|| {
-            Arc::new(crate::conditional_close_candidate::Lifetime::new(pid))
-        })))
+        Ok(Arc::clone(self.conditional_lifetime.get_or_insert_with(
+            || Arc::new(crate::conditional_close_candidate::Lifetime::new(pid)),
+        )))
     }
 
     pub fn running(&mut self) -> Result<bool, CoreError> {
