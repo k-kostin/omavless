@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Inactive fixed conditional transport bound to a parent-owned waitable child.
 //! Production cannot construct the candidate effect permit. Package attestation,
-//! owner confirmation/revision admission and detached scheduling remain required.
+//! owner confirmation/revision admission and production scheduling remain required.
 use crate::core::OwnedCore;
 use nix::fcntl::{OFlag, open, openat};
 use nix::sys::socket::{
@@ -13,11 +13,12 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::fs::{self, File, Metadata};
 use std::io::{Read, Write};
+use std::net::Shutdown;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MAX_ROWS: usize = 128;
@@ -143,23 +144,134 @@ fn remaining(deadline: Instant) -> Result<Duration, Outcome> {
         .ok_or(Outcome::Unknown)
 }
 
-/// The child reference prevents replacing/reaping the core through another
-/// owner while this candidate session exists. Directory/socket FDs prevent
-/// inode reuse; path/peer/PID/liveness are rechecked immediately before write.
-pub(crate) struct Session<'a> {
-    core: &'a mut OwnedCore,
+#[derive(Clone, Copy)]
+enum Phase {
+    BeforeEffect,
+    EffectAttempted,
+    Finished(Outcome),
+}
+struct Reservation {
+    identity: Arc<()>,
+    phase: Phase,
+    cancelled: bool,
+    stream: Option<UnixStream>,
+}
+struct Gate {
+    live: bool,
+    reservation: Option<Reservation>,
+}
+impl Gate {
+    fn revoke(&mut self) {
+        self.live = false;
+        if let Some(reservation) = &mut self.reservation {
+            if !matches!(reservation.phase, Phase::Finished(_)) {
+                reservation.cancelled = true;
+            }
+            if let Some(stream) = &reservation.stream {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+        }
+    }
+}
+/// Retained non-reusable child identity, not ownership of Child. OwnedCore
+/// revokes before signalling or reaping. WNOWAIT is legal only under Live.
+pub(crate) struct Lifetime {
+    pid: u32,
+    gate: Mutex<Gate>,
+}
+impl Lifetime {
+    pub(crate) fn new(pid: u32) -> Self {
+        Self {
+            pid,
+            gate: Mutex::new(Gate {
+                live: true,
+                reservation: None,
+            }),
+        }
+    }
+    pub(crate) fn revoke(&self) {
+        // Recover poisoning to revoke during unwind as well. No blocking I/O,
+        // callback or child cleanup runs while this fast gate is held.
+        let mut gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+        gate.revoke();
+    }
+    fn running(&self, gate: &mut Gate) -> bool {
+        if !gate.live {
+            return false;
+        }
+        let Ok(pid) = i32::try_from(self.pid) else {
+            gate.revoke();
+            return false;
+        };
+        let running = matches!(
+            nix::sys::wait::waitid(
+                nix::sys::wait::Id::Pid(nix::unistd::Pid::from_raw(pid)),
+                nix::sys::wait::WaitPidFlag::WEXITED
+                    | nix::sys::wait::WaitPidFlag::WNOHANG
+                    | nix::sys::wait::WaitPidFlag::WNOWAIT,
+            ),
+            Ok(nix::sys::wait::WaitStatus::StillAlive)
+        );
+        if !running {
+            gate.revoke();
+        }
+        running
+    }
+}
+
+/// Cancellation and effect linearization share the retained child gate.
+/// A finished definitive receipt wins before later cancellation.
+#[derive(Clone)]
+pub(crate) struct Cancellation {
+    lifetime: Arc<Lifetime>,
+    identity: Arc<()>,
+}
+impl Cancellation {
+    pub(crate) fn cancel(&self) {
+        let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(r) = &mut gate.reservation
+            && Arc::ptr_eq(&r.identity, &self.identity)
+            && !matches!(r.phase, Phase::Finished(_))
+        {
+            r.cancelled = true;
+            if let Some(stream) = &r.stream {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+        }
+    }
+}
+
+/// Owned descriptors and a permanently revocable retained child identity.
+/// No owner borrow or owner/migration mutex spans controller I/O.
+pub(crate) struct Session {
+    lifetime: Arc<Lifetime>,
+    path: PathBuf,
     directory: File,
     socket: File,
     binding: Binding,
     identity: Arc<()>,
+    deadline: Option<Instant>,
+    #[cfg(test)]
+    panic_after_write: bool,
+    #[cfg(test)]
+    before_finish: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    before_write: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    effect_chunk: usize,
+    #[cfg(test)]
+    after_chunk: Option<Arc<std::sync::Barrier>>,
 }
 
-impl<'a> Session<'a> {
-    pub(crate) fn bind(core: &'a mut OwnedCore, uid: u32) -> Result<Self, Outcome> {
+impl Session {
+    pub(crate) fn bind(core: &mut OwnedCore, uid: u32) -> Result<Self, Outcome> {
         if !core.running().is_ok_and(|v| v) {
             return Err(Outcome::RefusedBeforeWrite);
         }
-        let path = core.controller_path();
+        let lifetime = core
+            .conditional_lifetime()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        let path = core.controller_path().to_owned();
         let parent = path.parent().ok_or(Outcome::RefusedBeforeWrite)?;
         let directory = File::from(
             open(
@@ -189,22 +301,66 @@ impl<'a> Session<'a> {
             socket: inode(&socket.metadata().map_err(|_| Outcome::RefusedBeforeWrite)?),
         };
         let mut session = Self {
-            core,
+            lifetime,
+            path,
             directory,
             socket,
             binding,
             identity: Arc::new(()),
+            deadline: None,
+            #[cfg(test)]
+            panic_after_write: false,
+            #[cfg(test)]
+            before_finish: None,
+            #[cfg(test)]
+            before_write: None,
+            #[cfg(test)]
+            effect_chunk: usize::MAX,
+            #[cfg(test)]
+            after_chunk: None,
         };
+        {
+            let mut gate = session
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            if !session.lifetime.running(&mut gate) || gate.reservation.is_some() {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            gate.reservation = Some(Reservation {
+                identity: Arc::clone(&session.identity),
+                phase: Phase::BeforeEffect,
+                cancelled: false,
+                stream: None,
+            });
+        }
         session.check()?;
         Ok(session)
     }
 
     fn check(&mut self) -> Result<(), Outcome> {
+        let lifetime = Arc::clone(&self.lifetime);
+        let mut gate = lifetime
+            .gate
+            .lock()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        self.check_locked(&mut gate)
+    }
+
+    fn check_locked(&self, gate: &mut Gate) -> Result<(), Outcome> {
         let refuse = Outcome::RefusedBeforeWrite;
-        if self.core.pid() != Some(self.binding.pid) || !self.core.running().is_ok_and(|v| v) {
+        if self.lifetime.pid != self.binding.pid
+            || !self.lifetime.running(gate)
+            || !gate.reservation.as_ref().is_some_and(|r| {
+                Arc::ptr_eq(&r.identity, &self.identity)
+                    && !r.cancelled
+                    && !matches!(r.phase, Phase::Finished(_))
+            })
+        {
             return Err(refuse);
         }
-        let path = self.core.controller_path();
+        let path = &self.path;
         let parent = path.parent().ok_or(refuse)?;
         for metadata in [self.directory.metadata(), fs::symlink_metadata(parent)] {
             let metadata = metadata.map_err(|_| refuse)?;
@@ -242,7 +398,7 @@ impl<'a> Session<'a> {
         .map_err(|_| refuse)?;
         connect(
             fd.as_raw_fd(),
-            &UnixAddr::new(self.core.controller_path()).map_err(|_| refuse)?,
+            &UnixAddr::new(&self.path).map_err(|_| refuse)?,
         )
         .map_err(|_| refuse)?;
         let stream = UnixStream::from(fd);
@@ -253,7 +409,11 @@ impl<'a> Session<'a> {
             return Err(refuse);
         }
         self.check()?;
-        stream.set_nonblocking(false).map_err(|_| refuse)?;
+        let lifetime = Arc::clone(&self.lifetime);
+        let mut gate = lifetime.gate.lock().map_err(|_| refuse)?;
+        self.check_locked(&mut gate)?;
+        gate.reservation.as_mut().ok_or(refuse)?.stream =
+            Some(stream.try_clone().map_err(|_| refuse)?);
         Ok(stream)
     }
 
@@ -262,7 +422,7 @@ impl<'a> Session<'a> {
     }
 
     fn exchange_request(&mut self, request: Request<'_>) -> Result<(u16, Vec<u8>), Outcome> {
-        let deadline = Instant::now() + BUDGET;
+        let deadline = *self.deadline.get_or_insert_with(|| Instant::now() + BUDGET);
         let mut stream = self.connected()?;
         let effect = matches!(request, Request::Close(_));
         let request = match request {
@@ -275,32 +435,71 @@ impl<'a> Session<'a> {
                 t.id, t.token
             ),
         };
-        stream
-            .set_write_timeout(Some(remaining(deadline)?))
-            .map_err(|_| Outcome::RefusedBeforeWrite)?;
-        self.check()?;
         // From the first write attempt onward, partial send/lost response is
         // unknown. Never reconnect/resend, DELETE by ID, close-all or infer a
         // receipt from later absence.
         let mut pending = request.as_bytes();
         while !pending.is_empty() {
-            stream
-                .set_write_timeout(Some(remaining(deadline)?))
-                .map_err(|_| Outcome::Unknown)?;
-            let n = stream.write(pending).map_err(|_| Outcome::Unknown)?;
+            remaining(deadline)?;
+            #[cfg(test)]
+            if effect && let Some(barrier) = &self.before_write {
+                barrier.wait();
+                barrier.wait();
+            }
+            // First effect attempt and every partial chunk are serialized
+            // against revocation/cancel. Socket is nonblocking throughout.
+            let result = {
+                let mut gate = self.lifetime.gate.lock().map_err(|_| Outcome::Unknown)?;
+                self.check_locked(&mut gate)?;
+                remaining(deadline)?;
+                if effect {
+                    gate.reservation.as_mut().ok_or(Outcome::Unknown)?.phase =
+                        Phase::EffectAttempted;
+                }
+                #[cfg(test)]
+                let pending = if effect {
+                    &pending[..pending.len().min(self.effect_chunk)]
+                } else {
+                    pending
+                };
+                stream.write(pending)
+            };
+            let n = match result {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    self.pause(deadline)?;
+                    continue;
+                }
+                Err(_) => return Err(Outcome::Unknown),
+            };
             if n == 0 {
                 return Err(Outcome::Unknown);
             }
             pending = &pending[n..];
+            #[cfg(test)]
+            if effect && let Some(barrier) = self.after_chunk.take() {
+                barrier.wait();
+                barrier.wait();
+            }
+        }
+        #[cfg(test)]
+        if effect && self.panic_after_write {
+            panic!("fixed research worker failure");
         }
         let cap = if effect { MAX_REPLY } else { MAX_SNAPSHOT };
         let mut raw = Vec::new();
         let mut chunk = [0; 8192];
         loop {
-            stream
-                .set_read_timeout(Some(remaining(deadline)?))
-                .map_err(|_| Outcome::Unknown)?;
-            let n = stream.read(&mut chunk).map_err(|_| Outcome::Unknown)?;
+            remaining(deadline)?;
+            self.check()?;
+            let n = match stream.read(&mut chunk) {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    self.pause(deadline)?;
+                    continue;
+                }
+                Err(_) => return Err(Outcome::Unknown),
+            };
             if n == 0 {
                 break;
             }
@@ -312,6 +511,49 @@ impl<'a> Session<'a> {
         remaining(deadline)?;
         self.check().map_err(|_| Outcome::Unknown)?;
         parse_http(&raw)
+    }
+
+    fn pause(&mut self, deadline: Instant) -> Result<(), Outcome> {
+        self.check()?;
+        std::thread::sleep(remaining(deadline)?.min(Duration::from_millis(2)));
+        Ok(())
+    }
+
+    pub(crate) fn cancellation(&self) -> Cancellation {
+        Cancellation {
+            lifetime: Arc::clone(&self.lifetime),
+            identity: Arc::clone(&self.identity),
+        }
+    }
+
+    fn finish(&mut self, candidate: Outcome) -> Outcome {
+        let lifetime = Arc::clone(&self.lifetime);
+        let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        let proved = self.check_locked(&mut gate).is_ok()
+            && self
+                .deadline
+                .is_some_and(|deadline| Instant::now() < deadline);
+        let Some(r) = &mut gate.reservation else {
+            return Outcome::Unknown;
+        };
+        if !Arc::ptr_eq(&r.identity, &self.identity) {
+            return Outcome::Unknown;
+        }
+        if let Phase::Finished(outcome) = r.phase {
+            return outcome;
+        }
+        let outcome = if matches!(r.phase, Phase::BeforeEffect) {
+            Outcome::RefusedBeforeWrite
+        } else if proved && candidate != Outcome::RefusedBeforeWrite {
+            candidate
+        } else if matches!(r.phase, Phase::EffectAttempted) {
+            Outcome::Unknown
+        } else {
+            Outcome::RefusedBeforeWrite
+        };
+        r.phase = Phase::Finished(outcome);
+        r.stream = None;
+        outcome
     }
 
     pub(crate) fn discover(&mut self) -> Result<Vec<BoundTarget>, Outcome> {
@@ -350,6 +592,25 @@ impl<'a> Session<'a> {
         selected: BoundTarget,
         _permit: CandidateEffectPermit,
     ) -> Outcome {
+        if self.lifetime.gate.lock().is_ok_and(|gate| {
+            gate.reservation
+                .as_ref()
+                .is_some_and(|r| matches!(r.phase, Phase::Finished(_)))
+        }) {
+            // A session admits one effect only. A later selection cannot
+            // inherit the first action's receipt or renew uncertain work.
+            return Outcome::RefusedBeforeWrite;
+        }
+        let result = self.close_inner(selected);
+        #[cfg(test)]
+        if let Some(barrier) = &self.before_finish {
+            barrier.wait();
+            barrier.wait();
+        }
+        self.finish(result)
+    }
+
+    fn close_inner(&mut self, selected: BoundTarget) -> Outcome {
         if selected.binding != self.binding
             || !Arc::ptr_eq(&selected.session_identity, &self.identity)
         {
@@ -365,6 +626,121 @@ impl<'a> Session<'a> {
             Ok((400 | 503, body)) if body.is_empty() => Outcome::Unsupported,
             Err(Outcome::RefusedBeforeWrite) => Outcome::RefusedBeforeWrite,
             _ => Outcome::Unknown,
+        }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.cancellation().cancel();
+        let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        if gate
+            .reservation
+            .as_ref()
+            .is_some_and(|r| Arc::ptr_eq(&r.identity, &self.identity))
+        {
+            gate.reservation = None;
+        }
+    }
+}
+
+/// Inactive scheduler seam: reserve under the owner's short scheduling section,
+/// then move only the retained transport out. One worker is admitted until its
+/// real exit, even when the result handle is dropped. No public method uses it.
+#[derive(Default)]
+pub(crate) struct Scheduler {
+    active: Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(test)]
+    fail_next_spawn: bool,
+}
+struct Slot(Arc<std::sync::atomic::AtomicBool>);
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+pub(crate) struct Worker {
+    cancellation: Cancellation,
+    result: std::sync::mpsc::Receiver<Outcome>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl Scheduler {
+    pub(crate) fn start(
+        &mut self,
+        mut session: Session,
+        selected: BoundTarget,
+        permit: CandidateEffectPermit,
+    ) -> Result<Worker, Outcome> {
+        use std::sync::atomic::Ordering;
+        if self
+            .active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        let slot = Slot(Arc::clone(&self.active));
+        let cancellation = session.cancellation();
+        let (sender, result) = std::sync::mpsc::sync_channel(1);
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_spawn) {
+            drop(slot);
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        // Discovery time does not give a detached effect a renewable budget.
+        // The inherited whole-session deadline can only shorten this work.
+        let thread = std::thread::Builder::new()
+            .name("omavless-close-research".into())
+            .spawn(move || {
+                let _slot = slot;
+                let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    session.close(selected, permit)
+                })) {
+                    Ok(outcome) => outcome,
+                    Err(_) => session.finish(Outcome::Unknown),
+                };
+                // Release retained descriptors and this exact reservation
+                // before result publication or worker-slot release.
+                drop(session);
+                let _ = sender.try_send(outcome);
+            })
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        Ok(Worker {
+            cancellation,
+            result,
+            thread: Some(thread),
+        })
+    }
+}
+impl Worker {
+    pub(crate) fn cancel(&self) {
+        self.cancellation.cancel();
+    }
+    pub(crate) fn poll(&mut self) -> Option<Outcome> {
+        let result = self.result.try_recv().ok();
+        if self
+            .thread
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
+        }
+        result
+    }
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.cancel();
+        // Socket shutdown wakes the bounded worker. Never join an unfinished
+        // worker in Drop or release its slot early to admit replacements.
+        if self
+            .thread
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
         }
     }
 }
@@ -428,6 +804,7 @@ fn parse_http(raw: &[u8]) -> Result<(u16, Vec<u8>), Outcome> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::os::unix::fs::PermissionsExt;
     const ID: &str = "11111111-1111-4111-8111-111111111111";
     // These tests own temporary subprocess groups and loopback listeners.
     // Serialize their fixture lifetime; core-side concurrent confirmation is
@@ -681,6 +1058,8 @@ mod tests {
             session.close(stale, CandidateEffectPermit { _private: () }),
             Outcome::RefusedBeforeWrite
         );
+        drop(session);
+        let mut session = Session::bind(&mut core, uid).unwrap();
         let mut discovered = session.discover().unwrap();
         assert_eq!(discovered.len(), 2);
         let (_, raw) = session.exchange(None).unwrap();
@@ -718,10 +1097,26 @@ mod tests {
             client.read_exact(&mut data).unwrap();
             assert_eq!(&data, b"still");
         }
-        assert_eq!(
-            session.close(selected, CandidateEffectPermit { _private: () }),
-            Outcome::Closed
-        );
+        let selected_id = selected.target.id;
+        drop(session);
+        let mut session = Session::bind(&mut core, uid).unwrap();
+        let selected = session
+            .discover()
+            .unwrap()
+            .into_iter()
+            .find(|target| target.target.id == selected_id)
+            .unwrap();
+        let mut scheduler = Scheduler::default();
+        let mut close_worker = scheduler
+            .start(session, selected, CandidateEffectPermit { _private: () })
+            .unwrap();
+        assert_eq!(worker_result(&mut close_worker), Outcome::Closed);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while scheduler.active.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let mut session = Session::bind(&mut core, uid).unwrap();
         let mut byte = [0; 1];
         assert!(matches!(clients[index].read(&mut byte), Ok(0) | Err(_)));
         let other = 1 - index;
@@ -747,7 +1142,7 @@ mod tests {
     }
 
     const PEER_FIXTURE: &str = r#"#!/usr/bin/python3
-import argparse, json, os, socket
+import argparse, json, os, socket, time
 p=argparse.ArgumentParser();p.add_argument('-d');p.add_argument('-f');a=p.parse_args()
 root=a.d; variant=json.load(open(a.f))['variant']
 s=socket.socket(socket.AF_UNIX);s.bind(root+'/mihomo.sock');os.chmod(root+'/mihomo.sock',0o600);s.listen(4)
@@ -757,21 +1152,30 @@ while True:
   b=c.recv(1024)
   if not b:break
   raw+=b
+ if not raw:c.close();continue
  line=raw.split(b'\r\n',1)[0]
  if line.startswith(b'GET /version '):body=b'{"version":"synthetic"}';head=b'HTTP/1.0 200 OK\r\n'
  elif line.startswith(b'GET /connections/conditional-capabilities '):
+  if os.path.exists(root+'/stall-capability'):
+   open(root+'/capability-entered','wb').close(); deadline=time.monotonic()+10
+   while not os.path.exists(root+'/release') and time.monotonic()<deadline:time.sleep(0.002)
   body={'badabi':b'{"abi":2,"ready":true}','suspended':b'{"abi":1,"ready":false}','duplicated':b'{"abi":1,"abi":1,"ready":true}','extra':b'{"abi":1,"ready":true,"unknown":0}'}.get(variant,b'{"abi":1,"ready":true}')
   if os.path.exists(root+'/suspended'):body=b'{"abi":1,"ready":false}'
   head=b'HTTP/1.0 200 OK\r\n'
  elif line.startswith(b'GET /connections '):body=b'{"connections":[{"id":"11111111-1111-4111-8111-111111111111","omavlessCloseToken":"42"}]}';head=b'HTTP/1.0 200 OK\r\n'
  else:
   with open(root+'/effects','ab') as f:f.write(b'1\n')
+  if variant=='stall-reply':
+   open(root+'/effect-entered','wb').close(); deadline=time.monotonic()+10
+   while not os.path.exists(root+'/release') and time.monotonic()<deadline:time.sleep(0.002)
   if variant=='drop':c.close();continue
   if variant=='partial':c.sendall(b'HTTP/1.0 204 No Content\r\nContent-Length: 1\r\n\r\n');c.close();continue
   if variant=='bad-code':body=b'';head=b'HTTP/1.0 +204 No Content\r\n'
   elif variant=='generic404':body=b'404 page not found';head=b'HTTP/1.0 404 Not Found\r\n'
   else:body=b'';head=b'HTTP/1.0 204 No Content\r\n'
- c.sendall(head+b'Content-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body);c.close()
+ try:c.sendall(head+b'Content-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body)
+ except OSError:pass
+ c.close()
 "#;
 
     fn peer_fixture(variant: &str) -> (std::path::PathBuf, OwnedCore) {
@@ -787,6 +1191,541 @@ while True:
         let mut core = OwnedCore::spawn(&exe, &root, &config, &root.join("mihomo.sock")).unwrap();
         core.wait_ready(Duration::from_secs(5)).unwrap();
         (root, core)
+    }
+
+    fn wait_marker(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !path.exists() {
+            assert!(Instant::now() < deadline, "fixed fixture barrier timed out");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn worker_result(worker: &mut Worker) -> Outcome {
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            if let Some(result) = worker.poll() {
+                return result;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "bounded research worker did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    fn prepared(core: &mut OwnedCore) -> (Session, BoundTarget) {
+        let mut session = Session::bind(core, nix::unistd::Uid::current().as_raw()).unwrap();
+        let target = session.discover().unwrap().remove(0);
+        (session, target)
+    }
+
+    #[test]
+    fn detached_stalled_capability_and_effect_reply_allow_owner_status_and_urgent_disconnect() {
+        use crate::mutation::{
+            BeginOutcome, MutationCoordinator, MutationDigest, MutationKind, MutationRequest,
+            MutationResult,
+        };
+        let _fixture = FIXTURE.lock().unwrap();
+        for after_effect in [false, true] {
+            let (root, mut core) = peer_fixture(if after_effect { "stall-reply" } else { "ok" });
+            let (session, target) = prepared(&mut core);
+            if !after_effect {
+                fs::write(root.join("stall-capability"), b"fixed").unwrap();
+            }
+            // Compose the actual mutation scheduler with the actual owned child;
+            // the detached session contains neither coordinator nor Child.
+            let owner = Mutex::new((core, MutationCoordinator::default(), Scheduler::default()));
+            let mut worker = owner
+                .lock()
+                .unwrap()
+                .2
+                .start(session, target, CandidateEffectPermit { _private: () })
+                .unwrap();
+            wait_marker(&root.join(if after_effect {
+                "effect-entered"
+            } else {
+                "capability-entered"
+            }));
+            let begin = Instant::now();
+            let mut guard = owner
+                .try_lock()
+                .expect("transport must release owner during I/O");
+            assert_eq!(guard.1.revision(), 0);
+            assert!(guard.0.running().unwrap());
+            guard
+                .1
+                .submit(
+                    MutationRequest::new(
+                        MutationKind::Other,
+                        Some("queued"),
+                        None,
+                        MutationDigest::new([1; 32]),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            guard
+                .1
+                .submit(
+                    MutationRequest::new(
+                        MutationKind::Disconnect,
+                        Some("urgent"),
+                        None,
+                        MutationDigest::new([2; 32]),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let BeginOutcome::Started(active) = guard.1.begin_next().unwrap() else {
+                panic!("urgent action not admitted");
+            };
+            assert_eq!(active.kind, MutationKind::Disconnect);
+            guard.0.stop(Duration::from_secs(2)).unwrap();
+            guard
+                .1
+                .finish(active.token, MutationResult::Success)
+                .unwrap();
+            assert_eq!(guard.1.revision(), 1);
+            assert!(
+                begin.elapsed() < Duration::from_secs(1),
+                "disconnect waited for controller deadline"
+            );
+            drop(guard);
+            assert_eq!(
+                worker_result(&mut worker),
+                if after_effect {
+                    Outcome::Unknown
+                } else {
+                    Outcome::RefusedBeforeWrite
+                }
+            );
+            if after_effect {
+                assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+            } else {
+                assert!(!root.join("effects").exists());
+            }
+            drop(worker);
+            drop(owner);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn detached_cancel_before_and_after_attempt_never_resends_or_relabels_unknown() {
+        let _fixture = FIXTURE.lock().unwrap();
+        for after_effect in [false, true] {
+            let (root, mut core) = peer_fixture(if after_effect { "stall-reply" } else { "ok" });
+            let (session, target) = prepared(&mut core);
+            if !after_effect {
+                fs::write(root.join("stall-capability"), b"fixed").unwrap();
+            }
+            let mut scheduler = Scheduler::default();
+            let mut worker = scheduler
+                .start(session, target, CandidateEffectPermit { _private: () })
+                .unwrap();
+            wait_marker(&root.join(if after_effect {
+                "effect-entered"
+            } else {
+                "capability-entered"
+            }));
+            worker.cancel();
+            let outcome = worker_result(&mut worker);
+            assert_eq!(
+                outcome,
+                if after_effect {
+                    Outcome::Unknown
+                } else {
+                    Outcome::RefusedBeforeWrite
+                }
+            );
+            fs::write(root.join("release"), b"fixed").unwrap();
+            worker.cancel();
+            assert!(worker.poll().is_none());
+            core.stop(Duration::from_secs(2)).unwrap();
+            assert_eq!(
+                fs::read(root.join("effects")).unwrap_or_default(),
+                if after_effect {
+                    b"1\n".to_vec()
+                } else {
+                    vec![]
+                }
+            );
+            drop(worker);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn detached_receipt_completion_and_cancel_have_one_atomic_winner() {
+        let _fixture = FIXTURE.lock().unwrap();
+        for cancel_before_finish in [false, true] {
+            let (root, mut core) = peer_fixture("ok");
+            let (mut session, target) = prepared(&mut core);
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            session.before_finish = Some(Arc::clone(&barrier));
+            let cancellation = session.cancellation();
+            let lifetime = Arc::clone(&session.lifetime);
+            let mut scheduler = Scheduler::default();
+            let mut worker = scheduler
+                .start(session, target, CandidateEffectPermit { _private: () })
+                .unwrap();
+            barrier.wait(); // complete real empty 204 parsed, final proof pending
+            if cancel_before_finish {
+                cancellation.cancel();
+            }
+            barrier.wait();
+            let result = worker_result(&mut worker);
+            assert_eq!(
+                result,
+                if cancel_before_finish {
+                    Outcome::Unknown
+                } else {
+                    Outcome::Closed
+                }
+            );
+            cancellation.cancel();
+            lifetime.revoke();
+            assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+            core.stop(Duration::from_secs(2)).unwrap();
+            drop(worker);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn finished_session_cannot_attribute_prior_receipt_to_another_selection() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let other = BoundTarget {
+            target: Target {
+                id: "22222222-2222-4222-8222-222222222222".into(),
+                token: "43".into(),
+            },
+            binding: target.binding,
+            session_identity: Arc::clone(&target.session_identity),
+        };
+        assert_eq!(
+            session.close(target, CandidateEffectPermit { _private: () }),
+            Outcome::Closed
+        );
+        assert_eq!(
+            session.close(other, CandidateEffectPermit { _private: () }),
+            Outcome::RefusedBeforeWrite
+        );
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn attempted_effect_cannot_become_prewrite_refusal_after_transient_path_restoration() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("stall-reply");
+        let (mut session, target) = prepared(&mut core);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        session.before_finish = Some(Arc::clone(&barrier));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        wait_marker(&root.join("effect-entered"));
+        fs::rename(root.join("mihomo.sock"), root.join("old.sock")).unwrap();
+        let replacement = std::os::unix::net::UnixListener::bind(root.join("mihomo.sock")).unwrap();
+        fs::set_permissions(root.join("mihomo.sock"), fs::Permissions::from_mode(0o600)).unwrap();
+        barrier.wait(); // post-write identity failure observed, finish paused
+        drop(replacement);
+        fs::remove_file(root.join("mihomo.sock")).unwrap();
+        fs::rename(root.join("old.sock"), root.join("mihomo.sock")).unwrap();
+        barrier.wait(); // final proof sees the restored exact inode
+        assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parsed_receipt_after_whole_deadline_remains_unknown() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        session.deadline = Some(deadline);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        session.before_finish = Some(Arc::clone(&barrier));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        barrier.wait();
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(5),
+        );
+        barrier.wait();
+        assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn actual_partial_write_then_restored_identity_cannot_become_prewrite_refusal() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let written = Arc::new(std::sync::Barrier::new(2));
+        let finishing = Arc::new(std::sync::Barrier::new(2));
+        // Test-only chunk size performs a real 16-byte UnixStream write; it
+        // does not inject an outcome or replace the actual transport.
+        session.effect_chunk = 16;
+        session.after_chunk = Some(Arc::clone(&written));
+        session.before_finish = Some(Arc::clone(&finishing));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        written.wait();
+        fs::rename(root.join("mihomo.sock"), root.join("old.sock")).unwrap();
+        let replacement = std::os::unix::net::UnixListener::bind(root.join("mihomo.sock")).unwrap();
+        fs::set_permissions(root.join("mihomo.sock"), fs::Permissions::from_mode(0o600)).unwrap();
+        written.wait();
+        finishing.wait(); // second chunk refused after the real first attempt
+        drop(replacement);
+        fs::remove_file(root.join("mihomo.sock")).unwrap();
+        fs::rename(root.join("old.sock"), root.join("mihomo.sock")).unwrap();
+        finishing.wait();
+        assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+        wait_marker(&root.join("effects"));
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        assert!(
+            core.conditional_lifetime()
+                .unwrap()
+                .gate
+                .lock()
+                .unwrap()
+                .reservation
+                .is_none()
+        );
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expired_admission_before_write_gate_sends_zero_effect_bytes() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        session.deadline = Some(deadline);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        session.before_write = Some(Arc::clone(&barrier));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        barrier.wait(); // authenticated stream ready, fast write gate pending
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(5),
+        );
+        barrier.wait();
+        assert_eq!(worker_result(&mut worker), Outcome::RefusedBeforeWrite);
+        assert!(!root.join("effects").exists());
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owner_observed_child_proof_loss_permanently_revokes_retained_lifetime() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let pid = nix::unistd::Pid::from_raw(i32::try_from(core.pid().unwrap()).unwrap());
+        nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL).unwrap();
+        nix::sys::wait::waitpid(pid, None).unwrap();
+        assert!(core.running().is_err());
+        let mut gate = session.lifetime.gate.lock().unwrap();
+        assert!(!gate.live);
+        assert!(gate.reservation.as_ref().unwrap().cancelled);
+        // Once revoked, observation short-circuits before any numeric PID use.
+        assert!(!session.lifetime.running(&mut gate));
+        drop(gate);
+        assert_eq!(
+            session.close(target, CandidateEffectPermit { _private: () }),
+            Outcome::RefusedBeforeWrite
+        );
+        assert!(!root.join("effects").exists());
+        drop(session);
+        drop(core);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detached_stop_and_new_child_same_path_cannot_revive_old_identity_or_selection() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut old, selected) = prepared(&mut core);
+        let pin = Arc::clone(&old.lifetime);
+        core.stop(Duration::from_secs(2)).unwrap();
+        assert!(!pin.gate.lock().unwrap().live);
+        fs::remove_file(root.join("mihomo.sock")).unwrap();
+        let mut replacement = OwnedCore::spawn(
+            &root.join("core.py"),
+            &root,
+            &root.join("config.json"),
+            &root.join("mihomo.sock"),
+        )
+        .unwrap();
+        replacement.wait_ready(Duration::from_secs(3)).unwrap();
+        assert!(old.discover().is_err());
+        assert_eq!(
+            old.close(selected, CandidateEffectPermit { _private: () }),
+            Outcome::RefusedBeforeWrite
+        );
+        assert!(!root.join("effects").exists());
+        drop(old);
+        let (mut session, target) = prepared(&mut replacement);
+        assert!(!Arc::ptr_eq(&pin, &session.lifetime));
+        assert_eq!(
+            session.close(target, CandidateEffectPermit { _private: () }),
+            Outcome::Closed
+        );
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        replacement.stop(Duration::from_secs(2)).unwrap();
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detached_unexpected_reap_and_replaced_controller_refuse_without_effects() {
+        let _fixture = FIXTURE.lock().unwrap();
+        for foreign_reap in [false, true] {
+            let (root, mut core) = peer_fixture("ok");
+            let (mut session, target) = prepared(&mut core);
+            if foreign_reap {
+                let pid = nix::unistd::Pid::from_raw(i32::try_from(core.pid().unwrap()).unwrap());
+                nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL).unwrap();
+                nix::sys::wait::waitpid(pid, None).unwrap();
+            } else {
+                fs::rename(root.join("mihomo.sock"), root.join("retained.sock")).unwrap();
+                let replacement =
+                    std::os::unix::net::UnixListener::bind(root.join("mihomo.sock")).unwrap();
+                fs::set_permissions(root.join("mihomo.sock"), fs::Permissions::from_mode(0o600))
+                    .unwrap();
+                assert_eq!(
+                    session.close(target, CandidateEffectPermit { _private: () }),
+                    Outcome::RefusedBeforeWrite
+                );
+                drop(replacement);
+                drop(session);
+                core.stop(Duration::from_secs(2)).unwrap();
+                assert!(!root.join("effects").exists());
+                fs::remove_dir_all(root).unwrap();
+                continue;
+            }
+            assert_eq!(
+                session.close(target, CandidateEffectPermit { _private: () }),
+                Outcome::RefusedBeforeWrite
+            );
+            assert!(
+                !session.lifetime.gate.lock().unwrap().live,
+                "transport proof loss is sticky before owner stop"
+            );
+            assert!(!root.join("effects").exists());
+            assert!(core.stop(Duration::from_secs(2)).is_err());
+            assert!(!session.lifetime.gate.lock().unwrap().live);
+            drop(session);
+            drop(core);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn detached_whole_deadline_and_owned_core_drop_do_not_wait_for_io_or_retry() {
+        let _fixture = FIXTURE.lock().unwrap();
+        for teardown in [false, true] {
+            let (root, mut core) = peer_fixture("stall-reply");
+            let (mut session, target) = prepared(&mut core);
+            if !teardown {
+                session.deadline = Some(Instant::now() + Duration::from_millis(100));
+            }
+            let mut scheduler = Scheduler::default();
+            let mut worker = scheduler
+                .start(session, target, CandidateEffectPermit { _private: () })
+                .unwrap();
+            wait_marker(&root.join("effect-entered"));
+            let begin = Instant::now();
+            if teardown {
+                drop(core);
+                assert!(begin.elapsed() < Duration::from_secs(1));
+                assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+            } else {
+                assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+                assert!(begin.elapsed() < Duration::from_secs(1));
+                core.stop(Duration::from_secs(2)).unwrap();
+            }
+            assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+            drop(worker);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn detached_spawn_panic_and_dropped_worker_cleanup_are_bounded_and_exact() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (session, target) = prepared(&mut core);
+        let mut scheduler = Scheduler {
+            fail_next_spawn: true,
+            ..Scheduler::default()
+        };
+        assert!(
+            scheduler
+                .start(session, target, CandidateEffectPermit { _private: () })
+                .is_err()
+        );
+        assert!(!scheduler.active.load(std::sync::atomic::Ordering::Acquire));
+        assert!(
+            core.conditional_lifetime()
+                .unwrap()
+                .gate
+                .lock()
+                .unwrap()
+                .reservation
+                .is_none()
+        );
+        let (mut session, target) = prepared(&mut core);
+        session.panic_after_write = true;
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while scheduler.active.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let (session, target) = prepared(&mut core);
+        fs::write(root.join("stall-capability"), b"fixed").unwrap();
+        let worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        wait_marker(&root.join("capability-entered"));
+        let begin = Instant::now();
+        drop(worker);
+        assert!(begin.elapsed() < Duration::from_millis(100));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while scheduler.active.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        core.stop(Duration::from_secs(2)).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -849,6 +1788,8 @@ while True:
             Outcome::RefusedBeforeWrite
         );
         assert!(!root.join("effects").exists());
+        drop(second);
+        let mut second = Session::bind(&mut core, uid).unwrap();
         let target = second.discover().unwrap().remove(0);
         nix::sys::signal::kill(
             nix::unistd::Pid::from_raw(i32::try_from(second.binding.pid).unwrap()),
@@ -856,7 +1797,7 @@ while True:
         )
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
-        while second.core.running().unwrap() && Instant::now() < deadline {
+        while core.running().unwrap() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(

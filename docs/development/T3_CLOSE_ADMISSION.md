@@ -117,7 +117,7 @@ listeners before Running, and CONNECT 200 precedes actual tunnel admission.
 The handler also refuses effects while suspended/loading. Protocol readiness
 is not immutable package attestation or concurrent reload serialization.
 
-The inactive Rust session borrows an unreaped parent-owned child and retains
+The inactive Rust session retains a revocable parent-owned child identity and
 directory/socket descriptors, exact UID/mode/inode and per-request peer PID/UID.
 Each selected target retains a non-reusable Arc session identity; even a new
 session for the same numeric PID/socket rejects an older selection. Discovery
@@ -149,6 +149,59 @@ Local archive attributes are excluded through an isolated export repository;
 the test-only short-socket overlay is reversed before the binary build.
 Exact toolchain/binary and optional Rust transport repetitions belong to the
 owning PR, not the accepted package allowlist.
+
+### Inactive detached child-lifetime continuation
+
+`dev/t3-detached-core-research` replaces the transport's mutable owner borrow
+with owned descriptors and a retained, non-reusable `Arc` lifetime. `Child`
+remains exclusively in `OwnedCore`. The optional research lifetime is revoked
+under a short gate before the existing stop/drop signal and reap sequence.
+Revocation shuts down the registered socket, releases the gate, then performs
+bounded child cleanup. An old lifetime can never become Live again, including
+after a new child binds the same controller path. Only a Live gate permits
+`waitid(WNOWAIT)`; a revoked worker never probes or signals the old numeric PID.
+An exit or child-proof failure permanently revokes the lifetime immediately,
+whether observed by the detached transport or `OwnedCore.running`; unexpected
+external reaping cannot allow a later reused PID to restore eligibility.
+
+The same gate holds one session reservation and serializes cancellation,
+the first nonblocking effect write attempt, each partial write and final
+receipt acceptance. All sockets remain nonblocking. Read/write waits occur
+outside the gate and owner, with one three-second monotonic session budget
+which discovery and close cannot renew. This budget is research transport
+lifetime, not proof of the separate five-second human confirmation contract.
+Before the first effect attempt, cancellation/refusal sends no effect. From
+the first attempt onward (including EAGAIN), cancellation, timeout, panic,
+teardown, lost/invalid reply or proof loss is Unknown and never resent.
+Restoring a failed identity proof cannot turn an attempted effect into a
+pre-write refusal. A complete typed receipt plus final proof must atomically
+finish before cancellation; a later cancellation cannot rewrite that receipt.
+The deadline is rechecked inside the write gate after identity proof and
+again during final acceptance, so delayed admission never sends an expired
+effect or accepts a late receipt.
+Each session admits only one close and cannot attribute an earlier receipt to
+another selection.
+
+An inactive one-worker scheduler reserves under a short scheduling section
+and moves only the owned transport outside it. A bounded result channel never
+calls back into the owner from the lifetime gate. Spawn failure and unwind
+release their exact reservation. Dropping a result handle cancels without
+joining an unfinished worker; capacity stays held until worker completion.
+The real subprocess barrier tests compose the existing mutation coordinator
+with the owned child and prove status/revision access and prioritized urgent
+disconnect during capability/reply stalls. They also cover pre/post-attempt
+cancellation, parsed-204/cancel ordering, transient socket restoration,
+actual partial-write identity loss followed by restoration,
+stop/drop/new-child refusal, unexpected external reaping, deadlines and
+spawn/panic/drop cleanup. These are actual owned child/Unix-controller effects,
+not installed production admission or private-provider evidence.
+
+Normal operation-ID collision/replay retention, owner/revision/store/config/
+desired-state admission, opaque row/confirmation registry, immutable matched
+core package attestation, registered scheduling/IPC and installed EN/RU UI
+remain separate activation gates. The registry still issues no permit; the
+candidate permit still has no production constructor. No package pin,
+production method, desired VPN state or user-facing control is changed.
 
 Focused synthetic tests cover every context component, admission/recovery gates,
 expiry/clock discontinuity, refresh and identical displayed targets, disappeared
