@@ -27,6 +27,12 @@ paths: this probe does not dynamically exercise them or prove all-architecture
 filter installation. A pair of observed errno values alone is not canonical
 host provenance or full structural-transition acceptance.
 
+[Linux v6.18 setns](https://github.com/torvalds/linux/blob/v6.18/kernel/nsproxy.c)
+rejects a descriptor that is neither a namespace nor a pidfd with EINVAL before
+namespace preparation/validation. This is the independent source basis for
+the control case, not an assumption that capability refusal always comes last
+for every possible descriptor. Installed-kernel execution remains unrun.
+
 The source-only `tests/support/namespace_filter_vm_fixture.sh` uses the same
 fixed transient unit name sequentially for two hash-pinned unit files. It
 requires identical credentials, empty capabilities, no added syscall filter,
