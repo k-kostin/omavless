@@ -125,3 +125,26 @@ Full Rust/developer/CI and exact frozen composed-core VM receipts belong to the
 tested SHA recorded in the PR, not to this evolving text. The VM requires an
 explicit exclusive lease. Product adoption still requires reviewed package
 attestation/distribution, authorization/expiry wiring and public UI/IPC work.
+
+### Shared-scheduling source checkpoint, 2026-10-04
+
+Source `bc3db4baa0a08b1d76a65f5e7bbad5099ec19845` completed the full local
+Rust gate: 2,005 successful reported test invocations (including repeated
+feature checks), zero failures, 70 ignored invocations, the 12 terminal cases,
+default/TUI strict clippy and two-case parity. Its exact-head GitHub Test and
+both package jobs also passed. Source/frontend contracts reported 505 tests,
+two existing skips and zero failures. This is **not** a newly installed package
+or composed-core VM gate; the core opt-in did not execute.
+
+The earlier local full-Rust run under umask `077` failed five K1 listener
+fixtures: directories requested as `0750` became `0700`. An unchanged-source
+control under `022` passed all 23 listener cases, and the full gate under `022`
+then completed. The failed log remains private and retained; no production
+permission checks were relaxed. A separate test-only K1 fixture correction is
+tracked in Draft #592. Private source fixtures also retain their initial
+inside-Git refusal and separate outside-Git passing run.
+
+The completed local Rust log has SHA-256
+`70d00e6b34869f5a59bfd1bc6f3a4b774efe59bb5134fb397d7d514826a170e0`.
+Counts describe executed test invocations, not unique proof obligations or
+product adoption. Normal permit provenance and installed acceptance remain open.
