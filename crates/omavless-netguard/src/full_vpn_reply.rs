@@ -4,6 +4,11 @@
 //! The caller supplies receive metadata; this module opens no socket and cannot
 //! authenticate that metadata, the namespace, the kernel effect or table owner.
 //! A complete transcript is not permission to mutate or a durable receipt.
+//!
+//! Legacy inactive contract: operation ACKs plus a separate GETGEN barrier.
+//! It does not establish atomic BEGIN/every-operation/commit-END completeness.
+//! Kernel fixtures use the distinct crate-private atomic collector; this public
+//! API remains unchanged and must not be substituted for that commit contract.
 
 use super::{FullVpnCreate, encode};
 

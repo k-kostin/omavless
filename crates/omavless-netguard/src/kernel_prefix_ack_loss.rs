@@ -208,3 +208,17 @@ mod tests {
         assert!(fault().ready(&[]).is_err());
     }
 }
+
+// Shared collector; fault injection remains cfg(test), outside the normal contract.
+impl super::atomic_batch::AtomicReplies {
+    pub(super) fn finish_prefix_loss(&mut self, loss: &mut OneShotPrefixAckLoss) -> Result<bool> {
+        if !loss.ready(&self.acks())? {
+            return Ok(false);
+        }
+        require(!self.poisoned() && !self.changed() && !self.complete())?;
+        loss.confirm_remaining();
+        self.poison();
+        require(!self.complete())?;
+        Ok(true)
+    }
+}

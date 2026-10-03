@@ -141,7 +141,7 @@ fn collector_refuses_forged_duplicate_truncated_wrong_sender_and_generation_erro
         MsgFlags::empty(),
     )
     .unwrap();
-    assert!(c.complete() && c.changed);
+    assert!(c.complete() && c.changed());
     let mut c = BatchReplies::new(requests.clone(), 42).unwrap();
     assert!(
         c.receive(
@@ -179,9 +179,9 @@ fn receive_truncation_flags_poison_create_and_replace_collectors_permanently() {
                     .receive(&bytes, Some(NetlinkAddr::new(0, 0)), flags)
                     .is_err()
             );
-            assert!(replies.poisoned && !replies.complete());
-            assert!(replies.acks.iter().all(|ack| !ack));
-            for request in &requests {
+            assert!(replies.poisoned() && !replies.complete());
+            assert!(replies.acks().iter().all(|ack| !ack));
+            for request in requests.iter() {
                 assert!(
                     replies
                         .receive(
@@ -237,15 +237,15 @@ fn every_begin_or_operation_loss_requires_actual_remaining_ack_delivery_then_sea
                     );
                 }
                 assert_eq!(loss.observed(), (1, true));
-                assert!(replies.poisoned && !replies.changed && !replies.acks[target]);
+                assert!(replies.poisoned() && !replies.changed() && !replies.acks()[target]);
                 assert!(
                     replies
-                        .acks
+                        .acks()
                         .iter()
                         .enumerate()
                         .all(|(i, accepted)| i == target || *accepted)
                 );
-                for request in &requests {
+                for request in requests.iter() {
                     assert!(
                         replies
                             .receive(
@@ -1026,29 +1026,11 @@ fn inject_drift(creator: &mut FixtureCreator) {
     let deadline = Instant::now() + Duration::from_secs(1);
     let (_, generation, _) = creator.inspect().unwrap();
     let first = creator.session.next_sequence;
-    let begin = message(
-        16,
-        5,
-        first,
-        0,
-        &[vec![0, 0, 0, 10], attribute(1, &generation.to_be_bytes())].concat(),
-    );
-    let append = message(
-        NFT + 6,
-        0xc05,
-        first + 1,
-        0,
-        &[
-            vec![1, 0, 0, 0],
-            attribute(1, TABLE),
-            attribute(2, b"output_guard\0"),
-            crate::emergency_wire::nested(4, &crate::emergency_wire::verdict(1)),
-        ]
-        .concat(),
-    );
-    let end = message(17, 5, first + 2, 0, &[0, 0, 0, 10]);
     creator
-        .send_batch(vec![begin, append, end], deadline)
+        .send_batch(
+            super::super::atomic_batch::drift_batch(generation, first).unwrap(),
+            deadline,
+        )
         .unwrap();
 }
 fn crash_case(fixture: &Fixture, parent: &File, case: &str, namespace: NamespaceObservation) {
