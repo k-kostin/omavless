@@ -311,6 +311,16 @@ fn take_sequences(next: &mut u32) -> Result<[u32; 3]> {
     Ok([first, second, third])
 }
 
+// Counterexample checkpoint: the original exchange completion had no retained
+// generation comparison. Keep that behavior until the regression is measured.
+fn finish_read_exchange(
+    _last_generation: &mut Option<u32>,
+    _poisoned: &mut bool,
+    result: Result<Exchange>,
+) -> Result<Exchange> {
+    result
+}
+
 /// A retained, read-only descriptor pair. Repeated inspections cannot swap in
 /// caller-provided namespace/socket descriptors or replay a previous sequence.
 /// This is not a canonical-host proof, an ownership receipt or an EffectPort.
@@ -322,6 +332,7 @@ pub struct LocalReadSession {
     local: NetlinkAddr,
     next_sequence: u32,
     poisoned: bool,
+    last_generation: Option<u32>,
 }
 
 impl LocalReadSession {
@@ -345,6 +356,7 @@ impl LocalReadSession {
             local,
             next_sequence: 1,
             poisoned: false,
+            last_generation: None,
         };
         session.check(Instant::now() + Duration::from_secs(1))?;
         Ok(session)
@@ -365,7 +377,12 @@ impl LocalReadSession {
         take_sequences(&mut self.next_sequence)
     }
 
-    fn exchange(&self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
+    fn exchange(&mut self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
+        let result = self.exchange_once(kind, seq, deadline);
+        finish_read_exchange(&mut self.last_generation, &mut self.poisoned, result)
+    }
+
+    fn exchange_once(&self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
         self.check(deadline)?;
         let mut exchange = Exchange::new(kind, seq, self.local.pid())?;
         require(
@@ -479,6 +496,57 @@ mod tests {
         body.extend(attribute(2, &17_u32.to_be_bytes()));
         body.extend(attribute(3, b"synthetic\0"));
         message(NFT + 15, 0, seq, PORT, &body)
+    }
+    fn parsed_generation(seq: u32, value: u32) -> Result<Exchange> {
+        let mut exchange = Exchange::new(GET_GEN, seq, PORT)?;
+        let bytes = ack(&exchange, 0, true);
+        receive(&mut exchange, &bytes)?;
+        receive(&mut exchange, &generation(seq, value))?;
+        Ok(exchange)
+    }
+    #[test]
+    fn observation_fence_rejects_lower_delete_window_from_real_wire_history() {
+        // The old reader validates both windows independently. The creator's
+        // private comparison is bypassed by prepare_inventory_delete. No actual
+        // kernel reset or deletion is performed by this wire-only regression.
+        for (index, value) in [100, 100, 99, 99].into_iter().enumerate() {
+            assert_eq!(
+                parsed_generation(index as u32 + 1, value)
+                    .unwrap()
+                    .generation(),
+                Ok(value)
+            );
+        }
+        let (mut last, mut poisoned) = (None, false);
+        for seq in [1, 2] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, 100)).is_ok()
+            );
+        }
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(3, 99)).is_err());
+        for (seq, value) in [(4, 99), (5, 100), (6, 101)] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, value))
+                    .is_err()
+            );
+        }
+        assert!(poisoned);
+    }
+    #[test]
+    fn observation_fence_remembers_delete_and_absent_readback_generations() {
+        // The old creator remembers only 10; direct delete preparation at 20
+        // and absent readback at 21 never update its separate tracker. Hence a
+        // later valid window at 15 passes the old >=10 comparison.
+        assert!(15 >= parsed_generation(1, 10).unwrap().generation().unwrap());
+        let (mut last, mut poisoned) = (None, false);
+        for (seq, value) in [(1, 10), (2, 20), (3, 21)] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, value))
+                    .is_ok()
+            );
+        }
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(4, 15)).is_err());
+        assert!(poisoned);
     }
     fn table_body(flags: u32, owner: Option<u32>) -> Vec<u8> {
         let mut body = vec![1, 0, 0, 7];
