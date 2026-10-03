@@ -141,15 +141,108 @@ namespace/network/installed action. Three Go fixture tests, `go vet`,
 The Go fixture is a standalone opt-in developer module, not a new normal
 application dependency or a claim that normal CI runs actual AWG transport.
 
+## Separate source-engine cookie regressions
+
+After VM ownership was released, a host-only test overlay exercised the actual
+official device worker at the same `b5928efb6ca19f0153958460c3d141f04abc5c2e`
+pin; exact committed cookie-test code head:
+`e20e76407cc487c9c634218b8073cb5545c02b42`. This is **not Mihomo-path,
+transport, realistic overload or product
+acceptance**. The previously recorded `cb6ebcc7c6c509d3951d4807b50869da1d441909`
+VM harness/binary evidence is unchanged. No VM, installed source/profile,
+Cargo target, real TUN, namespace or host network-state change was used.
+The final offline source tests open no fixture socket; an earlier pinned
+module-metadata preparation may contact the Go module infrastructure.
+
+Go's virtual overlay adds only `p4_cookie_underload_test.go` inside a fresh
+private export of the exact engine package. Only bytes from the hash-verified
+archive are executed, never potentially filtered checkout files; every extracted
+file is verified before/after tests. No upstream disk file or module-cache source
+is edited, and no
+unsafe/reflection hooks are used. The fake Bind opens no receive functions or
+sockets; fake TUN has no FD and accepts no IP data. Fresh keys exist solely in
+test memory and the engine logger is silent. An atomic `underLoadUntil` deadline
+plus one real pooled `QueueHandshakeElement` exercises the actual worker,
+without filling queues or generating overload traffic.
+
+All four RandomTrailers(false/true) × DisableCookies(false/true) cases passed:
+**50 normal repetitions / 200 cases**, then **20 race-enabled repetitions /
+80 cases**, Go `go1.27.0-X:nodwarf5 linux/amd64`; race C compiler
+`gcc (GCC) 16.2.1 20260810`. Cookies enabled produced
+header-protected H3=303/S3=40; corrupt ciphertext, absent matching MAC1 context,
+every cookie body truncation length and different source-bound MAC2 refused.
+The valid cookie authenticated, yielded source-bound MAC2, and the real worker
+then emitted header-protected H2=202/S2=32 with a valid actual Noise response.
+Cookies disabled emitted that authentic response directly under the same load.
+Non-trailer cookie/response exact sizes are asserted. This covers the actual
+cookie allocation/classification and DisableCookies bypass, not just UAPI
+read-back; randomized trailer length permutations and load-rate limiting remain
+unaccepted.
+
+Reproduction from repository root, with private existing HOME scratch/cache:
+
+```sh
+python3 tests/fixtures/p4_awg_peer/run_cookie_overlay.py \
+  --source /home/kk/.cache/ovtmp-p4/amneziawg-go-upstream \
+  --scratch /home/kk/p4t --cache /home/kk/.cache/omavless-p4-awg-go-build \
+  --module-cache /home/kk/go/pkg/mod \
+  --count 50
+# Same command with --count 20 --race for race-enabled repetitions.
+```
+
+Exact `git archive` source export SHA256:
+`716c0eec8a7557485555397f1217e0cac56317af8b41fefc287027d0c74ce00d`.
+Tagged Go test SHA256:
+`40983d9632f4f92d3e157d25e17c91e5703b53e49aad39f559332d5e423a1e36`.
+Runner SHA256:
+`55fa8597b183a5b8deb0b0aabf25740ee12dfc221054e04e62ac017d1b86cc6e`.
+The runner verifies cached dependencies, uses GOPROXY/GOSUMDB off and local
+toolchain, and supplies a clean allowlisted Go environment (GOENV off, fixed
+Go/CC/CXX paths, explicit module/build caches, no inherited Go flags/wrapper).
+Archive extraction accepts only bounded regular files/directories, and combined
+command output is bounded to 2 MiB. Exact root/four subcase/package pass counts
+are required; skips/failures/extra tests cannot pass. The overlay/export are
+discarded on success/refusal, and executed bytes and the original clean source
+are rechecked. Six ordinary CI guards reproduce a poisoned worktree with
+mocked-clean git status, extracted-byte substitution, unsafe tar entries,
+false-positive JSON events, an exited owned leader with a helper holding stdio,
+and reap-before-interrupt PID/group reuse protection. No Go/network runs in
+these guards; the helper case uses only a self-expiring owned local process.
+Timeout cleanup retains the unreaped leader, kills its owned group before
+reaping, then closes streams; an already-reaped leader never authorizes a group
+signal. The leader is reaped and the helper is proved dead (init owns orphan
+grandchild reaping). An initial immediate helper-state assertion observed the
+asynchronous SIGKILL transition still runnable; it was not counted as PASS and
+was corrected to a bounded post-kill observation, not a longer command deadline.
+Both cleanup/interrupt guards additionally passed twenty repetitions each.
+An initial offline runner refusal for missing cached module-graph metadata was
+not counted as PASS; ordinary `go mod verify` using the pinned upstream manifest
+prepared that metadata and passed before both final offline runs. The initial
+checkout-based runner was superseded after identifying that clean status does
+not prove executed bytes match the attested archive; only fresh-export reruns
+count as final evidence. Count-zero
+and wrong-pin probes refused before overlay creation. No raw subprocess output
+or private test data is published. HOME scratch was empty afterward.
+The final ordinary source suite passed **300 tests / 2 existing skips**, plus
+native/QML contracts. Its small private `/var/tmp` test scratch was empty and
+removed; only compiler/build caches and Go temporary work stayed in HOME.
+
+After overlay removal, the normal fixture's three Go tests passed and an
+ordinary untagged peer rebuild reproduced the exact previously tested binary
+SHA256 `3a0bf0103c221eeec617b5b7a33f120ac2c16247404aada6239fa9f7336923ef`.
+The overlay changes neither the peer executable nor transport source inputs.
+
 ## Deliberately unclosed gates
 
 The exact pin's open upstream
 [wide-header/RandomTrailers issue](https://github.com/amnezia-vpn/amneziawg-go/issues/186)
 and [handshake-padding precedence issue](https://github.com/amnezia-vpn/amneziawg-go/issues/185)
 remain relevant. This uses small traffic and singleton nondefault headers;
-wide ranges, arbitrary MTUs and performance are not accepted. S3/H3 cookie
-traffic and DisableCookies under load were configured/read back, not exercised
-as a cookie challenge. Timer expiry/exhaustion permutations are not accepted.
+wide ranges, arbitrary MTUs and performance are not accepted. In the VM
+transport suites, S3/H3 cookie traffic and DisableCookies under load were
+configured/read back, not exercised as a cookie challenge. The separate pure
+source-engine regressions above do not close the Mihomo cookie/overload path.
+Timer expiry/exhaustion permutations are not accepted.
 
 P4 remains unavailable in normal product paths. The minimum-core/flavor matrix
 must still refuse unsupported inputs **before quiescing** an active target.

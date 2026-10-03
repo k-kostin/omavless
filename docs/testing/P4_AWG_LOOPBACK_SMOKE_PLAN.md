@@ -16,6 +16,23 @@ Its standalone fixture module has pinned `go.mod` / `go.sum` and
 into the Rust runtime, exposed through application IPC or installed as a
 service. No upstream protocol implementation is copied or patched.
 
+The optional [cookie overlay](../../tests/fixtures/p4_awg_peer/run_cookie_overlay.py)
+is a separate **source-engine-only** CPU test, not a transport run or a Mihomo
+cookie-path acceptance. It needs no VM, socket, real TUN or namespace. It verifies
+a clean exact upstream checkout/source-export hash and cached dependencies,
+executes a fresh bounded hash-verified export (never checkout files), virtually
+adds one tagged test, and removes its overlay/export even on refusal.
+Fake Bind/TUN implementations cannot touch OS networking. A private atomic
+under-load deadline and one real handshake queue element exercise the actual
+worker with synthetic keys in memory; no queue flood, unsafe/reflection or
+production patch is permitted. The test selects H3=303/S3=40 vs H2=202/S2=32,
+checks protected classification, corrupt/wrong-context/truncated cookie refusal,
+source-bound MAC2 retry and authentic Noise response with DisableCookies both
+false and true, with RandomTrailers both false and true. Always discard/recheck
+the overlay before rebuilding any peer binary; normal fixture builds exclude
+the test tag. Missing cached metadata refuses offline; prepare only dependencies
+pinned by the exact upstream go.mod/go.sum before the offline invocation.
+
 Build only the reviewed module with a locally available compatible Go compiler,
 `GOTOOLCHAIN=local`, HOME cache and HOME temporary directories. Use
 `CGO_ENABLED=0 go build -trimpath -mod=readonly -buildvcs=false`; record the
