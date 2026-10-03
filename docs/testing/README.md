@@ -50,6 +50,9 @@ turn a historical failed probe into PASS.
 
 ## Safe local test entry points
 
+The [concurrent fresh-setup refusal diagnostic](SETUP_CONCURRENT_REFUSAL_2026-10-03.md)
+preserves an observed CLI assertion failure and the fail-closed lock-create race.
+
 `./tests/run.sh` runs reference/launcher/JS/QML contracts;
 `./tests/run-rust.sh` runs Rust formatting, workspace tests, Clippy and R0 parity.
 Installed-core opt-ins use synthetic configurations, not private live fixtures.

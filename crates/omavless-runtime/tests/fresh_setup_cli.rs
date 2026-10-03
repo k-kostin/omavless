@@ -366,20 +366,75 @@ fn concurrent_initializers_never_replace_or_publish_partial_success() {
                 .unwrap(),
         );
     }
+    // Reap both owned subprocesses before asserting on either result: an
+    // assertion failure must not drop a still-running sibling into cleanup.
+    let outputs: Vec<_> = children
+        .into_iter()
+        .map(|child| child.wait_with_output().unwrap())
+        .collect();
     let mut created = 0;
-    for child in children {
-        let output = child.wait_with_output().unwrap();
+    for output in outputs {
         if output.status.success() {
             let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-            created += value["createdFiles"].as_u64().unwrap();
+            let count = value["createdFiles"].as_u64().unwrap();
+            assert!(count <= 2);
+            created += count;
+            accepted(output, count);
         } else {
-            assert_eq!(
-                output.stderr,
-                b"Another OmaVLESS operation owns the migration lock\n"
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            // If both saw an absent lease, the exclusive-create loser fails
+            // closed before flock. Never retry/reopen/repair that new inode.
+            assert!(
+                output.stderr == b"Another OmaVLESS operation owns the migration lock\n"
+                    || output.stderr == b"Native setup paths or permissions are unsafe\n"
             );
         }
     }
     assert_eq!(created, 2);
+    let store = fs::read(f.store()).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&store).unwrap(),
+        serde_json::json!({"version":3,"activeId":"","lastId":"","profiles":[],
+            "subscriptions":[],"routingPreset":"","customRules":[],"rulesUpdatedAt":0,
+            "startupConfigured":true,"startup":{"enabled":false,"target":"last",
+                "profileId":"","mode":"rule"},"onboardingComplete":false})
+    );
+    assert_eq!(
+        fs::read(f.template()).unwrap(),
+        include_bytes!("../../../templates/default.yaml")
+    );
+    assert_eq!(fs::metadata(f.config()).unwrap().mode() & 0o7777, 0o700);
+    let members: Vec<_> = [f.store(), f.template()]
+        .into_iter()
+        .map(|path| {
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            assert!(metadata.is_file());
+            assert!(!metadata.file_type().is_symlink());
+            assert_eq!(metadata.mode() & 0o7777, 0o600);
+            assert_eq!(metadata.uid(), Uid::current().as_raw());
+            assert_eq!(metadata.nlink(), 1);
+            (path, metadata)
+        })
+        .collect();
     accepted(f.run(), 0);
+    for (path, before) in members {
+        let after = fs::symlink_metadata(&path).unwrap();
+        assert_eq!(after.dev(), before.dev());
+        assert_eq!(after.ino(), before.ino());
+        assert_eq!(after.uid(), before.uid());
+        assert_eq!(after.mode(), before.mode());
+        assert_eq!(after.nlink(), before.nlink());
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.mtime(), before.mtime());
+        assert_eq!(after.mtime_nsec(), before.mtime_nsec());
+        assert_eq!(after.ctime(), before.ctime());
+        assert_eq!(after.ctime_nsec(), before.ctime_nsec());
+    }
+    assert_eq!(fs::read(f.store()).unwrap(), store);
+    assert_eq!(
+        fs::read(f.template()).unwrap(),
+        include_bytes!("../../../templates/default.yaml")
+    );
     f.assert_no_owner();
 }
