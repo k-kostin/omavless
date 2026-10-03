@@ -150,6 +150,9 @@ EN/RU close-confirmation review are separate requirements.
 
 ### Explicit synthetic Rust/Go wire opt-in
 
+For the bounded executed result and remaining authority gates, see
+[composed DNS wire evidence](../../docs/testing/T3_COMPOSED_DNS_WIRE_2026-10-03.md).
+
 Add both `--rust-channel-fixture /absolute/frozen/channel_fixture` and
 `--rust-channel-fixture-sha256 EXACT_SHA256` to the composition command above.
 First separately review/build the test-only `omavless-dns-channel` example from
