@@ -41,6 +41,7 @@ mod tests {
     use super::*;
     use crate::core::OwnedCore;
     use crate::desired::{RoutingMode, write_desired};
+    use crate::long_operation::LongOperationError;
     use crate::native_host::NativeHostPaths;
     use serde_json::json;
     use std::fs;
@@ -135,6 +136,11 @@ while True:
         write(
             &config.join("config.yaml"),
             format!("# fixture-variant:{variant}\ntun:\n  enable: false\n").as_bytes(),
+            0o600,
+        );
+        write(
+            &config.join("route-template.yaml"),
+            b"tun:\n  enable: false\n",
             0o600,
         );
         let desired_paths = DesiredPaths::below(&state);
@@ -476,6 +482,236 @@ while True:
             }
             assert!(!fixture.root.join("r/effects").exists(), "{drift}");
         }
+    }
+    fn long_request(method: &str, id: &str, revision: u64) -> Value {
+        omavless_control_protocol::make_request("fixed-long", method,
+            json!({"instanceId":"actual-owner-close-fixture", "operationId":id, "expectedRevision":revision})).unwrap()
+    }
+
+    #[test]
+    fn actual_owner_close_ids_conflict_with_ordinary_batch_probe_and_provider() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        fixture
+            .owner
+            .confirm_connection_close("common-id", 0, rows[0].handle, confirmation.ticket)
+            .unwrap();
+        let closed = receipt(&mut fixture);
+        assert!(matches!(
+            disconnect(&mut fixture.owner, "common-id"),
+            Err(NativeOwnerError::Coordinator(
+                CoordinatorError::OperationConflict
+            ))
+        ));
+        let request = long_request("subscriptions.refresh_all", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.start_subscription_batch(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        let request = long_request("profiles.probe", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.start_subscription_probe(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        let request = long_request("routing.refresh_providers", "common-id", 1);
+        assert!(matches!(
+            fixture.owner.preflight_provider_refresh(&request),
+            Err(NativeOwnerError::LongOperation(
+                LongOperationError::OperationConflict
+            ))
+        ));
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("common-id", 0, rows[0].handle, confirmation.ticket)
+                .unwrap(),
+            Some(closed)
+        );
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    }
+
+    #[test]
+    fn actual_owner_ordinary_batch_and_probe_ids_cannot_be_reused_for_close() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for method in [
+            "connection.disconnect",
+            "subscriptions.refresh_all",
+            "profiles.probe",
+        ] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            match method {
+                "connection.disconnect" => {
+                    disconnect(&mut fixture.owner, "first-family").unwrap();
+                }
+                "subscriptions.refresh_all" => {
+                    assert!(
+                        fixture
+                            .owner
+                            .start_subscription_batch(&long_request(method, "first-family", 0))
+                            .unwrap()
+                            .is_some()
+                    );
+                }
+                "profiles.probe" => {
+                    assert!(
+                        fixture
+                            .owner
+                            .start_subscription_probe(&long_request(method, "first-family", 0))
+                            .unwrap()
+                            .is_some()
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                matches!(
+                    fixture.owner.confirm_connection_close(
+                        "first-family",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket
+                    ),
+                    Err(NativeOwnerError::Coordinator(
+                        CoordinatorError::OperationConflict
+                    ))
+                ),
+                "{method}"
+            );
+            assert!(!fixture.root.join("r/effects").exists(), "{method}");
+        }
+    }
+
+    #[test]
+    fn actual_owner_long_admission_cancels_before_contended_migration_lease() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for method in [
+            "subscriptions.refresh_all",
+            "profiles.probe",
+            "routing.refresh_providers",
+            "shutdown",
+            "recovery",
+        ] {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close("stalled-close", 0, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            let paths = fixture.owner.transaction.cutover_paths().clone();
+            let lease = MigrationLock::acquire(&paths, fixture.owner.uid()).unwrap();
+            let start = Instant::now();
+            let request = long_request(method, "competing-family", 0);
+            match method {
+                "subscriptions.refresh_all" => {
+                    assert!(fixture.owner.start_subscription_batch(&request).is_err());
+                }
+                "profiles.probe" => {
+                    assert!(fixture.owner.start_subscription_probe(&request).is_err());
+                }
+                "routing.refresh_providers" => {
+                    assert!(fixture.owner.preflight_provider_refresh(&request).is_err());
+                }
+                "shutdown" => {
+                    let _ = fixture.owner.stop_batch_operations();
+                }
+                "recovery" => fixture.owner.mark_auxiliary_recovery_required(),
+                _ => unreachable!(),
+            }
+            assert!(start.elapsed() < Duration::from_millis(250), "{method}");
+            drop(lease);
+            assert_eq!(
+                receipt(&mut fixture).outcome,
+                ExternalCloseOutcome::RefusedBeforeWrite,
+                "{method}"
+            );
+            assert!(fixture.owner.desired().unwrap().connected, "{method}");
+            assert!(!fixture.root.join("r/effects").exists(), "{method}");
+        }
+    }
+
+    #[test]
+    fn actual_owner_128_uncertain_receipts_never_evict_or_admit_129th_effect() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("drop");
+        let mut first = None;
+        for index in 0..128 {
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let id = format!("bounded-close-{index}");
+            let revision = fixture.owner.revision();
+            fixture
+                .owner
+                .confirm_connection_close(&id, revision, rows[0].handle, confirmation.ticket)
+                .unwrap();
+            // A pending reservation is non-evicting too, and does not grant
+            // another operation authority merely because no receipt exists.
+            assert!(matches!(
+                fixture.owner.confirm_connection_close(
+                    "parallel-close",
+                    revision,
+                    rows[0].handle,
+                    confirmation.ticket
+                ),
+                Err(NativeOwnerError::Coordinator(CoordinatorError::Busy))
+            ));
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::Unknown);
+            if index == 0 {
+                first = Some((rows[0].handle, confirmation.ticket, result));
+            }
+        }
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        assert!(matches!(
+            fixture.owner.confirm_connection_close(
+                "overflow-close",
+                128,
+                rows[0].handle,
+                confirmation.ticket
+            ),
+            Err(NativeOwnerError::Coordinator(CoordinatorError::Busy))
+        ));
+        fixture.owner.invalidate_connection_close();
+        let (handle, ticket, original) = first.unwrap();
+        assert_eq!(
+            fixture
+                .owner
+                .confirm_connection_close("bounded-close-0", 0, handle, ticket)
+                .unwrap(),
+            Some(original)
+        );
+        assert_eq!(fixture.owner.revision(), 128);
+        assert_eq!(
+            fs::read(fixture.root.join("r/effects")).unwrap(),
+            b"1\n".repeat(128)
+        );
+        assert!(fixture.owner.desired().unwrap().connected);
     }
 }
 

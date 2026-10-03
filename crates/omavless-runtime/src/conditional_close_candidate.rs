@@ -724,11 +724,17 @@ impl Session {
     fn finish(&mut self, candidate: Outcome) -> Outcome {
         // Definitive acceptance also proves the durable owner receipt outside
         // the gate, with its nonblocking lease retained through terminalization.
-        let effect_lease = self
-            .effect_proof
-            .as_ref()
-            .map(|proof| proof.lease())
-            .transpose();
+        // Refusal/uncertainty never needs positive durable authority. In
+        // particular, cancellation must not reacquire a migration lease and
+        // contend with the urgent owner operation that just revoked us.
+        let effect_lease = if matches!(candidate, Outcome::Unknown | Outcome::RefusedBeforeWrite) {
+            Ok(None)
+        } else {
+            self.effect_proof
+                .as_ref()
+                .map(|proof| proof.lease())
+                .transpose()
+        };
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         let proved = self.check_locked(&mut gate).is_ok()
