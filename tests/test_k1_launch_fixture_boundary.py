@@ -17,6 +17,45 @@ NEGATIVE_DROPIN = (ROOT / "crates/omavless-netguard/tests/fixtures/"
 
 
 class K1LaunchFixtureBoundaryTests(unittest.TestCase):
+    def test_namespace_filter_pair_changes_only_filter_and_expectation(self):
+        base = ROOT / "crates/omavless-netguard/tests/fixtures"
+        filtered = (base / "omavless-k1-namespace-filter-fixture.service").read_text()
+        control = (base / "omavless-k1-namespace-filter-control.service").read_text()
+        self.assertEqual(control, filtered.replace(
+            "FIXTURE=filtered", "FIXTURE=control").replace(
+            "RestrictNamespaces=yes", "RestrictNamespaces=no"))
+        unit = configparser.ConfigParser(interpolation=None, strict=True)
+        unit.optionxform = str
+        unit.read_string(filtered)
+        self.assertEqual(unit.sections(), ["Unit", "Service"])
+        self.assertEqual(dict(unit.defaults()), {})
+        self.assertEqual(dict(unit["Service"]), {
+            "Type": "exec", "User": "root",
+            "ExecStart": "/run/omavless-k1-namespace-filter-fixture/probe",
+            "Environment": "OMAVLESS_K1_NAMESPACE_FILTER_FIXTURE=filtered",
+            "PrivateUsers": "no", "PrivatePIDs": "no", "PrivateNetwork": "no",
+            "NoNewPrivileges": "yes", "CapabilityBoundingSet": "",
+            "AmbientCapabilities": "", "RestrictNamespaces": "yes",
+            "RuntimeMaxSec": "10s", "TimeoutStopSec": "2s",
+        })
+
+    def test_namespace_filter_runner_pins_both_cases_and_checks_effective_filter(self):
+        base = ROOT / "crates/omavless-netguard/tests"
+        runner = base / "support/namespace_filter_vm_fixture.sh"
+        source = runner.read_text()
+        for name in ["fixture", "control"]:
+            unit = base / f"fixtures/omavless-k1-namespace-filter-{name}.service"
+            self.assertIn(hashlib.sha256(unit.read_bytes()).hexdigest(), source)
+        for token in ["for mode in control filtered", "-p RestrictNamespaces",
+                      "SystemCallFilter", "CapabilityBoundingSet", "AmbientCapabilities",
+                      "PrivateUsers PrivatePIDs PrivateNetwork", "DropInPaths",
+                      "PropagatesStopTo", "StopPropagatedFrom"]:
+            self.assertIn(token, source)
+        self.assertLess(source.index("-p RestrictNamespaces"),
+                        source.index('systemctl start "$unit"'))
+        self.assertEqual(subprocess.run(["bash", "-n", str(runner)],
+                                       capture_output=True).returncode, 0)
+
     def test_vm_unit_runner_pins_fixed_unit_and_has_valid_shell_syntax(self):
         source = UNIT_RUNNER.read_text()
         digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
