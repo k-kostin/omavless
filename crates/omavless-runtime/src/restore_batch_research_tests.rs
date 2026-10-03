@@ -351,15 +351,14 @@ fn historical_batch_valid_job_with_foreign_bound_context_preserves_both_owners()
 
     // The job is authentic for the receiving owner. Only the genuinely bound
     // context is foreign; equal instance/token/revision text is not authority.
-    assert!(
-        original
-            .complete_subscription_batch_research(
-                original_job,
-                || panic!("foreign context cannot read clock"),
-                &mut successor_evidence,
-            )
-            .is_err()
-    );
+    assert!(matches!(
+        original.complete_subscription_batch_research(
+            original_job,
+            || panic!("foreign context cannot read clock"),
+            &mut successor_evidence,
+        ),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    ));
     assert_eq!(status(&original, "original"), before_original);
     assert_eq!(status(&successor, "successor"), before_successor);
     assert_eq!(original.revision(), 0);
@@ -404,11 +403,11 @@ fn historical_batch_valid_ticket_with_foreign_bound_context_preserves_both_owner
     let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
     let metadata = fs::metadata(f.config.join(LIVE[0])).unwrap();
     let old = history(&f);
-    assert!(
+    assert!(matches!(
         successor
-            .abort_subscription_batch_research(successor_job.supervisor_ticket(), &mut evidence)
-            .is_err()
-    );
+            .abort_subscription_batch_research(successor_job.supervisor_ticket(), &mut evidence),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    ));
     assert_eq!(status(&original, "original"), before_original);
     assert_eq!(status(&successor, "successor"), before_successor);
     for (owner, context, job, id) in [
@@ -431,6 +430,47 @@ fn historical_batch_valid_ticket_with_foreign_bound_context_preserves_both_owner
         &metadata,
         &fs::metadata(f.config.join(LIVE[0])).unwrap()
     ));
+    assert_history(&f, &old);
+}
+
+#[test]
+fn historical_batch_valid_start_with_foreign_bound_context_preserves_original() {
+    let (f, mut original, mut evidence) = fixture(true, Some("https://fixed.invalid/feed"));
+    let mut original_job = start(&mut original, &mut evidence, "original");
+    fetch(&f, &mut original_job);
+    let before_original = status(&original, "original");
+    let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
+    let metadata = fs::metadata(f.config.join(LIVE[0])).unwrap();
+    let old = history(&f);
+    let mut successor = new_owner(&f);
+    assert!(matches!(
+        successor.start_subscription_batch_research(
+            &request("subscriptions.refresh_all", "foreign-start"),
+            &mut evidence,
+        ),
+        Err(NativeOwnerError::OwnershipUnavailable)
+    ));
+    assert!(
+        successor
+            .subscription_batch_status(&request("operations.get", "foreign-start"))
+            .is_err()
+    );
+    assert_eq!(status(&original, "original"), before_original);
+    assert_eq!(successor.revision(), 0);
+    assert_eq!(original.revision(), 0);
+    assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), bytes);
+    assert!(same_member(
+        &metadata,
+        &fs::metadata(f.config.join(LIVE[0])).unwrap()
+    ));
+    assert_history(&f, &old);
+    // No recapture/new context repairs the foreign call: the original exact
+    // retained evidence and already prepared job must still complete normally.
+    original
+        .complete_subscription_batch_research(original_job, || 20, &mut evidence)
+        .unwrap();
+    assert_eq!(status(&original, "original")["state"], "succeeded");
+    assert_eq!(original.revision(), 1);
     assert_history(&f, &old);
 }
 

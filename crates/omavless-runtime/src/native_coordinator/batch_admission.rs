@@ -88,6 +88,13 @@ impl BatchAdmission<'_> {
             Self::Ordinary(_) => owner.batch_lock(),
             #[cfg(test)]
             Self::Historical(context) => {
+                // Misrouting another owner's genuine evidence is not source
+                // drift. Refuse before acquiring a lease or poisoning that
+                // owner's still-bound context. Receiver-side unknown mutation
+                // invalidation already ran at the shared start entry.
+                if !std::sync::Arc::ptr_eq(&context.owner_identity(), &owner.research_identity) {
+                    return Err(NativeOwnerError::OwnershipUnavailable);
+                }
                 let lock = owner
                     .transaction
                     .acquire_lock()
