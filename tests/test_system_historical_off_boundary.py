@@ -62,14 +62,26 @@ class SystemHistoricalOffBoundary(unittest.TestCase):
         source = (SRC / "system_provider_vm_tests.rs").read_text()
         self.assertIn("const UID: u32 = 61080;", source)
         self.assertIn('const HOME: &str = "/home/ov-t4-system";', source)
-        self.assertEqual(source.count("#[ignore ="), 2)
+        self.assertEqual(source.count("#[ignore ="), 3)
         for forbidden in ("epoch_tests::receipt", "epoch_tests::proof", "CurrentEpochProof::synthetic", "Source::Synthetic", "fixture.root =", "Fixture::reopen"):
             self.assertNotIn(forbidden, source)
-        self.assertLess(source.index("CurrentEpochProof::capture"), source.index("super::tests::prepared(true)"))
+        review = source.split("fn system_provider_vm_real_current_off_preserves_original_receipt_and_fences()", 1)[1]
+        self.assertLess(review.index("CurrentEpochProof::capture"), review.index("super::tests::prepared(true)"))
+        self.assertLess(review.index("assert_valid_off_inputs"), review.index("create(&paths.state_directory"))
         self.assertIn("receipt.unchanged();", source)
         self.assertIn("current_for_vm_test()", source)
         forwarding = (SRC / "system_historical_off_candidate.rs").read_text()
         self.assertRegex(forwarding, r"#\[cfg\(test\)\]\s*pub\(crate\) fn current_for_vm_test")
+
+    def test_login_diagnostic_is_read_only_and_not_an_admission_result(self):
+        source = (SRC / "system_provider_vm_tests.rs").read_text()
+        diagnostic = source.split("fn system_provider_vm_diagnose_login_prerequisites()", 1)[1].split("fn identity_allowed", 1)[0]
+        for forbidden in ("consume_login", "CurrentEpochProof", "create(", "invocation(", "current_for_vm_test", "write("):
+            self.assertNotIn(forbidden, diagnostic)
+        for actual in ("verify_native_empty()", "service_state_with_timeout", "processes_named_strict", "configured_devices", "tun_scope::inventory"):
+            self.assertIn(actual, diagnostic)
+        transaction = (SRC / "login_transaction.rs").read_text()
+        self.assertRegex(transaction, r'#\[cfg\(test\)\]\s*pub\(crate\) fn diagnose_fixed_login_inputs')
 
 
 if __name__ == "__main__":

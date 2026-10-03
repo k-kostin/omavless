@@ -10,6 +10,83 @@ const HOME: &str = "/home/ov-t4-system";
 const OPT_IN: &str = "OMAVLESS_TEST_SYSTEM_OFF_VM";
 const RECEIPT: &str = "omavless-login.receipt";
 
+fn observation_category(
+    result: Result<(), crate::production_observation::ProductionObservationError>,
+) -> &'static str {
+    use crate::production_observation::ProductionObservationError as E;
+    match result {
+        Ok(()) => "Empty",
+        Err(E::UnsafePath) => "UnsafePath",
+        Err(E::ServiceQuery) => "ServiceQuery",
+        Err(E::ServiceResponse) => "ServiceResponse",
+        Err(E::PrivateState) => "PrivateState",
+        Err(E::HostNotEmpty) => "HostNotEmpty",
+        Err(E::IncompleteInventory) => "IncompleteInventory",
+        Err(E::Cutover(_)) => "CutoverRefused",
+    }
+}
+
+#[test]
+#[ignore = "fixed disposable account read-only post-login-failure diagnostic; no receipt retry"]
+fn system_provider_vm_diagnose_login_prerequisites() {
+    let (_, config) = paths();
+    use crate::production_observation::{ProductionOwnershipObserver, service_state_with_timeout};
+    println!(
+        "Inputs:{}",
+        crate::login_transaction::diagnose_fixed_login_inputs()
+    );
+    for (label, service) in [
+        ("LegacyService", "omavless.service"),
+        ("NativeService", "omavless-runtime.service"),
+    ] {
+        let result = service_state_with_timeout(
+            Path::new("/usr/bin/systemctl"),
+            service,
+            std::time::Duration::from_secs(2),
+        )
+        .and_then(|state| {
+            if state.active || state.main_pid != 0 {
+                Err(crate::production_observation::ProductionObservationError::HostNotEmpty)
+            } else {
+                Ok(())
+            }
+        });
+        println!("{label}:{}", observation_category(result));
+    }
+    let processes =
+        omavless_mihomo::observation::processes_named_strict(Path::new("/proc"), "mihomo");
+    println!(
+        "ProcessInventory:{}",
+        match processes {
+            Ok(p) if p.is_empty() => "Empty",
+            Ok(_) => "Present",
+            Err(_) => "Refused",
+        }
+    );
+    let devices = crate::tun_scope::configured_devices(&config, UID);
+    println!(
+        "TunConfig:{}",
+        match devices {
+            Ok(Some(_)) => "Recognized",
+            Ok(None) => "WholeHostFallback",
+            Err(_) => "Refused",
+        }
+    );
+    println!(
+        "TunInventory:{}",
+        match crate::tun_scope::inventory(Path::new("/sys/class/net")) {
+            Ok(p) if p.is_empty() => "Empty",
+            Ok(_) => "Present",
+            Err(_) => "Refused",
+        }
+    );
+    let result =
+        ProductionOwnershipObserver::current().and_then(|observer| observer.verify_native_empty());
+    println!("NativeEmpty:{}", observation_category(result));
+    // A passing diagnostic means only that fixed read-only stages ran. Its
+    // printed refusals remain refusals; this is never System admission evidence.
+}
+
 fn identity_allowed(uid: u32, home: Option<&std::ffi::OsStr>, opt_in: Option<&str>) -> bool {
     uid == UID && home == Some(std::ffi::OsStr::new(HOME)) && opt_in == Some("fixture-v1")
 }
@@ -66,6 +143,26 @@ fn create(path: &Path, bytes: &[u8]) {
     assert_eq!(
         omavless_store::atomic_create_private(path, bytes, UID).unwrap(),
         omavless_store::PrivateCreateOutcome::Created
+    );
+}
+
+fn assert_valid_off_inputs(store: &[u8], desired: &[u8]) {
+    let text = std::str::from_utf8(store).expect("fixed store encoding");
+    let parsed =
+        omavless_domain::private_store::parse_private_store(text).expect("fixed store parser");
+    let desired: crate::desired::DesiredState =
+        serde_json::from_slice(desired).expect("fixed desired encoding");
+    desired.validate().expect("fixed desired validation");
+    assert!(!desired.connected && !parsed.startup_preferences().enabled);
+}
+
+#[test]
+fn system_vm_historical_live_inputs_use_actual_store_and_desired_validators() {
+    let (fixture, _lock) = super::tests::prepared(true);
+    super::tests::ordinary_edit(&fixture);
+    assert_valid_off_inputs(
+        &std::fs::read(fixture.config.join(LIVE[0])).unwrap(),
+        &std::fs::read(fixture.paths.state_directory.join("desired.json")).unwrap(),
     );
 }
 
@@ -155,7 +252,11 @@ fn system_provider_vm_seed_off_inputs() {
     let lock = MigrationLock::acquire(&paths, UID).unwrap();
     let mut store: serde_json::Value =
         serde_json::from_slice(crate::store_bootstrap::EMPTY_STORE_PAYLOAD).unwrap();
-    store["routingPreset"] = "default".into();
+    store["routingPreset"] = "roscomvpn-default".into();
+    assert_valid_off_inputs(
+        &serde_json::to_vec(&store).unwrap(),
+        &serde_json::to_vec(&crate::desired::DesiredState::default()).unwrap(),
+    );
     create(&config.join(LIVE[0]), &serde_json::to_vec(&store).unwrap());
     create(
         &config.join(LIVE[1]),
@@ -215,6 +316,10 @@ fn system_provider_vm_real_current_off_preserves_original_receipt_and_fences() {
             LivePolicy::ValidCurrentOff,
         )
         .unwrap();
+        assert_valid_off_inputs(
+            &source.members[3].0,
+            &source.boundary[1].as_ref().unwrap().0,
+        );
         for (index, name) in [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
             .into_iter()
             .enumerate()

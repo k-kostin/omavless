@@ -51,6 +51,10 @@ must still refuse the surviving fences.
 
 ## Acceptance limits
 
+The subsequent [exact-source mechanism checkpoint](../testing/T4_SYSTEM_PROVIDER_MECHANISM_2026-10-03.md)
+records a real positive at `fbe5fb9` after correcting the test-only seed preset.
+The original cut and its failed attempts remain separately attributed.
+
 The source driver, its CPU identity check and source-retention guards do not
 count as real System-positive execution. That result requires a reviewed exact
 frozen image, real manager/receipt observations, both exact ignored tests running
