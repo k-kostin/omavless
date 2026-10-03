@@ -1,5 +1,9 @@
 # K1 actual END ACK consumption at the observer
 
+The later [BEGIN/operation observation-loss continuation](K1_PREFIX_ACK_OBSERVER_LOSS.md)
+adds separate test-only actual VM coverage with its own tested code and artifact;
+it does not extend the accepted END evidence to another head.
+
 This bounded test-only slice starts at sealed [#563](https://github.com/k-kostin/omavless/pull/563)
 `a6137e96d5ac5369af75491a7ef702e992b1c42d`. Its
 [truncation evidence](K1_REAL_RECEIVE_TRUNCATION.md) and underlying

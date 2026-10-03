@@ -109,6 +109,19 @@ impl Replies {
     fn complete(&self) -> bool {
         !self.poisoned && (self.changed || (self.begin_ack && self.delete_ack && self.end_ack))
     }
+    fn finish_prefix_loss(
+        &mut self,
+        loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
+    ) -> Result<bool> {
+        if !loss.ready(&[self.begin_ack, self.delete_ack, self.end_ack])? {
+            return Ok(false);
+        }
+        require(!self.poisoned && !self.changed && !self.complete())?;
+        loss.confirm_remaining();
+        self.poisoned = true;
+        require(!self.complete())?;
+        Ok(true)
+    }
     fn receive(
         &mut self,
         bytes: &[u8],
@@ -215,12 +228,14 @@ impl InventoryDelete<'_> {
         self.consume_with_ack_faults(
             receive_fault,
             &mut end_ack_loss::OneShotEndAckLoss::default(),
+            &mut prefix_ack_loss::OneShotPrefixAckLoss::default(),
         )
     }
     pub(super) fn consume_with_ack_faults(
         self,
         receive_fault: &mut receive_truncation::OneShotTruncation,
         end_ack_loss: &mut end_ack_loss::OneShotEndAckLoss,
+        prefix_ack_loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
     ) -> DeleteOutcome {
         let deadline = self.deadline;
         if self.session.check(deadline).is_err() {
@@ -279,8 +294,26 @@ impl InventoryDelete<'_> {
                             &replies.wire.end,
                             self.session.local.pid(),
                         )?;
-                        if !delivered.is_empty() || !lost_end {
+                        let prefix_request = match prefix_ack_loss.target() {
+                            None | Some(0) => &replies.wire.begin,
+                            Some(1) => &replies.wire.delete,
+                            _ => return Err(REFUSE),
+                        };
+                        let consumed_before = prefix_ack_loss.observed().0;
+                        let delivered = prefix_ack_loss.deliver(
+                            self.session.socket.as_raw_fd(),
+                            &delivered,
+                            sender,
+                            flags,
+                            prefix_request,
+                            self.session.local.pid(),
+                        )?;
+                        let lost_prefix = prefix_ack_loss.observed().0 != consumed_before;
+                        if !delivered.is_empty() || (!lost_end && !lost_prefix) {
                             replies.receive(&delivered, sender, flags)?;
+                        }
+                        if replies.finish_prefix_loss(prefix_ack_loss)? {
+                            return Err(REFUSE);
                         }
                         if lost_end {
                             require(
@@ -400,6 +433,54 @@ mod tests {
         let mut c = collector();
         let failed_end = ack(&c.wire.end, -22, false);
         assert!(push(&mut c, &failed_end).is_err());
+    }
+    #[test]
+    fn begin_or_delete_loss_delivers_end_and_other_ack_then_seals_without_late_repair() {
+        for target in [0, 1] {
+            for order in [
+                [0, 1, 2],
+                [0, 2, 1],
+                [1, 0, 2],
+                [1, 2, 0],
+                [2, 0, 1],
+                [2, 1, 0],
+            ] {
+                let mut c = collector();
+                let requests = [
+                    c.wire.begin.clone(),
+                    c.wire.delete.clone(),
+                    c.wire.end.clone(),
+                ];
+                let mut loss = prefix_ack_loss::OneShotPrefixAckLoss::default();
+                loss.arm(7, target);
+                for (position, index) in order.into_iter().enumerate() {
+                    let bytes = ack(&requests[index], 0, false);
+                    let delivered = loss
+                        .deliver(
+                            7,
+                            &bytes,
+                            Some(NetlinkAddr::new(0, 0)),
+                            MsgFlags::empty(),
+                            &requests[target],
+                            PORT,
+                        )
+                        .unwrap();
+                    if !delivered.is_empty() {
+                        assert_eq!(&*delivered, bytes);
+                        push(&mut c, &delivered).unwrap();
+                    }
+                    assert!(!c.complete());
+                    assert_eq!(c.finish_prefix_loss(&mut loss).unwrap(), position == 2);
+                }
+                assert_eq!(loss.observed(), (1, true));
+                assert!(c.poisoned && !c.changed && c.end_ack);
+                assert_eq!([c.begin_ack, c.delete_ack], [target != 0, target != 1]);
+                for request in requests {
+                    assert!(push(&mut c, &ack(&request, 0, false)).is_err());
+                }
+                assert!(!c.complete());
+            }
+        }
     }
     #[test]
     fn final_commit_ack_truncation_forgery_or_duplicate_poison() {

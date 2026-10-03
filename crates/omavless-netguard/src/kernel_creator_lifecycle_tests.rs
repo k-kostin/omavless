@@ -197,6 +197,71 @@ fn receive_truncation_flags_poison_create_and_replace_collectors_permanently() {
     }
 }
 
+#[test]
+fn every_begin_or_operation_loss_requires_actual_remaining_ack_delivery_then_seals() {
+    // Pure constructed transcripts exercise every create/replacement request;
+    // actual kernel delivery belongs only to the ignored VM gate below.
+    for old in [None, Some(9)] {
+        let requests = full_batch(7, 10, old).unwrap();
+        for target in 0..requests.len() - 1 {
+            for reverse in [false, true] {
+                let mut loss = prefix_ack_loss::OneShotPrefixAckLoss::default();
+                loss.arm(7, target);
+                let mut replies = BatchReplies::new(requests.clone(), 42).unwrap();
+                let mut order: Vec<_> = (0..requests.len()).collect();
+                if reverse {
+                    order.reverse();
+                }
+                for (position, index) in order.iter().copied().enumerate() {
+                    let bytes = ack(&requests[index], 42, 0);
+                    let delivered = loss
+                        .deliver(
+                            7,
+                            &bytes,
+                            Some(NetlinkAddr::new(0, 0)),
+                            MsgFlags::empty(),
+                            &requests[target],
+                            42,
+                        )
+                        .unwrap();
+                    if !delivered.is_empty() {
+                        assert_eq!(&*delivered, bytes);
+                        replies
+                            .receive(&delivered, Some(NetlinkAddr::new(0, 0)), MsgFlags::empty())
+                            .unwrap();
+                    }
+                    assert!(!replies.complete());
+                    assert_eq!(
+                        replies.finish_prefix_loss(&mut loss).unwrap(),
+                        position + 1 == order.len()
+                    );
+                }
+                assert_eq!(loss.observed(), (1, true));
+                assert!(replies.poisoned && !replies.changed && !replies.acks[target]);
+                assert!(
+                    replies
+                        .acks
+                        .iter()
+                        .enumerate()
+                        .all(|(i, accepted)| i == target || *accepted)
+                );
+                for request in &requests {
+                    assert!(
+                        replies
+                            .receive(
+                                &ack(request, 42, 0),
+                                Some(NetlinkAddr::new(0, 0)),
+                                MsgFlags::empty()
+                            )
+                            .is_err()
+                    );
+                }
+                assert!(!replies.complete());
+            }
+        }
+    }
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -330,6 +395,76 @@ fn real_end_ack_observer_loss_in_disposable_vm() {
     isolated_cases(&["end-create", "end-replace", "end-delete"]);
     println!("K1_REAL_END_ACK_OBSERVER_LOSS_VM_PASS");
 }
+#[test]
+#[ignore = "VM-only actual BEGIN/operation ACK observer loss with END and all other ACKs delivered"]
+fn real_prefix_ack_observer_loss_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_PREFIX_ACK_LOSS_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&[
+        "begin-create",
+        "begin-replace",
+        "begin-delete",
+        "operation-create",
+        "operation-replace",
+        "operation-delete",
+    ]);
+    println!("K1_REAL_PREFIX_ACK_OBSERVER_LOSS_VM_PASS scenarios=6");
+}
+fn prefix_loss_receipt(case: &str) -> Option<String> {
+    let target = match case {
+        "begin-create" | "begin-replace" | "begin-delete" => 0,
+        "operation-create" | "operation-replace" | "operation-delete" => 1,
+        _ => return None,
+    };
+    Some(format!(
+        "K1_ACTUAL_PREFIX_ACK_OBSERVER_LOSS_{case}_PASS target={target} consumed=1 remaining_delivered=1 effects=1 retries=0 reopened_effects=0"
+    ))
+}
+fn valid_prefix_loss_receipt(output: &[u8], case: &str) -> bool {
+    let (Ok(output), Some(expected)) = (std::str::from_utf8(output), prefix_loss_receipt(case))
+    else {
+        return false;
+    };
+    output.lines().filter(|line| *line == expected).count() == 1
+        && output
+            .lines()
+            .filter(|line| line.starts_with("K1_ACTUAL_PREFIX_ACK_OBSERVER_LOSS_"))
+            .count()
+            == 1
+}
+#[test]
+fn prefix_loss_receipts_require_exact_case_once_and_every_count() {
+    let expected = prefix_loss_receipt("begin-create").unwrap();
+    assert!(valid_prefix_loss_receipt(
+        expected.as_bytes(),
+        "begin-create"
+    ));
+    for bad in [
+        String::new(),
+        format!("{expected}\n{expected}"),
+        prefix_loss_receipt("operation-create").unwrap(),
+        expected.replace("consumed=1", "consumed=0"),
+        expected.replace("remaining_delivered=1", "remaining_delivered=0"),
+        expected.replace("effects=1", "effects=2"),
+        expected.replace("retries=0", "retries=1"),
+        expected.replace("reopened_effects=0", "reopened_effects=1"),
+        format!("{expected} extra"),
+        format!("prefix {expected}"),
+        format!(
+            "{expected}\n{}",
+            prefix_loss_receipt("begin-delete").unwrap()
+        ),
+    ] {
+        assert!(!valid_prefix_loss_receipt(bad.as_bytes(), "begin-create"));
+    }
+    assert!(!valid_prefix_loss_receipt(&[0xff], "begin-create"));
+    assert!(!valid_prefix_loss_receipt(
+        expected.as_bytes(),
+        "end-create"
+    ));
+}
 fn isolated_cases(cases: &[&str]) {
     let parent = namespace_file().unwrap();
     let identity = namespace_identity(&parent).unwrap();
@@ -409,6 +544,12 @@ fn isolated_cases(cases: &[&str]) {
                 1
             );
         }
+        if case.starts_with("begin-") || case.starts_with("operation-") {
+            assert!(
+                valid_prefix_loss_receipt(&output, case),
+                "missing or invalid exact prefix-loss receipt"
+            );
+        }
         assert_eq!(namespace_identity(&parent).unwrap(), identity);
         assert_eq!(
             namespace_identity(&namespace_file().unwrap()).unwrap(),
@@ -450,6 +591,12 @@ fn lifecycle_child() {
             | "end-create"
             | "end-replace"
             | "end-delete"
+            | "begin-create"
+            | "begin-replace"
+            | "begin-delete"
+            | "operation-create"
+            | "operation-replace"
+            | "operation-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let identity = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -475,7 +622,11 @@ fn lifecycle_child() {
         return;
     }
     let mut state = fixture.state(case == "service" || case == "lost-socket-reply");
-    if case.starts_with("trunc-") || case.starts_with("end-") {
+    if case.starts_with("trunc-")
+        || case.starts_with("end-")
+        || case.starts_with("begin-")
+        || case.starts_with("operation-")
+    {
         receive_failure_case(&fixture, state, creator, namespace, &case);
     } else if case == "service" {
         let path = fixture.0.join("control.sock");
@@ -641,8 +792,15 @@ fn receive_failure_case(
     case: &str,
 ) {
     let end_loss = case.starts_with("end-");
+    let prefix = if case.starts_with("begin-") {
+        Some(("begin-", 0))
+    } else if case.starts_with("operation-") {
+        Some(("operation-", 1))
+    } else {
+        None
+    };
     let operation = case
-        .strip_prefix(if end_loss { "end-" } else { "trunc-" })
+        .strip_prefix(prefix.map_or(if end_loss { "end-" } else { "trunc-" }, |p| p.0))
         .unwrap();
     assert!(matches!(operation, "create" | "replace" | "delete"));
     if operation != "create" {
@@ -654,7 +812,9 @@ fn receive_failure_case(
     let local = creator.session.local;
     let identity = creator.session.identity;
     let before = creator.effects;
-    if end_loss {
+    if let Some((_, target)) = prefix {
+        creator.prefix_ack_loss.arm(socket, target);
+    } else if end_loss {
         creator.end_ack_loss.arm(socket);
     } else {
         creator.receive_fault.arm(socket);
@@ -669,7 +829,18 @@ fn receive_failure_case(
     );
     // Only the real receive path can record either fault. END loss also proves
     // all BEGIN/operation ACKs reached the existing unchanged collector.
-    assert_eq!(creator.receive_fault.observed(), usize::from(!end_loss));
+    assert_eq!(
+        creator.receive_fault.observed(),
+        usize::from(!end_loss && prefix.is_none())
+    );
+    assert_eq!(
+        creator.prefix_ack_loss.observed(),
+        if prefix.is_some() {
+            (1, true)
+        } else {
+            (0, false)
+        }
+    );
     assert_eq!(
         creator.end_ack_loss.observed(),
         if end_loss { (1, true) } else { (0, false) }
@@ -721,7 +892,18 @@ fn receive_failure_case(
         }
     }
     assert_eq!(creator.effects, before + 1);
-    assert_eq!(creator.receive_fault.observed(), usize::from(!end_loss));
+    assert_eq!(
+        creator.receive_fault.observed(),
+        usize::from(!end_loss && prefix.is_none())
+    );
+    assert_eq!(
+        creator.prefix_ack_loss.observed(),
+        if prefix.is_some() {
+            (1, true)
+        } else {
+            (0, false)
+        }
+    );
     assert_eq!(
         creator.end_ack_loss.observed(),
         if end_loss { (1, true) } else { (0, false) }
@@ -780,7 +962,9 @@ fn receive_failure_case(
     assert_eq!(reopened.effects, 0);
     assert!(reopened.created.is_none());
     assert_eq!(fixture.records(), records);
-    if end_loss {
+    if prefix.is_some() {
+        println!("{}", prefix_loss_receipt(case).unwrap());
+    } else if end_loss {
         println!("K1_ACTUAL_END_ACK_OBSERVER_LOSS_{case}_PASS");
     } else {
         println!("K1_ACTUAL_MSG_TRUNC_{case}_PASS");

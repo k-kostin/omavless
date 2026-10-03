@@ -26,6 +26,9 @@ mod creator_lifecycle;
 #[path = "kernel_end_ack_loss.rs"]
 mod end_ack_loss;
 #[cfg(test)]
+#[path = "kernel_prefix_ack_loss.rs"]
+mod prefix_ack_loss;
+#[cfg(test)]
 #[path = "kernel_receive_truncation.rs"]
 mod receive_truncation;
 use std::{
