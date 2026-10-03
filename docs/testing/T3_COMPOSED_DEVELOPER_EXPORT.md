@@ -92,6 +92,29 @@ assertions and adding a 40-byte-prefix length counterexample. Neither that
 fixture correction nor Cargo configuration hardening inherits b733dcb's exact
 export evidence; subsequent exact-head results belong on the Draft PR.
 
+### Auxiliary test-contract continuation
+
+The exact91 full-suite continuation also observed `Cancelled` from the existing
+`revoke_during_chunk_cleanup_never_reopens_stale_lease` worker. A cfg(test)-only,
+thread-local one-shot hook now forces this ordering: worker reads unfinished;
+real quiesce reaps its owned child, removes the reservation and marks finished;
+worker acquires the slot and refuses the now-stale reservation as `Cancelled`.
+This is an admissible refusal, not evidence of failed cleanup. The old unwrap
+was reproduced as a deterministic failure after all safety assertions passed;
+private prefix patch SHA-256
+`6e74c098212ab3296d74de942dfbfeff5a250ae034d3be78e8c17cda3869c0fa`.
+
+The original concurrent test permits only `Ok` or `Cancelled`; the forced case
+requires exactly `Cancelled`. Both prove the old child is gone, observation is
+empty, the guard blocks reservations, stale spawning refuses, and dropping the
+old lease cannot disturb an already-live successor. The hook has bounded
+handshakes and a resume/join guard on assertion failures; it is absent outside
+tests. Nine focused auxiliary tests pass. No production path, cleanup budget or
+retry policy changes. The separate original terminal exit101 remains unexplained
+(20 original-test repeats and 20 separate-stderr diagnostics did not reproduce
+it); no TUI behavior was changed. Exact91 exported artifacts remain tied to91,
+not attributed to this later test-only continuation.
+
 No normal ManagedPair, package stager/receipt schema, release pins, selector,
 service, broker enrollment, private runtime state or conditional-close admission
 changes. This bundle is deliberately incompatible with the normal release
