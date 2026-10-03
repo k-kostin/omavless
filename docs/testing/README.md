@@ -63,6 +63,13 @@ the tagged independent peer is a developer instrument, not a normal package.
 The [AWG timer source checkpoint](P4_AWG_TIMER_SOURCE_2026-10-03.md) uses a
 separate opt-in CPU-only source overlay. Direct retry callbacks and a shortened
 test timer prove bounded engine behavior, not Mihomo/VM timer or MTU/IPv6 acceptance.
+The separate [IP-family / MTU matrix plan](P4_IP_FAMILY_MTU_MATRIX_PLAN.md)
+defines add-only synthetic measurement helpers and exact source gates; its CPU
+guards are not VM wire or normal activation acceptance.
+Its [wire checkpoint](P4_IP_FAMILY_MTU_MATRIX_2026-10-03.md) retains the older
+2/24 partial runs and strict-baseline NONPASS, plus two corrected 24/24 loopback
+matrices with independent strict baseline preservation. Neither is Internet
+PMTU, broad P4 or normal activation acceptance.
 The [QML component gate](../../tests/qml-load/README.md) compiles without
 instantiating the plugin and is explicitly opt-in on an installed desktop.
 
