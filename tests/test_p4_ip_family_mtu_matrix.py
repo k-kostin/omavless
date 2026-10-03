@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).parent))
 import p4_ip_family_mtu_matrix as subject
@@ -15,6 +17,18 @@ builder=importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
 
 
 class MatrixGuards(unittest.TestCase):
+    def test_both_render_phases_preserve_the_mutable_cell_record(self):
+        record={"status":"REFUSE","flavor":"3.1"}; identity=id(record)
+        with patch.object(subject.wg,"command",return_value=SimpleNamespace(stdout=b'{"private_roundtrip":true,"flavor":"3.1"}')) as command:
+            self.assertIsNone(subject.render_cell_configs(Path("/fixture"),SimpleNamespace(renderer="/renderer"),"3.1",6,6,1280,record))
+        self.assertEqual(id(record),identity)
+        self.assertEqual(record,{"status":"REFUSE","flavor":"3.1","private_roundtrips":2})
+        self.assertEqual(command.call_count,2)
+        self.assertIn("positive",command.call_args_list[0].args[0])
+        self.assertIn("negative",command.call_args_list[1].args[0])
+        record.update({"measured":"synthetic"})
+        self.assertEqual(record["measured"],"synthetic")
+
     def test_exact_matrix_and_payload_bounds(self):
         self.assertEqual(len(subject.CELLS),24)
         self.assertEqual(len(set(subject.CELLS)),24)

@@ -315,6 +315,14 @@ def peer_stats(root,pid,public):
     return tuple(int(values[key]) for key in (b"last_handshake_time_sec",b"rx_bytes",b"tx_bytes"))
 
 
+def render_cell_configs(root,args,flavor,outer,inner,mtu,record):
+    wg.require(isinstance(record,dict),"cell_record_shape")
+    for name in ("positive","negative"):
+        rendered=wg.command(wg.dropped([args.renderer,str(root),name,flavor,str(outer),str(inner),str(mtu)]),"private_render")
+        wg.require(json.loads(rendered.stdout)=={"private_roundtrip":True,"flavor":flavor},"private_roundtrip")
+    record["private_roundtrips"]=2
+
+
 def start_peer(root,args,outer,inner,mtu):
     fd=os.open("/dev/net/tun",os.O_RDWR|os.O_CLOEXEC)
     process=None
@@ -401,9 +409,7 @@ def namespace_run(args):
                 wg.require(awg.socket_payload(cell/"peer.sock",peer.pid,payload)==b"errno=0\n\n" and peer_stats(cell,peer.pid,public)==(0,0,0),"peer_reset")
                 values=awg.peer_get(cell,peer.pid); wg.require(all(values.get(key)==value for key,value in expected.items()),"awg_field_readback")
             reset()
-            for name in ("positive","negative"):
-                result=wg.command(wg.dropped([args.renderer,str(cell),name,flavor,str(outer),str(inner),str(mtu)]),"private_render")
-                wg.require(json.loads(result.stdout)=={"private_roundtrip":True,"flavor":flavor},"private_roundtrip")
+            render_cell_configs(cell,args,flavor,outer,inner,mtu,result)
             service_argv=child_arguments(args,cell,"service",inner)
             with wg.log_handle(cell/"service.log") as log: service=wg.launch(service_argv,log,pass_fds=(int(args.parent_net_fd),int(args.parent_user_fd)))
             readiness(service,cell/"service.sock"); wg.check_process(service,wg.namespace("net"))

@@ -124,7 +124,7 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
 
 ## Source gates so far
 
-- Seven pure Python measurement/builder receipt guards pass in ordinary CI;
+- Eight pure Python measurement/builder receipt guards pass in ordinary CI;
   `tests/run.sh` only registers these guards, never runs the live matrix.
 - Five named observed-peer CPU guards: 50 repetitions = **250 executions PASS**;
   race-enabled 20 repetitions = **100 executions PASS**. Both build receipts
@@ -132,6 +132,12 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
   200-execution build predates flow binding and is not the final peer artifact.
 - Rust example: **two tests PASS**, including all 24 geometries × both phases
   = 48 private-store/native-render round trips and fixed-geometry refusal cases.
-- Source suite: **321 reported, two existing skips, 319 executed, zero failures**;
+- Initial source suite: **321 reported, two existing skips, 319 executed, zero failures**;
   JS/native/QML contracts pass. Formatting/whitespace remain scoped static gates.
 - No VM matrix, actual IPv6/MTU cell or native-owner acceptance is claimed here.
+
+Pre-VM review found a fixture-only variable overwrite: a renderer subprocess
+result replaced the mutable cell record. A separate rendering helper now keeps
+both subprocess receipts local, and a pure regression preserves the caller's
+record identity/content across both phases. No VM execution or engine/binary
+re-execution is inferred from that runner-only fix.
