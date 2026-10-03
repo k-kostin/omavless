@@ -27,7 +27,7 @@ use omavless_domain::private_store::{
 
 pub(super) struct BatchOwnerState {
     #[cfg(test)]
-    research_identity: std::sync::Arc<()>,
+    pub(super) research_identity: std::sync::Arc<()>,
     pub(super) instance: String,
     pub(super) registry: LongOperationRegistry,
     pub(super) active: Option<(LongOperationToken, ActiveCancellation)>,
@@ -517,6 +517,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         let result = (|| {
             Self::check_batch_handle(&state, &job)?;
+            // Authenticate the context before advancing progress, invalidating
+            // close evidence, releasing the active token or clearing bindings.
+            // Source/lease checks remain required again before publication.
+            admission.matches(&state, &job)?;
             let token = job.token;
             let base_revision = job.base_revision;
             let completed = job.work.progress().0;

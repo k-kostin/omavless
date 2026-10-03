@@ -123,6 +123,17 @@ impl BatchAdmission<'_> {
             Self::Ordinary(_) => Ok(()),
             #[cfg(test)]
             Self::Historical(context)
+                if !std::sync::Arc::ptr_eq(
+                    &context.owner_identity(),
+                    &_state.research_identity,
+                ) =>
+            {
+                // Refuse an unrelated genuine capability without poisoning it
+                // or terminalizing this owner's still-authentic operation.
+                Err(NativeOwnerError::OwnershipUnavailable)
+            }
+            #[cfg(test)]
+            Self::Historical(context)
                 if context.matches_job(&_state.instance, _job.token, _job.base_revision) =>
             {
                 Ok(())

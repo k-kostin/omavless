@@ -326,6 +326,115 @@ fn historical_batch_same_text_instance_cannot_steal_or_release_other_owner_job()
 }
 
 #[test]
+fn historical_batch_valid_job_with_foreign_bound_context_preserves_both_owners() {
+    let (f, mut original, mut evidence) = fixture(true, Some("https://fixed.invalid/feed"));
+    let mut original_job = start(&mut original, &mut evidence, "original");
+    fetch(&f, &mut original_job);
+    let original_ticket = original_job.supervisor_ticket();
+    let mut successor = new_owner(&f);
+    let lease = f.lock();
+    let mut successor_evidence = successor
+        .detach_batch_research(
+            witness(&f, &lease)
+                .research(proof(&f, &lease), || true)
+                .unwrap(),
+        )
+        .unwrap();
+    drop(lease);
+    let mut successor_job = start(&mut successor, &mut successor_evidence, "successor");
+    fetch(&f, &mut successor_job);
+    let before_original = status(&original, "original");
+    let before_successor = status(&successor, "successor");
+    let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
+    let metadata = fs::metadata(f.config.join(LIVE[0])).unwrap();
+    let old = history(&f);
+
+    // The job is authentic for the receiving owner. Only the genuinely bound
+    // context is foreign; equal instance/token/revision text is not authority.
+    assert!(
+        original
+            .complete_subscription_batch_research(
+                original_job,
+                || panic!("foreign context cannot read clock"),
+                &mut successor_evidence,
+            )
+            .is_err()
+    );
+    assert_eq!(status(&original, "original"), before_original);
+    assert_eq!(status(&successor, "successor"), before_successor);
+    assert_eq!(original.revision(), 0);
+    assert_eq!(successor.revision(), 0);
+    assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), bytes);
+    assert!(same_member(
+        &metadata,
+        &fs::metadata(f.config.join(LIVE[0])).unwrap()
+    ));
+    assert_history(&f, &old);
+    // A by-value rejected job has been consumed, but its genuine supervisor
+    // ticket can still terminate precisely that owner's unmodified operation.
+    original
+        .abort_subscription_batch_research(original_ticket, &mut evidence)
+        .unwrap();
+    assert_eq!(status(&original, "original")["state"], "failed");
+    successor
+        .complete_subscription_batch_research(successor_job, || 20, &mut successor_evidence)
+        .unwrap();
+    assert_eq!(status(&successor, "successor")["state"], "succeeded");
+    assert_eq!(successor.revision(), 1);
+    assert_history(&f, &old);
+}
+
+#[test]
+fn historical_batch_valid_ticket_with_foreign_bound_context_preserves_both_owners() {
+    let (f, mut original, mut evidence) = fixture(true, None);
+    let original_job = start(&mut original, &mut evidence, "original");
+    let mut successor = new_owner(&f);
+    let lease = f.lock();
+    let mut successor_evidence = successor
+        .detach_batch_research(
+            witness(&f, &lease)
+                .research(proof(&f, &lease), || true)
+                .unwrap(),
+        )
+        .unwrap();
+    drop(lease);
+    let successor_job = start(&mut successor, &mut successor_evidence, "successor");
+    let before_original = status(&original, "original");
+    let before_successor = status(&successor, "successor");
+    let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
+    let metadata = fs::metadata(f.config.join(LIVE[0])).unwrap();
+    let old = history(&f);
+    assert!(
+        successor
+            .abort_subscription_batch_research(successor_job.supervisor_ticket(), &mut evidence)
+            .is_err()
+    );
+    assert_eq!(status(&original, "original"), before_original);
+    assert_eq!(status(&successor, "successor"), before_successor);
+    for (owner, context, job, id) in [
+        (&mut original, &mut evidence, original_job, "original"),
+        (
+            &mut successor,
+            &mut successor_evidence,
+            successor_job,
+            "successor",
+        ),
+    ] {
+        owner
+            .complete_subscription_batch_research(job, || panic!("empty clock"), context)
+            .unwrap();
+        assert_eq!(status(owner, id)["state"], "succeeded");
+        assert_eq!(owner.revision(), 0);
+    }
+    assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), bytes);
+    assert!(same_member(
+        &metadata,
+        &fs::metadata(f.config.join(LIVE[0])).unwrap()
+    ));
+    assert_history(&f, &old);
+}
+
+#[test]
 fn historical_batch_cancel_abort_shutdown_never_write_and_stale_ticket_cannot_revoke() {
     for stage in ["before", "prepared", "abort", "shutdown"] {
         let (f, mut owner, mut context) = fixture(true, Some("https://fixed.invalid/feed"));
