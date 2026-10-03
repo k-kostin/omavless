@@ -58,9 +58,22 @@ python3 tests/core_connections_adapter/review.py \
   --scratch-parent /absolute/private/home-scratch
 ```
 
+Both review entrypoints share an isolated fresh bare object-only export,
+excluding local `info/attributes`, replacements, user/global Git configuration
+and dirty source. They use `/usr/bin/go` with explicit offline settings,
+`GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`, no inherited `GOFLAGS`/compiler
+overrides, and the existing `$HOME/go/pkg/mod` and `$HOME/.cache/go-build` caches.
+`go mod verify` precedes tests/vendor preparation; this is cache verification,
+not acquisition of a compiler/dependency or a published-package attestation.
+Missing local dependencies refuse rather than downloading them. The actual
+installed compiler version and resulting combined binary hash remain separate
+evidence; no particular release compiler is claimed by these developer tools.
+
 The runner exports only the pinned Git objects (never local source edits),
 checks/applies this patch in disposable scratch, and runs the exact statistic
-and HTTP tests 20 times under Go's race detector. Network module fetching is
+and HTTP tests 20 times under Go's race detector. Both entrypoints require the
+exact nonempty JSON pass counters; exit zero with zero tests, missing cases,
+extra root cases, failures or unexpected skips refuses. Network module fetching is
 disabled. It never uses sudo, private profiles, TUN, an installed daemon or
 the host controller. The temporary reviewed source is removed after the test.
 

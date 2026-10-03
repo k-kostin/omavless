@@ -26,6 +26,40 @@ with patch.dict("sys.modules", {"loopback": LIVE, "review": REVIEW, "udp_loopbac
 
 
 class ConditionalCoreAdapterTests(unittest.TestCase):
+    def test_both_entrypoints_share_verified_export_and_receipt_checker(self):
+        self.assertIs(COMPOSITION.export, REVIEW.export)
+        self.assertIs(COMPOSITION.git_environment, REVIEW.git_environment)
+        self.assertIs(COMPOSITION.matrix_receipt, REVIEW.matrix_receipt)
+        self.assertIs(COMPOSITION.CONDITIONAL_TESTS, REVIEW.CONDITIONAL_TESTS)
+        source = (ROOT / "tests/core_connections_adapter/review.py").read_text()
+        self.assertIn("export(args.source, PIN, source)", source)
+        self.assertIn("matrix_receipt(receipt, CONDITIONAL_TESTS)", source)
+        self.assertIn('GO, "mod", "verify"', source)
+
+    def test_compiler_environment_excludes_ambient_execution_and_download_overrides(self):
+        with tempfile.TemporaryDirectory(prefix="compiler-unit-") as name:
+            poison = {"HOME": name, "PATH": "/synthetic/untrusted", "GOENV": "/private/settings",
+                      "GOFLAGS": "-toolexec=private-command", "GOTOOLCHAIN": "auto",
+                      "GOWORK": "/private/workspace", "GOEXPERIMENT": "private-input",
+                      "CGO_CFLAGS": "private-input", "LD_PRELOAD": "private-input",
+                      "GOPROXY": "private-provider", "CC": "private-command"}
+            with patch.dict("os.environ", poison, clear=True):
+                env = REVIEW.compiler_environment(Path(name))
+            self.assertEqual(REVIEW.GO, "/usr/bin/go")
+            self.assertEqual(env["PATH"], "/usr/bin:/bin")
+            self.assertEqual(env["GOENV"], "off")
+            self.assertEqual(env["GOPROXY"], "off")
+            self.assertEqual(env["GOTOOLCHAIN"], "local")
+            self.assertEqual(env["GOWORK"], "off")
+            self.assertEqual(env["GOFLAGS"], "")
+            self.assertEqual(env["CC"], "/usr/bin/gcc")
+            self.assertEqual(env["GOMODCACHE"], str(Path(name) / "go/pkg/mod"))
+            for key in ("GOEXPERIMENT", "CGO_CFLAGS", "LD_PRELOAD"):
+                self.assertNotIn(key, env)
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "^Local compiler home refused$"):
+                REVIEW.compiler_environment(Path("/synthetic"))
+
     def test_udp_association_requires_exact_local_reply_and_closes_refusal(self):
         from unittest.mock import Mock
         client = Mock()
