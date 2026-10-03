@@ -67,7 +67,7 @@ All build, module-cache and temporary paths must be owned HOME subdirectories.
 Source export, add-only overlay and offline module verification use the sealed
 export helper; the existing runners and their APIs remain unchanged.
 
-The new runner admits the exact sealed #585 supervisor bytes by SHA-256
+The executed runner admitted the exact sealed #585 supervisor bytes by SHA-256
 `dcec0ed6b5bbde5fc6015f8a66dd1a3255cdfa2f3c2d6b8802d046edacfde165`.
 It retains a WNOWAIT group anchor until bounded pipe EOF and nonleader absence.
 Unknown cancellation quarantines the anchor/export rather than inferring
@@ -163,6 +163,38 @@ navigation, Go formatting, Python compile, shell syntax and whitespace gates
 pass. No local Cargo build is represented: Rust/Cargo inputs are unchanged.
 Final report-head checks belong to their exact later heads and cannot imply
 new Go executions, rebuilds or changes to these recorded execution bytes.
+
+### Later supervisor-only uncertainty hardening
+
+Review after the actual executions found a latent uncertainty path in the
+sealed supervisor: a first main-loop wait-state error could enter its generic
+cancellation path and query wait-state again; Popen's successful final wait
+could also treat ECHILD as zero. Neither condition occurred in the recorded
+engine cases. Their actual original runner/supervisor bytes remain frozen and
+all phase results above remain attributed to them, not to this follow-up.
+
+The current runner hash is
+`f0115ef30587c82c4e6c34d1fd3b1260e54342f500d9b8d007d74889723f734a`.
+It pins a new [rekey-only supervisor](../../tests/fixtures/p4_awg_peer/run_default_rekey_supervisor.py),
+SHA-256 `1235ba47be848f356beb86af259d2e305bd3e86cc5766f745b0140c2f0cb0c47`;
+the old #585 helper and its callers remain unchanged. The new helper latches
+the first main-loop wait uncertainty before any subsequent wait/query/signal/
+reap, quarantines that anchor and blocks another launch within the supervisor.
+After WNOWAIT, EOF and nonleader absence, successful exit code comes only from
+an exact raw nonblocking waitpid result for the owned PID and an actual exited/
+signaled status. A final-reap exception, wrong PID, missing exited child or
+unsupported status also quarantines without a second query, signal or reap.
+Bounded cancellation uses the same raw-status discipline; there is no Popen
+ECHILD-to-zero fallback. Export-helper bytes and directory/save/inventory bodies
+are unchanged, with dedicated source comparison guards.
+
+Deterministic mocked first-wait error followed by a would-be second success,
+final-reap OSError/ECHILD, wrong-PID/no-child/invalid-status controls prove no
+false PASS, no later ownership operation and no second launch. Existing actual
+Python-child timeout/setup/output/orphan controls also exercise the new helper.
+**No Go case or binary is rebuilt/reexecuted for this wrapper-only change.**
+Recorded successful JSON streams pass the current receipt-only validator;
+the original failed race stream remains refused.
 
 ## Remaining gates
 

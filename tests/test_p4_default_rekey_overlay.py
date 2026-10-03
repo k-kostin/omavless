@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: MIT
 """Pure 120s receipt/source gates; never invoke Go or the slow test in CI."""
+import ast
 import importlib.util
 import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import MagicMock, patch
+
+from tests import test_p4_default_elapsed_overlay as previous_guards
 
 spec = importlib.util.spec_from_file_location("p4_default_rekey", Path(__file__).parent / "fixtures/p4_awg_peer/run_default_rekey_overlay.py")
 subject = importlib.util.module_from_spec(spec)
@@ -48,7 +53,7 @@ class DefaultRekeyGuards(unittest.TestCase):
             self.assertNotIn(forbidden, code)
         for actual in ("[]conn.ReceiveFunc", "old.created.Add(117", "old.created.Add(121", "old.sendNonce.Load() >= RekeyAfterMessages", "cp.timers.newHandshake.IsPending", "p4RekeyMatch", "client.indexTable.Lookup", "server.indexTable.Lookup"):
             self.assertIn(actual, code)
-        self.assertEqual(subject.SUPERVISOR_SHA, "dcec0ed6b5bbde5fc6015f8a66dd1a3255cdfa2f3c2d6b8802d046edacfde165")
+        self.assertEqual(subject.SUPERVISOR_SHA, "1235ba47be848f356beb86af259d2e305bd3e86cc5766f745b0140c2f0cb0c47")
 
     def test_frozen_object_refuses_links_and_changed_modes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -103,6 +108,85 @@ class DefaultRekeyGuards(unittest.TestCase):
                        "p4RekeyConfiguredRead(t, m,", "first != MessageTransportHeaderSize+48"):
             self.assertIn(actual, code)
         self.assertNotIn("offset = MessageTransportHeaderSize", code)
+
+
+class RekeySupervisionGuards(unittest.TestCase):
+    def test_other_helper_bodies_and_export_bytes_remain_exact(self):
+        old = ast.parse(Path(previous_guards.subject.__file__).read_text())
+        new = ast.parse(subject.SUPERVISOR.read_text())
+        for name in ("members", "private_directory", "save"):
+            self.assertEqual(ast.dump(next(node for node in old.body if isinstance(node, ast.FunctionDef) and node.name == name)),
+                             ast.dump(next(node for node in new.body if isinstance(node, ast.FunctionDef) and node.name == name)))
+        self.assertEqual(subject.owned.HELPER_BYTES, previous_guards.subject.HELPER_BYTES)
+
+    def test_first_main_wait_unknown_never_recovers_from_second_success(self):
+        owned = subject.owned
+        for failure in (OSError("first wait unknown"), ChildProcessError("lost anchor")):
+            child, selector = MagicMock(), MagicMock()
+            child.pid = 424242
+            selector.select.return_value = []
+            with self.subTest(error=type(failure).__name__), patch.object(owned, "UNSETTLED", []) as retained, patch.object(owned.subprocess, "Popen", return_value=child) as spawn, patch.object(owned.selectors, "DefaultSelector", return_value=selector), patch.object(owned.os, "set_blocking"), patch.object(owned.os, "waitid", side_effect=[failure, SimpleNamespace(si_pid=child.pid)]) as wait_state, patch.object(owned.os, "waitpid") as reap, patch.object(owned.os, "killpg") as signal_group, patch.object(owned, "members") as inventory:
+                with self.assertRaisesRegex(owned.Unsettled, "main_wait_anchor_unknown_preserve"):
+                    owned.command([], Path.cwd(), {}, 3)
+                self.assertEqual(retained, [child])
+                self.assertEqual(wait_state.call_count, 1)
+                reap.assert_not_called()
+                signal_group.assert_not_called()
+                inventory.assert_not_called()
+                child.wait.assert_not_called()
+                with self.assertRaisesRegex(owned.Unsettled, "prior_owned_group_unsettled"):
+                    owned.command([], Path.cwd(), {}, 3)
+                self.assertEqual(spawn.call_count, 1)
+
+    def test_final_reap_unknown_never_becomes_success_or_recovers(self):
+        owned = subject.owned
+        for failure in (OSError("reap unknown"), ChildProcessError("ECHILD")):
+            child, selector = MagicMock(), MagicMock()
+            child.pid = 424242
+            selector.select.return_value = []
+            selector.get_map.return_value = {}
+            with self.subTest(error=type(failure).__name__), patch.object(owned, "UNSETTLED", []) as retained, patch.object(owned.subprocess, "Popen", return_value=child) as spawn, patch.object(owned.selectors, "DefaultSelector", return_value=selector), patch.object(owned.os, "set_blocking"), patch.object(owned.os, "waitid", return_value=SimpleNamespace(si_pid=child.pid)) as wait_state, patch.object(owned.os, "waitpid", side_effect=[failure, (child.pid, 0)]) as reap, patch.object(owned.os, "killpg") as signal_group, patch.object(owned, "members", return_value=[]) as inventory:
+                with self.assertRaisesRegex(owned.Unsettled, "owned_final_reap_unknown_preserve"):
+                    owned.command([], Path.cwd(), {}, 3)
+                self.assertEqual(retained, [child])
+                self.assertEqual(wait_state.call_count, 1)
+                self.assertEqual(reap.call_count, 1)
+                self.assertEqual(inventory.call_count, 1)
+                signal_group.assert_not_called()
+                child.wait.assert_not_called()
+                with self.assertRaises(owned.Unsettled):
+                    owned.command([], Path.cwd(), {}, 3)
+                self.assertEqual(spawn.call_count, 1)
+
+    def test_raw_reap_requires_exact_pid_and_exited_status(self):
+        owned = subject.owned
+        child = MagicMock(pid=424242)
+        for returned in ((0, 0), (child.pid + 1, 0), (child.pid, 0x7f)):
+            with self.subTest(returned=returned), patch.object(owned, "UNSETTLED", []) as retained, patch.object(owned.os, "waitpid", return_value=returned) as reap:
+                with self.assertRaises(owned.Unsettled):
+                    owned.reap(child, 1, known_exited=True)
+                self.assertEqual(retained, [child])
+                self.assertEqual(reap.call_count, 1)
+                child.wait.assert_not_called()
+        for raw, code in ((3 << 8, 3), (9, -9)):
+            with patch.object(owned.os, "waitpid", return_value=(child.pid, raw)):
+                self.assertEqual(owned.reap(child, 1, known_exited=True), code)
+                self.assertEqual(child.returncode, code)
+
+
+# Exercise the seven existing actual/mocked command controls against the new
+# helper without editing the sealed helper or duplicating their fixtures.
+for _name in ("test_supervisor_normal_and_timeout_owned_child",
+              "test_selector_setup_failure_still_cancels_and_reaps",
+              "test_unsettled_anchor_refuses_another_launch",
+              "test_cancellation_inventory_failure_retains_unreaped_anchor",
+              "test_unknown_or_lost_anchor_preserves_without_signal_or_reap",
+              "test_live_output_limit_cancels_and_reaps",
+              "test_closed_stdio_orphan_is_not_mistaken_for_quiescence"):
+    def _run(self, name=_name):
+        with patch.object(previous_guards, "subject", subject.owned):
+            getattr(previous_guards.ElapsedGuards(name), name)()
+    setattr(RekeySupervisionGuards, _name, _run)
 
 
 if __name__ == "__main__":

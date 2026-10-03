@@ -13,9 +13,9 @@ import subprocess
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-SUPERVISOR = HERE / "run_default_elapsed_overlay.py"
+SUPERVISOR = HERE / "run_default_rekey_supervisor.py"
 SUPERVISOR_BYTES = SUPERVISOR.read_bytes()
-SUPERVISOR_SHA = "dcec0ed6b5bbde5fc6015f8a66dd1a3255cdfa2f3c2d6b8802d046edacfde165"
+SUPERVISOR_SHA = "1235ba47be848f356beb86af259d2e305bd3e86cc5766f745b0140c2f0cb0c47"
 if hashlib.sha256(SUPERVISOR_BYTES).hexdigest() != SUPERVISOR_SHA:
     raise ValueError("sealed_supervisor_changed")
 spec = importlib.util.spec_from_file_location("p4_rekey_owned_commands", SUPERVISOR)
