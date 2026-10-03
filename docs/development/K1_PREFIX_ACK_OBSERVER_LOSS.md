@@ -77,8 +77,11 @@ with two existing skips, 93-link documentation navigation and native/QML checks.
 Its first HOME-temp invocation had three unchanged native-V0 private-file test
 errors because the HOME ancestor contains a `.git` marker. The source-only rerun
 used an owned outside-Git temporary directory and preserved that privacy guard;
-no test assertion or HOME marker was changed. Full workspace Rust/CI checks
-remain in progress at this checkpoint.
+no test assertion or HOME marker was changed. The full workspace Rust script
+passed with 2,009 successful test invocations, zero failures and 71 ignored
+invocations across its ordinary/feature/serialized suites (not a unique-test
+count), all 12 terminal checks, strict workspace/feature clippy, feature checks
+and two-case parity. Exact final documentation-head CI remains a separate gate.
 
 The frozen x86_64 test executable has SHA-256
 `8538bdab3f08ca86b108ca6c0db4fee3d960266ba3d62b25f45d696584e94362`.
@@ -86,11 +89,29 @@ It was copied outside Cargo and has no file capabilities. It is a test artifact,
 not a package or installed helper. Later documentation changes do not imply
 execution of modified code.
 
-Actual VM execution is **pending**, requiring an explicit exclusive development
-VM lease and reviewed preservation guard. Ordinary CPU tests do not prove that
-the kernel emitted or the observer consumed any ACK. Use a frozen executable
-outside Cargo, private home target/temp roots and exact code/artifact identity;
-never rebuild a running self-reexecution binary.
+Actual VM execution passed on 2026-10-03 under an exclusive development VM
+lease: 20 independent invocations, each validating all six child receipts,
+gave 120 actual BEGIN/operation observation-loss scenarios. Every invocation
+reported exactly one aggregate `scenarios=6` receipt and one passing ignored
+test. These are deliberate observer losses after exact valid kernel ACK
+decoding, not kernel loss or a timer-only refusal.
+
+The reviewed preservation guard has SHA-256
+`f2ec8bbf15bc5717904e1dc5116a383ab310e65533ea90d6ea417449549054fb`.
+All four canonical private file hashes, user service/PID and executable,
+outer namespace, core/TUN inventories, resolver and resolv.conf remained
+unchanged. Every address and IPv4/IPv6 route/rule field matched except the
+explicitly reviewed nonincreasing valid/preferred address lifetimes.
+The private artifact archive, containing all 20 aggregate receipts, raw before/after
+baselines, exact guard and frozen executable, has SHA-256
+`5fc978291aee3ed62e176843bd9ea7af3026360f3a24a727749a3b26f8ac2c5a`.
+No raw private baseline is committed. After durable retention, only this
+fixture's guest executable and verified-empty temporary directory were removed;
+private receipts/baselines were retained and the lease released.
+
+Use a frozen executable outside Cargo, private home target/temp roots and
+exact code/artifact identity; never rebuild a running self-reexecution binary.
+Ordinary CPU tests alone do not prove kernel ACK emission or consumption.
 
 Production still has no EffectPort or canonical namespace authenticator.
 Synthetic epoch/Canonical fixture labels remain untrusted local history.
