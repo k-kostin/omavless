@@ -58,7 +58,7 @@ not orphan adoption or production recovery.
 
 ## Gates and limits
 
-The new gate is pending actual execution at the initial source checkpoint:
+The gate is opt-in and requires an exclusive disposable-VM lease:
 
 ```sh
 OMAVLESS_K1_END_ACK_LOSS_VM=1 frozen-netguard-tests --ignored --exact \
@@ -66,8 +66,54 @@ OMAVLESS_K1_END_ACK_LOSS_VM=1 frozen-netguard-tests --ignored --exact \
   --nocapture
 ```
 
-Run only under an explicit exclusive development-VM lease with exact frozen
-code/artifact identity and preserved parent network/service/private state.
+## Exact-source evidence, 2026-10-03
+
+Immutable executed code:
+`4aed4d35768a3bb68546706e9863d7aa01c3495d`. Frozen standalone test executable
+SHA-256:
+`f973e95cde47f8a312b87e31ba8adea82c8b657c1c47919a59d6f7517eb0a064`.
+It was copied outside Cargo and reverified after guest transfer, with no file
+capabilities. All Cargo work finished before self-reexecution; no rebuild
+occurred during the VM suite. Previous frozen #560/#563 artifacts and their
+branches/evidence were preserved; this slice used its own home target/temp.
+
+Local gates passed: two focused exact-END filter tests; complete netguard 199
+passed /32 opt-in ignored including doctests; strict all-target crate clippy and
+formatting; source 503 passed /two existing skips, native/QML checks and 93-link
+navigation. The complete current-RC Rust script passed with four test threads,
+including serialized special fixtures, strict workspace/TUI clippy, terminal
+fixtures and parity. Its repeated result lines total 1585 successful test
+invocations, zero failures and 44 ignored (not a count of unique tests). Cloud
+checks are independently attached to exact heads in
+[#565](https://github.com/k-kostin/omavless/pull/565); local/VM success alone does
+not assert a cloud check outcome.
+
+Omarchy development VM x86_64/KVM, kernel `7.2.5-3-omarchy`, exclusive delegated
+lease: all three new actual END observer-loss scenarios passed ten complete
+repetitions (30 consumed real END ACKs, each after the entire actual accepted
+BEGIN/operation prefix). The same frozen executable also passed all thirteen
+predecessor lifecycle scenarios and all three actual receive-truncation
+scenarios once. The lifecycle regression includes three actual SIGKILL cuts;
+the thirty END losses are not SIGKILL, truncation or invented kernel errors.
+
+All 46 scenarios passed one-invocation private before/after preservation:
+unchanged parent network namespace, canonical **user**
+`omavless-runtime.service` active/running at PID 86349, runtime executable and
+private profile/desired/ownership file fingerprints. Exact deep JSON network
+comparison preserved all interface identities/names/flags/MTU, address/prefix
+fields, route tables, rules and metrics. Only confirmed decreasing numeric
+`address[*].addr_info[*].preferred_life_time` and `valid_life_time` counters
+differed; no other structure/type/key, route or process change was ignored.
+Private values, hashes and raw network snapshots were not published.
+
+Every namespace child was reaped; fixture scratch was empty after each gate.
+The exact owned guest scratch, transferred binary/guard and private snapshots
+were removed. Final no-process/no-scratch and unchanged user-service/PID/parent
+namespace checks passed. The exclusive VM lease was explicitly released, with
+no further guest calls. The immutable host artifact remains outside Cargo.
+No parent-VM firewall/route/service/profile or primary-PC network action was
+performed. Later evidence-only edits do not claim execution of modified code.
+
 Ordinary tests do not establish actual kernel delivery. The synthetic local
 epoch/Canonical model seam is still untrusted fixture history. Production has
 no EffectPort, canonical namespace authenticator, helper installation or kill
