@@ -588,6 +588,49 @@ pub(crate) struct RetainedCurrentOff<'a> {
     generation: u64,
 }
 impl<'a> RetainedCurrentOff<'a> {
+    /// Inactive System-only startup bridge. The original snapshot is already
+    /// retained before package/manager queries. No caller-supplied proof or
+    /// Boolean can select the normal-compiled constructor.
+    pub(crate) fn system_off(
+        self,
+        host: &mut crate::native_host::ObservationOnlyNativeHost,
+    ) -> Result<RetainedEpochOff<'a>, ExecutionError> {
+        use crate::lifecycle::LifecycleHost;
+        let mut proof = crate::login_activation::epoch_candidate::CurrentEpochProof::capture(
+            self.paths,
+            self.uid,
+            self.generation,
+            self.lock,
+        )
+        .map_err(|_| REFUSE)?;
+        let desired = crate::desired::DesiredPaths {
+            directory: self.paths.state_directory.clone(),
+            file: self.paths.state_directory.join("desired.json"),
+        };
+        self.sync(
+            &mut proof,
+            || {
+                crate::desired::read_desired_snapshot(&desired, self.uid).is_ok_and(|d| {
+                    !d.connected
+                        && host.fresh_observation(&d).is_ok_and(|o| {
+                            !o.owned_core_running
+                                && o.visible_mihomo_count == 0
+                                && o.owned_auxiliary_mihomo_count == 0
+                                && o.visible_tun_count == 0
+                                && o.managed_tun_count == 0
+                                && !o.owned_controller_config_verified
+                                && !o.desired_profile_matches_owned
+                        })
+                })
+            },
+            |_| true,
+        )?;
+        Ok(RetainedEpochOff {
+            original: self,
+            proof,
+        })
+    }
+
     pub(crate) fn capture(
         config: &'a Path,
         paths: &'a CutoverPaths,
@@ -649,9 +692,8 @@ impl<'a> RetainedCurrentOff<'a> {
     }
 }
 
-/// Test-only real-caller research. Retains (not copies) the original evidence
-/// beyond resync. No production constructor or normal mutation authority.
-#[cfg(test)]
+/// Retains (not copies) original evidence beyond resync for one inactive
+/// startup operation. No normal mutation or registration authority.
 pub(crate) struct RetainedEpochOff<'a> {
     original: RetainedCurrentOff<'a>,
     proof: crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
@@ -672,7 +714,6 @@ impl<'a> RetainedCurrentOff<'a> {
     }
 }
 
-#[cfg(test)]
 impl RetainedEpochOff<'_> {
     pub(crate) fn paths_match(&self, desired: &crate::desired::DesiredPaths, store: &Path) -> bool {
         desired.directory == self.original.paths.state_directory

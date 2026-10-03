@@ -2,6 +2,12 @@
 
 Base: #544, `b57c8480de6e2e70ba910097f7ab351f4c0d302e`.
 
+The checkpoint below describes the original test-only implementation. The later
+[inactive System bridge](T4_SYSTEM_HISTORICAL_OFF_ADAPTER.md) compiles only its
+opaque startup witness and bounded startup alternative normally, with no normal
+dispatch and no owner escape. It does not carry this checkpoint's VM evidence
+forward or promote the test-only mutation research.
+
 ## Actual code exercised
 
 The test-only `ProductionNativeOwner::initialize_off_research` consumes the

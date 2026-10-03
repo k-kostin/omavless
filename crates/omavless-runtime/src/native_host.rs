@@ -324,6 +324,7 @@ fn remove_owned_file(path: &Path, uid: u32, socket: bool) -> Result<(), HostStep
 /// never be formatted or serialized.
 pub struct NativeLifecycleHost {
     paths: NativeHostPaths,
+    drop_paths: DropPaths,
     uid: u32,
     core: Option<OwnedCore>,
     core_diagnostics: Option<crate::core_diagnostics::DiagnosticReader>,
@@ -338,6 +339,57 @@ pub struct NativeLifecycleHost {
     tun_identity: Option<(String, u64)>,
     #[cfg(test)]
     close_fixture: Option<CloseFixture>,
+}
+
+enum DropPaths {
+    Cleanup,
+    Preserve,
+}
+
+/// Sealed observation-only use of the actual native observer. No inner host,
+/// auxiliary slot or resource handle escapes, and no lifecycle effect delegates.
+/// Its fresh inner host never owns a core or staged file, so destruction must
+/// not remove another operation's same-user controller/staging names.
+pub(crate) struct ObservationOnlyNativeHost {
+    inner: NativeLifecycleHost,
+}
+
+impl ObservationOnlyNativeHost {
+    pub(crate) fn new(paths: NativeHostPaths, uid: u32) -> Result<Self, HostStepError> {
+        let mut inner = NativeLifecycleHost::new(paths, uid)?;
+        inner.drop_paths = DropPaths::Preserve;
+        Ok(Self { inner })
+    }
+}
+
+impl LifecycleHost for ObservationOnlyNativeHost {
+    fn observe(&mut self, desired: &DesiredState) -> Result<OwnedObservation, HostStepError> {
+        self.inner.observe(desired)
+    }
+    fn fresh_observation(
+        &mut self,
+        desired: &DesiredState,
+    ) -> Result<NativeLocalObservation, HostStepError> {
+        self.inner.fresh_observation(desired)
+    }
+    fn connection_preflight(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn prepare(&mut self, _: &DesiredState) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn start_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn commit_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Prepare)
+    }
+    fn stop_owned(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Cleanup)
+    }
+    fn discard_prepared(&mut self) -> Result<(), HostStepError> {
+        Err(HostStepError::Cleanup)
+    }
 }
 
 impl NativeLifecycleHost {
@@ -437,6 +489,7 @@ impl NativeLifecycleHost {
         }
         Ok(Self {
             paths,
+            drop_paths: DropPaths::Cleanup,
             uid,
             core: None,
             core_diagnostics: None,
@@ -1130,8 +1183,10 @@ impl Drop for NativeLifecycleHost {
                 .map_or(STOP_TIMEOUT, ConfigReadiness::stop_timeout);
             let _ = core.stop(timeout);
         }
-        let _ = self.remove_controller();
-        let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);
+        if matches!(self.drop_paths, DropPaths::Cleanup) {
+            let _ = self.remove_controller();
+            let _ = remove_owned_file(&self.paths.staged_config, self.uid, false);
+        }
         if self.active_install_attempted {
             let _ = self.restore_previous_config();
         }
@@ -1185,6 +1240,85 @@ mod tests {
         );
         let host = NativeLifecycleHost::new(paths, uid).unwrap();
         (root, host)
+    }
+
+    #[test]
+    fn observation_only_host_preserves_unowned_names_and_refuses_all_effects() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        for refuse in [false, true] {
+            let (root, initial) = observation_fixture();
+            drop(initial);
+            let uid = nix::unistd::Uid::current().as_raw();
+            let paths = NativeHostPaths::new(
+                root.join("core"),
+                root.join("data"),
+                root.join("config"),
+                root.join("runtime"),
+                root.join("proc"),
+                root.join("sys"),
+            );
+            let staged = paths.staged_config.clone();
+            let controller = paths.controller_socket.clone();
+            fs::write(&staged, b"synthetic-unowned-staging").unwrap();
+            let staged_identity = fs::metadata(&staged).unwrap();
+            let listener = UnixListener::bind(&controller).unwrap();
+            let socket_identity = fs::symlink_metadata(&controller).unwrap();
+            let mut host = ObservationOnlyNativeHost::new(paths, uid).unwrap();
+            assert!(host.auxiliary_slot().is_none());
+            assert!(host.probe_paths().is_none());
+            assert!(host.route_core_identity().is_none());
+            assert!(host.connection_preflight().is_err());
+            assert!(host.prepare(&DesiredState::default()).is_err());
+            assert!(host.validate_startup(&DesiredState::default()).is_err());
+            assert!(host.start_prepared().is_err());
+            assert!(host.commit_prepared().is_err());
+            assert!(host.stop_owned().is_err());
+            assert!(host.discard_prepared().is_err());
+            if refuse {
+                fs::remove_dir(root.join("proc")).unwrap();
+                assert!(host.fresh_observation(&DesiredState::default()).is_err());
+            } else {
+                assert!(
+                    !host
+                        .fresh_observation(&DesiredState::default())
+                        .unwrap()
+                        .owned_core_running
+                );
+                assert_eq!(
+                    host.observe(&DesiredState::default()).unwrap().core_count,
+                    0
+                );
+            }
+            drop(host);
+            assert_eq!(fs::read(&staged).unwrap(), b"synthetic-unowned-staging");
+            assert!(crate::restore_staging_candidate::same_member(
+                &staged_identity,
+                &fs::metadata(&staged).unwrap()
+            ));
+            assert!(crate::restore_staging_candidate::same_member(
+                &socket_identity,
+                &fs::symlink_metadata(&controller).unwrap()
+            ));
+            let client = UnixStream::connect(&controller).unwrap();
+            let peer = listener.accept().unwrap().0;
+            drop((client, peer, listener));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn ordinary_host_drop_keeps_existing_path_cleanup_policy() {
+        use std::os::unix::net::UnixListener;
+        let (root, host) = observation_fixture();
+        let staged = host.paths.staged_config.clone();
+        let controller = host.paths.controller_socket.clone();
+        fs::write(&staged, b"synthetic-staging").unwrap();
+        let listener = UnixListener::bind(&controller).unwrap();
+        drop(host);
+        assert!(!staged.exists());
+        assert!(!controller.exists());
+        drop(listener);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

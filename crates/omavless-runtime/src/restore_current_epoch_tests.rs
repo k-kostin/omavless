@@ -622,6 +622,309 @@ struct OffHost {
     before_observe: Box<dyn FnMut()>,
     occupied: bool,
 }
+
+struct BoundedOffHost<'a> {
+    inner: OffHost,
+    paths: &'a CutoverPaths,
+    lock: &'a MigrationLock,
+    uid: u32,
+    observations: usize,
+    before_fresh: Box<dyn FnMut(usize) -> bool>,
+    on_drop: Box<dyn FnMut()>,
+    dropped: Arc<AtomicBool>,
+}
+impl Drop for BoundedOffHost<'_> {
+    fn drop(&mut self) {
+        assert!(self.lock.authorizes(self.paths, self.uid));
+        assert!(matches!(
+            MigrationLock::acquire_existing(self.paths, self.uid),
+            Err(crate::cutover::CutoverError::Busy)
+        ));
+        (self.on_drop)();
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+impl crate::lifecycle::LifecycleHost for BoundedOffHost<'_> {
+    fn fresh_observation(
+        &mut self,
+        _: &crate::desired::DesiredState,
+    ) -> Result<crate::lifecycle::NativeLocalObservation, crate::lifecycle::HostStepError> {
+        assert!(self.lock.authorizes(self.paths, self.uid));
+        assert!(matches!(
+            MigrationLock::acquire_existing(self.paths, self.uid),
+            Err(crate::cutover::CutoverError::Busy)
+        ));
+        self.observations += 1;
+        if !(self.before_fresh)(self.observations) {
+            return Err(crate::lifecycle::HostStepError::Observation);
+        }
+        Ok(crate::lifecycle::NativeLocalObservation {
+            owned_core_running: false,
+            visible_mihomo_count: 0,
+            owned_auxiliary_mihomo_count: 0,
+            visible_tun_count: 0,
+            managed_tun_count: 0,
+            owned_controller_config_verified: false,
+            desired_profile_matches_owned: false,
+        })
+    }
+    fn observe(
+        &mut self,
+        d: &crate::desired::DesiredState,
+    ) -> Result<crate::desired::OwnedObservation, crate::lifecycle::HostStepError> {
+        self.inner.observe(d)
+    }
+    fn prepare(
+        &mut self,
+        _: &crate::desired::DesiredState,
+    ) -> Result<(), crate::lifecycle::HostStepError> {
+        panic!("bounded review must not prepare")
+    }
+    fn start_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+        panic!("bounded review must not start")
+    }
+    fn commit_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+        panic!("bounded review must not commit")
+    }
+    fn stop_owned(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+        panic!("bounded review must not stop")
+    }
+    fn discard_prepared(&mut self) -> Result<(), crate::lifecycle::HostStepError> {
+        panic!("bounded review must not discard")
+    }
+}
+
+#[test]
+fn bounded_historical_off_concrete_host_drop_preserves_staging_and_live_socket() {
+    use crate::production_owner::system_historical_off::review_for_test;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    // Synthetic epoch proves only the shared startup body. The package-negative
+    // case separately invokes the actual installed-package check; no positive
+    // System attestation is fabricated by this fixture.
+    for fault in 0..3 {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        receipt(&f);
+        let store = f.config.join(LIVE[0]);
+        crate::private_store_transaction::prepare_pointer_mutation(
+            &store,
+            f.uid,
+            omavless_domain::private_store::CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .unwrap()
+        .commit_locked(&lock, &f.paths)
+        .unwrap();
+        for name in ["data", "proc", "sys"] {
+            fs::create_dir(f.root.join(name)).unwrap();
+            fs::set_permissions(f.root.join(name), fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let core = f.root.join("core-never-executed");
+        fs::write(&core, b"not an executable image; must never launch").unwrap();
+        fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
+        let paths = crate::native_host::NativeHostPaths::new(
+            core,
+            f.root.join("data"),
+            f.config.clone(),
+            f.paths.runtime_base.clone(),
+            f.root.join("proc"),
+            f.root.join("sys"),
+        );
+        let stage = paths.staged_config.clone();
+        let socket = paths.controller_socket.clone();
+        fs::write(&stage, b"synthetic-not-owned-by-review").unwrap();
+        let stage_identity = fs::metadata(&stage).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        let socket_identity = fs::symlink_metadata(&socket).unwrap();
+        let retained = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap();
+        let host = crate::native_host::ObservationOnlyNativeHost::new(paths, f.uid).unwrap();
+        if fault == 2 {
+            // Never invoke system-manager queries from this source fixture.
+            if let Ok(installed) = fs::metadata("/usr/bin/omavless") {
+                let running = fs::metadata("/proc/self/exe").unwrap();
+                assert_ne!(
+                    (installed.dev(), installed.ino()),
+                    (running.dev(), running.ino())
+                );
+            }
+            assert_eq!(
+                crate::login_activation::require_current_receipt(&f.paths, f.uid, &lock, 2),
+                Err(crate::login_activation::Error::Package)
+            );
+            drop(host);
+            drop(retained);
+        } else {
+            if fault == 1 {
+                fs::remove_file(f.paths.runtime_base.join("omavless-login.receipt")).unwrap();
+            }
+            let result = review_for_test(
+                host,
+                desired_paths(&f),
+                &store,
+                f.paths.clone(),
+                f.uid,
+                (&lock, retained),
+            );
+            assert_eq!(result.is_ok(), fault == 0);
+        }
+        assert_eq!(fs::read(&stage).unwrap(), b"synthetic-not-owned-by-review");
+        assert!(same_member(&stage_identity, &fs::metadata(&stage).unwrap()));
+        assert!(same_member(
+            &socket_identity,
+            &fs::symlink_metadata(&socket).unwrap()
+        ));
+        let client = UnixStream::connect(&socket).unwrap();
+        let peer = listener.accept().unwrap().0;
+        drop((client, peer, listener));
+        assert_fenced(&f, &lock);
+    }
+}
+
+#[test]
+fn bounded_historical_off_destroys_owner_under_original_lease_before_success() {
+    bounded_off_cases(false);
+    bounded_off_cases(true);
+}
+
+fn bounded_off_cases(commit: bool) {
+    use crate::production_owner::system_historical_off::{Review, review_for_test};
+    // Success; final host refusal; receipt replacement during final observation;
+    // post-owner-destruction transient; owned-stop refusal; pointer repair refusal.
+    for fault in 0..6 {
+        let (f, lock) = prepared(commit);
+        ordinary_edit(&f);
+        receipt(&f);
+        let store = f.config.join(LIVE[0]);
+        crate::private_store_transaction::prepare_pointer_mutation(
+            &store,
+            f.uid,
+            omavless_domain::private_store::CompatibilityPointerTarget::Disconnected {
+                prune_missing: true,
+            },
+        )
+        .unwrap()
+        .commit_locked(&lock, &f.paths)
+        .unwrap();
+        if fault == 5 {
+            let mut data: serde_json::Value =
+                serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+            data["activeId"] = data["profiles"][0]["id"].clone();
+            fs::write(&store, serde_json::to_vec(&data).unwrap()).unwrap();
+        }
+        let before = Snapshot::read_policy(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            LivePolicy::ValidCurrentOff,
+        )
+        .unwrap();
+        let bytes = fs::read(&store).unwrap();
+        let identity = fs::metadata(&store).unwrap();
+        let unchanged = [
+            f.paths.state_directory.join(CLOSURE_MEMBER),
+            f.paths.state_directory.join(TICKET_MEMBER),
+            f.paths.state_directory.join(COMPLETE_MEMBER),
+            f.paths
+                .state_directory
+                .join(crate::cutover::OWNERSHIP_MARKER_NAME),
+            f.paths.state_directory.join("desired.json"),
+            f.config.join(LIVE[0]),
+            f.config.join(LIVE[1]),
+            f.paths.runtime_base.join("omavless-login.receipt"),
+        ]
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !(fault == 2 && *index == 7))
+        .map(|(_, path)| {
+            let bytes = fs::read(&path).unwrap();
+            let metadata = fs::metadata(&path).unwrap();
+            (path, bytes, metadata)
+        })
+        .collect::<Vec<_>>();
+        let retained = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let receipt_path = f.paths.runtime_base.join("omavless-login.receipt");
+        let pending = f.paths.state_directory.join("restore-successor.pending");
+        let result = review_for_test(
+            BoundedOffHost {
+                inner: OffHost {
+                    before_observe: Box::new(|| {}),
+                    occupied: fault == 4,
+                },
+                paths: &f.paths,
+                lock: &lock,
+                uid: f.uid,
+                observations: 0,
+                before_fresh: Box::new(move |count| {
+                    if fault == 2 && count == 2 {
+                        let replacement = receipt_path.with_extension("replacement");
+                        fs::copy(&receipt_path, &replacement).unwrap();
+                        fs::rename(replacement, &receipt_path).unwrap();
+                    }
+                    !(fault == 1 && count == 2)
+                }),
+                on_drop: Box::new(move || {
+                    if fault == 3 {
+                        fs::write(&pending, b"synthetic-transient").unwrap();
+                    }
+                }),
+                dropped: dropped.clone(),
+            },
+            desired_paths(&f),
+            &store,
+            f.paths.clone(),
+            f.uid,
+            (&lock, retained),
+        );
+        assert!(dropped.load(Ordering::SeqCst), "no actual owner may escape");
+        if fault == 0 {
+            assert_eq!(result.unwrap(), Review::ReviewedOffStillFenced);
+            assert!(
+                before.same(
+                    &Snapshot::read_policy(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        LivePolicy::ValidCurrentOff
+                    )
+                    .unwrap()
+                )
+            );
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(fs::read(&store).unwrap(), bytes);
+        assert!(same_member(&identity, &fs::metadata(&store).unwrap()));
+        for (path, bytes, identity) in unchanged {
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            assert!(same_member(&identity, &fs::metadata(&path).unwrap()));
+        }
+        assert_fenced(&f, &lock);
+        drop(lock);
+        assert!(
+            crate::production_owner::ProductionNativeOwner::initialize(
+                OffHost {
+                    before_observe: Box::new(|| panic!("ordinary startup must remain fenced")),
+                    occupied: false
+                },
+                desired_paths(&f),
+                &store,
+                f.paths.clone(),
+                f.uid,
+            )
+            .is_err()
+        );
+    }
+}
 impl crate::lifecycle::LifecycleHost for OffHost {
     fn observe(
         &mut self,

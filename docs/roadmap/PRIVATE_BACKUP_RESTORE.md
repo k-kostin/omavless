@@ -1633,6 +1633,16 @@ recovery. Repeated archive authentication is not newly required by this slice;
 it tests the already-proposed same-UID/exact-generation historical policy only.
 See [the bounded research evidence](../development/T4_OWNER_OFF_RESEARCH.md).
 
+The subsequent [inactive System bridge](../development/T4_SYSTEM_HISTORICAL_OFF_ADAPTER.md)
+reuses that startup body in normal compilation, but remains private and absent
+from normal dispatch. It internally resolves current paths and captures a genuine
+System proof after retaining the original snapshot; actual native Off/empty
+observations, the witness and one existing lease span the complete operation.
+The owner is destroyed before only `ReviewedOffStillFenced` returns. Boolean
+research constructors and historical mutation conversions remain test-only.
+This closes the bounded source bridge, not installed System-positive acceptance
+or the owner decision to adopt historical evidence in ordinary startup.
+
 ### Dev-only synchronous favorite caller research
 
 The successor research routes only `profiles.favorite` through the actual native

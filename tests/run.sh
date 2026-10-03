@@ -21,6 +21,7 @@ python3 -m unittest -v \
   "$here/test_installed_python_mask.py" \
   "$here/test_human_authorization.py" \
   "$here/test_k1_launch_fixture_boundary.py" \
+  "$here/test_system_historical_off_boundary.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \

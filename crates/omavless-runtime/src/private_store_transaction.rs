@@ -72,7 +72,6 @@ impl PreparedPointerMutation {
             }
     }
 
-    #[cfg(test)]
     pub(crate) fn changed(&self) -> bool {
         self.prepared.changed()
     }
