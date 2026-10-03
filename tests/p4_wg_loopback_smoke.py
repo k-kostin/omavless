@@ -186,7 +186,8 @@ def generate_round(root):
     return public_client
 
 
-def phase(root, core, phase_name, attempt, public_key, net):
+def phase(root, core, phase_name, attempt, public_key, net, *, observe=None):
+    observe = peer_stats if observe is None else observe
     config = root / f"{phase_name}.yaml"
     require(config.lstat().st_mode & 0o077 == 0, "config_policy")
     # Validation never receives secret bytes through argv or environment.
@@ -198,7 +199,7 @@ def phase(root, core, phase_name, attempt, public_key, net):
             stop(tested)
     sock = root / "mihomo.sock"
     require(not sock.exists(), "controller_collision")
-    before = peer_stats(public_key)
+    before = observe(public_key)
     started = int(time.time())
     child = None
     try:
@@ -221,7 +222,7 @@ def phase(root, core, phase_name, attempt, public_key, net):
                                       "--max-time", "3", "--max-filesize", "128",
                                       "http://10.203.0.1:8089/"]), "transport_request",
                              timeout=5, okay=tuple(range(256)))
-            after = peer_stats(public_key)
+            after = observe(public_key)
             if phase_name == "positive":
                 require(result.returncode == 0 and result.stdout == RESPONSE,
                         "positive_transport")
