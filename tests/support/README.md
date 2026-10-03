@@ -12,6 +12,15 @@ previously created timestamp-named roots with `create_dir_all`, which could
 silently share state after a collision. Other helpers are intentionally not
 rewritten in this bounded checkpoint.
 
+Netguard's locked-state/listener fixtures now also use the short `k1l` label.
+The former descriptive root plus `run/omavless-netguard/control.sock` exceeded
+Linux's Unix-socket limit in the tested 44-byte HOME-based TMPDIR, making eight
+listener/publication tests fail before their intended operation. The exact
+same parent and all eight tests must pass after this test-only conversion.
+Short fixture names do not remove the OS limit: callers must still choose a
+TMPDIR with enough room for the fixed socket suffix. No /tmp fallback or
+production listener/state-path change is introduced.
+
 Keep fixture files and symlinks beneath the returned directory. Use
 `create_new` when testing a new regular file. The caller owns cleanup after
 joining its threads and waiting for children; this helper does not introduce
