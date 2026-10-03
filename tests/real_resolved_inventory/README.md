@@ -77,7 +77,7 @@ mutation. Further source diagnosis should retain safely typed public refusal
 facts before rejection; any additional actual invocation needs separate review
 and an exclusive lease. This attempt establishes neither a usable inventory nor
 actual resolved compatibility.
-# Source-only public refusal diagnostics (not executed)
+# Public refusal diagnostics (measured source `90cca2a`)
 
 The next diagnostic retains one bounded public `/usr/lib` or `/usr/bin` pathname,
 expected maps device/inode, and original-open-FD device/inode/uid/gid/mode/nlink/size
@@ -89,6 +89,34 @@ traversal and overlong paths are refused without opening or recording them.
 
 `vm-guard-diagnostic2.sh` is a separate immutable proposal using fresh create-only
 stage `t3-resolved-loader-inventory-review-2` and the new exact source hash. The
-original `vm-guard.sh` and first-attempt archive remain unchanged. No second VM
-invocation is authorized by these source changes; separate full review and an
-exclusive lease remain mandatory.
+original `vm-guard.sh` and first-attempt archive remain unchanged. The second
+invocation below received separate full review and an exclusive lease.
+
+The one approved diagnostic invocation of source
+`90cca2ace91fc3434c19627c45fa3e85cd82aa5a` retained **NONPASS**, reason
+`mapped_object_identity`. For public path `/usr/bin/dbus-daemon`, maps identified
+device **29**, inode **26297**; the original opened FD identified device **31**,
+inode **26297**, uid/gid **65534**, mode **33261** (regular 0755), nlink **1**,
+size **199176**. Only `device_matches_maps` was false; all six other predicates
+were true. No content was read or digest recorded for the refused object. This
+establishes the mismatched field, **not** its filesystem mechanism or loaded ELF
+identity. No identity predicate was relaxed and no allowlist was adopted.
+
+Broker/core execution and DNS mutations remained false. Canonical epoch, all
+eight baseline categories and all IPv4/IPv6 non-timer fields were preserved;
+only confirmed decreasing address lifetimes differed. Independent read-only
+quiescence verified the private root empty/non-symlink, fixed artifact/launcher/
+bus/subordinate-resolver processes absent, and canonical PID 938 unchanged.
+No retry or cleanup occurred; the exclusive lease was returned.
+
+Receipt, strict snapshots and private logs are retained outside Git in
+`t3-loader-inventory-90cca2a-nonpass.tar.gz`, host directory
+`/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/` and guest directory
+`/home/kdk_vm/.cache/`, matching SHA-256
+`8b7777f11263f5657beb9ebcaee845256a9eaac88d2a02026d4e6808c3aead25`.
+Measured source SHA-256 is
+`974284868219f32efe2f983b857ee8ed722db6360d4a62986d3fac3b896c73e0`;
+wrapper SHA-256 is
+`679e4757c65803d275a3ddfa5ed766e39cbbc1e607dde32ae53fec7f0d9c2b97`.
+The source gate passed 409 Python tests (2 skips) and JS/QML checks. Neither this
+diagnostic nor either earlier refusal is compatibility or installed acceptance.
