@@ -19,7 +19,9 @@ class ArtifactExportTests(unittest.TestCase):
     def root(self):
         # Actual secure ancestry: /tmp is deliberately not an admitted export
         # parent. This is owned test scratch below HOME, never installed state.
-        value = tempfile.TemporaryDirectory(prefix="ov-export-", dir=Path.home() / ".cache")
+        # A fresh CI HOME need not contain .cache. Reserve only our temporary
+        # directory under the existing HOME; do not create shared cache state.
+        value = tempfile.TemporaryDirectory(prefix="ov-export-", dir=Path.home())
         self.addCleanup(value.cleanup)
         return Path(value.name)
 
