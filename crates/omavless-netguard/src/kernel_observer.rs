@@ -23,6 +23,9 @@ mod conditional_delete;
 #[path = "kernel_creator_lifecycle.rs"]
 mod creator_lifecycle;
 #[cfg(test)]
+#[path = "kernel_end_ack_loss.rs"]
+mod end_ack_loss;
+#[cfg(test)]
 #[path = "kernel_receive_truncation.rs"]
 mod receive_truncation;
 use std::{

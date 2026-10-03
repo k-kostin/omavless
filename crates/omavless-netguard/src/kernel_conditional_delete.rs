@@ -212,6 +212,16 @@ impl InventoryDelete<'_> {
         self,
         receive_fault: &mut receive_truncation::OneShotTruncation,
     ) -> DeleteOutcome {
+        self.consume_with_ack_faults(
+            receive_fault,
+            &mut end_ack_loss::OneShotEndAckLoss::default(),
+        )
+    }
+    pub(super) fn consume_with_ack_faults(
+        self,
+        receive_fault: &mut receive_truncation::OneShotTruncation,
+        end_ack_loss: &mut end_ack_loss::OneShotEndAckLoss,
+    ) -> DeleteOutcome {
         let deadline = self.deadline;
         if self.session.check(deadline).is_err() {
             self.session.poisoned = true;
@@ -261,7 +271,31 @@ impl InventoryDelete<'_> {
                         let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
                         require(length <= capacity)?;
                         receive_fault.received(length, flags)?;
-                        replies.receive(&bytes[..length], sender, flags)?;
+                        let (delivered, lost_end) = end_ack_loss.deliver(
+                            self.session.socket.as_raw_fd(),
+                            &bytes[..length],
+                            sender,
+                            flags,
+                            &replies.wire.end,
+                            self.session.local.pid(),
+                        )?;
+                        if !delivered.is_empty() || !lost_end {
+                            replies.receive(&delivered, sender, flags)?;
+                        }
+                        if lost_end {
+                            require(
+                                !replies.poisoned
+                                    && !replies.changed
+                                    && !replies.complete()
+                                    && replies.begin_ack
+                                    && replies.delete_ack
+                                    && !replies.end_ack,
+                            )?;
+                            end_ack_loss.confirm_prefix();
+                            replies.poisoned = true;
+                            require(!replies.complete())?;
+                            return Err(REFUSE);
+                        }
                     }
                     Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
                     Err(_) => return Err(REFUSE),
