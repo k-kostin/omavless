@@ -12,6 +12,7 @@
 
 mod backup_candidate;
 mod batch;
+mod batch_admission;
 pub(crate) mod connection_admission;
 mod onboarding;
 mod probe;
