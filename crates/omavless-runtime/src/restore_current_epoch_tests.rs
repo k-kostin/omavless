@@ -20,6 +20,450 @@ const EPOCH: &str = "11111111111111111111111111111111";
 const NEXT: &str = "22222222222222222222222222222222";
 const WORKER: &str = "restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::epoch_tests::epoch_resync_crash_worker";
 
+fn profile_owner(f: &Fixture) -> crate::native_coordinator::OfflineNativeCoordinator<OffHost> {
+    crate::native_coordinator::OfflineNativeCoordinator::new_ownership_gated(
+        OffHost {
+            before_observe: Box::new(|| panic!("favorite must not observe")),
+            occupied: false,
+        },
+        desired_paths(f),
+        &f.config.join(LIVE[0]),
+        f.paths.clone(),
+        f.uid,
+        2,
+    )
+}
+
+fn favorite(f: &Fixture, operation: &str, revision: u64) -> serde_json::Value {
+    let store: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.config.join(LIVE[0])).unwrap()).unwrap();
+    let profile = &store["profiles"][0];
+    assert!(profile["id"].is_string());
+    serde_json::json!({"api":"omavless.control","version":1,"id":"research","method":"profiles.favorite","params":{
+        "profileId":profile["id"],"enabled":!profile["favorite"].as_bool().unwrap_or(false),
+        "operationId":operation,"expectedRevision":revision
+    }})
+}
+
+#[test]
+fn historical_profile_real_write_replay_and_second_edit_keep_history() {
+    use crate::native_coordinator::{NativeMutationOutcome, NativeOwnerExecution};
+    for commit in [false, true] {
+        let (f, lock) = prepared(commit);
+        ordinary_edit(&f);
+        receipt(&f);
+        let mut context = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let mut owner = profile_owner(&f);
+        let initial = context.current.as_ref().unwrap().members[..3]
+            .iter()
+            .map(|(b, m)| (b.to_vec(), m.clone()))
+            .collect::<Vec<_>>();
+        for revision in 0..2 {
+            let request = favorite(&f, &format!("favorite-{revision}"), revision);
+            let before = fs::metadata(f.config.join(LIVE[0])).unwrap();
+            let outcome = owner
+                .execute_profile_research(&request, &mut context)
+                .unwrap();
+            let NativeOwnerExecution::Applied {
+                cached,
+                outcome: Ok(NativeMutationOutcome::Profile(result)),
+            } = outcome
+            else {
+                panic!("expected successful real favorite");
+            };
+            assert!(result.changed);
+            assert_eq!(cached.revision, revision + 1);
+            let after = fs::metadata(f.config.join(LIVE[0])).unwrap();
+            assert_ne!(before.ino(), after.ino());
+            assert_eq!(
+                owner
+                    .execute_profile_research(&request, &mut context)
+                    .unwrap(),
+                NativeOwnerExecution::Replay(cached)
+            );
+            assert!(same_member(
+                &after,
+                &fs::metadata(f.config.join(LIVE[0])).unwrap()
+            ));
+            for ((bytes, metadata), (current, now)) in initial
+                .iter()
+                .zip(&context.current.as_ref().unwrap().members[..3])
+            {
+                assert_eq!(bytes.as_slice(), current.as_slice());
+                assert!(same_member(metadata, now));
+            }
+            assert_fenced(&f, &lock);
+        }
+        // Normal entry remains fenced even on this same coordinator.
+        assert!(owner.execute_profile(&favorite(&f, "ordinary", 2)).is_err());
+    }
+}
+
+#[test]
+fn historical_profile_late_drift_blocks_admission_preflight_and_write() {
+    use std::sync::atomic::AtomicUsize;
+    for checkpoint in [1, 5, 7] {
+        for drift in ["transient", "history", "store", "epoch"] {
+            let (f, lock) = prepared(true);
+            ordinary_edit(&f);
+            receipt(&f);
+            let armed = Arc::new(AtomicBool::new(false));
+            let count = Arc::new(AtomicUsize::new(0));
+            let flag = armed.clone();
+            let counter = count.clone();
+            let state = f.paths.state_directory.clone();
+            let store = f.config.join(LIVE[0]);
+            let drifted = Arc::new(AtomicBool::new(false));
+            let changed = drifted.clone();
+            let proof = CurrentEpochProof::synthetic(&f.paths, f.uid, 2, &lock, move |epoch| {
+                if epoch
+                    && flag.load(Ordering::SeqCst)
+                    && counter.fetch_add(1, Ordering::SeqCst) + 1 == checkpoint
+                {
+                    changed.store(true, Ordering::SeqCst);
+                    match drift {
+                        "transient" => {
+                            fs::write(state.join("routing-preset.pending.json"), b"pending")
+                                .unwrap()
+                        }
+                        "history" => {
+                            let p = state.join(CLOSURE_MEMBER);
+                            let b = fs::read(&p).unwrap();
+                            fs::write(&p, b).unwrap();
+                        }
+                        "store" => {
+                            let b = fs::read(&store).unwrap();
+                            fs::write(&store, b).unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(if drift == "epoch" && changed.load(Ordering::SeqCst) {
+                    NEXT
+                } else {
+                    EPOCH
+                }
+                .into())
+            })
+            .unwrap();
+            let mut context = witness(&f, &lock)
+                .research(proof, || true)
+                .unwrap()
+                .into_profile()
+                .unwrap();
+            let mut owner = profile_owner(&f);
+            let request = favorite(&f, "late", 0);
+            let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
+            let inode = fs::metadata(f.config.join(LIVE[0])).unwrap().ino();
+            armed.store(true, Ordering::SeqCst);
+            let result = owner.execute_profile_research(&request, &mut context);
+            assert!(drifted.load(Ordering::SeqCst), "checkpoint not reached");
+            assert!(
+                result.is_err()
+                    || matches!(
+                        result,
+                        Ok(crate::native_coordinator::NativeOwnerExecution::Applied {
+                            outcome: Err(_),
+                            ..
+                        })
+                    )
+            );
+            assert_eq!(owner.revision(), 0);
+            assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), bytes);
+            assert_eq!(fs::metadata(f.config.join(LIVE[0])).unwrap().ino(), inode);
+            assert!(context.current.is_none());
+            armed.store(false, Ordering::SeqCst);
+            assert!(
+                owner
+                    .execute_profile_research(&request, &mut context)
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn historical_profile_replay_revalidates_and_poison_never_recovers() {
+    for drift in ["transient", "history", "store", "epoch"] {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        receipt(&f);
+        let changed = Arc::new(AtomicBool::new(false));
+        let flag = changed.clone();
+        let epoch = CurrentEpochProof::synthetic(&f.paths, f.uid, 2, &lock, move |_| {
+            Ok(if flag.load(Ordering::SeqCst) {
+                NEXT
+            } else {
+                EPOCH
+            }
+            .into())
+        })
+        .unwrap();
+        let mut context = witness(&f, &lock)
+            .research(epoch, || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let mut owner = profile_owner(&f);
+        let request = favorite(&f, "replay", 0);
+        assert!(matches!(
+            owner
+                .execute_profile_research(&request, &mut context)
+                .unwrap(),
+            crate::native_coordinator::NativeOwnerExecution::Applied { outcome: Ok(_), .. }
+        ));
+        match drift {
+            "transient" => fs::write(
+                f.paths.state_directory.join("routing-preset.pending.json"),
+                b"pending",
+            )
+            .unwrap(),
+            "history" => {
+                let p = f.paths.state_directory.join(CLOSURE_MEMBER);
+                let b = fs::read(&p).unwrap();
+                fs::write(p, b).unwrap();
+            }
+            "store" => {
+                let p = f.config.join(LIVE[0]);
+                let b = fs::read(&p).unwrap();
+                fs::write(p, b).unwrap();
+            }
+            _ => changed.store(true, Ordering::SeqCst),
+        }
+        let bytes = fs::read(f.config.join(LIVE[0])).unwrap();
+        let meta = fs::metadata(f.config.join(LIVE[0])).unwrap();
+        assert!(
+            owner
+                .execute_profile_research(&request, &mut context)
+                .is_err()
+        );
+        assert!(context.current.is_none());
+        assert_eq!(owner.revision(), 1);
+        assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), bytes);
+        assert!(same_member(
+            &meta,
+            &fs::metadata(f.config.join(LIVE[0])).unwrap()
+        ));
+        changed.store(false, Ordering::SeqCst);
+        assert!(
+            owner
+                .execute_profile_research(&request, &mut context)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn historical_profile_failed_or_ambiguous_writer_never_becomes_success() {
+    for failure in ["before", "writer", "after"] {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        receipt(&f);
+        let mut context = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let path = f.config.join(LIVE[0]);
+        let injected = path.clone();
+        let before = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        context.fault = Some(Box::new(move |checkpoint| {
+            match (failure, checkpoint) {
+                ("before", ProfileWriteCheckpoint::Before)
+                | ("after", ProfileWriteCheckpoint::After) => Err(()),
+                ("writer", ProfileWriteCheckpoint::Before) => {
+                    // Exhaust the actual writer's exclusive temporary slots.
+                    // Original store/history remain valid; the real writer
+                    // returns StoreIo after 128 AlreadyExists results.
+                    for nonce in 0..128 {
+                        fs::write(
+                            injected
+                                .parent()
+                                .unwrap()
+                                .join(format!(".profiles.json.{}.{nonce}", std::process::id())),
+                            b"occupied",
+                        )
+                        .unwrap();
+                    }
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        }));
+        let mut owner = profile_owner(&f);
+        let request = favorite(&f, "failure", 0);
+        let outcome = owner
+            .execute_profile_research(&request, &mut context)
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::native_coordinator::NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert!(context.current.is_none());
+        assert_eq!(owner.revision(), 0);
+        if failure == "after" {
+            assert_ne!(fs::read(&path).unwrap(), before);
+            assert_ne!(fs::metadata(&path).unwrap().ino(), inode);
+        } else {
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        context.fault = None;
+        // Even the exact already-published candidate after a lost result cannot
+        // retroactively manufacture a successful mutation or Replay.
+        assert!(
+            owner
+                .execute_profile_research(&request, &mut context)
+                .is_err()
+        );
+        if failure != "before" {
+            let mut fresh = witness(&f, &lock)
+                .research(proof(&f, &lock), || true)
+                .unwrap()
+                .into_profile()
+                .unwrap();
+            assert!(
+                owner
+                    .execute_profile_research(&favorite(&f, "no-rebase", 0), &mut fresh)
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn historical_profile_noop_unsupported_and_new_owner_are_fenced() {
+    let (f, lock) = prepared(true);
+    ordinary_edit(&f);
+    receipt(&f);
+    let mut context = witness(&f, &lock)
+        .research(proof(&f, &lock), || true)
+        .unwrap()
+        .into_profile()
+        .unwrap();
+    let mut owner = profile_owner(&f);
+    let mut request = favorite(&f, "noop", 0);
+    // Reverse the requested toggle to exercise the actual no-change commit.
+    request["params"]["enabled"] = (!request["params"]["enabled"].as_bool().unwrap()).into();
+    let before = fs::metadata(f.config.join(LIVE[0])).unwrap();
+    let outcome = owner
+        .execute_profile_research(&request, &mut context)
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        crate::native_coordinator::NativeOwnerExecution::Applied {
+            outcome: Ok(crate::native_coordinator::NativeMutationOutcome::Profile(
+                crate::profile_transaction::ProfileMutationOutcome { changed: false }
+            )),
+            ..
+        }
+    ));
+    assert_eq!(owner.revision(), 0);
+    assert!(same_member(
+        &before,
+        &fs::metadata(f.config.join(LIVE[0])).unwrap()
+    ));
+    let mut rename = request.clone();
+    rename["method"] = "profiles.rename".into();
+    rename["params"].as_object_mut().unwrap().remove("enabled");
+    rename["params"]["name"] = "Refused".into();
+    assert!(
+        owner
+            .execute_profile_research(&rename, &mut context)
+            .is_err()
+    );
+    assert!(context.current.is_some());
+    let mut fresh = profile_owner(&f);
+    assert!(
+        fresh
+            .execute_profile_research(&request, &mut context)
+            .is_err()
+    );
+    assert!(context.current.is_none());
+    assert_eq!(fresh.revision(), 0);
+    assert!(same_member(
+        &before,
+        &fs::metadata(f.config.join(LIVE[0])).unwrap()
+    ));
+    assert!(
+        owner
+            .execute_profile_research(&request, &mut context)
+            .is_err()
+    );
+}
+
+#[test]
+fn historical_profile_before_hook_ok_late_fence_still_prevents_write() {
+    for drift in ["transient", "history", "epoch"] {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        receipt(&f);
+        let changed = Arc::new(AtomicBool::new(false));
+        let flag = changed.clone();
+        let epoch = CurrentEpochProof::synthetic(&f.paths, f.uid, 2, &lock, move |_| {
+            Ok(if flag.load(Ordering::SeqCst) {
+                NEXT
+            } else {
+                EPOCH
+            }
+            .into())
+        })
+        .unwrap();
+        let mut context = witness(&f, &lock)
+            .research(epoch, || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let state = f.paths.state_directory.clone();
+        context.fault = Some(Box::new(move |checkpoint| {
+            if checkpoint == ProfileWriteCheckpoint::Before {
+                match drift {
+                    "transient" => {
+                        fs::write(state.join("routing-preset.pending.json"), b"pending").unwrap()
+                    }
+                    "history" => {
+                        let p = state.join(CLOSURE_MEMBER);
+                        let b = fs::read(&p).unwrap();
+                        fs::write(p, b).unwrap();
+                    }
+                    _ => changed.store(true, Ordering::SeqCst),
+                }
+            }
+            Ok(())
+        }));
+        let mut owner = profile_owner(&f);
+        let request = favorite(&f, "before-hook", 0);
+        let before = fs::read(f.config.join(LIVE[0])).unwrap();
+        let meta = fs::metadata(f.config.join(LIVE[0])).unwrap();
+        let result = owner
+            .execute_profile_research(&request, &mut context)
+            .unwrap();
+        assert!(matches!(
+            result,
+            crate::native_coordinator::NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert_eq!(owner.revision(), 0);
+        assert!(context.current.is_none());
+        assert_eq!(fs::read(f.config.join(LIVE[0])).unwrap(), before);
+        assert!(same_member(
+            &meta,
+            &fs::metadata(f.config.join(LIVE[0])).unwrap()
+        ));
+    }
+}
+
 struct OffHost {
     before_observe: Box<dyn FnMut()>,
     occupied: bool,

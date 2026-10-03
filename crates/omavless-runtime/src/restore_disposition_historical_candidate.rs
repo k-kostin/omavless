@@ -717,6 +717,196 @@ impl RetainedEpochOff<'_> {
     }
 }
 
+/// Dev-only evolving ordinary-store research, never a production permit.
+/// The initial Off witness is consumed; only exact verified favorite commits
+/// can advance the store identity. Every other retained boundary is immutable.
+#[cfg(test)]
+pub(crate) struct HistoricalProfile<'a> {
+    config: &'a Path,
+    paths: &'a CutoverPaths,
+    lock: &'a MigrationLock,
+    uid: u32,
+    generation: u64,
+    proof: crate::login_activation::epoch_candidate::CurrentEpochProof<'a>,
+    current: Option<Snapshot>,
+    owner: Option<std::sync::Arc<()>>,
+    // Fault injection only: can withdraw success, never fabricate it.
+    fault: Option<ProfileWriteFault>,
+}
+
+#[cfg(test)]
+type ProfileWriteFault = Box<dyn FnMut(ProfileWriteCheckpoint) -> Result<(), ()>>;
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileWriteCheckpoint {
+    Before,
+    After,
+}
+
+#[cfg(test)]
+impl<'a> RetainedEpochOff<'a> {
+    pub(crate) fn into_profile(mut self) -> Result<HistoricalProfile<'a>, ExecutionError> {
+        self.recheck()?;
+        let mut current = Snapshot::read_policy(
+            self.original.config,
+            self.original.paths,
+            self.original.uid,
+            self.original.generation,
+            self.original.lock,
+            LivePolicy::ValidCurrentOff,
+        )?;
+        if !self.original.original.same(&current) {
+            return Err(REFUSE);
+        }
+        // Subsequent ordinary state is validated independently of the old
+        // terminal output. This slice still preserves desired/template exactly.
+        current.policy = LivePolicy::ValidCurrentBundled;
+        Ok(HistoricalProfile {
+            config: self.original.config,
+            paths: self.original.paths,
+            lock: self.original.lock,
+            uid: self.original.uid,
+            generation: self.original.generation,
+            proof: self.proof,
+            current: Some(current),
+            owner: None,
+            fault: None,
+        })
+    }
+}
+
+#[cfg(test)]
+impl<'a> HistoricalProfile<'a> {
+    pub(crate) fn bind_owner(&mut self, owner: &std::sync::Arc<()>) -> Result<(), ExecutionError> {
+        if self.current.is_none()
+            || self
+                .owner
+                .as_ref()
+                .is_some_and(|original| !std::sync::Arc::ptr_eq(original, owner))
+        {
+            self.poison();
+            return Err(REFUSE);
+        }
+        if self.owner.is_none() {
+            self.owner = Some(owner.clone());
+        }
+        Ok(())
+    }
+    pub(crate) fn write_checkpoint(
+        &mut self,
+        checkpoint: ProfileWriteCheckpoint,
+    ) -> Result<(), ExecutionError> {
+        self.fault
+            .as_mut()
+            .map_or(Ok(()), |fault| fault(checkpoint))
+            .map_err(|_| REFUSE)
+    }
+    pub(crate) fn lock(&self) -> &'a MigrationLock {
+        self.lock
+    }
+
+    pub(crate) fn check(
+        &mut self,
+        paths: &CutoverPaths,
+        desired: &crate::desired::DesiredPaths,
+        store: &Path,
+        uid: u32,
+    ) -> Result<(), ExecutionError> {
+        if paths != self.paths
+            || uid != self.uid
+            || desired.directory != self.paths.state_directory
+            || desired.file != self.paths.state_directory.join("desired.json")
+            || store != self.config.join(LIVE[0])
+        {
+            self.current = None;
+            return Err(REFUSE);
+        }
+        let result = self.recheck_current();
+        if result.is_err() {
+            self.current = None;
+        }
+        result
+    }
+
+    fn recheck_current(&mut self) -> Result<(), ExecutionError> {
+        let proof = &mut self.proof;
+        recheck(
+            self.current.as_ref().ok_or(REFUSE)?,
+            self.config,
+            self.paths,
+            self.uid,
+            self.generation,
+            self.lock,
+            &mut || {
+                proof
+                    .recheck(self.paths, self.uid, self.generation, self.lock)
+                    .is_ok()
+            },
+        )
+    }
+
+    /// Called only after the actual prepared writer returned success. Failure
+    /// is permanently poisoned, even if the path later matches candidate bytes.
+    pub(crate) fn committed(
+        &mut self,
+        plan: &crate::profile_mutation::PreparedProfileMutation,
+    ) -> Result<(), ExecutionError> {
+        let before = self.current.take().ok_or(REFUSE)?;
+        let read = || {
+            Snapshot::read_policy(
+                self.config,
+                self.paths,
+                self.uid,
+                self.generation,
+                self.lock,
+                LivePolicy::ValidCurrentBundled,
+            )
+        };
+        let candidate = read()?;
+        let unchanged = |after: &Snapshot| {
+            before
+                .directories
+                .iter()
+                .zip(&after.directories)
+                .all(|(a, b)| same_directory(a, b))
+                && before
+                    .directory_handles
+                    .iter()
+                    .zip(&before.directories)
+                    .all(|(fd, m)| fd.metadata().is_ok_and(|now| same_directory(m, &now)))
+                && same_boundary(&before.boundary, &after.boundary)
+                && before.members.iter().zip(&after.members).enumerate().all(
+                    |(i, ((a, am), (b, bm)))| {
+                        i == 3
+                            || (a == b
+                                && same_member(am, bm)
+                                && before.member_handles[i]
+                                    .metadata()
+                                    .is_ok_and(|now| same_member(am, &now)))
+                    },
+                )
+                && plan.research_matches_candidate(&after.members[3].0)
+        };
+        if !unchanged(&candidate) {
+            return Err(REFUSE);
+        }
+        self.proof
+            .recheck(self.paths, self.uid, self.generation, self.lock)
+            .map_err(|_| REFUSE)?;
+        let after = read()?;
+        if !unchanged(&after) || !candidate.same(&after) {
+            return Err(REFUSE);
+        }
+        self.current = Some(after);
+        Ok(())
+    }
+
+    pub(crate) fn poison(&mut self) {
+        self.current = None;
+    }
+}
+
 /// Inactive production-source composition, not normal-owner admission. The
 /// existing host gate remains a caller obligation; only epoch/package/receipt
 /// proof is concretely supplied here. No receipt is created or rewritten.
