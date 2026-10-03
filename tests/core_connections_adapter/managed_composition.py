@@ -17,6 +17,7 @@ import tempfile
 
 import loopback
 import review
+import udp_loopback
 
 DNS_REVISION = "c4e800425243c1b02165f82153e4bf418fe465e6"
 SING_TUN = "b50ae28a1409c7bce8e96e6c6966cf57d8ace754"
@@ -126,7 +127,7 @@ def matrix_receipt(raw, tests, skips=()):
         raise RuntimeError("Composition test execution receipt refused")
 
 
-def exercise(mihomo, sing_tun, repository, scratch):
+def exercise(mihomo, sing_tun, repository, scratch, *, udp=False):
     validate_paths((mihomo, sing_tun, repository), scratch)
     patches = dns_patches(repository)  # Refuse unknown patch bytes before compilation.
     if hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest() != SOCKET_TEST_SHA256:
@@ -172,6 +173,9 @@ def exercise(mihomo, sing_tun, repository, scratch):
         if b"-tags=with_gvisor" not in metadata or b"CGO_ENABLED=0" not in metadata:
             raise RuntimeError("Composition production-tag identity refused")
         loopback.exercise(core, root)
+        if udp:
+            for _ in range(20):
+                udp_loopback.exercise(core, root)
         return hashlib.sha256(core.read_bytes()).hexdigest()
 
 
@@ -179,8 +183,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for field in ("mihomo-source", "sing-tun-source", "dns-repository", "scratch-parent"):
         parser.add_argument("--" + field, type=Path, required=True)
+    parser.add_argument("--udp-loopback", action="store_true", help="Also exercise synthetic SOCKS5 UDP close/reconnect")
     args = parser.parse_args()
-    sha = exercise(args.mihomo_source, args.sing_tun_source, args.dns_repository, args.scratch_parent)
+    sha = exercise(args.mihomo_source, args.sing_tun_source, args.dns_repository, args.scratch_parent, udp=args.udp_loopback)
     print("managed_conditional_composition: passed; offline; synthetic loopback; no installation")
     print("mihomo_sha=" + review.PIN + " sing_tun_sha=" + SING_TUN)
     print("dns_adapter_sha=" + DNS_REVISION)
@@ -189,6 +194,8 @@ def main():
     print("socket_test_patch_sha256=" + hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest())
     print("go_toolchain=" + review.run(["go", "version"]).decode("ascii").strip())
     print("core_sha256=" + sha)
+    if args.udp_loopback:
+        print("udp_loopback=20_passed; wrong_token_preserves_both; exact_close_receipt; same_association_reconnects")
 
 
 if __name__ == "__main__":

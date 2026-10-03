@@ -19,11 +19,107 @@ def load(name):
 
 LIVE = load("loopback")
 REVIEW = load("review")
-with patch.dict("sys.modules", {"loopback": LIVE, "review": REVIEW}):
+with patch.dict("sys.modules", {"loopback": LIVE}):
+    UDP = load("udp_loopback")
+with patch.dict("sys.modules", {"loopback": LIVE, "review": REVIEW, "udp_loopback": UDP}):
     COMPOSITION = load("managed_composition")
 
 
 class ConditionalCoreAdapterTests(unittest.TestCase):
+    def test_udp_association_requires_exact_local_reply_and_closes_refusal(self):
+        from unittest.mock import Mock
+        client = Mock()
+        client.getsockname.return_value = ("127.0.0.1", 12346)
+        expected = b"\x05\x00\x00" + UDP.header(12345)[3:]
+        with patch.object(UDP.socket, "create_connection") as create:
+            connection = create.return_value
+            connection.recv.side_effect = [b"\x05", b"\x00", expected]
+            self.assertIs(UDP.associate(12345, client), connection)
+            create.assert_called_once_with(("127.0.0.1", 12345), timeout=2)
+            self.assertEqual(connection.sendall.call_args_list[-1].args[0], b"\x05\x03\x00" + UDP.header(12346)[3:])
+            connection.close.assert_not_called()
+            for reply in (expected[:-1] + b"\x00", b"\x05\x00\x00\x03" + expected[4:], b"", b"\x05\x01" + expected[2:]):
+                connection.reset_mock()
+                connection.recv.side_effect = [b"\x05\x00", reply, b""]
+                with self.assertRaises(ValueError):
+                    UDP.associate(12345, client)
+                connection.close.assert_called_once()
+
+    def test_udp_association_eof_or_unexpected_readability_refuses(self):
+        with patch.object(UDP.select, "select", return_value=(["synthetic"], [], [])):
+            with self.assertRaisesRegex(ValueError, "^Synthetic UDP association unexpectedly ended$"):
+                UDP.association_live("synthetic")
+        with patch.object(UDP.select, "select", return_value=([], [], [])):
+            UDP.association_live("synthetic")
+
+    def test_udp_close_requires_empty_exact_receipt_and_never_retries_unknown(self):
+        with patch.object(LIVE, "control") as control:
+            control.return_value = (204, b"")
+            UDP.close_once(12345, "synthetic", "private-fixture", "42", 204)
+            control.assert_called_once_with(12345, "synthetic", "POST", "/connections/private-fixture/close-conditional", "42")
+            for receipt in ((404, b""), (204, b"private-input"), (500, b""), (200, b"")):
+                control.reset_mock()
+                control.return_value = receipt
+                with self.assertRaisesRegex(ValueError, "^Conditional UDP receipt ambiguous; not retried$"):
+                    UDP.close_once(12345, "synthetic", "fixture", "42", 204)
+                self.assertEqual(control.call_count, 1)
+            control.reset_mock()
+            control.side_effect = TimeoutError("synthetic private reply loss")
+            with self.assertRaises(TimeoutError):
+                UDP.close_once(12345, "synthetic", "fixture", "42", 204)
+            self.assertEqual(control.call_count, 1)
+
+    def test_udp_echo_accepts_only_exact_loopback_relay_target_and_payload(self):
+        challenge = b"synthetic"
+        raw = UDP.header(12346) + challenge
+        UDP.validate_echo(raw, ("127.0.0.1", 12345), 12345, 12346, challenge)
+        for data, peer in ((raw, ("127.0.0.2", 12345)), (raw, ("127.0.0.1", 12344)),
+                           (raw[:-1], ("127.0.0.1", 12345)), (b"\x00\x00\x01" + raw[3:], ("127.0.0.1", 12345)),
+                           (UDP.header(12347) + challenge, ("127.0.0.1", 12345)), (raw + b"x" * 4097, ("127.0.0.1", 12345))):
+            with self.assertRaisesRegex(ValueError, "^Unexpected synthetic UDP response$"):
+                UDP.validate_echo(data, peer, 12345, 12346, challenge)
+
+    def test_udp_application_datagram_retry_is_bounded_and_not_an_effect_retry(self):
+        import socket
+        from unittest.mock import Mock
+        client = Mock()
+        client.recvfrom.side_effect = socket.timeout
+        with patch.object(LIVE, "control") as control:
+            with self.assertRaisesRegex(ValueError, "^UDP application reconnect unavailable$"):
+                UDP.prove_echo(client, 12345, 12346, reconnect=True)
+            self.assertEqual(client.sendto.call_count, 5)
+            control.assert_not_called()
+
+    def test_udp_snapshot_rejects_foreign_malformed_duplicate_identity_and_token(self):
+        row = {"id": "00000000-0000-0000-0000-000000000001", "omavlessCloseToken": "42",
+               "metadata": {"sourcePort": "12345", "destinationPort": "12346", "network": "udp", "type": "Socks5",
+                            "sourceIP": "127.0.0.1", "destinationIP": "127.0.0.1"}}
+        with patch.object(LIVE, "control") as control:
+            control.return_value = (200, json.dumps({"connections": [row]}).encode())
+            self.assertEqual(UDP.snapshot(12344, "synthetic", {"12345": 12346}), {"12345": (row["id"], "42")})
+            invalid = [dict(row, id="../foreign"), dict(row, omavlessCloseToken="01"),
+                       dict(row, omavlessCloseToken="18446744073709551616"),
+                       dict(row, metadata=dict(row["metadata"], destinationIP="192.0.2.1")),
+                       dict(row, metadata=dict(row["metadata"], network="tcp")),
+                       dict(row, metadata=dict(row["metadata"], sourcePort="12347"))]
+            for rows in [[value] for value in invalid] + [[row, row], [row, row, row]]:
+                control.return_value = (200, json.dumps({"connections": rows}).encode())
+                with self.assertRaises(ValueError):
+                    UDP.snapshot(12344, "synthetic", {"12345": 12346})
+
+    def test_udp_unsafe_inputs_refuse_before_process_creation(self):
+        with tempfile.TemporaryDirectory(prefix="udp-unit-") as name:
+            root = Path(name)
+            core = root / "candidate"
+            core.write_bytes(b"synthetic")
+            with patch.object(UDP.subprocess, "Popen") as start:
+                with self.assertRaises(ValueError):
+                    UDP.exercise(Path("relative"), root)
+                root.chmod(0o755)
+                with self.assertRaises(ValueError):
+                    UDP.exercise(core, root)
+                start.assert_not_called()
+
     def test_composition_requires_actual_go_cases_not_zero_tests_or_unexpected_skips(self):
         events = [{"Action": "pass", "Test": "TestFixture"}] * 20
         events += [{"Action": "skip", "Test": "TestExplicitOptin"}] * 20

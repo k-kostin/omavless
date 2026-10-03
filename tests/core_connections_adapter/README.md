@@ -131,3 +131,47 @@ It proves that the pinned source patches coexist and that conditional close
 works in that composition. Managed DNS-pair acceptance, matched immutable
 companion-package receipt, owner admission/operation reservation and installed
 EN/RU close-confirmation review are separate requirements.
+
+## Private UDP conditional-close gate
+
+The optional `--udp-loopback` flag runs twenty `udp_loopback.py` repetitions
+against the exact combined binary within the builder's existing disposable lifetime. Default
+composition behavior, source pins, production patches and build flags are
+unchanged. It adds no source package, runtime admission, public method or UI.
+The helper can also review an explicitly supplied disposable candidate using
+`--core /absolute/candidate --scratch-parent /absolute/private/home-scratch`;
+that binary's provenance must be recorded separately, not inferred from its name.
+
+Two retained SOCKS5 TCP UDP associations and two distinct owned IPv4 loopback
+UDP echo targets produce two private UDP rows. Both client UDP source sockets
+are retained. A wrong incarnation must return exact empty 409; both echoes and
+the exact tracker identities must survive. Matching close must return exact
+empty 204; the core patch retains the selected object under atomic ID/token
+comparison and calls its packet connection's `Close`. The unselected tracker
+must retain its exact identity and remain usable. Subsequent absence only
+corroborates the receipt; it is never a substitute effect receipt.
+
+Unlike TCP, UDP has no EOF receipt to observe. The original association remains
+open, and a subsequent application datagram through the **same source socket**
+must echo with a new tracker token while the other tracker remains unchanged.
+This deliberately demonstrates automatic application reconnection: closing one
+datagram tracker does not prohibit the next packet creating another. As the
+upstream NAT cleanup is asynchronous and UDP delivery is not guaranteed, this
+application check permits at most five datagrams, each with a fresh synthetic
+challenge. It does not promise the very first post-close packet is delivered,
+a permanently disconnected application or durable packet blocking.
+
+Conditional effects are never retried. Lost replies, nonempty/changed receipts
+or timeouts abort the fixture without inferring success from a snapshot or
+reissuing close. Only the fixture's owned core is terminated during cleanup.
+Rows, IDs, tokens, random controller secret and ephemeral endpoint values remain
+private memory/private scratch and are never printed. Output is fixed verdicts
+and public binary hashes only. DNS, TUN, provider traffic, installation, system
+proxy and host-service changes are excluded. Echo threads, sockets, core child
+and temporary config/database are bounded and cleaned up.
+
+Offline regressions cover receipt ambiguity/loss without retries, strict local
+SOCKS negotiation, association liveness, exact unfragmented loopback datagrams,
+bounded application retry, foreign/malformed/duplicate row identities and
+unsafe-path refusal. This candidate-core developer gate is not installed
+matched-package/owner-admission/TUI acceptance or protocol-provider UDP proof.
