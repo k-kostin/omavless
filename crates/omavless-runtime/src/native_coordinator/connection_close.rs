@@ -1371,6 +1371,17 @@ while True:
         let runtime = fixture.root.join("r");
         let config = fixture.root.join("c");
         let socket = runtime.join("mihomo.sock");
+        let paths = NativeHostPaths::new(
+            executable.clone(),
+            config.clone(),
+            config.clone(),
+            runtime.clone(),
+            PathBuf::from("/proc"),
+            PathBuf::from("/sys/class/net"),
+        );
+        // Drop the stopped predecessor before the successor creates its socket.
+        // Host cleanup deliberately still owns this private controller path.
+        *fixture.owner.host_mut() = NativeLifecycleHost::new(paths, fixture.owner.uid()).unwrap();
         write(&config.join("config.yaml"), format!("mixed-port: {mixed}\nexternal-controller-unix: {}\nallow-lan: false\nbind-address: 127.0.0.1\nmode: direct\nlog-level: silent\ntun:\n  enable: false\ndns:\n  enable: false\nrules:\n  - MATCH,DIRECT\n", socket.display()).as_bytes(), 0o600);
         let mut core =
             OwnedCore::spawn(&executable, &runtime, &config.join("config.yaml"), &socket).unwrap();
@@ -1395,16 +1406,11 @@ while True:
             assert!(Instant::now() < loaded);
             std::thread::sleep(Duration::from_millis(5));
         }
-        let paths = NativeHostPaths::new(
-            executable,
-            config.clone(),
-            config.clone(),
-            runtime,
-            PathBuf::from("/proc"),
-            PathBuf::from("/sys/class/net"),
-        );
-        *fixture.owner.host_mut() =
-            NativeLifecycleHost::owned_close_fixture(paths, fixture.owner.uid(), core).unwrap();
+        fixture
+            .owner
+            .host_mut()
+            .install_owned_close_fixture(core)
+            .unwrap();
         fixture
             .owner
             .transaction

@@ -348,14 +348,30 @@ impl NativeLifecycleHost {
         core: OwnedCore,
     ) -> Result<Self, HostStepError> {
         let mut host = Self::new(paths, uid)?;
-        host.core = Some(core);
-        host.profile_id = Some("00000000-0000-4000-8000-000000000001".into());
-        host.readiness = Some(ConfigReadiness::new(
+        host.install_owned_close_fixture(core)?;
+        Ok(host)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_owned_close_fixture(
+        &mut self,
+        core: OwnedCore,
+    ) -> Result<(), HostStepError> {
+        if self.core.is_some()
+            || self.profile_id.is_some()
+            || self.readiness.is_some()
+            || self.close_fixture.is_some()
+        {
+            return Err(HostStepError::Observation);
+        }
+        self.core = Some(core);
+        self.profile_id = Some("00000000-0000-4000-8000-000000000001".into());
+        self.readiness = Some(ConfigReadiness::new(
             crate::desired::RoutingMode::Direct,
             "DIRECT".into(),
         ));
-        host.close_fixture = Some(CloseFixture::OwnedLoopback);
-        Ok(host)
+        self.close_fixture = Some(CloseFixture::OwnedLoopback);
+        Ok(())
     }
 
     #[cfg(test)]

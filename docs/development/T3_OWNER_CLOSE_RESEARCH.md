@@ -94,6 +94,9 @@ binary. It runs actual snapshot/prepare/confirmation/detached-worker/typed repla
 through the same owner with two private no-TUN/no-DNS loopback tunnels, proving
 exactly one terminates while the other echoes. Without the opt-in environment
 variable it does not execute and must not be counted as composed-core evidence.
+Fixture replacement drops the stopped predecessor adapter before the successor
+creates its controller path, then installs the actual owned child into the
+already-created fixed test adapter; predecessor cleanup cannot remove its socket.
 
 Full Rust/developer/CI and exact frozen composed-core VM receipts belong to the
 tested SHA recorded in the PR, not to this evolving text. The VM requires an
