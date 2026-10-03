@@ -12,7 +12,7 @@ use nix::sys::stat::Mode;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::fs::{self, File, Metadata};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::net::Shutdown;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -41,6 +41,12 @@ pub(crate) enum Outcome {
 pub(crate) struct CandidateEffectPermit {
     _private: (),
 }
+#[cfg(test)]
+impl CandidateEffectPermit {
+    pub(crate) fn owned_fixture() -> Self {
+        Self { _private: () }
+    }
+}
 
 #[derive(Deserialize)]
 struct WireSnapshot {
@@ -55,11 +61,33 @@ struct WireRow {
     id: String,
     #[serde(rename = "omavlessCloseToken")]
     token: String,
+    #[serde(default)]
+    metadata: Option<WireMetadata>,
+    #[serde(default)]
+    chains: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+struct WireMetadata {
+    #[serde(default)]
+    host: serde_json::Value,
+    #[serde(default, rename = "destinationIP")]
+    ip: serde_json::Value,
+    #[serde(default, rename = "destinationPort")]
+    port: serde_json::Value,
+    #[serde(default)]
+    network: serde_json::Value,
 }
 
 struct Target {
     id: String,
     token: String,
+}
+
+/// Identity and bounded display come from the same strictly decoded row.
+pub(crate) struct ObservedRow {
+    pub(crate) target: BoundTarget,
+    pub(crate) display: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -72,12 +100,24 @@ struct Capabilities {
 enum Request<'a> {
     Snapshot,
     Capabilities,
+    Configs,
+    Proxies,
+    Rules,
+    Providers,
     Close(&'a Target),
 }
 pub(crate) struct BoundTarget {
     target: Target,
     binding: Binding,
     session_identity: Arc<()>,
+}
+impl BoundTarget {
+    fn same_selection(&self, other: &Self) -> bool {
+        self.binding == other.binding
+            && Arc::ptr_eq(&self.session_identity, &other.session_identity)
+            && self.target.id == other.target.id
+            && self.target.token == other.target.token
+    }
 }
 impl std::fmt::Debug for BoundTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -96,6 +136,13 @@ fn valid_id(id: &str) -> bool {
         })
 }
 fn targets(raw: &[u8]) -> Result<Vec<Target>, Outcome> {
+    Ok(snapshot_rows(raw)?
+        .into_iter()
+        .map(|(target, _)| target)
+        .collect())
+}
+
+fn snapshot_rows(raw: &[u8]) -> Result<Vec<(Target, serde_json::Value)>, Outcome> {
     if raw.len() > MAX_SNAPSHOT {
         return Err(Outcome::Unsupported);
     }
@@ -119,10 +166,25 @@ fn targets(raw: &[u8]) -> Result<Vec<Target>, Outcome> {
         {
             return Err(Outcome::Unsupported);
         }
-        result.push(Target {
-            id: row.id,
-            token: row.token,
+        let metadata = row.metadata.map(|metadata| {
+            serde_json::json!({
+                "host":metadata.host,"destinationIP":metadata.ip,
+                "destinationPort":metadata.port,"network":metadata.network,
+            })
         });
+        let display = crate::connection_rows::project(crate::connection_rows::extract(
+            &serde_json::json!({"connections":[{"metadata":metadata,"chains":row.chains}]}),
+        ));
+        if display["availability"] != "observed" {
+            return Err(Outcome::Unsupported);
+        }
+        result.push((
+            Target {
+                id: row.id,
+                token: row.token,
+            },
+            display["rows"][0].clone(),
+        ));
     }
     Ok(result)
 }
@@ -136,6 +198,94 @@ struct Binding {
 }
 fn inode(metadata: &Metadata) -> (u64, u64) {
     (metadata.dev(), metadata.ino())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileIdentity {
+    inode: (u64, u64),
+    size: u64,
+    mode: u32,
+    owner: u32,
+    change: (i64, i64),
+    modified: (i64, i64),
+}
+impl FileIdentity {
+    fn capture(metadata: &Metadata) -> Option<Self> {
+        (metadata.is_file()
+            && metadata.nlink() == 1
+            && metadata.len() != 0
+            && metadata.len() <= 128 * 1024 * 1024
+            && metadata.mode() & 0o022 == 0)
+            .then_some(Self {
+                inode: inode(metadata),
+                size: metadata.len(),
+                mode: metadata.mode(),
+                owner: metadata.uid(),
+                change: (metadata.ctime(), metadata.ctime_nsec()),
+                modified: (metadata.mtime(), metadata.mtime_nsec()),
+            })
+    }
+    fn matches(self, file: &File) -> bool {
+        file.metadata()
+            .ok()
+            .and_then(|metadata| Self::capture(&metadata))
+            == Some(self)
+    }
+}
+
+struct ExecutableEvidence {
+    image: File,
+    source: File,
+    image_identity: FileIdentity,
+    source_identity: FileIdentity,
+    source_path: PathBuf,
+    digests: Option<([u8; 32], [u8; 32])>,
+}
+impl ExecutableEvidence {
+    fn image(pid: u32) -> Option<File> {
+        // Follow this kernel-owned exe link only for the retained Live child.
+        // Inaccessible proc evidence (including capabilities) simply refuses.
+        open(
+            Path::new(&format!("/proc/{pid}/exe")),
+            OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK,
+            Mode::empty(),
+        )
+        .ok()
+        .map(File::from)
+    }
+    fn check(&self, pid: u32) -> bool {
+        self.image_identity.matches(&self.image)
+            && self.source_identity.matches(&self.source)
+            && Self::image(pid).is_some_and(|image| self.image_identity.matches(&image))
+            && fs::symlink_metadata(&self.source_path)
+                .ok()
+                .filter(|metadata| !metadata.file_type().is_symlink())
+                .and_then(|metadata| FileIdentity::capture(&metadata))
+                == Some(self.source_identity)
+    }
+    fn hash(file: &mut File, identity: FileIdentity, deadline: Instant) -> Option<[u8; 32]> {
+        use sha2::{Digest, Sha256};
+        if !identity.matches(file) || file.rewind().is_err() {
+            return None;
+        }
+        let mut hasher = Sha256::new();
+        let mut block = [0; 65536];
+        let mut total = 0_u64;
+        loop {
+            remaining(deadline).ok()?;
+            let count = file.read(&mut block).ok()?;
+            if count == 0 {
+                break;
+            }
+            total = total.checked_add(count as u64)?;
+            if total > identity.size {
+                return None;
+            }
+            hasher.update(&block[..count]);
+        }
+        (total == identity.size && identity.matches(file) && remaining(deadline).is_ok())
+            .then(|| hasher.finalize().into())
+    }
 }
 fn remaining(deadline: Instant) -> Result<Duration, Outcome> {
     deadline
@@ -251,6 +401,11 @@ pub(crate) struct Session {
     binding: Binding,
     identity: Arc<()>,
     deadline: Option<Instant>,
+    effect_proof: Option<crate::native_coordinator::connection_close::EffectProof>,
+    confirmation_expiry: Option<Instant>,
+    executable: Option<ExecutableEvidence>,
+    owned_observation: Option<crate::native_host::CloseFacts>,
+    expected_display: Option<serde_json::Value>,
     #[cfg(test)]
     panic_after_write: bool,
     #[cfg(test)]
@@ -308,6 +463,11 @@ impl Session {
             binding,
             identity: Arc::new(()),
             deadline: None,
+            effect_proof: None,
+            confirmation_expiry: None,
+            executable: None,
+            owned_observation: None,
+            expected_display: None,
             #[cfg(test)]
             panic_after_write: false,
             #[cfg(test)]
@@ -383,6 +543,14 @@ impl Session {
                 return Err(refuse);
             }
         }
+        if self
+            .executable
+            .as_ref()
+            .is_some_and(|evidence| !evidence.check(self.binding.pid))
+        {
+            gate.revoke();
+            return Err(refuse);
+        }
         Ok(())
     }
 
@@ -430,6 +598,10 @@ impl Session {
                 "GET /connections HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into()
             }
             Request::Capabilities => "GET /connections/conditional-capabilities HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into(),
+            Request::Configs => "GET /configs HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into(),
+            Request::Proxies => "GET /proxies HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into(),
+            Request::Rules => "GET /rules HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into(),
+            Request::Providers => "GET /providers/rules HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".into(),
             Request::Close(t) => format!(
                 "POST /connections/{}/close-conditional HTTP/1.0\r\nHost: localhost\r\nIf-Match: \"{}\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                 t.id, t.token
@@ -448,10 +620,29 @@ impl Session {
             }
             // First effect attempt and every partial chunk are serialized
             // against revocation/cancel. Socket is nonblocking throughout.
+            // Durable proof is rechecked outside the child gate for EVERY
+            // chunk. Retain a nonblocking migration lease for exactly one
+            // syscall, never a readiness wait or owner callback.
+            let effect_lease = if effect {
+                self.effect_proof
+                    .as_ref()
+                    .map(|proof| proof.lease())
+                    .transpose()
+                    .map_err(|_| Outcome::RefusedBeforeWrite)?
+            } else {
+                None
+            };
             let result = {
                 let mut gate = self.lifetime.gate.lock().map_err(|_| Outcome::Unknown)?;
                 self.check_locked(&mut gate)?;
                 remaining(deadline)?;
+                if effect
+                    && self
+                        .confirmation_expiry
+                        .is_some_and(|expiry| Instant::now() >= expiry)
+                {
+                    return Err(Outcome::RefusedBeforeWrite);
+                }
                 if effect {
                     gate.reservation.as_mut().ok_or(Outcome::Unknown)?.phase =
                         Phase::EffectAttempted;
@@ -464,9 +655,13 @@ impl Session {
                 };
                 stream.write(pending)
             };
+            drop(effect_lease);
             let n = match result {
                 Ok(n) => n,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if effect {
+                        return Err(Outcome::Unknown);
+                    }
                     self.pause(deadline)?;
                     continue;
                 }
@@ -527,9 +722,17 @@ impl Session {
     }
 
     fn finish(&mut self, candidate: Outcome) -> Outcome {
+        // Definitive acceptance also proves the durable owner receipt outside
+        // the gate, with its nonblocking lease retained through terminalization.
+        let effect_lease = self
+            .effect_proof
+            .as_ref()
+            .map(|proof| proof.lease())
+            .transpose();
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         let proved = self.check_locked(&mut gate).is_ok()
+            && effect_lease.is_ok()
             && self
                 .deadline
                 .is_some_and(|deadline| Instant::now() < deadline);
@@ -557,6 +760,14 @@ impl Session {
     }
 
     pub(crate) fn discover(&mut self) -> Result<Vec<BoundTarget>, Outcome> {
+        Ok(self
+            .discover_rows()?
+            .into_iter()
+            .map(|row| row.target)
+            .collect())
+    }
+
+    pub(crate) fn discover_rows(&mut self) -> Result<Vec<ObservedRow>, Outcome> {
         if !self.ready()? {
             return Err(Outcome::Unsupported);
         }
@@ -564,14 +775,110 @@ impl Session {
         if status != 200 {
             return Err(Outcome::Unsupported);
         }
-        Ok(targets(&body)?
+        Ok(snapshot_rows(&body)?
             .into_iter()
-            .map(|target| BoundTarget {
-                target,
-                binding: self.binding,
-                session_identity: Arc::clone(&self.identity),
+            .map(|(target, display)| ObservedRow {
+                target: BoundTarget {
+                    target,
+                    binding: self.binding,
+                    session_identity: Arc::clone(&self.identity),
+                },
+                display,
             })
             .collect())
+    }
+
+    pub(crate) fn authorize_effect(
+        &mut self,
+        proof: crate::native_coordinator::connection_close::EffectProof,
+        expiry: Instant,
+        display: serde_json::Value,
+    ) {
+        self.effect_proof = Some(proof);
+        self.confirmation_expiry = Some(expiry);
+        self.expected_display = Some(display);
+        // Separate one-shot effect budget; never renew the snapshot expiry.
+        self.deadline = Some(Instant::now() + BUDGET);
+    }
+
+    pub(crate) fn proves_live(&mut self) -> bool {
+        self.check().is_ok()
+    }
+    pub(crate) fn attach_observation(&mut self, facts: crate::native_host::CloseFacts) {
+        self.owned_observation = Some(facts);
+    }
+
+    pub(crate) fn capture_executable(&mut self, source_path: &Path) -> Result<(), Outcome> {
+        let mut gate = self
+            .lifetime
+            .gate
+            .lock()
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        self.check_locked(&mut gate)?;
+        let image =
+            ExecutableEvidence::image(self.binding.pid).ok_or(Outcome::RefusedBeforeWrite)?;
+        let source = File::from(
+            open(
+                source_path,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK,
+                Mode::empty(),
+            )
+            .map_err(|_| Outcome::RefusedBeforeWrite)?,
+        );
+        let image_identity =
+            FileIdentity::capture(&image.metadata().map_err(|_| Outcome::RefusedBeforeWrite)?)
+                .ok_or(Outcome::RefusedBeforeWrite)?;
+        let source_identity =
+            FileIdentity::capture(&source.metadata().map_err(|_| Outcome::RefusedBeforeWrite)?)
+                .ok_or(Outcome::RefusedBeforeWrite)?;
+        self.executable = Some(ExecutableEvidence {
+            image,
+            source,
+            image_identity,
+            source_identity,
+            source_path: source_path.to_owned(),
+            digests: None,
+        });
+        self.check_locked(&mut gate)
+    }
+
+    /// Passive only. Hash actual retained bytes OUTSIDE owner/child gates;
+    /// neither these digests nor ABI readiness mint package authority.
+    pub(crate) fn prepare_executable(&mut self) -> Result<(), Outcome> {
+        self.check()?;
+        let deadline = *self.deadline.get_or_insert_with(|| Instant::now() + BUDGET);
+        remaining(deadline)?;
+        let evidence = self
+            .executable
+            .as_mut()
+            .ok_or(Outcome::RefusedBeforeWrite)?;
+        if evidence.digests.is_none() {
+            let image =
+                ExecutableEvidence::hash(&mut evidence.image, evidence.image_identity, deadline)
+                    .ok_or(Outcome::RefusedBeforeWrite)?;
+            let source =
+                ExecutableEvidence::hash(&mut evidence.source, evidence.source_identity, deadline)
+                    .ok_or(Outcome::RefusedBeforeWrite)?;
+            evidence.digests = Some((image, source));
+        }
+        self.check()
+    }
+
+    pub(crate) fn read_fixed(
+        &mut self,
+        endpoint: omavless_mihomo::ReadOnlyEndpoint,
+    ) -> Option<serde_json::Value> {
+        let request = match endpoint {
+            omavless_mihomo::ReadOnlyEndpoint::Configs => Request::Configs,
+            omavless_mihomo::ReadOnlyEndpoint::Proxies => Request::Proxies,
+            omavless_mihomo::ReadOnlyEndpoint::Rules => Request::Rules,
+            omavless_mihomo::ReadOnlyEndpoint::RuleProviders => Request::Providers,
+            _ => return None,
+        };
+        let (status, raw) = self.exchange_request(request).ok()?;
+        (status == 200)
+            .then(|| serde_json::from_slice(&raw).ok())
+            .flatten()
     }
 
     fn ready(&mut self) -> Result<bool, Outcome> {
@@ -615,6 +922,21 @@ impl Session {
             || !Arc::ptr_eq(&selected.session_identity, &self.identity)
         {
             return Outcome::RefusedBeforeWrite;
+        }
+        if let Some(facts) = self.owned_observation.take() {
+            if facts.observe(self).is_err() {
+                return Outcome::RefusedBeforeWrite;
+            }
+            let rows = match self.discover_rows() {
+                Ok(rows) => rows,
+                Err(_) => return Outcome::RefusedBeforeWrite,
+            };
+            if !rows.iter().any(|row| {
+                selected.same_selection(&row.target)
+                    && self.expected_display.as_ref() == Some(&row.display)
+            }) {
+                return Outcome::RefusedBeforeWrite;
+            }
         }
         if !self.ready().is_ok_and(|ready| ready) {
             return Outcome::RefusedBeforeWrite;
@@ -1810,4 +2132,3 @@ while True:
         fs::remove_dir_all(root).unwrap();
     }
 }
-

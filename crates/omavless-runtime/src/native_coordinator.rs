@@ -11,6 +11,8 @@
 //! while the Python/Rust migration lock is held.
 
 mod batch;
+#[allow(dead_code)]
+pub(crate) mod connection_close;
 mod onboarding;
 mod probe;
 mod provider;
@@ -373,6 +375,7 @@ pub struct OfflineNativeCoordinator<H> {
     batch: Option<batch::BatchOwnerState>,
     probe_results: std::collections::VecDeque<probe::RetainedProbeResults>,
     auxiliary_recovery_required: bool,
+    connection_close: connection_close::CloseState,
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
@@ -397,6 +400,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             batch: None,
             probe_results: std::collections::VecDeque::new(),
             auxiliary_recovery_required: false,
+            connection_close: connection_close::CloseState::default(),
         }
     }
 
@@ -551,6 +555,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<SubscriptionFetchPreflight, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let parsed = parse_subscription_mutation_request(request)?;
         let url = parsed.remote_url().ok_or(NativeOwnerError::Protocol(
             MutationProtocolError::InvalidArgument,
@@ -598,6 +605,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<SubscriptionRefreshPreflight, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let parsed = parse_subscription_refresh_request(request)?;
         self.check_batch_operation_id(request["params"]["operationId"].as_str())?;
         let scheduling = parsed.external_work_request()?;
@@ -1162,6 +1172,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub fn reconcile_startup(
         &mut self,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.invalidate_connection_close();
         self.transaction.reconcile_startup()
     }
 
@@ -1169,6 +1180,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.invalidate_connection_close();
         self.transaction.reconcile_startup_locked(lock)
     }
 
@@ -1179,6 +1191,15 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        if !operation_id.is_some_and(|id| {
+            self.coordinator.operation_id_in_use(id).unwrap_or(false)
+                || self
+                    .batch
+                    .as_ref()
+                    .is_some_and(|state| state.registry.has_operation_id(id))
+        }) {
+            self.invalidate_connection_close();
+        }
         if let Some(fence) = self.required_ownership {
             let lock = self
                 .transaction
