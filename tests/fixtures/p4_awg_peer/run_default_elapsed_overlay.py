@@ -53,6 +53,7 @@ def command(args, cwd, env, timeout):
     output = {"out": bytearray(), "err": bytearray()}
     deadline = time.monotonic() + timeout
     exited_at = None
+    quiescent = False
     try:
         # Setup is part of owned-child cancellation too.
         selector = selectors.DefaultSelector()
@@ -75,6 +76,7 @@ def command(args, cwd, env, timeout):
                 exited_at = exited_at or time.monotonic()
                 remaining = members(p.pid)
                 if not remaining and not selector.get_map():
+                    quiescent = True
                     code = p.wait(timeout=1)
                     return code, bytes(output["out"]), bytes(output["err"])
                 if time.monotonic() - exited_at >= 2:
@@ -84,7 +86,13 @@ def command(args, cwd, env, timeout):
             os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
         except ChildProcessError:
             # Already reaped: no authority to signal a possibly recycled PGID.
-            raise
+            if quiescent:
+                raise
+            UNSETTLED.append(p)
+            raise Unsettled("owned_anchor_lost_preserve")
+        except BaseException as exc:
+            UNSETTLED.append(p)
+            raise Unsettled("owned_anchor_state_unknown") from exc
         try:
             try:
                 os.killpg(p.pid, signal.SIGKILL)
@@ -123,6 +131,9 @@ def verify_events(raw, count):
             if name is None:
                 package += 1
             else:
+                elapsed = event.get("Elapsed")
+                if type(elapsed) not in (int, float) or not 0 < elapsed <= 18:
+                    raise ValueError("actual_case_elapsed_bound")
                 passes += 1
         if action == "output":
             payload = event.get("Output")

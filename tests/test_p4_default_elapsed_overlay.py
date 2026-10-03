@@ -19,7 +19,7 @@ class ElapsedGuards(unittest.TestCase):
     def events(self, count=1):
         events = []
         for _ in range(count):
-            events += [{"Action": "output", "Package": subject.PACKAGE, "Test": subject.TEST, "Output": "    default_elapsed_retry_test.go:249: p4_elapsed_receipt retry_target_ns=5123000000 observed_retry_ns=5124000000 quiet_window_ns=5501000000 malformed_worker_refused=true actual_session=true h1_initial=1 h1_retry=1 h1_after=0 h4_after=1 defaults_unchanged=true\n"}, {"Action": "pass", "Package": subject.PACKAGE, "Test": subject.TEST}]
+            events += [{"Action": "output", "Package": subject.PACKAGE, "Test": subject.TEST, "Output": "    default_elapsed_retry_test.go:249: p4_elapsed_receipt retry_target_ns=5123000000 observed_retry_ns=5124000000 quiet_window_ns=5501000000 malformed_worker_refused=true actual_session=true h1_initial=1 h1_retry=1 h1_after=0 h4_after=1 defaults_unchanged=true\n"}, {"Action": "pass", "Package": subject.PACKAGE, "Test": subject.TEST, "Elapsed": 10.7}]
         return events + [{"Action": "pass", "Package": subject.PACKAGE}]
 
     def encoded(self, events):
@@ -42,6 +42,13 @@ class ElapsedGuards(unittest.TestCase):
             events = self.events()
             events[0]["Output"] = output.replace(old, new)
             with self.subTest(field=old), self.assertRaises(ValueError):
+                subject.verify_events(self.encoded(events), 1)
+
+    def test_case_elapsed_includes_cleanup_and_is_bounded(self):
+        for elapsed in (None, True, "10.7", 0, -1, 18.01, float("inf"), float("nan")):
+            events = self.events()
+            events[1]["Elapsed"] = elapsed
+            with self.subTest(elapsed=elapsed), self.assertRaises(ValueError):
                 subject.verify_events(self.encoded(events), 1)
 
     def test_supervisor_normal_and_timeout_owned_child(self):
@@ -72,6 +79,29 @@ class ElapsedGuards(unittest.TestCase):
             with self.assertRaisesRegex(subject.Unsettled, "prior_owned_group_unsettled"):
                 subject.command([], Path.cwd(), {}, 1)
             spawn.assert_not_called()
+
+    def test_cancellation_inventory_failure_retains_unreaped_anchor(self):
+        child = unittest.mock.MagicMock()
+        with patch.object(subject, "UNSETTLED", []) as retained, patch.object(subject.subprocess, "Popen", return_value=child), patch.object(subject.selectors, "DefaultSelector", side_effect=OSError("setup")), patch.object(subject.os, "waitid", return_value=None), patch.object(subject.os, "killpg"), patch.object(subject, "members", side_effect=OSError("unknown inventory")):
+            with self.assertRaisesRegex(subject.Unsettled, "owned_group_preserved"):
+                subject.command([], Path.cwd(), {}, 1)
+            self.assertEqual(retained, [child])
+            child.wait.assert_not_called()
+
+    def test_unknown_or_lost_anchor_preserves_without_signal_or_reap(self):
+        for failure in (OSError("wait state unknown"), ChildProcessError("anchor lost")):
+            child = unittest.mock.MagicMock()
+            with self.subTest(failure=type(failure).__name__), patch.object(subject, "UNSETTLED", []) as retained, patch.object(subject.subprocess, "Popen", return_value=child), patch.object(subject.selectors, "DefaultSelector", side_effect=OSError("setup")), patch.object(subject.os, "waitid", side_effect=failure), patch.object(subject.os, "killpg") as signal_group:
+                with self.assertRaises(subject.Unsettled):
+                    subject.command([], Path.cwd(), {}, 1)
+                self.assertEqual(retained, [child])
+                signal_group.assert_not_called()
+                child.wait.assert_not_called()
+
+    def test_live_output_limit_cancels_and_reaps(self):
+        with self.assertRaisesRegex(ValueError, "fixed_command_output_bound"):
+            subject.command([sys.executable, "-I", "-c", "import os; [os.write(1,b'x'*65536) for _ in range(100)]"], Path.cwd(), {"PATH": "/usr/bin:/bin"}, 3)
+        self.assertEqual(subject.UNSETTLED, [])
 
     def test_closed_stdio_orphan_is_not_mistaken_for_quiescence(self):
         spawned = []
