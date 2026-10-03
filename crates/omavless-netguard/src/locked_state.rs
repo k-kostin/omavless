@@ -441,7 +441,6 @@ mod tests {
     use std::fs::{self, File};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     const EPOCH: HostEpoch = HostEpoch {
         boot: [1; 16],
@@ -472,13 +471,10 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "omavless-k1-locked-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+            // Leave room for run/omavless-netguard/control.sock under a
+            // HOME-based TMPDIR; the old descriptive root exceeded SUN_LEN.
+            // Exclusive allocation also skips stale files/dirs/symlinks.
+            let path = crate::test_temp::directory("k1l").unwrap();
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(path.join("omavless-netguard"))

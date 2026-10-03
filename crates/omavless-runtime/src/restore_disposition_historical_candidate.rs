@@ -734,6 +734,218 @@ pub(crate) struct HistoricalProfile<'a> {
     fault: Option<ProfileWriteFault>,
 }
 
+/// Research-only evidence retained without a lease across bounded feed work.
+/// It cannot authorize any effect until fresh same-source re-admission. No
+/// concurrent current mutation/rebase is supported by this Off-only slice.
+#[cfg(test)]
+pub(crate) struct DetachedHistoricalBatch {
+    config: std::path::PathBuf,
+    paths: CutoverPaths,
+    uid: u32,
+    generation: u64,
+    proof: crate::login_activation::epoch_candidate::DetachedCurrentEpochEvidence,
+    current: Option<Snapshot>,
+    owner: std::sync::Arc<()>,
+    binding: Option<(String, crate::long_operation::LongOperationToken, u64)>,
+    pub(crate) fault: Option<BatchWriteFault>,
+}
+
+#[cfg(test)]
+type BatchWriteFault = Box<dyn FnMut(BatchWriteCheckpoint) -> Result<(), ()>>;
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BatchWriteCheckpoint {
+    Before,
+    AfterWriterBeforePin,
+    After,
+}
+
+#[cfg(test)]
+impl RetainedEpochOff<'_> {
+    pub(crate) fn into_batch(
+        mut self,
+        owner: &std::sync::Arc<()>,
+    ) -> Result<DetachedHistoricalBatch, ExecutionError> {
+        self.recheck()?;
+        Ok(DetachedHistoricalBatch {
+            config: self.original.config.to_owned(),
+            paths: self.original.paths.clone(),
+            uid: self.original.uid,
+            generation: self.original.generation,
+            proof: self.proof.detach(),
+            current: Some(self.original.original),
+            owner: owner.clone(),
+            binding: None,
+            fault: None,
+        })
+    }
+}
+
+#[cfg(test)]
+impl DetachedHistoricalBatch {
+    pub(crate) fn owner_identity(&self) -> std::sync::Arc<()> {
+        self.owner.clone()
+    }
+    pub(crate) fn check(
+        &mut self,
+        owner: &std::sync::Arc<()>,
+        paths: &CutoverPaths,
+        desired: &crate::desired::DesiredPaths,
+        store: &Path,
+        uid: u32,
+        lock: &MigrationLock,
+    ) -> Result<(), ExecutionError> {
+        if !std::sync::Arc::ptr_eq(owner, &self.owner)
+            || paths != &self.paths
+            || uid != self.uid
+            || desired.directory != self.paths.state_directory
+            || desired.file != self.paths.state_directory.join("desired.json")
+            || store != self.config.join(LIVE[0])
+        {
+            self.poison();
+            return Err(REFUSE);
+        }
+        let proof = &mut self.proof;
+        let result = recheck(
+            self.current.as_ref().ok_or(REFUSE)?,
+            &self.config,
+            &self.paths,
+            self.uid,
+            self.generation,
+            lock,
+            &mut || {
+                proof
+                    .recheck(&self.paths, self.uid, self.generation, lock)
+                    .is_ok()
+            },
+        );
+        if result.is_err() {
+            self.poison();
+        }
+        result
+    }
+    pub(crate) fn bind_job(
+        &mut self,
+        instance: &str,
+        token: crate::long_operation::LongOperationToken,
+        revision: u64,
+    ) -> Result<(), ExecutionError> {
+        if self.current.is_none() || self.binding.is_some() {
+            self.poison();
+            return Err(REFUSE);
+        }
+        self.binding = Some((instance.to_owned(), token, revision));
+        Ok(())
+    }
+    pub(crate) fn matches_job(
+        &self,
+        instance: &str,
+        token: crate::long_operation::LongOperationToken,
+        revision: u64,
+    ) -> bool {
+        self.current.is_some()
+            && self
+                .binding
+                .as_ref()
+                .is_some_and(|(i, t, r)| i == instance && *t == token && *r == revision)
+    }
+    pub(crate) fn finish_job(
+        &mut self,
+        instance: &str,
+        token: crate::long_operation::LongOperationToken,
+        revision: u64,
+    ) {
+        if self
+            .binding
+            .as_ref()
+            .is_some_and(|(i, t, r)| i == instance && *t == token && *r == revision)
+        {
+            self.binding = None;
+        }
+    }
+    pub(crate) fn finish_ticket(
+        &mut self,
+        instance: &str,
+        token: crate::long_operation::LongOperationToken,
+    ) {
+        if self
+            .binding
+            .as_ref()
+            .is_some_and(|(i, t, _)| i == instance && *t == token)
+        {
+            self.binding = None;
+        }
+    }
+    pub(crate) fn checkpoint(
+        &mut self,
+        checkpoint: BatchWriteCheckpoint,
+    ) -> Result<(), ExecutionError> {
+        self.fault
+            .as_mut()
+            .map_or(Ok(()), |fault| fault(checkpoint))
+            .map_err(|_| REFUSE)
+    }
+    pub(crate) fn committed(
+        &mut self,
+        plan: &crate::subscription_mutation::CommittedSubscriptionBatch,
+        lock: &MigrationLock,
+    ) -> Result<(), ExecutionError> {
+        let before = self.current.take().ok_or(REFUSE)?;
+        let read = || {
+            Snapshot::read_policy(
+                &self.config,
+                &self.paths,
+                self.uid,
+                self.generation,
+                lock,
+                LivePolicy::ValidCurrentOff,
+            )
+        };
+        let unchanged = |after: &Snapshot| {
+            (plan.changed() || before.same(after))
+                && before
+                    .directories
+                    .iter()
+                    .zip(&after.directories)
+                    .all(|(a, b)| same_directory(a, b))
+                && before
+                    .directory_handles
+                    .iter()
+                    .zip(&before.directories)
+                    .all(|(fd, m)| fd.metadata().is_ok_and(|now| same_directory(m, &now)))
+                && same_boundary(&before.boundary, &after.boundary)
+                && before.members.iter().zip(&after.members).enumerate().all(
+                    |(i, ((a, am), (b, bm)))| {
+                        i == 3
+                            || (a == b
+                                && same_member(am, bm)
+                                && before.member_handles[i]
+                                    .metadata()
+                                    .is_ok_and(|now| same_member(am, &now)))
+                    },
+                )
+                && plan.matches(&after.members[3].0)
+                && plan.matches_written_file(&after.member_handles[3])
+        };
+        let candidate = read()?;
+        if !unchanged(&candidate) {
+            return Err(REFUSE);
+        }
+        self.proof
+            .recheck(&self.paths, self.uid, self.generation, lock)
+            .map_err(|_| REFUSE)?;
+        let after = read()?;
+        if !unchanged(&after) || !candidate.same(&after) {
+            return Err(REFUSE);
+        }
+        self.current = Some(after);
+        Ok(())
+    }
+    pub(crate) fn poison(&mut self) {
+        self.current = None;
+    }
+}
+
 #[cfg(test)]
 type ProfileWriteFault = Box<dyn FnMut(ProfileWriteCheckpoint) -> Result<(), ()>>;
 
@@ -1124,6 +1336,10 @@ mod epoch_tests;
 #[cfg(test)]
 #[path = "restore_connection_research_tests.rs"]
 mod connection_tests;
+
+#[cfg(test)]
+#[path = "restore_batch_research_tests.rs"]
+pub(crate) mod batch_tests;
 
 #[cfg(test)]
 mod tests {

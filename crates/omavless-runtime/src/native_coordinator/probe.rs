@@ -67,6 +67,8 @@ impl NativeSubscriptionProbe {
     #[must_use]
     pub fn supervisor_ticket(&self) -> NativeBatchTicket {
         NativeBatchTicket {
+            #[cfg(test)]
+            research_identity: None,
             instance: self.instance.clone(),
             token: self.token,
         }

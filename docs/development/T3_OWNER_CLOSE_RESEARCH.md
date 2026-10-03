@@ -15,6 +15,10 @@ Only a fixed `cfg(test)` actual parent-owned subprocess constructor supplies the
 internal fixture permit. Interpreter image and fixture script are distinct
 retained objects, not a claim that the interpreter is an adopted core package.
 
+The separate [provisional package-object reader](T3_PACKAGE_OBJECT_EVIDENCE.md)
+adds retained root-owned object research without supplying that missing permit
+or claiming a matched broker/distribution. Its real-root VM gate is separate.
+
 ## Actual composition
 
 `OfflineNativeCoordinator` captures its actual instance, revision, Rust ownership

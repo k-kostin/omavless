@@ -26,6 +26,8 @@ use omavless_domain::private_store::{
 };
 
 pub(super) struct BatchOwnerState {
+    #[cfg(test)]
+    pub(super) research_identity: std::sync::Arc<()>,
     pub(super) instance: String,
     pub(super) registry: LongOperationRegistry,
     pub(super) active: Option<(LongOperationToken, ActiveCancellation)>,
@@ -51,6 +53,8 @@ impl ActiveCancellation {
 /// spawn failure or panic can be terminalized without the worker payload.
 #[derive(Clone)]
 pub struct NativeBatchTicket {
+    #[cfg(test)]
+    pub(super) research_identity: Option<std::sync::Arc<()>>,
     pub(super) instance: String,
     pub(super) token: LongOperationToken,
 }
@@ -59,9 +63,11 @@ pub struct NativeBatchTicket {
 /// A caller returns it to complete; dropping it is not completion. Retain its
 /// ticket to abort lost work. Runtime shutdown revokes all outstanding work.
 pub struct NativeSubscriptionBatch {
+    #[cfg(test)]
+    research_identity: Option<std::sync::Arc<()>>,
     instance: String,
-    token: LongOperationToken,
-    base_revision: u64,
+    pub(super) token: LongOperationToken,
+    pub(super) base_revision: u64,
     work: SubscriptionBatchWork,
     failure: Option<BatchWorkError>,
 }
@@ -70,6 +76,8 @@ impl NativeSubscriptionBatch {
     #[must_use]
     pub fn supervisor_ticket(&self) -> NativeBatchTicket {
         NativeBatchTicket {
+            #[cfg(test)]
+            research_identity: self.research_identity.clone(),
             instance: self.instance.clone(),
             token: self.token,
         }
@@ -97,6 +105,28 @@ impl NativeSubscriptionBatch {
 }
 
 impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
+    #[cfg(test)]
+    pub(crate) fn detach_batch_research(&self, retained: crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'_>) -> Result<crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::DetachedHistoricalBatch, NativeOwnerError>{
+        retained
+            .into_batch(&self.research_identity)
+            .map_err(|_| NativeOwnerError::ManualRecoveryRequired)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn abort_subscription_batch_research(
+        &mut self,
+        ticket: NativeBatchTicket,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::DetachedHistoricalBatch,
+    ) -> Result<(), NativeOwnerError> {
+        if !std::sync::Arc::ptr_eq(&context.owner_identity(), &self.research_identity) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let instance = ticket.instance.clone();
+        let token = ticket.token;
+        self.abort_subscription_batch(ticket)?;
+        context.finish_ticket(&instance, token);
+        Ok(())
+    }
     /// Bind once to the actual runtime instance, never a request-provided ID.
     /// Live registration remains absent; production must use the gated owner.
     pub fn initialize_batch_operations(&mut self, instance: &str) -> Result<(), NativeOwnerError> {
@@ -104,6 +134,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             return Err(NativeOwnerError::Invariant);
         }
         self.batch = Some(BatchOwnerState {
+            #[cfg(test)]
+            research_identity: self.research_identity.clone(),
             instance: instance.to_owned(),
             registry: LongOperationRegistry::new(instance, DEFAULT_COMPLETED_OPERATION_LIMIT)
                 .map_err(NativeOwnerError::LongOperation)?,
@@ -158,11 +190,34 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
+        self.start_subscription_batch_admitted(
+            request,
+            &mut super::batch_admission::BatchAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_subscription_batch_research(
+        &mut self,
+        request: &Value,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::DetachedHistoricalBatch,
+    ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
+        self.start_subscription_batch_admitted(
+            request,
+            &mut super::batch_admission::BatchAdmission::Historical(context),
+        )
+    }
+
+    fn start_subscription_batch_admitted(
+        &mut self,
+        request: &Value,
+        admission: &mut super::batch_admission::BatchAdmission<'_>,
+    ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
         if !self.mutation_operation_known(request) {
             self.invalidate_connection_close();
         }
         let request = parse_refresh_all_start(request)?;
-        let _lock = self.batch_lock()?;
+        let _lock = admission.lock(self)?;
         let revision = self.revision();
         let ordinary_id = self
             .coordinator
@@ -235,12 +290,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .registry
             .begin(token, revision)
             .map_err(NativeOwnerError::LongOperation)?;
+        if let Err(error) = admission.started(&state.instance, token, revision) {
+            state
+                .registry
+                .finish_failure(token, revision, error.stable_code())
+                .map_err(NativeOwnerError::LongOperation)?;
+            return Err(error);
+        }
         let cancellation = BatchCancellation::default();
         state.active = Some((
             token,
             ActiveCancellation::Subscription(cancellation.clone()),
         ));
         Ok(Some(NativeSubscriptionBatch {
+            #[cfg(test)]
+            research_identity: admission.research_identity(),
             instance: state.instance.clone(),
             token,
             base_revision: revision,
@@ -303,6 +367,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         state: &BatchOwnerState,
         job: &NativeSubscriptionBatch,
     ) -> Result<(), NativeOwnerError> {
+        #[cfg(test)]
+        if job
+            .research_identity
+            .as_ref()
+            .is_some_and(|identity| !std::sync::Arc::ptr_eq(identity, &state.research_identity))
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
         if state.stopped
             || state.instance != job.instance
             || state.active.as_ref().map(|entry| entry.0) != Some(job.token)
@@ -323,6 +395,14 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .batch
             .as_mut()
             .ok_or(NativeOwnerError::OwnershipUnavailable)?;
+        #[cfg(test)]
+        if ticket
+            .research_identity
+            .as_ref()
+            .is_some_and(|identity| !std::sync::Arc::ptr_eq(identity, &state.research_identity))
+        {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
         if state.instance != ticket.instance
             || state.active.as_ref().map(|entry| entry.0) != Some(ticket.token)
         {
@@ -391,20 +471,67 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
     {
+        self.complete_subscription_batch_admitted(
+            job,
+            now_millis,
+            commit,
+            &mut super::batch_admission::BatchAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn complete_subscription_batch_research<N: FnOnce() -> u64>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now: N,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::DetachedHistoricalBatch,
+    ) -> Result<(), NativeOwnerError> {
+        self.complete_subscription_batch_admitted(
+            job,
+            now,
+            commit_subscription_refresh_batch,
+            &mut super::batch_admission::BatchAdmission::Historical(context),
+        )
+    }
+
+    fn complete_subscription_batch_admitted<N, F>(
+        &mut self,
+        job: NativeSubscriptionBatch,
+        now_millis: N,
+        commit: F,
+        admission: &mut super::batch_admission::BatchAdmission<'_>,
+    ) -> Result<(), NativeOwnerError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(
+            &Path,
+            u32,
+            SubscriptionRefreshBatchSnapshot,
+            Vec<SubscriptionRefreshBatchEntries>,
+            u64,
+        ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
+    {
         let mut state = self
             .batch
             .take()
             .ok_or(NativeOwnerError::OwnershipUnavailable)?;
         let result = (|| {
             Self::check_batch_handle(&state, &job)?;
+            // Authenticate the context before advancing progress, invalidating
+            // close evidence, releasing the active token or clearing bindings.
+            // Source/lease checks remain required again before publication.
+            admission.matches(&state, &job)?;
             let token = job.token;
+            let base_revision = job.base_revision;
             let completed = job.work.progress().0;
             state
                 .registry
                 .advance(token, completed)
                 .map_err(NativeOwnerError::LongOperation)?;
-            let outcome = self.commit_subscription_batch_work(&mut state, job, now_millis, commit);
+            let outcome =
+                self.commit_subscription_batch_work(&mut state, job, now_millis, commit, admission);
             state.active = None;
+            admission.finished(&state.instance, token, base_revision);
             match outcome {
                 Ok(true) => state
                     .registry
@@ -430,6 +557,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionBatch,
         now_millis: N,
         commit: F,
+        admission: &mut super::batch_admission::BatchAdmission<'_>,
     ) -> Result<bool, NativeOwnerError>
     where
         N: FnOnce() -> u64,
@@ -441,12 +569,13 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
     {
+        admission.matches(state, &job)?;
         self.invalidate_connection_close();
         if let Some(error) = job.failure {
             return Err(batch_work_error(error));
         }
         let prepared = job.work.into_prepared().map_err(batch_work_error)?;
-        let _lock = self.batch_lock()?;
+        let lock = admission.lock(self)?;
         if self.revision() != job.base_revision {
             return Err(NativeOwnerError::Coordinator(
                 CoordinatorError::RevisionConflict,
@@ -486,24 +615,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             }
             _ => return Err(NativeOwnerError::Invariant),
         }
-        let result = commit(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-            snapshot,
-            updates,
-            now_millis(),
-        )
-        .map_err(|error| {
-            if error == SubscriptionMutationCommitError::StoreIo {
-                // Atomic replacement can fail after rename (permissions or
-                // directory fsync). Never assert no change, retry or overwrite
-                // unknown current bytes; block the shared native owner.
-                self.transaction.block();
-                NativeOwnerError::ManualRecoveryRequired
-            } else {
-                NativeOwnerError::Subscription(subscription_store_error(error))
-            }
-        });
+        let result = admission.commit(self, &lock, snapshot, updates, now_millis, commit);
         self.coordinator.finish(
             token,
             match result {

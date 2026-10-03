@@ -21,6 +21,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+// Inactive, non-authorizing package-object research; no effect permit linkage.
+#[path = "conditional_package_evidence.rs"]
+mod package_evidence;
+
 const MAX_ROWS: usize = 128;
 const MAX_SNAPSHOT: usize = 256 * 1024;
 const MAX_REPLY: usize = 16 * 1024;
