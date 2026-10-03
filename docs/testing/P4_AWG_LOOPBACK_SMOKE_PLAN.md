@@ -33,6 +33,10 @@ the overlay before rebuilding any peer binary; normal fixture builds exclude
 the test tag. Missing cached metadata refuses offline; prepare only dependencies
 pinned by the exact upstream go.mod/go.sum before the offline invocation.
 
+A separate [cookie/MAC2 transport contract](P4_AWG_COOKIE_TRANSPORT_PLAN.md)
+uses an explicitly tagged add-only developer instrument and unchanged Mihomo.
+It must not be confused with this normal peer or the source-only CPU overlay.
+
 Build only the reviewed module with a locally available compatible Go compiler,
 `GOTOOLCHAIN=local`, HOME cache and HOME temporary directories. Use
 `CGO_ENABLED=0 go build -trimpath -mod=readonly -buildvcs=false`; record the

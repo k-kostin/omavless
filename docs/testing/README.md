@@ -56,6 +56,10 @@ Installed-core opt-ins use synthetic configurations, not private live fixtures.
 The [P4 AWG 3/3.1 loopback checkpoint](P4_AWG_LOOPBACK_SMOKE_2026-10-03.md)
 and [fixture contract](P4_AWG_LOOPBACK_SMOKE_PLAN.md) cover a developer-only,
 explicitly handed-off disposable-VM transport smoke, not installed activation.
+The separate [AWG cookie/MAC2 checkpoint](P4_AWG_COOKIE_TRANSPORT_2026-10-03.md)
+and [tagged fixture contract](P4_AWG_COOKIE_TRANSPORT_PLAN.md) cover genuine
+unchanged-core under-load cookie transport, corrupt-cookie refusal and recovery;
+the tagged independent peer is a developer instrument, not a normal package.
 The [QML component gate](../../tests/qml-load/README.md) compiles without
 instantiating the plugin and is explicitly opt-in on an installed desktop.
 
