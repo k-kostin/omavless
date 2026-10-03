@@ -279,7 +279,7 @@ mod tests {
     use std::io;
     use std::os::unix::fs::PermissionsExt;
     fn root(_label: &str) -> PathBuf {
-        // Same test-only conversion as 2e2339b (#566): the scenario remains
+        // Same test-only conversion as 2e2339b: the scenario remains
         // in the test name, leaving room for the real controller socket.
         crate::test_temp::directory("core").unwrap()
     }

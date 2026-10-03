@@ -87,7 +87,7 @@ The `b733dcb` actual export completed successfully with the expected core hash;
 its separate full Rust rerun exposed the old descriptive core fixture exceeding
 SUN_LEN (706 passed / 1 failed / 7 ignored). A labelled shorter-TMP run passed,
 but did not erase that failure. The subsequent test-only fix ports the `core`
-short allocator conversion from `2e2339b` (#566), preserving actual socket
+short allocator conversion from `2e2339b` (`dev/runtime-short-fixture-sockets`), preserving actual socket
 assertions and adding a 40-byte-prefix length counterexample. Neither that
 fixture correction nor Cargo configuration hardening inherits b733dcb's exact
 export evidence; subsequent exact-head results belong on the Draft PR.

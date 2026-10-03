@@ -36,7 +36,7 @@ rustc --edition=2024 --test tests/support/temp.rs -o /tmp/omavless-temp-tests
 No production code path, application dependency or installed runtime changes.
 
 The core-controller fixture now also uses the short `core` label, ported from
-`2e2339b` (#566). Descriptive scenario/timestamp names exceeded SUN_LEN under
+`2e2339b` on `dev/runtime-short-fixture-sockets`. Descriptive scenario/timestamp names exceeded SUN_LEN under
 HOME-based TMPDIR; a counterexample checks the old and compact pathname shapes
 with a 40-byte parent prefix. Actual controller tests and their assertions stay
 unchanged. Arbitrarily long TMPDIRs still encounter the OS socket-path limit.
