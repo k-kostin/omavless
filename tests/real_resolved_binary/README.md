@@ -127,3 +127,23 @@ Inventory, launcher and observer source are implemented. Pure/source checks and
 helper compilation do not execute namespaces, resolved, broker or core. Actual
 daemon execution remains pending. Root must review the complete new code and
 frozen containment artifacts before granting a separate execution lease.
+
+## Sealed source and refused execution preflight
+
+Code `cb87a55b296e265022e509220921a07b43b62144` passed 398 source tests
+(two existing skips), the JS/QML contracts, 19 focused pure guards, and the
+refreshed c4-export helper's locked/offline build and strict clippy. The helper
+source bytes match the reviewed host/observer files; the frozen helper SHA256 is
+`fbd19fc83f5d6548ff8f1fe89d4d66ab9032d85cb551a2364f5719a5cad234f7`.
+Earlier source runs with temporary files under the Git-owned home retained three
+privacy refusals; the passing run used `/var/tmp`, without weakening that guard.
+
+The separately authorized execution attempt stopped at its fresh read-only
+preflight: the canonical runtime MainPID was 938 rather than the pinned 86349.
+Its service remained active/running; the expected network namespace, canonical
+Mihomo hash and systemd/systemd-libs 261.2-1 matched. The fixed task directory was
+absent. No staging, namespace creation, daemon/core execution or reviewed-wrapper
+invocation occurred. The lease was released without changing canonical state.
+This is a preflight refusal and **zero measured cases**, not actual resolved
+acceptance. A changed PID cannot be adopted by editing the old receipt: any
+legitimate new baseline requires separate review and a new immutable guard.
