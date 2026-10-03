@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 import sys
 import unittest
+import errno
+import os
+import socket
+import tarfile
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -17,6 +22,57 @@ builder=importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
 
 
 class MatrixGuards(unittest.TestCase):
+    def test_http_reuse_precedes_bind_and_failure_is_fixed_class(self):
+        calls=[]
+        class Listener:
+            reuse=False
+            def setsockopt(self,*args): calls.append(("option",args)); self.reuse=True
+            def bind(self,where):
+                calls.append(("bind",where))
+                if not self.reuse: raise OSError(errno.EADDRINUSE,"private detail")
+            def listen(self,count): calls.append(("listen",count))
+            def close(self): calls.append(("close",))
+        # Model the repeated-bind counterexample, not live host TCP behavior.
+        with self.assertRaises(OSError): Listener().bind(("10.203.0.1",8089))
+        calls.clear(); listener=Listener()
+        self.assertIs(subject.http_listener(lambda _:listener,"10.203.0.1"),listener)
+        self.assertEqual(calls[0],("option",(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)))
+        self.assertEqual(calls[1],("bind",("10.203.0.1",8089)))
+        class Failing(Listener):
+            def bind(self,where): raise OSError(errno.EADDRINUSE,"private detail")
+        with self.assertRaises(subject.wg.Refused) as caught: subject.http_listener(lambda _:Failing(),"10.203.0.1")
+        self.assertEqual(caught.exception.stage,"fixture_http_bind_in_use")
+
+    def test_readiness_keeps_exact_child_role(self):
+        for stage in ("peer_readiness","service_readiness","core_readiness"):
+            with self.assertRaises(subject.wg.Refused) as caught: subject.readiness(SimpleNamespace(poll=lambda:2),SimpleNamespace(exists=lambda:False),stage)
+            self.assertEqual(caught.exception.stage,stage)
+
+    def test_private_diagnostics_are_bounded_logs_not_config_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache=Path(directory); cache.chmod(0o700); root=cache/"matrix-test"; root.mkdir(mode=0o700)
+            cell=root/"cell-00"; cell.mkdir(mode=0o700)
+            subject.wg.private_write(cell/"service.log",b'{"status":"REFUSE","stage":"fixture_http_bind_in_use"}\n')
+            subject.wg.private_write(cell/"positive.conf",b"synthetic private config never archived")
+            result=subject.retain_private_diagnostics(root,cache)
+            archive=cache/result["archive_leaf"]
+            self.assertEqual(archive.stat().st_mode&0o777,0o600)
+            self.assertTrue(result["private_raw_logs"] and result["synthetic_config_keys_excluded"])
+            self.assertEqual(result["log_count"],1)
+            with tarfile.open(archive) as stream: self.assertEqual(stream.getnames(),["cell-00/service.log"])
+            with self.assertRaises(FileExistsError): subject.retain_private_diagnostics(root,cache)
+
+    def test_private_diagnostics_refuse_symlink_and_oversized_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache=Path(directory); cache.chmod(0o700); root=cache/"matrix-test"; root.mkdir(mode=0o700)
+            cell=root/"cell-00"; cell.mkdir(mode=0o700); log=cell/"service.log"
+            log.symlink_to("missing")
+            with self.assertRaises(OSError): subject.retain_private_diagnostics(root,cache)
+            log.unlink()
+            subject.wg.private_write(log,b"")
+            with log.open("wb") as file: file.truncate(2*1024*1024+1)
+            with self.assertRaises(subject.wg.Refused): subject.retain_private_diagnostics(root,cache)
+
     def test_both_render_phases_preserve_the_mutable_cell_record(self):
         record={"status":"REFUSE","flavor":"3.1"}; identity=id(record)
         with patch.object(subject.wg,"command",return_value=SimpleNamespace(stdout=b'{"private_roundtrip":true,"flavor":"3.1"}')) as command:

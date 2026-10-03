@@ -12,6 +12,7 @@ import base64
 import errno
 import fcntl
 import hashlib
+import io
 import ipaddress
 import itertools
 import json
@@ -25,6 +26,7 @@ import stat
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -205,6 +207,21 @@ def namespace_authority(args, *, owner):
     return root
 
 
+def http_listener(factory,server):
+    listener=factory(socket.SOCK_STREAM)
+    try:
+        # Each cell reuses the same private address/8089 in one namespace.
+        # TCP TIME_WAIT may outlive the previous service/interface. Reuse is
+        # set before bind in every generation, including the first cell.
+        listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+        listener.bind((server,8089)); listener.listen(4)
+        return listener
+    except OSError as exc:
+        listener.close()
+        if exc.errno==errno.EADDRINUSE: raise wg.Refused("fixture_http_bind_in_use") from None
+        raise
+
+
 def service_child(args):
     root=namespace_authority(args,owner=False); family=int(args.inner); server=address(family)
     af=socket.AF_INET if family==4 else socket.AF_INET6
@@ -213,7 +230,7 @@ def service_child(args):
         sock=socket.socket(af,kind)
         if family==6: sock.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
         return sock
-    http=new_socket(socket.SOCK_STREAM); http.bind((server,8089)); http.listen(4)
+    http=http_listener(new_socket,server)
     udp=new_socket(socket.SOCK_DGRAM); udp.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); udp.bind((server,PORT))
     control=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); control.bind(str(root/"service.sock")); os.chmod(root/"service.sock",0o600); control.listen(4)
     def http_worker():
@@ -376,16 +393,16 @@ def start_peer(root,args,outer,inner,mtu):
         env={**ENV,"P4_TUN_FD":str(fd),"P4_PARENT_net_FD":args.parent_net_fd,"P4_PARENT_user_FD":args.parent_user_fd,"GOMAXPROCS":"2"}
         with wg.log_handle(root/"peer.log") as log:
             process=subprocess.Popen(wg.dropped([args.peer,str(root),str(outer)]),stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env,preexec_fn=wg.child_limit,pass_fds=(fd,int(args.parent_net_fd),int(args.parent_user_fd)))
-        readiness(process,root/"stats.sock"); wg.check_process(process,wg.namespace("net"))
+        readiness(process,root/"stats.sock","peer_readiness"); wg.check_process(process,wg.namespace("net"))
         return process,fd
     except BaseException:
         wg.stop(process); os.close(fd); raise
 
 
-def readiness(process,path):
+def readiness(process,path,stage):
     deadline=time.monotonic()+5
     while not path.exists():
-        wg.require(process.poll() is None and time.monotonic()<deadline,"child_readiness"); time.sleep(.05)
+        wg.require(process.poll() is None and time.monotonic()<deadline,stage); time.sleep(.05)
 
 
 def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public,progress):
@@ -394,7 +411,7 @@ def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public,prog
     try:
         with wg.log_handle(root/f"core-{attempt}.log") as log:
             child=wg.launch([args.core,"-d",root,"-f",root/f"{name}.yaml"],log)
-        readiness(child,sock); wg.check_process(child,wg.namespace("net")); wg.controller(sock,child.pid); sock.chmod(0o600)
+        readiness(child,sock,"core_readiness"); wg.check_process(child,wg.namespace("net")); wg.controller(sock,child.pid); sock.chmod(0o600)
         service_before=read_json_socket(root/"service.sock",service.pid)
         if name=="negative":
             wire_before=observe(root,peer.pid)
@@ -451,7 +468,7 @@ def namespace_run(args):
             render_cell_configs(cell,args,flavor,outer,inner,mtu,result)
             service_argv=child_arguments(args,cell,"service",inner)
             with wg.log_handle(cell/"service.log") as log: service=wg.launch(service_argv,log,pass_fds=(int(args.parent_net_fd),int(args.parent_user_fd)))
-            readiness(service,cell/"service.sock"); wg.check_process(service,wg.namespace("net"))
+            readiness(service,cell/"service.sock","service_readiness"); wg.check_process(service,wg.namespace("net"))
             result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","positive",peer,service,public,result))
             reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"negative","negative",peer,service,public,result))
             reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","recovery",peer,service,public,result))
@@ -492,6 +509,42 @@ def validate_matrix_result(result):
     wg.require(result.get("status")==("MEASURED" if counts["measured_cells"]==24 else "PARTIAL-NONPASS"),"matrix_overclaimed_status")
 
 
+def retain_private_diagnostics(root,cache):
+    """Bounded raw child logs ONLY, after owned group reap; never share bytes.
+
+    Synthetic configuration/key files are intentionally excluded. Core logs
+    remain private even though this fixture configures silent logging. Exact
+    byte hashes and an opaque archive leaf are the only public metadata.
+    """
+    wg.require(root.parent==cache and wg.private_directory(root) and wg.private_directory(cache),"diagnostic_owned_root")
+    paths=sorted(root.rglob("*.log"))
+    wg.require(len(paths)<=512,"diagnostic_file_count")
+    snapshots=[]; total=0
+    for path in paths:
+        relative=path.relative_to(root)
+        wg.require(len(relative.parts)==2 and re.fullmatch(r"cell-(?:0[0-9]|1[0-9]|2[0-3])",relative.parts[0]) and re.fullmatch(r"(?:peer|service|core-(?:positive|negative|recovery)|client-[0-9]+)\.log",relative.parts[1]),"diagnostic_path")
+        wg.require(wg.private_directory(path.parent),"diagnostic_parent_directory")
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        with os.fdopen(fd,"rb") as file:
+            before=os.fstat(file.fileno())
+            wg.require(stat.S_ISREG(before.st_mode) and before.st_uid==os.getuid() and before.st_nlink==1 and before.st_mode&0o077==0 and before.st_size<=2*1024*1024,"diagnostic_file_policy")
+            payload=file.read(2*1024*1024+1); after=os.fstat(file.fileno())
+        wg.require((before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns) and len(payload)==before.st_size,"diagnostic_unchanged")
+        total+=len(payload); wg.require(total<=64*1024*1024,"diagnostic_total_bound")
+        snapshots.append((str(relative),payload))
+    wg.require(re.fullmatch(r"matrix-[a-zA-Z0-9_-]+",root.name),"diagnostic_leaf")
+    archive=cache/f"diagnostics-{root.name}.tar.gz"
+    fd=os.open(archive,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,"wb") as output:
+        with tarfile.open(fileobj=output,mode="w:gz") as stream:
+            for name,payload in snapshots:
+                member=tarfile.TarInfo(name); member.mode=0o600; member.size=len(payload)
+                stream.addfile(member,io.BytesIO(payload))
+        output.flush(); os.fsync(output.fileno())
+    wg.require(archive.stat().st_size<=65*1024*1024,"diagnostic_archive_bound")
+    return {"archive_leaf":archive.name,"archive_sha256":wg.digest(archive),"log_count":len(snapshots),"log_bytes":total,"private_raw_logs":True,"synthetic_config_keys_excluded":True}
+
+
 def outer(args):
     wg.require(args.acknowledge_disposable_vm and os.getuid()!=0,"disposable_vm_ack")
     wg.require(re.fullmatch("[a-f0-9]{40}",args.source_sha or ""),"source_identity")
@@ -502,7 +555,7 @@ def outer(args):
     root=Path(tempfile.mkdtemp(prefix="matrix-",dir=cache)); child=None; descriptors=[]; identities={}
     source_files=[Path(__file__).resolve(),Path(wg.__file__).resolve(),Path(awg.__file__).resolve()]
     hashes={str(path):wg.digest(path) for path in source_files}
-    result=None
+    result=None; diagnostics=None
     try:
         for name in ("core","renderer","peer"):
             expected=getattr(args,f"expected_{name}_sha256"); wg.copy_binary(Path(getattr(args,name)),root/name,expected); identities[name]=expected
@@ -532,11 +585,14 @@ def outer(args):
                     try: active=wg.namespace("net",entry.name)
                     except OSError: continue
                     wg.require(active!=net,"namespace_process_cleanup")
+        if not isinstance(result,dict) or result.get("status")!="MEASURED":
+            diagnostics=retain_private_diagnostics(root,cache)
         wg.require(root.parent==cache and wg.private_directory(root),"scratch_cleanup_target")
         shutil.rmtree(root); wg.require(not root.exists(),"scratch_cleanup")
     wg.require(child.returncode==0,"matrix_incomplete")
     validate_matrix_result(result)
     result.update(source_sha=args.source_sha,helper_sha256=hashes,binary_sha256=identities,scratch_cleanup=True,external_canonical_guard_required=True)
+    if diagnostics is not None: result["private_diagnostics"]=diagnostics
     return result
 
 

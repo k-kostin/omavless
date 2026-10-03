@@ -66,6 +66,9 @@ test timer prove bounded engine behavior, not Mihomo/VM timer or MTU/IPv6 accept
 The separate [IP-family / MTU matrix plan](P4_IP_FAMILY_MTU_MATRIX_PLAN.md)
 defines add-only synthetic measurement helpers and exact source gates; its CPU
 guards are not VM wire or normal activation acceptance.
+Its [partial wire checkpoint](P4_IP_FAMILY_MTU_MATRIX_2026-10-03.md) retains the
+two frozen runs' 2/24 measurements and second strict-baseline NONPASS; neither
+is broad IP-family/MTU or normal activation acceptance.
 The [QML component gate](../../tests/qml-load/README.md) compiles without
 instantiating the plugin and is explicitly opt-in on an installed desktop.
 

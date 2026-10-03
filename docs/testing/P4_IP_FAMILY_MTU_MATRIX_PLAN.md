@@ -7,7 +7,9 @@ The [WG](P4_WG_LOOPBACK_SMOKE_PLAN.md),
 [cookie](P4_AWG_COOKIE_TRANSPORT_PLAN.md) transport contracts still own P4.
 No existing helper API, shared renderer, upstream engine, installed configuration,
 service, default activation or Rust domain/profile API changes are introduced.
-This fixture is **not yet VM transport evidence**.
+See the [partial actual checkpoint](P4_IP_FAMILY_MTU_MATRIX_2026-10-03.md) for
+the two frozen 933 invocations: 2/24 measured cells each, remaining refusals,
+and second-run strict-baseline NONPASS. Neither closes the planned matrix.
 
 ## Matrix and provenance
 
@@ -124,7 +126,7 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
 
 ## Source gates so far
 
-- Eleven pure Python measurement/builder receipt guards pass in ordinary CI;
+- Fifteen pure Python measurement/builder receipt guards pass in ordinary CI;
   `tests/run.sh` only registers these guards, never runs the live matrix.
 - Five named observed-peer CPU guards: 50 repetitions = **250 executions PASS**;
   race-enabled 20 repetitions = **100 executions PASS**. Both build receipts
@@ -134,7 +136,8 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
   = 48 private-store/native-render round trips and fixed-geometry refusal cases.
 - Initial source suite: **321 reported, two existing skips, 319 executed, zero failures**;
   JS/native/QML contracts pass. Formatting/whitespace remain scoped static gates.
-- No VM matrix, actual IPv6/MTU cell or native-owner acceptance is claimed here.
+- Actual evidence is limited to the linked partial checkpoint; no broad matrix,
+  native-owner or Internet PMTU acceptance is claimed.
 
 Pre-VM review found a fixture-only variable overwrite: a renderer subprocess
 result replaced the mutable cell record. A separate rendering helper now keeps
