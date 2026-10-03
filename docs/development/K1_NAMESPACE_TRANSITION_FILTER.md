@@ -85,3 +85,36 @@ review effective host/container/systemd identity and preservation guards, and
 check that both complete case receipts refer to those same artifacts. An
 exclusive VM lease and root review remain required. Do not execute either
 mode on the primary PC. No executed systemd/filter acceptance is claimed.
+
+## First guarded invocation — October 4
+
+Source `191c67ec0b1da53c4375af67056fe5d3ddabcad0` passed 527 source tests
+(two skips), JavaScript/QML/navigation and the focused mock controls. The
+unchanged probe SHA256 is
+`b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332`;
+runner `f3e064489cab6e66346f8d419cd8e8200ba50db019cd7b3e6af141df163e6e2d`;
+guard `c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40`.
+A separately reviewed retained-byte loader verified all five exact artifacts
+before exclusively creating the root stage. One owner-authorized dedicated
+x86_64 KVM invocation then returned exit 2 and the fixed guarded NONPASS marker.
+
+The root stage contains only the five original artifacts: no runner.log or
+result.json was created. Thus neither control nor filtered case ran (0/2);
+this is preflight refusal, not an observed EINVAL/EPERM or filter failure.
+The generic marker did not preserve the exact internal reason. Subsequent
+read-only checks found the fixed broker path and successful root-to-user
+service query, but those do not establish which earlier predicate failed.
+
+Independent post-failure inspection found no unit link, cgroup or matching
+probe/runner/guard process; the fixed unit was not-found/inactive with both
+manager PIDs zero. The canonical runtime was active/running at PID 938 and
+its executable matched installed omavless; both native packages were
+0.9.7rc1-1. No complete before/after preservation receipt was produced, so
+complete preservation is unproven, not PASS. Source/root stages were retained;
+no stop/reset/unlink/retry occurred and the exclusive VM lease was returned.
+
+The privately retained root-stage archive SHA256 is
+`ed2e28d900efcdef59971949e0e72e1fc6ecffd7fe2e822fe91e59831bedd8c7`.
+All five members, root ownership/modes and original hashes were independently
+verified. Safe phase/category diagnostics are the next source-only step; any
+new invocation needs its own reviewed artifacts and exclusive lease.
