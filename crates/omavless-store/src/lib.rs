@@ -79,6 +79,61 @@ pub fn atomic_replace_private(
     payload: &[u8],
     expected_uid: u32,
 ) -> Result<(), StoreIoError> {
+    atomic_replace_private_impl(path, payload, expected_uid, Retention::Discard).map(|_| ())
+}
+
+/// Fixed atomic writer with retention of the ACTUAL temporary descriptor across
+/// rename. No caller-selected writer, receipt constructor or authority is added.
+pub fn atomic_replace_private_retained(
+    path: &Path,
+    payload: &[u8],
+    expected_uid: u32,
+) -> Result<PrivateReplacementReceipt, StoreIoError> {
+    atomic_replace_private_impl(path, payload, expected_uid, Retention::Written)?
+        .ok_or(StoreIoError::Io)
+}
+
+/// Object provenance only, not a permit. No Clone/Debug/serialization; minted
+/// from the actual writer descriptor only after permission/directory sync.
+pub struct PrivateReplacementReceipt {
+    file: File,
+    metadata: fs::Metadata,
+}
+impl PrivateReplacementReceipt {
+    pub fn matches_file(&self, fresh: &File) -> bool {
+        let exact = |observed: &fs::Metadata| {
+            observed.dev() == self.metadata.dev()
+                && observed.ino() == self.metadata.ino()
+                && observed.uid() == self.metadata.uid()
+                && observed.mode() == self.metadata.mode()
+                && observed.nlink() == self.metadata.nlink()
+                && observed.len() == self.metadata.len()
+                && observed.mtime() == self.metadata.mtime()
+                && observed.mtime_nsec() == self.metadata.mtime_nsec()
+                && observed.ctime() == self.metadata.ctime()
+                && observed.ctime_nsec() == self.metadata.ctime_nsec()
+        };
+        self.file.metadata().is_ok_and(|metadata| exact(&metadata))
+            && fresh.metadata().is_ok_and(|metadata| exact(&metadata))
+    }
+}
+
+enum Retention {
+    Discard,
+    Written,
+    // Private primitive failure withdrawal for actual synthetic unit fixtures.
+    #[cfg(test)]
+    FailDuplicate,
+    #[cfg(test)]
+    FailStat,
+}
+
+fn atomic_replace_private_impl(
+    path: &Path,
+    payload: &[u8],
+    expected_uid: u32,
+    retention: Retention,
+) -> Result<Option<PrivateReplacementReceipt>, StoreIoError> {
     if payload.len() > MAX_STORE_BYTES {
         return Err(StoreIoError::TooLarge);
     }
@@ -116,13 +171,42 @@ pub fn atomic_replace_private(
     let result = (|| {
         file.write_all(payload).map_err(|_| StoreIoError::Io)?;
         file.sync_all().map_err(|_| StoreIoError::Io)?;
+        #[cfg(test)]
+        if matches!(retention, Retention::FailDuplicate) {
+            return Err(StoreIoError::Io);
+        }
+        let retained = if matches!(retention, Retention::Discard) {
+            None // Ordinary path: no new dup/stat, and same drop-before-rename.
+        } else {
+            Some(file.try_clone().map_err(|_| StoreIoError::Io)?)
+        };
         drop(file);
         fs::rename(&temporary, path).map_err(|_| StoreIoError::Io)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|_| StoreIoError::Io)?;
         File::open(&parent)
             .and_then(|directory| directory.sync_all())
-            .map_err(|_| StoreIoError::Io)
+            .map_err(|_| StoreIoError::Io)?;
+        #[cfg(test)]
+        if matches!(retention, Retention::FailStat) {
+            return Err(StoreIoError::Io);
+        }
+        retained
+            .map(|file| {
+                // Never reopen a pathname to mint provenance: this is the writer's
+                // own descriptor, kept from before the actual rename.
+                let metadata = file.metadata().map_err(|_| StoreIoError::Io)?;
+                if !metadata.is_file()
+                    || metadata.uid() != expected_uid
+                    || metadata.mode() & 0o7777 != 0o600
+                    || metadata.nlink() != 1
+                    || metadata.len() != payload.len() as u64
+                {
+                    return Err(StoreIoError::Io);
+                }
+                Ok(PrivateReplacementReceipt { file, metadata })
+            })
+            .transpose()
     })();
     if result.is_err() {
         let _ = fs::remove_file(temporary);
@@ -244,6 +328,62 @@ mod tests {
             Err(StoreIoError::TooLarge)
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retained_receipt_is_actual_writer_inode_not_same_bytes_from_another_file() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        let written = atomic_replace_private_retained(&path, b"fixed", uid).unwrap();
+        let fresh = File::open(&path).unwrap();
+        assert!(written.matches_file(&fresh));
+        let replacement = root.join("fixed-next");
+        fs::write(&replacement, b"fixed").unwrap();
+        fs::set_permissions(&replacement, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::rename(replacement, &path).unwrap();
+        assert!(!written.matches_file(&File::open(&path).unwrap()));
+        assert!(!written.matches_file(&fresh)); // Original FD now unlinked.
+        assert_eq!(fs::read(&path).unwrap(), b"fixed");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retained_receipts_follow_actual_replacement_even_with_unchanged_payload() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        let first = atomic_replace_private_retained(&path, b"fixed", uid).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        let second = atomic_replace_private_retained(&path, b"fixed", uid).unwrap();
+        assert_ne!(inode, fs::metadata(&path).unwrap().ino());
+        let fresh = File::open(&path).unwrap();
+        assert!(second.matches_file(&fresh));
+        assert!(!first.matches_file(&fresh));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn private_retention_primitive_failure_withdrawal_preserves_actual_boundary() {
+        for retention in [Retention::FailDuplicate, Retention::FailStat] {
+            let (root, uid) = root();
+            let path = root.join("profiles.json");
+            atomic_replace_private(&path, b"old", uid).unwrap();
+            let inode = fs::metadata(&path).unwrap().ino();
+            let before_rename = matches!(retention, Retention::FailDuplicate);
+            // Private fixture withdraws a primitive's success, never creates a
+            // fake File/receipt or alternative publisher. Not an OS fault claim.
+            assert!(matches!(
+                atomic_replace_private_impl(&path, b"new", uid, retention),
+                Err(StoreIoError::Io)
+            ));
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                if before_rename { b"old" } else { b"new" }
+            );
+            assert_eq!(fs::metadata(&path).unwrap().ino() == inode, before_rename);
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+            assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o600);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

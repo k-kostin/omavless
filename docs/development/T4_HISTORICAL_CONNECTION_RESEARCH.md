@@ -1,5 +1,9 @@
 # T4 actual connection-lifecycle research
 
+The next detached batch slice has separate
+[research boundaries and evidence](T4_HISTORICAL_BATCH_RESEARCH.md); it does not
+extend this checkpoint's evidence or authorize normal historical admission.
+
 Dev-only integration on current `rc/0.9.7` owner/backend. Draft #561 first
 composes the inherited #557 chain at `78ca31bd3fea126877594d301fd42014d68657b0`:
 77 files, 33,476 inserted lines and 122 deleted lines relative to RC
