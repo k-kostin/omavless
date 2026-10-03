@@ -1,5 +1,8 @@
 # Acceptance evidence index
 
+- [P4 source-gate composition](P4_SOURCE_GATE_COMPOSITION_2026-10-03.md):
+  reviewed current-RC drain and concurrent setup contract, retaining old negatives.
+
 ## Start here: accepted native integration
 
 The integration merged in #238; #240 adds the accepted subscription-row
@@ -49,6 +52,9 @@ acceptance or owner-approved deferral. Conversely, a current closure does not
 turn a historical failed probe into PASS.
 
 ## Safe local test entry points
+
+The [concurrent fresh-setup refusal diagnostic](SETUP_CONCURRENT_REFUSAL_2026-10-03.md)
+preserves an observed CLI assertion failure and the fail-closed lock-create race.
 
 `./tests/run.sh` runs reference/launcher/JS/QML contracts;
 `./tests/run-rust.sh` runs Rust formatting, workspace tests, Clippy and R0 parity.
