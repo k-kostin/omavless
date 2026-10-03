@@ -37,6 +37,13 @@ live data. Failed/ambiguous commit or post-write proof loss poisons the context
 and independently latches the coordinator into manual recovery. A later matching
 file cannot manufacture success, Replay or a silently rebased owner.
 
+Self-review superseded the first checkpoint `27f6f8a`: its post-write comparator
+allowed a store-inode change even for a no-op, and pinned output only after the
+After callback. The correction requires complete unchanged identity for no-op,
+pins verified output immediately after successful writer return, then rechecks
+after the callback. Same-byte substitution after a write or no-op is an ambiguous
+failure, never claimed restored or converted into a successful result.
+
 Checks are cooperative-lease and point-in-time identity guarantees, not atomic
 exclusion of hostile same-UID filesystem writes between checks and syscalls.
 Checksums are not authentication. The same-manager proof does not mint a new

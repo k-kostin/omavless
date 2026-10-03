@@ -464,6 +464,54 @@ fn historical_profile_before_hook_ok_late_fence_still_prevents_write() {
     }
 }
 
+#[test]
+fn historical_profile_post_write_same_bytes_replacement_poisoned_even_on_noop() {
+    for no_change in [false, true] {
+        let (f, lock) = prepared(true);
+        ordinary_edit(&f);
+        receipt(&f);
+        let mut context = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let path = f.config.join(LIVE[0]);
+        let destination = path.clone();
+        context.fault = Some(Box::new(move |checkpoint| {
+            if checkpoint == ProfileWriteCheckpoint::After {
+                let replacement = destination.with_file_name("injected-replacement");
+                fs::write(&replacement, fs::read(&destination).unwrap()).unwrap();
+                fs::set_permissions(&replacement, fs::Permissions::from_mode(0o600)).unwrap();
+                fs::rename(&replacement, &destination).unwrap();
+            }
+            Ok(())
+        }));
+        let mut owner = profile_owner(&f);
+        let mut request = favorite(&f, "post-swap", 0);
+        if no_change {
+            request["params"]["enabled"] =
+                (!request["params"]["enabled"].as_bool().unwrap()).into();
+        }
+        let outcome = owner
+            .execute_profile_research(&request, &mut context)
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::native_coordinator::NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert!(context.current.is_none());
+        assert_eq!(owner.revision(), 0);
+        assert!(
+            owner
+                .execute_profile_research(&request, &mut context)
+                .is_err()
+        );
+    }
+}
+
 struct OffHost {
     before_observe: Box<dyn FnMut()>,
     occupied: bool,

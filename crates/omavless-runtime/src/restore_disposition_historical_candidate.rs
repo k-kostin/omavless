@@ -865,11 +865,12 @@ impl<'a> HistoricalProfile<'a> {
         };
         let candidate = read()?;
         let unchanged = |after: &Snapshot| {
-            before
-                .directories
-                .iter()
-                .zip(&after.directories)
-                .all(|(a, b)| same_directory(a, b))
+            (plan.changed() || before.same(after))
+                && before
+                    .directories
+                    .iter()
+                    .zip(&after.directories)
+                    .all(|(a, b)| same_directory(a, b))
                 && before
                     .directory_handles
                     .iter()

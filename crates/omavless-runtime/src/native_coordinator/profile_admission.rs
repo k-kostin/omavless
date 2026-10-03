@@ -177,10 +177,11 @@ impl<'a, 'b> ProfileAdmission<'a, 'b> {
         #[cfg(test)]
         if let Self::Historical(context) = self
             && (result.is_err()
+                || context.committed(plan).is_err()
                 || context
                     .write_checkpoint(ProfileWriteCheckpoint::After)
                     .is_err()
-                || context.committed(plan).is_err())
+                || Self::check(context, transaction).is_err())
         {
             context.poison();
             // The ordinary existence fence currently masks blocked() already;
