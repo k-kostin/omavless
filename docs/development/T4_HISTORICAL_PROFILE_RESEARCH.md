@@ -1,8 +1,8 @@
 # T4 real favorite-mutation historical research
 
 Dev-only successor of #551 at `ff066852d8825f75e035809ffcc04fe4333ee3d5`.
-This explores the already-approved same-UID/exact-ownership-generation historical
-policy in private synthetic fixtures. Product policy adoption remains unapproved.
+This is approved Dev-only study of the proposed same-UID/exact-ownership-generation
+historical policy in private synthetic fixtures. Product adoption remains unapproved.
 No ordinary startup, owner registration, IPC dispatch or general mutation is enabled.
 
 ## Actual caller and authority
@@ -78,3 +78,31 @@ private restore UX/API and installed package/host acceptance remain separately
 gated. No additional journal or model is introduced to substitute for those
 real caller integrations. C1 and both disposition records remain fences to all
 ordinary entrypoints and are never deleted by this slice.
+
+## Corrected exact-head evidence
+
+Runtime code: `ba9b469461aaff8c4c57295006326e8978784f88`, stacked on
+`ff066852d8825f75e035809ffcc04fe4333ee3d5`. Earlier `27f6f8a` is superseded
+for final acceptance; its passing suite does not establish the corrected gate.
+
+- Focused seven aggregate research tests: PASS, 18.94 seconds.
+- Frozen full runtime library: **993 passed, 0 failed, 30 ignored**, 418.91 seconds.
+- Strict runtime all-target clippy, formatting and diff checks: PASS.
+- Source/frontend suite: 316 tests, two skipped, plus JS/QML/navigation gates: PASS.
+- Isolated Omarchy Dev VM: all 13 private synthetic tests PASS using the same
+  immutable corrected binary. New research seven: 123.60 seconds; retained
+  Off-startup five: 50.93 seconds; Ordinary separate-path pending regression:
+  0.11 seconds. Binary SHA256:
+  `23ad50405b133609aca08ed94558eca8ee5cc293877272fc9f93bed66e7fac70`.
+
+Installed `omavless-runtime.service` MainPID remained 86349. Fixed desired,
+profile-store and routing-template fingerprints compared equal before/after
+in one private acceptance invocation; no private bytes/fingerprints were
+published. The uploaded fixture binary and its empty private directories were
+removed, and VM ownership was returned. No installed System-proof constructor,
+normal dispatch, service/package action or network transition was exercised.
+
+Both architecture package jobs passed on corrected code. Final documentation-head
+workspace/package CI status is recorded on Draft #557; these local and VM results
+do not substitute for that exact-head CI. Product historical-policy adoption,
+normal mutation availability and T4 completion are not claimed.
