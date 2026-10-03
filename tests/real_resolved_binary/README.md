@@ -124,9 +124,11 @@ No blind retry or automatic takeover/removal of old fixture directories.
 ## Current state
 
 Inventory, launcher and observer source are implemented. Pure/source checks and
-helper compilation do not execute namespaces, resolved, broker or core. Actual
-daemon execution remains pending. Root must review the complete new code and
-frozen containment artifacts before granting a separate execution lease.
+helper compilation do not execute namespaces, resolved, broker or core. The
+separately reviewed invocation below stopped during loaded-object admission;
+actual resolver compatibility remains unproven. Every later invocation still
+requires review of its complete frozen code and containment artifacts and a
+separate execution lease.
 
 ## Sealed source and refused execution preflight
 
@@ -147,3 +149,43 @@ invocation occurred. The lease was released without changing canonical state.
 This is a preflight refusal and **zero measured cases**, not actual resolved
 acceptance. A changed PID cannot be adopted by editing the old receipt: any
 legitimate new baseline requires separate review and a new immutable guard.
+
+## Current-epoch attempt: loaded-object refusal, zero measured cases
+
+Separate read-only inventory established PID938/starttime1901 on the boot recorded
+in `epoch938-inventory.json`. The loaded executable was the exact installed
+root-owned `/usr/bin/omavless` device/inode/content; `omavless 0.9.7rc1-1` package
+verification reported 17 files and zero alterations. Its package-owned unit had
+no drop-ins. All 16 pinned loader objects and existing subordinate grants matched.
+`vm-guard-epoch938.sh` retains the old guard unchanged and separately pins this
+boot, process starttime and loaded/installed executable identity before/after.
+
+Exact execution source `c51af8b4cc76434af261922050ba9000080dc0b8` passed 399
+source tests (two existing skips), JS/QML contracts and 20 focused pure guards.
+The previously frozen helper and immutable broker/core bundle were unchanged.
+One approved whole invocation of wrapper SHA256
+`d19f01f6633b547e121dd3ac4357aa8d3a8c648ddb8b460043d6e098e269c4e8`
+returned **NONPASS, 0/4 measured**. The first case refused
+`unapproved_loaded_elf` during private bus/resolver startup, before broker/core
+startup and before any measured stage. The remaining three cases were not run.
+The unknown public mapped pathname was not retained, so no particular library
+or loader mechanism can be attributed from this receipt.
+
+The strict external guard preserved the canonical epoch, all eight original
+categories and every IPv4/IPv6 non-timer address/route/rule field; only decreasing
+numeric address lifetimes were allowed. Its final directory loop encountered an
+unrun case's absent directory, so separate read-only checks established the used
+root was empty and fixed artifact/launcher/private-bus/subordinate-resolver
+processes were absent. The canonical MainPID remained938. Namespace containment
+does not establish DNS restoration or resolver compatibility.
+
+Complete private staging was archived and retained on guest and host with matching
+archive SHA256 `ecb88dbf1663b933c749ac83aefa8256e6f701ca4d056ffbc736bbd4861b173b`.
+No cleanup, retry, allowlist relaxation, canonical state mutation or installed
+acceptance occurred; the exclusive lease was returned.
+
+A proposed next slice is a separately reviewed inventory-only startup fixture
+which launches only the private bus/resolver and records bounded public mapped
+ELF paths/device/inode/hash identities. It must invoke neither broker/core nor DNS
+mutations. That fixture and its execution are not implemented or authorized by
+the failed compatibility attempt itself.
