@@ -10,7 +10,13 @@ The official [AmneziaWG Go engine](https://github.com/amnezia-vpn/amneziawg-go)
 is pinned to tag `v3.1.20260828`, immutable commit
 `b5928efb6ca19f0153958460c3d141f04abc5c2e`, module checksum
 `h1:D8d8gGvwXcTxUIsE4z6F6vjy4/VZddu95vMNtOygh1c=`. Its source is unmodified;
-the local wrapper uses its exported TUN, device and bind APIs. The following is
+the local wrapper uses its exported TUN, device and bind APIs. The opt-in
+`run_cookie_overlay.py` adds only a build-tagged test file through Go's virtual
+file overlay into a clean checkout of this exact source, never the module cache.
+It exercises package-private worker/atomic hooks without unsafe/reflection or
+changing an upstream implementation file. The overlay is discarded and source
+identity rechecked before any normal peer build; no test code enters that binary.
+The following is
 the complete upstream MIT notice, including its retained attribution:
 
 Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
