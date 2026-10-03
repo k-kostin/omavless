@@ -68,6 +68,11 @@ and never automatically repeats Arm. Orphan policy is untrusted and never
 adopted/deleted by a new creator. SIGKILL tests use actual surviving kernel
 state, not a reconstruction from a synthetic checkpoint number.
 
+The later [send-return process-death fixture](K1_SEND_RETURN_PROCESS_DEATH.md)
+adds a separate test-only cut after full send return but before first receive.
+Its exact new-head gate is distinct from the post-readback evidence below;
+neither a checkpoint nor successful send is promoted into commit/ownership proof.
+
 Run only after an explicit exclusive development-VM lease:
 
 ```sh

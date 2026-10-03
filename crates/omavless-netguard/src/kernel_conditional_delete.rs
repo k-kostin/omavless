@@ -74,6 +74,20 @@ impl InventoryDelete<'_> {
         end_ack_loss: &mut end_ack_loss::OneShotEndAckLoss,
         prefix_ack_loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
     ) -> DeleteOutcome {
+        self.consume_with_send_cut(
+            receive_fault,
+            end_ack_loss,
+            prefix_ack_loss,
+            &mut send_return_cut::OneShotSendCut::default(),
+        )
+    }
+    pub(super) fn consume_with_send_cut(
+        self,
+        receive_fault: &mut receive_truncation::OneShotTruncation,
+        end_ack_loss: &mut end_ack_loss::OneShotEndAckLoss,
+        prefix_ack_loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
+        send_cut: &mut send_return_cut::OneShotSendCut,
+    ) -> DeleteOutcome {
         let deadline = self.deadline;
         if self.session.check(deadline).is_err() {
             self.session.poisoned = true;
@@ -109,6 +123,7 @@ impl InventoryDelete<'_> {
                 .map_err(|_| REFUSE)?
                     == batch.len(),
             )?;
+            send_cut.after_send(self.session.socket.as_raw_fd(), &replies)?;
             while !replies.complete() {
                 self.session.check(deadline)?;
                 let mut bytes = [0; LIMIT];

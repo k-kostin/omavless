@@ -262,7 +262,7 @@ fn every_begin_or_operation_loss_requires_actual_remaining_ack_delivery_then_sea
     }
 }
 
-struct Fixture(PathBuf);
+struct Fixture(PathBuf, bool);
 impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!("k1lc-{}", std::process::id()));
@@ -274,7 +274,7 @@ impl Fixture {
             .mode(0o700)
             .create(path.join("omavless-netguard"))
             .unwrap();
-        Self(path)
+        Self(path, false)
     }
     fn state(&self, enrolled: bool) -> LockedState {
         let metadata = std::fs::metadata(&self.0).unwrap();
@@ -304,6 +304,9 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if self.1 && std::thread::panicking() {
+            return; // New crash gate retains Pending evidence until containment/review.
+        }
         std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
@@ -386,6 +389,36 @@ fn real_receive_truncation_in_disposable_vm() {
     println!("K1_REAL_RECEIVE_TRUNCATION_VM_PASS");
 }
 #[test]
+#[ignore = "VM-only owned writer SIGKILL after send return before first ACK receive"]
+fn real_send_return_create_death_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_SEND_RETURN_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&["send-create"]);
+    println!("K1_SEND_RETURN_CREATE_VM_PASS scenarios=1");
+}
+#[test]
+#[ignore = "VM-only owned replacement writer SIGKILL after send before receive"]
+fn real_send_return_replace_death_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_SEND_RETURN_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&["send-replace"]);
+    println!("K1_SEND_RETURN_REPLACE_VM_PASS scenarios=1");
+}
+#[test]
+#[ignore = "VM-only owned deletion writer SIGKILL after send before receive"]
+fn real_send_return_delete_death_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_SEND_RETURN_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&["send-delete"]);
+    println!("K1_SEND_RETURN_DELETE_VM_PASS scenarios=1");
+}
+#[test]
 #[ignore = "VM-only actual END ACK observer loss after unchanged BEGIN/operation delivery"]
 fn real_end_ack_observer_loss_in_disposable_vm() {
     assert_eq!(
@@ -465,10 +498,137 @@ fn prefix_loss_receipts_require_exact_case_once_and_every_count() {
         "end-create"
     ));
 }
+fn fixed_group_members() -> Vec<i32> {
+    let group = nix::unistd::getpgrp().as_raw();
+    let mut members = Vec::new();
+    for entry in std::fs::read_dir("/proc").unwrap() {
+        let entry = entry.unwrap();
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let text = match std::fs::read_to_string(entry.path().join("stat")) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => panic!("process-group inventory unavailable"),
+        };
+        let fields = text.rsplit_once(") ").unwrap().1;
+        let observed: i32 = fields.split_whitespace().nth(2).unwrap().parse().unwrap();
+        if observed == group {
+            members.push(pid);
+        }
+    }
+    members.sort_unstable();
+    members
+}
+fn assert_fixed_group(expected: &[i32]) {
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    assert_eq!(
+        fixed_group_members(),
+        expected,
+        "unsettled fixture descendants"
+    );
+}
+fn drain_pipe(pipe: &mut impl Read, bytes: &mut Vec<u8>) -> bool {
+    loop {
+        let mut block = [0_u8; 4096];
+        match pipe.read(&mut block) {
+            Ok(0) => return true,
+            Ok(length) => {
+                bytes.extend_from_slice(&block[..length]);
+                assert!(bytes.len() <= 32768, "fixture output limit");
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return false,
+            Err(_) => panic!("fixture output unavailable"),
+        }
+    }
+}
+fn isolated_send_case(parent: &File, case: &str) {
+    assert!(send_return_cut::SendKind::from_case(case).is_some());
+    // External fixed supervisor owns this group. Never create a nested PGID
+    // which could evade its cancellation. No arbitrary command is accepted.
+    let leader = std::process::id() as i32;
+    assert_eq!(nix::unistd::getpgrp().as_raw(), leader);
+    assert_fixed_group(&[leader]);
+    let mut child = Command::new("/usr/bin/unshare")
+        .args([
+            "--user",
+            "--map-user=1001",
+            "--map-group=1001",
+            "--keep-caps",
+            "--net",
+            "--",
+        ])
+        .arg(std::env::current_exe().unwrap())
+        .args(["--ignored", "--exact", CHILD, "--nocapture"])
+        .env_clear()
+        .env("OMAVLESS_K1_LIFECYCLE_CHILD", case)
+        .env("TMPDIR", std::env::temp_dir())
+        .stdin(Stdio::from(parent.try_clone().unwrap()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // std::process::Child does not signal/reap on Drop. Any failure below
+    // deliberately leaves its anchor/evidence to the outer group supervisor.
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    use nix::fcntl::{FcntlArg, OFlag, fcntl};
+    fcntl(&stdout, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
+    fcntl(&stderr, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
+    let (mut output, mut error) = (Vec::new(), Vec::new());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        assert!(Instant::now() < deadline, "send-return holder deadline");
+        let stdout_eof = drain_pipe(&mut stdout, &mut output);
+        let stderr_eof = drain_pipe(&mut stderr, &mut error);
+        use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid};
+        let status = waitid(
+            Id::Pid(nix::unistd::Pid::from_raw(child.id() as i32)),
+            WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+        )
+        .expect("holder anchor unavailable; outer supervisor must contain");
+        if status != WaitStatus::StillAlive && stdout_eof && stderr_eof {
+            assert_fixed_group(&[leader, child.id() as i32]);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(child.wait().unwrap().success(), "send-return holder failed");
+    assert_fixed_group(&[leader]);
+    assert!(valid_send_return_receipt(&output, case));
+    let text = std::str::from_utf8(&output).unwrap();
+    assert_eq!(
+        text.lines()
+            .filter(|line| *line == "K1_CREATOR_LIFECYCLE_CHILD_PASS")
+            .count(),
+        1
+    );
+    println!(
+        "{}",
+        text.lines()
+            .find(|line| line.starts_with("K1_ACTUAL_SEND_RETURN_DEATH_"))
+            .unwrap()
+    );
+}
+
 fn isolated_cases(cases: &[&str]) {
     let parent = namespace_file().unwrap();
     let identity = namespace_identity(&parent).unwrap();
     for case in cases {
+        if send_return_cut::SendKind::from_case(case).is_some() {
+            isolated_send_case(&parent, case);
+            assert_eq!(namespace_identity(&parent).unwrap(), identity);
+            assert_eq!(
+                namespace_identity(&namespace_file().unwrap()).unwrap(),
+                identity
+            );
+            continue;
+        }
         let mut guard = ChildGuard(
             Command::new("/usr/bin/unshare")
                 .args([
@@ -597,6 +757,9 @@ fn lifecycle_child() {
             | "operation-create"
             | "operation-replace"
             | "operation-delete"
+            | "send-create"
+            | "send-replace"
+            | "send-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let identity = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -611,11 +774,17 @@ fn lifecycle_child() {
             .collect::<Vec<_>>(),
         ["lo"]
     );
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    fixture.1 = send_return_cut::SendKind::from_case(&case).is_some();
     let mut creator = FixtureCreator::open(fixture.0.clone()).unwrap();
     // Canonical is used ONLY to enter the existing synthetic LockedState seam.
     // This synthetic local epoch cannot leave cfg(test) or authorize production.
     let namespace = NamespaceObservation::Canonical(creator.epoch);
+    if case.starts_with("send-") {
+        send_return_case(&fixture, &parent, &case, namespace);
+        println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
+        return;
+    }
     if case.starts_with("crash-") {
         crash_case(&fixture, &parent, &case, namespace);
         println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
@@ -1106,13 +1275,277 @@ fn crash_case(fixture: &Fixture, parent: &File, case: &str, namespace: Namespace
     assert_eq!(creator.effects, 0);
     assert_eq!(fixture.records(), records);
 }
+
+/// Never reap merely to poll a checkpoint. Unknown wait ownership cannot
+/// authorize a signal. The outer fixed group supervisor contains failure paths.
+struct UnreapedWriter {
+    child: Child,
+    reaped: bool,
+    anchor_known: bool,
+}
+impl UnreapedWriter {
+    fn status(&mut self) -> nix::Result<nix::sys::wait::WaitStatus> {
+        use nix::sys::wait::{Id, WaitPidFlag, waitid};
+        if !self.anchor_known {
+            return Err(nix::errno::Errno::ECHILD);
+        }
+        let result = waitid(
+            Id::Pid(nix::unistd::Pid::from_raw(self.child.id() as i32)),
+            WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT,
+        );
+        if result.is_err() {
+            self.anchor_known = false;
+        }
+        result
+    }
+    fn kill_and_reap(&mut self) {
+        assert_eq!(
+            self.status().unwrap(),
+            nix::sys::wait::WaitStatus::StillAlive
+        );
+        if self.child.kill().is_err() {
+            self.anchor_known = false;
+            panic!("writer signal ownership uncertain");
+        }
+        use std::os::unix::process::ExitStatusExt;
+        let status = match self.child.wait() {
+            Ok(status) => status,
+            Err(_) => {
+                self.anchor_known = false;
+                panic!("writer reap uncertain");
+            }
+        };
+        self.reaped = true;
+        self.anchor_known = false;
+        assert_eq!(status.signal(), Some(9));
+    }
+}
+impl Drop for UnreapedWriter {
+    fn drop(&mut self) {
+        if self.reaped || !self.anchor_known {
+            return;
+        }
+        if let Ok(status) = self.status() {
+            if status == nix::sys::wait::WaitStatus::StillAlive && self.child.kill().is_err() {
+                return;
+            }
+            let _ = self.child.wait();
+        }
+        // On unknown ownership, no kill/reap. Failure of the outer owned-group
+        // cleanup remains NONPASS, never a successful checkpoint/recovery.
+    }
+}
+#[test]
+#[ignore = "internal fixed ordinary child, no namespace or network operation"]
+fn send_return_anchor_worker() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_ANCHOR_WORKER").as_deref(),
+        Ok("1")
+    );
+    std::thread::sleep(Duration::from_secs(10));
+}
+fn anchor_worker() -> UnreapedWriter {
+    UnreapedWriter {
+        child: Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "kernel_observer::creator_lifecycle::tests::send_return_anchor_worker",
+            ])
+            .env_clear()
+            .env("OMAVLESS_K1_ANCHOR_WORKER", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+        reaped: false,
+        anchor_known: true,
+    }
+}
+#[test]
+fn send_return_writer_keeps_actual_child_unreaped_until_exact_kill() {
+    let mut writer = anchor_worker();
+    assert_eq!(
+        writer.status().unwrap(),
+        nix::sys::wait::WaitStatus::StillAlive
+    );
+    assert_eq!(
+        writer.status().unwrap(),
+        nix::sys::wait::WaitStatus::StillAlive
+    );
+    writer.kill_and_reap();
+    assert!(writer.reaped);
+    assert_eq!(writer.status(), Err(nix::errno::Errno::ECHILD));
+}
+#[test]
+fn send_return_writer_drop_reaps_only_its_still_owned_child() {
+    let writer = anchor_worker();
+    let pid = nix::unistd::Pid::from_raw(writer.child.id() as i32);
+    drop(writer);
+    use nix::sys::wait::{Id, WaitPidFlag, waitid};
+    assert_eq!(
+        waitid(
+            Id::Pid(pid),
+            WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT
+        ),
+        Err(nix::errno::Errno::ECHILD)
+    );
+}
+#[test]
+fn send_return_writer_latches_lost_anchor_and_preserves_failed_fixture() {
+    let mut writer = anchor_worker();
+    writer.child.kill().unwrap();
+    writer.child.wait().unwrap(); // Test simulates a reaper outside the guard.
+    assert_eq!(writer.status(), Err(nix::errno::Errno::ECHILD));
+    assert!(!writer.anchor_known);
+    assert_eq!(writer.status(), Err(nix::errno::Errno::ECHILD));
+    drop(writer); // Latched uncertainty must not query, signal or reap again.
+    let mut fixture = Fixture::new();
+    fixture.1 = true;
+    let retained = fixture.0.clone();
+    let failure = std::panic::catch_unwind(move || {
+        let _retained_during_unwind = fixture;
+        panic!("synthetic holder failure");
+    });
+    assert!(failure.is_err() && retained.is_dir());
+    std::fs::remove_dir_all(retained).unwrap(); // Only this owned synthetic fixture.
+}
+
+fn send_return_receipt(case: &str, observed: &str) -> Option<String> {
+    send_return_cut::SendKind::from_case(case)?;
+    if !matches!(observed, "absent" | "present_untrusted") {
+        return None;
+    }
+    Some(format!(
+        "K1_ACTUAL_SEND_RETURN_DEATH_{case}_PASS sends=1 acks=0 readbacks=0 killed=1 observed={observed} reopened_effects=0 retries=0"
+    ))
+}
+fn valid_send_return_receipt(output: &[u8], case: &str) -> bool {
+    let Ok(text) = std::str::from_utf8(output) else {
+        return false;
+    };
+    let receipts: Vec<_> = text
+        .lines()
+        .filter(|line| line.starts_with("K1_ACTUAL_SEND_RETURN_DEATH_"))
+        .collect();
+    receipts.len() == 1
+        && ["absent", "present_untrusted"]
+            .into_iter()
+            .any(|observed| send_return_receipt(case, observed).as_deref() == Some(receipts[0]))
+}
+#[test]
+fn send_return_receipts_require_exact_untrusted_outcome_and_counts() {
+    for case in ["send-create", "send-replace", "send-delete"] {
+        for observed in ["absent", "present_untrusted"] {
+            let expected = send_return_receipt(case, observed).unwrap();
+            assert!(valid_send_return_receipt(expected.as_bytes(), case));
+            for bad in [
+                format!("{expected}\n{expected}"),
+                format!("{expected} extra"),
+                format!("prefix {expected}"),
+                expected.replace("sends=1", "sends=2"),
+                expected.replace("acks=0", "acks=1"),
+                expected.replace("readbacks=0", "readbacks=1"),
+                expected.replace("killed=1", "killed=0"),
+                expected.replace("reopened_effects=0", "reopened_effects=1"),
+                expected.replace("retries=0", "retries=1"),
+                expected.replace(observed, "owned"),
+            ] {
+                assert!(!valid_send_return_receipt(bad.as_bytes(), case));
+            }
+            assert!(!valid_send_return_receipt(
+                expected.as_bytes(),
+                "crash-create"
+            ));
+        }
+    }
+    assert!(!valid_send_return_receipt(&[0xff], "send-create"));
+}
+fn send_return_case(fixture: &Fixture, parent: &File, case: &str, namespace: NamespaceObservation) {
+    let kind = send_return_cut::SendKind::from_case(case).unwrap();
+    let mut writer = UnreapedWriter {
+        child: Command::new(std::env::current_exe().unwrap())
+            .args(["--ignored", "--exact", WRITER])
+            .env_clear()
+            .env("OMAVLESS_K1_CRASH_WRITE", case)
+            .env("OMAVLESS_K1_CRASH_PATH", &fixture.0)
+            .env("OMAVLESS_K1_CRASH_HOLDER", std::process::id().to_string())
+            .env("TMPDIR", std::env::temp_dir())
+            .stdin(Stdio::from(parent.try_clone().unwrap()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+        reaped: false,
+        anchor_known: true,
+    };
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let checkpoint = fixture.0.join("send-return-cut");
+    while !checkpoint.exists() {
+        assert_eq!(
+            writer.status().unwrap(),
+            nix::sys::wait::WaitStatus::StillAlive
+        );
+        assert!(Instant::now() < deadline, "send-return checkpoint deadline");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(std::fs::read(&checkpoint).unwrap(), kind.checkpoint());
+    let metadata = std::fs::symlink_metadata(&checkpoint).unwrap();
+    assert!(metadata.is_file() && metadata.uid() == 1001 && metadata.mode() & 0o7777 == 0o600);
+    let records = fixture.records();
+    let pending: serde_json::Value = serde_json::from_slice(records.1.as_ref().unwrap()).unwrap();
+    assert_eq!(pending["phase"], kind.phase());
+    assert!(matches!(
+        RootStateStore::open_test_parent(File::open(&fixture.0).unwrap(), (1001, 1001), 1001),
+        Err(crate::root_state::StateError::Busy)
+    ));
+    writer.kill_and_reap();
+    assert_eq!(fixture.records(), records);
+    // A successful send return is not commit proof. Classify the actual kernel
+    // result without converting parser failure into absence or orphan ownership.
+    let mut fresh = FixtureCreator::open(fixture.0.clone()).unwrap();
+    let (inventory, _, table) = fresh.session.inspect_policy_inventory_once().unwrap();
+    let observed = match inventory {
+        LocalPolicyInventory::TableAbsent => {
+            assert!(table.is_none());
+            "absent"
+        }
+        LocalPolicyInventory::OtherUntrusted => {
+            let table = table.unwrap();
+            assert_eq!(table.flags, 4); // persist remains; dead socket OWNER is released
+            assert_eq!(table.owner, None);
+            assert_eq!(
+                fresh.session.inspect_rules().unwrap(),
+                LocalRuleInventory::ExactRulesUntrusted(Policy::FullVpn)
+            );
+            "present_untrusted"
+        }
+        _ => panic!("unexpected ownership-shaped post-death inventory"),
+    };
+    assert!(fresh.created.is_none());
+    let mut state = fixture.state(false);
+    for request in [Request::Status {}, ARM, DISARM] {
+        assert_eq!(state.request(request, namespace, &mut fresh), Err(REFUSED));
+    }
+    assert_eq!(fresh.effects, 0);
+    assert_eq!(fixture.records(), records);
+    // No writer/descendant may survive into removal of this private fixture.
+    assert_fixed_group(&[nix::unistd::getpgrp().as_raw(), std::process::id() as i32]);
+    println!("{}", send_return_receipt(case, observed).unwrap());
+}
 #[test]
 #[ignore = "internal writer; parent namespace and arbitrary path invocation refuse"]
 fn lifecycle_crash_writer() {
     let case = std::env::var("OMAVLESS_K1_CRASH_WRITE").unwrap();
     assert!(matches!(
         case.as_str(),
-        "crash-create" | "crash-replace" | "crash-delete"
+        "crash-create"
+            | "crash-replace"
+            | "crash-delete"
+            | "send-create"
+            | "send-replace"
+            | "send-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     assert_ne!(
@@ -1131,15 +1564,25 @@ fn lifecycle_crash_writer() {
     let metadata = std::fs::symlink_metadata(&path).unwrap();
     assert!(metadata.is_dir() && metadata.uid() == 1001 && metadata.mode() & 0o7777 == 0o700);
     // The holder owns cleanup. A failed child must not remove borrowed state.
-    let fixture = std::mem::ManuallyDrop::new(Fixture(path));
+    let fixture = std::mem::ManuallyDrop::new(Fixture(path, true));
     let mut creator = FixtureCreator::open(fixture.0.clone()).unwrap();
     let namespace = NamespaceObservation::Canonical(creator.epoch);
     let mut state = fixture.state(false);
-    if case != "crash-create" {
+    if !matches!(case.as_str(), "crash-create" | "send-create") {
         armed(state.request(ARM, namespace, &mut creator).unwrap());
     }
-    creator.cut_after_effect = true;
-    let request = if case == "crash-delete" { DISARM } else { ARM };
+    if let Some(kind) = send_return_cut::SendKind::from_case(&case) {
+        creator
+            .send_cut
+            .arm(creator.session.socket.as_raw_fd(), kind, fixture.0.clone());
+    } else {
+        creator.cut_after_effect = true;
+    }
+    let request = if matches!(case.as_str(), "crash-delete" | "send-delete") {
+        DISARM
+    } else {
+        ARM
+    };
     state.request(request, namespace, &mut creator).unwrap();
     panic!("writer returned from crash checkpoint");
 }
