@@ -68,6 +68,36 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
             self.assertIn(name, text)
         self.assertIn("late boundary reached", text)
 
+    def test_abort_writer_retains_actual_created_descriptor(self):
+        text = (SRC / "restore_executor_candidate.rs").read_text()
+        self.assertIn("write_record_owned(paths, uid, name, bytes).map(drop)", text)
+        self.assertIn("struct CreatedAbort(CreatedRecord)", text)
+        writer = text.split("fn write_record_owned(", 1)[1].split("struct Bound", 1)[0]
+        for token in ("OFlag::O_EXCL", "directory_before: before", "file,", "member,",
+                      "created.recheck(paths, uid)?", "Ok(created)"):
+            self.assertIn(token, writer)
+        self.assertNotRegex(text, r"impl\s+Clone\s+for\s+Created(?:Abort|Record)")
+
+    def test_abort_owned_lower_has_no_normal_owner_connection(self):
+        for name in ("production_owner.rs", "native_dispatch.rs", "lib.rs",
+                     "native_coordinator/restore_first_execution.rs"):
+            text = (SRC / name).read_text()
+            self.assertNotIn("abort_staged_pair_owned", text)
+        text = (SRC / "restore_executor_candidate.rs").read_text()
+        body = text.split("fn abort_owned_with_hook<", 1)[1].split("impl CreatedRecord", 1)[0]
+        self.assertIn("chain.active().phase() != DecisionPhase::Intent", body)
+        self.assertIn("write_abort_owned(paths, uid, &terminal)?", body)
+        self.assertIn("created.recheck(paths, uid).is_ok()", body)
+        self.assertIn("Ok(created)", body)
+
+    def test_abort_created_identity_counterexamples_retained(self):
+        text = (SRC / "restore_executor_candidate.rs").read_text()
+        for name in ("created_abort_retains_exclusive_inode_and_refuses_replay_or_other_phase",
+                     "created_abort_original_descriptor_refuses_same_byte_substitution",
+                     "explicit_abort_owned_restores_mixed_pair_and_refuses_both_terminals",
+                     "explicit_abort_owned_never_adopts_terminal_replaced_in_post_write_gate"):
+            self.assertIn(name, text)
+
 
 if __name__ == "__main__":
     unittest.main()
