@@ -13,7 +13,10 @@ normal activation, release, marketplace request or main-update proposal.
 - K1 #560/#563: code `f9c919b302dc19dc9dab0fbad71d287e749562e3`,
   evidence-only head `a6137e96d5ac5369af75491a7ef702e992b1c42d`.
   The separate netguard crate and its actual namespace fixtures are retained.
-- T3 #562: code `4ff4c66d37bd7e80f5303faa6a768a8fea4b7733`.
+- T3 #562: code `9a5e132d18bf33d5dae69ac12c18969710e9b309`.
+  This includes the later test-fixture ordering correction: construct/drop a
+  stopped predecessor adapter before spawning the successor core/socket, then
+  retain that adapter. No production cleanup, time budget or grant changes.
   The intermediate `129250e86676b28c763a271e268473a7993e73bf` is not the
   accepted integrated input.
 
