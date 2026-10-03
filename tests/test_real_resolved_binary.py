@@ -169,6 +169,24 @@ class Guards(unittest.TestCase):
         self.assertIn("'route6', 'rule6'", source)
         self.assertEqual(source.count("check_category "), 8)
 
+    def test_new_epoch_guard_refuses_boot_pid_reuse_and_replaced_executable(self):
+        source = (ROOT / "vm-guard-epoch938.sh").read_text()
+        fragment = source[source.index("from pathlib import Path"):source.index("\nPY\n}")]
+        boot = "9cdd6950-1655-495b-a52e-0f8f14200d19"
+        for actual_boot, ticks, inode, passed in ((boot, 1901, 292400, True),
+                ("other-boot", 1901, 292400, False), (boot, 1902, 292400, False),
+                (boot, 1901, 292401, False)):
+            fields = ["S"] + ["0"] * 18 + [str(ticks)]
+            with patch.object(probe.Path, "read_text", side_effect=[actual_boot,
+                    "938 (synthetic) " + " ".join(fields)]), \
+                 patch.object(probe.os, "stat", return_value=SimpleNamespace(st_dev=31, st_ino=inode)), \
+                 patch("builtins.print"):
+                if passed:
+                    exec(compile(fragment, "fixed-epoch-guard", "exec"), {})
+                else:
+                    with self.assertRaises(AssertionError):
+                        exec(compile(fragment, "fixed-epoch-guard", "exec"), {})
+
     def test_exact_three_maps_and_no_subordinate_alias(self):
         valid = "0 1000 1\n974 100001 1\n1000 100000 1\n"
         probe.validate_maps(valid, valid, "allow\n")
