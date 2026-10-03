@@ -87,6 +87,12 @@ impl LockedState {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn bind_fixture_enrollment(&mut self, binding: EnrollmentBinding) {
+        assert!(self.enrollment.is_none());
+        self.enrollment = Some(binding);
+    }
+
     #[allow(dead_code)] // The inactive session owner has no product caller yet.
     pub(crate) fn enrollment_current(&self) -> bool {
         self.enrollment
