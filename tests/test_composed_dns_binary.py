@@ -17,6 +17,12 @@ SPEC.loader.exec_module(probe)
 
 
 class Guards(unittest.TestCase):
+    def test_fixed_enrollment_matches_exact_release_package_policy(self):
+        self.assertEqual(probe.decode(probe.RELEASE_ENROLLMENT),
+                         {"schema": 1, "uid": 1000, "policy": "meta-ipv4-release-v1"})
+        self.assertNotEqual(probe.decode(probe.RELEASE_ENROLLMENT)["policy"],
+                            "meta-ipv4-v1")
+
     def test_maps_require_two_actual_fixed_ids_and_allow(self):
         valid = "0 1000 1\n1000 100000 1\n"
         probe.validate_maps(valid, valid, "allow\n")

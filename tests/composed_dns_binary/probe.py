@@ -29,6 +29,7 @@ BUILDER = "8c038e76c8407eebd7afdd6e0389fc2bbc28cab9"
 MANIFEST = "39fa6ae1e39b47e511e7a794cadff3322df9b445f04902dcc0c0d1bcd013b532"
 CORE = "3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544"
 BROKER = "6126e5b159eb7996cbf8ac6bdb212be3d7b4b12b1809e09e74c19dbc1394001e"
+RELEASE_ENROLLMENT = '{"schema":1,"uid":1000,"policy":"meta-ipv4-release-v1"}\n'
 CASES = ("success", "denial")
 NS = ("user", "net", "mnt", "pid")
 LIMIT = 128 * 1024 * 1024
@@ -215,8 +216,7 @@ def isolate(original, root, inputs):
     Path("/run/omavless-dns").chmod(0o711)
     Path("/run/omavless-dns/private").chmod(0o700)
     Path("/tmp").chmod(0o700)
-    Path("/etc/omavless-dns/release-enrollment.json").write_text(
-        '{"schema":1,"uid":1000,"policy":"meta-ipv4-v1"}\n')
+    Path("/etc/omavless-dns/release-enrollment.json").write_text(RELEASE_ENROLLMENT)
     Path("/etc/omavless-dns/release-enrollment.json").chmod(0o600)
     Path("/etc/passwd").write_text("root:x:0:0:fixture:/tmp:/usr/bin/false\ncore:x:1000:1000:fixture:/home/core:/usr/bin/false\n")
     Path("/etc/group").write_text("root:x:0:\ncore:x:1000:\n")
