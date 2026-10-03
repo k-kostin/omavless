@@ -26,7 +26,8 @@ fn admitted_listener(f: &Fixture) -> (AdmittedListener, PathBuf) {
     let parent = f.0.join("run");
     fs::DirBuilder::new().mode(0o700).create(&parent).unwrap();
     let directory = parent.join("omavless-netguard");
-    fs::DirBuilder::new().mode(0o750).create(&directory).unwrap();
+    fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
     let path = directory.join("control.sock");
     let listener = UnixListener::bind(&path).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
@@ -191,7 +192,8 @@ fn replaced_directory_during_private_publication_is_never_admitted() {
     let result = publish_test_parent(
         File::open(&parent).unwrap(), &path, owner, owner.1, || {
             fs::rename(path.parent().unwrap(), &original).unwrap();
-            fs::DirBuilder::new().mode(0o750).create(path.parent().unwrap()).unwrap();
+            fs::DirBuilder::new().mode(0o700).create(path.parent().unwrap()).unwrap();
+            fs::set_permissions(path.parent().unwrap(), fs::Permissions::from_mode(0o750)).unwrap();
             replacement = Some(UnixListener::bind(&path).unwrap());
             fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
             true
@@ -559,7 +561,8 @@ fn directory_replacement_or_symlink_seals_admitted_listener() {
     symlink(&old, directory).unwrap();
     assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
     fs::remove_file(directory).unwrap();
-    fs::DirBuilder::new().mode(0o750).create(directory).unwrap();
+    fs::DirBuilder::new().mode(0o700).create(directory).unwrap();
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o750)).unwrap();
     let replacement = UnixListener::bind(&path).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
     assert_eq!(admitted.validate(), Err(ListenerError::UnsafeOrUnavailable));
