@@ -11,7 +11,7 @@ class SystemHistoricalOffBoundary(unittest.TestCase):
     def test_system_entry_is_private_fixed_path_and_returns_only_review(self):
         text = (SRC / "system_historical_off_candidate.rs").read_text()
         self.assertIn("fn current() -> Result<Review, ProductionOwnerError>", text)
-        self.assertNotRegex(text, r"pub(?:\([^)]*\))?\s+fn current")
+        self.assertNotRegex(text, r"pub(?:\([^)]*\))?\s+fn current\s*\(")
         for call in ("RuntimePaths::current()", "DesiredPaths::current()",
                      "CutoverPaths::current(uid)", "MigrationLock::acquire_existing"):
             self.assertIn(call, text)
@@ -57,6 +57,19 @@ class SystemHistoricalOffBoundary(unittest.TestCase):
         self.assertNotIn("self.inner.auxiliary", wrapper)
         for name in ("system_historical_off_candidate.rs", "production_owner.rs"):
             self.assertIn("ObservationOnlyNativeHost::new", (SRC / name).read_text())
+
+    def test_system_vm_driver_is_ignored_fixed_account_and_never_mints_receipt(self):
+        source = (SRC / "system_provider_vm_tests.rs").read_text()
+        self.assertIn("const UID: u32 = 61080;", source)
+        self.assertIn('const HOME: &str = "/home/ov-t4-system";', source)
+        self.assertEqual(source.count("#[ignore ="), 2)
+        for forbidden in ("epoch_tests::receipt", "epoch_tests::proof", "CurrentEpochProof::synthetic", "Source::Synthetic", "fixture.root =", "Fixture::reopen"):
+            self.assertNotIn(forbidden, source)
+        self.assertLess(source.index("CurrentEpochProof::capture"), source.index("super::tests::prepared(true)"))
+        self.assertIn("receipt.unchanged();", source)
+        self.assertIn("current_for_vm_test()", source)
+        forwarding = (SRC / "system_historical_off_candidate.rs").read_text()
+        self.assertRegex(forwarding, r"#\[cfg\(test\)\]\s*pub\(crate\) fn current_for_vm_test")
 
 
 if __name__ == "__main__":

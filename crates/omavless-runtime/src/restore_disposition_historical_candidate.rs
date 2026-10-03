@@ -1383,6 +1383,10 @@ pub(crate) fn resync_current_epoch_off(
 mod epoch_tests;
 
 #[cfg(test)]
+#[path = "system_provider_vm_tests.rs"]
+mod system_provider_vm_tests;
+
+#[cfg(test)]
 #[path = "restore_connection_research_tests.rs"]
 mod connection_tests;
 

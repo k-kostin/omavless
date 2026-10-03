@@ -63,10 +63,14 @@ counterexample for the new adapter's no-cleanup boundary, not a claim that the
 ordinary owner's existing cleanup contract is itself a defect.
 Source-retention checks are guards on wiring, not installed execution evidence.
 
-Actual **System-positive execution is unrun**. An uploaded developer/test ELF
-cannot satisfy the existing package self-inode check against `/usr/bin/omavless`.
-A future separately authorized disposable installed-package fixture must first
-create a genuine consumed receipt in the same user-manager epoch, then establish
+Actual **System-positive execution is unrun** at this adapter's original cut.
+An ordinarily uploaded developer/test ELF cannot satisfy the existing package
+self-inode check against `/usr/bin/omavless`. The separate
+[System-provider mechanism gate](T4_SYSTEM_PROVIDER_VM_GATE.md) specifies a
+root-issued private read-only image mount without changing the global package;
+this is not installed-release acceptance. A separately authorized disposable
+account fixture must first create a genuine consumed receipt in the same
+user-manager epoch, then establish
 synthetic complete historical evidence and exercise this inactive bridge without
 altering the ordinary startup refusal. No missing/new-manager recovery, normal
 mutation adoption, private archive UX, physical power-loss, installed restore or
