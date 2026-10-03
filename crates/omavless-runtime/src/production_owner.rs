@@ -39,6 +39,9 @@ use std::path::Path;
 #[path = "restore_final_startup_candidate.rs"]
 mod final_restore_review;
 
+#[path = "system_historical_off_candidate.rs"]
+pub(crate) mod system_historical_off;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductionOwnerError {
     Busy,
@@ -756,7 +759,8 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
     #[allow(dead_code)]
     pub(crate) fn current_off_research(
         runtime_paths: &RuntimePaths,
-    ) -> Result<OffResearchOwner<NativeLifecycleHost>, ProductionOwnerError> {
+    ) -> Result<OffResearchOwner<crate::native_host::ObservationOnlyNativeHost>, ProductionOwnerError>
+    {
         use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedCurrentOff;
         let uid = Uid::current().as_raw();
         let desired_paths =
@@ -773,30 +777,12 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         let retained =
             RetainedCurrentOff::capture(&config, &paths, uid, marker.generation(), &lock)
                 .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
-        let proof = crate::login_activation::epoch_candidate::CurrentEpochProof::capture(
-            &paths,
-            uid,
-            marker.generation(),
-            &lock,
-        )
-        .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
-        let mut host = NativeLifecycleHost::new(host_paths, uid)
+        let mut host = crate::native_host::ObservationOnlyNativeHost::new(host_paths, uid)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
         let evidence = retained
-            .research(proof, || {
-                crate::desired::read_desired_snapshot(&desired_paths, uid).is_ok_and(|desired| {
-                    !desired.connected
-                        && host.fresh_observation(&desired).is_ok_and(|o| {
-                            !o.owned_core_running
-                                && o.visible_mihomo_count == 0
-                                && o.owned_auxiliary_mihomo_count == 0
-                                && o.visible_tun_count == 0
-                                && o.managed_tun_count == 0
-                        })
-                })
-            })
+            .system_off(&mut host)
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
-        Self::initialize_off_research(
+        ProductionNativeOwner::initialize_off_research(
             host,
             desired_paths,
             &store,

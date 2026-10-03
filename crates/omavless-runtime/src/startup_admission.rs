@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
-//! Actual startup seam with a test-only retained-evidence research alternative.
-//! No product constructor, mutation permission or serialized bypass exists.
+//! Actual startup seam with an inactive retained-evidence alternative.
+//! No normal dispatch, mutation permission or serialized bypass exists.
 use crate::cutover::{CutoverPaths, MigrationLock};
 use std::marker::PhantomData;
 pub(crate) enum StartupAdmission<'a, 'b> {
     Ordinary(PhantomData<&'a &'b ()>),
-    #[cfg(test)]
     HistoricalOff(&'a mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'b>),
 }
 impl StartupAdmission<'_, '_> {
@@ -16,7 +15,6 @@ impl StartupAdmission<'_, '_> {
     ) -> Result<crate::desired::DesiredState, crate::desired::DesiredError> {
         match self {
             Self::Ordinary(_) => crate::desired::read_desired(paths, uid),
-            #[cfg(test)]
             Self::HistoricalOff(_) => {
                 self.recheck()
                     .map_err(|_| crate::desired::DesiredError::UnsafeStateDirectory)?;
@@ -31,7 +29,6 @@ impl StartupAdmission<'_, '_> {
     ) -> Result<crate::cutover::OwnershipMarker, ()> {
         match self {
             Self::Ordinary(_) => crate::cutover::read_marker(paths, uid).map_err(|_| ()),
-            #[cfg(test)]
             Self::HistoricalOff(_) => {
                 self.recheck()?;
                 crate::cutover::read_marker_existing(paths, uid).map_err(|_| ())
@@ -44,7 +41,6 @@ impl StartupAdmission<'_, '_> {
     pub(crate) fn recheck(&mut self) -> Result<(), ()> {
         match self {
             Self::Ordinary(_) => Ok(()),
-            #[cfg(test)]
             Self::HistoricalOff(e) => e.recheck().map_err(|_| ()),
         }
     }
@@ -62,7 +58,6 @@ impl StartupAdmission<'_, '_> {
                     Err(())
                 }
             }
-            #[cfg(test)]
             Self::HistoricalOff(e) => e.bind(paths, uid, lock).map_err(|_| ()),
         }
     }
@@ -79,7 +74,6 @@ impl StartupAdmission<'_, '_> {
                 crate::login_transaction::check_startup_receipt(paths, uid, lock, Some(generation))
                     .map_err(|_| ())
             }
-            #[cfg(test)]
             Self::HistoricalOff(_) => self.recheck(),
         }
     }
@@ -103,7 +97,6 @@ impl StartupAdmission<'_, '_> {
     pub(crate) fn action(&mut self, action: crate::desired::ReconcileAction) -> Result<(), ()> {
         self.recheck()?;
         match self {
-            #[cfg(test)]
             Self::HistoricalOff(_)
                 if action != crate::desired::ReconcileAction::SettledDisconnected =>
             {
@@ -121,7 +114,6 @@ impl StartupAdmission<'_, '_> {
     ) -> Result<(), ()> {
         self.recheck()?;
         match self {
-            #[cfg(test)]
             Self::HistoricalOff(_) if plan.changed() => Err(()),
             _ => {
                 let _ = plan;
