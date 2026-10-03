@@ -69,6 +69,23 @@ OMAVLESS_K1_PREFIX_ACK_LOSS_VM=1 frozen-netguard-tests --ignored --exact \
 
 ## Gates and limits
 
+CPU source checkpoint, 2026-10-03: tested code is
+`ace50c0a0401ce54600b9457f8cd2df578918f7a`. The ordinary netguard suite passed
+202 tests, with 33 opt-in tests ignored, including doctests. Formatting and
+strict all-target crate clippy passed. The full source suite passed 503 tests
+with two existing skips, 93-link documentation navigation and native/QML checks.
+Its first HOME-temp invocation had three unchanged native-V0 private-file test
+errors because the HOME ancestor contains a `.git` marker. The source-only rerun
+used an owned outside-Git temporary directory and preserved that privacy guard;
+no test assertion or HOME marker was changed. Full workspace Rust/CI checks
+remain in progress at this checkpoint.
+
+The frozen x86_64 test executable has SHA-256
+`8538bdab3f08ca86b108ca6c0db4fee3d960266ba3d62b25f45d696584e94362`.
+It was copied outside Cargo and has no file capabilities. It is a test artifact,
+not a package or installed helper. Later documentation changes do not imply
+execution of modified code.
+
 Actual VM execution is **pending**, requiring an explicit exclusive development
 VM lease and reviewed preservation guard. Ordinary CPU tests do not prove that
 the kernel emitted or the observer consumed any ACK. Use a frozen executable
