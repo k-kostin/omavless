@@ -83,8 +83,48 @@ canonical service/package/network mutation or cleanup follows failure.
 
 ## Evidence and limits
 
-Final source/full Rust gates and frozen identities are pending. The new VM cases
-have **not run**. Earlier kernel evidence does not cover this new crash boundary.
+Tested code is `481a14c0a43a40bf66077e7ac1d185307e15c7b5`; this evidence update
+changes documentation only. Gates on that code passed: full Rust 2029 successful
+test invocations / 75 ignored, strict workspace and feature clippy/check, parity
+2 cases; source 512 tests / 2 expected skips. The exact full-workspace test ELF,
+frozen outside Cargo, independently passed 174 ordinary tests / 16 ignored.
+
+Two separately approved disposable-VM invocations each passed all three fixed
+selectors (**2 × 3 = 6 cases**). Each actual writer was killed after its sole
+target send returned and before its first receive. Both invocations observed
+create and replace as `present_untrusted`, delete as `absent`; these are actual
+observations, not a prediction from send return. Every reopened operation
+refused, with unchanged durable Pending records, zero new effects and no retry.
+
+Both invocations passed exact typed/Rust receipts, owned-group quiescence and
+empty scratch checks. All eight canonical preservation categories were unchanged:
+private files, user service/PID, executable, namespace, core inventory, TUN
+inventory, resolver and resolv.conf. Full IPv4/IPv6 address/route/rule comparisons
+allowed only verified numeric nonincreasing address lifetimes. No canonical
+runtime/package/network changes, third invocation, blind retry or stage cleanup
+occurred. The VM lease was returned; independent retained-archive review passed
+46 safe members, both stages, six selector receipts and unchanged stage-1 bytes.
+
+Exact immutable artifact hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Executed workspace test ELF | `3657488fb77a09a70f4e9861f37bbe6e3900678349b93bf5ccb457acc4a568d6` |
+| Fixed supervisor | `05e0c73f1a399763e540f924728b3f5b9f0725da1651bd2477b742a3fae0d859` |
+| Strict guest guard | `2feed815e0c5eb22abfb1ef75bd2a965dd7ddae882e95891b8d8e1bbc7a53c7b` |
+| Combined private evidence archive | `ebfcaa2ff5740b7b601e1fa50256bedca854a3fae04ad1d33f76d491afd0b95f` |
+
+The supervisor was corrected before execution: the first uncertain WNOWAIT
+query permanently quarantines its anchor without querying again. Success and
+cancellation reap only through exact-PID raw `waitpid`, never the `Popen.wait`
+ECHILD-to-zero fallback. Unknown/zero/wrong-PID/nonterminal reap outcomes forbid
+further query, signal, reap or command launch. Fourteen supervisor tests and
+three exact receipt/network guard tests passed. Earlier wrapper evidence did
+not cover these specific uncertainty holes and is not retroactively upgraded.
+Raw logs and archive remain private, mode 0600 under mode-0700 parents.
+
+At this report cut, both package CI jobs passed; the CI test job remained
+pending. Local gate success is not a claim that pending CI passed.
 
 This supplies no installed ownership, nft-subsystem continuity, safe namespace
 API adoption, canonical system-manager launch, automatic orphan adjudication,
