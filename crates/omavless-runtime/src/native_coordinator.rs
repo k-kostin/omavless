@@ -1381,6 +1381,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         admission_context: &mut connection_admission::ConnectionAdmission<'_, '_>,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let (action, operation_id, expected_revision, digest) = request.into_parts();
+        // A valid new typed intent revokes close authority even when its
+        // historical kind/proof later refuses. Known-ID retries retain the
+        // successor confirmation; neither case bypasses admission checks.
+        self.invalidate_close_for_new_operation(operation_id.as_deref());
         admission_context.kind(&action)?;
         let admission = admission_context.admit(
             self,
@@ -1464,6 +1468,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let parsed = parse_profile_mutation_request(request)?;
         let (mutation, operation_id, expected_revision, digest) = parsed.into_parts();
         let (kind, profile_id) = mutation_identity(&mutation);
+        // Parsing stays before intent admission. Historical kind/proof refusal
+        // must not leave an older captured or detached close authorized.
+        self.invalidate_close_for_new_operation(operation_id.as_deref());
         context.kind(kind)?;
         let profile_id = profile_id.to_owned();
         let admission = context.admit(self, operation_id.as_deref(), expected_revision, digest)?;

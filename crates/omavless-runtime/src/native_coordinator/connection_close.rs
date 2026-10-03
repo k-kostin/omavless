@@ -462,6 +462,242 @@ while True:
         assert_eq!(fixture.owner.actual(), ActualState::Connected);
     }
 
+    #[derive(Clone, Copy)]
+    enum TypedFamily {
+        Connection,
+        Profile,
+    }
+    use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::{
+        HistoricalConnection, HistoricalProfile, batch_tests::with_foreign_retained_context,
+    };
+    enum TypedContext<'a> {
+        Connection(HistoricalConnection<'a>),
+        Profile(HistoricalProfile<'a>),
+    }
+    fn with_typed_context(family: TypedFamily, callback: impl FnOnce(TypedContext<'_>)) {
+        // Prepare the genuine foreign proof before capturing or starting a
+        // close. Fixture setup must not consume the worker's cancellation
+        // deadline and turn expiry into a false revocation result.
+        with_foreign_retained_context(|retained| {
+            callback(match family {
+                TypedFamily::Connection => {
+                    TypedContext::Connection(retained.into_connection().unwrap())
+                }
+                TypedFamily::Profile => TypedContext::Profile(retained.into_profile().unwrap()),
+            })
+        });
+    }
+    fn typed_request(family: TypedFamily, forbidden: bool, id: &str) -> serde_json::Value {
+        let (method, params) = match (family, forbidden) {
+            (TypedFamily::Connection, false) => (
+                "connection.disconnect",
+                json!({"operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Connection, true) => (
+                "routing.set_mode",
+                json!({"mode":"direct","operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Profile, false) => (
+                "profiles.favorite",
+                json!({"profileId":PROFILE,"enabled":true,"operationId":id,"expectedRevision":0}),
+            ),
+            (TypedFamily::Profile, true) => (
+                "profiles.rename",
+                json!({"profileId":PROFILE,"name":"Fixed","operationId":id,"expectedRevision":0}),
+            ),
+        };
+        json!({"api":"omavless.control","version":1,"id":"fixed-typed-entry","method":method,"params":params})
+    }
+    fn refused_typed_entry(
+        fixture: &mut Fixture,
+        family: TypedFamily,
+        forbidden: bool,
+        id: &str,
+        context: &mut TypedContext<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        let request = typed_request(family, forbidden, id);
+        match context {
+            TypedContext::Connection(context) => fixture.owner.execute_connection_research(
+                crate::mutation_protocol::parse_owner_request(&request).unwrap(),
+                context,
+            ),
+            TypedContext::Profile(context) => {
+                fixture.owner.execute_profile_research(&request, context)
+            }
+        }
+    }
+    fn typed_capture_case(family: TypedFamily, forbidden: bool) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    forbidden,
+                    "new-typed-refusal",
+                    &mut context
+                )
+                .is_err()
+            );
+            assert!(fixture.owner.connection_close.pending.is_none());
+            assert!(fixture.owner.connection_close.snapshot.is_none());
+            assert!(!fixture.root.join("r/effects").exists());
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_revokes_capture_before_proof_refusal() {
+        typed_capture_case(TypedFamily::Connection, false);
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_revokes_capture_before_kind_refusal() {
+        typed_capture_case(TypedFamily::Connection, true);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_revokes_capture_before_proof_refusal() {
+        typed_capture_case(TypedFamily::Profile, false);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_revokes_capture_before_kind_refusal() {
+        typed_capture_case(TypedFamily::Profile, true);
+    }
+    fn typed_stalled_case(family: TypedFamily) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let desired_path = fixture.owner.transaction.desired_paths().file.clone();
+            let desired = fs::read(&desired_path).unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "close-before-typed-refusal",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            let cancellation = fixture
+                .owner
+                .connection_close
+                .cancellation
+                .as_ref()
+                .unwrap()
+                .clone();
+            assert!(
+                !cancellation.is_cancelled(),
+                "close must still be live before the tested entry"
+            );
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    false,
+                    "new-typed-after-close",
+                    &mut context
+                )
+                .is_err()
+            );
+            assert!(cancellation.is_cancelled());
+            assert_eq!(
+                receipt(&mut fixture).outcome,
+                ExternalCloseOutcome::RefusedBeforeWrite
+            );
+            assert!(!fixture.root.join("r/effects").exists());
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(fs::read(&desired_path).unwrap(), desired);
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_entry_cancels_stalled_close_before_refusal() {
+        typed_stalled_case(TypedFamily::Connection);
+    }
+    #[test]
+    fn actual_owner_typed_profile_entry_cancels_stalled_close_before_refusal() {
+        typed_stalled_case(TypedFamily::Profile);
+    }
+    fn typed_known_case(family: TypedFamily) {
+        let _fixtures = FIXTURES.lock().unwrap();
+        with_typed_context(family, |mut context| {
+            let mut fixture = fixture("ok");
+            let request = typed_request(family, false, "known-typed-operation");
+            match family {
+                TypedFamily::Profile => {
+                    fixture.owner.execute_profile(&request).unwrap();
+                }
+                TypedFamily::Connection => {
+                    // Establish the exact semantic cached coordinator entry without
+                    // disconnecting the fixture core. This is registry evidence,
+                    // not a completed real Disconnect/lifecycle claim.
+                    let (action, id, revision, digest) =
+                        crate::mutation_protocol::parse_owner_request(&request)
+                            .unwrap()
+                            .into_parts();
+                    let Admission::Execute(token) = fixture
+                        .owner
+                        .schedule(action.kind(), id.as_deref(), revision, digest)
+                        .unwrap()
+                    else {
+                        panic!("new exact operation");
+                    };
+                    fixture
+                        .owner
+                        .coordinator
+                        .finish(token, crate::mutation::MutationResult::NoChange)
+                        .unwrap();
+                }
+            }
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[1].handle)
+                .unwrap();
+            assert!(
+                refused_typed_entry(
+                    &mut fixture,
+                    family,
+                    false,
+                    "known-typed-operation",
+                    &mut context
+                )
+                .is_err()
+            );
+            let pending = fixture.owner.connection_close.pending.as_ref().unwrap();
+            assert_eq!(pending.handle, rows[1].handle);
+            assert_eq!(pending.ticket, confirmation.ticket);
+            assert!(fixture.owner.connection_close.snapshot.is_some());
+            assert!(!fixture.root.join("r/effects").exists());
+        });
+    }
+    #[test]
+    fn actual_owner_typed_connection_known_entry_preserves_successor_without_bypassing_proof() {
+        typed_known_case(TypedFamily::Connection);
+    }
+    #[test]
+    fn actual_owner_typed_profile_known_entry_preserves_successor_without_bypassing_proof() {
+        typed_known_case(TypedFamily::Profile);
+    }
+
     #[test]
     fn actual_owner_admitted_startup_invalidates_capture_before_pending_refusal() {
         let _fixtures = FIXTURES.lock().unwrap();

@@ -119,6 +119,20 @@ pub(crate) fn foreign_empty_context_fixture() -> (Fixture, DetachedHistoricalBat
     let (fixture, _owner, context) = fixture(false, None);
     (fixture, context)
 }
+
+/// Keep the genuine private Off witness and its original lease alive while a
+/// sibling actual-entry test consumes it. No authority constructor is exposed.
+pub(crate) fn with_foreign_retained_context<T>(
+    callback: impl FnOnce(RetainedEpochOff<'_>) -> T,
+) -> T {
+    let (fixture, lock) = prepared(false);
+    ordinary_edit(&fixture);
+    receipt(&fixture);
+    let context = witness(&fixture, &lock)
+        .research(proof(&fixture, &lock), || true)
+        .unwrap();
+    callback(context)
+}
 fn status(owner: &OfflineNativeCoordinator<OffHost>, id: &str) -> Value {
     owner
         .subscription_batch_status(&request("operations.get", id))
