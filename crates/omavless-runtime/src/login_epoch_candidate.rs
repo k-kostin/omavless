@@ -129,6 +129,20 @@ pub(crate) struct CurrentEpochProof<'a> {
 }
 #[allow(dead_code)]
 impl<'a> CurrentEpochProof<'a> {
+    /// Research-only consumption into evidence, not a transferable lease or
+    /// admission capability. A later user must freshly check the ORIGINAL
+    /// receipt and manager identity under its own newly acquired lease.
+    #[cfg(test)]
+    pub(crate) fn detach(self) -> DetachedCurrentEpochEvidence {
+        DetachedCurrentEpochEvidence {
+            paths: self.paths.clone(),
+            uid: self.uid,
+            generation: self.generation,
+            epoch: self.epoch,
+            receipt: self.receipt,
+            source: self.source,
+        }
+    }
     pub(crate) fn capture(
         paths: &'a CutoverPaths,
         uid: u32,
@@ -223,6 +237,56 @@ impl<'a> CurrentEpochProof<'a> {
             lock,
             Source::Synthetic(Box::new(source)),
         )
+    }
+}
+
+/// No lock reference, Clone, Debug, serialization or production constructor.
+/// Pins survive fetch, but do NOT prove continuous authority/transient absence.
+#[cfg(test)]
+pub(crate) struct DetachedCurrentEpochEvidence {
+    paths: CutoverPaths,
+    uid: u32,
+    generation: u64,
+    epoch: Zeroizing<String>,
+    receipt: PinnedReceipt,
+    source: Source,
+}
+
+#[cfg(test)]
+impl DetachedCurrentEpochEvidence {
+    pub(crate) fn recheck(
+        &mut self,
+        paths: &CutoverPaths,
+        uid: u32,
+        generation: u64,
+        lock: &MigrationLock,
+    ) -> Result<()> {
+        if paths != &self.paths
+            || uid != self.uid
+            || generation != self.generation
+            || !lock.authorizes(paths, uid)
+        {
+            return Err(Error::Recovery);
+        }
+        let marker = read_marker_existing(paths, uid).map_err(|_| Error::Recovery)?;
+        if marker.phase() != OwnershipPhase::Rust || marker.generation() != generation {
+            return Err(Error::Recovery);
+        }
+        self.receipt.check(paths, uid)?;
+        self.source.package()?;
+        if self.source.epoch()? != *self.epoch {
+            return Err(Error::Recovery);
+        }
+        self.receipt.check(paths, uid)?;
+        if self.source.epoch()? != *self.epoch {
+            return Err(Error::Recovery);
+        }
+        self.source.package()?;
+        self.receipt.check(paths, uid)?;
+        if !lock.authorizes(paths, uid) || read_marker_existing(paths, uid).ok() != Some(marker) {
+            return Err(Error::Recovery);
+        }
+        Ok(())
     }
 }
 
