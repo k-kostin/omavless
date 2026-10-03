@@ -60,7 +60,8 @@ python3 tests/core_connections_adapter/review.py \
 
 Both review entrypoints share an isolated fresh bare object-only export,
 excluding local `info/attributes`, replacements, user/global Git configuration
-and dirty source. They use `/usr/bin/go` with explicit offline settings,
+and dirty source. Lazy object fetching, remote Git protocols and terminal
+authorization prompts are explicitly disabled. They use `/usr/bin/go` with explicit offline settings,
 `GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`, no inherited `GOFLAGS`/compiler
 overrides, and the existing `$HOME/go/pkg/mod` and `$HOME/.cache/go-build` caches.
 `go mod verify` precedes tests/vendor preparation; this is cache verification,

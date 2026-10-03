@@ -210,6 +210,9 @@ class ConditionalCoreAdapterTests(unittest.TestCase):
         env = COMPOSITION.git_environment()
         self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
         self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
+        self.assertEqual(env["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(env["GIT_ALLOW_PROTOCOL"], "")
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
         self.assertNotIn("GIT_CONFIG_COUNT", env)
         self.assertNotIn("GIT_SSH_COMMAND", env)
 
