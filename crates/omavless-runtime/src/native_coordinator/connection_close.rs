@@ -391,6 +391,160 @@ while True:
     }
 
     #[test]
+    fn actual_owner_late_restore_fence_refuses_detached_post_without_context_byte_drift() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for (name, entry_type) in [
+            "routing-preset.pending.json",
+            crate::restore_staging_candidate::PENDING_DIRECTORY,
+            "restore-decision.intent",
+            "restore-decision.terminal",
+            "restore-finalization.pending",
+            crate::restore_closure_model::CLOSURE_MEMBER,
+            crate::restore_closure_model::NEXT_CLOSURE_MEMBER,
+            crate::restore_disposition_ticket_model::TICKET_MEMBER,
+            crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+            crate::restore_successor_handoff_model::SUCCESSOR_MEMBER,
+        ]
+        .into_iter()
+        .flat_map(|name| ["file", "directory", "symlink"].map(|entry_type| (name, entry_type)))
+        {
+            let mut fixture = fixture("ok");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let desired = fixture.owner.desired().unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "close-before-fence",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/read-entered"));
+            // An independently serialized private transaction need not change
+            // desired/store/config/ownership bytes or call this owner's admit.
+            // Its actual existence fence must still be checked before the POST.
+            {
+                let _lease = fixture.owner.transaction.acquire_lock().unwrap();
+                let member = fixture
+                    .owner
+                    .transaction
+                    .desired_paths()
+                    .directory
+                    .join(name);
+                match entry_type {
+                    "file" => write(&member, b"malformed-but-still-a-fence", 0o600),
+                    "directory" => fs::create_dir(member).unwrap(),
+                    "symlink" => std::os::unix::fs::symlink("missing-member", member).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            write(&fixture.root.join("r/release"), b"fixed", 0o600);
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::RefusedBeforeWrite);
+            assert_eq!(result.revision, 0);
+            assert!(!fixture.root.join("r/effects").exists());
+            assert!(fixture.owner.capture_connection_close().is_err());
+            assert!(
+                fs::symlink_metadata(
+                    fixture
+                        .owner
+                        .transaction
+                        .desired_paths()
+                        .directory
+                        .join(name)
+                )
+                .is_ok()
+            );
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+        }
+    }
+
+    #[test]
+    fn actual_owner_late_restore_fence_after_post_retains_unknown_without_replay_effect() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        for entry_type in ["file", "directory", "symlink"] {
+            let mut fixture = fixture("stall-reply");
+            let rows = snapshot(&mut fixture);
+            let confirmation = fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .unwrap();
+            let desired = fixture.owner.desired().unwrap();
+            let config = fs::read(fixture.root.join("c/config.yaml")).unwrap();
+            let store = fs::read(fixture.root.join("c/profiles.json")).unwrap();
+            fixture
+                .owner
+                .confirm_connection_close(
+                    "fence-after-post",
+                    0,
+                    rows[0].handle,
+                    confirmation.ticket,
+                )
+                .unwrap();
+            marker(&fixture.root.join("r/effect-entered"));
+            let member = fixture
+                .owner
+                .transaction
+                .desired_paths()
+                .directory
+                .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+            {
+                let _lease = fixture.owner.transaction.acquire_lock().unwrap();
+                match entry_type {
+                    "file" => write(&member, b"malformed-but-still-a-fence", 0o600),
+                    "directory" => fs::create_dir(&member).unwrap(),
+                    "symlink" => std::os::unix::fs::symlink("missing-member", &member).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            write(&fixture.root.join("r/release"), b"fixed", 0o600);
+            let result = receipt(&mut fixture);
+            assert_eq!(result.outcome, ExternalCloseOutcome::Unknown);
+            assert_eq!(result.revision, 1);
+            assert_eq!(
+                fixture
+                    .owner
+                    .confirm_connection_close(
+                        "fence-after-post",
+                        0,
+                        rows[0].handle,
+                        confirmation.ticket,
+                    )
+                    .unwrap(),
+                Some(result)
+            );
+            assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+            assert!(fixture.owner.capture_connection_close().is_err());
+            assert!(fs::symlink_metadata(&member).is_ok());
+            assert_eq!(fixture.owner.desired().unwrap(), desired);
+            assert_eq!(
+                fs::read(fixture.root.join("c/config.yaml")).unwrap(),
+                config
+            );
+            assert_eq!(
+                fs::read(fixture.root.join("c/profiles.json")).unwrap(),
+                store
+            );
+        }
+    }
+
+    #[test]
     fn actual_owner_snapshot_confirm_typed_receipt_and_expired_exact_replay() {
         let _fixtures = FIXTURES.lock().unwrap();
         let mut fixture = fixture("ok");
@@ -1432,7 +1586,7 @@ impl EffectProof {
         if marker.phase() != context.ownership.phase
             || marker.generation() != context.ownership.generation
             || read_desired(&context.desired_paths, context.uid).map_err(|_| ())? != context.desired
-            || crate::routing_preset::pending(&context.desired_paths)
+            || crate::pending_private_transaction::pending(&context.desired_paths)
             || read_private_utf8(&context.store_path, context.uid).map_err(|_| ())? != context.store
             || read_private_utf8(&context.config_path, context.uid).map_err(|_| ())?
                 != context.config
@@ -1595,7 +1749,7 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
             || self.coordinator.queued() != 0
             || self.actual() != ActualState::Connected
             || self.transaction.blocked()
-            || crate::routing_preset::pending(self.transaction.desired_paths())
+            || crate::pending_private_transaction::pending(self.transaction.desired_paths())
         {
             return Err(NativeOwnerError::OwnershipUnavailable);
         }

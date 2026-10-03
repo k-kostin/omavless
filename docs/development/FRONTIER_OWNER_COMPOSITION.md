@@ -7,7 +7,7 @@ normal activation, release, marketplace request or main-update proposal.
 ## Source selection
 
 - T4 #561: code `9f96b1e071e1e13b5613bebd7183089171c006ff`,
-  evidence-only head `fb0948b2bf45b004c31c238db19b37c194b750ae`.
+  evidence-only head `fa8a613b3891d582f6534befa50b0695f684e692`.
   The inherited inactive backup/restore chain is part of this substantial
   composition; it is not replaced by a small stand-alone patch.
 - K1 #560/#563: code `f9c919b302dc19dc9dab0fbad71d287e749562e3`,
@@ -40,8 +40,12 @@ privileged IPC or ownership reconstruction from netguard rule shape is allowed.
 
 ## Gates and limits
 
-Combined focused regressions, full Rust/source/frontend checks, strict clippy
-and exact-head CI are pending. Any combined VM fixture has its own frozen
+The first combined full Rust/source/frontend and strict-clippy run passes on
+`eba24b957ebb7eaab452156a51201583a87c7470`: runtime 1,084 PASS, 31 ignored,
+plus its separately isolated helper test; source 503 PASS and two opt-in skips.
+These results are not acceptance of the subsequent late-fence correction.
+Repeat the complete gates and exact-head CI on its new frozen head. Any
+combined VM fixture has its own frozen
 artifact, exclusive VM lease and before/after preservation checks; prior
 standalone VM results are not carried forward silently.
 
@@ -66,3 +70,22 @@ typed startup reconciliation. Exact known-operation replay preserves a newer
 confirmation; the tests also assert no conditional POST, unchanged connected
 intent and timely detached refusal. The three focused tests now PASS locally.
 That focused result is not the remaining combined full-suite or VM gate.
+
+## Late private-transaction fence correction
+
+An independently serialized restore transaction can publish an existence fence
+after the close worker captured its immutable desired/store/config/ownership
+context. Checking only the routing-preset marker then permits a conditional POST
+through a C1/restore fence. A real captured and started private-controller
+worker reproduces this defect before correction: the first closure-marker case
+returns `Closed`, not `RefusedBeforeWrite`.
+
+Both initial capture and each detached effect lease now consult the canonical
+`pending_private_transaction` predicate. No historical exception applies to
+connection close. Thirty real-worker cases cover all ten fixed members as a
+malformed file, directory and dangling symlink without changing context bytes.
+Each refuses before POST, keeps revision zero and preserves the fence/private
+state. Three further cases publish a disposition fence after an actual POST;
+they retain `Unknown`, advance the revision once, and replay the exact receipt
+without a second effect. Both focused aggregates PASS. This is not normal
+conditional-package adoption or permission to retry an ambiguous operation.
