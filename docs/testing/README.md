@@ -60,6 +60,9 @@ The separate [AWG cookie/MAC2 checkpoint](P4_AWG_COOKIE_TRANSPORT_2026-10-03.md)
 and [tagged fixture contract](P4_AWG_COOKIE_TRANSPORT_PLAN.md) cover genuine
 unchanged-core under-load cookie transport, corrupt-cookie refusal and recovery;
 the tagged independent peer is a developer instrument, not a normal package.
+The [AWG timer source checkpoint](P4_AWG_TIMER_SOURCE_2026-10-03.md) uses a
+separate opt-in CPU-only source overlay. Direct retry callbacks and a shortened
+test timer prove bounded engine behavior, not Mihomo/VM timer or MTU/IPv6 acceptance.
 The [QML component gate](../../tests/qml-load/README.md) compiles without
 instantiating the plugin and is explicitly opt-in on an installed desktop.
 
