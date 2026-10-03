@@ -50,8 +50,53 @@ OMAVLESS_K1_RECV_TRUNC_VM=1 frozen-netguard-tests --ignored --exact \
   --nocapture
 ```
 
-At the first source checkpoint, the actual VM gate is pending. Evidence will
-identify the immutable code and executable hashes, checks and cleanup separately.
+## Exact-source evidence, 2026-10-03
+
+Immutable tested code:
+`f9c919b302dc19dc9dab0fbad71d287e749562e3`. Frozen test executable SHA-256:
+`2d83dea76efb5bf5d681d5cf41f2a4b79c63d7643e89d1bf6c73c96986c80f0a`.
+It was copied outside Cargo, had no file capabilities, was verified again after
+VM transfer, and was not rebuilt during self-reexecution. A separate new home
+target/temp directory preserved #560's old artifacts.
+
+Local netguard suite: 197 passed /31 opt-in ignored including doctests; two
+focused collector tests passed, covering TRUNC/CTRUNC/both for all three effects.
+Strict all-target crate clippy and formatting passed. Source suite: 503 passed
+/two existing skips, native/QML checks and 93-link navigation passed. The full
+current-RC Rust script passed with one test thread, including strict workspace
+and TUI clippy, terminal fixtures and parity. Its repeated result lines total
+1583 successful test invocations, zero failures and 43 ignored; this is not a
+count of unique tests. All three applicable PR checks on that code head passed:
+test, package and package-arm64. #560's separate final documentation Test
+attempt initially failed an unchanged two-second core-helper readiness fixture;
+its same-head rerun passed, as did its other four checks. That negative history
+is retained and does not imply a K1 source fix.
+
+Exclusive Omarchy development VM x86_64/KVM, kernel `7.2.5-3-omarchy`: ten
+complete repetitions of all three actual truncation scenarios passed (30 real
+MSG_TRUNC fault executions), plus all thirteen predecessor lifecycle scenarios
+passed once on the new immutable executable. That predecessor regression
+included its three actual SIGKILL cuts; the new receive faults are not SIGKILL
+or fabricated transport errors.
+
+All 43 scenarios ran in one private before/after preservation invocation. The
+parent network namespace, canonical **user** `omavless-runtime.service`
+active/running at PID 86349, runtime executable fingerprint, and private
+profile/desired/ownership fingerprints remained equal. Deep JSON comparisons
+preserved all interface IDs/names/flags/MTU, address/prefix fields, route tables,
+rules and metrics. Only the independently confirmed decreasing numeric
+`address[*].addr_info[*].preferred_life_time` and `valid_life_time` countdowns
+were excepted; no other key, structure, type, process or route difference was
+hidden. No private bytes, hashes or raw network snapshots were published.
+
+Each namespace child was reaped and each fixture directory was empty after its
+gate. The exact owned VM scratch, transferred executable/guard and raw private
+snapshots were removed. Final no-process/no-scratch and unchanged user-service
+PID/parent-namespace checks passed, then the exclusive VM lease was released.
+The frozen host executable remains outside Cargo. No primary-PC network effect
+or VM parent firewall/route/service/profile mutation occurred. Later
+documentation-only changes do not claim execution of modified code.
+
 Synthetic epoch/Canonical fixture vocabulary remains untrusted local history,
 not authentication of the canonical host. Reviewed safe namespace API adoption,
 trusted launch/no-switch authority, nft continuity, durable orphan adjudication,
