@@ -62,6 +62,11 @@ pub(crate) struct PreparedPointerMutation {
 }
 
 impl PreparedPointerMutation {
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> bool {
+        self.prepared.changed()
+    }
+
     pub fn commit_locked(
         &self,
         lock: &MigrationLock,
@@ -80,6 +85,15 @@ impl PreparedPointerMutation {
 }
 
 impl PreparedPrivateStoreWrite {
+    #[cfg(test)]
+    pub(crate) fn research_matches_candidate(&self, bytes: &[u8]) -> bool {
+        bytes
+            == if self.changed {
+                &self.candidate
+            } else {
+                &self.original
+            }
+    }
     #[must_use]
     pub const fn changed(&self) -> bool {
         self.changed

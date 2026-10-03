@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod import;
+pub mod private_backup;
 pub mod private_store;
 pub mod route_check;
 pub mod routing;
@@ -12,3 +13,7 @@ pub mod store;
 pub mod subscription;
 pub mod subscription_feed;
 pub mod subscription_metadata;
+
+// Internal plaintext framing and strict pair gate. Only private_backup exposes
+// an authenticated public entry point; never persist this inner representation.
+mod backup_payload_candidate;
