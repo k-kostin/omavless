@@ -15,6 +15,25 @@ Only a fixed `cfg(test)` actual parent-owned subprocess constructor supplies the
 internal fixture permit. Interpreter image and fixture script are distinct
 retained objects, not a claim that the interpreter is an adopted core package.
 
+### Shared normal-compiled scheduling transition
+
+The private `schedule_permitted_connection_close` function now contains the
+actual session/observation transfer, unchanged original expiry/effect proof,
+detached-worker reservation and active receipt installation in normal builds.
+The fixture confirmation path invokes this same function while retaining its
+checked migration lease. The function additionally checks that exact held lease
+before transferring a session or creating a worker; replacement of its lock
+name refuses with no effect or active worker.
+
+This extraction **does not construct a production permit**. The opaque
+`CandidateEffectPermit` retains its sole `cfg(test)` constructor, and only the
+test-only fixture admission can call the transition. Ordinary confirmation still
+returns `MissingAttestation`; passive bytes, ABI readiness and image hashes do
+not turn into package attestation. No normal command, controller method, IPC or
+UI exposure is added. Source-retention guards complement actual-owner behavioral
+tests; they are not proof of product activation. Exact executed checks are
+reported on the owning Draft, not inferred from compiling this function.
+
 The separate [provisional package-object reader](T3_PACKAGE_OBJECT_EVIDENCE.md)
 adds retained root-owned object research without supplying that missing permit
 or claiming a matched broker/distribution. Its real-root VM gate is separate.

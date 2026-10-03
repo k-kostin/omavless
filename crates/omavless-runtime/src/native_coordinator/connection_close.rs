@@ -1162,6 +1162,50 @@ while True:
     }
 
     #[test]
+    fn normal_compiled_scheduler_refuses_a_replaced_admission_lease() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let lease = fixture.owner.batch_lock().unwrap();
+        let mut captured = fixture.owner.connection_close.snapshot.take().unwrap();
+        let selected = captured
+            .rows
+            .iter_mut()
+            .find(|row| row.handle == rows[0].handle)
+            .and_then(|row| row.observed.take())
+            .unwrap();
+        let permit = captured.observation.fixture_permit().unwrap();
+        let lock_path = &captured.context.cutover_paths.operation_lock;
+        fs::rename(lock_path, lock_path.with_extension("original-held")).unwrap();
+        write(lock_path, b"", 0o600);
+        // This token is an actual reserved receipt, not caller-injected facts.
+        let token = match fixture
+            .owner
+            .coordinator
+            .reserve_external_close(
+                "replaced-lease-close",
+                0,
+                MutationDigest::from_semantic_bytes(b"fixed synthetic lease test"),
+                false,
+            )
+            .unwrap()
+        {
+            ExternalCloseAdmission::Reserved(token) => token,
+            ExternalCloseAdmission::Replay(_) => panic!("fresh fixed operation must reserve"),
+        };
+        assert!(matches!(
+            fixture
+                .owner
+                .schedule_permitted_connection_close(captured, selected, &token, permit, &lease,),
+            Err(NativeOwnerError::OwnershipUnavailable)
+        ));
+        assert!(fixture.owner.connection_close.active.is_none());
+        assert!(!fixture.root.join("r/effects").exists());
+        assert_eq!(fixture.owner.revision(), 0);
+        assert!(fixture.owner.desired().unwrap().connected);
+    }
+
+    #[test]
     fn actual_owned_bytes_and_abi_do_not_mint_normal_package_attestation() {
         let _fixtures = FIXTURES.lock().unwrap();
         let mut fixture = fixture("passive-ok");
@@ -2099,25 +2143,45 @@ impl OfflineNativeCoordinator<NativeLifecycleHost> {
         // cfg(test) fixed owned fixture constructor can exercise the effect.
         #[cfg(test)]
         if let Some(permit) = snapshot.observation.fixture_permit() {
-            let mut session = snapshot.observation.into_session();
-            session.authorize_effect(
-                EffectProof(snapshot.context),
-                snapshot.expiry,
-                selected.display,
-            );
-            let worker = self
-                .connection_close
-                .scheduler
-                .start(session, selected.target, permit)
-                .map_err(|_| NativeOwnerError::Invariant)?;
-            self.connection_close.active = Some(ActiveClose {
-                token: token.clone(),
-                worker,
-            });
-            return Ok(None);
+            return self
+                .schedule_permitted_connection_close(snapshot, selected, token, permit, &_lease);
         }
         let _ = (selected, token);
         Ok(Some(ExternalCloseOutcome::MissingAttestation))
+    }
+
+    // The actual scheduling transition compiles identically in normal builds.
+    // Its private permit has NO production constructor: passive image/ABI
+    // evidence still reaches MissingAttestation above and cannot start a worker.
+    // The sole fixture caller retains the checked admission lease across this call;
+    // existing per-chunk durable/lifetime proofs remain inside the worker.
+    fn schedule_permitted_connection_close(
+        &mut self,
+        snapshot: Snapshot,
+        selected: ObservedRow,
+        token: &ExternalCloseToken,
+        permit: crate::conditional_close_candidate::CandidateEffectPermit,
+        lease: &MigrationLock,
+    ) -> Result<Option<ExternalCloseOutcome>, NativeOwnerError> {
+        if !lease.authorizes(&snapshot.context.cutover_paths, snapshot.context.uid) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
+        let mut session = snapshot.observation.into_session();
+        session.authorize_effect(
+            EffectProof(snapshot.context),
+            snapshot.expiry,
+            selected.display,
+        );
+        let worker = self
+            .connection_close
+            .scheduler
+            .start(session, selected.target, permit)
+            .map_err(|_| NativeOwnerError::Invariant)?;
+        self.connection_close.active = Some(ActiveClose {
+            token: token.clone(),
+            worker,
+        });
+        Ok(None)
     }
 
     pub(crate) fn poll_connection_close(
