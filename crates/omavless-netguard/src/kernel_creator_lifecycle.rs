@@ -68,6 +68,19 @@ impl BatchReplies {
     fn complete(&self) -> bool {
         !self.poisoned && (self.changed || self.acks.iter().all(|ack| *ack))
     }
+    fn finish_prefix_loss(
+        &mut self,
+        loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
+    ) -> Result<bool> {
+        if !loss.ready(&self.acks)? {
+            return Ok(false);
+        }
+        require(!self.poisoned && !self.changed && !self.complete())?;
+        loss.confirm_remaining();
+        self.poisoned = true;
+        require(!self.complete())?;
+        Ok(true)
+    }
     fn receive(
         &mut self,
         bytes: &[u8],
@@ -145,6 +158,7 @@ struct FixtureCreator {
     lose_reply: bool,
     receive_fault: receive_truncation::OneShotTruncation,
     end_ack_loss: end_ack_loss::OneShotEndAckLoss,
+    prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss,
     cut_after_effect: bool,
     change_generation_before_send: bool,
     last_generation: Option<u32>,
@@ -167,6 +181,7 @@ impl FixtureCreator {
             lose_reply: false,
             receive_fault: receive_truncation::OneShotTruncation::default(),
             end_ack_loss: end_ack_loss::OneShotEndAckLoss::default(),
+            prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
             last_generation: None,
@@ -299,8 +314,25 @@ impl FixtureCreator {
                         replies.requests.last().ok_or(REFUSE)?,
                         self.session.local.pid(),
                     )?;
-                    if !delivered.is_empty() || !lost_end {
+                    let prefix_request = replies
+                        .requests
+                        .get(self.prefix_ack_loss.target().unwrap_or(0))
+                        .ok_or(REFUSE)?;
+                    let consumed_before = self.prefix_ack_loss.observed().0;
+                    let delivered = self.prefix_ack_loss.deliver(
+                        self.session.socket.as_raw_fd(),
+                        &delivered,
+                        sender,
+                        flags,
+                        prefix_request,
+                        self.session.local.pid(),
+                    )?;
+                    let lost_prefix = self.prefix_ack_loss.observed().0 != consumed_before;
+                    if !delivered.is_empty() || (!lost_end && !lost_prefix) {
                         replies.receive(&delivered, sender, flags)?;
+                    }
+                    if replies.finish_prefix_loss(&mut self.prefix_ack_loss)? {
+                        return Err(REFUSE);
                     }
                     if lost_end {
                         require(
@@ -420,8 +452,11 @@ impl EffectPort for FixtureCreator {
             require(witness.handle_for_fixture() == id.table_handle)?;
             self.effects += 1;
             require(
-                witness.consume_with_ack_faults(&mut self.receive_fault, &mut self.end_ack_loss)
-                    == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent,
+                witness.consume_with_ack_faults(
+                    &mut self.receive_fault,
+                    &mut self.end_ack_loss,
+                    &mut self.prefix_ack_loss,
+                ) == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent,
             )?;
             self.created = None;
             self.cut();
