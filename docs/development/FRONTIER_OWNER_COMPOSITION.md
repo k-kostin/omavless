@@ -1,5 +1,8 @@
 # Current-candidate frontier owner composition
 
+Actual typed Connection/Profile refusal revocation has a separate
+[exact-source checkpoint](../testing/T4_TYPED_ADMISSION_REVOCATION_2026-10-03.md).
+
 The later batch/root-object coexistence cut has its own
 [exact-source acceptance report](../testing/FRONTIER_BATCH_OBJECT_COMPOSITION_2026-10-03.md).
 Its evidence does not retroactively change the executed heads recorded below.
