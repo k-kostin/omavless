@@ -14,6 +14,10 @@ The [current-RC creator lifecycle research](../development/K1_CREATOR_LIFECYCLE_
 selectively composes those inactive mechanisms with actual kernel effects only
 under test compilation. It does not provide a production EffectPort or activate
 an installed kill switch.
+The [shared atomic ACK contract](../development/K1_SHARED_ATOMIC_ACK.md) removes
+test-adapter encoder/collector duplication using normal-compiled inactive code.
+Its measured isolated-kernel continuation leaves every result untrusted and
+does not establish production namespace, ownership or installed authority.
 The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
 tests synthetic egress and near-miss exceptions without a production service;
 its results do not replace this contract's host/physical acceptance matrix.

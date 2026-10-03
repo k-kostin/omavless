@@ -46,9 +46,59 @@ The existing raw BEGIN/operation/END observation-loss and receive-truncation
 fixtures retain their exact scenario prefixes and single-send/no-retry paths.
 Source guards check shared integration and keep mutation adapters test-only.
 
-CPU gates and a frozen executable identity will be recorded with the exact
-source head. No new VM execution or installed/package acceptance is claimed.
-Any kernel rerun requires review and the exclusive development-VM lease.
+## Exact-source gates and measured kernel continuation
+
+Tested code, 2026-10-03:
+`d7f6fa3a8abd72ed1f5b5c89f8ed4802cc22b404`. Full source checks passed
+506 tests with two existing skips, 93-link documentation navigation and
+native/QML checks. The complete Rust script passed 2,014 successful test
+invocations with 71 ignored invocations (not unique-test counts), all twelve
+terminal checks, strict workspace/feature clippy, feature checks and two-case
+parity. Both package architectures and source CI passed on that exact code.
+Subsequent documentation-head CI is separate from executable evidence.
+
+The frozen x86_64 test ELF has SHA-256
+`a6e8b21b8219448824b8de5582b2ad95007eabd5f335ab4f96c3211724dd9a92`.
+It was copied outside Cargo with mode 0500 and no file capabilities. Its
+ordinary CPU rerun passed 159 tests with twelve opt-in tests ignored.
+No running self-reexecution executable was rebuilt.
+
+Under an exclusive development-VM lease, two independently staged invocations
+each passed thirteen existing creator-lifecycle cases, three END observation-loss
+cases, six BEGIN/operation observation-loss cases and three actual receive-
+truncation cases: **50 actual cells total**. Each invocation used the same frozen
+ELF and required four exact aggregate receipts plus four exact successful
+ignored-test summaries. These exercised the newly shared collector through
+the actual cfg(test) creator and inventory-delete adapters. They are not
+synthetic-frame-only results, kernel ACK dropping, installed helper execution,
+packet-policy acceptance or a production ownership proof.
+
+The reviewed fixed-selector supervisor has SHA-256
+`e1985158299f9bb7071d473480e6545a5a508cbdaada18a0bf75ca98a6910514`;
+the preservation guard has SHA-256
+`f9b4959e947224508167ba58648d7b8c9e942cd25dbd4ca38f6d8074700b1e9d`.
+The supervisor ran as the ordinary VM user without credential setters. It
+retained each owned process-group leader with WNOWAIT until nonleaders had
+disappeared, bounded live output and runtime, and cancelled only that retained
+group on failure. Seven local synthetic-process tests covered orphaned children,
+inherited stdout, output bounds, timeout, refusal, success and selector rejection.
+Ten pure guard checks covered exact receipt, selector and quiescence validation.
+The second VM invocation was admitted only after every first-invocation guard
+passed. Neither invocation required a retry.
+
+Both invocations preserved all four canonical private file hashes, service
+state/PID, executable, outer network namespace, core/TUN inventories, resolver
+state and resolv.conf. All address and IPv4/IPv6 route/rule fields matched,
+except explicitly validated nonincreasing preferred/valid address lifetimes.
+Owned process-group and scratch-directory survivor checks passed.
+
+The private archive has SHA-256
+`e0572e86a9bbd28a19a6265d9cb02840db99b3911f51bbdd860600777fa56fdf`.
+Guest and independent local copies were synced and checked as mode 0600 under
+0700 parents. Independent archive readback verified both artifact sets, eight
+exact test/quiescence receipts, both full-guard PASS stamps and all retained
+before/after network fields. Raw private evidence is not committed. The VM lease
+was returned; no canonical package, service or network mutation was performed.
 
 [KILL_SWITCH](../roadmap/KILL_SWITCH.md) still owns the open production
 namespace/launch trust, nft continuity, durable orphan adjudication, package/
