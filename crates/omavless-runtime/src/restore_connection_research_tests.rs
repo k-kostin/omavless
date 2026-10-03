@@ -217,6 +217,111 @@ fn failed(
 }
 
 #[test]
+fn historical_connection_foreign_owner_refusal_preserves_original_replay_and_disconnect_abort() {
+    connection_foreign_owner_replay_and_disconnect(false);
+}
+
+#[test]
+fn historical_connection_foreign_owner_refusal_preserves_original_replay_and_disconnect_commit() {
+    connection_foreign_owner_replay_and_disconnect(true);
+}
+
+fn connection_foreign_owner_replay_and_disconnect(commit: bool) {
+    {
+        let (f, lock) = prepared(commit);
+        initialize(&f);
+        let mut c = context(&f, &lock);
+        let mut a = owner(&f, Host::default());
+        let mut b = owner(&f, Host::default()); // Same paths, distinct actual owner.
+        let connected = success(
+            a.execute_connection_research(request(&f, true, "original-connect", 0), &mut c)
+                .unwrap(),
+        );
+        let calls = a.host().calls.len();
+        let receiver_actual = b.actual();
+        let before = Snapshot::read_policy(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            LivePolicy::ValidCurrentBundled,
+        )
+        .unwrap();
+        assert!(
+            b.execute_connection_research(request(&f, false, "misrouted-disconnect", 0), &mut c,)
+                .is_err()
+        );
+        assert_eq!(b.revision(), 0);
+        assert_eq!(b.actual(), receiver_actual);
+        assert!(b.host().calls.is_empty());
+        assert_eq!(a.revision(), 1);
+        assert_eq!(a.actual(), ActualState::Connected);
+        assert_eq!(a.host().calls.len(), calls);
+        assert!(
+            before.same(
+                &Snapshot::read_policy(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    LivePolicy::ValidCurrentBundled,
+                )
+                .unwrap()
+            )
+        );
+        // The context is not recaptured or replaced after B's refusal.
+        assert_eq!(
+            a.execute_connection_research(request(&f, true, "original-connect", 0), &mut c,)
+                .unwrap(),
+            NativeOwnerExecution::Replay(connected),
+        );
+        assert!(!c.poisoned());
+        assert_eq!(a.host().calls.len(), calls);
+        assert!(
+            before.same(
+                &Snapshot::read_policy(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    LivePolicy::ValidCurrentBundled,
+                )
+                .unwrap()
+            )
+        );
+        let disconnected = success(
+            a.execute_connection_research(
+                request(&f, false, "original-next-disconnect", 1),
+                &mut c,
+            )
+            .unwrap(),
+        );
+        assert_eq!(disconnected.revision, 2);
+        assert_eq!(a.actual(), ActualState::Disconnected);
+        assert!(!a.host().running);
+        assert!(b.host().calls.is_empty());
+        assert_eq!(b.revision(), 0);
+        // Refusal must not permanently latch B either. Its independently
+        // captured Off context is not reused as authority for A.
+        let mut own_b_context = context(&f, &lock);
+        success(
+            b.execute_connection_research(
+                request(&f, true, "receiver-own-connect", 0),
+                &mut own_b_context,
+            )
+            .unwrap(),
+        );
+        assert_eq!(b.revision(), 1);
+        assert!(crate::pending_private_transaction::pending_at(
+            &f.paths.state_directory
+        ));
+    }
+}
+
+#[test]
 fn historical_connection_real_connect_disconnect_replay_noop_and_history() {
     for commit in [false, true] {
         let (f, lock) = prepared(commit);
