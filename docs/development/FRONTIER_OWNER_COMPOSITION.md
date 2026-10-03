@@ -1,5 +1,9 @@
 # Current-candidate frontier owner composition
 
+The later batch/root-object coexistence cut has its own
+[exact-source acceptance report](../testing/FRONTIER_BATCH_OBJECT_COMPOSITION_2026-10-03.md).
+Its evidence does not retroactively change the executed heads recorded below.
+
 Development-only compatibility audit based on `rc/0.9.7` at
 `c4e800425243c1b02165f82153e4bf418fe465e6`. This is not an RC scope change,
 normal activation, release, marketplace request or main-update proposal.
