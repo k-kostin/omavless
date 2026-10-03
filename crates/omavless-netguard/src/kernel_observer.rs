@@ -1,5 +1,7 @@
 //! Inactive, read-only fixed-table metadata observation in the calling namespace.
 //! No ownership, policy verification, canonical-host identity or effect authority.
+#[path = "kernel_atomic_batch.rs"]
+mod atomic_batch;
 #[path = "kernel_chain_observer.rs"]
 mod chain;
 pub use chain::LocalChainInventory;

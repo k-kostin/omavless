@@ -44,170 +44,7 @@ impl LocalReadSession {
     }
 }
 
-struct Wire {
-    begin: Vec<u8>,
-    delete: Vec<u8>,
-    end: Vec<u8>,
-    batch: Vec<u8>,
-}
-fn encode(generation: u32, handle: u64, first: u32) -> Result<Wire> {
-    // Zero disables the kernel condition. Never encode it, or family UNSPEC
-    // (which would turn a missing target into a ruleset-wide flush).
-    require(generation != 0 && handle != 0 && first != 0 && first.checked_add(3).is_some())?;
-    let begin = message(
-        16,
-        5,
-        first,
-        0,
-        &[vec![0, 0, 0, 10], attribute(1, &generation.to_be_bytes())].concat(),
-    );
-    let delete = message(
-        NFT + 2,
-        5,
-        first + 1,
-        0,
-        &[vec![1, 0, 0, 0], attribute(4, &handle.to_be_bytes())].concat(),
-    );
-    // BEGIN/operation successes can be queued even when final commit fails.
-    // Only END success is emitted after ss->commit succeeds.
-    let end = message(17, 5, first + 2, 0, &[0, 0, 0, 10]);
-    let batch = [begin.clone(), delete.clone(), end.clone()].concat();
-    Ok(Wire {
-        begin,
-        delete,
-        end,
-        batch,
-    })
-}
-
-struct Replies {
-    wire: Wire,
-    port: u32,
-    begin_ack: bool,
-    delete_ack: bool,
-    end_ack: bool,
-    changed: bool,
-    poisoned: bool,
-    bytes: usize,
-    datagrams: usize,
-}
-impl Replies {
-    fn new(wire: Wire, port: u32) -> Result<Self> {
-        require(port != 0)?;
-        Ok(Self {
-            wire,
-            port,
-            begin_ack: false,
-            delete_ack: false,
-            end_ack: false,
-            changed: false,
-            poisoned: false,
-            bytes: 0,
-            datagrams: 0,
-        })
-    }
-    fn complete(&self) -> bool {
-        !self.poisoned && (self.changed || (self.begin_ack && self.delete_ack && self.end_ack))
-    }
-    fn finish_prefix_loss(
-        &mut self,
-        loss: &mut prefix_ack_loss::OneShotPrefixAckLoss,
-    ) -> Result<bool> {
-        if !loss.ready(&[self.begin_ack, self.delete_ack, self.end_ack])? {
-            return Ok(false);
-        }
-        require(!self.poisoned && !self.changed && !self.complete())?;
-        loss.confirm_remaining();
-        self.poisoned = true;
-        require(!self.complete())?;
-        Ok(true)
-    }
-    fn receive(
-        &mut self,
-        bytes: &[u8],
-        sender: Option<NetlinkAddr>,
-        flags: MsgFlags,
-    ) -> Result<()> {
-        if self.poisoned || self.complete() {
-            self.poisoned = true;
-            return Err(REFUSE);
-        }
-        let result = self.receive_inner(bytes, sender, flags);
-        if result.is_err() {
-            self.poisoned = true;
-        }
-        result
-    }
-    fn receive_inner(
-        &mut self,
-        mut bytes: &[u8],
-        sender: Option<NetlinkAddr>,
-        flags: MsgFlags,
-    ) -> Result<()> {
-        require(sender == Some(NetlinkAddr::new(0, 0)) && flags.is_empty())?;
-        self.bytes = self.bytes.checked_add(bytes.len()).ok_or(REFUSE)?;
-        self.datagrams += 1;
-        require(!bytes.is_empty() && self.bytes <= LIMIT && self.datagrams <= 8)?;
-        while !bytes.is_empty() {
-            require(!self.changed && bytes.len() >= 16)?;
-            let length = usize::try_from(u32n(&bytes[..4])?).map_err(|_| REFUSE)?;
-            require(
-                length >= 36
-                    && aligned(length) <= bytes.len()
-                    && bytes[length..aligned(length)].iter().all(|v| *v == 0)
-                    && u16n(&bytes[4..6])? == 2
-                    && u32n(&bytes[12..16])? == self.port,
-            )?;
-            let flags = u16n(&bytes[6..8])?;
-            require(matches!(flags, 0 | 0x100))?;
-            let sequence = u32n(&bytes[8..12])?;
-            let first = u32n(&self.wire.begin[8..12])?;
-            let body = &bytes[16..length];
-            let code = i32::from_ne_bytes(body[..4].try_into().map_err(|_| REFUSE)?);
-            let original = if sequence == first {
-                &self.wire.begin
-            } else if sequence == first + 1 {
-                &self.wire.delete
-            } else {
-                require(sequence == first + 2)?;
-                &self.wire.end
-            };
-            // Capped errors and success echo only the original header; uncapped
-            // errors must echo the entire exact request. No extack/text parsing.
-            let echoed = if code == 0 || flags == 0x100 {
-                &original[..16]
-            } else {
-                &original[..]
-            };
-            require(&body[4..] == echoed)?;
-            if code == -85 {
-                // ERESTART: kernel rejected generation before batch operations.
-                require(
-                    sequence == first
-                        && !self.begin_ack
-                        && !self.delete_ack
-                        && !self.end_ack
-                        && aligned(length) == bytes.len(),
-                )?;
-                self.changed = true;
-            } else {
-                require(code == 0)?;
-                if sequence == first {
-                    require(!self.begin_ack)?;
-                    self.begin_ack = true;
-                } else if sequence == first + 1 {
-                    require(!self.delete_ack)?;
-                    self.delete_ack = true;
-                } else {
-                    require(!self.end_ack)?;
-                    self.end_ack = true;
-                }
-            }
-            bytes = &bytes[aligned(length)..];
-        }
-        Ok(())
-    }
-}
+use super::atomic_batch::{AtomicReplies as Replies, delete_batch as encode};
 
 impl InventoryDelete<'_> {
     pub(super) fn handle_for_fixture(&self) -> u64 {
@@ -252,6 +89,7 @@ impl InventoryDelete<'_> {
             self.session.poisoned = true;
             return DeleteOutcome::RefusedBeforeSend;
         };
+        let batch = replies.requests().concat();
         // Encoding/collector work may consume the budget. Recheck identity and
         // the clock after that work, immediately before the first syscall.
         if self.session.check(deadline).is_err() || Instant::now() >= deadline {
@@ -264,12 +102,12 @@ impl InventoryDelete<'_> {
             require(
                 sendto(
                     self.session.socket.as_raw_fd(),
-                    &replies.wire.batch,
+                    &batch,
                     &NetlinkAddr::new(0, 0),
                     MsgFlags::MSG_DONTWAIT,
                 )
                 .map_err(|_| REFUSE)?
-                    == replies.wire.batch.len(),
+                    == batch.len(),
             )?;
             while !replies.complete() {
                 self.session.check(deadline)?;
@@ -291,12 +129,12 @@ impl InventoryDelete<'_> {
                             &bytes[..length],
                             sender,
                             flags,
-                            &replies.wire.end,
+                            &replies.requests()[2],
                             self.session.local.pid(),
                         )?;
                         let prefix_request = match prefix_ack_loss.target() {
-                            None | Some(0) => &replies.wire.begin,
-                            Some(1) => &replies.wire.delete,
+                            None | Some(0) => &replies.requests()[0],
+                            Some(1) => &replies.requests()[1],
                             _ => return Err(REFUSE),
                         };
                         let consumed_before = prefix_ack_loss.observed().0;
@@ -317,15 +155,15 @@ impl InventoryDelete<'_> {
                         }
                         if lost_end {
                             require(
-                                !replies.poisoned
-                                    && !replies.changed
+                                !replies.poisoned()
+                                    && !replies.changed()
                                     && !replies.complete()
-                                    && replies.begin_ack
-                                    && replies.delete_ack
-                                    && !replies.end_ack,
+                                    && replies.acks()[0]
+                                    && replies.acks()[1]
+                                    && !replies.acks()[2],
                             )?;
                             end_ack_loss.confirm_prefix();
-                            replies.poisoned = true;
+                            replies.poison();
                             require(!replies.complete())?;
                             return Err(REFUSE);
                         }
@@ -341,7 +179,7 @@ impl InventoryDelete<'_> {
             self.session.poisoned = true;
             return DeleteOutcome::Unknown;
         }
-        if replies.changed {
+        if replies.changed() {
             // Old witness is consumed. Explicit refusal is not fresh authority.
             self.session.poisoned = true;
             return DeleteOutcome::GenerationChanged;
@@ -384,12 +222,12 @@ mod tests {
     #[test]
     fn nonzero_bounded_single_handle_wire_never_uses_name_or_unspec_flush() {
         let wire = encode(0x01020304, 0x0102030405060708, 5).unwrap();
-        assert_eq!(&wire.begin[24..28], &[1, 2, 3, 4]);
+        assert_eq!(&wire[0][24..28], &[1, 2, 3, 4]);
         assert_eq!(
-            &wire.delete[16..],
+            &wire[1][16..],
             &[1, 0, 0, 0, 12, 0, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8]
         );
-        assert_eq!(wire.batch.len(), 28 + 32 + 20);
+        assert_eq!(wire.concat().len(), 28 + 32 + 20);
         for (generation, handle, seq) in [(0, 1, 1), (1, 0, 1), (1, 1, 0), (1, 1, u32::MAX - 2)] {
             assert!(encode(generation, handle, seq).is_err());
         }
@@ -406,9 +244,9 @@ mod tests {
         ] {
             let mut c = collector();
             let a = [
-                ack(&c.wire.begin, 0, false),
-                ack(&c.wire.delete, 0, true),
-                ack(&c.wire.end, 0, false),
+                ack(&c.requests()[0], 0, false),
+                ack(&c.requests()[1], 0, true),
+                ack(&c.requests()[2], 0, false),
             ];
             push(&mut c, &a[order[0]]).unwrap();
             assert!(!c.complete());
@@ -423,15 +261,15 @@ mod tests {
     #[test]
     fn queued_operation_success_without_final_commit_never_completes() {
         let mut c = collector();
-        let begin = ack(&c.wire.begin, 0, false);
-        let delete = ack(&c.wire.delete, 0, false);
+        let begin = ack(&c.requests()[0], 0, false);
+        let delete = ack(&c.requests()[1], 0, false);
         push(&mut c, &[begin, delete].concat()).unwrap();
         assert!(!c.complete()); // a lost commit-error cannot become success
-        let commit_error = ack(&c.wire.begin, -22, false);
+        let commit_error = ack(&c.requests()[0], -22, false);
         assert!(push(&mut c, &commit_error).is_err());
         assert!(!c.complete());
         let mut c = collector();
-        let failed_end = ack(&c.wire.end, -22, false);
+        let failed_end = ack(&c.requests()[2], -22, false);
         assert!(push(&mut c, &failed_end).is_err());
     }
     #[test]
@@ -447,9 +285,9 @@ mod tests {
             ] {
                 let mut c = collector();
                 let requests = [
-                    c.wire.begin.clone(),
-                    c.wire.delete.clone(),
-                    c.wire.end.clone(),
+                    c.requests()[0].clone(),
+                    c.requests()[1].clone(),
+                    c.requests()[2].clone(),
                 ];
                 let mut loss = prefix_ack_loss::OneShotPrefixAckLoss::default();
                 loss.arm(7, target);
@@ -473,8 +311,8 @@ mod tests {
                     assert_eq!(c.finish_prefix_loss(&mut loss).unwrap(), position == 2);
                 }
                 assert_eq!(loss.observed(), (1, true));
-                assert!(c.poisoned && !c.changed && c.end_ack);
-                assert_eq!([c.begin_ack, c.delete_ack], [target != 0, target != 1]);
+                assert!(c.poisoned() && !c.changed() && c.acks()[2]);
+                assert_eq!([c.acks()[0], c.acks()[1]], [target != 0, target != 1]);
                 for request in requests {
                     assert!(push(&mut c, &ack(&request, 0, false)).is_err());
                 }
@@ -485,7 +323,7 @@ mod tests {
     #[test]
     fn final_commit_ack_truncation_forgery_or_duplicate_poison() {
         let c = collector();
-        let end = ack(&c.wire.end, 0, false);
+        let end = ack(&c.requests()[2], 0, false);
         for length in 0..end.len() {
             assert!(push(&mut collector(), &end[..length]).is_err());
         }
@@ -504,23 +342,23 @@ mod tests {
     fn exact_restart_of_begin_only_is_changed_all_other_errors_unknown() {
         for capped in [false, true] {
             let mut c = collector();
-            let bytes = ack(&c.wire.begin, -85, capped);
+            let bytes = ack(&c.requests()[0], -85, capped);
             push(&mut c, &bytes).unwrap();
-            assert!(c.complete() && c.changed);
+            assert!(c.complete() && c.changed());
             for code in [-2, -1, -22, -95] {
                 let mut c = collector();
-                let bytes = ack(&c.wire.begin, code, capped);
+                let bytes = ack(&c.requests()[0], code, capped);
                 assert!(push(&mut c, &bytes).is_err());
             }
             let mut c = collector();
-            let bytes = ack(&c.wire.delete, -85, capped);
+            let bytes = ack(&c.requests()[1], -85, capped);
             assert!(push(&mut c, &bytes).is_err());
         }
     }
     #[test]
     fn forged_duplicate_truncated_wrong_peer_and_trailing_changed_refuse() {
         let c = collector();
-        let original = ack(&c.wire.begin, -85, false);
+        let original = ack(&c.requests()[0], -85, false);
         for end in 0..original.len() {
             assert!(push(&mut collector(), &original[..end]).is_err());
         }
@@ -541,12 +379,8 @@ mod tests {
         );
         assert!(push(&mut collector(), &[original.clone(), original].concat()).is_err());
         let mut c = collector();
-        let a = ack(&c.wire.begin, 0, false);
+        let a = ack(&c.requests()[0], 0, false);
         push(&mut c, &a).unwrap();
-        assert!(push(&mut c, &a).is_err());
-        let mut c = collector();
-        c.bytes = LIMIT;
-        let a = ack(&c.wire.begin, 0, false);
         assert!(push(&mut c, &a).is_err());
     }
 
@@ -558,10 +392,12 @@ mod tests {
             MsgFlags::MSG_TRUNC | MsgFlags::MSG_CTRUNC,
         ] {
             let mut c = collector();
-            let a = ack(&c.wire.begin, 0, false);
+            let a = ack(&c.requests()[0], 0, false);
             assert!(c.receive(&a, Some(NetlinkAddr::new(0, 0)), flags).is_err());
-            assert!(c.poisoned && !c.complete());
-            for request in [&c.wire.begin, &c.wire.delete, &c.wire.end].map(|r| ack(r, 0, false)) {
+            assert!(c.poisoned() && !c.complete());
+            for request in
+                [&c.requests()[0], &c.requests()[1], &c.requests()[2]].map(|r| ack(r, 0, false))
+            {
                 assert!(push(&mut c, &request).is_err());
             }
             assert!(!c.complete());

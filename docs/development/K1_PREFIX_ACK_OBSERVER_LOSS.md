@@ -1,5 +1,9 @@
 # K1 BEGIN and operation ACK observation loss
 
+The subsequent [shared atomic ACK contract](K1_SHARED_ATOMIC_ACK.md) removes
+collector duplication in normal-compiled inactive code. Its evidence remains
+separate from this report's exact tested executable.
+
 This test-only continuation starts at sealed composition [#569](https://github.com/k-kostin/omavless/pull/569),
 `1bbd358e53b99b5aa6156817fc130b17a7429d0e`. The earlier
 [END observation-loss evidence](K1_END_ACK_OBSERVER_LOSS.md),
