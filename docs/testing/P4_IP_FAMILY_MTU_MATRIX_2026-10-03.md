@@ -1,4 +1,81 @@
-# P4 IP-family / MTU matrix: partial wire measurements and retained refusals
+# P4 IP-family / MTU matrix: bounded wire measurements and retained negatives
+
+Two independently invoked corrected matrices executed exact source
+`ce4850ac1191463cf9aea1e416db59b8dc60c4e3`: each measured **24/24 cells and
+96/96 UDP cases**, with its own fresh strict external canonical baseline
+preserved. This is bounded developer loopback characterization, not normal
+activation, Internet PMTU1500, provider/DNS or broad P4 closure. The older
+frozen933 partial runs and strict-baseline NONPASS below remain unchanged.
+
+## Corrected ce4850a execution
+
+The HTTP fixture sets SO_REUSEADDR before the first and every subsequent bind;
+new readiness/diagnostic guards are described below. No peer, renderer, Mihomo
+or upstream implementation bytes changed. The exact copied binary and inherited
+helper hashes are those in the frozen933 artifact table below.
+
+| Corrected execution artifact | SHA-256 |
+| --- | --- |
+| Frozen source archive | `fcd18c7b439c2123ab011bff87d1ff3f64b63999076ba7801f3d7b534d8d949f` |
+| Matrix runner | `d098f72c9d28c29678a939039df44fb51d511aa854de0879594f315472aa3540` |
+| Single-invocation canonical guard 1 | `c571d545af75680b54cfd258e3773b94bfa7a741e44bdf42940935df9d020db7` |
+| Single-invocation canonical guard 2 | `d5a19e561e0f3372be29de3c1a3c523ccaef78a33e6cb8d75b4d3e1e1b4a00d4` |
+| Invocation 1 raw result JSON | `5158d251a2a7ffcf20dfb3eaf9c1d4385153d710411854dd4b4ecad9307db590` |
+| Invocation 1 private archive | `535ec9d17b817da44210377f5bd9cfd539424c0c93dbfb10cee613da8a1c054c` |
+| Invocation 2 raw result JSON | `b5e9f8585d255ca48eb12990761a1df857e0f55988ad09f3e60c5fa02db950d3` |
+| Invocation 2 private archive | `dc29063ba332e5778d24eb01a12ed1e62e2e8129239ecd1e747ef3950b3ec3cf` |
+
+Both reviewed guards retain the identical strict canonical comparator; only
+the frozen source/runner pins, new private stage and invocation number differ.
+Each invocation independently measured all standard-WG-mode/AWG3/AWG3.1 ×
+actual outer IPv4/IPv6 × actual inner IPv4/IPv6 × MTU1280/1420 cells. The
+standard-WG-mode row uses the pinned official AWG engine, **not** independent
+kernel-WG/wireguard-go interoperability. Actual relay datagram source families
+in both directions and decrypted fixed-flow IP/UDP receipts determine families;
+configuration strings or parser round trips are not wire evidence.
+
+| Corrected invocation | Cells measured / partial / refused | UDP measured / NONPASS | HTTP / wrong-key / recovery cells | Canonical baseline |
+| --- | --- | --- | --- | --- |
+| 1 | 24 / 0 / 0 | 96 / 0 | 24 / 24 / 24 | Preserved |
+| 2 | 24 / 0 / 0 | 96 / 0 | 24 / 24 / 24 | Preserved |
+
+Each HTTP and recovery receipt proves the exact 65,536-byte body. Each wrong-key
+control requires an authenticated literal SOCKS connection attempt for HTTP and
+an actual UDP send, outbound relay advance, unchanged authenticated peer/service
+counters and no DIRECT path. It does not claim a GET reached the wrong-key peer.
+Per invocation, 72 baseline/M−1/M UDP cases had exact unfragmented forward and
+reverse payloads. All 24 M+1 cases had matching complete forward fragment
+coverage, exact service reassembly and a nonce/hash ACK, followed by **fixture
+reverse local EMSGSIZE under explicit PMTUDISC_DO** for the full echo. The
+reverse socket policy is a fixture choice, not forward core refusal or native
+product MTU enforcement. No oversize-unfragmented or ambiguous timeout case was
+promoted to compliance. M denotes total inner IP length; loopback outer MTU is
+65536, not an Internet path MTU.
+
+This is 48 measured cell executions and 192 measured UDP cases across the two
+corrected invocations, with 48 separately attributed M+1 fragment/refusal cases.
+Every external category passed independently: private-file fingerprints,
+active/running user service/PID/executable, parent namespace, core/TUN inventory,
+resolver/resolv.conf and all IPv4/IPv6 addresses/routes/rules. Only approved
+nonincreasing numeric address lifetime countdowns differed. No comparator
+relaxation or canonical repair was used. Both owned process groups/namespaces
+were reaped and scratch cleanup succeeded. No NONPASS diagnostic archive was
+needed. Private archives were copied and rehashed before removing only the new
+owned guest stage; old933 evidence remains privately retained. The exclusive VM
+lease was explicitly released. Raw private baselines/logs are not in Git.
+
+Source ce4850a gates: 15 focused pure guards PASS; **329 reported / two existing
+skips / 327 executed / zero failures**, plus JS/native/QML/navigation and scoped
+static checks PASS. Its [x86_64 and ARM64 package CI](https://github.com/k-kostin/omavless/actions/runs/37103364103)
+passed. Its [general Test CI](https://github.com/k-kostin/omavless/actions/runs/37103364171/job/111147071347)
+**failed** in the unmodified runtime test
+`auxiliary_core::tests::admission_is_exclusive_and_quiesce_revokes_before_spawn`
+at `auxiliary_core.rs:493` (`Cleanup` unwrap; 691 passed, one failed, seven
+ignored). Cause is unestablished; no rerun or runtime fix is represented as PASS.
+Frozen933's earlier green CI belongs only to933. These VM results belong only
+to the exact frozen ce4850a code/artifacts, not a later documentation head.
+
+## Retained frozen933 partial execution
 
 Two independently invoked matrices executed exact source
 `933e4028427a21f6678923c31e0c700dfd4490c1` from Draft #574. This is developer
@@ -92,7 +169,7 @@ Private evidence is not uploaded to Git:
 | Invocation 2 raw result JSON | `69582ffa4b1cd311d0fff363f875762407a9dc74afa374479ccdbe51e71df198` |
 | Invocation 2 archive | `253fd7c983b5623a228b0bb87f325cceadf9ddec73326219b2da994ea1236bc9` |
 
-## CPU-only fixture follow-up
+## Fixture follow-up (CPU gates before corrected execution)
 
 The subsequent test-only runner change sets HTTP SO_REUSEADDR **before bind**
 for the first and every later cell. It distinguishes peer/service/core readiness
@@ -108,6 +185,7 @@ synthetic key files are excluded, and public metadata contains only archive
 leaf/hash/count/bytes. This prevents a new refusal losing its diagnostic bytes,
 without sharing raw private core logs or weakening the strict canonical guard.
 No new peer/renderer/core binary or upstream implementation change is needed.
-Any follow-up actual matrix needs a new frozen source/guard review and separate
-explicit VM lease with a freshly checked strict baseline. Old 933 results remain
-partial and invocation 2's baseline remains NONPASS.
+The corrected ce4850a executions above followed a new frozen source/guard review
+and separate explicit VM lease with a freshly checked strict baseline for each
+invocation. Old 933 results remain partial and invocation 2's baseline remains
+NONPASS; success after the source fixture fix does not establish the old errno.

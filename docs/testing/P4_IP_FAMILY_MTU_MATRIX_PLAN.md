@@ -136,8 +136,12 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
   = 48 private-store/native-render round trips and fixed-geometry refusal cases.
 - Initial source suite: **321 reported, two existing skips, 319 executed, zero failures**;
   JS/native/QML contracts pass. Formatting/whitespace remain scoped static gates.
-- Actual evidence is limited to the linked partial checkpoint; no broad matrix,
-  native-owner or Internet PMTU acceptance is claimed.
+- Corrected source suite: **329 reported, two existing skips, 327 executed, zero
+  failures**, plus JS/native/QML/navigation checks PASS. The linked checkpoint
+  retains two older 2/24 partial runs and their strict-baseline NONPASS, then two
+  independently invoked frozen ce4850a 24/24 loopback matrices with preserved
+  strict baselines. This is bounded characterization, not broad P4, native-owner
+  or Internet PMTU acceptance; general ce4850a Test CI remains failed separately.
 
 Pre-VM review found a fixture-only variable overwrite: a renderer subprocess
 result replaced the mutable cell record. A separate rendering helper now keeps
