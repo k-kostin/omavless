@@ -17,6 +17,7 @@ import loopback
 import review
 import udp_loopback
 import dns_interop
+import artifact_export
 
 DNS_REVISION = "c4e800425243c1b02165f82153e4bf418fe465e6"
 SING_TUN = "b50ae28a1409c7bce8e96e6c6966cf57d8ace754"
@@ -73,11 +74,13 @@ def apply(path, patch, *, reverse=False):
 
 
 def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
-             fixture=None, fixture_sha=None):
+             fixture=None, fixture_sha=None, developer_export=None):
     validate_paths((mihomo, sing_tun, repository), scratch)
     if (fixture is None) != (fixture_sha is None):
         raise RuntimeError("Rust wire opt-in requires path and exact digest")
     fixture_bytes = None if fixture is None else dns_interop.snapshot_fixture(fixture, fixture_sha)
+    if developer_export is not None and (fixture_bytes is None or not udp):
+        raise RuntimeError("Developer export requires wire and UDP execution")
     patches = dns_patches(repository)  # Refuse unknown patch bytes before compilation.
     if hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest() != SOCKET_TEST_SHA256:
         raise RuntimeError("Composition test overlay identity refused")
@@ -90,7 +93,7 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
         if (not corpus or len(corpus) > 4096
                 or hashlib.sha256(corpus).hexdigest() != dns_interop.CORPUS_SHA256):
             raise RuntimeError("Pinned Rust wire corpus refused")
-    with tempfile.TemporaryDirectory(prefix="managed-close-", dir=scratch) as name:
+    with artifact_export.destination(developer_export) as bundle, tempfile.TemporaryDirectory(prefix="managed-close-", dir=scratch) as name:
         root = Path(name)
         export(mihomo, review.PIN, root / "mihomo")
         export(sing_tun, SING_TUN, root / "sing-tun")
@@ -107,6 +110,7 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
         # No dependency downloads, installed modules, Go workspaces or implicit
         # toolchain acquisition; private copied dependency replaces only sing-tun.
         env = review.compiler_environment(root)
+        tools = artifact_export.toolchains(env) if bundle is not None else None
         source = root / "mihomo"
         review.run([review.GO, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"], cwd=source, env=env)
         review.run([review.GO, "mod", "verify"], cwd=source, env=env)
@@ -119,10 +123,11 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
         dns = review.run([review.GO, "test", "-json", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
                           "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=20"], cwd=source, env=env)
         matrix_receipt(dns, DNS_TESTS, (DNS_INTEROP_SKIP,))
+        wire = None
         if fixture_bytes is not None:
             apply(source, INTEROP_TEST_PATCH)
-            dns_interop.exercise(root, source, env, fixture_bytes, fixture_sha,
-                                 corpus, review.run, review.GO)
+            wire = dns_interop.exercise(root, source, env, fixture_bytes, fixture_sha,
+                                       corpus, review.run, review.GO)
             apply(source, INTEROP_TEST_PATCH, reverse=True)
         # Restore the exact production composition before compiling its binary.
         # Test source is not linked by Go build, but keeping the two identities
@@ -134,10 +139,14 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
         metadata = review.run([review.GO, "version", "-m", str(core)], env=env)
         if b"-tags=with_gvisor" not in metadata or b"CGO_ENABLED=0" not in metadata:
             raise RuntimeError("Composition production-tag identity refused")
+        core_sha = hashlib.sha256(core.read_bytes()).hexdigest()
         loopback.exercise(core, root)
         if udp:
             for _ in range(20):
                 udp_loopback.exercise(core, root)
+        if bundle is not None:
+            artifact_export.complete(bundle, root, repository, env, core_sha,
+                                     conditional, dns, wire, fixture_sha, metadata, tools)
         return hashlib.sha256(core.read_bytes()).hexdigest()
 
 
@@ -150,10 +159,13 @@ def main():
                         help="Explicit separately reviewed synthetic channel_fixture ELF")
     parser.add_argument("--rust-channel-fixture-sha256",
                         help="Exact SHA-256 of that frozen test artifact, not release attestation")
+    parser.add_argument("--developer-export", type=Path,
+                        help="New private developer bundle; requires wire and UDP gates; never installed")
     args = parser.parse_args()
     sha = exercise(args.mihomo_source, args.sing_tun_source, args.dns_repository,
                    args.scratch_parent, udp=args.udp_loopback,
-                   fixture=args.rust_channel_fixture, fixture_sha=args.rust_channel_fixture_sha256)
+                   fixture=args.rust_channel_fixture, fixture_sha=args.rust_channel_fixture_sha256,
+                   developer_export=args.developer_export)
     print("managed_conditional_composition: passed; offline; synthetic loopback; no installation")
     print("mihomo_sha=" + review.PIN + " sing_tun_sha=" + SING_TUN)
     print("dns_adapter_sha=" + DNS_REVISION)
@@ -171,6 +183,8 @@ def main():
     print("core_sha256=" + sha)
     if args.udp_loopback:
         print("udp_loopback=20_passed; wrong_token_preserves_both; exact_close_receipt; same_association_reconnects")
+    if args.developer_export is not None:
+        print("developer_bundle=complete; broker_built_not_executed; no_attestation_or_installation")
 
 
 if __name__ == "__main__":
