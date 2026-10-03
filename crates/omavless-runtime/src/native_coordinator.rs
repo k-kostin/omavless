@@ -12,6 +12,7 @@
 
 mod backup_candidate;
 mod batch;
+pub(crate) mod connection_admission;
 mod onboarding;
 mod probe;
 mod profile_admission;
@@ -1325,8 +1326,33 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: OwnerRequest,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_connection_admitted(
+            request,
+            &mut connection_admission::ConnectionAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_connection_research(
+        &mut self,
+        request: OwnerRequest,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::HistoricalConnection<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_connection_admitted(
+            request,
+            &mut connection_admission::ConnectionAdmission::Historical(context),
+        )
+    }
+
+    fn execute_connection_admitted(
+        &mut self,
+        request: OwnerRequest,
+        admission_context: &mut connection_admission::ConnectionAdmission<'_, '_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let (action, operation_id, expected_revision, digest) = request.into_parts();
-        let admission = self.admit(
+        admission_context.kind(&action)?;
+        let admission = admission_context.admit(
+            self,
             action.kind(),
             operation_id.as_deref(),
             expected_revision,
@@ -1337,11 +1363,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
             Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
         };
-        let blocked = if matches!(action, OwnerAction::Disconnect) {
-            self.transaction.stop_blocked()
-        } else {
-            self.transaction.blocked()
-        };
+        let blocked = admission_context.blocked(self, matches!(action, OwnerAction::Disconnect));
         if blocked {
             return self.finish(
                 token,
@@ -1351,17 +1373,22 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 false,
             );
         }
-        let lock = match self.preflight_lock(token, NativeTransactionError::Connection)? {
-            LockAdmission::Locked(lock) => lock,
-            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        let lock = match admission_context.preflight(self, token)? {
+            Ok(lock) => lock,
+            Err(outcome) => return Ok(outcome),
         };
         let completion = match action {
             OwnerAction::Connect { profile_id, mode } => {
-                self.transaction.connect(&lock, profile_id, mode)
+                self.transaction
+                    .connect_admitted(&lock, profile_id, mode, admission_context)
             }
-            OwnerAction::Disconnect => self.transaction.disconnect(&lock),
+            OwnerAction::Disconnect => self
+                .transaction
+                .disconnect_admitted(&lock, admission_context),
             OwnerAction::SetMode { mode } => self.transaction.set_mode(&lock, mode),
         };
+        admission_context.completion(&completion);
+        admission_context.latch(self);
         match completion {
             Completion::Ordinary(outcome) => self.finish(
                 token,

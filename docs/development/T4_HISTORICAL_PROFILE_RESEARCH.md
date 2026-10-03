@@ -5,6 +5,11 @@ This is approved Dev-only study of the proposed same-UID/exact-ownership-generat
 historical policy in private synthetic fixtures. Product adoption remains unapproved.
 No ordinary startup, owner registration, IPC dispatch or general mutation is enabled.
 
+Current-RC source composition and the later test-only actual Connect/Disconnect
+integration are documented separately in
+[connection-lifecycle research](T4_HISTORICAL_CONNECTION_RESEARCH.md). The
+exact-head results below remain evidence for this earlier favorite-only slice.
+
 ## Actual caller and authority
 
 Ordinary `execute_profile` delegates through the typed Ordinary alternative to

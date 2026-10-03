@@ -550,7 +550,7 @@ impl crate::lifecycle::LifecycleHost for OffHost {
     }
 }
 
-fn desired_paths(f: &Fixture) -> crate::desired::DesiredPaths {
+pub(super) fn desired_paths(f: &Fixture) -> crate::desired::DesiredPaths {
     crate::desired::DesiredPaths {
         directory: f.paths.state_directory.clone(),
         file: f.paths.state_directory.join("desired.json"),
@@ -809,7 +809,7 @@ fn real_owner_off_research_missing_original_state_never_recreates_directory() {
     );
 }
 
-fn receipt(f: &Fixture) {
+pub(super) fn receipt(f: &Fixture) {
     let hash = format!(
         "{:x}",
         Sha256::digest([b"omavless-login-epoch-v1\0".as_slice(), EPOCH.as_bytes()].concat())
@@ -818,10 +818,10 @@ fn receipt(f: &Fixture) {
     fs::write(&path, serde_json::json!({"schemaVersion":1,"epochHash":hash,"ownershipGeneration":2,"phase":"consumed"}).to_string()).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn proof<'a>(f: &'a Fixture, lock: &'a MigrationLock) -> CurrentEpochProof<'a> {
+pub(super) fn proof<'a>(f: &'a Fixture, lock: &'a MigrationLock) -> CurrentEpochProof<'a> {
     CurrentEpochProof::synthetic(&f.paths, f.uid, 2, lock, |_| Ok(EPOCH.into())).unwrap()
 }
-fn witness<'a>(f: &'a Fixture, lock: &'a MigrationLock) -> RetainedCurrentOff<'a> {
+pub(super) fn witness<'a>(f: &'a Fixture, lock: &'a MigrationLock) -> RetainedCurrentOff<'a> {
     RetainedCurrentOff::capture(&f.config, &f.paths, f.uid, 2, lock).unwrap()
 }
 fn assert_fenced(f: &Fixture, lock: &MigrationLock) {

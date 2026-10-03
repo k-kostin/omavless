@@ -908,6 +908,195 @@ impl<'a> HistoricalProfile<'a> {
     }
 }
 
+/// Consumes the Off witness for bounded real connection caller research. The
+/// current desired/store identities evolve only through verified actual writers.
+#[cfg(test)]
+pub(crate) struct HistoricalConnection<'a> {
+    profile: HistoricalProfile<'a>,
+    pub(crate) fault: Option<ConnectionFault>,
+}
+
+#[cfg(test)]
+type ConnectionFault = Box<dyn FnMut(ConnectionCheckpoint) -> Result<(), ()>>;
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ConnectionCheckpoint {
+    BeforeDesired,
+    AfterDesired,
+    BeforePointer,
+    AfterPointer,
+    BeforeRestore,
+    AfterRestore,
+}
+
+#[cfg(test)]
+impl<'a> RetainedEpochOff<'a> {
+    pub(crate) fn into_connection(self) -> Result<HistoricalConnection<'a>, ExecutionError> {
+        Ok(HistoricalConnection {
+            profile: self.into_profile()?,
+            fault: None,
+        })
+    }
+}
+
+#[cfg(test)]
+impl<'a> HistoricalConnection<'a> {
+    pub(crate) fn lock(&self) -> &'a MigrationLock {
+        self.profile.lock()
+    }
+    pub(crate) fn bind_owner(&mut self, owner: &std::sync::Arc<()>) -> Result<(), ExecutionError> {
+        self.profile.bind_owner(owner)
+    }
+    pub(crate) fn check(
+        &mut self,
+        paths: &CutoverPaths,
+        desired: &crate::desired::DesiredPaths,
+        store: &Path,
+        uid: u32,
+    ) -> Result<(), ExecutionError> {
+        self.profile.check(paths, desired, store, uid)
+    }
+    pub(crate) fn recheck(&mut self) -> Result<(), ExecutionError> {
+        let result = self.profile.recheck_current();
+        if result.is_err() {
+            self.poison();
+        }
+        result
+    }
+    pub(crate) fn poison(&mut self) {
+        self.profile.poison();
+    }
+    pub(crate) fn poisoned(&self) -> bool {
+        self.profile.current.is_none()
+    }
+    pub(crate) fn checkpoint(
+        &mut self,
+        checkpoint: ConnectionCheckpoint,
+    ) -> Result<(), ExecutionError> {
+        if self
+            .fault
+            .as_mut()
+            .is_some_and(|fault| fault(checkpoint).is_err())
+        {
+            self.poison();
+            return Err(REFUSE);
+        }
+        self.recheck()
+    }
+    pub(crate) fn desired_written(
+        &mut self,
+        desired: &crate::desired::DesiredState,
+    ) -> Result<(), ExecutionError> {
+        let mut expected = serde_json::to_vec(desired).map_err(|_| REFUSE)?;
+        expected.push(b'\n');
+        self.advance(true, |after| {
+            after.boundary[1]
+                .as_ref()
+                .is_some_and(|(bytes, _)| bytes.as_slice() == expected)
+        })
+    }
+    pub(crate) fn pointer_written(
+        &mut self,
+        plan: &crate::private_store_transaction::PreparedPointerMutation,
+        write: crate::private_store_transaction::PreparedWrite,
+        restored: bool,
+    ) -> Result<(), ExecutionError> {
+        if write == crate::private_store_transaction::PreparedWrite::NoChange {
+            // A semantic no-op must not accept a same-byte inode substitution.
+            self.recheck()?;
+            if !plan.research_matches_output(
+                &self.profile.current.as_ref().ok_or(REFUSE)?.members[3].0,
+                restored,
+            ) {
+                self.poison();
+                return Err(REFUSE);
+            }
+            return Ok(());
+        }
+        self.advance(false, |after| {
+            plan.research_matches_output(&after.members[3].0, restored)
+        })
+    }
+    fn advance(
+        &mut self,
+        desired: bool,
+        expected: impl Fn(&Snapshot) -> bool,
+    ) -> Result<(), ExecutionError> {
+        let p = &mut self.profile;
+        // Taking the old snapshot permanently poisons any failed readback.
+        let before = p.current.take().ok_or(REFUSE)?;
+        let read = || {
+            Snapshot::read_policy(
+                p.config,
+                p.paths,
+                p.uid,
+                p.generation,
+                p.lock,
+                LivePolicy::ValidCurrentBundled,
+            )
+        };
+        let candidate = read()?;
+        let unchanged = |after: &Snapshot| {
+            expected(after)
+                && before
+                    .directories
+                    .iter()
+                    .zip(&after.directories)
+                    .all(|(a, b)| same_directory(a, b))
+                && before
+                    .directory_handles
+                    .iter()
+                    .zip(&before.directories)
+                    .all(|(fd, m)| fd.metadata().is_ok_and(|now| same_directory(m, &now)))
+                && before
+                    .boundary
+                    .iter()
+                    .zip(&after.boundary)
+                    .enumerate()
+                    .all(|(i, (a, b))| {
+                        if desired && i == 1 {
+                            return true;
+                        }
+                        (match (a, b) {
+                            (None, None) => true,
+                            (Some((ab, am)), Some((bb, bm))) => ab == bb && same_member(am, bm),
+                            _ => false,
+                        }) && match (&before.boundary[i], &before.boundary_handles[i]) {
+                            (None, None) => true,
+                            (Some((_, m)), Some(fd)) => {
+                                fd.metadata().is_ok_and(|now| same_member(m, &now))
+                            }
+                            _ => false,
+                        }
+                    })
+                && before.members.iter().zip(&after.members).enumerate().all(
+                    |(i, ((a, am), (b, bm)))| {
+                        (!desired && i == 3)
+                            || (a == b
+                                && same_member(am, bm)
+                                && before.member_handles[i]
+                                    .metadata()
+                                    .is_ok_and(|now| same_member(am, &now)))
+                    },
+                )
+        };
+        if !unchanged(&candidate) {
+            return Err(REFUSE);
+        }
+        p.proof
+            .recheck(p.paths, p.uid, p.generation, p.lock)
+            .map_err(|_| REFUSE)?;
+        let after = read()?;
+        if !unchanged(&after) || !candidate.same(&after) {
+            return Err(REFUSE);
+        }
+        // Pin successful output before any After callback can run.
+        p.current = Some(after);
+        Ok(())
+    }
+}
+
 /// Inactive production-source composition, not normal-owner admission. The
 /// existing host gate remains a caller obligation; only epoch/package/receipt
 /// proof is concretely supplied here. No receipt is created or rewritten.
@@ -931,6 +1120,10 @@ pub(crate) fn resync_current_epoch_off(
 #[cfg(test)]
 #[path = "restore_current_epoch_tests.rs"]
 mod epoch_tests;
+
+#[cfg(test)]
+#[path = "restore_connection_research_tests.rs"]
+mod connection_tests;
 
 #[cfg(test)]
 mod tests {

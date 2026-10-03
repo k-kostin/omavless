@@ -63,6 +63,16 @@ pub(crate) struct PreparedPointerMutation {
 
 impl PreparedPointerMutation {
     #[cfg(test)]
+    pub(crate) fn research_matches_output(&self, bytes: &[u8], restored: bool) -> bool {
+        bytes
+            == if restored || !self.prepared.changed {
+                &self.prepared.original
+            } else {
+                &self.prepared.candidate
+            }
+    }
+
+    #[cfg(test)]
     pub(crate) fn changed(&self) -> bool {
         self.prepared.changed()
     }
