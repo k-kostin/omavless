@@ -18,6 +18,11 @@ The [shared atomic ACK contract](../development/K1_SHARED_ATOMIC_ACK.md) removes
 test-adapter encoder/collector duplication using normal-compiled inactive code.
 Its measured isolated-kernel continuation leaves every result untrusted and
 does not establish production namespace, ownership or installed authority.
+The [retained-session generation observation fence](../development/K1_SESSION_GENERATION_OBSERVATION.md)
+also shares regression refusal across all five readers and test-only delete
+readbacks. Its 76 isolated scenario executions and pure lower-generation wire
+prefixes are mechanism evidence, not proof of kernel-reset/namespace continuity
+or production ownership.
 The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
 tests synthetic egress and near-miss exceptions without a production service;
 its results do not replace this contract's host/physical acceptance matrix.

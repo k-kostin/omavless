@@ -57,9 +57,71 @@ namespace identity or exclusive-create history. No safe namespace API dependency
 is adopted. Older #324's symbolic durable Closed(N)/Arm replay fence is a
 different protocol invariant and is not replaced here.
 
-Focused Rust, strict clippy, full Rust/source gates and exact frozen-artifact
-identity will be recorded after execution. No new VM gate has run for this
-change; #582's isolated evidence remains attached only to its tested code.
+## Exact-source evidence — 2026-10-03
+
+Tested code is `8777f7eab3d955063d29cafd234ee7ead237c0f5`. Seven focused
+wire-prefix tests, three source-routing guards and strict all-target netguard
+clippy passed. The full source suite passed 509 tests with two existing skips,
+93-link documentation navigation, native frontend and QML checks. It ran in an
+exact detached clone with private temporary fixtures outside Git ancestry;
+initial archive/cwd and default-temp setup refusals were retained, not hidden
+by weakening the package-identity or private-file guards.
+
+The full Rust script passed: 2,021 successful test invocations and 71 ignored
+entries across its repeated suites (not unique-test counts), 12 terminal tests,
+strict workspace/feature clippy and checks, and two-case parity. Frozen binaries
+copied outside Cargo before VM execution, mode `0500` and xattr-empty:
+
+- library test ELF SHA-256
+  `60681e14c2dd55133260a2f18c790ac39891f4fd2d8a65a3c6a940494047cd18`;
+  ordinary CPU suite 166 passed / 12 ignored;
+- integration test ELF SHA-256
+  `bd681ae6967d3e030bdd520ff414d092450a4af48eddd8aa5d706754d96fe8ad`;
+  ordinary CPU suite 18 passed / 21 ignored.
+
+At report preparation, both code-head package CI jobs passed and the CI test
+job was still pending. This report does not label pending CI green; final
+remote status belongs to [Draft #584](https://github.com/k-kostin/omavless/pull/584).
+
+An explicitly leased x86_64 Omarchy development VM passed two independently
+staged invocations of these unchanged binaries. Each invocation ran 13 creator
+lifecycle, six conditional-delete, six complete-inventory, one chain-inventory,
+three END-observer-loss, six BEGIN/operation-observer-loss and three actual
+recvmsg-truncation scenarios: **38 per invocation, 76 total**. The separate
+integration ELF supplies the chain reader; a chain dump inside the composite
+inventory was not miscounted as execution of `inspect_chains`. These tests cover
+all five real reader families with stable/increasing observations. Lower/wrapped
+values remain the pure wire tests above, not an actual kernel-reset claim.
+
+The fixed two-ELF/seven-selector external supervisor has SHA-256
+`e58eb604963b267dea9fb1e6e92b10b84fc51c7384339290dff5b49641395c1a`;
+the strict preservation guard has SHA-256
+`875d3d7af92740fe6f78710558ac368eb3a2c74a03790855c75384a97c0f9b41`.
+Twelve local supervisor tests and three receipt/guard test families passed.
+The supervisor pins executable descriptors, bounds output and deadlines,
+retains a WNOWAIT process-group anchor until EOF and descendant disappearance,
+and quarantines further invocations on uncertain cleanup/anchor loss. No sudo,
+credential setter, generic caller command, root helper or canonical activation
+was used. Failure would stop later cases; neither invocation required a retry.
+
+Both runs passed all seven exact Rust-result/owned-group-quiescence receipt
+checks and preserved all eight canonical categories: private files, user service
+and PID, executable, namespace, core inventory, TUN inventory, resolver and
+resolv.conf. Raw address and all IPv4/IPv6 route/rule snapshots matched except
+verified nonincreasing numeric address valid/preferred lifetime counters. Stage
+scratch was empty, no owned group survived, and the separate `/tmp` nft-helper
+scratch inventory was preserved. Canonical service/package/network state and
+the primary PC were not changed.
+
+The private evidence archive has SHA-256
+`36d9dd3b79ec9de11aa1989c38818a5bf33b6aae765a9b351f5f04c4be7e7675`.
+Guest and independent local copies are `0600` under `0700` parents. Local
+readback and fsync verified 64 safe members, both exact artifact sets, 14 result/
+quiescence receipt pairs, two PASS stamps and raw countdown-only network
+equality. The VM lease was returned; stages remain retained pending independent
+review and separate cleanup authorization. Raw private snapshots stay outside
+Git. Documentation-only report commits do not change the tested code identity.
+
 Installed launch/ownership, nft continuity, recovery, package/runtime exchange
 and physical-host gates remain open under [KILL_SWITCH](../roadmap/KILL_SWITCH.md).
 No main/RC merge, release or product closure is implied.
