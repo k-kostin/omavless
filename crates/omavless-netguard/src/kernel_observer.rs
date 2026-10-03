@@ -19,6 +19,9 @@ pub use inventory::LocalPolicyInventory;
 #[cfg(test)]
 #[path = "kernel_conditional_delete.rs"]
 mod conditional_delete;
+#[cfg(test)]
+#[path = "kernel_creator_lifecycle.rs"]
+mod creator_lifecycle;
 use std::{
     fs::File,
     io::IoSliceMut,

@@ -197,6 +197,9 @@ impl Replies {
 }
 
 impl InventoryDelete<'_> {
+    pub(super) fn handle_for_fixture(&self) -> u64 {
+        self.handle
+    }
     pub(super) fn cancel(self) {}
 
     pub(super) fn consume(self) -> DeleteOutcome {
