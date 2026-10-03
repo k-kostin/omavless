@@ -990,6 +990,10 @@ impl<'a> RetainedEpochOff<'a> {
 
 #[cfg(test)]
 impl<'a> HistoricalProfile<'a> {
+    pub(crate) fn owner_identity(&self) -> Option<&std::sync::Arc<()>> {
+        self.owner.as_ref()
+    }
+
     pub(crate) fn bind_owner(&mut self, owner: &std::sync::Arc<()>) -> Result<(), ExecutionError> {
         if self.current.is_none()
             || self
@@ -1154,6 +1158,10 @@ impl<'a> RetainedEpochOff<'a> {
 
 #[cfg(test)]
 impl<'a> HistoricalConnection<'a> {
+    pub(crate) fn owner_identity(&self) -> Option<&std::sync::Arc<()>> {
+        self.profile.owner_identity()
+    }
+
     pub(crate) fn lock(&self) -> &'a MigrationLock {
         self.profile.lock()
     }

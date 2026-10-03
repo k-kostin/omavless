@@ -483,12 +483,23 @@ fn historical_profile_noop_unsupported_and_new_owner_are_fenced() {
             .execute_profile_research(&request, &mut context)
             .is_err()
     );
-    assert!(context.current.is_none());
+    assert!(context.current.is_some());
     assert_eq!(fresh.revision(), 0);
     assert!(same_member(
         &before,
         &fs::metadata(f.config.join(LIVE[0])).unwrap()
     ));
+    assert!(matches!(
+        owner
+            .execute_profile_research(&request, &mut context)
+            .unwrap(),
+        crate::native_coordinator::NativeOwnerExecution::Replay(_)
+    ));
+    // The lower-level binding primitive still permanently poisons a direct
+    // misbinding attempt. Only the actual caller's foreign-owner boundary is
+    // nonmutating; this is not rebinding or a generic poison exception.
+    assert!(context.bind_owner(&Arc::new(())).is_err());
+    assert!(context.current.is_none());
     assert!(
         owner
             .execute_profile_research(&request, &mut context)

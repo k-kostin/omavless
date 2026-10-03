@@ -80,6 +80,14 @@ impl<'a, 'b> ConnectionAdmission<'a, 'b> {
             Self::Ordinary(_) => owner.admit(kind, operation_id, revision, digest),
             #[cfg(test)]
             Self::Historical(context) => {
+                // Refuse foreign-bound evidence without poisoning its owner
+                // or latching this receiver. New-intent close revocation ran
+                // before typed admission and is deliberately preserved.
+                if context.owner_identity().is_some_and(|original| {
+                    !std::sync::Arc::ptr_eq(original, &owner.research_identity)
+                }) {
+                    return Err(NativeOwnerError::OwnershipUnavailable);
+                }
                 let checked = context.bind_owner(&owner.research_identity).and_then(|()| {
                     context.check(
                         owner.transaction.cutover_paths(),
