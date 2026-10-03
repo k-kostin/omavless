@@ -33,6 +33,9 @@ mod prefix_ack_loss;
 #[cfg(test)]
 #[path = "kernel_receive_truncation.rs"]
 mod receive_truncation;
+#[cfg(test)]
+#[path = "kernel_send_return_cut.rs"]
+mod send_return_cut;
 use std::{
     fs::File,
     io::IoSliceMut,

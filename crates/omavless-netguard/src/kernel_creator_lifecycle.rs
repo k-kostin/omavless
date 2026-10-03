@@ -20,6 +20,7 @@ struct FixtureCreator {
     receive_fault: receive_truncation::OneShotTruncation,
     end_ack_loss: end_ack_loss::OneShotEndAckLoss,
     prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss,
+    send_cut: send_return_cut::OneShotSendCut,
     cut_after_effect: bool,
     change_generation_before_send: bool,
     state_parent: std::path::PathBuf,
@@ -42,6 +43,7 @@ impl FixtureCreator {
             receive_fault: receive_truncation::OneShotTruncation::default(),
             end_ack_loss: end_ack_loss::OneShotEndAckLoss::default(),
             prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss::default(),
+            send_cut: send_return_cut::OneShotSendCut::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
             state_parent,
@@ -137,6 +139,8 @@ impl FixtureCreator {
             .map_err(|_| REFUSE)?
                 == batch.len(),
         )?;
+        self.send_cut
+            .after_send(self.session.socket.as_raw_fd(), &replies)?;
         while !replies.complete() {
             self.session.check(deadline)?;
             let mut bytes = [0; LIMIT];
@@ -302,10 +306,11 @@ impl EffectPort for FixtureCreator {
             require(witness.handle_for_fixture() == id.table_handle)?;
             self.effects += 1;
             require(
-                witness.consume_with_ack_faults(
+                witness.consume_with_send_cut(
                     &mut self.receive_fault,
                     &mut self.end_ack_loss,
                     &mut self.prefix_ack_loss,
+                    &mut self.send_cut,
                 ) == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent,
             )?;
             self.created = None;
