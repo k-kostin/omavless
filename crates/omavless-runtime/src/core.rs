@@ -14,6 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -62,6 +63,7 @@ pub struct OwnedCore {
     child: Option<Child>,
     controller_socket: PathBuf,
     diagnostics: crate::core_diagnostics::Capture,
+    conditional_lifetime: Option<Arc<crate::conditional_close_candidate::Lifetime>>,
 }
 
 impl OwnedCore {
@@ -99,6 +101,7 @@ impl OwnedCore {
             child: Some(child),
             controller_socket: controller_socket.to_owned(),
             diagnostics,
+            conditional_lifetime: None,
         })
     }
 
@@ -113,6 +116,21 @@ impl OwnedCore {
 
     pub(crate) fn controller_path(&self) -> &Path {
         &self.controller_socket
+    }
+
+    // Inactive transport pin. Child remains exclusively owned here; revocation
+    // precedes all signalling/reaping, so detached readers never probe a reused
+    // numeric PID after stop. No child or I/O lock is transferred to a worker.
+    pub(crate) fn conditional_lifetime(
+        &mut self,
+    ) -> Result<Arc<crate::conditional_close_candidate::Lifetime>, CoreError> {
+        if !self.running()? {
+            return Err(CoreError::ExitedBeforeReady);
+        }
+        let pid = self.pid().ok_or(CoreError::StopFailed)?;
+        Ok(Arc::clone(self.conditional_lifetime.get_or_insert_with(
+            || Arc::new(crate::conditional_close_candidate::Lifetime::new(pid)),
+        )))
     }
 
     pub fn running(&mut self) -> Result<bool, CoreError> {
@@ -216,6 +234,9 @@ impl OwnedCore {
     pub fn stop(&mut self, timeout: Duration) -> Result<StopOutcome, CoreError> {
         if timeout.is_zero() || timeout > Duration::from_secs(30) {
             return Err(CoreError::InvalidArgument);
+        }
+        if let Some(lifetime) = &self.conditional_lifetime {
+            lifetime.revoke();
         }
         // Establish that this is still our unreaped child before signalling.
         // No path in OwnedCore reaps before group cleanup succeeds.
