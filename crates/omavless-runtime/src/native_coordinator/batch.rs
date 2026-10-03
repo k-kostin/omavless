@@ -158,6 +158,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let request = parse_refresh_all_start(request)?;
         let _lock = self.batch_lock()?;
         let revision = self.revision();
@@ -339,6 +342,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Revoke outstanding work before shutdown/ownership withdrawal. A later
     /// completion cannot write, even if its fetch returns successfully.
     pub fn stop_batch_operations(&mut self) -> Result<(), NativeOwnerError> {
+        self.invalidate_connection_close();
         let revision = self.revision();
         let Some(state) = self.batch.as_mut() else {
             return Ok(());
@@ -437,6 +441,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             u64,
         ) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError>,
     {
+        self.invalidate_connection_close();
         if let Some(error) = job.failure {
             return Err(batch_work_error(error));
         }

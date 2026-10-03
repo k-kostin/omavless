@@ -251,6 +251,18 @@ pub struct LifecycleExecutor<H> {
     actual: ActualState,
 }
 
+#[cfg(test)]
+impl LifecycleExecutor<crate::native_host::NativeLifecycleHost> {
+    /// Only the fixed private no-TUN fixture constructor can use this. Derive
+    /// readiness from its actual retained child/controller, not injected facts.
+    pub(crate) fn adopt_owned_close_fixture(&mut self) -> Result<(), HostStepError> {
+        let desired = self.read().map_err(|_| HostStepError::Observation)?;
+        self.host.verify_close_fixture(&desired)?;
+        self.actual = ActualState::Connected;
+        Ok(())
+    }
+}
+
 impl<H: LifecycleHost> LifecycleExecutor<H> {
     #[must_use]
     pub const fn new(host: H, paths: DesiredPaths, uid: u32) -> Self {
