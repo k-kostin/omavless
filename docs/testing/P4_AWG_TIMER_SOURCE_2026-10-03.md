@@ -2,8 +2,9 @@
 
 Developer-only, CPU-only continuation of [the AWG fixture](P4_AWG_LOOPBACK_SMOKE_PLAN.md).
 Base #558: `a8fa1711db5b2b9e69c9548078f199d1360ad46e`.
-Frozen test/runner source: `88414a1c524c9d7ae17cb8ccfcff53febe4be5ad`.
-Later documentation changes do not change executed inputs. No VM lease, guest
+Executed Go test/runner source: `88414a1c524c9d7ae17cb8ccfcff53febe4be5ad`.
+Receipt-only follow-up: `0dcf2ec11309c9cf7d8b6c5ec417c253e455a36c`.
+That follow-up changes Python receipt guards, not the Go overlay. No VM lease, guest
 operation, host networking/configuration, installed profile or Cargo build was
 used. Rust remains the normal runtime owner; P4 activation remains fenced.
 
@@ -37,7 +38,7 @@ Executed artifact hashes:
 | Input | SHA-256 |
 | --- | --- |
 | Official source archive | `716c0eec8a7557485555397f1217e0cac56317af8b41fefc287027d0c74ce00d` |
-| Dedicated runner | `df4d594db3890943052cbd263b92dd17f851ff3eec92ddffe290a7fd0e170bb5` |
+| Dedicated runner executed for the 200/80 cases | `df4d594db3890943052cbd263b92dd17f851ff3eec92ddffe290a7fd0e170bb5` |
 | Unchanged export/child helpers | `55fa8597b183a5b8deb0b0aabf25740ee12dfc221054e04e62ac017d1b86cc6e` |
 | Existing in-memory support overlay | `40983d9632f4f92d3e157d25e17c91e5703b53e49aad39f559332d5e423a1e36` |
 | Timer overlay | `82dd5560c2ec7414d39bc6288f98d48ecf6b60ffff3cada7bb287d9cf1b2efbd` |
@@ -71,11 +72,32 @@ Executed artifact hashes:
   Other key slots are checked empty but were not populated by this case.
   No global constants or upstream implementation are changed. This is elapsed
   test-timer cleanup evidence, not elapsed product `RejectAfterTime` acceptance.
-- Ordinary source suite: **313 tests reported, two existing skips, zero
+- Initial ordinary source suite: **313 tests reported, two existing skips, zero
   failures** (311 executed); JS/native/QML contracts pass. Three added pure
   receipt guards run in ordinary CI; actual Go overlay execution remains opt-in.
   Go formatting and diff whitespace pass. No local full Rust result is inferred;
   all Rust/Cargo inputs are unchanged and the Draft's normal CI remains separate.
+
+Independent review then found that a malformed event could be ignored among
+valid PASS receipts. The receipt-only follow-up rejects missing/non-string/
+unsupported `Action` and explicit null/non-string `Test`. A fourth pure guard
+tests these forms, with four focused guards PASS. The final local source suite
+reports **314 tests, two existing skips, zero failures** (312 executed), plus
+JS/native/QML contracts and documentation navigation PASS. Its runner SHA-256 is
+`d01681788a19837f382ef4fd55eb12fa3862e889f12f5e6bfa2d724c5554a468`.
+No Go test execution is inferred for that changed runner; the 200/80 engine
+results above retain the exact earlier executed runner and unchanged Go inputs.
+
+Initial exact-head CI at `d175b8a0da5c9ddde2c8c59c6d69211c980e1da6`
+[FAILED](https://github.com/k-kostin/omavless/actions/runs/37098664387/job/111133686765)
+in the unchanged Rust `concurrent_initializers_never_replace_or_publish_partial_success`
+test at `fresh_setup_cli.rs:376`: a fixed unsafe-path/permissions error was
+returned instead of the expected migration-lock-contention error (that test
+binary: nine passed, one failed). No Rust/Cargo diff exists against #558.
+The cause is not established; no runtime fix, timing relaxation or unchanged-head
+rerun was performed. Later CI applies independently to its exact head.
+Native package jobs do not apply to this test-only diff under the existing
+workflow path filters; no architecture/package PASS is inferred.
 
 An earlier normal 20-repeat run also passed 80 cases before runner provenance
 checks were tightened; it is excluded from the final 200/80 totals. Four earlier
