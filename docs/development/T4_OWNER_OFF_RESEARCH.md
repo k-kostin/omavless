@@ -43,9 +43,10 @@ It is compiled, not executed against installed state in this checkpoint. Fixture
 tests enter the same initialization seam with private real files and an explicit
 host whose effect methods panic; no primary-host runtime operations occur.
 
-The same five tests passed sequentially in the isolated Dev VM (43.83 seconds)
-at implementation `e363327fb68296c306655bff71c072ce6417696b`, test-binary SHA-256
-`490ee8d5983f45022f4d243fea312922cd6cabcae2aa70e7f909490592c898c8`.
+The five research tests (44.58 seconds) and ordinary desired-directory regression
+(0.06 seconds) passed sequentially in the isolated Dev VM at corrected
+implementation `dc781edbeb4bf761714e9d81b26ae3e9e064c034`, test-binary SHA-256
+`54eb7ab53100527e32c30203a49f39b63d00eb04526e907a4178664cfc6ac7ed`.
 The installed runtime PID and fixed desired/profile/template fingerprints were
 unchanged. Only the uploaded test binary and empty private scratch directories
 were removed afterward. This is actual-caller synthetic filesystem acceptance,
