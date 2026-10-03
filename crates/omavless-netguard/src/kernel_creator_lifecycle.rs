@@ -143,6 +143,7 @@ struct FixtureCreator {
     created: Option<u64>,
     effects: usize,
     lose_reply: bool,
+    receive_fault: receive_truncation::OneShotTruncation,
     cut_after_effect: bool,
     change_generation_before_send: bool,
     last_generation: Option<u32>,
@@ -163,6 +164,7 @@ impl FixtureCreator {
             created: None,
             effects: 0,
             lose_reply: false,
+            receive_fault: receive_truncation::OneShotTruncation::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
             last_generation: None,
@@ -271,7 +273,10 @@ impl FixtureCreator {
         while !replies.complete() {
             self.session.check(deadline)?;
             let mut bytes = [0; LIMIT];
-            let mut iov = [IoSliceMut::new(&mut bytes)];
+            let capacity = self
+                .receive_fault
+                .capacity(self.session.socket.as_raw_fd())?;
+            let mut iov = [IoSliceMut::new(&mut bytes[..capacity])];
             match recvmsg::<NetlinkAddr>(
                 self.session.socket.as_raw_fd(),
                 &mut iov,
@@ -280,7 +285,10 @@ impl FixtureCreator {
             ) {
                 Ok(reply) => {
                     let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
-                    require(length <= LIMIT)?;
+                    require(length <= capacity)?;
+                    self.receive_fault.received(length, flags)?;
+                    // These are the real received bytes/sender/flags. In the
+                    // one-byte fault case the existing collector must refuse.
                     replies.receive(&bytes[..length], sender, flags)?;
                 }
                 Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
@@ -382,7 +390,10 @@ impl EffectPort for FixtureCreator {
             let witness = self.session.prepare_inventory_delete()?;
             require(witness.handle_for_fixture() == id.table_handle)?;
             self.effects += 1;
-            require(witness.consume() == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent)?;
+            require(
+                witness.consume_with_receive_fault(&mut self.receive_fault)
+                    == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent,
+            )?;
             self.created = None;
             self.cut();
             require(!self.lose_reply)

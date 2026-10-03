@@ -203,6 +203,15 @@ impl InventoryDelete<'_> {
     pub(super) fn cancel(self) {}
 
     pub(super) fn consume(self) -> DeleteOutcome {
+        self.consume_with_receive_fault(&mut receive_truncation::OneShotTruncation::default())
+    }
+
+    // Private cfg(test) path only. Ordinary consume keeps its external shape
+    // and full-capacity receives. No alternate send, retry or readback receipt.
+    pub(super) fn consume_with_receive_fault(
+        self,
+        receive_fault: &mut receive_truncation::OneShotTruncation,
+    ) -> DeleteOutcome {
         let deadline = self.deadline;
         if self.session.check(deadline).is_err() {
             self.session.poisoned = true;
@@ -240,7 +249,8 @@ impl InventoryDelete<'_> {
             while !replies.complete() {
                 self.session.check(deadline)?;
                 let mut bytes = [0; LIMIT];
-                let mut iov = [IoSliceMut::new(&mut bytes)];
+                let capacity = receive_fault.capacity(self.session.socket.as_raw_fd())?;
+                let mut iov = [IoSliceMut::new(&mut bytes[..capacity])];
                 match recvmsg::<NetlinkAddr>(
                     self.session.socket.as_raw_fd(),
                     &mut iov,
@@ -249,7 +259,8 @@ impl InventoryDelete<'_> {
                 ) {
                     Ok(reply) => {
                         let (length, sender, flags) = (reply.bytes, reply.address, reply.flags);
-                        require(length <= LIMIT)?;
+                        require(length <= capacity)?;
+                        receive_fault.received(length, flags)?;
                         replies.receive(&bytes[..length], sender, flags)?;
                     }
                     Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
@@ -422,5 +433,23 @@ mod tests {
         c.bytes = LIMIT;
         let a = ack(&c.wire.begin, 0, false);
         assert!(push(&mut c, &a).is_err());
+    }
+
+    #[test]
+    fn receive_truncation_flags_poison_delete_collector_without_later_repair() {
+        for flags in [
+            MsgFlags::MSG_TRUNC,
+            MsgFlags::MSG_CTRUNC,
+            MsgFlags::MSG_TRUNC | MsgFlags::MSG_CTRUNC,
+        ] {
+            let mut c = collector();
+            let a = ack(&c.wire.begin, 0, false);
+            assert!(c.receive(&a, Some(NetlinkAddr::new(0, 0)), flags).is_err());
+            assert!(c.poisoned && !c.complete());
+            for request in [&c.wire.begin, &c.wire.delete, &c.wire.end].map(|r| ack(r, 0, false)) {
+                assert!(push(&mut c, &request).is_err());
+            }
+            assert!(!c.complete());
+        }
     }
 }

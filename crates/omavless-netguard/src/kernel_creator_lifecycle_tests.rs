@@ -163,6 +163,40 @@ fn collector_refuses_forged_duplicate_truncated_wrong_sender_and_generation_erro
     assert!(c.complete());
 }
 
+#[test]
+fn receive_truncation_flags_poison_create_and_replace_collectors_permanently() {
+    for old in [None, Some(9)] {
+        for flags in [
+            MsgFlags::MSG_TRUNC,
+            MsgFlags::MSG_CTRUNC,
+            MsgFlags::MSG_TRUNC | MsgFlags::MSG_CTRUNC,
+        ] {
+            let requests = full_batch(7, 10, old).unwrap();
+            let bytes = ack(&requests[0], 42, 0);
+            let mut replies = BatchReplies::new(requests.clone(), 42).unwrap();
+            assert!(
+                replies
+                    .receive(&bytes, Some(NetlinkAddr::new(0, 0)), flags)
+                    .is_err()
+            );
+            assert!(replies.poisoned && !replies.complete());
+            assert!(replies.acks.iter().all(|ack| !ack));
+            for request in &requests {
+                assert!(
+                    replies
+                        .receive(
+                            &ack(request, 42, 0),
+                            Some(NetlinkAddr::new(0, 0)),
+                            MsgFlags::empty()
+                        )
+                        .is_err()
+                );
+            }
+            assert!(!replies.complete());
+        }
+    }
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -259,9 +293,7 @@ fn creator_lifecycle_in_disposable_vm() {
         std::env::var("OMAVLESS_K1_LIFECYCLE_VM").as_deref(),
         Ok("1")
     );
-    let parent = namespace_file().unwrap();
-    let identity = namespace_identity(&parent).unwrap();
-    for case in [
+    isolated_cases(&[
         "lifecycle",
         "service",
         "lost-create",
@@ -275,7 +307,23 @@ fn creator_lifecycle_in_disposable_vm() {
         "crash-create",
         "crash-replace",
         "crash-delete",
-    ] {
+    ]);
+    println!("K1_CREATOR_LIFECYCLE_VM_PASS");
+}
+#[test]
+#[ignore = "VM-only actual recvmsg MSG_TRUNC after fixed create/replace/delete sends"]
+fn real_receive_truncation_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_RECV_TRUNC_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&["trunc-create", "trunc-replace", "trunc-delete"]);
+    println!("K1_REAL_RECEIVE_TRUNCATION_VM_PASS");
+}
+fn isolated_cases(cases: &[&str]) {
+    let parent = namespace_file().unwrap();
+    let identity = namespace_identity(&parent).unwrap();
+    for case in cases {
         let mut guard = ChildGuard(
             Command::new("/usr/bin/unshare")
                 .args([
@@ -335,13 +383,20 @@ fn creator_lifecycle_in_disposable_vm() {
                 .count(),
             1
         );
+        if case.starts_with("trunc-") {
+            assert_eq!(
+                String::from_utf8_lossy(&output)
+                    .matches(&format!("K1_ACTUAL_MSG_TRUNC_{case}_PASS"))
+                    .count(),
+                1
+            );
+        }
         assert_eq!(namespace_identity(&parent).unwrap(), identity);
         assert_eq!(
             namespace_identity(&namespace_file().unwrap()).unwrap(),
             identity
         );
     }
-    println!("K1_CREATOR_LIFECYCLE_VM_PASS");
 }
 struct ChildGuard(Child);
 impl Drop for ChildGuard {
@@ -371,6 +426,9 @@ fn lifecycle_child() {
             | "crash-create"
             | "crash-replace"
             | "crash-delete"
+            | "trunc-create"
+            | "trunc-replace"
+            | "trunc-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let identity = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -396,7 +454,9 @@ fn lifecycle_child() {
         return;
     }
     let mut state = fixture.state(case == "service" || case == "lost-socket-reply");
-    if case == "service" {
+    if case.starts_with("trunc-") {
+        truncation_case(&fixture, state, creator, namespace, &case);
+    } else if case == "service" {
         let path = fixture.0.join("control.sock");
         let listener = UnixListener::bind(&path).unwrap();
         let mut owner = SessionOwner::from_prebound(listener, state, creator, namespace).unwrap();
@@ -550,6 +610,139 @@ fn lifecycle_child() {
         identity
     );
     println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
+}
+
+fn truncation_case(
+    fixture: &Fixture,
+    mut state: LockedState,
+    mut creator: FixtureCreator,
+    namespace: NamespaceObservation,
+    case: &str,
+) {
+    if case != "trunc-create" {
+        armed(state.request(ARM, namespace, &mut creator).unwrap());
+    }
+    let old_handle = creator.created;
+    let socket = creator.session.socket.as_raw_fd();
+    let socket_metadata = nix::sys::stat::fstat(&creator.session.socket).unwrap();
+    let local = creator.session.local;
+    let identity = creator.session.identity;
+    let before = creator.effects;
+    creator.receive_fault.arm(socket);
+    assert_eq!(
+        state.request(
+            if case == "trunc-delete" { DISARM } else { ARM },
+            namespace,
+            &mut creator
+        ),
+        Err(REFUSED)
+    );
+    // This requires one successful real receive with its actual MSG_TRUNC, not
+    // a fabricated error, synthetic ACK, timeout, or post-ACK adapter failure.
+    assert_eq!(creator.receive_fault.observed(), 1);
+    assert!(creator.session.poisoned && creator.created.is_none());
+    assert!(!creator.lose_reply);
+    assert_eq!(creator.session.socket.as_raw_fd(), socket);
+    let after = nix::sys::stat::fstat(&creator.session.socket).unwrap();
+    assert_eq!(
+        (after.st_dev, after.st_ino),
+        (socket_metadata.st_dev, socket_metadata.st_ino)
+    );
+    assert_eq!(getsockname::<NetlinkAddr>(socket).unwrap(), local);
+    assert_eq!(creator.session.identity, identity);
+    assert_eq!(creator.effects, before + 1);
+    let records = fixture.records();
+    let receipt = crate::receipt::decode(records.1.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        receipt.operation(),
+        if case == "trunc-create" { 1 } else { 2 }
+    );
+    assert_eq!(
+        receipt.state(),
+        match case {
+            "trunc-create" => crate::receipt::ReceiptState::PendingCreate,
+            "trunc-replace" => crate::receipt::ReceiptState::PendingReplace {
+                old_handle: old_handle.unwrap()
+            },
+            "trunc-delete" => crate::receipt::ReceiptState::PendingDelete {
+                old_handle: old_handle.unwrap()
+            },
+            _ => unreachable!(),
+        }
+    );
+    if case == "trunc-create" {
+        assert!(records.0.is_none());
+    } else {
+        let marker: serde_json::Value =
+            serde_json::from_slice(records.0.as_ref().unwrap()).unwrap();
+        assert_eq!(marker["generation"], 7);
+        assert_eq!(marker["armed"], case != "trunc-delete");
+    }
+    for _ in 0..3 {
+        for request in [Request::Status {}, ARM, DISARM] {
+            assert_eq!(
+                state.request(request, namespace, &mut creator),
+                Err(REFUSED)
+            );
+        }
+    }
+    assert_eq!(creator.effects, before + 1);
+    assert_eq!(creator.receive_fault.observed(), 1);
+    assert_eq!(fixture.records(), records);
+
+    // A DIFFERENT socket observes actual surviving/absent kernel state only.
+    // It cannot restore the poisoned creator or publish a terminal receipt.
+    let mut independent = LocalReadSession::open().unwrap();
+    assert_ne!(independent.socket.as_raw_fd(), socket);
+    assert_eq!(independent.identity, identity);
+    for _ in 0..2 {
+        assert_eq!(
+            independent.inspect().unwrap(),
+            if case == "trunc-delete" {
+                LocalTablePresence::Absent
+            } else {
+                LocalTablePresence::PresentUntrusted
+            }
+        );
+        if case != "trunc-delete" {
+            let (_, _, table) = independent.inspect_policy_inventory_once().unwrap();
+            let table = table.unwrap();
+            assert!(table.handle != 0);
+            if case == "trunc-replace" {
+                assert_ne!(Some(table.handle), old_handle);
+            }
+            assert_eq!(
+                independent.inspect_rules().unwrap(),
+                LocalRuleInventory::ExactRulesUntrusted(Policy::FullVpn)
+            );
+        }
+    }
+    drop(state);
+    let mut state = fixture.state(false);
+    for request in [Request::Status {}, ARM, DISARM] {
+        assert_eq!(
+            state.request(request, namespace, &mut creator),
+            Err(REFUSED)
+        );
+    }
+    assert_eq!(creator.effects, before + 1);
+    assert_eq!(fixture.records(), records);
+    drop(state);
+    drop(creator);
+    let mut reopened = FixtureCreator::open(fixture.0.clone()).unwrap();
+    let mut state = fixture.state(false);
+    for _ in 0..2 {
+        for request in [Request::Status {}, ARM, DISARM] {
+            assert_eq!(
+                state.request(request, namespace, &mut reopened),
+                Err(REFUSED)
+            );
+        }
+    }
+    assert_eq!(reopened.effects, 0);
+    assert!(reopened.created.is_none());
+    assert_eq!(fixture.records(), records);
+    println!("K1_ACTUAL_MSG_TRUNC_{case}_PASS");
 }
 
 fn only_loopback() {
