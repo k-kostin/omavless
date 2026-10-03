@@ -39,6 +39,9 @@ use std::path::Path;
 #[path = "restore_final_startup_candidate.rs"]
 mod final_restore_review;
 
+#[path = "restore_first_abort_owner.rs"]
+mod first_abort;
+
 #[path = "system_historical_off_candidate.rs"]
 pub(crate) mod system_historical_off;
 

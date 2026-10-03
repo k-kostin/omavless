@@ -73,8 +73,9 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
         self.assertIn("write_record_owned(paths, uid, name, bytes).map(drop)", text)
         self.assertIn("struct CreatedAbort(CreatedRecord)", text)
         writer = text.split("fn write_record_owned(", 1)[1].split("struct Bound", 1)[0]
-        for token in ("OFlag::O_EXCL", "directory_before: before", "file,", "member,",
-                      "created.recheck(paths, uid)?", "Ok(created)"):
+        for token in ("OFlag::O_EXCL", "directory_before: before", "file,", "member: metadata.clone()",
+                      "created.recheck(paths, uid)?", "Ok(created)", "complete: false",
+                      "created.complete = true", "guarded(&created)?"):
             self.assertIn(token, writer)
         self.assertNotRegex(text, r"impl\s+Clone\s+for\s+Created(?:Abort|Record)")
 
@@ -86,9 +87,45 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
         text = (SRC / "restore_executor_candidate.rs").read_text()
         body = text.split("fn abort_owned_with_hook<", 1)[1].split("impl CreatedRecord", 1)[0]
         self.assertIn("chain.active().phase() != DecisionPhase::Intent", body)
-        self.assertIn("write_abort_owned(paths, uid, &terminal)?", body)
+        self.assertIn("CreatedAbort(write_record_owned_checked(", body)
+        self.assertIn("publication.check_common().is_ok()", body)
         self.assertIn("created.recheck(paths, uid).is_ok()", body)
         self.assertIn("Ok(created)", body)
+
+    def test_abort_strict_variants_preserve_ordinary_grouped_wrappers(self):
+        text = (SRC / "restore_executor_candidate.rs").read_text()
+        compact = re.sub(r"\s+", "", text)
+        for call in ("replace_member_checked(bound,index,target,other,slot,hook,false,None)",
+                     "sync_and_verify_pair_checked(bound,stage,old,phase,false)",
+                     "sync_decision_journal_checked(bound,phase,hook,false)",
+                     "sync_and_verify_pair_checked(&mutbound,&stage,true,DecisionPhase::Aborted,true)",
+                     "sync_decision_journal_checked(&mutbound,DecisionPhase::Aborted,|_|{},true)"):
+            self.assertIn(call, compact)
+        for name in ("abort_terminal_checked_writer_stops_at_first_failed_gate_and_keeps_prefix",
+                     "abort_terminal_checked_writer_never_rebaselines_pre_post_write_sync_swaps"):
+            self.assertIn(name, text)
+
+    def test_abort_recovery_constructor_is_private_fixed_and_retains_original_pair(self):
+        text = (SRC / "restore_first_abort_owner.rs").read_text()
+        body = text.split("#[cfg(test)]", 1)[0]
+        self.assertIn("fn current(source: &Path, passphrase: &[u8])", body)
+        self.assertNotRegex(body, r"pub(?:\([^)]*\))?\s+fn\s+(?:current|run)")
+        for token in ("ObservationOnlyNativeHost::new", "RuntimePaths::current",
+                      "DesiredPaths::current", "CutoverPaths::current", "NativeHostPaths::current",
+                      "MigrationLock::acquire_existing", "recovered.check(uid)",
+                      "verify_aborted_staged_pair_checked", "created.recheck",
+                      "RetainedPair::capture", "pair.recheck(config, uid)",
+                      "abort_staged_pair_retained"):
+            self.assertIn(token, body)
+        for token in ("ProductionNativeOwner", "initialize_under_lease", "new_ownership_gated",
+                      "cleanup_probe_orphans", "acquire_absent", "CreatedStage"):
+            self.assertNotIn(token, body)
+        self.assertLess(body.index("open_existing"), body.index("RuntimePaths::current"))
+        self.assertLess(body.index("RetainedPair::capture"), body.index("host.fresh_observation"))
+        for name in ("first_abort_owner_live_identity_survives_every_host_callback_including_final",
+                     "first_abort_owner_slots_are_pinned_before_admission_and_owned_link_callbacks",
+                     "first_abort_owner_commit_refuses_before_host_or_sync"):
+            self.assertIn(name, text)
 
     def test_abort_created_identity_counterexamples_retained(self):
         text = (SRC / "restore_executor_candidate.rs").read_text()

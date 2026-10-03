@@ -2,8 +2,8 @@
 
 Base: #591, `840da93acb63bda73c0d8abba9ac17ecfade87b6`.
 
-This slice is under source review. No new recovery owner, normal constructor,
-dispatcher, CLI or product operation is connected. Existing independently
+This slice is under source review. A private recovery-only composition is present;
+no normal constructor, dispatcher, CLI or product operation is connected. Existing independently
 blocked coordinators remain blocked; ordinary startup still rejects evidence.
 
 ## Lower retained-journal prerequisite
@@ -19,17 +19,23 @@ pair verification and journal synchronization. It refuses both terminal phases
 before its host callback. After publishing Abort it retains the original created
 record through every subsequent callback and final read, then moves that value
 to its caller. A same-byte terminal substituted after publication is refused,
-not adopted. It has no owner-level caller yet. Existing Abort re-entry must use
+not adopted. Its private recovery caller supplies authentication and source pins.
+Existing Abort re-entry uses
 separate read-only retained evidence, never construct `CreatedAbort`.
 
 The lower primitive does not itself authenticate an archive or synchronize all
-staged source members before rollback. Its existing helper checkpoints group
-some effects. These obligations must be resolved explicitly before claiming
-the proposed recovery-boundary contract below.
+staged source members before rollback; the recovery-only composition does so.
+New private strict helper variants
+gate individual replacement and live/journal synchronization effects; existing
+callers retain their original grouped wrappers. Terminal publication repeats the
+common owner/stage gate while the original exclusively created inode is empty,
+and advances expected metadata only after its own write, before callbacks.
+Original identity is rechecked around each create/write/file-sync/parent-sync
+boundary; a failed callback stops before the next effect and preserves the prefix.
 
-## Required recovery-only composition
+## Inactive recovery-only composition
 
-The proposed private entry derives UID and current runtime/state/desired/host
+The private entry derives UID and current runtime/state/desired/host
 paths internally. It uses `ObservationOnlyNativeHost`, including its preserved
 drop paths, without ordinary owner construction, startup reconciliation, probe
 orphan cleanup, login consume or historical admission. Only a test-only entry
@@ -67,17 +73,34 @@ requires exact OLD, matching Abort and retained boundary readback; its only
 result is `AbortedStillFenced`. Preserve all artifacts on success and ambiguity.
 No automatic retry, rollback reversal, cleanup or restored ordinary authority.
 
-## Verification still required
+A distinct non-Clone `RetainedPair` pins both live files and every optional OLD/
+NEW slot before the first host callback. The owner keeps it through final return;
+the strict lower entry requires a loan of that same proof. An owned link binds
+the original O_TMPFILE descriptor before callbacks; an existing slot is never
+recaptured. An owned rename transfers that descriptor from slot to live with an
+explicit ctime transition before callbacks. Every callback rechecks all remaining
+live/slot identities; final success cannot adopt a same-byte live replacement.
 
-Source guards must pin fixed constructor provenance, authentication/lifetime,
-existing lease and conservative ordinary fences. Actual synthetic fixtures must
-cover OLD/mixed/NEW Intent, existing Abort, Commit refusal, wrong archive,
-unsafe/torn stage/journal/slots, lease/owner/desired/login drift, late fences,
-same-byte substitutions before/after synchronization and host loss surrounding
-the first real rollback replacement. Process death/re-entry is separate from
-power-loss and installed acceptance.
+## Source verification and remaining acceptance
 
-Root review of the complete lower diff and constructor is required before new
-owner wiring is treated as checked. Product transfer/confirmation, format and
+Source guards pin fixed private constructor provenance and ordinary fences.
+Nine owner fixtures cover OLD/mixed/NEW Intent, existing Abort, Commit refusal,
+wrong archive, missing lease, foreign slots, invalid login, connected desired,
+original stage/owner/desired swaps, every original-source sync boundary, late
+fences/host loss, and live/slot swaps at every reachable host callback including
+final readback. Lower fixtures additionally inject swaps at link/rename/terminal
+hooks and empty/full terminal write/sync boundaries. These are synthetic local
+checks, not positive installed execution of the fixed-current constructor.
+Process death/re-entry and power-loss acceptance remain separate.
+
+The first strict-helper test run preserved an earlier refusal: terminal swap was
+detected before its old fixture expected the Terminal hook. The corrected fixture
+deliberately waits for full terminal bytes and requires hook reach only for the
+hook-injection case. Initial local compiler diagnostics are retained privately.
+The original #591 `8e3e74c` static-source failure remains NONPASS; its test-only
+chain correction and successful exact-head gates belong to `840da93`, not here.
+
+Final exact-head gates and root review of the complete composition remain required.
+Product transfer/confirmation, format and
 template compatibility, installed restore/recovery/upgrade/downgrade and normal
 registration remain open. No VM, main/RC merge or release is performed here.

@@ -20,6 +20,7 @@ use nix::fcntl::{AtFlags, OFlag, openat, renameat};
 use nix::sys::stat::Mode;
 use nix::unistd::linkat;
 use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STORE_BYTES};
+use std::cell::RefCell;
 use std::fs::{File, Metadata};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
@@ -34,6 +35,161 @@ const TERMINAL: &str = "restore-decision.terminal";
 const LIVE: [&str; 2] = ["profiles.json", "route-template.yaml"];
 pub(crate) const NEW_SLOT: [&str; 2] = [".restore-profiles.new", ".restore-template.new"];
 pub(crate) const OLD_SLOT: [&str; 2] = [".restore-profiles.old", ".restore-template.old"];
+
+struct RetainedMember {
+    file: File,
+    metadata: Metadata,
+    bytes: Zeroizing<Vec<u8>>,
+}
+
+/// Original-to-recovery live/slot descriptors; only owned link/rename may
+/// advance this proof. Never cloneable or reconstructed after a callback.
+pub(crate) struct RetainedPair {
+    directory: File,
+    parent: Metadata,
+    members: Vec<Option<RetainedMember>>,
+}
+
+impl RetainedPair {
+    const NAMES: [&'static str; 6] = [
+        LIVE[0],
+        LIVE[1],
+        OLD_SLOT[0],
+        OLD_SLOT[1],
+        NEW_SLOT[0],
+        NEW_SLOT[1],
+    ];
+
+    pub(crate) fn capture(config: &Path, uid: u32) -> Result<Self, ExecutionError> {
+        let directory =
+            open_private_directory(config, uid).map_err(|_| ExecutionError::Admission)?;
+        let parent = directory
+            .metadata()
+            .map_err(|_| ExecutionError::Admission)?;
+        let mut members = Vec::new();
+        for (index, name) in Self::NAMES.into_iter().enumerate() {
+            let file = match openat(
+                &directory,
+                name,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            ) {
+                Ok(fd) => File::from(fd),
+                Err(Errno::ENOENT) if index >= 2 => {
+                    members.push(None);
+                    continue;
+                }
+                Err(_) => return Err(ExecutionError::Admission),
+            };
+            let metadata = file.metadata().map_err(|_| ExecutionError::Admission)?;
+            let bytes = read_member(
+                &directory,
+                name,
+                uid,
+                if index % 2 == 0 {
+                    MAX_PRIVATE_STORE_BYTES
+                } else {
+                    MAX_TEMPLATE_BYTES
+                },
+            )
+            .map_err(|_| ExecutionError::Admission)?;
+            members.push(Some(RetainedMember {
+                file,
+                metadata,
+                bytes,
+            }));
+        }
+        let this = Self {
+            directory,
+            parent,
+            members,
+        };
+        this.recheck(config, uid)?;
+        Ok(this)
+    }
+
+    pub(crate) fn recheck(&self, config: &Path, uid: u32) -> Result<(), ExecutionError> {
+        let error = ExecutionError::Ambiguous;
+        let current = open_private_directory(config, uid).map_err(|_| error)?;
+        if !same_parent(&self.parent, &current.metadata().map_err(|_| error)?)
+            || !same_parent(&self.parent, &self.directory.metadata().map_err(|_| error)?)
+        {
+            return Err(error);
+        }
+        for (name, held) in Self::NAMES.into_iter().zip(&self.members) {
+            let opened = openat(
+                &self.directory,
+                name,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            );
+            match (held, opened) {
+                (None, Err(Errno::ENOENT)) => {}
+                (Some(held), Ok(fd)) => {
+                    if !same_member(&held.metadata, &held.file.metadata().map_err(|_| error)?)
+                        || !same_member(
+                            &held.metadata,
+                            &File::from(fd).metadata().map_err(|_| error)?,
+                        )
+                        || read_member(&self.directory, name, uid, held.bytes.len())
+                            .map_err(|_| error)?
+                            != held.bytes
+                    {
+                        return Err(error);
+                    }
+                }
+                _ => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    fn linked(
+        &mut self,
+        index: usize,
+        original: &File,
+        target: &[u8],
+    ) -> Result<(), ExecutionError> {
+        if self.members[index + 2].is_some() {
+            return Err(ExecutionError::Ambiguous);
+        }
+        let file = original
+            .try_clone()
+            .map_err(|_| ExecutionError::Ambiguous)?;
+        let metadata = file.metadata().map_err(|_| ExecutionError::Ambiguous)?;
+        self.members[index + 2] = Some(RetainedMember {
+            file,
+            metadata,
+            bytes: Zeroizing::new(target.to_vec()),
+        });
+        Ok(())
+    }
+
+    fn renamed(&mut self, index: usize) -> Result<(), ExecutionError> {
+        let mut member = self.members[index + 2]
+            .take()
+            .ok_or(ExecutionError::Ambiguous)?;
+        let after = member
+            .file
+            .metadata()
+            .map_err(|_| ExecutionError::Ambiguous)?;
+        // Rename may update ctime, never the descriptor, content or other identity.
+        if member.metadata.dev() != after.dev()
+            || member.metadata.ino() != after.ino()
+            || member.metadata.uid() != after.uid()
+            || member.metadata.mode() != after.mode()
+            || member.metadata.nlink() != after.nlink()
+            || member.metadata.len() != after.len()
+            || member.metadata.mtime() != after.mtime()
+            || member.metadata.mtime_nsec() != after.mtime_nsec()
+        {
+            return Err(ExecutionError::Ambiguous);
+        }
+        member.metadata = after;
+        self.members[index] = Some(member);
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionError {
@@ -103,6 +259,7 @@ struct CreatedRecord {
     member: Metadata,
     name: String,
     bytes: [u8; RECORD_BYTES],
+    complete: bool,
 }
 
 /// Original exclusive-created Abort identity, never a recaptured terminal.
@@ -144,7 +301,80 @@ pub(crate) fn abort_staged_pair_owned(
     abort_owned_with_hook(config, paths, uid, generation, lock, gate, |_| true)
 }
 
+pub(crate) fn abort_staged_pair_retained(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+    retained: &RefCell<RetainedPair>,
+) -> Result<CreatedAbort, ExecutionError> {
+    abort_retained_with_hook(
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        gate,
+        |_| true,
+        retained,
+    )
+}
+
+/// Existing Abort stays a read-only observation, never a CreatedAbort value.
+pub(crate) fn verify_aborted_staged_pair_checked(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: impl FnMut() -> bool,
+) -> Result<(), ExecutionError> {
+    let stage = read_staged_pair(&paths.state_directory, uid)
+        .map_err(|_| ExecutionError::ManualRecovery)?;
+    let chain =
+        inspect_decision_journal(paths, uid, lock).map_err(|_| ExecutionError::ManualRecovery)?;
+    if chain.active().phase() != DecisionPhase::Aborted {
+        return Err(ExecutionError::Admission);
+    }
+    let desired =
+        read_desired_for_decision(paths, uid, lock).map_err(|_| ExecutionError::ManualRecovery)?;
+    let mut bound = Bound {
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        desired,
+        stage: *stage.identity(),
+        intent: chain.intent(),
+        gate,
+        config_before: open_private_directory(config, uid)
+            .map_err(|_| ExecutionError::ManualRecovery)?
+            .metadata()
+            .map_err(|_| ExecutionError::ManualRecovery)?,
+    };
+    bound.check(DecisionPhase::Aborted)?;
+    sync_and_verify_pair_checked(&mut bound, &stage, true, DecisionPhase::Aborted, true)?;
+    sync_decision_journal_checked(&mut bound, DecisionPhase::Aborted, |_| {}, true)
+}
+
 fn abort_owned_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
+    config: &Path,
+    paths: &CutoverPaths,
+    uid: u32,
+    generation: u64,
+    lock: &MigrationLock,
+    gate: G,
+    hook: H,
+) -> Result<CreatedAbort, ExecutionError> {
+    let retained = RefCell::new(RetainedPair::capture(config, uid)?);
+    abort_retained_with_hook(config, paths, uid, generation, lock, gate, hook, &retained)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn abort_retained_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     config: &Path,
     paths: &CutoverPaths,
     uid: u32,
@@ -152,7 +382,14 @@ fn abort_owned_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     lock: &MigrationLock,
     mut gate: G,
     mut hook: H,
+    retained: &RefCell<RetainedPair>,
 ) -> Result<CreatedAbort, ExecutionError> {
+    let check = || {
+        retained
+            .try_borrow()
+            .is_ok_and(|p| p.recheck(config, uid).is_ok())
+    };
+    let mut gate = || check() && gate() && check();
     let stage = read_staged_pair(&paths.state_directory, uid)
         .map_err(|_| ExecutionError::ManualRecovery)?;
     let chain =
@@ -188,23 +425,56 @@ fn abort_owned_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
             return Err(ExecutionError::ManualRecovery);
         }
         for (index, slot) in OLD_SLOT.iter().enumerate() {
-            replace_member(
+            replace_member_checked(
                 &mut bound,
                 index,
                 stage_bytes(&stage, true, index),
                 stage_bytes(&stage, false, index),
                 slot,
                 &mut hook,
+                true,
+                Some(retained),
             )?;
         }
-        sync_and_verify_pair(&mut bound, &stage, true, DecisionPhase::Intent)?;
+        sync_and_verify_pair_checked(&mut bound, &stage, true, DecisionPhase::Intent, true)?;
         bound.check(DecisionPhase::Intent)?;
     }
     let terminal = chain
         .intent()
         .terminal(TerminalChoice::Abort)
         .map_err(|_| ExecutionError::ManualRecovery)?;
-    let created = write_abort_owned(paths, uid, &terminal)?;
+    let mut publication = Bound {
+        config,
+        paths,
+        uid,
+        generation,
+        lock,
+        desired: desired.clone(),
+        stage: *stage.identity(),
+        intent: chain.intent(),
+        config_before: config_before.clone(),
+        gate: &mut gate,
+    };
+    // A newly exclusive-created empty terminal is an expected prefix, not a
+    // parseable journal. Keep common owner/stage gates and exact Intent bytes;
+    // the writer itself pins empty/full terminal identity around every gate.
+    let created = CreatedAbort(write_record_owned_checked(
+        paths,
+        uid,
+        TERMINAL,
+        &terminal.encode(),
+        || {
+            publication.check_common().is_ok()
+                && open_private_directory(&paths.state_directory, uid)
+                    .ok()
+                    .is_some_and(|state| {
+                        read_member(&state, INTENT, uid, RECORD_BYTES)
+                            .ok()
+                            .is_some_and(|bytes| bytes.as_slice() == chain.intent().encode())
+                    })
+        },
+    )?);
+    drop(publication);
     if !hook(EffectStep::Terminal) {
         return Err(ExecutionError::Ambiguous);
     }
@@ -227,8 +497,8 @@ fn abort_owned_with_hook<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
         gate: guarded,
     };
     bound.check(DecisionPhase::Aborted)?;
-    sync_and_verify_pair(&mut bound, &stage, true, DecisionPhase::Aborted)?;
-    sync_decision_journal(&mut bound, DecisionPhase::Aborted)?;
+    sync_and_verify_pair_checked(&mut bound, &stage, true, DecisionPhase::Aborted, true)?;
+    sync_decision_journal_checked(&mut bound, DecisionPhase::Aborted, |_| {}, true)?;
     bound.check(DecisionPhase::Aborted)?;
     created.recheck(paths, uid)?;
     Ok(created)
@@ -255,10 +525,11 @@ impl CreatedRecord {
             &self.directory.metadata().map_err(|_| refuse)?,
         ) || !same_member(&self.member, &self.file.metadata().map_err(|_| refuse)?)
             || !same_member(&self.member, &current.metadata().map_err(|_| refuse)?)
-            || read_member(&self.directory, &self.name, uid, RECORD_BYTES)
-                .map_err(|_| refuse)?
-                .as_slice()
-                != self.bytes
+            || (self.complete
+                && read_member(&self.directory, &self.name, uid, RECORD_BYTES)
+                    .map_err(|_| refuse)?
+                    .as_slice()
+                    != self.bytes)
         {
             return Err(refuse);
         }
@@ -272,6 +543,16 @@ fn write_record_owned(
     name: &str,
     bytes: &[u8],
 ) -> Result<CreatedRecord, ExecutionError> {
+    write_record_owned_checked(paths, uid, name, bytes, || true)
+}
+
+fn write_record_owned_checked(
+    paths: &CutoverPaths,
+    uid: u32,
+    name: &str,
+    bytes: &[u8],
+    mut gate: impl FnMut() -> bool,
+) -> Result<CreatedRecord, ExecutionError> {
     let bytes: [u8; RECORD_BYTES] = bytes.try_into().map_err(|_| ExecutionError::Admission)?;
     if !matches!(name, INTENT | TERMINAL) {
         return Err(ExecutionError::Admission);
@@ -281,7 +562,19 @@ fn write_record_owned(
     let before = directory
         .metadata()
         .map_err(|_| ExecutionError::ManualRecovery)?;
-    let mut file = File::from(
+    if !gate() {
+        return Err(ExecutionError::Admission);
+    }
+    if !same_directory(
+        &before,
+        &open_private_directory(&paths.state_directory, uid)
+            .map_err(|_| ExecutionError::Admission)?
+            .metadata()
+            .map_err(|_| ExecutionError::Admission)?,
+    ) {
+        return Err(ExecutionError::Admission);
+    }
+    let file = File::from(
         openat(
             &directory,
             Path::new(name),
@@ -295,24 +588,37 @@ fn write_record_owned(
         || metadata.uid() != uid
         || metadata.mode() & 0o7777 != 0o600
         || metadata.nlink() != 1
+        || metadata.len() != 0
     {
         return Err(ExecutionError::Ambiguous);
     }
-    file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
-        .and_then(|_| directory.sync_all())
+    let mut created = CreatedRecord {
+        directory,
+        directory_before: before,
+        file,
+        member: metadata.clone(),
+        name: name.to_owned(),
+        bytes,
+        complete: false,
+    };
+    let mut guarded = |created: &CreatedRecord| -> Result<(), ExecutionError> {
+        created.recheck(paths, uid)?;
+        if !gate() {
+            return Err(ExecutionError::Ambiguous);
+        }
+        created.recheck(paths, uid)
+    };
+    guarded(&created)?;
+    created
+        .file
+        .write_all(&bytes)
         .map_err(|_| ExecutionError::Ambiguous)?;
-    if !same_parent(
-        &before,
-        &open_private_directory(&paths.state_directory, uid)
-            .map_err(|_| ExecutionError::Ambiguous)?
-            .metadata()
-            .map_err(|_| ExecutionError::Ambiguous)?,
-    ) {
-        return Err(ExecutionError::Ambiguous);
-    }
-    let member = file.metadata().map_err(|_| ExecutionError::Ambiguous)?;
-    // Writing changes length/timestamps, but must not change created identity.
+    // Only this owned write may advance the expected metadata, immediately
+    // from the original descriptor and before any external callback.
+    let member = created
+        .file
+        .metadata()
+        .map_err(|_| ExecutionError::Ambiguous)?;
     if metadata.dev() != member.dev()
         || metadata.ino() != member.ino()
         || metadata.uid() != member.uid()
@@ -322,15 +628,19 @@ fn write_record_owned(
     {
         return Err(ExecutionError::Ambiguous);
     }
-    let created = CreatedRecord {
-        directory,
-        directory_before: before,
-        file,
-        member,
-        name: name.to_owned(),
-        bytes,
-    };
-    created.recheck(paths, uid)?;
+    created.member = member;
+    created.complete = true;
+    guarded(&created)?;
+    created
+        .file
+        .sync_all()
+        .map_err(|_| ExecutionError::Ambiguous)?;
+    guarded(&created)?;
+    created
+        .directory
+        .sync_all()
+        .map_err(|_| ExecutionError::Ambiguous)?;
+    guarded(&created)?;
     Ok(created)
 }
 
@@ -418,6 +728,20 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     slot: &str,
     hook: &mut H,
 ) -> Result<(), ExecutionError> {
+    replace_member_checked(bound, index, target, other, slot, hook, false, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replace_member_checked<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
+    bound: &mut Bound<'_, G>,
+    index: usize,
+    target: &[u8],
+    other: &[u8],
+    slot: &str,
+    hook: &mut H,
+    strict: bool,
+    retained: Option<&RefCell<RetainedPair>>,
+) -> Result<(), ExecutionError> {
     bound.check(DecisionPhase::Intent)?;
     let directory = open_private_directory(bound.config, bound.uid)
         .map_err(|_| ExecutionError::ManualRecovery)?;
@@ -430,6 +754,9 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     }
     if current.as_slice() != other {
         return Err(ExecutionError::ManualRecovery);
+    }
+    if strict {
+        bound.check(DecisionPhase::Intent)?;
     }
     let mut temporary = File::from(
         openat(
@@ -450,10 +777,21 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
     {
         return Err(ExecutionError::ManualRecovery);
     }
+    if strict {
+        bound.check(DecisionPhase::Intent)?;
+    }
     temporary
         .write_all(target)
-        .and_then(|_| temporary.sync_all())
         .map_err(|_| ExecutionError::Ambiguous)?;
+    if strict {
+        bound.check(DecisionPhase::Intent)?;
+    }
+    temporary
+        .sync_all()
+        .map_err(|_| ExecutionError::Ambiguous)?;
+    if strict {
+        bound.check(DecisionPhase::Intent)?;
+    }
     if temporary
         .metadata()
         .map_err(|_| ExecutionError::Ambiguous)?
@@ -470,8 +808,25 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
         Path::new(slot),
         AtFlags::AT_EMPTY_PATH,
     ) {
-        Ok(()) => {}
+        Ok(()) => {
+            if let Some(retained) = retained {
+                retained
+                    .try_borrow_mut()
+                    .map_err(|_| ExecutionError::Ambiguous)?
+                    .linked(index, &temporary, target)?;
+                retained
+                    .try_borrow()
+                    .map_err(|_| ExecutionError::Ambiguous)?
+                    .recheck(bound.config, bound.uid)?;
+            }
+        }
         Err(Errno::EEXIST) => {
+            if let Some(retained) = retained {
+                retained
+                    .try_borrow()
+                    .map_err(|_| ExecutionError::Ambiguous)?
+                    .recheck(bound.config, bound.uid)?;
+            }
             if read_member(
                 &directory,
                 slot,
@@ -490,6 +845,9 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
             }
         }
         Err(_) => return Err(ExecutionError::Ambiguous),
+    }
+    if strict {
+        bound.check(DecisionPhase::Intent)?;
     }
     directory
         .sync_all()
@@ -554,6 +912,16 @@ fn replace_member<G: FnMut() -> bool, H: FnMut(EffectStep) -> bool>(
         return Err(ExecutionError::ManualRecovery);
     }
     renameat(&directory, slot, &directory, LIVE[index]).map_err(|_| ExecutionError::Ambiguous)?;
+    if let Some(retained) = retained {
+        retained
+            .try_borrow_mut()
+            .map_err(|_| ExecutionError::Ambiguous)?
+            .renamed(index)?;
+        retained
+            .try_borrow()
+            .map_err(|_| ExecutionError::Ambiguous)?
+            .recheck(bound.config, bound.uid)?;
+    }
     if !hook(EffectStep::RenameApplied(index)) {
         return Err(ExecutionError::Ambiguous);
     }
@@ -588,6 +956,16 @@ fn sync_and_verify_pair<G: FnMut() -> bool>(
     old: bool,
     phase: DecisionPhase,
 ) -> Result<(), ExecutionError> {
+    sync_and_verify_pair_checked(bound, stage, old, phase, false)
+}
+
+fn sync_and_verify_pair_checked<G: FnMut() -> bool>(
+    bound: &mut Bound<'_, G>,
+    stage: &VerifiedStage,
+    old: bool,
+    phase: DecisionPhase,
+    strict: bool,
+) -> Result<(), ExecutionError> {
     bound.check(phase)?;
     let directory = open_private_directory(bound.config, bound.uid)
         .map_err(|_| ExecutionError::ManualRecovery)?;
@@ -610,7 +988,13 @@ fn sync_and_verify_pair<G: FnMut() -> bool>(
         let inode_before = file
             .metadata()
             .map_err(|_| ExecutionError::ManualRecovery)?;
+        if strict {
+            bound.check(phase)?;
+        }
         file.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
+        if strict {
+            bound.check(phase)?;
+        }
         let reopened = File::from(
             openat(
                 &directory,
@@ -635,6 +1019,9 @@ fn sync_and_verify_pair<G: FnMut() -> bool>(
         {
             return Err(ExecutionError::ManualRecovery);
         }
+    }
+    if strict {
+        bound.check(phase)?;
     }
     directory
         .sync_all()
@@ -668,7 +1055,16 @@ fn sync_decision_journal<G: FnMut() -> bool>(
 fn sync_decision_journal_with_hook<G: FnMut() -> bool, H: FnMut(&str)>(
     bound: &mut Bound<'_, G>,
     phase: DecisionPhase,
+    hook: H,
+) -> Result<(), ExecutionError> {
+    sync_decision_journal_checked(bound, phase, hook, false)
+}
+
+fn sync_decision_journal_checked<G: FnMut() -> bool, H: FnMut(&str)>(
+    bound: &mut Bound<'_, G>,
+    phase: DecisionPhase,
     mut hook: H,
+    strict: bool,
 ) -> Result<(), ExecutionError> {
     bound.check(phase)?;
     let directory = open_private_directory(&bound.paths.state_directory, bound.uid)
@@ -698,8 +1094,14 @@ fn sync_decision_journal_with_hook<G: FnMut() -> bool, H: FnMut(&str)>(
         {
             return Err(ExecutionError::ManualRecovery);
         }
+        if strict {
+            bound.check(phase)?;
+        }
         file.sync_all().map_err(|_| ExecutionError::Ambiguous)?;
         hook(member);
+        if strict {
+            bound.check(phase)?;
+        }
         let reopened = File::from(
             openat(
                 &directory,
@@ -723,6 +1125,9 @@ fn sync_decision_journal_with_hook<G: FnMut() -> bool, H: FnMut(&str)>(
             return Err(ExecutionError::ManualRecovery);
         }
         synced_members.push((member, file, metadata));
+    }
+    if strict {
+        bound.check(phase)?;
     }
     directory
         .sync_all()
@@ -1242,6 +1647,64 @@ mod tests {
     }
 
     #[test]
+    fn retained_abort_refuses_slot_and_live_swaps_at_owned_transition_hooks() {
+        for step in [
+            EffectStep::Linked(0),
+            EffectStep::RenameApplied(0),
+            EffectStep::Renamed(0),
+            EffectStep::Terminal,
+        ] {
+            for swap_live in [false, true] {
+                if !swap_live && step != EffectStep::Linked(0) {
+                    continue;
+                }
+                let f = Fixture::new();
+                let lock = f.lock();
+                assert!(
+                    execute_with_hook(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        [89; 16],
+                        || true,
+                        |s| s != EffectStep::Renamed(0)
+                    )
+                    .is_err()
+                );
+                let retained = RefCell::new(RetainedPair::capture(&f.config, f.uid).unwrap());
+                let mut seen = false;
+                assert!(
+                    abort_retained_with_hook(
+                        &f.config,
+                        &f.paths,
+                        f.uid,
+                        2,
+                        &lock,
+                        || true,
+                        |s| {
+                            if s == step {
+                                let path =
+                                    f.config.join(if swap_live { LIVE[0] } else { OLD_SLOT[0] });
+                                let bytes = fs::read(&path).unwrap();
+                                let replacement = f.config.join("synthetic-swap");
+                                Fixture::member(&replacement, &bytes);
+                                fs::rename(replacement, path).unwrap();
+                                seen = true;
+                            }
+                            true
+                        },
+                        &retained
+                    )
+                    .is_err()
+                );
+                assert!(seen);
+            }
+        }
+    }
+
+    #[test]
     fn explicit_abort_owned_never_adopts_terminal_replaced_in_post_write_gate() {
         for in_hook in [false, true] {
             let f = Fixture::new();
@@ -1275,7 +1738,10 @@ mod tests {
                 2,
                 &lock,
                 || {
-                    if !in_hook && !gate_swapped && terminal.exists() {
+                    if !in_hook
+                        && !gate_swapped
+                        && fs::metadata(&terminal).is_ok_and(|m| m.len() == RECORD_BYTES as u64)
+                    {
                         swap();
                         gate_swapped = true;
                     }
@@ -1291,7 +1757,7 @@ mod tests {
                     true
                 },
             );
-            assert!(hook_seen);
+            assert!(!in_hook || hook_seen);
             assert!(in_hook || gate_swapped);
             assert!(result.is_err());
             f.assert_pair(true);
@@ -1302,6 +1768,64 @@ mod tests {
                     .exists()
             );
             assert!(terminal.exists());
+        }
+    }
+
+    #[test]
+    fn abort_terminal_checked_writer_stops_at_first_failed_gate_and_keeps_prefix() {
+        for fail_at in 1..=5 {
+            let f = Fixture::new();
+            let terminal = candidate_intent(&f)
+                .terminal(TerminalChoice::Abort)
+                .unwrap();
+            let mut calls = 0;
+            let result =
+                write_record_owned_checked(&f.paths, f.uid, TERMINAL, &terminal.encode(), || {
+                    calls += 1;
+                    calls != fail_at
+                });
+            assert!(result.is_err());
+            assert_eq!(calls, fail_at, "no later effect gate after refusal");
+            let member = f.paths.state_directory.join(TERMINAL);
+            if fail_at == 1 {
+                assert!(!member.exists());
+            } else {
+                assert_eq!(
+                    fs::metadata(member).unwrap().len(),
+                    if fail_at == 2 { 0 } else { RECORD_BYTES as u64 }
+                );
+            }
+            f.assert_pair(true);
+        }
+    }
+
+    #[test]
+    fn abort_terminal_checked_writer_never_rebaselines_pre_post_write_sync_swaps() {
+        for swap_at in 2..=5 {
+            let f = Fixture::new();
+            let terminal = candidate_intent(&f)
+                .terminal(TerminalChoice::Abort)
+                .unwrap();
+            let member = f.paths.state_directory.join(TERMINAL);
+            let mut calls = 0;
+            let result =
+                write_record_owned_checked(&f.paths, f.uid, TERMINAL, &terminal.encode(), || {
+                    calls += 1;
+                    if calls == swap_at {
+                        let bytes = fs::read(&member).unwrap();
+                        let replacement = member.with_extension("replacement");
+                        Fixture::member(&replacement, &bytes);
+                        fs::rename(replacement, &member).unwrap();
+                    }
+                    true
+                });
+            assert!(matches!(result, Err(ExecutionError::Ambiguous)));
+            assert_eq!(calls, swap_at);
+            assert_eq!(
+                fs::metadata(member).unwrap().len(),
+                if swap_at == 2 { 0 } else { RECORD_BYTES as u64 }
+            );
+            f.assert_pair(true);
         }
     }
 
