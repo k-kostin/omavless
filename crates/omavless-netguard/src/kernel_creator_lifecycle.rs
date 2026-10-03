@@ -22,7 +22,6 @@ struct FixtureCreator {
     prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss,
     cut_after_effect: bool,
     change_generation_before_send: bool,
-    last_generation: Option<u32>,
     state_parent: std::path::PathBuf,
 }
 impl FixtureCreator {
@@ -45,7 +44,6 @@ impl FixtureCreator {
             prefix_ack_loss: prefix_ack_loss::OneShotPrefixAckLoss::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
-            last_generation: None,
             state_parent,
         })
     }
@@ -62,16 +60,7 @@ impl FixtureCreator {
         EffectError::UnavailableOrUncertain
     }
     fn inspect(&mut self) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
-        let result = self
-            .session
-            .inspect_policy_inventory_once()
-            .and_then(|value| {
-                // Regression/wrap is terminal even if policy still matches. This
-                // does not prove nft-subsystem continuity after reinitialization.
-                require(value.1 != 0 && self.last_generation.is_none_or(|old| value.1 >= old))?;
-                self.last_generation = Some(value.1);
-                Ok(value)
-            });
+        let result = self.session.inspect_policy_inventory_once();
         if result.is_err() {
             self.session.poisoned = true;
             self.created = None;

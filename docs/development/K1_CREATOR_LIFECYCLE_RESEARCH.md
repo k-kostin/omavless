@@ -30,6 +30,12 @@ returns a new handle. Delete consumes #547's same-inventory handle witness and
 requires definitive commit plus absent readback. No retry or compensation
 mutation follows an uncertain send.
 
+The subsequent [normal session observation fence](K1_SESSION_GENERATION_OBSERVATION.md)
+replaces the creator-only generation tracker. That old tracker was bypassed by
+delete preparation and absent readback; all GETGEN completions now share the
+retained session's history. Historical kernel evidence below is unchanged and
+does not claim a live regression/reset test for this later correction.
+
 The test creator implements the existing sealed EffectPort solely to exercise
 the real `LockedState` private marker/receipt writers. Pending must already be
 durable and a competing root-state opener must be Busy at every kernel effect.

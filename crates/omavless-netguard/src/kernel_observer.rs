@@ -311,8 +311,37 @@ fn take_sequences(next: &mut u32) -> Result<[u32; 3]> {
     Ok([first, second, third])
 }
 
+// A local observation fence, not nft-subsystem continuity or ownership proof.
+// All GETGEN completions share this history, including the two ends of every
+// reader's bracket. No lower observation, error or incomplete exchange can be
+// repaired by a later reply. Existing bracket equality remains independently
+// required; an increase during an inventory still refuses that inventory.
+fn finish_read_exchange(
+    last_generation: &mut Option<u32>,
+    poisoned: &mut bool,
+    result: Result<Exchange>,
+) -> Result<Exchange> {
+    let result = (|| {
+        require(!*poisoned)?;
+        let exchange = result?;
+        require(exchange.complete())?;
+        if u16n(&exchange.request[4..6])? == GET_GEN {
+            let observed = exchange.generation()?;
+            require(last_generation.is_none_or(|last| observed >= last))?;
+            *last_generation = Some(observed);
+        }
+        Ok(exchange)
+    })();
+    if result.is_err() {
+        *poisoned = true;
+    }
+    result
+}
+
 /// A retained, read-only descriptor pair. Repeated inspections cannot swap in
 /// caller-provided namespace/socket descriptors or replay a previous sequence.
+/// A lower observed ruleset generation permanently refuses this instance;
+/// monotonic observations do not establish namespace/subsystem continuity.
 /// This is not a canonical-host proof, an ownership receipt or an EffectPort.
 /// No installed helper uses it.
 pub struct LocalReadSession {
@@ -322,6 +351,7 @@ pub struct LocalReadSession {
     local: NetlinkAddr,
     next_sequence: u32,
     poisoned: bool,
+    last_generation: Option<u32>,
 }
 
 impl LocalReadSession {
@@ -345,6 +375,7 @@ impl LocalReadSession {
             local,
             next_sequence: 1,
             poisoned: false,
+            last_generation: None,
         };
         session.check(Instant::now() + Duration::from_secs(1))?;
         Ok(session)
@@ -365,7 +396,12 @@ impl LocalReadSession {
         take_sequences(&mut self.next_sequence)
     }
 
-    fn exchange(&self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
+    fn exchange(&mut self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
+        let result = self.exchange_once(kind, seq, deadline);
+        finish_read_exchange(&mut self.last_generation, &mut self.poisoned, result)
+    }
+
+    fn exchange_once(&self, kind: u16, seq: u32, deadline: Instant) -> Result<Exchange> {
         self.check(deadline)?;
         let mut exchange = Exchange::new(kind, seq, self.local.pid())?;
         require(
@@ -479,6 +515,227 @@ mod tests {
         body.extend(attribute(2, &17_u32.to_be_bytes()));
         body.extend(attribute(3, b"synthetic\0"));
         message(NFT + 15, 0, seq, PORT, &body)
+    }
+    fn parsed_generation(seq: u32, value: u32) -> Result<Exchange> {
+        let mut exchange = Exchange::new(GET_GEN, seq, PORT)?;
+        let bytes = ack(&exchange, 0, true);
+        receive(&mut exchange, &bytes)?;
+        receive(&mut exchange, &generation(seq, value))?;
+        Ok(exchange)
+    }
+    #[test]
+    fn observation_fence_rejects_lower_delete_window_from_real_wire_history() {
+        // The old reader validates both windows independently. The creator's
+        // private comparison is bypassed by prepare_inventory_delete. No actual
+        // kernel reset or deletion is performed by this wire-only regression.
+        for (index, value) in [100, 100, 99, 99].into_iter().enumerate() {
+            assert_eq!(
+                parsed_generation(index as u32 + 1, value)
+                    .unwrap()
+                    .generation(),
+                Ok(value)
+            );
+        }
+        let (mut last, mut poisoned) = (None, false);
+        for seq in [1, 2] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, 100)).is_ok()
+            );
+        }
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(3, 99)).is_err());
+        for (seq, value) in [(4, 99), (5, 100), (6, 101)] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, value))
+                    .is_err()
+            );
+        }
+        assert!(poisoned);
+    }
+    #[test]
+    fn observation_fence_remembers_delete_and_absent_readback_generations() {
+        // The old creator remembers only 10; direct delete preparation at 20
+        // and absent readback at 21 never update its separate tracker. Hence a
+        // later valid window at 15 passes the old >=10 comparison.
+        assert!(15 >= parsed_generation(1, 10).unwrap().generation().unwrap());
+        let (mut last, mut poisoned) = (None, false);
+        for (seq, value) in [(1, 10), (2, 20), (3, 21)] {
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, value))
+                    .is_ok()
+            );
+        }
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(4, 15)).is_err());
+        assert!(poisoned);
+    }
+    #[test]
+    fn observation_fence_allows_equal_gaps_and_increases_in_both_reply_orders() {
+        for ack_first in [false, true] {
+            let (mut last, mut poisoned) = (None, false);
+            for (index, value) in [1, 1, 7, 7, 65536, u32::MAX, u32::MAX]
+                .into_iter()
+                .enumerate()
+            {
+                let seq = index as u32 + 1;
+                let mut exchange = Exchange::new(GET_GEN, seq, PORT).unwrap();
+                let ack = ack(&exchange, 0, true);
+                let body = generation(seq, value);
+                for bytes in if ack_first {
+                    [&ack, &body]
+                } else {
+                    [&body, &ack]
+                } {
+                    receive(&mut exchange, bytes).unwrap();
+                }
+                let completed =
+                    finish_read_exchange(&mut last, &mut poisoned, Ok(exchange)).unwrap();
+                assert_eq!(completed.generation(), Ok(value));
+                assert_eq!(last, Some(value));
+                assert!(!poisoned);
+            }
+        }
+    }
+    #[test]
+    fn observation_fence_does_not_accept_wrap_or_relax_existing_zero_refusal() {
+        for next in [0, 1, u32::MAX - 1] {
+            let (mut last, mut poisoned) = (None, false);
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(1, u32::MAX))
+                    .is_ok()
+            );
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(2, next)).is_err()
+            );
+            assert_eq!(last, Some(u32::MAX));
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(3, u32::MAX))
+                    .is_err()
+            );
+            assert!(poisoned);
+        }
+        let (mut last, mut poisoned) = (None, false);
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(1, 0)).is_err());
+        assert_eq!(last, None);
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(2, 1)).is_err());
+    }
+    #[test]
+    fn observation_fence_non_generation_neither_advances_nor_clears_history() {
+        let (mut last, mut poisoned) = (None, false);
+        assert!(
+            finish_read_exchange(
+                &mut last,
+                &mut poisoned,
+                Ok(table_exchange(&table_body(0, None)))
+            )
+            .is_ok()
+        );
+        assert_eq!(last, None);
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(1, 100)).is_ok());
+        assert!(
+            finish_read_exchange(
+                &mut last,
+                &mut poisoned,
+                Ok(table_exchange(&table_body(0, None)))
+            )
+            .is_ok()
+        );
+        assert_eq!(last, Some(100));
+        assert!(finish_read_exchange(&mut last, &mut poisoned, parsed_generation(3, 99)).is_err());
+        assert!(
+            finish_read_exchange(
+                &mut last,
+                &mut poisoned,
+                Ok(table_exchange(&table_body(0, None)))
+            )
+            .is_err()
+        );
+        assert_eq!(last, Some(100));
+    }
+    #[test]
+    fn observation_fence_wire_error_prefixes_permanently_refuse_recovery() {
+        for fault in 0..10 {
+            let (mut last, mut poisoned) = (None, false);
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, parsed_generation(1, 10)).is_ok()
+            );
+            let broken = (|| {
+                let mut exchange = Exchange::new(GET_GEN, 2, PORT)?;
+                let ack = ack(&exchange, 0, true);
+                let mut body = generation(2, 20);
+                match fault {
+                    0 => {
+                        receive(&mut exchange, &body)?;
+                    } // missing ACK
+                    1 => {
+                        receive(&mut exchange, &ack)?;
+                    } // missing body
+                    2 => {
+                        exchange.receive(&body, Some(NetlinkAddr::new(9, 0)), MsgFlags::empty())?;
+                    }
+                    3 => {
+                        receive(&mut exchange, &generation(3, 20))?;
+                    }
+                    4 => {
+                        exchange.receive(
+                            &body,
+                            Some(NetlinkAddr::new(0, 0)),
+                            MsgFlags::MSG_TRUNC,
+                        )?;
+                    }
+                    5 => {
+                        receive(&mut exchange, &body[..body.len() - 1])?;
+                    }
+                    6 => {
+                        // generation's low-16 projection disagrees
+                        body[19] ^= 1;
+                        receive(&mut exchange, &ack)?;
+                        receive(&mut exchange, &body)?;
+                    }
+                    7 => {
+                        receive(&mut exchange, &ack)?;
+                        receive(&mut exchange, &ack)?;
+                    }
+                    8 => {
+                        let error = super::tests::ack(&exchange, -1, true);
+                        receive(&mut exchange, &error)?;
+                    }
+                    9 => {
+                        return Err(REFUSE);
+                    } // exchange transport/check/deadline failure
+                    _ => unreachable!(),
+                }
+                Ok(exchange)
+            })();
+            assert!(
+                finish_read_exchange(&mut last, &mut poisoned, broken).is_err(),
+                "fault {fault}"
+            );
+            assert!(poisoned);
+            assert_eq!(last, Some(10));
+            for (seq, value) in [(3, 10), (4, 20), (5, 21)] {
+                assert!(
+                    finish_read_exchange(&mut last, &mut poisoned, parsed_generation(seq, value))
+                        .is_err(),
+                    "fault {fault}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn observation_fence_does_not_replace_inventory_bracket_equality() {
+        let (mut last, mut poisoned) = (None, false);
+        let before = finish_read_exchange(&mut last, &mut poisoned, parsed_generation(1, 10))
+            .unwrap()
+            .generation()
+            .unwrap();
+        let after = finish_read_exchange(&mut last, &mut poisoned, parsed_generation(2, 11))
+            .unwrap()
+            .generation()
+            .unwrap();
+        assert_eq!(last, Some(11));
+        assert!(!poisoned);
+        // All five readers retain this separate interval-equality predicate;
+        // their existing wrappers seal the session when it fails.
+        assert_eq!(require(before == after), Err(REFUSE));
     }
     fn table_body(flags: u32, owner: Option<u32>) -> Vec<u8> {
         let mut body = vec![1, 0, 0, 7];
