@@ -320,6 +320,16 @@ fn real_receive_truncation_in_disposable_vm() {
     isolated_cases(&["trunc-create", "trunc-replace", "trunc-delete"]);
     println!("K1_REAL_RECEIVE_TRUNCATION_VM_PASS");
 }
+#[test]
+#[ignore = "VM-only actual END ACK observer loss after unchanged BEGIN/operation delivery"]
+fn real_end_ack_observer_loss_in_disposable_vm() {
+    assert_eq!(
+        std::env::var("OMAVLESS_K1_END_ACK_LOSS_VM").as_deref(),
+        Ok("1")
+    );
+    isolated_cases(&["end-create", "end-replace", "end-delete"]);
+    println!("K1_REAL_END_ACK_OBSERVER_LOSS_VM_PASS");
+}
 fn isolated_cases(cases: &[&str]) {
     let parent = namespace_file().unwrap();
     let identity = namespace_identity(&parent).unwrap();
@@ -391,6 +401,14 @@ fn isolated_cases(cases: &[&str]) {
                 1
             );
         }
+        if case.starts_with("end-") {
+            assert_eq!(
+                String::from_utf8_lossy(&output)
+                    .matches(&format!("K1_ACTUAL_END_ACK_OBSERVER_LOSS_{case}_PASS"))
+                    .count(),
+                1
+            );
+        }
         assert_eq!(namespace_identity(&parent).unwrap(), identity);
         assert_eq!(
             namespace_identity(&namespace_file().unwrap()).unwrap(),
@@ -429,6 +447,9 @@ fn lifecycle_child() {
             | "trunc-create"
             | "trunc-replace"
             | "trunc-delete"
+            | "end-create"
+            | "end-replace"
+            | "end-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let identity = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -454,8 +475,8 @@ fn lifecycle_child() {
         return;
     }
     let mut state = fixture.state(case == "service" || case == "lost-socket-reply");
-    if case.starts_with("trunc-") {
-        truncation_case(&fixture, state, creator, namespace, &case);
+    if case.starts_with("trunc-") || case.starts_with("end-") {
+        receive_failure_case(&fixture, state, creator, namespace, &case);
     } else if case == "service" {
         let path = fixture.0.join("control.sock");
         let listener = UnixListener::bind(&path).unwrap();
@@ -612,14 +633,19 @@ fn lifecycle_child() {
     println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
 }
 
-fn truncation_case(
+fn receive_failure_case(
     fixture: &Fixture,
     mut state: LockedState,
     mut creator: FixtureCreator,
     namespace: NamespaceObservation,
     case: &str,
 ) {
-    if case != "trunc-create" {
+    let end_loss = case.starts_with("end-");
+    let operation = case
+        .strip_prefix(if end_loss { "end-" } else { "trunc-" })
+        .unwrap();
+    assert!(matches!(operation, "create" | "replace" | "delete"));
+    if operation != "create" {
         armed(state.request(ARM, namespace, &mut creator).unwrap());
     }
     let old_handle = creator.created;
@@ -628,18 +654,26 @@ fn truncation_case(
     let local = creator.session.local;
     let identity = creator.session.identity;
     let before = creator.effects;
-    creator.receive_fault.arm(socket);
+    if end_loss {
+        creator.end_ack_loss.arm(socket);
+    } else {
+        creator.receive_fault.arm(socket);
+    }
     assert_eq!(
         state.request(
-            if case == "trunc-delete" { DISARM } else { ARM },
+            if operation == "delete" { DISARM } else { ARM },
             namespace,
             &mut creator
         ),
         Err(REFUSED)
     );
-    // This requires one successful real receive with its actual MSG_TRUNC, not
-    // a fabricated error, synthetic ACK, timeout, or post-ACK adapter failure.
-    assert_eq!(creator.receive_fault.observed(), 1);
+    // Only the real receive path can record either fault. END loss also proves
+    // all BEGIN/operation ACKs reached the existing unchanged collector.
+    assert_eq!(creator.receive_fault.observed(), usize::from(!end_loss));
+    assert_eq!(
+        creator.end_ack_loss.observed(),
+        if end_loss { (1, true) } else { (0, false) }
+    );
     assert!(creator.session.poisoned && creator.created.is_none());
     assert!(!creator.lose_reply);
     assert_eq!(creator.session.socket.as_raw_fd(), socket);
@@ -655,28 +689,28 @@ fn truncation_case(
     let receipt = crate::receipt::decode(records.1.as_ref().unwrap()).unwrap();
     assert_eq!(
         receipt.operation(),
-        if case == "trunc-create" { 1 } else { 2 }
+        if operation == "create" { 1 } else { 2 }
     );
     assert_eq!(
         receipt.state(),
-        match case {
-            "trunc-create" => crate::receipt::ReceiptState::PendingCreate,
-            "trunc-replace" => crate::receipt::ReceiptState::PendingReplace {
+        match operation {
+            "create" => crate::receipt::ReceiptState::PendingCreate,
+            "replace" => crate::receipt::ReceiptState::PendingReplace {
                 old_handle: old_handle.unwrap()
             },
-            "trunc-delete" => crate::receipt::ReceiptState::PendingDelete {
+            "delete" => crate::receipt::ReceiptState::PendingDelete {
                 old_handle: old_handle.unwrap()
             },
             _ => unreachable!(),
         }
     );
-    if case == "trunc-create" {
+    if operation == "create" {
         assert!(records.0.is_none());
     } else {
         let marker: serde_json::Value =
             serde_json::from_slice(records.0.as_ref().unwrap()).unwrap();
         assert_eq!(marker["generation"], 7);
-        assert_eq!(marker["armed"], case != "trunc-delete");
+        assert_eq!(marker["armed"], operation != "delete");
     }
     for _ in 0..3 {
         for request in [Request::Status {}, ARM, DISARM] {
@@ -687,7 +721,11 @@ fn truncation_case(
         }
     }
     assert_eq!(creator.effects, before + 1);
-    assert_eq!(creator.receive_fault.observed(), 1);
+    assert_eq!(creator.receive_fault.observed(), usize::from(!end_loss));
+    assert_eq!(
+        creator.end_ack_loss.observed(),
+        if end_loss { (1, true) } else { (0, false) }
+    );
     assert_eq!(fixture.records(), records);
 
     // A DIFFERENT socket observes actual surviving/absent kernel state only.
@@ -698,17 +736,17 @@ fn truncation_case(
     for _ in 0..2 {
         assert_eq!(
             independent.inspect().unwrap(),
-            if case == "trunc-delete" {
+            if operation == "delete" {
                 LocalTablePresence::Absent
             } else {
                 LocalTablePresence::PresentUntrusted
             }
         );
-        if case != "trunc-delete" {
+        if operation != "delete" {
             let (_, _, table) = independent.inspect_policy_inventory_once().unwrap();
             let table = table.unwrap();
             assert!(table.handle != 0);
-            if case == "trunc-replace" {
+            if operation == "replace" {
                 assert_ne!(Some(table.handle), old_handle);
             }
             assert_eq!(
@@ -742,7 +780,11 @@ fn truncation_case(
     assert_eq!(reopened.effects, 0);
     assert!(reopened.created.is_none());
     assert_eq!(fixture.records(), records);
-    println!("K1_ACTUAL_MSG_TRUNC_{case}_PASS");
+    if end_loss {
+        println!("K1_ACTUAL_END_ACK_OBSERVER_LOSS_{case}_PASS");
+    } else {
+        println!("K1_ACTUAL_MSG_TRUNC_{case}_PASS");
+    }
 }
 
 fn only_loopback() {
