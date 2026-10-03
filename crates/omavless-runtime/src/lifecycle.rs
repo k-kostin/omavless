@@ -682,9 +682,23 @@ impl<H: LifecycleHost> LifecycleExecutor<H> {
     /// must not loop this method after `RecoveryFailed`; a fresh owner process
     /// may attempt one new bounded recovery after re-observation.
     pub fn reconcile_startup(&mut self) -> Result<LifecycleOutcome, LifecycleError> {
-        let desired = self.read()?;
+        self.reconcile_startup_admitted(&mut crate::startup_admission::StartupAdmission::ordinary())
+    }
+
+    pub(crate) fn reconcile_startup_admitted(
+        &mut self,
+        admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        admission
+            .recheck()
+            .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        let desired = admission.desired(&self.paths, self.uid)?;
         let observed = self.observe_or_manual(&desired)?;
-        match reconcile(&desired, observed) {
+        let action = reconcile(&desired, observed);
+        admission
+            .action(action)
+            .map_err(|_| LifecycleError::ManualRecoveryRequired)?;
+        match action {
             ReconcileAction::SettledDisconnected => {
                 self.actual = ActualState::Disconnected;
                 Ok(self.outcome(&desired, false))

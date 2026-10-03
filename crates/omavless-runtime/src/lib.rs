@@ -119,6 +119,7 @@ pub mod routing_read_protocol;
 mod runtime_observation;
 mod runtime_quit;
 pub mod semantic_cli;
+mod startup_admission;
 pub mod startup_protocol;
 mod startup_validation;
 pub mod store_bootstrap;

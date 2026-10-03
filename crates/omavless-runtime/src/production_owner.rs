@@ -108,6 +108,25 @@ pub struct ProductionNativeOwner<H = NativeLifecycleHost> {
     login_ready: bool,
 }
 
+/// Contains the real constructed owner but cannot register, dispatch, mutate,
+/// auto-start or yield it to another caller. Research never returns authority.
+#[cfg(test)]
+pub(crate) struct OffResearchOwner<H> {
+    owner: ProductionNativeOwner<H>,
+}
+#[cfg(test)]
+impl<H: LifecycleHost> OffResearchOwner<H> {
+    pub(crate) fn actual(&self) -> ActualState {
+        self.owner.actual()
+    }
+    pub(crate) fn startup_outcome(&self) -> ConnectionTransactionOutcome {
+        self.owner.startup_outcome()
+    }
+    pub(crate) fn login_ready(&self) -> bool {
+        self.owner.login_ready()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProductionOwnership {
     Candidate(TransitionBootstrap),
@@ -294,12 +313,39 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         uid: u32,
         lock: MigrationLock,
     ) -> Result<Self, ProductionOwnerError> {
-        let marker = read_marker(&cutover_paths, uid)
+        Self::initialize_under_lease(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            (
+                &lock,
+                &mut crate::startup_admission::StartupAdmission::ordinary(),
+            ),
+        )
+    }
+
+    fn initialize_under_lease(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        startup: (
+            &MigrationLock,
+            &mut crate::startup_admission::StartupAdmission<'_, '_>,
+        ),
+    ) -> Result<Self, ProductionOwnerError> {
+        let (lock, admission) = startup;
+        let marker = admission
+            .marker(&cutover_paths, uid)
             .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
         if marker.phase() != OwnershipPhase::Rust {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
-        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+        admission
+            .receipt(&cutover_paths, uid, lock, marker.generation())
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let mut coordinator = OfflineNativeCoordinator::new_ownership_gated(
             host,
@@ -310,9 +356,11 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
             marker.generation(),
         );
         let startup = coordinator
-            .reconcile_startup_locked(&lock)
+            .reconcile_startup_admitted(lock, admission)
             .map_err(recovery_error)?;
-        drop(lock);
+        admission
+            .recheck()
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         Ok(Self {
             coordinator,
             startup,
@@ -322,6 +370,38 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
                 origin_preparing_generation: None,
             },
         })
+    }
+
+    /// Dev-only real owner construction, never registration or mutation admission.
+    /// Consumes the retained witness while the caller retains the exact lease.
+    #[cfg(test)]
+    pub(crate) fn initialize_off_research(
+        host: H,
+        desired_paths: DesiredPaths,
+        store_path: &Path,
+        cutover_paths: CutoverPaths,
+        uid: u32,
+        research: (&MigrationLock, crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedEpochOff<'_>),
+    ) -> Result<OffResearchOwner<H>, ProductionOwnerError> {
+        let (lock, mut evidence) = research;
+        if !evidence.paths_match(&desired_paths, store_path) {
+            return Err(ProductionOwnerError::ManualRecoveryRequired);
+        }
+        let mut owner = Self::initialize_under_lease(
+            host,
+            desired_paths,
+            store_path,
+            cutover_paths,
+            uid,
+            (
+                lock,
+                &mut crate::startup_admission::StartupAdmission::HistoricalOff(&mut evidence),
+            ),
+        )?;
+        // Research constructs the real owner but cannot retain mutation or
+        // listener admission, even if somebody subsequently removes a fence.
+        owner.ownership = ProductionOwnership::Stale;
+        Ok(OffResearchOwner { owner })
     }
 
     /// Build a reconciled read-only candidate for one exact preparing marker.
@@ -663,6 +743,62 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
 }
 
 impl ProductionNativeOwner<NativeLifecycleHost> {
+    /// Dev-only fixed-path counterpart of current(). No orphan cleanup, normal
+    /// registration, auto-start or mutation permission. Not an installed gate.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn current_off_research(
+        runtime_paths: &RuntimePaths,
+    ) -> Result<OffResearchOwner<NativeLifecycleHost>, ProductionOwnerError> {
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::RetainedCurrentOff;
+        let uid = Uid::current().as_raw();
+        let desired_paths =
+            DesiredPaths::current().map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let paths =
+            CutoverPaths::current(uid).map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let lock = MigrationLock::acquire_existing(&paths, uid).map_err(lock_error)?;
+        let marker = read_marker_existing(&paths, uid)
+            .map_err(|_| ProductionOwnerError::OwnershipUnavailable)?;
+        let host_paths = NativeHostPaths::current(&runtime_paths.directory)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let store = host_paths.store.clone();
+        let config = host_paths.config_directory.clone();
+        let retained =
+            RetainedCurrentOff::capture(&config, &paths, uid, marker.generation(), &lock)
+                .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let proof = crate::login_activation::epoch_candidate::CurrentEpochProof::capture(
+            &paths,
+            uid,
+            marker.generation(),
+            &lock,
+        )
+        .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        let mut host = NativeLifecycleHost::new(host_paths, uid)
+            .map_err(|_| ProductionOwnerError::HostUnavailable)?;
+        let evidence = retained
+            .research(proof, || {
+                crate::desired::read_desired_snapshot(&desired_paths, uid).is_ok_and(|desired| {
+                    !desired.connected
+                        && host.fresh_observation(&desired).is_ok_and(|o| {
+                            !o.owned_core_running
+                                && o.visible_mihomo_count == 0
+                                && o.owned_auxiliary_mihomo_count == 0
+                                && o.visible_tun_count == 0
+                                && o.managed_tun_count == 0
+                        })
+                })
+            })
+            .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
+        Self::initialize_off_research(
+            host,
+            desired_paths,
+            &store,
+            paths.clone(),
+            uid,
+            (&lock, evidence),
+        )
+    }
+
     /// Resolve only package-fixed/current-user paths and construct the native
     /// owner. A legacy, preparing, rollback, missing, malformed, or unsafe
     /// marker fails closed before reconciliation can touch lifecycle state.
@@ -685,7 +821,8 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
             marker.generation(),
         )
         .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
-        check_startup_receipt(&cutover_paths, uid, &lock, Some(marker.generation()))
+        crate::startup_admission::StartupAdmission::ordinary()
+            .receipt(&cutover_paths, uid, &lock, marker.generation())
             .map_err(|_| ProductionOwnerError::ManualRecoveryRequired)?;
         let host_paths = NativeHostPaths::current(&runtime_paths.directory)
             .map_err(|_| ProductionOwnerError::HostUnavailable)?;
@@ -947,6 +1084,51 @@ mod tests {
         assert!(!owner.startup_outcome().changed);
         assert_eq!(owner.coordinator.host().calls, 1);
         assert!(owner.coordinator.host().lock_was_held);
+    }
+
+    #[test]
+    fn ordinary_separate_desired_directory_pending_blocks_before_host() {
+        let fixture = Fixture::new(OwnershipPhase::Rust);
+        let other = fixture.root.join("other-state");
+        fs::create_dir(&other).unwrap();
+        fs::set_permissions(&other, fs::Permissions::from_mode(0o700)).unwrap();
+        let desired = DesiredPaths::below(&other);
+        write_desired(&desired, fixture.uid, &DesiredState::default()).unwrap();
+        fs::write(
+            desired.directory.join("restore-disposition.complete"),
+            b"pending",
+        )
+        .unwrap();
+        assert!(crate::pending_private_transaction::pending(&desired));
+        assert!(!crate::pending_private_transaction::pending_at(
+            &fixture.cutover.state_directory
+        ));
+        let mut host = fixture.host();
+        host.observation = OwnedObservation {
+            service_active: true,
+            controller_ready: true,
+            core_count: 1,
+            tun_count: 1,
+            active_profile_matches: true,
+        };
+        let calls = host.observed_calls.clone();
+        let before = fs::read(&fixture.store).unwrap();
+        assert!(
+            ProductionNativeOwner::initialize(
+                host,
+                desired,
+                &fixture.store,
+                fixture.cutover.clone(),
+                fixture.uid
+            )
+            .is_err()
+        );
+        assert_eq!(
+            calls.get(),
+            0,
+            "pending desired directory must prevent observation and every host effect"
+        );
+        assert_eq!(fs::read(&fixture.store).unwrap(), before);
     }
 
     #[test]
