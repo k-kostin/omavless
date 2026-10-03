@@ -11,6 +11,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+mod manager_layers;
+
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
