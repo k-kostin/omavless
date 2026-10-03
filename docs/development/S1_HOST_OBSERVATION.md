@@ -57,6 +57,24 @@ reply. Discard unrelated entries privately; never serialize the whole manager
 environment into the journal or diagnostics. This does not capture per-unit
 overrides or already-running applications.
 
+This snapshot is an **effective projection**, not the original mutable client
+environment layer. At the already reviewed systemd source pin, `Environment`
+merges transient and client values while Set/Unset modify only the client layer;
+the [layer counterexample](S1_MANAGER_ENVIRONMENT_LAYERS.md) shows equal readback
+after restore can conceal a newly created client override, including present
+empty. The pinned API provides no supported client-layer getter or revision/CAS
+that supplies the missing provenance. `Dump` is unstable developer text, not a
+supported layered snapshot or restoration authority. Do not parse it as a
+substitute. Original effective absence is only a conditional model subset under
+unchanged layers; effective equality cannot prove that condition or exclude ABA.
+
+`EnvironmentSnapshot::admit_writes` validates the model's caller-supplied
+activation classification, not actual manager capture permission, client-layer
+provenance or host write authority. The normal `Observation::admit_writes`
+unconditionally refuses. Missing provenance remains a blocker; neither this
+clarification nor the counterexample downgrades exact restoration to effective
+equality or admits an installed manager writer.
+
 ## Provenance is an admission requirement, not a Boolean from the helper
 
 The production runner must bind observations to the runtime's trusted UID,

@@ -93,6 +93,10 @@ read-only GIO helper and fake-host gate. Its first source-only candidate is
 [documented separately](S1_READ_ONLY_OBSERVER.md). CLI effective-only
 snapshots are not accepted. Exact activation/session provenance remains
 unresolved; the normal runtime does not build or call the optional GIO helper.
+The separate [manager-layer counterexample](S1_MANAGER_ENVIRONMENT_LAYERS.md)
+characterizes why the merged manager property also cannot prove original client
+override presence. Its synthetic results do not admit manager writes or replace
+exact prior-state restoration with effective equality.
 
 1. Bind the typed codecs above to real host reads and guarded per-field writes.
    Verify actual installed schema IDs, key signatures/ranges and complete reads;
