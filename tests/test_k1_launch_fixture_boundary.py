@@ -46,12 +46,12 @@ class K1LaunchFixtureBoundaryTests(unittest.TestCase):
         for name in ["fixture", "control"]:
             unit = base / f"fixtures/omavless-k1-namespace-filter-{name}.service"
             self.assertIn(hashlib.sha256(unit.read_bytes()).hexdigest(), source)
-        for token in ["for mode in control filtered", "-p RestrictNamespaces",
+        for token in ["for mode in control filtered", "property RestrictNamespaces",
                       "SystemCallFilter", "CapabilityBoundingSet", "AmbientCapabilities",
                       "PrivateUsers PrivatePIDs PrivateNetwork", "DropInPaths",
                       "PropagatesStopTo", "StopPropagatedFrom"]:
             self.assertIn(token, source)
-        self.assertLess(source.index("-p RestrictNamespaces"),
+        self.assertLess(source.index("property RestrictNamespaces"),
                         source.index('systemctl start "$unit"'))
         self.assertEqual(subprocess.run(["bash", "-n", str(runner)],
                                        capture_output=True).returncode, 0)
