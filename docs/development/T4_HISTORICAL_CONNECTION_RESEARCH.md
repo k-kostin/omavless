@@ -7,7 +7,7 @@ composes the inherited #557 chain at `78ca31bd3fea126877594d301fd42014d68657b0`:
 is not a small standalone patch. Current ManagedPair/Selection and ordinary
 production admission remain authoritative. The composition baseline passed
 the frozen runtime suite (1035 passed, 30 ignored) and source/frontend suite
-(316 tests, two skipped); these results do not establish later code heads.
+(499 tests, two skipped); these results do not establish later code heads.
 
 ## Actual caller and retained evidence
 
@@ -78,3 +78,23 @@ ownership rollover, private restore UX/API and installed host/package
 acceptance remain gated. C1 and both historical records are never retired.
 No merge, release, pin update, production activation or whole-T4 closure is
 authorized by this research.
+
+## Frozen code-head evidence
+
+Code head `9f96b1e071e1e13b5613bebd7183089171c006ff`:
+
+- Full frozen runtime library: 1044 passed, zero failed, 31 ignored, 427.15
+  seconds at eight threads. The extra ignored test is explicit actual-core
+  acceptance, not hidden acceptance of an unavailable effect.
+- Source/frontend: 499 tests, two skipped, plus JS/QML/navigation gates PASS.
+- Strict workspace/all-target clippy, formatting and diff checks PASS.
+- Both native DNS architecture and both package architecture CI jobs PASS;
+  the Test workflow and exact final-documentation-head CI remain pending.
+- Frozen binary SHA256:
+  `818a865e32671402d795a37168eeff6e1694c6e9e46f35dd327d2d42a716fbe3`.
+
+Dev-VM fixture and opt-in actual no-TUN OwnedCore execution remain pending
+exclusive VM transfer/explicit effect authorization. No installed service,
+network, package or private-profile action was used for these local results.
+The earlier inherited 316-test source result belongs to #557, not this
+current-RC composition; its baseline log also reports 499 tests/two skips.
