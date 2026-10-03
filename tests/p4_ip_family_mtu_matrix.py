@@ -388,7 +388,7 @@ def readiness(process,path):
         wg.require(process.poll() is None and time.monotonic()<deadline,"child_readiness"); time.sleep(.05)
 
 
-def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public):
+def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public,progress):
     sock=root/"mihomo.sock"; wg.require(not sock.exists(),"controller_collision")
     child=None; before=peer_stats(root,peer.pid,public)
     try:
@@ -406,12 +406,16 @@ def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public):
         got=transport_client(args,root,inner)["bytes"]; after=peer_stats(root,peer.pid,public)
         wg.require(after[0]>0 and after[1]>before[1] and after[2]>before[2],"handshake_transfer")
         if attempt=="recovery": return {"recovery_exact_http_bytes":got}
-        results=[]
+        results=[]; progress.update(http_bytes=got,udp=results)
         for size in (92 if inner==4 else 112,mtu-1,mtu,mtu+1):
             payload=fixed_payload(payload_size(inner,size)); prior=observe(root,peer.pid)
-            raw=transport_client(args,root,inner,payload); replies={key:raw[key] for key in ("ack","echo")}
-            receipt=service_receipt(root,service,sha(payload))
-            results.append(assess_datagram(prior,observe(root,peer.pid),receipt,payload,replies,inner,size,mtu))
+            try:
+                raw=transport_client(args,root,inner,payload); replies={key:raw[key] for key in ("ack","echo")}
+                receipt=service_receipt(root,service,sha(payload))
+                measurement=assess_datagram(prior,observe(root,peer.pid),receipt,payload,replies,inner,size,mtu)
+                measurement["status"]="MEASURED"; results.append(measurement)
+            except wg.Refused as exc:
+                results.append({"status":"NONPASS","stage":exc.stage,"inner_ip_size":size,"app_bytes":len(payload),"sha256":sha(payload)})
         final=observe(root,peer.pid)
         for direction in ("client","peer"):
             rows=[key.split(":") for key in final["outer"] if key.startswith(direction+":")]
@@ -448,10 +452,10 @@ def namespace_run(args):
             service_argv=child_arguments(args,cell,"service",inner)
             with wg.log_handle(cell/"service.log") as log: service=wg.launch(service_argv,log,pass_fds=(int(args.parent_net_fd),int(args.parent_user_fd)))
             readiness(service,cell/"service.sock"); wg.check_process(service,wg.namespace("net"))
-            result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","positive",peer,service,public))
-            reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"negative","negative",peer,service,public))
-            reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","recovery",peer,service,public))
-            result["status"]="MEASURED"
+            result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","positive",peer,service,public,result))
+            reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"negative","negative",peer,service,public,result))
+            reset(); result.update(phase(cell,args,flavor,outer,inner,mtu,"positive","recovery",peer,service,public,result))
+            result["status"]=classify_cell(result)
         except wg.Refused as exc:
             result["stage"]=exc.stage
         except (OSError,ValueError,TypeError,KeyError,AttributeError,subprocess.SubprocessError):
@@ -462,8 +466,30 @@ def namespace_run(args):
             remaining=json.loads(wg.command(["/usr/bin/ip","-j","link","show"],"namespace_interface_cleanup").stdout)
             wg.require([row["ifname"] for row in remaining]==["lo"],"namespace_interface_cleanup")
         records.append(result)
-    measured=sum(row["status"]=="MEASURED" for row in records)
-    return {"status":"MEASURED" if measured==24 else "PARTIAL-NONPASS","cells":records,"cell_count":len(records),"measured_cells":measured,"refused_cells":24-measured,"engine":ENGINE,"loopback_outer_mtu":65536,"internet_pmtu_acceptance":False,"normal_activation_acceptance":False,"net_inode":wg.namespace("net"),"user_inode":wg.namespace("user")}
+    counts=matrix_counts(records)
+    return {"status":"MEASURED" if counts["measured_cells"]==24 else "PARTIAL-NONPASS","cells":records,"cell_count":len(records),**counts,"engine":ENGINE,"loopback_outer_mtu":65536,"internet_pmtu_acceptance":False,"normal_activation_acceptance":False,"net_inode":wg.namespace("net"),"user_inode":wg.namespace("user")}
+
+
+def classify_cell(record):
+    family,mtu=record["inner"],record["mtu"]
+    expected=[92 if family==4 else 112,mtu-1,mtu,mtu+1]
+    cases=record.get("udp")
+    wg.require(record.get("http_bytes")==65536 and record.get("recovery_exact_http_bytes")==65536 and record.get("wrong_key_no_direct") is True and isinstance(cases,list) and [case.get("inner_ip_size") for case in cases]==expected and all(case.get("status") in ("MEASURED","NONPASS") for case in cases),"cell_terminal_cardinality")
+    return "MEASURED" if all(case["status"]=="MEASURED" for case in cases) else "PARTIAL-NONPASS"
+
+
+def matrix_counts(records):
+    return {"measured_cells":sum(row["status"]=="MEASURED" for row in records),"partial_cells":sum(row["status"]=="PARTIAL-NONPASS" for row in records),"refused_cells":sum(row["status"]=="REFUSE" for row in records),"attempted_udp_cases":sum(len(row.get("udp",[])) for row in records),"measured_udp_cases":sum(case.get("status")=="MEASURED" for row in records for case in row.get("udp",[])),"nonpass_udp_cases":sum(case.get("status")=="NONPASS" for row in records for case in row.get("udp",[])),"exact_http_cells":sum(row.get("http_bytes")==65536 for row in records),"negative_cells":sum(row.get("wrong_key_no_direct") is True for row in records),"recovery_cells":sum(row.get("recovery_exact_http_bytes")==65536 for row in records)}
+
+
+def validate_matrix_result(result):
+    wg.require(isinstance(result,dict) and result.get("engine")==ENGINE and result.get("cell_count")==24 and isinstance(result.get("cells"),list) and len(result["cells"])==24,"matrix_terminal_cardinality")
+    for row,geometry in zip(result["cells"],CELLS):
+        wg.require(isinstance(row,dict) and tuple(row.get(field) for field in ("flavor","outer","inner","mtu"))==geometry and row.get("engine")==ENGINE and row.get("status") in ("MEASURED","PARTIAL-NONPASS","REFUSE"),"matrix_cell_identity")
+        if row["status"]!="REFUSE": wg.require(classify_cell(row)==row["status"],"matrix_cell_status")
+    counts=matrix_counts(result["cells"])
+    wg.require(all(type(result.get(key)) is int and result[key]==value for key,value in counts.items()) and sum(counts[key] for key in ("measured_cells","partial_cells","refused_cells"))==24,"matrix_exact_counts")
+    wg.require(result.get("status")==("MEASURED" if counts["measured_cells"]==24 else "PARTIAL-NONPASS"),"matrix_overclaimed_status")
 
 
 def outer(args):
@@ -508,7 +534,8 @@ def outer(args):
                     wg.require(active!=net,"namespace_process_cleanup")
         wg.require(root.parent==cache and wg.private_directory(root),"scratch_cleanup_target")
         shutil.rmtree(root); wg.require(not root.exists(),"scratch_cleanup")
-    wg.require(child.returncode==0 and isinstance(result,dict) and result.get("status") in ("MEASURED","PARTIAL-NONPASS") and result.get("cell_count")==24,"matrix_incomplete")
+    wg.require(child.returncode==0,"matrix_incomplete")
+    validate_matrix_result(result)
     result.update(source_sha=args.source_sha,helper_sha256=hashes,binary_sha256=identities,scratch_cleanup=True,external_canonical_guard_required=True)
     return result
 

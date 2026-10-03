@@ -112,5 +112,21 @@ class MatrixGuards(unittest.TestCase):
         for wrong in ([],events[1:],events+events):
             with self.assertRaises(ValueError): builder.verify_events(encode(wrong),1)
 
+    def test_partial_measurements_never_become_all_measured(self):
+        rows=[]
+        for flavor,outer,inner,mtu in subject.CELLS:
+            row={"flavor":flavor,"outer":outer,"inner":inner,"mtu":mtu,"engine":subject.ENGINE,"http_bytes":65536,"recovery_exact_http_bytes":65536,"wrong_key_no_direct":True,"udp":[{"inner_ip_size":size,"status":"MEASURED"} for size in (92 if inner==4 else 112,mtu-1,mtu,mtu+1)]}
+            row["status"]=subject.classify_cell(row); rows.append(row)
+        rows[0]["udp"][-1].update(status="NONPASS",stage="udp_size_inconclusive")
+        rows[0]["status"]=subject.classify_cell(rows[0])
+        result={"status":"PARTIAL-NONPASS","engine":subject.ENGINE,"cells":rows,"cell_count":24,**subject.matrix_counts(rows)}
+        subject.validate_matrix_result(result)
+        self.assertEqual(result["measured_cells"],23); self.assertEqual(result["partial_cells"],1)
+        self.assertEqual(result["attempted_udp_cases"],96); self.assertEqual(result["nonpass_udp_cases"],1)
+        for change in ({"status":"MEASURED"},{"measured_cells":24},{"cells":rows[:-1]},{"cells":[*rows[:-1],rows[0]]}):
+            with self.assertRaises(subject.wg.Refused): subject.validate_matrix_result({**result,**change})
+        partial=copy.deepcopy(rows[0]); partial["udp"].pop()
+        with self.assertRaises(subject.wg.Refused): subject.classify_cell(partial)
+
 
 if __name__=="__main__": unittest.main()

@@ -124,7 +124,7 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
 
 ## Source gates so far
 
-- Ten pure Python measurement/builder receipt guards pass in ordinary CI;
+- Eleven pure Python measurement/builder receipt guards pass in ordinary CI;
   `tests/run.sh` only registers these guards, never runs the live matrix.
 - Five named observed-peer CPU guards: 50 repetitions = **250 executions PASS**;
   race-enabled 20 repetitions = **100 executions PASS**. Both build receipts
@@ -148,3 +148,9 @@ delta, expected post-request HTTP refusal and a sent but unacknowledged UDP
 request are required. Reverse packet/fragment receipts cannot contradict a
 missing exact echo or claimed EMSGSIZE; correlated service receipt publication
 is polled with a bounded deadline rather than one-shot timing assumption.
+Valid incremental HTTP/UDP receipts survive a later inconclusive UDP case, while
+the independent wrong-key/recovery controls still run. That cell is
+`PARTIAL-NONPASS`, not `MEASURED`. Terminal guards require the exact 24 ordered
+geometries, four planned UDP outcomes per completed cell, and matching measured/
+partial/refused and attempted/measured/NONPASS UDP counts. Missing/duplicated
+cells, partial counts relabeled all-measured and incomplete cardinality refuse.
