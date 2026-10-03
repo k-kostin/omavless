@@ -66,13 +66,38 @@ installed receipt/service, TUN or raw private snapshots are used in Git/logs.
 The final pre-freeze nine-test checkpoint passed in 23.38 seconds; all nine
 store-unit tests and strict workspace/all-target Clippy passed. Source/
 frontend passed 499 tests/two existing skips plus JS/QML/navigation gates.
-These precede final freeze. Full frozen runtime/source,
-exact-head CI and guarded VM evidence remain pending; no guest call has yet been
-made for this slice. A local unfrozen A/B reproduction removed only the actual
+Code freeze is `5c602794c918f35035b2275aa75abdc3c50be53e` in Draft
+[#568](https://github.com/k-kostin/omavless/pull/568), based on sealed #561, not RC/main.
+The frozen runtime is copied outside Cargo, without capabilities, SHA256
+`53833c25a6fdd73d48f7d150e945afaac16ca3889d87add675109f4017a239e4`.
+Full library PASS: **1,052 passed, zero failed, 31 ignored, one filtered** in
+527.48 seconds at eight threads. The workflow's inherited-flock cleanup helper
+then separately passed once in 12.39 seconds: aggregate 1,053 passed/31 ignored.
+No rebuild overlapped self-reexecution. The unchanged opt-in actual no-TUN core
+fixture is still ignored here; its predecessor evidence is not relabeled for
+this code head. A local unfrozen A/B reproduction removed only the actual
 writer-FD match conjunct: the pre-first-pin same-byte replacement incorrectly
 returned success and the regression failed (zero passed/one failed, 13.82s).
 The conjunct was restored before the positive nine-test rerun; the failed
 experiment is not attributed to an immutable published head.
+
+The first complete strict Dev-VM guard passed using that same frozen artifact:
+nine actual batch aggregates twice (64.99/58.98 seconds), then ten ordinary batch
+regressions (0.97 seconds). Installed profile/template/desired/ownership private
+fingerprints, user-unit PID 86349/executable, parent network namespace,
+core binary/capabilities/inventory, TUN, resolver/resolv.conf and HOME-fixture
+inventory were unchanged. The exact original K1 comparator accepted only
+independently numeric, non-increasing `valid_life_time`/`preferred_life_time`
+values at address entries. No restriction or waiver was added for path count;
+all other address plus IPv4/IPv6 route/rule fields were exact. No real-provider,
+core, DNS, TUN, route, package or installed-service effect was performed.
+Owned runtime processes/TMP/fixtures were clean. Only the exact validated private
+task scratch, artifact and disposable snapshots/logs were deleted, retaining
+category results and the host frozen artifact. The exclusive VM lease was
+explicitly released; no subsequent guest calls were made.
+
+Both code-head package architecture CI checks passed. The full CI Test workflow
+is still running; final documentation-head CI remains separately pending.
 
 Normal historical startup/availability, new-manager crash-safe fresh-receipt
 policy, provider publication, other mutation/effect callers, persistent crash
