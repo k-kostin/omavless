@@ -26,5 +26,8 @@ pub mod receipt_store;
 pub mod root_state;
 #[allow(dead_code)] // Compiled and tested, but not installed or started.
 mod session_owner_candidate;
+#[cfg(test)]
+#[path = "../../../tests/support/temp.rs"]
+mod test_temp;
 pub mod transaction;
 mod transport_candidate;
