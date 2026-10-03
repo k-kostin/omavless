@@ -20,10 +20,12 @@ def load(name):
 LIVE = load("loopback")
 REVIEW = load("review")
 INTEROP = load("dns_interop")
+with patch.dict("sys.modules", {"review": REVIEW, "dns_interop": INTEROP}):
+    EXPORT = load("artifact_export")
 with patch.dict("sys.modules", {"loopback": LIVE}):
     UDP = load("udp_loopback")
 with patch.dict("sys.modules", {"loopback": LIVE, "review": REVIEW, "udp_loopback": UDP,
-                              "dns_interop": INTEROP}):
+                              "dns_interop": INTEROP, "artifact_export": EXPORT}):
     COMPOSITION = load("managed_composition")
 
 

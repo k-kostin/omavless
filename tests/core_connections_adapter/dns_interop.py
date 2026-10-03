@@ -5,6 +5,9 @@ import errno
 import hashlib
 import json
 import os
+import sys
+
+_BUILDER_CODE = sys._getframe().f_code
 from pathlib import Path
 import platform
 import re
@@ -254,3 +257,4 @@ def exercise(root, source, env, data, expected, corpus, run, go):
     snapshot_fixture(test_binary, test_sha, maximum=128 * 1024 * 1024)
     if snapshot_fixture(fixture, expected) != data or snapshot_corpus(corpus_file) != corpus:
         raise RuntimeError("Rust wire inputs changed during execution")
+    return output
