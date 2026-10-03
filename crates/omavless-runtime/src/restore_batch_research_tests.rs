@@ -6,7 +6,9 @@ use super::tests::{ordinary_edit, prepared};
 use super::*;
 use crate::desired::{DesiredState, OwnedObservation};
 use crate::lifecycle::{HostStepError, LifecycleHost};
-use crate::native_coordinator::{NativeSubscriptionBatch, OfflineNativeCoordinator};
+use crate::native_coordinator::{
+    NativeOwnerError, NativeSubscriptionBatch, OfflineNativeCoordinator,
+};
 use crate::restore_successor_publication_candidate::tests::Fixture;
 use crate::subscription_batch_work::{BatchWorkStep, BudgetedSubscriptionTransport};
 use crate::subscription_transport::{HttpsSubscriptionTransport, SubscriptionTransportError};
