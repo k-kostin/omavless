@@ -79,6 +79,22 @@ class MatrixGuards(unittest.TestCase):
         for receipt in (self.receipt(payload,echo_sent=False,echo_emsgsize=False),self.receipt(payload,echo_sent=False,echo_emsgsize=True,route_mtu=1420)):
             with self.assertRaises(subject.wg.Refused): subject.assess_datagram({"flows":[]},{"flows":[self.flow("rx",1281,payload)]},receipt,payload,{"ack":True,"echo":False},4,1281,1280)
 
+    def test_reverse_packets_cannot_claim_echo_when_service_refuses(self):
+        payload=subject.fixed_payload(1253)
+        receipt=self.receipt(payload,echo_sent=False,echo_emsgsize=True)
+        cases=[[self.flow("tx",1281,payload)], [self.flow("tx",1280,payload,fragment=True,more=True,fragment_payload_size=1256,payload_sha256=""),self.flow("tx",25,payload,fragment=True,offset=1256,fragment_payload_size=5,payload_sha256="",source_port=0,dest_port=0)]]
+        for tx in cases:
+            with self.assertRaises(subject.wg.Refused): subject.assess_datagram({"flows":[]},{"flows":[self.flow("rx",1281,payload),*tx]},receipt,payload,{"ack":True,"echo":False},4,1281,1280)
+
+    def test_negative_requires_real_request_stages_and_outbound_delta(self):
+        attempt={"socks_authenticated":True,"socks_request_sent":True,"http_request_sent":False,"udp_datagram_sent":False}
+        http={"status":"TRANSPORT-REFUSED","stage":"upstream_connect_refused","attempt":attempt}
+        udp={"status":"PASS","ack":False,"echo":False,"attempt":{**attempt,"udp_datagram_sent":True}}
+        before={"outer":{"client:4:loopback:148":1}}; after={"outer":{"client:4:loopback:148":2}}
+        subject.validate_negative_clients(http,udp,before,after)
+        for bad_http,bad_udp,bad_after in [({**http,"stage":"child_privileges"},udp,after),({**http,"attempt":{**attempt,"socks_request_sent":False}},udp,after),(http,{**udp,"attempt":attempt},after),(http,{**udp,"ack":True},after),(http,udp,before)]:
+            with self.assertRaises(subject.wg.Refused): subject.validate_negative_clients(bad_http,bad_udp,before,bad_after)
+
     def test_fragment_coverage_rejects_atomic_gap_overlap_and_duplicates(self):
         payload=b"x"*1253
         first=self.flow("rx",1280,payload,fragment=True,more=True,fragment_payload_size=1256,payload_sha256="")

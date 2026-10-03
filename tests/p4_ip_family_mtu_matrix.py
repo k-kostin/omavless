@@ -58,10 +58,10 @@ def sha(payload):
     return hashlib.sha256(payload).hexdigest()
 
 
-def recv_exact(sock, count):
+def recv_exact(sock, count, eof_stage="socks_frame"):
     out = bytearray()
     while len(out) < count:
-        block = sock.recv(count-len(out)); wg.require(block, "socks_frame"); out.extend(block)
+        block = sock.recv(count-len(out)); wg.require(block, eof_stage); out.extend(block)
     return bytes(out)
 
 
@@ -76,22 +76,27 @@ def decode_address(data, pos=0):
     return str(ipaddress.ip_address(data[pos+1:pos+1+size])), struct.unpack("!H",data[pos+1+size:pos+size+3])[0],pos+size+3
 
 
-def socks_request(command, family, host, port):
+def socks_request(command, family, host, port, trace):
     s=socket.create_connection(("127.0.0.1",7898),timeout=3); s.settimeout(3)
     try:
         s.sendall(b"\x05\x01\x00"); wg.require(recv_exact(s,2)==b"\x05\x00", "socks_auth")
+        trace["socks_authenticated"]=True
         s.sendall(bytes([5,command,0])+socks_address(family,host,port))
-        head=recv_exact(s,4); wg.require(head[:3]==b"\x05\x00\x00" and head[3] in (1,4), "socks_reply")
+        trace["socks_request_sent"]=True
+        head=recv_exact(s,4,"upstream_closed_after_request")
+        wg.require(head[0]==5 and head[1]<=8 and head[2]==0 and head[3] in (1,4),"socks_reply_frame")
+        wg.require(head[1]==0,"upstream_connect_refused")
         frame=head[3:]+recv_exact(s,(4 if head[3]==1 else 16)+2)
         bind,bind_port,_=decode_address(frame)
         return s,bind,bind_port
     except BaseException: s.close(); raise
 
 
-def http_bytes(family):
-    s,_,_=socks_request(1,family,address(family),8089)
+def http_bytes(family,trace):
+    s,_,_=socks_request(1,family,address(family),8089,trace)
     with s:
         s.sendall(b"GET /matrix HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n")
+        trace["http_request_sent"]=True
         data=bytearray()
         while True:
             part=s.recv(16384)
@@ -102,13 +107,15 @@ def http_bytes(family):
     return len(body)
 
 
-def udp_request(family, payload):
-    control,host,port=socks_request(3,4,"0.0.0.0",0)
+def udp_request(family, payload,trace):
+    control,host,port=socks_request(3,4,"0.0.0.0",0,trace)
     wg.require(host=="127.0.0.1" and 1<=port<=65535,"udp_relay_identity")
     replies=[]
     with control,socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as client:
         client.settimeout(2); client.connect((host,port))
-        client.send(b"\x00\x00\x00"+socks_address(family,address(family),PORT)+payload)
+        packet=b"\x00\x00\x00"+socks_address(family,address(family),PORT)+payload
+        wg.require(client.send(packet)==len(packet),"udp_complete_send")
+        trace["udp_datagram_sent"]=True
         for _ in range(2):
             try: data,_,flags,_=client.recvmsg(4096)
             except socket.timeout: break
@@ -171,6 +178,8 @@ def assess_datagram(before,after,receipt,payload,replies,family,inner_size,mtu):
         exact=[f for f in flows if f["direction"]==direction and f["family"]==family and not f["fragment"] and f["payload_sha256"]==digest and f["size"]==inner_size]
         fragments=fragment_coverage(flows,direction,family,len(payload))
         wg.require(not (exact and fragments) and len(exact)<=1,"ambiguous_udp_shape")
+        if direction=="tx" and (exact or fragments):
+            wg.require(replies["echo"] and receipt.get("echo_sent") is True and receipt.get("echo_emsgsize") is False,"reverse_echo_contradiction")
         if exact: state="observed-unfragmented" if inner_size<=mtu else "observed-over-M-unfragmented-NOT-MTU-compliance"
         elif fragments: state="observed-reassembled-fragments"
         elif direction=="tx" and receipt.get("echo_emsgsize") is True and receipt.get("echo_sent") is False and inner_size>mtu: state="fixture-reverse-local-EMSGSIZE-under-explicit-PMTUDISC_DO"
@@ -261,15 +270,21 @@ def client_child(args):
     data=sys.stdin.buffer.read(4097); wg.require(len(data)<=4096,"client_input_bound")
     request=json.loads(data)
     wg.require(isinstance(request,dict),"client_input")
-    if request=={"kind":"http"}:
-        return {"status":"PASS","bytes":http_bytes(int(args.inner))}
-    wg.require(set(request)=={"kind","payload"} and request["kind"]=="udp" and isinstance(request["payload"],str),"client_input")
-    payload=base64.b64decode(request["payload"],validate=True)
-    wg.require(16<=len(payload)<=1421,"client_payload_bound")
-    return {"status":"PASS",**udp_request(int(args.inner),payload)}
+    is_http=request=={"kind":"http"}
+    if not is_http:
+        wg.require(set(request)=={"kind","payload"} and request["kind"]=="udp" and isinstance(request["payload"],str),"client_input")
+        payload=base64.b64decode(request["payload"],validate=True)
+        wg.require(16<=len(payload)<=1421,"client_payload_bound")
+    trace={"socks_authenticated":False,"socks_request_sent":False,"http_request_sent":False,"udp_datagram_sent":False}
+    try:
+        result={"bytes":http_bytes(int(args.inner),trace)} if is_http else udp_request(int(args.inner),payload,trace)
+        return {"status":"PASS","attempt":trace,**result}
+    except (OSError,wg.Refused) as exc:
+        stage=exc.stage if isinstance(exc,wg.Refused) else "socket_timeout" if isinstance(exc,TimeoutError) else "socket_error"
+        return {"status":"TRANSPORT-REFUSED","attempt":trace,"stage":stage}
 
 
-def transport_client(args,root,inner,payload=None):
+def transport_client(args,root,inner,payload=None,*,negative=False):
     request={"kind":"http"} if payload is None else {"kind":"udp","payload":base64.b64encode(payload).decode()}
     with wg.log_handle(root/f"client-{time.monotonic_ns()}.log") as log:
         process=subprocess.Popen(wg.dropped(child_arguments(args,root,"client",inner)),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,env=ENV,preexec_fn=wg.child_limit,pass_fds=(int(args.parent_net_fd),int(args.parent_user_fd)))
@@ -277,14 +292,37 @@ def transport_client(args,root,inner,payload=None):
             data,_=process.communicate(json.dumps(request).encode(),timeout=8)
             wg.require(len(data)<=4096,"client_result_bound")
             result=json.loads(data)
-            wg.require(process.returncode==0 and isinstance(result,dict) and result.get("status")=="PASS","transport_client_refused")
+            wg.require(process.returncode==0 and isinstance(result,dict) and result.get("status") in ("PASS","TRANSPORT-REFUSED"),"transport_client_refused")
+            trace=result.get("attempt")
+            wg.require(isinstance(trace,dict) and set(trace)=={"socks_authenticated","socks_request_sent","http_request_sent","udp_datagram_sent"} and all(type(value) is bool for value in trace.values()),"client_attempt_shape")
+            if negative: return result
+            wg.require(result["status"]=="PASS","transport_client_refused")
             if payload is None:
-                wg.require(result=={"status":"PASS","bytes":65536},"http_exact_64k")
+                wg.require(set(result)=={"status","bytes","attempt"} and result["bytes"]==65536 and trace["http_request_sent"],"http_exact_64k")
             else:
-                wg.require(set(result)=={"status","ack","echo"} and type(result["ack"]) is bool and type(result["echo"]) is bool,"udp_result_shape")
+                wg.require(set(result)=={"status","ack","echo","attempt"} and type(result["ack"]) is bool and type(result["echo"]) is bool and trace["udp_datagram_sent"],"udp_result_shape")
             return result
         finally:
             wg.stop(process); process.stdin.close(); process.stdout.close()
+
+
+def validate_negative_clients(http,udp,before,after):
+    for result in (http,udp):
+        trace=result.get("attempt",{})
+        wg.require(trace.get("socks_authenticated") is True and trace.get("socks_request_sent") is True,"negative_request_not_attempted")
+    wg.require(http.get("status")=="TRANSPORT-REFUSED" and http.get("stage") in {"upstream_connect_refused","upstream_closed_after_request","socket_timeout"},"negative_http_unexpected_stage")
+    wg.require(udp.get("status")=="PASS" and udp["attempt"].get("udp_datagram_sent") is True and udp.get("ack") is False and udp.get("echo") is False,"negative_udp_not_attempted")
+    client=lambda data:sum(count for key,count in data["outer"].items() if key.startswith("client:"))
+    wg.require(client(after)>client(before),"negative_no_actual_outer_attempt")
+
+
+def service_receipt(root,service,digest):
+    deadline=time.monotonic()+2
+    while True:
+        seen=read_json_socket(root/"service.sock",service.pid)
+        if digest in seen: return seen[digest]
+        wg.require(service.poll() is None and time.monotonic()<deadline,"udp_request_unreceived_inconclusive")
+        time.sleep(.01)
 
 
 def keys_and_config(root,flavor,outer,inner,mtu):
@@ -359,14 +397,12 @@ def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public):
         readiness(child,sock); wg.check_process(child,wg.namespace("net")); wg.controller(sock,child.pid); sock.chmod(0o600)
         service_before=read_json_socket(root/"service.sock",service.pid)
         if name=="negative":
-            got_http=got_udp=False
-            try: got_http=transport_client(args,root,inner)["bytes"]>0
-            except (OSError,ValueError,wg.Refused): pass
-            try:
-                reply=transport_client(args,root,inner,fixed_payload(64)); got_udp=reply["ack"] or reply["echo"]
-            except (OSError,ValueError,wg.Refused): pass
-            wg.require(not got_http and not got_udp and peer_stats(root,peer.pid,public)==before and read_json_socket(root/"service.sock",service.pid)==service_before,"wrong_key_no_direct")
-            return {"wrong_key_no_direct":True}
+            wire_before=observe(root,peer.pid)
+            http=transport_client(args,root,inner,negative=True)
+            udp=transport_client(args,root,inner,fixed_payload(64),negative=True)
+            validate_negative_clients(http,udp,wire_before,observe(root,peer.pid))
+            wg.require(peer_stats(root,peer.pid,public)==before and read_json_socket(root/"service.sock",service.pid)==service_before,"wrong_key_no_direct")
+            return {"wrong_key_no_direct":True,"negative_attempts":{"http":http,"udp":udp}}
         got=transport_client(args,root,inner)["bytes"]; after=peer_stats(root,peer.pid,public)
         wg.require(after[0]>0 and after[1]>before[1] and after[2]>before[2],"handshake_transfer")
         if attempt=="recovery": return {"recovery_exact_http_bytes":got}
@@ -374,9 +410,8 @@ def phase(root,args,flavor,outer,inner,mtu,name,attempt,peer,service,public):
         for size in (92 if inner==4 else 112,mtu-1,mtu,mtu+1):
             payload=fixed_payload(payload_size(inner,size)); prior=observe(root,peer.pid)
             raw=transport_client(args,root,inner,payload); replies={key:raw[key] for key in ("ack","echo")}
-            seen=read_json_socket(root/"service.sock",service.pid)
-            wg.require(sha(payload) in seen,"udp_request_unreceived_inconclusive")
-            results.append(assess_datagram(prior,observe(root,peer.pid),seen[sha(payload)],payload,replies,inner,size,mtu))
+            receipt=service_receipt(root,service,sha(payload))
+            results.append(assess_datagram(prior,observe(root,peer.pid),receipt,payload,replies,inner,size,mtu))
         final=observe(root,peer.pid)
         for direction in ("client","peer"):
             rows=[key.split(":") for key in final["outer"] if key.startswith(direction+":")]

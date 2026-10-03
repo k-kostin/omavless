@@ -124,7 +124,7 @@ PMTU1500, provider, DNS, roaming or installed normal-bridge activation acceptanc
 
 ## Source gates so far
 
-- Eight pure Python measurement/builder receipt guards pass in ordinary CI;
+- Ten pure Python measurement/builder receipt guards pass in ordinary CI;
   `tests/run.sh` only registers these guards, never runs the live matrix.
 - Five named observed-peer CPU guards: 50 repetitions = **250 executions PASS**;
   race-enabled 20 repetitions = **100 executions PASS**. Both build receipts
@@ -141,3 +141,10 @@ result replaced the mutable cell record. A separate rendering helper now keeps
 both subprocess receipts local, and a pure regression preserves the caller's
 record identity/content across both phases. No VM execution or engine/binary
 re-execution is inferred from that runner-only fix.
+Further pre-VM review tightened negative attribution: local client startup,
+privilege, authentication or malformed-framing failure cannot become a good
+wrong-key result. Both literal SOCKS request attempts, an actual outbound relay
+delta, expected post-request HTTP refusal and a sent but unacknowledged UDP
+request are required. Reverse packet/fragment receipts cannot contradict a
+missing exact echo or claimed EMSGSIZE; correlated service receipt publication
+is polled with a bounded deadline rather than one-shot timing assumption.
