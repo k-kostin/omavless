@@ -144,6 +144,7 @@ struct FixtureCreator {
     effects: usize,
     lose_reply: bool,
     receive_fault: receive_truncation::OneShotTruncation,
+    end_ack_loss: end_ack_loss::OneShotEndAckLoss,
     cut_after_effect: bool,
     change_generation_before_send: bool,
     last_generation: Option<u32>,
@@ -165,6 +166,7 @@ impl FixtureCreator {
             effects: 0,
             lose_reply: false,
             receive_fault: receive_truncation::OneShotTruncation::default(),
+            end_ack_loss: end_ack_loss::OneShotEndAckLoss::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
             last_generation: None,
@@ -289,7 +291,34 @@ impl FixtureCreator {
                     self.receive_fault.received(length, flags)?;
                     // These are the real received bytes/sender/flags. In the
                     // one-byte fault case the existing collector must refuse.
-                    replies.receive(&bytes[..length], sender, flags)?;
+                    let (delivered, lost_end) = self.end_ack_loss.deliver(
+                        self.session.socket.as_raw_fd(),
+                        &bytes[..length],
+                        sender,
+                        flags,
+                        replies.requests.last().ok_or(REFUSE)?,
+                        self.session.local.pid(),
+                    )?;
+                    if !delivered.is_empty() || !lost_end {
+                        replies.receive(&delivered, sender, flags)?;
+                    }
+                    if lost_end {
+                        require(
+                            !replies.poisoned
+                                && !replies.changed
+                                && !replies.complete()
+                                && !replies.acks.last().copied().ok_or(REFUSE)?
+                                && replies.acks[..replies.acks.len() - 1]
+                                    .iter()
+                                    .all(|ack| *ack),
+                        )?;
+                        self.end_ack_loss.confirm_prefix();
+                        replies.poisoned = true;
+                        require(!replies.complete())?;
+                        // Actual END was consumed by this observer, not
+                        // delivered to the collector. No timeout or retry.
+                        return Err(REFUSE);
+                    }
                 }
                 Err(nix::errno::Errno::EAGAIN) => std::thread::sleep(Duration::from_millis(1)),
                 Err(_) => return Err(REFUSE),
@@ -391,7 +420,7 @@ impl EffectPort for FixtureCreator {
             require(witness.handle_for_fixture() == id.table_handle)?;
             self.effects += 1;
             require(
-                witness.consume_with_receive_fault(&mut self.receive_fault)
+                witness.consume_with_ack_faults(&mut self.receive_fault, &mut self.end_ack_loss)
                     == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent,
             )?;
             self.created = None;
