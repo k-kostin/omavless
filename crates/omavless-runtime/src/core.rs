@@ -278,20 +278,22 @@ mod tests {
     use super::*;
     use std::io;
     use std::os::unix::fs::PermissionsExt;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    fn root(_label: &str) -> PathBuf {
+        // Same test-only conversion as 2e2339b (#566): the scenario remains
+        // in the test name, leaving room for the real controller socket.
+        crate::test_temp::directory("core").unwrap()
+    }
 
-    fn root(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "omavless-core-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-        root
+    #[test]
+    fn core_fixture_names_leave_room_for_long_private_tmp_prefix() {
+        use std::os::unix::net::SocketAddr;
+        let parent = PathBuf::from(format!("/{}", "p".repeat(39)));
+        let compact = parent.join("ovt-core-4294967295-ffffffffffffffff/controller.sock");
+        assert!(SocketAddr::from_pathname(compact).is_ok());
+        let descriptive = parent.join(
+            "omavless-core-configuration-barrier-4294967295-1234567890123456789/controller.sock",
+        );
+        assert!(SocketAddr::from_pathname(descriptive).is_err());
     }
 
     fn script(root: &Path, body: &str) -> PathBuf {

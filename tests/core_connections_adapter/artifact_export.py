@@ -109,6 +109,30 @@ def freeze_broker(source, target):
     return dns_interop.snapshot_fixture(target, digest(data), maximum=MAX_BINARY)
 
 
+def refuse_cargo_config(cwd, env):
+    """This fixed recipe admits no discovered Cargo configuration, even empty.
+
+    Check presence/shape only; never print or read local configuration contents.
+    This is cooperative private tooling, not hostile same-user isolation.
+    """
+    home = Path(env["HOME"])
+    locations = {home / ".cargo", *(parent / ".cargo" for parent in (cwd, *cwd.parents))}
+    for directory in locations:
+        try:
+            value = directory.lstat()
+        except FileNotFoundError:
+            continue
+        if (not stat.S_ISDIR(value.st_mode) or value.st_uid not in (0, os.getuid())
+                or value.st_mode & 0o022):
+            raise RuntimeError("Developer Cargo configuration directory refused")
+        for name in ("config", "config.toml"):
+            try:
+                (directory / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise RuntimeError("Developer Cargo configuration present")
+
+
 def file_digest(path, maximum):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
@@ -365,10 +389,13 @@ def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fi
     review.export(repository, composition.DNS_REVISION, root / "omavless")
     review.export(own_repo, revision, root / "developer-builder")
     cargo_env = dict(env, CARGO_NET_OFFLINE="true", CARGO_TARGET_DIR=str(root / "cargo-target"),
-                     CARGO_BUILD_JOBS="2")
+                     CARGO_BUILD_JOBS="2", CARGO_HOME=str(Path(env["HOME"]) / ".cargo"),
+                     RUSTC="/usr/bin/rustc")
     command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline", "-p",
                "omavless-dns-broker", "--bin", "omavless-dns-broker", "--features", "release-package"]
+    refuse_cargo_config(root / "omavless", cargo_env)
     log = build_command(command, root / "omavless", cargo_env)
+    refuse_cargo_config(root / "omavless", cargo_env)
     broker = root / "cargo-target/release/omavless-dns-broker"
     broker_data = freeze_broker(broker, root / "broker-frozen")
     core = root / "combined-core"
@@ -399,6 +426,7 @@ def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fi
                    "architecture": os.uname().machine, "toolchains": tools,
                    "cargo_lock_sha256": file_digest(root / "omavless/Cargo.lock", 4 * 1024 * 1024),
                    "broker_build_argv": command, "broker_feature": "release-package",
+                   "broker_rustc": "/usr/bin/rustc", "cargo_discovered_config": "refused",
                    "core_build": {"tags": "with_gvisor", "cgo": False, "buildvcs": False,
                                   "dependency_mode": "vendor", "trimpath": True, "ldflags": "-s -w"},
                    "wire": {"kind": "regular-file-synthetic-not-broker", "scenarios": 4,

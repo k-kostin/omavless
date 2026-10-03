@@ -231,6 +231,27 @@ class ArtifactExportTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             EXPORT.freeze_broker(source, root / "refused")
 
+    def test_cargo_configuration_in_home_cwd_and_ancestors_refuses_without_read(self):
+        for location in ("home", "cwd", "ancestor"):
+            for kind in ("config", "config.toml", "symlink", "fifo"):
+                with self.subTest(location=location, kind=kind):
+                    root = self.root()
+                    home, cwd = root / "home", root / "source/nested"
+                    home.mkdir()
+                    cwd.mkdir(parents=True)
+                    env = {"HOME": str(home)}
+                    EXPORT.refuse_cargo_config(cwd, env)
+                    directory = {"home": home, "cwd": cwd, "ancestor": cwd.parent}[location] / ".cargo"
+                    directory.mkdir()
+                    if kind == "symlink":
+                        (directory / "config").symlink_to(root / "absent")
+                    elif kind == "fifo":
+                        os.mkfifo(directory / "config", 0o600)
+                    else:
+                        (directory / kind).write_bytes(b"not parsed or exposed")
+                    with self.assertRaisesRegex(RuntimeError, "configuration present"):
+                        EXPORT.refuse_cargo_config(cwd, env)
+
 
 if __name__ == "__main__":
     unittest.main()

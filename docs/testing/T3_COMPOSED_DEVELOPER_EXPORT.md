@@ -60,6 +60,10 @@ developer tooling, not atomic protection against hostile same-UID mutation.
 
 Compiler subprocesses have fixed offline environments, two Cargo build jobs,
 bounded diagnostics/deadlines and owned-group cancellation before leader reap.
+Cargo uses explicit `/usr/bin/rustc` and the fixed HOME offline cache. Any
+`config` or `config.toml` in Cargo HOME or the source working-directory ancestry
+refuses before build and is checked again afterward, without reading contents;
+symlink/FIFO configurations refuse too. Ambient compiler overrides are omitted.
 The wire execution supervisor remains separate from compilation so its smaller
 file limit cannot restrict compiler/linker outputs. No running artifact is
 rebuilt; exported executables live outside Cargo. Source/archive sizes are
@@ -79,6 +83,14 @@ refused there, also NONPASS. Neither produced a completed manifest. Its initial
 CI failure was independently traced to test fixtures assuming an existing HOME
 `.cache`; the fixture-only correction passed CI. These failures are not erased
 by subsequent successful checks.
+The `b733dcb` actual export completed successfully with the expected core hash;
+its separate full Rust rerun exposed the old descriptive core fixture exceeding
+SUN_LEN (706 passed / 1 failed / 7 ignored). A labelled shorter-TMP run passed,
+but did not erase that failure. The subsequent test-only fix ports the `core`
+short allocator conversion from `2e2339b` (#566), preserving actual socket
+assertions and adding a 40-byte-prefix length counterexample. Neither that
+fixture correction nor Cargo configuration hardening inherits b733dcb's exact
+export evidence; subsequent exact-head results belong on the Draft PR.
 
 No normal ManagedPair, package stager/receipt schema, release pins, selector,
 service, broker enrollment, private runtime state or conditional-close admission
