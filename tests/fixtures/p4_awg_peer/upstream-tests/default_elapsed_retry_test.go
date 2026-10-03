@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 )
 
 type p4ElapsedEmission struct {
