@@ -1632,3 +1632,16 @@ as do installed positive package/epoch/host acceptance and new-manager receipt
 recovery. Repeated archive authentication is not newly required by this slice;
 it tests the already-proposed same-UID/exact-generation historical policy only.
 See [the bounded research evidence](../development/T4_OWNER_OFF_RESEARCH.md).
+
+### Dev-only synchronous favorite caller research
+
+The successor research routes only `profiles.favorite` through the actual native
+coordinator admission/Replay, preflight and existing atomic profile transaction.
+Its test-only typed context consumes resynchronized Off evidence, retains exact
+history/current-manager/lease identity, and advances only the current store after
+successful exact prepared-candidate readback. Failed/ambiguous commits poison the
+context and latch the owner; later matching bytes cannot fabricate success.
+Ordinary entrypoints and generic pending guards remain conservative, with no
+Connect, other mutation, registration or background/login admission. See
+[scope and evidence](../development/T4_HISTORICAL_PROFILE_RESEARCH.md).
+This is Dev-only historical-policy research, not its product adoption.

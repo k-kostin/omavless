@@ -14,6 +14,7 @@ mod backup_candidate;
 mod batch;
 mod onboarding;
 mod probe;
+mod profile_admission;
 mod provider;
 mod restore_candidate;
 mod restore_retirement_candidate;
@@ -369,6 +370,8 @@ pub(crate) enum CandidatePromotion {
 /// transactions. There is deliberately no socket constructor or registration
 /// side effect in this type.
 pub struct OfflineNativeCoordinator<H> {
+    #[cfg(test)]
+    research_identity: std::sync::Arc<()>,
     coordinator: MutationCoordinator,
     transaction: ConnectionTransactionState<H>,
     required_ownership: Option<OwnershipFence>,
@@ -387,6 +390,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         uid: u32,
     ) -> Self {
         Self {
+            #[cfg(test)]
+            research_identity: std::sync::Arc::new(()),
             coordinator: MutationCoordinator::default(),
             transaction: ConnectionTransactionState::new(
                 host,
@@ -1149,6 +1154,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
             return Err(NativeOwnerError::ManualRecoveryRequired);
         }
+        self.schedule(kind, operation_id, expected_revision, digest)
+    }
+
+    fn schedule(
+        &mut self,
+        kind: MutationKind,
+        operation_id: Option<&str>,
+        expected_revision: Option<u64>,
+        digest: crate::mutation::MutationDigest,
+    ) -> Result<Admission, NativeOwnerError> {
         self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
@@ -1304,35 +1319,46 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_profile_admitted(
+            request,
+            &mut profile_admission::ProfileAdmission::ordinary(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_profile_research(
+        &mut self,
+        request: &Value,
+        context: &mut crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::HistoricalProfile<'_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
+        self.execute_profile_admitted(
+            request,
+            &mut profile_admission::ProfileAdmission::Historical(context),
+        )
+    }
+
+    fn execute_profile_admitted(
+        &mut self,
+        request: &Value,
+        context: &mut profile_admission::ProfileAdmission<'_, '_>,
+    ) -> Result<NativeOwnerExecution, NativeOwnerError> {
         let parsed = parse_profile_mutation_request(request)?;
         let (mutation, operation_id, expected_revision, digest) = parsed.into_parts();
         let (kind, profile_id) = mutation_identity(&mutation);
+        context.kind(kind)?;
         let profile_id = profile_id.to_owned();
-        let admission = self.admit(
-            MutationKind::Other,
-            operation_id.as_deref(),
-            expected_revision,
-            digest,
-        )?;
+        let admission = context.admit(self, operation_id.as_deref(), expected_revision, digest)?;
         let token = match admission {
             Admission::Execute(token) => token,
             Admission::Replay(outcome) => return Ok(NativeOwnerExecution::Replay(outcome)),
             Admission::Rejected(outcome) => return Ok(NativeOwnerExecution::Rejected(outcome)),
         };
-        if let Some(outcome) = self.blocked(
-            token,
-            NativeTransactionError::Profile(ProfileTransactionError::ManualRecoveryRequired),
-        )? {
+        if let Some(outcome) = context.blocked(self, token)? {
             return Ok(outcome);
         }
-        let lock = match self.preflight_lock(token, |error| {
-            NativeTransactionError::Profile(match error {
-                ConnectionTransactionError::Busy => ProfileTransactionError::Busy,
-                _ => ProfileTransactionError::Store,
-            })
-        })? {
-            LockAdmission::Locked(lock) => lock,
-            LockAdmission::Uncached(outcome) => return Ok(outcome),
+        let lock = match context.preflight(self, token)? {
+            Ok(lock) => lock,
+            Err(outcome) => return Ok(outcome),
         };
         let plan = prepare_profile_mutation(
             self.transaction.store_path(),
@@ -1340,17 +1366,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             mutation,
         )
         .map_err(store_error);
-        let outcome = plan.and_then(|plan| {
-            let paths = self.transaction.cutover_paths().clone();
-            apply_transaction(
-                self.transaction.lifecycle_mut(),
-                &plan,
-                kind,
-                &profile_id,
-                &lock,
-                &paths,
-            )
-        });
+        let outcome = plan
+            .and_then(|plan| context.apply(&mut self.transaction, &plan, kind, &profile_id, &lock));
         self.finish(
             token,
             outcome
