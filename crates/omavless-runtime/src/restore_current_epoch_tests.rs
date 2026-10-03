@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 const EPOCH: &str = "11111111111111111111111111111111";
@@ -785,15 +785,35 @@ fn bounded_historical_off_concrete_host_drop_preserves_staging_and_live_socket()
 
 #[test]
 fn bounded_historical_off_destroys_owner_under_original_lease_before_success() {
-    bounded_off_cases(false);
-    bounded_off_cases(true);
+    bounded_off_cases(false, 0..6);
+    bounded_off_cases(true, 0..6);
 }
 
-fn bounded_off_cases(commit: bool) {
+#[test]
+fn bounded_historical_off_final_observation_epoch_drift_refuses_abort() {
+    bounded_off_cases(false, 6..7);
+}
+
+#[test]
+fn bounded_historical_off_final_observation_epoch_drift_refuses_commit() {
+    bounded_off_cases(true, 6..7);
+}
+
+#[test]
+fn bounded_historical_off_owner_drop_epoch_drift_refuses_abort() {
+    bounded_off_cases(false, 7..8);
+}
+
+#[test]
+fn bounded_historical_off_owner_drop_epoch_drift_refuses_commit() {
+    bounded_off_cases(true, 7..8);
+}
+
+fn bounded_off_cases(commit: bool, faults: std::ops::Range<u8>) {
     use crate::production_owner::system_historical_off::{Review, review_for_test};
     // Success; final host refusal; receipt replacement during final observation;
     // post-owner-destruction transient; owned-stop refusal; pointer repair refusal.
-    for fault in 0..6 {
+    for fault in faults {
         let (f, lock) = prepared(commit);
         ordinary_edit(&f);
         receipt(&f);
@@ -846,12 +866,29 @@ fn bounded_off_cases(commit: bool) {
             (path, bytes, metadata)
         })
         .collect::<Vec<_>>();
+        let epoch_changed = Arc::new(AtomicBool::new(false));
+        let late_queries = Arc::new(AtomicUsize::new(0));
+        let final_observation = Arc::new(AtomicBool::new(false));
+        let source_changed = epoch_changed.clone();
+        let source_queries = late_queries.clone();
+        let original_proof =
+            CurrentEpochProof::synthetic(&f.paths, f.uid, 2, &lock, move |is_epoch| {
+                let changed = is_epoch && source_changed.load(Ordering::SeqCst);
+                if changed {
+                    source_queries.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(if changed { NEXT } else { EPOCH }.into())
+            })
+            .unwrap();
         let retained = witness(&f, &lock)
-            .research(proof(&f, &lock), || true)
+            .research(original_proof, || true)
             .unwrap();
         let dropped = Arc::new(AtomicBool::new(false));
         let receipt_path = f.paths.runtime_base.join("omavless-login.receipt");
         let pending = f.paths.state_directory.join("restore-successor.pending");
+        let observe_epoch = epoch_changed.clone();
+        let drop_epoch = epoch_changed.clone();
+        let observed_final = final_observation.clone();
         let result = review_for_test(
             BoundedOffHost {
                 inner: OffHost {
@@ -863,6 +900,12 @@ fn bounded_off_cases(commit: bool) {
                 uid: f.uid,
                 observations: 0,
                 before_fresh: Box::new(move |count| {
+                    if count == 2 {
+                        observed_final.store(true, Ordering::SeqCst);
+                        if fault == 6 {
+                            observe_epoch.store(true, Ordering::SeqCst);
+                        }
+                    }
                     if fault == 2 && count == 2 {
                         let replacement = receipt_path.with_extension("replacement");
                         fs::copy(&receipt_path, &replacement).unwrap();
@@ -871,6 +914,13 @@ fn bounded_off_cases(commit: bool) {
                     !(fault == 1 && count == 2)
                 }),
                 on_drop: Box::new(move || {
+                    if fault == 6 {
+                        // Restoring the source does not erase the failure that
+                        // the final observation's trailing check must observe.
+                        drop_epoch.store(false, Ordering::SeqCst);
+                    } else if fault == 7 {
+                        drop_epoch.store(true, Ordering::SeqCst);
+                    }
                     if fault == 3 {
                         fs::write(&pending, b"synthetic-transient").unwrap();
                     }
@@ -884,8 +934,14 @@ fn bounded_off_cases(commit: bool) {
             (&lock, retained),
         );
         assert!(dropped.load(Ordering::SeqCst), "no actual owner may escape");
+        if fault >= 6 {
+            assert!(
+                final_observation.load(Ordering::SeqCst),
+                "must reach final fresh observation"
+            );
+        }
         if fault == 0 {
-            assert_eq!(result.unwrap(), Review::ReviewedOffStillFenced);
+            assert_eq!(result.as_ref().unwrap(), &Review::ReviewedOffStillFenced);
             assert!(
                 before.same(
                     &Snapshot::read_policy(
@@ -899,7 +955,7 @@ fn bounded_off_cases(commit: bool) {
                     .unwrap()
                 )
             );
-        } else {
+        } else if fault < 6 {
             assert!(result.is_err());
         }
         assert_eq!(fs::read(&store).unwrap(), bytes);
@@ -923,6 +979,19 @@ fn bounded_off_cases(commit: bool) {
             )
             .is_err()
         );
+        if fault >= 6 {
+            // Preserve all safe-state assertions before the counterexample's
+            // decisive outcome assertion, including in a deliberately broken
+            // disposable copy with the relevant late check removed.
+            assert!(
+                result.is_err(),
+                "late epoch drift must refuse bridge success"
+            );
+            assert!(
+                late_queries.load(Ordering::SeqCst) > 0,
+                "late retained source must be queried"
+            );
+        }
     }
 }
 impl crate::lifecycle::LifecycleHost for OffHost {

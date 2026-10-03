@@ -83,6 +83,18 @@ class SystemHistoricalOffBoundary(unittest.TestCase):
         transaction = (SRC / "login_transaction.rs").read_text()
         self.assertRegex(transaction, r'#\[cfg\(test\)\]\s*pub\(crate\) fn diagnose_fixed_login_inputs')
 
+    def test_late_epoch_bridge_cases_keep_each_history_and_real_late_boundary(self):
+        source = (SRC / "restore_current_epoch_tests.rs").read_text()
+        for boundary in ("final_observation", "owner_drop"):
+            for history in ("commit", "abort"):
+                self.assertIn(f"fn bounded_historical_off_{boundary}_epoch_drift_refuses_{history}()", source)
+        self.assertIn("source_queries.fetch_add", source)
+        self.assertIn("must reach final fresh observation", source)
+        self.assertIn("late epoch drift must refuse bridge success", source)
+        bridge = (SRC / "system_historical_off_candidate.rs").read_text()
+        self.assertIn("evidence.recheck().map_err(|_| refuse)", bridge)
+        self.assertIn("drop(owner);\n    result?;\n    evidence", bridge)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,3 +79,7 @@ requires explicit product policy and its complete effect/cancellation matrix.
 
 Exact source, build and test outcomes belong to the development PR checkpoint;
 the original research VM evidence remains attributed only to its own heads.
+
+The later [late-epoch bridge regressions](T4_LATE_EPOCH_BRIDGE_TESTS.md) cover
+Commit/Abort source drift at final observation and actual owner destruction.
+They add no normal behavior or actual-System acceptance claim.
