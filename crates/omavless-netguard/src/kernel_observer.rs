@@ -22,6 +22,9 @@ mod conditional_delete;
 #[cfg(test)]
 #[path = "kernel_creator_lifecycle.rs"]
 mod creator_lifecycle;
+#[cfg(test)]
+#[path = "kernel_receive_truncation.rs"]
+mod receive_truncation;
 use std::{
     fs::File,
     io::IoSliceMut,
