@@ -160,6 +160,9 @@ Revocation shuts down the registered socket, releases the gate, then performs
 bounded child cleanup. An old lifetime can never become Live again, including
 after a new child binds the same controller path. Only a Live gate permits
 `waitid(WNOWAIT)`; a revoked worker never probes or signals the old numeric PID.
+An exit or child-proof failure permanently revokes the lifetime immediately,
+whether observed by the detached transport or `OwnedCore.running`; unexpected
+external reaping cannot allow a later reused PID to restore eligibility.
 
 The same gate holds one session reservation and serializes cancellation,
 the first nonblocking effect write attempt, each partial write and final
@@ -173,6 +176,9 @@ teardown, lost/invalid reply or proof loss is Unknown and never resent.
 Restoring a failed identity proof cannot turn an attempted effect into a
 pre-write refusal. A complete typed receipt plus final proof must atomically
 finish before cancellation; a later cancellation cannot rewrite that receipt.
+The deadline is rechecked inside the write gate after identity proof and
+again during final acceptance, so delayed admission never sends an expired
+effect or accepts a late receipt.
 Each session admits only one close and cannot attribute an earlier receipt to
 another selection.
 
@@ -185,6 +191,7 @@ The real subprocess barrier tests compose the existing mutation coordinator
 with the owned child and prove status/revision access and prioritized urgent
 disconnect during capability/reply stalls. They also cover pre/post-attempt
 cancellation, parsed-204/cancel ordering, transient socket restoration,
+actual partial-write identity loss followed by restoration,
 stop/drop/new-child refusal, unexpected external reaping, deadlines and
 spawn/panic/drop cleanup. These are actual owned child/Unix-controller effects,
 not installed production admission or private-provider evidence.

@@ -160,6 +160,19 @@ struct Gate {
     live: bool,
     reservation: Option<Reservation>,
 }
+impl Gate {
+    fn revoke(&mut self) {
+        self.live = false;
+        if let Some(reservation) = &mut self.reservation {
+            if !matches!(reservation.phase, Phase::Finished(_)) {
+                reservation.cancelled = true;
+            }
+            if let Some(stream) = &reservation.stream {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+        }
+    }
+}
 /// Retained non-reusable child identity, not ownership of Child. OwnedCore
 /// revokes before signalling or reaping. WNOWAIT is legal only under Live.
 pub(crate) struct Lifetime {
@@ -180,24 +193,17 @@ impl Lifetime {
         // Recover poisoning to revoke during unwind as well. No blocking I/O,
         // callback or child cleanup runs while this fast gate is held.
         let mut gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
-        gate.live = false;
-        if let Some(reservation) = &mut gate.reservation {
-            if !matches!(reservation.phase, Phase::Finished(_)) {
-                reservation.cancelled = true;
-            }
-            if let Some(stream) = &reservation.stream {
-                let _ = stream.shutdown(Shutdown::Both);
-            }
-        }
+        gate.revoke();
     }
-    fn running(&self, gate: &Gate) -> bool {
+    fn running(&self, gate: &mut Gate) -> bool {
         if !gate.live {
             return false;
         }
         let Ok(pid) = i32::try_from(self.pid) else {
+            gate.revoke();
             return false;
         };
-        matches!(
+        let running = matches!(
             nix::sys::wait::waitid(
                 nix::sys::wait::Id::Pid(nix::unistd::Pid::from_raw(pid)),
                 nix::sys::wait::WaitPidFlag::WEXITED
@@ -205,7 +211,11 @@ impl Lifetime {
                     | nix::sys::wait::WaitPidFlag::WNOWAIT,
             ),
             Ok(nix::sys::wait::WaitStatus::StillAlive)
-        )
+        );
+        if !running {
+            gate.revoke();
+        }
+        running
     }
 }
 
@@ -245,6 +255,12 @@ pub(crate) struct Session {
     panic_after_write: bool,
     #[cfg(test)]
     before_finish: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    before_write: Option<Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    effect_chunk: usize,
+    #[cfg(test)]
+    after_chunk: Option<Arc<std::sync::Barrier>>,
 }
 
 impl Session {
@@ -296,6 +312,12 @@ impl Session {
             panic_after_write: false,
             #[cfg(test)]
             before_finish: None,
+            #[cfg(test)]
+            before_write: None,
+            #[cfg(test)]
+            effect_chunk: usize::MAX,
+            #[cfg(test)]
+            after_chunk: None,
         };
         {
             let mut gate = session
@@ -303,7 +325,7 @@ impl Session {
                 .gate
                 .lock()
                 .map_err(|_| Outcome::RefusedBeforeWrite)?;
-            if !session.lifetime.running(&gate) || gate.reservation.is_some() {
+            if !session.lifetime.running(&mut gate) || gate.reservation.is_some() {
                 return Err(Outcome::RefusedBeforeWrite);
             }
             gate.reservation = Some(Reservation {
@@ -319,14 +341,14 @@ impl Session {
 
     fn check(&mut self) -> Result<(), Outcome> {
         let lifetime = Arc::clone(&self.lifetime);
-        let gate = lifetime
+        let mut gate = lifetime
             .gate
             .lock()
             .map_err(|_| Outcome::RefusedBeforeWrite)?;
-        self.check_locked(&gate)
+        self.check_locked(&mut gate)
     }
 
-    fn check_locked(&self, gate: &Gate) -> Result<(), Outcome> {
+    fn check_locked(&self, gate: &mut Gate) -> Result<(), Outcome> {
         let refuse = Outcome::RefusedBeforeWrite;
         if self.lifetime.pid != self.binding.pid
             || !self.lifetime.running(gate)
@@ -389,7 +411,7 @@ impl Session {
         self.check()?;
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().map_err(|_| refuse)?;
-        self.check_locked(&gate)?;
+        self.check_locked(&mut gate)?;
         gate.reservation.as_mut().ok_or(refuse)?.stream =
             Some(stream.try_clone().map_err(|_| refuse)?);
         Ok(stream)
@@ -419,15 +441,27 @@ impl Session {
         let mut pending = request.as_bytes();
         while !pending.is_empty() {
             remaining(deadline)?;
+            #[cfg(test)]
+            if effect && let Some(barrier) = &self.before_write {
+                barrier.wait();
+                barrier.wait();
+            }
             // First effect attempt and every partial chunk are serialized
             // against revocation/cancel. Socket is nonblocking throughout.
             let result = {
                 let mut gate = self.lifetime.gate.lock().map_err(|_| Outcome::Unknown)?;
-                self.check_locked(&gate)?;
+                self.check_locked(&mut gate)?;
+                remaining(deadline)?;
                 if effect {
                     gate.reservation.as_mut().ok_or(Outcome::Unknown)?.phase =
                         Phase::EffectAttempted;
                 }
+                #[cfg(test)]
+                let pending = if effect {
+                    &pending[..pending.len().min(self.effect_chunk)]
+                } else {
+                    pending
+                };
                 stream.write(pending)
             };
             let n = match result {
@@ -442,6 +476,11 @@ impl Session {
                 return Err(Outcome::Unknown);
             }
             pending = &pending[n..];
+            #[cfg(test)]
+            if effect && let Some(barrier) = self.after_chunk.take() {
+                barrier.wait();
+                barrier.wait();
+            }
         }
         #[cfg(test)]
         if effect && self.panic_after_write {
@@ -490,7 +529,7 @@ impl Session {
     fn finish(&mut self, candidate: Outcome) -> Outcome {
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
-        let proved = self.check_locked(&gate).is_ok()
+        let proved = self.check_locked(&mut gate).is_ok()
             && self
                 .deadline
                 .is_some_and(|deadline| Instant::now() < deadline);
@@ -660,6 +699,9 @@ impl Scheduler {
                     Ok(outcome) => outcome,
                     Err(_) => session.finish(Outcome::Unknown),
                 };
+                // Release retained descriptors and this exact reservation
+                // before result publication or worker-slot release.
+                drop(session);
                 let _ = sender.try_send(outcome);
             })
             .map_err(|_| Outcome::RefusedBeforeWrite)?;
@@ -1110,6 +1152,7 @@ while True:
   b=c.recv(1024)
   if not b:break
   raw+=b
+ if not raw:c.close();continue
  line=raw.split(b'\r\n',1)[0]
  if line.startswith(b'GET /version '):body=b'{"version":"synthetic"}';head=b'HTTP/1.0 200 OK\r\n'
  elif line.startswith(b'GET /connections/conditional-capabilities '):
@@ -1429,6 +1472,99 @@ while True:
     }
 
     #[test]
+    fn actual_partial_write_then_restored_identity_cannot_become_prewrite_refusal() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let written = Arc::new(std::sync::Barrier::new(2));
+        let finishing = Arc::new(std::sync::Barrier::new(2));
+        // Test-only chunk size performs a real 16-byte UnixStream write; it
+        // does not inject an outcome or replace the actual transport.
+        session.effect_chunk = 16;
+        session.after_chunk = Some(Arc::clone(&written));
+        session.before_finish = Some(Arc::clone(&finishing));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        written.wait();
+        fs::rename(root.join("mihomo.sock"), root.join("old.sock")).unwrap();
+        let replacement = std::os::unix::net::UnixListener::bind(root.join("mihomo.sock")).unwrap();
+        fs::set_permissions(root.join("mihomo.sock"), fs::Permissions::from_mode(0o600)).unwrap();
+        written.wait();
+        finishing.wait(); // second chunk refused after the real first attempt
+        drop(replacement);
+        fs::remove_file(root.join("mihomo.sock")).unwrap();
+        fs::rename(root.join("old.sock"), root.join("mihomo.sock")).unwrap();
+        finishing.wait();
+        assert_eq!(worker_result(&mut worker), Outcome::Unknown);
+        wait_marker(&root.join("effects"));
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
+        assert!(
+            core.conditional_lifetime()
+                .unwrap()
+                .gate
+                .lock()
+                .unwrap()
+                .reservation
+                .is_none()
+        );
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expired_admission_before_write_gate_sends_zero_effect_bytes() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        session.deadline = Some(deadline);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        session.before_write = Some(Arc::clone(&barrier));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler
+            .start(session, target, CandidateEffectPermit { _private: () })
+            .unwrap();
+        barrier.wait(); // authenticated stream ready, fast write gate pending
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(5),
+        );
+        barrier.wait();
+        assert_eq!(worker_result(&mut worker), Outcome::RefusedBeforeWrite);
+        assert!(!root.join("effects").exists());
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owner_observed_child_proof_loss_permanently_revokes_retained_lifetime() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (mut session, target) = prepared(&mut core);
+        let pid = nix::unistd::Pid::from_raw(i32::try_from(core.pid().unwrap()).unwrap());
+        nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL).unwrap();
+        nix::sys::wait::waitpid(pid, None).unwrap();
+        assert!(core.running().is_err());
+        let mut gate = session.lifetime.gate.lock().unwrap();
+        assert!(!gate.live);
+        assert!(gate.reservation.as_ref().unwrap().cancelled);
+        // Once revoked, observation short-circuits before any numeric PID use.
+        assert!(!session.lifetime.running(&mut gate));
+        drop(gate);
+        assert_eq!(
+            session.close(target, CandidateEffectPermit { _private: () }),
+            Outcome::RefusedBeforeWrite
+        );
+        assert!(!root.join("effects").exists());
+        drop(session);
+        drop(core);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn detached_stop_and_new_child_same_path_cannot_revive_old_identity_or_selection() {
         let _fixture = FIXTURE.lock().unwrap();
         let (root, mut core) = peer_fixture("ok");
@@ -1494,6 +1630,10 @@ while True:
             assert_eq!(
                 session.close(target, CandidateEffectPermit { _private: () }),
                 Outcome::RefusedBeforeWrite
+            );
+            assert!(
+                !session.lifetime.gate.lock().unwrap().live,
+                "transport proof loss is sticky before owner stop"
             );
             assert!(!root.join("effects").exists());
             assert!(core.stop(Duration::from_secs(2)).is_err());
