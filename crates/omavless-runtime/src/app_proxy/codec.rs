@@ -287,6 +287,10 @@ pub enum ActivationEnvironment {
     Unknown,
 }
 
+/// Fixed model projection. When captured from Manager.Environment, values are
+/// EFFECTIVE: they do not identify original mutable client-layer overrides.
+/// Presence/empty tagging preserves this projection, not layer provenance or
+/// authority to restore the installed manager's exact original state.
 #[derive(Clone, PartialEq, Eq)]
 pub struct EnvironmentSnapshot(Vec<EnvironmentEntry>);
 
@@ -313,6 +317,9 @@ impl EnvironmentSnapshot {
         &self.0
     }
 
+    /// Model activation-class validation only. The caller-supplied enum does
+    /// not establish actual manager capture permission, layer provenance or
+    /// host write authority; the normal observer's write admission refuses.
     pub fn admit_writes(&self, activation: ActivationEnvironment) -> Result<(), Error> {
         match activation {
             ActivationEnvironment::SystemdBroker => Ok(()),

@@ -193,6 +193,8 @@ fn typed_value(key: DesktopKey, variant: &glib::Variant) -> Result<DesktopValue,
     }
 }
 
+// Manager.Environment merges effective values; it does not expose the original
+// mutable client layer. This read supplies no exact-restoration/write permit.
 fn read_manager_environment(
     bus: &gio::DBusConnection,
     owner: &str,

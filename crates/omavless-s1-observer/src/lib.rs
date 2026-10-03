@@ -170,6 +170,9 @@ fn environment_name(key: codec::EnvironmentKey) -> &'static str {
 
 /// The caller must pass a complete, successfully decoded manager Environment
 /// property. Unrelated assignments are discarded before serialization.
+/// This is an EFFECTIVE projection, not an original mutable client-layer
+/// baseline. Equal values and absent/empty tags cannot recover that provenance;
+/// Observation::admit_writes remains unconditionally unavailable.
 pub fn project_manager_environment(
     assignments: &[String],
 ) -> Result<codec::EnvironmentSnapshot, Error> {
