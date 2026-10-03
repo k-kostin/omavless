@@ -6,9 +6,7 @@ This compiles only a disposable core, not a broker/package/release. No installed
 core, DNS, TUN, runtime, provider or credentials are accessed or modified.
 """
 import argparse
-from collections import Counter
 import hashlib
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -25,16 +23,10 @@ PATCHES = {
     "mihomo-dns-broker.patch": "d5ebe9d6b37f6b76599fc3c2dd25adbfb774ca0121beeb79c5768a9a08d7ff37",
     "sing-tun-descriptor.patch": "2556c82aafbeb598a817d43042cf2069c6f209433c7a506395df581b4e31e2ab",
 }
-MAX_ARCHIVE = 128 * 1024 * 1024
 MAX_PATCH = 1024 * 1024
 SOCKET_TEST_PATCH = Path(__file__).with_name("mihomo-dns-test-sockets.patch")
 SOCKET_TEST_SHA256 = "38eeedf8ac00cf387138a50107f87a392f17ef65607710a3cc6e34d320e0c169"
-CONDITIONAL_TESTS = (
-    "TestConditionalCloseExplicitReadiness", "TestConditionalCloseStrictRequest",
-    "TestConditionalCloseReusedID", "TestConditionalCloseCannotReenroll",
-    "TestConditionalCloseDelayedLeave", "TestConditionalCloseConcurrentConfirm",
-    "TestConditionalCloseExhaustionAndFailure",
-)
+CONDITIONAL_TESTS = review.CONDITIONAL_TESTS
 DNS_TESTS = (
     "TestSystemDNSOption", "TestSystemDNSBrokerReadyCannotBeConfigured",
     "TestSystemDNSBrokerFixedVirtualResolver", "TestSystemDNSOwnershipChangeRequiresTunReplacement",
@@ -46,9 +38,9 @@ DNS_TESTS = (
 DNS_INTEROP_SKIP = "TestSystemDNSRustChannelInterop"
 
 
-def git_environment():
-    return {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+git_environment = review.git_environment
+export = review.export
+matrix_receipt = review.matrix_receipt
 
 
 def validate_paths(paths, scratch):
@@ -71,60 +63,10 @@ def dns_patches(repository):
     return result
 
 
-def export(repository, revision, destination):
-    identity = review.run(["/usr/bin/git", "-C", str(repository), "rev-parse",
-                           revision + "^{commit}"], env=git_environment()).strip()
-    if identity != revision.encode("ascii"):
-        raise RuntimeError("Composition upstream identity refused")
-    # archive consults $GIT_DIR/info/attributes even without --worktree-attributes.
-    # Use a fresh repository with only the original read-only object directory;
-    # local export-ignore/export-subst rules and hooks are never consulted.
-    objects = Path(os.fsdecode(review.run(
-        ["/usr/bin/git", "-C", str(repository), "rev-parse", "--path-format=absolute",
-         "--git-path", "objects"], env=git_environment()).rstrip(b"\n")))
-    if not objects.is_absolute() or not objects.is_dir():
-        raise RuntimeError("Composition object directory refused")
-    isolated = destination.parent / (destination.name + "-export.git")
-    review.run(["/usr/bin/git", "init", "--quiet", "--bare", "--template=", str(isolated)],
-               env=git_environment())
-    archive_env = dict(git_environment(), GIT_OBJECT_DIRECTORY=str(objects))
-    archive = destination.parent / (destination.name + ".tar")
-    with archive.open("xb") as output:
-        result = subprocess.run(["/usr/bin/git", "--git-dir=" + str(isolated), "archive", revision],
-                                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL,
-                                timeout=60, env=archive_env, check=False)
-    if result.returncode or archive.stat().st_size > MAX_ARCHIVE:
-        raise RuntimeError("Composition archive refused")
-    destination.mkdir(mode=0o700)
-    with tarfile.open(archive) as members:
-        members.extractall(destination, filter="data")
-    archive.unlink()
-
-
 def apply(path, patch, *, reverse=False):
     for arguments in (["--check"], []):
         review.run(["/usr/bin/git", "apply", *(["--reverse"] if reverse else []),
                     *arguments, str(patch)], cwd=path, env=git_environment())
-
-
-def matrix_receipt(raw, tests, skips=()):
-    passed, skipped = Counter(), Counter()
-    try:
-        for line in raw.splitlines():
-            event = json.loads(line)
-            if not isinstance(event, dict) or event.get("Action") == "fail":
-                raise ValueError("Invalid Go matrix receipt")
-            name = event.get("Test")
-            if not isinstance(name, str) or "/" in name:
-                continue
-            if event.get("Action") == "pass":
-                passed[name] += 1
-            if event.get("Action") == "skip":
-                skipped[name] += 1
-    except (ValueError, TypeError):
-        raise RuntimeError("Composition test execution receipt refused") from None
-    if passed != Counter({name: 20 for name in tests}) or skipped != Counter({name: 20 for name in skips}):
-        raise RuntimeError("Composition test execution receipt refused")
 
 
 def exercise(mihomo, sing_tun, repository, scratch, *, udp=False):
@@ -148,18 +90,17 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False):
         apply(root / "mihomo", SOCKET_TEST_PATCH)
         # No dependency downloads, installed modules, Go workspaces or implicit
         # toolchain acquisition; private copied dependency replaces only sing-tun.
-        env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
-               "TMPDIR": str(root), "GOPROXY": "off", "GOSUMDB": "off",
-               "GOWORK": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "", "CGO_ENABLED": "0"}
+        env = review.compiler_environment(root)
         source = root / "mihomo"
-        review.run(["go", "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"], cwd=source, env=env)
-        review.run(["go", "mod", "vendor"], cwd=source, env=env)
+        review.run([review.GO, "mod", "edit", "-replace=github.com/metacubex/sing-tun=../sing-tun"], cwd=source, env=env)
+        review.run([review.GO, "mod", "verify"], cwd=source, env=env)
+        review.run([review.GO, "mod", "vendor"], cwd=source, env=env)
         # Race instrumentation requires cgo; it is never used in the core build.
-        conditional = review.run(["go", "test", "-json", "-race", "-mod=vendor", "-tags=with_gvisor",
+        conditional = review.run([review.GO, "test", "-json", "-race", "-mod=vendor", "-tags=with_gvisor",
                                   "./tunnel/statistic", "./hub/route", "-run", "TestConditional", "-count=20"],
                                  cwd=source, env=dict(env, CGO_ENABLED="1"))
         matrix_receipt(conditional, CONDITIONAL_TESTS)
-        dns = review.run(["go", "test", "-json", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
+        dns = review.run([review.GO, "test", "-json", "-mod=vendor", "-tags=with_gvisor", "./listener/config",
                           "./config", "./listener/sing_tun", "-run", "TestSystemDNS", "-count=20"], cwd=source, env=env)
         matrix_receipt(dns, DNS_TESTS, (DNS_INTEROP_SKIP,))
         # Restore the exact production composition before compiling its binary.
@@ -167,9 +108,9 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False):
         # visibly separate avoids treating a modified test tree as a package.
         apply(source, SOCKET_TEST_PATCH, reverse=True)
         core = root / "combined-core"
-        review.run(["go", "build", "-mod=vendor", "-tags=with_gvisor", "-trimpath",
+        review.run([review.GO, "build", "-mod=vendor", "-tags=with_gvisor", "-trimpath",
                     "-buildvcs=false", "-ldflags=-s -w", "-o", str(core), "."], cwd=source, env=env)
-        metadata = review.run(["go", "version", "-m", str(core)], env=env)
+        metadata = review.run([review.GO, "version", "-m", str(core)], env=env)
         if b"-tags=with_gvisor" not in metadata or b"CGO_ENABLED=0" not in metadata:
             raise RuntimeError("Composition production-tag identity refused")
         loopback.exercise(core, root)
@@ -192,7 +133,7 @@ def main():
     print("go_cases=7_conditional_and_11_dns_x20; rust_dns_interop=not_run_explicit_optin")
     print("conditional_patch_sha256=" + hashlib.sha256(review.PATCH.read_bytes()).hexdigest())
     print("socket_test_patch_sha256=" + hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest())
-    print("go_toolchain=" + review.run(["go", "version"]).decode("ascii").strip())
+    print("go_toolchain=" + review.run([review.GO, "version"], env=review.compiler_environment(args.scratch_parent)).decode("ascii").strip())
     print("core_sha256=" + sha)
     if args.udp_loopback:
         print("udp_loopback=20_passed; wrong_token_preserves_both; exact_close_receipt; same_association_reconnects")
