@@ -70,9 +70,57 @@ OMAVLESS_K1_LIFECYCLE_VM=1 cargo test --locked -p omavless-netguard --lib \
   -- --ignored --exact --nocapture
 ```
 
-At this initial source checkpoint the VM gate is **not yet run**. Ordinary
-wire/parser/direct-invocation tests and compilation are not kernel acceptance.
-The current primary-PC network and installed VM runtime are outside this gate.
+## Exact-head verification
+
+Immutable tested code is
+`02df07a1bbe64463ce583fa9606b2b90cbbc1459`. The frozen standalone test
+executable has SHA-256
+`baa4053bbb0e63fc039eff3909531579b5f4faea5f298360673efd258bddc950`;
+it was copied outside Cargo before testing, verified again in the VM, had no
+file capabilities, and was never rebuilt during its self-reexecution suites.
+
+On 2026-10-03, under an exclusive development-VM lease, kernel
+`7.2.5-3-omarchy` passed all thirteen actual isolated scenarios in 21 complete
+repetitions (273 scenario executions, including 63 real SIGKILL cuts). The
+fixture-only nonzero UID mapping and retained capabilities are local test
+history, not a canonical production launch recipe.
+
+The last ten complete repetitions (130 scenarios) ran inside one guarded
+before/after invocation. It confirmed unchanged parent network namespace,
+canonical **user** `omavless-runtime.service` active/running at PID 86349,
+runtime executable fingerprint, and private profile/desired/ownership file
+fingerprints. Private bytes, hashes and network snapshots were not published.
+Deep JSON address/route/rule comparison confirmed only changing DHCP
+`preferred_life_time` and `valid_life_time` counters. It preserved equality of
+all non-timer fields, including interface identity/name/flags/MTU, address and
+prefix, all route tables, rules and metrics. No `expires` difference occurred.
+An earlier exact, unnormalized network comparison exited nonzero after ten
+successful mechanism repetitions; that preservation attempt is **not** PASS.
+The subsequent guarded run records the explicitly confirmed clock-field
+exception, not suppression of actual routing or process changes.
+
+Owned namespace processes were reaped, the private fixture directory was empty
+after every repetition, and the entire owned VM scratch (including raw private
+network snapshots) was removed. Final checks confirmed no test process or
+scratch remained and the same user service/PID and parent namespace persisted;
+the exclusive VM lease was then released. The primary-PC network was never
+used for effects. The installed VM runtime was observed only, not stopped,
+restarted, replaced or exercised as the K1 writer.
+
+Source checks at the same code head: netguard 195 passed /30 opt-in ignored;
+four focused ordinary lifecycle tests passed; strict all-target netguard clippy
+and formatting passed. The source suite passed 503 tests with two existing
+skips, documentation navigation (93 links), native and QML checks. The full
+current-RC Rust script passed, including workspace/TUI strict clippy and
+terminal/parity checks; its repeated test-result lines total 1581 successful
+test invocations, zero failures and 42 ignored (not a count of unique tests).
+All five GitHub checks on that code head passed: test, package, package-arm64,
+native-x86_64 and native-arm64. Documentation-only evidence changes after that
+head do not claim another execution of modified code.
+
+Ordinary wire/parser/direct-invocation tests are not kernel acceptance. These
+disposable fixture results are mechanism evidence, not installed-runtime or
+canonical production acceptance.
 
 Remaining product gates include reviewed safe namespace API adoption and trusted
 canonical launch; structural no-switch authority; nft subsystem continuity;
