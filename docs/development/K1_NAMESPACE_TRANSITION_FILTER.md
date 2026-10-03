@@ -166,3 +166,25 @@ entries; the fixture unit was not-found/inactive with both manager PIDs zero.
 Both stages were retained, no unit operation or cleanup occurred, and the
 exclusive lease was returned. The original missing full before/after
 preservation receipt remains unproven: these narrower checks do not heal it.
+
+## Source-only symlink provenance continuation
+
+`namespace_filter_symlink_diagnostic.py` is a separate metadata-only candidate.
+It verifies the retained original guard hash before importing its fixed
+activation roots, but calls neither its snapshot nor its runner. The original
+allowlist is unchanged. Bounded traversal records lstat metadata for ancestors,
+direct link targets and component-by-component resolved targets; it never opens
+activation regular-file contents or spawns a process. The first escaping
+target retains the original activation-root ordinal, source link, direct and
+resolved target plus metadata in a separate root-only 0600 private receipt.
+Those path values must not enter Git, argv or shareable output.
+
+The public receipt contains only finite categories, the root ordinal and
+numeric target ownership/type. Target class is not trust or namespace authority.
+Entry/depth/path/link limits, missing targets, cycles, unsupported types,
+changed observations and unknown metadata refuse; observations are rechecked
+before reporting an escape. Each inventory is single-use, including after
+failure. This diagnostic cannot read an escaped private regular file, relax
+the guard, retry either unit case, or heal the first missing preservation
+receipt. New create-only staging, full root review and a fresh exclusive VM
+lease are prerequisites to execution; it remains source-only.

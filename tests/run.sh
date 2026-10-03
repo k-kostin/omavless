@@ -24,6 +24,7 @@ python3 -m unittest -v \
   "$here/test_k1_namespace_filter_runner.py" \
   "$here/test_k1_namespace_filter_guard.py" \
   "$here/test_k1_namespace_filter_diagnostic.py" \
+  "$here/test_k1_namespace_symlink_diagnostic.py" \
   "$here/test_k1_atomic_ack_boundary.py" \
   "$here/test_k1_generation_boundary.py" \
   "$here/test_k1_send_return_boundary.py" \
