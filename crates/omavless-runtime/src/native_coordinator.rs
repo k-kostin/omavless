@@ -1198,6 +1198,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         lock: &MigrationLock,
         admission: &mut crate::startup_admission::StartupAdmission<'_, '_>,
     ) -> Result<ConnectionTransactionOutcome, ConnectionTransactionError> {
+        self.invalidate_connection_close();
         self.transaction.reconcile_startup_admitted(lock, admission)
     }
 
@@ -1208,15 +1209,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
-        if !operation_id.is_some_and(|id| {
-            self.coordinator.operation_id_in_use(id).unwrap_or(false)
-                || self
-                    .batch
-                    .as_ref()
-                    .is_some_and(|state| state.registry.has_operation_id(id))
-        }) {
-            self.invalidate_connection_close();
-        }
+        self.invalidate_close_for_new_operation(operation_id);
         if let Some(fence) = self.required_ownership {
             let lock = self
                 .transaction
@@ -1247,6 +1240,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         expected_revision: Option<u64>,
         digest: crate::mutation::MutationDigest,
     ) -> Result<Admission, NativeOwnerError> {
+        // Historical typed alternatives share this scheduler without ordinary
+        // admit. They must revoke prior close authority before publication too.
+        // Ordinary admit additionally retains its earlier pre-lease revocation.
+        self.invalidate_close_for_new_operation(operation_id);
         self.check_batch_operation_id(operation_id)?;
         let scheduling = MutationRequest::new(kind, operation_id, expected_revision, digest)?;
         let token = match self.coordinator.submit(scheduling)? {
@@ -1260,6 +1257,18 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 outcome,
             } if rejected == token => Ok(Admission::Rejected(outcome)),
             _ => Err(NativeOwnerError::Invariant),
+        }
+    }
+
+    fn invalidate_close_for_new_operation(&mut self, operation_id: Option<&str>) {
+        if !operation_id.is_some_and(|id| {
+            self.coordinator.operation_id_in_use(id).unwrap_or(false)
+                || self
+                    .batch
+                    .as_ref()
+                    .is_some_and(|state| state.registry.has_operation_id(id))
+        }) {
+            self.invalidate_connection_close();
         }
     }
 

@@ -250,6 +250,147 @@ while True:
     }
 
     #[test]
+    fn actual_owner_shared_scheduler_invalidates_capture_but_preserves_exact_replay() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let digest = MutationDigest::from_semantic_bytes(b"fixed-historical-scheduling-fixture");
+        // The typed historical profile/connection alternatives enter this same
+        // schedule method after their own retained proof, without ordinary admit.
+        let admission = fixture
+            .owner
+            .schedule(
+                MutationKind::Other,
+                Some("historical-fixture"),
+                Some(0),
+                digest,
+            )
+            .unwrap();
+        let Admission::Execute(token) = admission else {
+            panic!("expected new scheduling");
+        };
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(
+            fixture
+                .owner
+                .prepare_connection_close(rows[0].handle)
+                .is_err()
+        );
+        let cached = fixture
+            .owner
+            .coordinator
+            .finish(token, crate::mutation::MutationResult::NoChange)
+            .unwrap();
+
+        let successor = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(successor[1].handle)
+            .unwrap();
+        assert!(matches!(fixture.owner.schedule(
+            MutationKind::Other,
+            Some("historical-fixture"),
+            Some(0),
+            digest,
+        ).unwrap(), Admission::Replay(receipt) if receipt == cached));
+        let retained = fixture.owner.connection_close.pending.as_ref().unwrap();
+        assert_eq!(retained.handle, successor[1].handle);
+        assert_eq!(retained.ticket, confirmation.ticket);
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    #[test]
+    fn actual_owner_shared_scheduler_cancels_detached_effect_before_host_publication() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+        fixture
+            .owner
+            .confirm_connection_close(
+                "close-before-history",
+                0,
+                rows[0].handle,
+                confirmation.ticket,
+            )
+            .unwrap();
+        marker(&fixture.root.join("r/read-entered"));
+        let cancellation = fixture
+            .owner
+            .connection_close
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .clone();
+        let admission = fixture
+            .owner
+            .schedule(
+                MutationKind::Other,
+                Some("historical-after-close"),
+                Some(0),
+                MutationDigest::from_semantic_bytes(b"fixed-historical-scheduling-after-close"),
+            )
+            .unwrap();
+        let Admission::Execute(token) = admission else {
+            panic!("expected new scheduling");
+        };
+        assert!(cancellation.is_cancelled());
+        let cancelled = Instant::now();
+        assert_eq!(
+            receipt(&mut fixture).outcome,
+            ExternalCloseOutcome::RefusedBeforeWrite
+        );
+        assert!(cancelled.elapsed() < Duration::from_secs(1));
+        assert!(!fixture.root.join("r/effects").exists());
+        assert!(fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+        fixture
+            .owner
+            .coordinator
+            .abort_active_uncached(token)
+            .unwrap();
+    }
+
+    #[test]
+    fn actual_owner_admitted_startup_invalidates_capture_before_pending_refusal() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        let paths = fixture.owner.transaction.desired_paths().clone();
+        write(
+            &paths.directory.join("routing-preset.pending.json"),
+            b"fixed",
+            0o600,
+        );
+        let lease = fixture.owner.transaction.acquire_lock().unwrap();
+        assert!(
+            fixture
+                .owner
+                .reconcile_startup_admitted(
+                    &lease,
+                    &mut crate::startup_admission::StartupAdmission::ordinary(),
+                )
+                .is_err()
+        );
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+
+    #[test]
     fn actual_owner_snapshot_confirm_typed_receipt_and_expired_exact_replay() {
         let _fixtures = FIXTURES.lock().unwrap();
         let mut fixture = fixture("ok");

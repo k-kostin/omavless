@@ -13,7 +13,7 @@ normal activation, release, marketplace request or main-update proposal.
 - K1 #560/#563: code `f9c919b302dc19dc9dab0fbad71d287e749562e3`,
   evidence-only head `a6137e96d5ac5369af75491a7ef702e992b1c42d`.
   The separate netguard crate and its actual namespace fixtures are retained.
-- T3 #562: source selection is pending the writer's immutable fix checkpoint.
+- T3 #562: code `4ff4c66d37bd7e80f5303faa6a768a8fea4b7733`.
   The intermediate `129250e86676b28c763a271e268473a7993e73bf` is not the
   accepted integrated input.
 
@@ -50,3 +50,19 @@ adoption and canonical netguard manager/namespace authority remain their
 separate product gates. None is enabled by importing these research modules.
 Managed DNS and normal runtime package validators, release pins, QML/TUI actions
 and the installed host service remain unchanged.
+
+## Initial integration correction
+
+Three actual-owner regressions independently fail on the composed source
+before its new correction: shared scheduling retains an old capture, it fails
+to cancel a stalled detached effect before publication, and the newly typed
+startup caller retains capture authority through pending-transaction refusal.
+Each uses an actually captured private-controller session rather than a Boolean
+permission fixture. They do not simulate a successful historical restore proof.
+
+The correction keeps ordinary admission's early pre-lease invalidation, repeats
+new-operation-aware invalidation at the shared scheduler and invalidates before
+typed startup reconciliation. Exact known-operation replay preserves a newer
+confirmation; the tests also assert no conditional POST, unchanged connected
+intent and timely detached refusal. The three focused tests now PASS locally.
+That focused result is not the remaining combined full-suite or VM gate.
