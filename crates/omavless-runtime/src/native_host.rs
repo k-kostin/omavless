@@ -61,7 +61,6 @@ impl CloseObservation {
     pub(crate) fn session_mut(&mut self) -> &mut crate::conditional_close_candidate::Session {
         &mut self.session
     }
-    #[cfg(test)]
     pub(crate) fn into_session(mut self) -> crate::conditional_close_candidate::Session {
         self.session.attach_observation(self.facts);
         self.session
