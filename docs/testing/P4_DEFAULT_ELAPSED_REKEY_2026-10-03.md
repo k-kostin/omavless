@@ -1,9 +1,13 @@
 # P4 default elapsed data-triggered rekey source-engine gate
 
 Developer-only continuation from sealed #585
-`a29f1d1ad34bf2361f9f302c49f9fc1b7b384b66`. This new case is **not yet
-executed**. Compilation and ordinary receipt/source guards are not elapsed
-engine evidence. The earlier [default retry result](P4_DEFAULT_ELAPSED_RETRY_2026-10-03.md)
+`a29f1d1ad34bf2361f9f302c49f9fc1b7b384b66`. Original source `5599a5d`
+executed one ordinary case PASS; its independent race case was NONPASS at the
+initial forward fake-TUN receipt deadline (5.01 seconds). No race causal receipt
+or race-detector warning occurred. Both original binaries/events are retained;
+the failed attempt was not retried. **The configured-read follow-up and its
+read-entry diagnostic are not yet executed.** Compilation and ordinary guards
+are not elapsed engine evidence. The earlier [default retry result](P4_DEFAULT_ELAPSED_RETRY_2026-10-03.md)
 remains unchanged and does not prove the default 120-second refresh below.
 
 ## Fixed causal chain
@@ -17,6 +21,12 @@ unchanged protected packets into the actual receive, Noise, AEAD/replay and
 sequential TUN workers; decrypted exact payloads are correlated with protected
 Send timestamps using receiver index and transport counter. This is **not** a
 socket, real TUN, independent peer interoperability or network transport test.
+
+Before payload injection, the follow-up requires an actual configured TUN Read
+entry at offset 64 (16-byte transport header + S4=48). If the first reader entry
+cached the constructor's zero padding, exactly one empty read advances the
+unchanged worker to its next iteration; unexpected offsets or missing readiness
+refuse. This emits no payload, seeds no handshake and changes no timer/key fact.
 
 1. A genuine worker handshake establishes indexed initiator/responder sessions;
    exact nonce-bearing payloads arrive in both directions. No direct handshake
@@ -63,6 +73,37 @@ attestation. An exclusive attempt marker consumes the artifact's one execution
 slot before launch, including on failure. Ordinary settled child output is
 retained; a supervisor exception records failure/uncertainty but does not claim
 that its incomplete live output was retained as a complete receipt.
+
+## Retained initial failure and separate diagnostic
+
+Original ordinary source `5599a5daedd149222c2eb552f4579236f0838339`
+observed pre-threshold old-session data at 117.099428587 s, late data at
+121.002033792 s and new H1 at 121.002134350 s; the body completed at
+121.004038588 s. Its exact post-rekey bidirectional indexed AEAD chain passed.
+The independent race attempt failed its baseline before this chain. The private
+original archive SHA-256 is
+`12fdc8826619685b71d1dec14247e118831df6821ba305a48b5d324707e7bde4`;
+its 0600 mode and byte comparison were verified. These are not two PASS.
+
+Official `NewDevice` starts `RoutineReadFromTUN` before returning. That worker
+loads padding before calling the blocking TUN Read and later retains that
+iteration's padding in the outbound element. The original fixture configures
+S4 only after construction. This is a source-backed startup-order hypothesis
+for the failed first payload, not recovered instrumentation proving the cause
+of that historical attempt.
+
+The separate fixed `--diagnostic` case forces actual initial Read entry at 16
+before IpcSet, sets only S4=48, observes that the pending read is still at 16,
+returns exactly one zero-length read, and requires the next actual entry at 64
+with zero Bind Send calls. It has a five-second body/case bound, ten-second Go
+emergency timeout and fifteen-second outer bound. Its own fresh artifact and
+one-shot attempt marker cannot be mistaken for the 120-second case; the runner
+binds the exact selector and diagnostic flag in each receipt. No handshake is
+seeded or native TUN opened. A diagnostic PASS would establish this worker
+ordering, not retrospectively prove the failed attempt's cause or fix normal
+native configuration/startup. Subsequent rekey receipts characterize only the
+stable configured in-memory fixture, not a normal startup/no-first-packet-loss
+guarantee.
 
 No VM, namespace, network/TUN FD, installed profile, private key input, primary
 network change, Rust runtime change or normal P4 activation is in scope. There

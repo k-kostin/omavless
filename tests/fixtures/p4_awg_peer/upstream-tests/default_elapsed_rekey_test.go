@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ type p4RekeyBind struct {
 	closed   chan struct{}
 	open     bool
 	wires    []p4RekeyWire
+	sends    atomic.Uint32
 }
 
 func (b *p4RekeyBind) Open(uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -89,6 +91,7 @@ func (*p4RekeyBind) SetMark(uint32) error                        { return nil }
 func (*p4RekeyBind) BatchSize() int                              { return 1 }
 func (*p4RekeyBind) ParseEndpoint(string) (conn.Endpoint, error) { return p4RekeyEndpoint{}, nil }
 func (b *p4RekeyBind) Send(packets [][]byte, _ conn.Endpoint) error {
+	b.sends.Add(1)
 	for _, packet := range packets {
 		if len(packet) < HeaderCipherNonceSize {
 			return os.ErrInvalid
@@ -145,11 +148,13 @@ type p4RekeyPlain struct {
 	counter uint64
 }
 type p4RekeyTun struct {
-	input  chan []byte
-	output chan p4RekeyPlain
-	closed chan struct{}
-	events chan tun.Event
-	once   sync.Once
+	input        chan []byte
+	output       chan p4RekeyPlain
+	closed       chan struct{}
+	events       chan tun.Event
+	once         sync.Once
+	readEntries  chan int
+	activeOffset atomic.Int32
 }
 
 func (*p4RekeyTun) File() *os.File             { return nil }
@@ -158,6 +163,13 @@ func (*p4RekeyTun) Name() (string, error)      { return "p4-channel", nil }
 func (*p4RekeyTun) BatchSize() int             { return 1 }
 func (m *p4RekeyTun) Events() <-chan tun.Event { return m.events }
 func (m *p4RekeyTun) Read(packets [][]byte, sizes []int, offset int) (int, error) {
+	m.activeOffset.Store(int32(offset))
+	defer m.activeOffset.Store(0)
+	select {
+	case m.readEntries <- offset:
+	default:
+		return 0, os.ErrInvalid
+	}
 	select {
 	case <-m.closed:
 		return 0, os.ErrClosed
@@ -194,7 +206,7 @@ func (m *p4RekeyTun) Close() error {
 func p4RekeyDevice(t *testing.T, key []byte) (*Device, *p4RekeyBind, *p4RekeyTun, NoisePrivateKey) {
 	t.Helper()
 	b := &p4RekeyBind{incoming: make(chan []byte, 64)}
-	m := &p4RekeyTun{input: make(chan []byte, 8), output: make(chan p4RekeyPlain, 8), closed: make(chan struct{}), events: make(chan tun.Event)}
+	m := p4RekeyNewTun()
 	d := NewDevice(m, b, NewLogger(LogLevelSilent, ""))
 	b.device = d
 	t.Cleanup(func() { d.Close(); <-d.Wait() })
@@ -206,7 +218,61 @@ func p4RekeyDevice(t *testing.T, key []byte) (*Device, *p4RekeyBind, *p4RekeyTun
 	if d.IpcSet(config) != nil {
 		t.Fatal("synthetic protected shape refused")
 	}
+	p4RekeyConfiguredRead(t, m, time.Now().Add(time.Second))
 	return d, b, m, sk
+}
+
+func p4RekeyNewTun() *p4RekeyTun {
+	return &p4RekeyTun{input: make(chan []byte, 8), output: make(chan p4RekeyPlain, 8), closed: make(chan struct{}), events: make(chan tun.Event), readEntries: make(chan int, 16)}
+}
+
+func p4RekeyReadEntry(t *testing.T, m *p4RekeyTun, end time.Time) int {
+	t.Helper()
+	timer := time.NewTimer(max(0, time.Until(end)))
+	defer timer.Stop()
+	select {
+	case offset := <-m.readEntries:
+		return offset
+	case <-timer.C:
+		t.Fatal("actual TUN Read-entry deadline")
+		return -1
+	}
+}
+
+func p4RekeyConfiguredRead(t *testing.T, m *p4RekeyTun, end time.Time) {
+	t.Helper()
+	first := p4RekeyReadEntry(t, m, end)
+	if first == MessageTransportHeaderSize {
+		// NewDevice can start the actual reader before IpcSet. Its first
+		// iteration cached padding zero BEFORE blocking in Read. A single
+		// zero-length read lets the unchanged worker begin a configured
+		// iteration; it emits no payload and bypasses no crypto/worker stage.
+		m.input <- nil
+		first = p4RekeyReadEntry(t, m, end)
+	}
+	if first != MessageTransportHeaderSize+48 || m.activeOffset.Load() != MessageTransportHeaderSize+48 || len(m.input) != 0 || len(m.output) != 0 {
+		t.Fatal("configured actual TUN Read iteration missing")
+	}
+}
+
+func TestP4RekeyReadEpochOrdering(t *testing.T) {
+	started := time.Now()
+	end := started.Add(5 * time.Second)
+	m := p4RekeyNewTun()
+	b := &p4RekeyBind{incoming: make(chan []byte, 64)}
+	d := NewDevice(m, b, NewLogger(LogLevelSilent, ""))
+	b.device = d
+	t.Cleanup(func() { d.Close(); <-d.Wait() })
+	first := p4RekeyReadEntry(t, m, end)
+	if first != MessageTransportHeaderSize || d.paddings.transport.Load() != 0 || d.IpcSet("s4=48\n") != nil || d.paddings.transport.Load() != 48 || m.activeOffset.Load() != MessageTransportHeaderSize {
+		t.Fatal("actual pre-configuration pending Read epoch differs")
+	}
+	m.input <- nil
+	next := p4RekeyReadEntry(t, m, end)
+	if next != MessageTransportHeaderSize+48 || m.activeOffset.Load() != MessageTransportHeaderSize+48 || b.sends.Load() != 0 || len(m.input) != 0 || len(m.output) != 0 || time.Now().After(end) {
+		t.Fatal("actual empty-read configured iteration/emission differs")
+	}
+	t.Log("p4_rekey_read_receipt first_offset=16 configured_padding=48 pending_offset=16 next_offset=64 empty_reads=1 emitted_packets=0 actual_worker=true network_fds=false")
 }
 
 func p4RekeyWait(t *testing.T, deadline time.Time, predicate func() bool, label string) {

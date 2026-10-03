@@ -79,6 +79,31 @@ class DefaultRekeyGuards(unittest.TestCase):
                       '"-test.count=1"', '"-test.timeout=180s"', 'if not owned.UNSETTLED:'):
             self.assertIn(guard, code)
 
+    def test_read_epoch_diagnostic_is_not_elapsed_rekey_evidence(self):
+        events = self.events()
+        events[0]["Output"] = "    default_elapsed_rekey_test.go:300: p4_rekey_read_receipt first_offset=16 configured_padding=48 pending_offset=16 next_offset=64 empty_reads=1 emitted_packets=0 actual_worker=true network_fds=false\n"
+        for event in events[:2]:
+            event["Test"] = subject.DIAGNOSTIC
+        events[1]["Elapsed"] = 0.001
+        subject.verify_events(self.encoded(events), True)
+        with self.assertRaises(ValueError):
+            subject.verify_events(self.encoded(events))
+        for old, new in (("pending_offset=16", "pending_offset=64"), ("next_offset=64", "next_offset=16"), ("empty_reads=1", "empty_reads=2"), ("emitted_packets=0", "emitted_packets=1"), ("actual_worker=true", "actual_worker=false")):
+            wrong = json.loads(json.dumps(events))
+            wrong[0]["Output"] = wrong[0]["Output"].replace(old, new)
+            with self.assertRaises(ValueError):
+                subject.verify_events(self.encoded(wrong), True)
+        with self.assertRaises(ValueError):
+            subject.verify_events(self.encoded(self.events()), True)
+
+    def test_readiness_uses_real_read_entry_not_header_rewriting(self):
+        code = subject.OVERLAY.read_text()
+        for actual in ("m.activeOffset.Store(int32(offset))", "case m.readEntries <- offset:",
+                       'd.IpcSet("s4=48\\n")', "m.input <- nil", "b.sends.Load() != 0",
+                       "p4RekeyConfiguredRead(t, m,", "first != MessageTransportHeaderSize+48"):
+            self.assertIn(actual, code)
+        self.assertNotIn("offset = MessageTransportHeaderSize", code)
+
 
 if __name__ == "__main__":
     unittest.main()
