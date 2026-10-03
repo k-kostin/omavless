@@ -16,17 +16,22 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
 	"github.com/amnezia-vpn/amneziawg-go/v3/device"
 	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 	"golang.org/x/crypto/chacha20"
 	"golang.org/x/sys/unix"
 )
 
+type fixtureObservation interface {
+	snapshot(map[string]int)
+	relay([]byte, bool) bool
+}
+
 type observations struct {
 	sync.Mutex
 	Junk, Special, SpecialMask, Init, Response, Transport, Protected, Trailers int
 	Wire, Plain                                                                map[int]int
+	fixture                                                                    fixtureObservation
 }
 
 func (o *observations) snapshot() map[string]int {
@@ -36,9 +41,13 @@ func (o *observations) snapshot() map[string]int {
 	for size, n := range o.Plain {
 		padding += min(n, o.Wire[size+48+32+37])
 	}
-	return map[string]int{"junk": o.Junk, "special": o.Special, "special_mask": o.SpecialMask, "init": o.Init,
+	facts := map[string]int{"junk": o.Junk, "special": o.Special, "special_mask": o.SpecialMask, "init": o.Init,
 		"response": o.Response, "transport": o.Transport, "protected": o.Protected,
 		"trailers": o.Trailers, "padding_size_matches": padding}
+	if o.fixture != nil {
+		o.fixture.snapshot(facts)
+	}
+	return facts
 }
 
 type observedTun struct {
@@ -143,7 +152,11 @@ func relay(root string, o *observations) (*net.UDPConn, error) {
 					break
 				}
 			}
+			forward := o.fixture == nil || o.fixture.relay(buf[:n], from.Port == 51889)
 			o.Unlock()
+			if !forward {
+				continue
+			}
 			if from.Port == 51889 {
 				if client != nil {
 					_, _ = sock.WriteToUDP(buf[:n], client)
@@ -210,8 +223,11 @@ func run(root string) error {
 		return err
 	}
 	defer sock.Close()
-	dev := device.NewDevice(&observedTun{tdev, o}, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
+	dev := device.NewDevice(&observedTun{tdev, o}, fixtureBind(o), device.NewLogger(device.LogLevelSilent, ""))
 	defer dev.Close()
+	if err := fixturePrepare(dev, root); err != nil {
+		return err
+	}
 	if err := dev.Up(); err != nil {
 		return err
 	}

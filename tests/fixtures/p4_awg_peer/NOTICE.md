@@ -12,10 +12,24 @@ is pinned to tag `v3.1.20260828`, immutable commit
 `h1:D8d8gGvwXcTxUIsE4z6F6vjy4/VZddu95vMNtOygh1c=`. Its source is unmodified;
 the local wrapper uses its exported TUN, device and bind APIs. The opt-in
 `run_cookie_overlay.py` adds only a build-tagged test file through Go's virtual
-file overlay into a clean checkout of this exact source, never the module cache.
+file overlay into a fresh hash-verified archive export of this exact source,
+never checkout bytes or the module cache.
 It exercises package-private worker/atomic hooks without unsafe/reflection or
 changing an upstream implementation file. The overlay is discarded and source
 identity rechecked before any normal peer build; no test code enters that binary.
+
+`build_cookie_peer.py` is a separate explicitly tagged transport instrument.
+It adds only `p4_cookie_transport` device hooks virtually to that same bounded
+export, plus the local standalone peer wrapper. No upstream implementation file
+is replaced. The real socket Bind and handshake worker remain unchanged; the
+tag sets a fixed under-load deadline and observes actual checker/classifier
+results. The resulting attestation is the official source main module `(devel)`
+with an exact export hash, not a falsely versioned cached dependency. Its private
+receipt identifies every overlay/wrapper byte, builder, exporter, compiler and
+binary; cached pinned modules are verified offline. A separately built untagged
+peer is checked for absence of the tagged symbols after removing the overlay.
+This instrument is never a normal peer or application package.
+
 The following is
 the complete upstream MIT notice, including its retained attribution:
 
