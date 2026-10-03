@@ -8,7 +8,12 @@ import os
 from pathlib import Path
 import platform
 import re
+import resource
+import signal
 import stat
+import subprocess
+import tempfile
+import time
 
 MAX_FIXTURE = 32 * 1024 * 1024
 CORPUS_SHA256 = "51fef4516f3c56410118965ebe141d977412a463833473e4845458e604e2f8fc"
@@ -25,7 +30,7 @@ def identity(value):
             value.st_mtime_ns, value.st_ctime_ns)
 
 
-def snapshot_fixture(path, expected):
+def snapshot_fixture(path, expected, *, maximum=MAX_FIXTURE):
     """Consume checked descriptor bytes, never execute the original path.
 
     The caller-supplied digest identifies a separately reviewed test artifact;
@@ -39,7 +44,7 @@ def snapshot_fixture(path, expected):
         before = os.fstat(descriptor)
         if (not stat.S_ISREG(before.st_mode) or before.st_uid not in (0, os.getuid())
                 or before.st_nlink != 1 or before.st_mode & 0o7022
-                or not before.st_mode & 0o100 or not 32 <= before.st_size <= MAX_FIXTURE):
+                or not before.st_mode & 0o100 or not 32 <= before.st_size <= maximum):
             raise RuntimeError("Rust wire fixture object refused")
         try:
             capability = os.getxattr(descriptor, "security.capability")
@@ -49,7 +54,7 @@ def snapshot_fixture(path, expected):
         else:
             if capability:
                 raise RuntimeError("Rust wire fixture capability refused")
-        chunks, remaining = [], MAX_FIXTURE + 1
+        chunks, remaining = [], maximum + 1
         while remaining:
             chunk = os.read(descriptor, min(65536, remaining))
             if not chunk:
@@ -102,6 +107,8 @@ def receipt(raw):
     runs, passes = Counter(), Counter()
     package_start = package_pass = 0
     active = set()
+    completed_children = set()
+    children = set(names[1:])
     try:
         if not raw or len(raw) > 4 * 1024 * 1024:
             raise ValueError("Receipt bound")
@@ -129,14 +136,19 @@ def receipt(raw):
             if action == "run":
                 if (not package_start or package_pass or name in active
                         or (name == TEST and active)
-                        or (name != TEST and active != {TEST})):
+                        or (name != TEST and (active != {TEST} or name in completed_children))):
                     raise ValueError("Test execution order")
+                if name == TEST:
+                    completed_children.clear()
                 active.add(name)
                 runs[name] += 1
             elif action == "pass":
-                if name not in active or (name == TEST and active != {TEST}):
+                if (name not in active or (name == TEST and
+                        (active != {TEST} or completed_children != children))):
                     raise ValueError("Unstarted or premature completion")
                 active.remove(name)
+                if name != TEST:
+                    completed_children.add(name)
                 passes[name] += 1
             elif action not in ("output", "pause", "cont"):
                 raise ValueError("Unexpected test event")
@@ -146,11 +158,71 @@ def receipt(raw):
         raise RuntimeError("Rust Go wire execution receipt refused")
 
 
+def live_group_members(group):
+    """Read-only observation; caller retains the unreaped session leader."""
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == group and fields[0] != "Z":
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return False
+
+
+def run_wire(args, *, cwd, env, timeout=600):
+    """Bounded owned process-group cleanup, including abnormal Go termination.
+
+    This synthetic gate has no privileged children. Keep the leader unreaped
+    until group cancellation, so cleanup never signals a reused PGID. File
+    capture also prevents a surviving child's stdio from hanging communicate.
+    Normal broker/service supervision is deliberately not exercised here.
+    """
+    if not 0 < timeout <= 600:
+        raise RuntimeError("Rust wire execution timeout refused")
+    def limits():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (4 * 1024 * 1024,) * 2)
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    with tempfile.TemporaryFile(dir=env["TMPDIR"]) as output, tempfile.TemporaryFile(dir=env["TMPDIR"]) as errors:
+        child = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                 stdout=output, stderr=errors, start_new_session=True,
+                                 preexec_fn=limits)
+        try:
+            deadline = time.monotonic() + timeout
+            while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Rust wire execution timed out")
+                time.sleep(0.02)
+        finally:
+            # No poll/wait/communicate before this signal: leader PID is retained.
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+                deadline = time.monotonic() + 3
+                while live_group_members(child.pid):
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Rust wire child cleanup unconfirmed")
+                    time.sleep(0.02)
+            finally:
+                child.wait(timeout=5)
+        if child.returncode != 0 or output.tell() + errors.tell() > 4 * 1024 * 1024:
+            raise RuntimeError("Rust wire execution failed or output exceeded bound")
+        output.seek(0)
+        errors.seek(0)
+        if errors.read(1):
+            raise RuntimeError("Rust wire execution diagnostic refused")
+        return output.read(4 * 1024 * 1024 + 1)
+
+
 def exercise(root, source, env, data, expected, corpus, run, go):
     if (not corpus or len(corpus) > 4096
             or hashlib.sha256(corpus).hexdigest() != CORPUS_SHA256):
         raise RuntimeError("Pinned Rust wire corpus refused")
-    if len(os.fsencode(root / "di-XXXXXXXX" / "channel")) >= 108:
+    # os.MkdirTemp appends up to ten decimal uint32 digits, not eight.
+    if len(os.fsencode(root / "di-XXXXXXXXXX" / "channel")) >= 108:
         raise RuntimeError("Rust wire socket parent exceeds bound")
     fixture = root / "dns-interop-fixture"
     corpus_file = root / "dns-interop-corpus.json"
@@ -163,10 +235,22 @@ def exercise(root, source, env, data, expected, corpus, run, go):
     corpus_file.chmod(0o600)
     if snapshot_fixture(fixture, expected) != data or snapshot_corpus(corpus_file) != corpus:
         raise RuntimeError("Copied Rust wire fixture refused")
-    output = run([go, "test", "-json", "-mod=vendor", "-tags=with_gvisor",
-                  "./listener/sing_tun", "-run", "^" + TEST + "$", "-count=20"],
-                 cwd=source, env=dict(env, OMAVLESS_DNS_INTEROP_SERVER=str(fixture),
-                                      OMAVLESS_DNS_INTEROP_CORPUS=str(corpus_file)))
+    # Compilation may create objects larger than the execution output bound.
+    # Build without launching fixtures, then pin the private test ELF before
+    # running test2json plus its owned descendants under the bounded supervisor.
+    test_binary = root / "dns-interop-go.test"
+    run([go, "test", "-c", "-mod=vendor", "-tags=with_gvisor",
+         "-o", str(test_binary), "./listener/sing_tun"], cwd=source, env=env)
+    if not 32 <= test_binary.stat().st_size <= 128 * 1024 * 1024:
+        raise RuntimeError("Go wire test artifact size refused")
+    test_binary.chmod(0o700)
+    test_sha = hashlib.sha256(test_binary.read_bytes()).hexdigest()
+    snapshot_fixture(test_binary, test_sha, maximum=128 * 1024 * 1024)
+    output = run_wire([go, "tool", "test2json", "-p", PACKAGE, str(test_binary),
+                       "-test.v=test2json", "-test.run=^" + TEST + "$", "-test.count=20"],
+                      cwd=source, env=dict(env, OMAVLESS_DNS_INTEROP_SERVER=str(fixture),
+                                           OMAVLESS_DNS_INTEROP_CORPUS=str(corpus_file)))
     receipt(output)
+    snapshot_fixture(test_binary, test_sha, maximum=128 * 1024 * 1024)
     if snapshot_fixture(fixture, expected) != data or snapshot_corpus(corpus_file) != corpus:
         raise RuntimeError("Rust wire inputs changed during execution")

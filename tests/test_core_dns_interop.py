@@ -1,15 +1,21 @@
 # SPDX-License-Identifier: MIT
 """Synthetic artifact/receipt guards only; no core or broker is launched."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_core_connections_adapter import INTEROP, COMPOSITION, REVIEW
+spec = importlib.util.spec_from_file_location(
+    "core_adapter_interop_support", Path(__file__).with_name("test_core_connections_adapter.py"))
+support = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(support)
+INTEROP, COMPOSITION, REVIEW = support.INTEROP, support.COMPOSITION, support.REVIEW
 
 
 class DNSInteropTests(unittest.TestCase):
@@ -67,6 +73,69 @@ class DNSInteropTests(unittest.TestCase):
                        [events[0], events[1], events[4], events[2], events[3], *events[5:]]):
             with self.assertRaises(RuntimeError):
                 INTEROP.receipt(self.raw(values))
+
+    def test_global_counts_cannot_hide_uneven_per_iteration_subcases(self):
+        events = self.events()
+        first = events[2:5]
+        changed = events[:2] + events[5:16] + first + events[16:]
+        # Move one child from the first iteration into the second, leaving all
+        # global run/pass counts intact. Each parent must still prove all four.
+        self.assertEqual(len(changed), len(events))
+        with self.assertRaises(RuntimeError):
+            INTEROP.receipt(self.raw(changed))
+
+    def test_socket_budget_uses_ten_digit_mkdirtemp_suffix(self):
+        root = Path("/" + "x" * 85)
+        self.assertEqual(len(os.fsencode(root / "di-XXXXXXXXXX" / "channel")), 108)
+        with patch.object(INTEROP, "CORPUS_SHA256", hashlib.sha256(b"corpus").hexdigest()):
+            with self.assertRaisesRegex(RuntimeError, "socket parent"):
+                INTEROP.exercise(root, root, {}, b"", "", b"corpus", None, "go")
+
+    def test_owned_group_cleanup_reaps_hanging_descendant_on_timeout(self):
+        with tempfile.TemporaryDirectory(prefix="di-group-") as name:
+            root = Path(name)
+            marker = root / "pid"
+            child_code = "import time; time.sleep(60)"
+            code = ("import subprocess,time; from pathlib import Path; "
+                    f"p=subprocess.Popen([{sys.executable!r},'-c',{child_code!r}]); "
+                    f"Path({str(marker)!r}).write_text(str(p.pid)); time.sleep(60)")
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                INTEROP.run_wire([sys.executable, "-c", code], cwd=root,
+                                 env={"TMPDIR": str(root), "PATH": "/usr/bin:/bin"}, timeout=1)
+            pid = marker.read_text()
+            path = Path("/proc") / pid / "stat"
+            try:
+                self.assertEqual(path.read_text().rsplit(")", 1)[1].split()[0], "Z")
+            except FileNotFoundError:
+                pass
+
+    def test_owned_group_success_is_bounded_and_rejects_stderr(self):
+        with tempfile.TemporaryDirectory(prefix="di-group-") as name:
+            root = Path(name)
+            env = {"TMPDIR": str(root), "PATH": "/usr/bin:/bin"}
+            self.assertEqual(INTEROP.run_wire([sys.executable, "-c", "print('ok')"],
+                                             cwd=root, env=env), b"ok\n")
+            with self.assertRaises(RuntimeError):
+                INTEROP.run_wire([sys.executable, "-c", "import sys; print('bad',file=sys.stderr)"],
+                                 cwd=root, env=env)
+
+    def test_compilation_is_separate_from_bounded_wire_execution(self):
+        with tempfile.TemporaryDirectory(prefix="di-stage-") as name:
+            root = Path(name)
+            fixture, data, digest = self.fixture(root)
+            corpus = b"synthetic corpus"
+            def compile_only(arguments, *, cwd, env):
+                self.assertIn("-c", arguments)
+                self.assertNotIn("OMAVLESS_DNS_INTEROP_SERVER", env)
+                Path(arguments[arguments.index("-o") + 1]).write_bytes(data)
+                return b""
+            with patch.object(INTEROP, "CORPUS_SHA256", hashlib.sha256(corpus).hexdigest()):
+                with patch.object(INTEROP, "run_wire", return_value=self.raw(self.events())) as wire:
+                    INTEROP.exercise(root, root, {"TMPDIR": str(root)}, data, digest,
+                                     corpus, compile_only, "/usr/bin/go")
+                    self.assertEqual(wire.call_count, 1)
+                    self.assertIn("test2json", wire.call_args.args[0])
+                    self.assertIn("OMAVLESS_DNS_INTEROP_SERVER", wire.call_args.kwargs["env"])
 
     def test_checked_snapshot_refuses_alias_mode_hash_and_wrong_arch(self):
         with tempfile.TemporaryDirectory(prefix="di-unit-") as name:

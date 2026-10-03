@@ -171,10 +171,17 @@ test; both production DNS patches and the final core composition stay unchanged.
 The four real cross-language scenarios are acquire/release, acquisition refusal,
 recovery-required release and loss after Ready. All execute twenty times;
 bounded duplicate-free JSON must prove parent and every named subcase run/pass
-in valid order, with no skipped/missing/foreign/extra case. Exit zero or parent
+in valid order, with four distinct children in **each** parent iteration and
+no skipped/missing/foreign/extra case. Exit zero or parent
 PASS alone is insufficient. Copied inputs are rechecked after execution.
 Default conditional/DNS matrices retain their own exact checks. The existing
-Go fixture joins its owned Rust child on normal/failure/timeout cleanup.
+Go fixture joins its owned Rust child on normal/failure/timeout cleanup. The Go
+test ELF is compiled separately, checked before/after execution, and launched
+through `test2json` in an owned process group. The unprivileged execution stage
+has bounded file capture, timeout and group cancellation before leader reap;
+compiler outputs are not subjected to the smaller execution-output limit.
+This cleanup scope assumes the reviewed fixtures remain in their inherited
+process group; it is not normal broker/service supervision.
 
 These peers use an ordinary regular-file proof and **synthetic** Ready/Released
 acknowledgements. No real TUN, resolved operation, installed broker, package,

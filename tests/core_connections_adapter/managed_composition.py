@@ -38,7 +38,7 @@ DNS_TESTS = (
 )
 DNS_INTEROP_SKIP = "TestSystemDNSRustChannelInterop"
 INTEROP_TEST_PATCH = Path(__file__).with_name("mihomo-dns-interop-sockets.patch")
-INTEROP_TEST_SHA256 = "e0e9fad0c9296ddec47cf13778799530bdbfee4b88f9be16fdf390a2172eb24c"
+INTEROP_TEST_SHA256 = "d0132ae4758ddc9baadca7f0826e37fbbed9667436e965c9a5eee65121fa3385"
 
 
 git_environment = review.git_environment
