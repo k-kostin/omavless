@@ -126,6 +126,8 @@ tests run 20 times with race instrumentation; 11 managed-DNS Go cases run 20
 times. Bounded Go JSON receipts must prove execution of all seven conditional
 cases and these DNS cases; a zero-test success or unexpected skip refuses.
 The separate opt-in Rust↔Go DNS interop case is explicitly skipped, not PASS.
+An explicit synthetic-wire opt-in is described below; default invocation still
+keeps that skip and cannot claim interoperability.
 A separate GPL-3.0 **test-only** overlay shortens temporary DNS socket paths;
 it is hash-checked and reversed before compiling the core. The two production
 DNS patches remain byte-for-byte unchanged. This avoids Linux Unix-socket path
@@ -145,6 +147,41 @@ It proves that the pinned source patches coexist and that conditional close
 works in that composition. Managed DNS-pair acceptance, matched immutable
 companion-package receipt, owner admission/operation reservation and installed
 EN/RU close-confirmation review are separate requirements.
+
+### Explicit synthetic Rust/Go wire opt-in
+
+Add both `--rust-channel-fixture /absolute/frozen/channel_fixture` and
+`--rust-channel-fixture-sha256 EXACT_SHA256` to the composition command above.
+First separately review/build the test-only `omavless-dns-channel` example from
+an isolated export of exact DNS source
+`c4e800425243c1b02165f82153e4bf418fe465e6`, using locked dependencies and an
+offline compiler environment. Freeze that executable outside a running Cargo
+target and retain its source/build/toolchain/digest evidence. A supplied digest
+identifies this local artifact; it is not independent compiler proof or release
+authentication. Missing/partial/unsafe inputs refuse rather than building or
+installing an arbitrary broker.
+
+The opt-in consumes bounded no-follow descriptor bytes, rechecks metadata and
+ELF architecture, refuses capabilities, and makes an exclusive private executable
+copy without inherited modes/xattrs. The golden corpus is read only from the
+exact DNS Git object and its fixed digest, never an ambient path. A separate
+hash-pinned GPL-3.0 test-only socket overlay is applied/reversed around this
+test; both production DNS patches and the final core composition stay unchanged.
+
+The four real cross-language scenarios are acquire/release, acquisition refusal,
+recovery-required release and loss after Ready. All execute twenty times;
+bounded duplicate-free JSON must prove parent and every named subcase run/pass
+in valid order, with no skipped/missing/foreign/extra case. Exit zero or parent
+PASS alone is insufficient. Copied inputs are rechecked after execution.
+Default conditional/DNS matrices retain their own exact checks. The existing
+Go fixture joins its owned Rust child on normal/failure/timeout cleanup.
+
+These peers use an ordinary regular-file proof and **synthetic** Ready/Released
+acknowledgements. No real TUN, resolved operation, installed broker, package,
+enrollment, system service or provider is exercised. PASS closes only the declared
+synthetic wire gate on its exact source/artifacts, not matched managed-pair
+attestation or host DNS restoration. Default output still says `not_run`; only
+the explicit completed opt-in can print its four-scenario wire result.
 
 ## Private UDP conditional-close gate
 
