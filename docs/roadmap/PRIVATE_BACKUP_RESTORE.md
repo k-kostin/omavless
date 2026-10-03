@@ -503,6 +503,16 @@ It returns only Commit-still-fenced and blocks the owner after the operation;
 explicit Abort recovery and product registration remain separate. This is an
 inactive implementation bridge, not installed restore or historical adoption.
 
+The [explicit Abort prerequisite](../development/T4_FIRST_RESTORE_ABORT_OWNER.md)
+adds a private Intent-only lower rollback entry retaining the exclusive writer's
+original Abort descriptor through post-publication checks. Its inactive private
+recovery-only caller authenticates NEW against a fresh archive, retains original
+stage/live/slot identities and resynchronizes sources under a fixed observational
+host boundary. It returns only AbortedStillFenced, never an ordinary owner; OLD
+has checksum transaction provenance, not archive authentication. No normal
+registration or installed acceptance is implied; ordinary blocked owners and
+startup fences are unchanged.
+
 The internal `restore_retirement_candidate` can publish a single exclusive,
 fixed-size `restore-finalization.pending` receipt only after a committed or
 aborted terminal pair has been reopened and verified. The receipt binds the
