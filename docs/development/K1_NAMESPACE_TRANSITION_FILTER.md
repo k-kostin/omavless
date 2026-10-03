@@ -118,3 +118,24 @@ The privately retained root-stage archive SHA256 is
 All five members, root ownership/modes and original hashes were independently
 verified. Safe phase/category diagnostics are the next source-only step; any
 new invocation needs its own reviewed artifacts and exclusive lease.
+
+## Source-only snapshot diagnostic continuation
+
+`namespace_filter_snapshot_diagnostic.py` loads only the exact original guard
+bytes above, verified before compilation under a non-main module name. It
+calls only original fixed artifact preflight and `snapshot`, never original
+main or the runner. An additional exact read-command allowlist rejects unit
+start/stop/reload, shell commands and unknown argv before dispatch. Original
+bounded OwnedProcess capture, refusal predicates and permanent uncertainty
+latch remain intact. A second diagnostic cannot revive an uncertain instance.
+
+The original five root-stage files remain unchanged. A separate create-only
+diagnostic receipt directory is required; the only output is a bounded schema,
+original hash, completion boolean, finite public phase/category and source
+line from the pinned guard. Exception messages, traceback locals, filesystem
+path values, command output, snapshot contents and private hashes are omitted.
+Actual activation-symlink counterexamples exercise the original refusal and
+verify its public category; mutating-command, source-tamper, private-message
+and unknown-latch tests cover the diagnostic boundary. This is not a retry or
+proof of the first failure's cause. Root review and a separate read-only VM
+lease are required before running it.
