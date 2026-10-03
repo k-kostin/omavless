@@ -9,6 +9,7 @@ members = [
   "crates/omavless-dns-channel",
   "crates/omavless-dns-tun",
   "crates/omavless-mihomo",
+  "crates/omavless-netguard",
   "crates/omavless-parity",
   "crates/omavless-profile",
   "crates/omavless-runtime",

@@ -1171,6 +1171,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "omavless-netguard"
+version = "0.9.7-rc.1"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "omavless-parity"
 version = "0.9.7-rc.1"
 dependencies = [

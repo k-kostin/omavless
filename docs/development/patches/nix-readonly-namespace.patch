@@ -1,0 +1,188 @@
+diff --git a/src/sys/mod.rs b/src/sys/mod.rs
+index d07ddb7..25ca0bf 100644
+--- a/src/sys/mod.rs
++++ b/src/sys/mod.rs
+@@ -1,4 +1,6 @@
+ //! Mostly platform-specific functionality
++#[cfg(all(target_os = "linux", feature = "ioctl"))]
++pub mod nsfs;
+ #[cfg(any(
+     freebsdlike,
+     all(
+diff --git a/src/sys/nsfs.rs b/src/sys/nsfs.rs
+new file mode 100644
+index 0000000..0be316d
+--- /dev/null
++++ b/src/sys/nsfs.rs
+@@ -0,0 +1,91 @@
++//! Fixed, read-only Linux namespace descriptor queries.
++//!
++//! Descriptor identity is not proof of a canonical host or trusted launch.
++use crate::{errno::Errno, Result};
++use std::os::fd::{AsRawFd, BorrowedFd};
++
++/// Kernel namespace kinds understood by this API.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum NamespaceType {
++    /// Network namespace.
++    Network,
++    /// User namespace.
++    User,
++    /// PID namespace.
++    Pid,
++    /// Mount namespace.
++    Mount,
++    /// UTS namespace.
++    Uts,
++    /// IPC namespace.
++    Ipc,
++    /// Cgroup namespace.
++    Cgroup,
++    /// Time namespace.
++    Time,
++}
++
++/// Query `NS_GET_NSTYPE` on a borrowed namespace descriptor.
++/// Unknown future types return `EOPNOTSUPP`; syscall errors are preserved.
++pub fn namespace_type(fd: BorrowedFd<'_>) -> Result<NamespaceType> {
++    // SAFETY: this fixed no-argument ioctl neither reads nor writes userspace
++    // memory. The live descriptor is borrowed for the complete call.
++    let value = Errno::result(unsafe {
++        libc::ioctl(fd.as_raw_fd(), libc::NS_GET_NSTYPE)
++    })?;
++    match value {
++        libc::CLONE_NEWNET => Ok(NamespaceType::Network),
++        libc::CLONE_NEWUSER => Ok(NamespaceType::User),
++        libc::CLONE_NEWPID => Ok(NamespaceType::Pid),
++        libc::CLONE_NEWNS => Ok(NamespaceType::Mount),
++        libc::CLONE_NEWUTS => Ok(NamespaceType::Uts),
++        libc::CLONE_NEWIPC => Ok(NamespaceType::Ipc),
++        libc::CLONE_NEWCGROUP => Ok(NamespaceType::Cgroup),
++        libc::CLONE_NEWTIME => Ok(NamespaceType::Time),
++        _ => Err(Errno::EOPNOTSUPP),
++    }
++}
++
++/// Query the 64-bit namespace identifier using `NS_GET_ID`.
++/// This never substitutes a procfs inode or a namespace-relative netlink ID.
++pub fn namespace_id(fd: BorrowedFd<'_>) -> Result<u64> {
++    let mut value = 0_u64;
++    // Linux UAPI _IOR(NSIO, 13, __u64), encoded with the target ABI macros.
++    let request =
++        crate::request_code_read!(0xb7, 13, std::mem::size_of::<u64>());
++    // SAFETY: only this fixed read ioctl is issued. The aligned, initialized
++    // u64 output remains live and exclusively borrowed throughout the call.
++    let result = Errno::result(unsafe {
++        libc::ioctl(fd.as_raw_fd(), request as _, &mut value as *mut u64)
++    })?;
++    if result != 0 || value == 0 {
++        return Err(Errno::EINVAL);
++    }
++    Ok(value)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::{fs::File, os::fd::AsFd};
++
++    #[test]
++    fn ordinary_files_are_not_namespace_descriptors() {
++        let file = File::open("/dev/null").unwrap();
++        assert_eq!(namespace_type(file.as_fd()), Err(Errno::ENOTTY));
++        assert_eq!(namespace_id(file.as_fd()), Err(Errno::ENOTTY));
++    }
++
++    #[test]
++    fn current_network_and_pid_kinds_differ() {
++        let net = File::open("/proc/thread-self/ns/net").unwrap();
++        let pid = File::open("/proc/thread-self/ns/pid").unwrap();
++        assert_eq!(namespace_type(net.as_fd()), Ok(NamespaceType::Network));
++        assert_eq!(namespace_type(pid.as_fd()), Ok(NamespaceType::Pid));
++        // Old kernels are unsupported, not a fabricated identity.
++        match namespace_id(net.as_fd()) {
++            Ok(id) => assert_ne!(id, 0),
++            Err(error) => assert_eq!(error, Errno::ENOTTY),
++        }
++    }
++}
+diff --git a/src/sys/socket/sockopt.rs b/src/sys/socket/sockopt.rs
+index cc5ed20..f452fd8 100644
+--- a/src/sys/socket/sockopt.rs
++++ b/src/sys/socket/sockopt.rs
+@@ -1,4 +1,75 @@
+ //! Socket options as used by `setsockopt` and `getsockopt`.
++/// Linux network namespace cookie of a socket, distinct from `SO_COOKIE`.
++#[cfg(target_os = "linux")]
++#[derive(Clone, Copy, Debug)]
++pub struct NetnsCookie;
++
++#[cfg(target_os = "linux")]
++impl super::GetSockOpt for NetnsCookie {
++    type Val = u64;
++
++    fn get<F: std::os::fd::AsFd>(&self, fd: &F) -> crate::Result<u64> {
++        let mut value = 0_u64;
++        let mut length = std::mem::size_of::<u64>() as libc::socklen_t;
++        // SAFETY: fixed SOL_SOCKET/SO_NETNS_COOKIE writes only into a live,
++        // initialized aligned u64, with its actual capacity. The descriptor
++        // remains borrowed. Validate length before interpreting the result.
++        crate::errno::Errno::result(unsafe {
++            libc::getsockopt(
++                fd.as_fd().as_raw_fd(),
++                libc::SOL_SOCKET,
++                libc::SO_NETNS_COOKIE,
++                &mut value as *mut u64 as *mut libc::c_void,
++                &mut length,
++            )
++        })?;
++        netns_cookie_value(value, length)
++    }
++}
++
++#[cfg(target_os = "linux")]
++fn netns_cookie_value(
++    value: u64,
++    length: libc::socklen_t,
++) -> crate::Result<u64> {
++    if length as usize != std::mem::size_of::<u64>() || value == 0 {
++        return Err(crate::errno::Errno::EINVAL);
++    }
++    Ok(value)
++}
++
++#[cfg(all(test, target_os = "linux"))]
++mod netns_cookie_tests {
++    use super::*;
++    use crate::sys::socket::GetSockOpt;
++
++    #[test]
++    fn malformed_length_and_zero_refuse_without_panicking() {
++        for length in [0, 1, 4, 7, 9, u32::MAX] {
++            assert_eq!(netns_cookie_value(1, length), Err(Errno::EINVAL));
++        }
++        assert_eq!(netns_cookie_value(0, 8), Err(Errno::EINVAL));
++        assert_eq!(netns_cookie_value(u64::MAX, 8), Ok(u64::MAX));
++    }
++
++    #[test]
++    fn regular_file_is_not_a_socket() {
++        let file = std::fs::File::open("/dev/null").unwrap();
++        assert_eq!(NetnsCookie.get(&file), Err(Errno::ENOTSOCK));
++    }
++
++    #[cfg(feature = "ioctl")]
++    #[test]
++    fn current_socket_cookie_matches_current_network_namespace_id() {
++        use std::os::fd::AsFd;
++        let ns = std::fs::File::open("/proc/thread-self/ns/net").unwrap();
++        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
++        match crate::sys::nsfs::namespace_id(ns.as_fd()) {
++            Ok(id) => assert_eq!(NetnsCookie.get(&socket), Ok(id)),
++            Err(error) => assert_eq!(error, Errno::ENOTTY),
++        }
++    }
++}
+ #[cfg(any(linux_android, target_os = "illumos"))]
+ use super::SetSockOpt;
+ use crate::sys::time::TimeVal;
