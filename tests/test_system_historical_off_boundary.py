@@ -65,7 +65,9 @@ class SystemHistoricalOffBoundary(unittest.TestCase):
         self.assertEqual(source.count("#[ignore ="), 3)
         for forbidden in ("epoch_tests::receipt", "epoch_tests::proof", "CurrentEpochProof::synthetic", "Source::Synthetic", "fixture.root =", "Fixture::reopen"):
             self.assertNotIn(forbidden, source)
-        self.assertLess(source.index("CurrentEpochProof::capture"), source.index("super::tests::prepared(true)"))
+        review = source.split("fn system_provider_vm_real_current_off_preserves_original_receipt_and_fences()", 1)[1]
+        self.assertLess(review.index("CurrentEpochProof::capture"), review.index("super::tests::prepared(true)"))
+        self.assertLess(review.index("assert_valid_off_inputs"), review.index("create(&paths.state_directory"))
         self.assertIn("receipt.unchanged();", source)
         self.assertIn("current_for_vm_test()", source)
         forwarding = (SRC / "system_historical_off_candidate.rs").read_text()

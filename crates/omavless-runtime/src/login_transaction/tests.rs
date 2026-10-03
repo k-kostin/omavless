@@ -41,6 +41,22 @@ fn system_vm_exact_seed_consumes_off_without_candidate_validation() {
         "fixed desired"
     );
     let mut host = OffOnly { observations: 0 };
+    assert!(matches!(
+        parse_private_store(&before.store),
+        Err(omavless_domain::private_store::PrivateStoreError::Store(
+            omavless_domain::store::StoreError::InvalidRoutingPreset
+        ))
+    ));
+    assert_eq!(
+        consume_login(&fixture.paths, 2, "synthetic-epoch", &mut host),
+        Err(LoginTransactionError::InvalidState)
+    );
+    assert_eq!(host.observations, 0);
+    assert!(Snapshot::read(&fixture.paths).unwrap() == before);
+    assert!(receipt(&fixture.paths).unwrap().is_none());
+    store["routingPreset"] = "roscomvpn-default".into();
+    fixture.put(&fixture.paths.store, &serde_json::to_vec(&store).unwrap());
+    let before = Snapshot::read(&fixture.paths).unwrap();
     let result = consume_login(&fixture.paths, 2, "synthetic-epoch", &mut host);
     assert!(
         result.is_ok(),

@@ -146,6 +146,26 @@ fn create(path: &Path, bytes: &[u8]) {
     );
 }
 
+fn assert_valid_off_inputs(store: &[u8], desired: &[u8]) {
+    let text = std::str::from_utf8(store).expect("fixed store encoding");
+    let parsed =
+        omavless_domain::private_store::parse_private_store(text).expect("fixed store parser");
+    let desired: crate::desired::DesiredState =
+        serde_json::from_slice(desired).expect("fixed desired encoding");
+    desired.validate().expect("fixed desired validation");
+    assert!(!desired.connected && !parsed.startup_preferences().enabled);
+}
+
+#[test]
+fn system_vm_historical_live_inputs_use_actual_store_and_desired_validators() {
+    let (fixture, _lock) = super::tests::prepared(true);
+    super::tests::ordinary_edit(&fixture);
+    assert_valid_off_inputs(
+        &std::fs::read(fixture.config.join(LIVE[0])).unwrap(),
+        &std::fs::read(fixture.paths.state_directory.join("desired.json")).unwrap(),
+    );
+}
+
 struct Pinned {
     parent: File,
     parent_path: std::path::PathBuf,
@@ -232,7 +252,11 @@ fn system_provider_vm_seed_off_inputs() {
     let lock = MigrationLock::acquire(&paths, UID).unwrap();
     let mut store: serde_json::Value =
         serde_json::from_slice(crate::store_bootstrap::EMPTY_STORE_PAYLOAD).unwrap();
-    store["routingPreset"] = "default".into();
+    store["routingPreset"] = "roscomvpn-default".into();
+    assert_valid_off_inputs(
+        &serde_json::to_vec(&store).unwrap(),
+        &serde_json::to_vec(&crate::desired::DesiredState::default()).unwrap(),
+    );
     create(&config.join(LIVE[0]), &serde_json::to_vec(&store).unwrap());
     create(
         &config.join(LIVE[1]),
@@ -292,6 +316,10 @@ fn system_provider_vm_real_current_off_preserves_original_receipt_and_fences() {
             LivePolicy::ValidCurrentOff,
         )
         .unwrap();
+        assert_valid_off_inputs(
+            &source.members[3].0,
+            &source.boundary[1].as_ref().unwrap().0,
+        );
         for (index, name) in [CLOSURE_MEMBER, TICKET_MEMBER, COMPLETE_MEMBER]
             .into_iter()
             .enumerate()

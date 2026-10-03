@@ -6,8 +6,12 @@ the public Validation category before the historical review selector ran.
 The reviewed root harness completed owned cleanup and its strict canonical
 comparison. No System-positive admission result follows from that attempt.
 
-The new ordinary CPU test feeds exactly the seed's empty private store with
-default routing preset, default disconnected desired state and default template
+The frozen failing prefix `b0564b7141b189c6f6fa5c6b94e6fd77d4b6d150`
+reproduces `InvalidState` from the actual transaction with zero host observations.
+Its literal `routingPreset=default` is not an accepted store preset identifier.
+The new ordinary CPU regression retains that rejection, no receipt and unchanged
+private inputs, then feeds exactly the corrected seed's empty private store with
+canonical `roscomvpn-default`, default disconnected desired state and default template
 through the real private-file login transaction. Its strict recording host
 allows exactly two empty observations and panics on connected validation.
 This proves the synthetic input/transaction combination, not real System or
@@ -22,7 +26,9 @@ login preparation nor consumes or publishes a receipt. It does not call the
 live-unit invocation validator from outside that unit. Test completion means
 the diagnostic ran, not that any reported refusal passed admission.
 
-The missing legacy-unit query is a hypothesis: the measured global fixture
+This is a definite seed prerequisite defect consistent with the VM's broad
+Validation category, not a recovered internal failure trace from the installed
+binary. The missing legacy-unit query remains an independent hypothesis: the measured global fixture
 inventory contains only the packaged login/native units, while the actual empty
 observer also queries the legacy service. No fake legacy unit, absent-as-empty
 fallback or production behavior change is introduced to make this pass.
