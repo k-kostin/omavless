@@ -1,5 +1,8 @@
 # Acceptance evidence index
 
+- [P4 source-gate composition](P4_SOURCE_GATE_COMPOSITION_2026-10-03.md):
+  reviewed current-RC drain and concurrent setup contract, retaining old negatives.
+
 ## Start here: accepted native integration
 
 The integration merged in #238; #240 adds the accepted subscription-row
