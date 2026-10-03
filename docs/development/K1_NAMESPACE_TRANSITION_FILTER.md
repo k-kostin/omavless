@@ -139,3 +139,30 @@ verify its public category; mutating-command, source-tamper, private-message
 and unknown-latch tests cover the diagnostic boundary. This is not a retry or
 proof of the first failure's cause. Root review and a separate read-only VM
 lease are required before running it.
+
+## Read-only diagnostic invocation — October 4
+
+Diagnostic source `39e832faf63b27e6e21b2de480d457084dfdc202` passed
+533 source tests (two skips), JavaScript/QML/navigation. After separate root
+review and an exclusive VM lease, exactly one diagnostic invocation returned
+exit 2: `activation_target_outside_allowlist`, category `refused`, original
+guard source line 148. `snapshot_complete`, `runner_invoked`,
+`normal_authority` and `process_uncertain` were all false. This localizes the
+new observation to the original activation inventory's target allowlist;
+it does not retrospectively prove the first generic failure's exact cause.
+The escaping target's provenance is still unknown; the allowlist was not
+relaxed and neither case was retried.
+
+The diagnostic SHA256 was
+`5a59a539b01914fe8a870cf33f64028ac0fdb6899a77c28416c638adccaa093f`;
+its separately reviewed create-only loader was
+`d09749d7ce2faf16206645f257c0666c2fbd344239f273406ef39ed716239fee`.
+The private typed receipt SHA256 is
+`919bac7321b5aeafaa2f7f8afb44c2456f50d27241b01cf2d0ebecacd917cbb5`.
+Independent read-only inspection verified all original five artifact hashes,
+root ownership/modes and single link counts unchanged; no fixture link,
+cgroup or exact fixture process remained. Process inventory had no unknown
+entries; the fixture unit was not-found/inactive with both manager PIDs zero.
+Both stages were retained, no unit operation or cleanup occurred, and the
+exclusive lease was returned. The original missing full before/after
+preservation receipt remains unproven: these narrower checks do not heal it.
