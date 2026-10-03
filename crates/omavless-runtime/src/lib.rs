@@ -5,6 +5,34 @@
 //! daemon read-only; only a successfully reconciled committed Rust owner can
 //! register mutation methods.
 
+mod backup_destination_candidate;
+mod backup_source_candidate;
+mod pending_private_transaction;
+#[allow(dead_code)]
+mod restore_cleanup_candidate;
+#[allow(dead_code)]
+mod restore_closure_model;
+#[allow(dead_code)]
+mod restore_decision_candidate;
+#[allow(dead_code)]
+mod restore_disposition_complete_model;
+#[allow(dead_code)]
+mod restore_disposition_model;
+#[allow(dead_code)]
+mod restore_disposition_ticket_model;
+#[allow(dead_code)]
+mod restore_executor_candidate;
+#[allow(dead_code)]
+mod restore_journal_candidate;
+#[allow(dead_code)]
+mod restore_retirement_candidate;
+#[allow(dead_code)]
+mod restore_slot_retirement_candidate;
+mod restore_staging_candidate;
+mod restore_successor_coexistence_candidate;
+#[allow(dead_code)]
+mod restore_successor_handoff_model;
+mod restore_successor_publication_candidate;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
@@ -34,6 +62,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auxiliary_core;
 mod batch_scheduler;
+#[allow(dead_code)]
+mod conditional_close_candidate;
 mod connection_overview;
 mod connection_rows;
 mod connection_test;
@@ -96,6 +126,7 @@ pub mod routing_read_protocol;
 mod runtime_observation;
 mod runtime_quit;
 pub mod semantic_cli;
+mod startup_admission;
 pub mod startup_protocol;
 mod startup_validation;
 pub mod store_bootstrap;

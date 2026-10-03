@@ -119,6 +119,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// Unknown auxiliary cleanup is a global lifecycle barrier, never merely a
     /// failed latency measurement. The caller must not proceed to host effects.
     pub fn mark_auxiliary_recovery_required(&mut self) {
+        self.invalidate_connection_close();
         self.auxiliary_recovery_required = true;
         self.transaction.block();
     }
@@ -193,6 +194,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<Option<NativeSubscriptionProbe>, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let (meta, target) = if request["method"] == "profiles.probe" {
             let parsed = parse_profile_probe_start(request)?;
             (parsed.metadata, ProbeTarget::Profiles(parsed.profile_id))
@@ -330,6 +334,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         job: NativeSubscriptionProbe,
         result: Result<Vec<ProbeResult>, StableErrorCode>,
     ) -> Result<(), NativeOwnerError> {
+        self.invalidate_connection_close();
         if matches!(result, Err(StableErrorCode::ManualRecoveryRequired)) {
             self.mark_auxiliary_recovery_required();
         }

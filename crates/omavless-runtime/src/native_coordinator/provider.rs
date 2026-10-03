@@ -118,6 +118,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         request: &Value,
     ) -> Result<ProviderRefreshAdmission, NativeOwnerError> {
+        if !self.mutation_operation_known(request) {
+            self.invalidate_connection_close();
+        }
         let parsed = parse_provider_refresh_start(request)?;
         let _lock = self.batch_lock()?;
         let ordinary = self
@@ -270,6 +273,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         now: N,
         verify_identity: V,
     ) -> Result<(), NativeOwnerError> {
+        self.invalidate_connection_close();
         let mut state = self
             .batch
             .take()
