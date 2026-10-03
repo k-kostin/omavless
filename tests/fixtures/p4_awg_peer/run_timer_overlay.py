@@ -23,12 +23,15 @@ def verify_events(output, count):
     package_pass = 0
     for line in output.splitlines():
         event = json.loads(line)
-        if not isinstance(event, dict) or event.get("Package") != "github.com/amnezia-vpn/amneziawg-go/v3/device" or event.get("Action") in ("fail", "skip"):
+        if not isinstance(event, dict) or event.get("Package") != "github.com/amnezia-vpn/amneziawg-go/v3/device":
             raise ValueError("unexpected failed/skipped event or package")
+        action = event.get("Action")
+        if not isinstance(action, str) or action not in {"start", "run", "pause", "cont", "output", "pass", "bench"}:
+            raise ValueError("missing/unsupported event action")
         name = event.get("Test")
-        if name is not None and name not in names:
+        if "Test" in event and (not isinstance(name, str) or name not in names):
             raise ValueError("unexpected test execution")
-        if event.get("Action") == "pass":
+        if action == "pass":
             if name is None:
                 package_pass += 1
             else:

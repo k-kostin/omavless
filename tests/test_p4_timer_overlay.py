@@ -30,5 +30,11 @@ class TimerReceiptGuards(unittest.TestCase):
         for event in ({"Action": "skip", "Package": "github.com/amnezia-vpn/amneziawg-go/v3/device"}, {"Action": "fail", "Package": "github.com/amnezia-vpn/amneziawg-go/v3/device"}, {"Action": "pass", "Package": "github.com/amnezia-vpn/amneziawg-go/v3/device", "Test": "TestP4CookieUnderload"}, {"Action": "pass", "Package": "unexpected"}, []):
             with self.assertRaises(ValueError): subject.verify_events(self.encoded(self.events() + [event]), 1)
 
+    def test_malformed_event_fields_cannot_hide_among_valid_passes(self):
+        package = "github.com/amnezia-vpn/amneziawg-go/v3/device"
+        for fields in ({}, {"Action": None}, {"Action": False}, {"Action": []}, {"Action": "unexpected"}, {"Action": "output", "Test": None}, {"Action": "output", "Test": False}, {"Action": "output", "Test": []}):
+            event = {"Package": package, **fields}
+            with self.assertRaises(ValueError): subject.verify_events(self.encoded(self.events() + [event]), 1)
+
 
 if __name__ == "__main__": unittest.main()
