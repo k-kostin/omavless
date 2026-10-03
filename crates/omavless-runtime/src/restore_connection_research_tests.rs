@@ -644,7 +644,7 @@ fn historical_connection_operation_collision_owner_and_dns_preflight() {
     ));
     assert!(!o.host().calls.contains(&"prepare"));
     o.host_mut().fail_preflight = false;
-    success(
+    let connected = success(
         o.execute_connection_research(request(&f, true, "connect", 0), &mut c)
             .unwrap(),
     );
@@ -654,13 +654,53 @@ fn historical_connection_operation_collision_owner_and_dns_preflight() {
             .is_err()
     );
     assert_eq!(calls, o.host().calls.len());
+    let before = Snapshot::read_policy(
+        &f.config,
+        &f.paths,
+        f.uid,
+        2,
+        &lock,
+        LivePolicy::ValidCurrentBundled,
+    )
+    .unwrap();
     let mut other = owner(&f, Host::default());
     assert!(
         other
             .execute_connection_research(request(&f, false, "fresh", 0), &mut c)
             .is_err()
     );
+    assert!(!c.poisoned());
+    assert_eq!(other.revision(), 0);
+    assert_eq!(other.actual(), ActualState::Disconnected);
+    assert!(other.host().calls.is_empty());
+    assert_eq!(
+        o.execute_connection_research(request(&f, true, "connect", 0), &mut c)
+            .unwrap(),
+        NativeOwnerExecution::Replay(connected),
+    );
+    assert_eq!(calls, o.host().calls.len());
+    assert_eq!(o.revision(), 1);
+    assert!(
+        before.same(
+            &Snapshot::read_policy(
+                &f.config,
+                &f.paths,
+                f.uid,
+                2,
+                &lock,
+                LivePolicy::ValidCurrentBundled,
+            )
+            .unwrap()
+        )
+    );
+    // Caller admission is nonmutating; direct misbinding is still fatal.
+    assert!(c.bind_owner(&std::sync::Arc::new(())).is_err());
     assert!(c.poisoned());
+    assert!(
+        o.execute_connection_research(request(&f, true, "connect", 0), &mut c)
+            .is_err()
+    );
+    assert_eq!(calls, o.host().calls.len());
 }
 
 #[test]
