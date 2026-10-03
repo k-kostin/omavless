@@ -422,6 +422,42 @@ pub fn consume_login(
     )
 }
 
+/// Read-only test projection, not an admission proof or a receipt operation.
+#[cfg(test)]
+pub(crate) fn diagnose_fixed_login_inputs() -> &'static str {
+    let uid = Uid::current().as_raw();
+    if uid != 61080
+        || std::env::var_os("HOME").as_deref() != Some(std::ffi::OsStr::new("/home/ov-t4-system"))
+    {
+        return "IdentityRefused";
+    }
+    let Ok(paths) = LoginPaths::below(
+        Path::new("/home/ov-t4-system"),
+        Path::new("/run/user/61080"),
+        Path::new("/home/ov-t4-system/.local/state"),
+        uid,
+    ) else {
+        return "PathsRefused";
+    };
+    if paths.validate().is_err() {
+        return "DirectoriesRefused";
+    }
+    let Ok(snapshot) = Snapshot::read(&paths) else {
+        return "SnapshotRefused";
+    };
+    let Ok(desired) = desired_from_snapshot(snapshot.desired.as_deref()) else {
+        return "DesiredRefused";
+    };
+    let Ok(store) = parse_private_store(&snapshot.store) else {
+        return "StoreRefused";
+    };
+    match plan_login_intent(LoginTrigger::FirstLogin, &desired, &store) {
+        Ok(None) if !desired.connected => "OffNoChange",
+        Ok(_) => "UnexpectedPlan",
+        Err(_) => "PlannerRefused",
+    }
+}
+
 fn consume(
     paths: &LoginPaths,
     generation: u64,

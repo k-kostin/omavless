@@ -10,6 +10,83 @@ const HOME: &str = "/home/ov-t4-system";
 const OPT_IN: &str = "OMAVLESS_TEST_SYSTEM_OFF_VM";
 const RECEIPT: &str = "omavless-login.receipt";
 
+fn observation_category(
+    result: Result<(), crate::production_observation::ProductionObservationError>,
+) -> &'static str {
+    use crate::production_observation::ProductionObservationError as E;
+    match result {
+        Ok(()) => "Empty",
+        Err(E::UnsafePath) => "UnsafePath",
+        Err(E::ServiceQuery) => "ServiceQuery",
+        Err(E::ServiceResponse) => "ServiceResponse",
+        Err(E::PrivateState) => "PrivateState",
+        Err(E::HostNotEmpty) => "HostNotEmpty",
+        Err(E::IncompleteInventory) => "IncompleteInventory",
+        Err(E::Cutover(_)) => "CutoverRefused",
+    }
+}
+
+#[test]
+#[ignore = "fixed disposable account read-only post-login-failure diagnostic; no receipt retry"]
+fn system_provider_vm_diagnose_login_prerequisites() {
+    let (_, config) = paths();
+    use crate::production_observation::{ProductionOwnershipObserver, service_state_with_timeout};
+    println!(
+        "Inputs:{}",
+        crate::login_transaction::diagnose_fixed_login_inputs()
+    );
+    for (label, service) in [
+        ("LegacyService", "omavless.service"),
+        ("NativeService", "omavless-runtime.service"),
+    ] {
+        let result = service_state_with_timeout(
+            Path::new("/usr/bin/systemctl"),
+            service,
+            std::time::Duration::from_secs(2),
+        )
+        .and_then(|state| {
+            if state.active || state.main_pid != 0 {
+                Err(crate::production_observation::ProductionObservationError::HostNotEmpty)
+            } else {
+                Ok(())
+            }
+        });
+        println!("{label}:{}", observation_category(result));
+    }
+    let processes =
+        omavless_mihomo::observation::processes_named_strict(Path::new("/proc"), "mihomo");
+    println!(
+        "ProcessInventory:{}",
+        match processes {
+            Ok(p) if p.is_empty() => "Empty",
+            Ok(_) => "Present",
+            Err(_) => "Refused",
+        }
+    );
+    let devices = crate::tun_scope::configured_devices(&config, UID);
+    println!(
+        "TunConfig:{}",
+        match devices {
+            Ok(Some(_)) => "Recognized",
+            Ok(None) => "WholeHostFallback",
+            Err(_) => "Refused",
+        }
+    );
+    println!(
+        "TunInventory:{}",
+        match crate::tun_scope::inventory(Path::new("/sys/class/net")) {
+            Ok(p) if p.is_empty() => "Empty",
+            Ok(_) => "Present",
+            Err(_) => "Refused",
+        }
+    );
+    let result =
+        ProductionOwnershipObserver::current().and_then(|observer| observer.verify_native_empty());
+    println!("NativeEmpty:{}", observation_category(result));
+    // A passing diagnostic means only that fixed read-only stages ran. Its
+    // printed refusals remain refusals; this is never System admission evidence.
+}
+
 fn identity_allowed(uid: u32, home: Option<&std::ffi::OsStr>, opt_in: Option<&str>) -> bool {
     uid == UID && home == Some(std::ffi::OsStr::new(HOME)) && opt_in == Some("fixture-v1")
 }
