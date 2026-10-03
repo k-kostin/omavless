@@ -88,13 +88,47 @@ Code head `9f96b1e071e1e13b5613bebd7183089171c006ff`:
   acceptance, not hidden acceptance of an unavailable effect.
 - Source/frontend: 499 tests, two skipped, plus JS/QML/navigation gates PASS.
 - Strict workspace/all-target clippy, formatting and diff checks PASS.
-- Both native DNS architecture and both package architecture CI jobs PASS;
-  the Test workflow and exact final-documentation-head CI remain pending.
+- All five exact-code-head CI jobs PASS: Test, both native DNS architectures
+  and both package architectures. Final documentation-head CI is recorded on
+  the Draft PR separately.
 - Frozen binary SHA256:
   `818a865e32671402d795a37168eeff6e1694c6e9e46f35dd327d2d42a716fbe3`.
 
-Dev-VM fixture and opt-in actual no-TUN OwnedCore execution remain pending
-exclusive VM transfer/explicit effect authorization. No installed service,
-network, package or private-profile action was used for these local results.
 The earlier inherited 316-test source result belongs to #557, not this
 current-RC composition; its baseline log also reports 499 tests/two skips.
+
+## Dev-VM actual-core receipt and negative attempts
+
+The same immutable binary was invoked under an exclusive isolated Dev-VM
+lease. In the final guarded retry, the nine aggregate connection tests passed
+twice (25.20/25.21 seconds), Ordinary separate-Desired/Cutover pending refusal
+passed (0.02 seconds), and the opt-in actual parent-owned no-TUN core
+failed-Connect/verified Off rollback fixture passed (5.75 seconds).
+Actual core: installed stable `/usr/bin/mihomo`, no capabilities, SHA256
+`ba7a74ed6bbc3098930e6e172fa9b7d4ef7e42a77f7a516046d61fbeb3bfcfe6`.
+This is production `OwnedCore` inside a synthetic `NoTunCoreHost`, not full
+`NativeLifecycleHost`, managed-DNS, healthy TUN or private-profile acceptance.
+
+Negative evidence is retained as classifications, not relabeled success:
+
+- Initial guarded invocation: all actual tests passed, but network verdict
+  was **non-PASS** because one address lifetime pair increased. Renewal is an
+  unproven hypothesis; available journal categories did not establish cause.
+- Retry wrapper: all tests passed; wrapper exited 1 from an added unsupported
+  maximum-two-path/one-address restriction. All four changed lifetime paths
+  independently decreased, spanning two dynamic address entries and only the
+  two approved field names `valid_life_time`/`preferred_life_time`.
+- Without new effects, those exact retry snapshots passed the original K1
+  numeric, individually non-increasing field-name comparator. IPv6 routes and
+  rules were additionally compared exactly. This validated receipt does not
+  retrospectively change either earlier wrapper exit status.
+
+Every non-timer address/interface/route/rule field, resolver, installed private
+profile/template/desired/ownership fingerprints, canonical user-service
+state/executable/MainPID 86349 and parent network namespace were preserved.
+Retry preflight also matched the original network non-timer baseline. Owned
+core/TUN, temporary and HOME fixture inventories were empty after cleanup.
+Only validated task-owned guest scratch/binaries/private snapshots/logs were
+removed, and the exclusive VM lease was explicitly returned. No installed
+service/package action, host DNS/route authorization, or private-profile
+Connect/Disconnect was performed.
