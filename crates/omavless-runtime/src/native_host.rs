@@ -38,6 +38,8 @@ pub(crate) struct CloseFacts {
     readiness: ConfigReadiness,
     proc_root: PathBuf,
     sys_class_net: PathBuf,
+    config_directory: PathBuf,
+    uid: u32,
     tun_identity: Option<(String, u64)>,
     auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
     pid: u32,
@@ -49,6 +51,7 @@ pub(crate) struct CloseFacts {
 #[derive(Clone, Copy)]
 enum CloseFixture {
     OwnedLoopback,
+    PassiveOwnedLoopback,
 }
 
 impl CloseObservation {
@@ -58,6 +61,7 @@ impl CloseObservation {
     pub(crate) fn session_mut(&mut self) -> &mut crate::conditional_close_candidate::Session {
         &mut self.session
     }
+    #[cfg(test)]
     pub(crate) fn into_session(mut self) -> crate::conditional_close_candidate::Session {
         self.session.attach_observation(self.facts);
         self.session
@@ -66,9 +70,12 @@ impl CloseObservation {
     pub(crate) fn fixture_permit(
         &self,
     ) -> Option<crate::conditional_close_candidate::CandidateEffectPermit> {
-        self.facts
-            .fixture
-            .map(|_| crate::conditional_close_candidate::CandidateEffectPermit::owned_fixture())
+        match self.facts.fixture {
+            Some(CloseFixture::OwnedLoopback) => {
+                Some(crate::conditional_close_candidate::CandidateEffectPermit::owned_fixture())
+            }
+            Some(CloseFixture::PassiveOwnedLoopback) | None => None,
+        }
     }
 
     pub(crate) fn observe(&mut self) -> Result<(), HostStepError> {
@@ -101,6 +108,13 @@ impl CloseFacts {
             return Err(HostStepError::Observation);
         }
         let inventory = crate::tun_scope::inventory(&self.sys_class_net)?;
+        let configured = crate::tun_scope::configured_devices(&self.config_directory, self.uid)?;
+        let scoped = configured.as_ref().map_or(inventory.len(), |devices| {
+            inventory.intersection(devices).count()
+        });
+        if scoped != usize::from(self.tun_identity.is_some()) {
+            return Err(HostStepError::Observation);
+        }
         let mut config = None;
         if !self
             .readiness
@@ -138,6 +152,7 @@ impl CloseFacts {
                 != processes_named_strict(&self.proc_root, "mihomo")
                     .map_err(|_| HostStepError::Observation)?
             || inventory != crate::tun_scope::inventory(&self.sys_class_net)?
+            || configured != crate::tun_scope::configured_devices(&self.config_directory, self.uid)?
         {
             return Err(HostStepError::Observation);
         }
@@ -354,6 +369,30 @@ impl NativeLifecycleHost {
         self.capture_connection_close(desired)?.observe()
     }
 
+    #[cfg(test)]
+    pub(crate) fn owned_rule_close_fixture(
+        paths: NativeHostPaths,
+        uid: u32,
+        core: OwnedCore,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::owned_close_fixture(paths, uid, core)?;
+        host.readiness = Some(ConfigReadiness::new(
+            crate::desired::RoutingMode::Rule,
+            "DIRECT".into(),
+        ));
+        Ok(host)
+    }
+    #[cfg(test)]
+    pub(crate) fn passive_owned_close_fixture(
+        paths: NativeHostPaths,
+        uid: u32,
+        core: OwnedCore,
+    ) -> Result<Self, HostStepError> {
+        let mut host = Self::owned_close_fixture(paths, uid, core)?;
+        host.close_fixture = Some(CloseFixture::PassiveOwnedLoopback);
+        Ok(host)
+    }
+
     pub fn new(paths: NativeHostPaths, uid: u32) -> Result<Self, HostStepError> {
         let all_paths_valid = [
             &paths.core,
@@ -428,6 +467,8 @@ impl NativeLifecycleHost {
                 readiness,
                 proc_root: self.paths.proc_root.clone(),
                 sys_class_net: self.paths.sys_class_net.clone(),
+                config_directory: self.paths.config_directory.clone(),
+                uid: self.uid,
                 tun_identity: self.tun_identity.clone(),
                 auxiliary: self.auxiliary.clone(),
                 pid,
