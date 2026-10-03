@@ -1,6 +1,6 @@
 use super::*;
 use crate::enrollment::EnrollmentBinding;
-use crate::locked_state::LockedState;
+use crate::locked_state::{ExchangeError, LockedState};
 use crate::protocol::{
     ErrorCode, Health, Mode, Protection, Request, Response, decode_response, encode_request,
 };
@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
 const CHILD: &str = "kernel_observer::creator_lifecycle::tests::lifecycle_child";
+const WRITER: &str = "kernel_observer::creator_lifecycle::tests::lifecycle_crash_writer";
 const ARM: Request = Request::Arm {
     generation: 7,
     mode: Mode::Full,
@@ -267,6 +268,13 @@ fn creator_lifecycle_in_disposable_vm() {
         "lost-replace",
         "lost-delete",
         "orphan",
+        "drift",
+        "stale-create",
+        "stale-replace",
+        "lost-socket-reply",
+        "crash-create",
+        "crash-replace",
+        "crash-delete",
     ] {
         let mut guard = ChildGuard(
             Command::new("/usr/bin/unshare")
@@ -350,7 +358,19 @@ fn lifecycle_child() {
     let case = std::env::var("OMAVLESS_K1_LIFECYCLE_CHILD").unwrap();
     assert!(matches!(
         case.as_str(),
-        "lifecycle" | "service" | "lost-create" | "lost-replace" | "lost-delete" | "orphan"
+        "lifecycle"
+            | "service"
+            | "lost-create"
+            | "lost-replace"
+            | "lost-delete"
+            | "orphan"
+            | "drift"
+            | "stale-create"
+            | "stale-replace"
+            | "lost-socket-reply"
+            | "crash-create"
+            | "crash-replace"
+            | "crash-delete"
     ));
     let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
     let identity = namespace_identity(&namespace_file().unwrap()).unwrap();
@@ -370,7 +390,12 @@ fn lifecycle_child() {
     // Canonical is used ONLY to enter the existing synthetic LockedState seam.
     // This synthetic local epoch cannot leave cfg(test) or authorize production.
     let namespace = NamespaceObservation::Canonical(creator.epoch);
-    let mut state = fixture.state(case == "service");
+    if case.starts_with("crash-") {
+        crash_case(&fixture, &parent, &case, namespace);
+        println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
+        return;
+    }
+    let mut state = fixture.state(case == "service" || case == "lost-socket-reply");
     if case == "service" {
         let path = fixture.0.join("control.sock");
         let listener = UnixListener::bind(&path).unwrap();
@@ -385,6 +410,66 @@ fn lifecycle_child() {
         assert_eq!(fixture.records(), records);
         assert_eq!(owner.test_kernel().effects, 3);
         drop(owner);
+    } else if case == "lost-socket-reply" {
+        let path = fixture.0.join("control.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut owner = SessionOwner::from_prebound(listener, state, creator, namespace).unwrap();
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let request = encode_request(ARM).unwrap();
+        client
+            .write_all(&(request.len() as u32).to_be_bytes())
+            .unwrap();
+        client.write_all(&request).unwrap();
+        drop(client);
+        assert!(matches!(
+            owner.test_poll_with(|_| Ok(server)),
+            SessionProgress::Refused(ExchangeError::ReplyDeliveryUnknown(_))
+        ));
+        let records = fixture.records();
+        armed(socket_request(&path, &mut owner, Request::Status {}));
+        assert_eq!(owner.test_kernel().effects, 1);
+        assert_eq!(fixture.records(), records);
+        // No automatic Arm retry: explicit matching disarm is a new user intent.
+        disarmed(socket_request(&path, &mut owner, DISARM));
+    } else if case == "drift" {
+        armed(state.request(ARM, namespace, &mut creator).unwrap());
+        inject_drift(&mut creator);
+        let effects = creator.effects;
+        let records = fixture.records();
+        for request in [Request::Status {}, ARM, DISARM] {
+            assert_eq!(
+                state.request(request, namespace, &mut creator),
+                Err(REFUSED)
+            );
+        }
+        assert!(creator.session.poisoned && creator.created.is_none());
+        assert_eq!(creator.effects, effects);
+        assert_eq!(fixture.records(), records);
+        assert_eq!(
+            LocalReadSession::open().unwrap().inspect().unwrap(),
+            LocalTablePresence::PresentUntrusted
+        );
+    } else if case.starts_with("stale-") {
+        if case == "stale-replace" {
+            armed(state.request(ARM, namespace, &mut creator).unwrap());
+        }
+        let before = creator.created;
+        creator.change_generation_before_send = true;
+        assert_eq!(state.request(ARM, namespace, &mut creator), Err(REFUSED));
+        let records = fixture.records();
+        let effects = creator.effects;
+        for request in [Request::Status {}, ARM, DISARM] {
+            assert_eq!(
+                state.request(request, namespace, &mut creator),
+                Err(REFUSED)
+            );
+        }
+        assert_eq!(creator.effects, effects);
+        assert_eq!(fixture.records(), records);
+        let mut independent = LocalReadSession::open().unwrap();
+        let (_, _, observed) = independent.inspect_policy_inventory_once().unwrap();
+        assert_eq!(observed.map(|t| t.handle), before);
+        assert_foreign_present();
     } else if case == "orphan" {
         armed(state.request(ARM, namespace, &mut creator).unwrap());
         let records = fixture.records();
@@ -394,6 +479,10 @@ fn lifecycle_child() {
         assert_eq!(
             orphan.session.inspect_policy_inventory().unwrap(),
             LocalPolicyInventory::OtherUntrusted
+        );
+        assert_eq!(
+            orphan.session.inspect_rules().unwrap(),
+            LocalRuleInventory::ExactRulesUntrusted(Policy::FullVpn)
         );
         let mut state = fixture.state(false);
         for request in [Request::Status {}, ARM, DISARM] {
@@ -461,6 +550,197 @@ fn lifecycle_child() {
         identity
     );
     println!("K1_CREATOR_LIFECYCLE_CHILD_PASS");
+}
+
+fn only_loopback() {
+    let interfaces = std::fs::read_to_string("/proc/thread-self/net/dev").unwrap();
+    assert_eq!(
+        interfaces
+            .lines()
+            .skip(2)
+            .map(|v| v.split(':').next().unwrap().trim())
+            .collect::<Vec<_>>(),
+        ["lo"]
+    );
+}
+pub(super) fn fixed_foreign_change() {
+    only_loopback();
+    assert!(
+        Command::new("/usr/bin/timeout")
+            .env_clear()
+            .args([
+                "2",
+                "/usr/bin/nft",
+                "add",
+                "table",
+                "inet",
+                "k1_lifecycle_foreign"
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+fn assert_foreign_present() {
+    only_loopback();
+    assert!(
+        Command::new("/usr/bin/timeout")
+            .env_clear()
+            .args([
+                "2",
+                "/usr/bin/nft",
+                "list",
+                "table",
+                "inet",
+                "k1_lifecycle_foreign"
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+fn inject_drift(creator: &mut FixtureCreator) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let (_, generation, _) = creator.inspect().unwrap();
+    let first = creator.session.next_sequence;
+    let begin = message(
+        16,
+        5,
+        first,
+        0,
+        &[vec![0, 0, 0, 10], attribute(1, &generation.to_be_bytes())].concat(),
+    );
+    let append = message(
+        NFT + 6,
+        0xc05,
+        first + 1,
+        0,
+        &[
+            vec![1, 0, 0, 0],
+            attribute(1, TABLE),
+            attribute(2, b"output_guard\0"),
+            crate::emergency_wire::nested(4, &crate::emergency_wire::verdict(1)),
+        ]
+        .concat(),
+    );
+    let end = message(17, 5, first + 2, 0, &[0, 0, 0, 10]);
+    creator
+        .send_batch(vec![begin, append, end], deadline)
+        .unwrap();
+}
+fn crash_case(fixture: &Fixture, parent: &File, case: &str, namespace: NamespaceObservation) {
+    let mut guard = ChildGuard(
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--ignored", "--exact", WRITER])
+            .env_clear()
+            .env("OMAVLESS_K1_CRASH_WRITE", case)
+            .env("OMAVLESS_K1_CRASH_PATH", &fixture.0)
+            .env("OMAVLESS_K1_CRASH_HOLDER", std::process::id().to_string())
+            .env("TMPDIR", std::env::temp_dir())
+            .stdin(Stdio::from(parent.try_clone().unwrap()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !fixture.0.join("effect-cut").exists() {
+        assert!(
+            guard.0.try_wait().unwrap().is_none(),
+            "isolated writer exited before checkpoint"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "isolated writer checkpoint deadline"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        std::fs::read(fixture.0.join("effect-cut")).unwrap(),
+        b"K1_EFFECT_CUT\n"
+    );
+    assert!(matches!(
+        RootStateStore::open_test_parent(File::open(&fixture.0).unwrap(), (1001, 1001), 1001),
+        Err(crate::root_state::StateError::Busy)
+    ));
+    guard.0.kill().unwrap();
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(guard.0.wait().unwrap().signal(), Some(9));
+    let records = fixture.records();
+    let value: serde_json::Value = serde_json::from_slice(records.1.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        value["phase"],
+        match case {
+            "crash-create" => "pending_create",
+            "crash-replace" => "pending_replace",
+            _ => "pending_delete",
+        }
+    );
+    let mut creator = FixtureCreator::open(fixture.0.clone()).unwrap();
+    assert_eq!(
+        creator.session.inspect().unwrap(),
+        if case == "crash-delete" {
+            LocalTablePresence::Absent
+        } else {
+            LocalTablePresence::PresentUntrusted
+        }
+    );
+    if case != "crash-delete" {
+        assert_eq!(
+            creator.session.inspect_rules().unwrap(),
+            LocalRuleInventory::ExactRulesUntrusted(Policy::FullVpn)
+        );
+    }
+    let mut state = fixture.state(false);
+    for request in [Request::Status {}, ARM, DISARM] {
+        assert_eq!(
+            state.request(request, namespace, &mut creator),
+            Err(REFUSED)
+        );
+    }
+    assert_eq!(creator.effects, 0);
+    assert_eq!(fixture.records(), records);
+}
+#[test]
+#[ignore = "internal writer; parent namespace and arbitrary path invocation refuse"]
+fn lifecycle_crash_writer() {
+    let case = std::env::var("OMAVLESS_K1_CRASH_WRITE").unwrap();
+    assert!(matches!(
+        case.as_str(),
+        "crash-create" | "crash-replace" | "crash-delete"
+    ));
+    let parent = File::from(std::io::stdin().as_fd().try_clone_to_owned().unwrap());
+    assert_ne!(
+        namespace_identity(&parent).unwrap(),
+        namespace_identity(&namespace_file().unwrap()).unwrap()
+    );
+    assert_eq!(nix::unistd::geteuid().as_raw(), 1001);
+    only_loopback();
+    let path = PathBuf::from(std::env::var_os("OMAVLESS_K1_CRASH_PATH").unwrap());
+    let holder: u32 = std::env::var("OMAVLESS_K1_CRASH_HOLDER")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(holder > 0 && holder != std::process::id());
+    assert_eq!(path, std::env::temp_dir().join(format!("k1lc-{holder}")));
+    let metadata = std::fs::symlink_metadata(&path).unwrap();
+    assert!(metadata.is_dir() && metadata.uid() == 1001 && metadata.mode() & 0o7777 == 0o700);
+    // The holder owns cleanup. A failed child must not remove borrowed state.
+    let fixture = std::mem::ManuallyDrop::new(Fixture(path));
+    let mut creator = FixtureCreator::open(fixture.0.clone()).unwrap();
+    let namespace = NamespaceObservation::Canonical(creator.epoch);
+    let mut state = fixture.state(false);
+    if case != "crash-create" {
+        armed(state.request(ARM, namespace, &mut creator).unwrap());
+    }
+    creator.cut_after_effect = true;
+    let request = if case == "crash-delete" { DISARM } else { ARM };
+    state.request(request, namespace, &mut creator).unwrap();
+    panic!("writer returned from crash checkpoint");
 }
 #[test]
 fn child_direct_invocation_refuses_before_socket_or_fixture_creation() {
