@@ -5,9 +5,12 @@ Developer-only continuation from sealed #585
 executed one ordinary case PASS; its independent race case was NONPASS at the
 initial forward fake-TUN receipt deadline (5.01 seconds). No race causal receipt
 or race-detector warning occurred. Both original binaries/events are retained;
-the failed attempt was not retried. **The configured-read follow-up and its
-read-entry diagnostic are not yet executed.** Compilation and ordinary guards
-are not elapsed engine evidence. The earlier [default retry result](P4_DEFAULT_ELAPSED_RETRY_2026-10-03.md)
+the failed attempt was not retried. Configured-read source
+`de9752acc972a111eebefdc97b131d3255b08bec` subsequently executed **one separate
+read-entry diagnostic PASS, one ordinary rekey case PASS and one independent
+race rekey case PASS**, each with fresh artifacts and explicit renewed review.
+Compilation and ordinary guards are not elapsed engine evidence. The earlier
+[default retry result](P4_DEFAULT_ELAPSED_RETRY_2026-10-03.md)
 remains unchanged and does not prove the default 120-second refresh below.
 
 ## Fixed causal chain
@@ -50,8 +53,10 @@ Scheduling targets and monotonic observations are separate. Slow scheduling is
 a bounded NONPASS, not a fabricated on-time receipt. The test body and actual Go
 case elapsed including cleanup must be at most 150 seconds; Go's emergency
 timeout is 180 seconds, and the outer command supervisor is bounded at 200.
-Maximum authorized actual scope is one ordinary case and one independent race
-case; the first failure stops execution for diagnosis, with no blind retry.
+Each reviewed rekey snapshot permits at most one ordinary and one independent
+race case; the first failure stops execution for diagnosis, with no blind retry.
+The separate diagnostic and corrected snapshot received renewed approval after
+the original failure; no original artifact was rerun or overwritten.
 
 ## Build, execution and preservation
 
@@ -99,16 +104,73 @@ with zero Bind Send calls. It has a five-second body/case bound, ten-second Go
 emergency timeout and fifteen-second outer bound. Its own fresh artifact and
 one-shot attempt marker cannot be mistaken for the 120-second case; the runner
 binds the exact selector and diagnostic flag in each receipt. No handshake is
-seeded or native TUN opened. A diagnostic PASS would establish this worker
-ordering, not retrospectively prove the failed attempt's cause or fix normal
-native configuration/startup. Subsequent rekey receipts characterize only the
+seeded or native TUN opened. This diagnostic passed: actual entries were 16 then
+64, the pending entry remained 16 after configuration, one empty read occurred
+and no Send call occurred. This establishes the worker ordering, not
+retrospectively the failed attempt's cause or a fix to normal native
+configuration/startup. Subsequent rekey receipts characterize only the
 stable configured in-memory fixture, not a normal startup/no-first-packet-loss
 guarantee.
+
+## Exact immutable executions and source gates
+
+Toolchain: `/usr/bin/go`, `go1.27.0-X:nodwarf5 linux/amd64`. Inherited Go
+configuration/workspace/flags are disabled; module downloads and sum lookups
+are disabled. Already-cached dependencies were copied into a separate owned
+HOME module cache, and offline `go mod verify` passed before each compilation.
+Both source versions add absent test files to a fresh verified official source
+export only. None of the official implementation bytes are changed. The
+diagnostic and corrected ordinary binaries are reproducible with the same
+hash, but occupy separately compiled physical files, each regular/nlink1, with
+different selectors and independently bound one-shot artifact receipts.
+
+| Executed input | SHA-256 |
+| --- | --- |
+| Official engine source archive | `716c0eec8a7557485555397f1217e0cac56317af8b41fefc287027d0c74ce00d` |
+| Original 5599 fixture source archive | `4cc19c0c8ec9fba37cf668a194371c86b723918985036dfb2fb9d27b49938aec` |
+| Configured de975 fixture source archive | `72403a521631c88262ee7e0b38abba261a6fa4de0d51c7f36400440b9050ca5a` |
+| Original runner / Go overlay | `f5564793be1a2b835dac27d7deb8245582f18566e490dde40e6b1bb5706b849c` / `426d2136c5b0e1dee6a41facd4d18c0f7c151a19daa298ed4b037df7f1e374d7` |
+| Configured runner / Go overlay | `3c4575357a86b567cf82cf588d42b721488a01c40073747cce055517c4e1aea1` / `6722869be1b098603966eb0df564579789146a15c1340bc121e4ac96c5d2cb6f` |
+| Unchanged export helper | `55fa8597b183a5b8deb0b0aabf25740ee12dfc221054e04e62ac017d1b86cc6e` |
+| Go toolchain executable | `3144268876ba974458f06ab523581fabac9e967855e2a1bb9de9ba950167b542` |
+| All-phase private exact evidence archive | `ff12b307f54ca2d45cf4f29587a029a6246228e54741a4ecb112cb150859eec0` |
+
+| Exact execution | Frozen test ELF SHA-256 | Raw Go JSON SHA-256 | Execution-receipt SHA-256 |
+| --- | --- | --- | --- |
+| 5599 ordinary: one PASS | `46e17e48d53f24003c3a9422c95429c24f2e2fc2433d4343de559b605c734d56` | `5467183cdf9931e0d32aceee409fa043b91df10f4ff962c4df16c7e7feed1233` | `d393ce46f9ea72c34ec8a83e25abf40618ed256c2e44a4a19b3f11693ed6b8e0` |
+| 5599 race: one FAIL / zero PASS | `bf8e447c1afb4ddd2459eb0432edfc9f563fad6ac23721b0a9f62e0f21d14864` | `83d37665d2ea78e7437881f699545f27bb5f29cc453c6fa9d4c0a95078474fb8` | None; failure retained |
+| de975 read diagnostic: one PASS | `2b753a086ccee5ea729de8f25a6f666d7ca299dfcb7d46e535b0fed8146c5be7` | `718ba9caaf420bebd3eabbd478b1949bf0c7fd178ad8420823aed3e33394c23f` | `a4ab7abbdf8a7ead7c0a988e0c2faf0bbac1510f105020aa14985f5896171829` |
+| de975 configured ordinary: one PASS | `2b753a086ccee5ea729de8f25a6f666d7ca299dfcb7d46e535b0fed8146c5be7` | `c007c5f7e1806a4ccc153dac1cb8ee7c32987abbcedacf973873ab57918febc9` | `a64328e9a03c71e80d8e7e1b334d823a91678c44476a5c9f6a93a71faa3357cb` |
+| de975 configured race: one PASS | `6f4a883c133669e5fa621ed4de57524a1fe91857baa63f81f7714e7cb64ad72d` | `6deb92c0dd0d53e52d1879460b274bff33b54b7836fd38c51a1891c40dcb61bd` | `88e4c025abca8dd33ac43320dc5d3e7a7b717677f4dba4326565202360a1c610` |
+
+| Configured execution | Actual pre-threshold data age | Actual trigger-data age | Actual subsequent H1 age | Body / Go case elapsed |
+| --- | --- | --- | --- | --- |
+| Ordinary | 117.098990364 s | 121.001965177 s | 121.002067358 s | 121.003913689 s / 121.00 s |
+| Race | 117.099367988 s | 121.001314418 s | 121.002391320 s | 121.018420774 s / 121.02 s |
+
+Both configured cases require the complete four-phase causal chain, exact
+bidirectional nonce-bearing IP bytes under old then new authenticated indices,
+client H1=2, server H1=0 and server H2=2. Each independently yields one case
+PASS, one package PASS and one exact causal receipt; the separate diagnostic
+is not counted as rekey evidence. Original and corrected private artifacts,
+raw stdout/stderr, attempt markers and frozen inputs are retained. All stderr
+files were empty. Evidence archive mode0600 was explicitly applied/read back
+inside its private0700 parent, and archive members were byte-compared.
+
+Nine focused pure guards pass. Source suite at de975: **334 reported, two
+existing skips, 332 executed, zero failures**; JS/native/QML/documentation
+navigation, Go formatting, Python compile, shell syntax and whitespace gates
+pass. No local Cargo build is represented: Rust/Cargo inputs are unchanged.
+Final report-head checks belong to their exact later heads and cannot imply
+new Go executions, rebuilds or changes to these recorded execution bytes.
+
+## Remaining gates
 
 No VM, namespace, network/TUN FD, installed profile, private key input, primary
 network change, Rust runtime change or normal P4 activation is in scope. There
 is no whole P4 closure, performance/stress, default key expiry, retry exhaustion,
 Mihomo embedded-engine or installed product acceptance claim. Main/RC merges,
-release and marketplace publication remain unauthorized. Exact compiled and
-executed source/artifact hashes and outcomes belong in subsequent reviewed
-evidence; this plan supplies none by inference.
+release and marketplace publication remain unauthorized. Default rejection and
+residue expiry, retry exhaustion, isolated shutdown stress, independent server
+interoperability and normal P4 Rust activation remain separate gates. No
+transport, MTU, IPv6, HTTP or real native startup claim is inferred here.
