@@ -498,7 +498,7 @@ pub(crate) fn classify_live_pair_bound(
     })
 }
 
-fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<(), StageError> {
+fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<File, StageError> {
     let mut file = File::from(
         openat(
             directory,
@@ -523,7 +523,98 @@ fn write_member(directory: &File, name: &str, uid: u32, bytes: &[u8]) -> Result<
     if file.metadata().map_err(|_| StageError::Ambiguous)?.len() != bytes.len() as u64 {
         return Err(StageError::Ambiguous);
     }
-    Ok(())
+    Ok(file)
+}
+
+/// Non-cloneable evidence of this writer's exclusive creations, not a general
+/// pending-state exception. Original descriptors survive the final callback.
+pub(crate) struct CreatedStage {
+    parent: File,
+    parent_before: Metadata,
+    directory: File,
+    directory_before: Metadata,
+    members: Vec<(&'static str, File, Metadata)>,
+    planned: StageIdentity,
+    complete: bool,
+}
+
+impl CreatedStage {
+    pub(crate) fn recheck(&self, state: &Path, uid: u32) -> Result<(), StageError> {
+        let refuse = StageError::Ambiguous;
+        let parent = open_private_directory(state, uid).map_err(|_| refuse)?;
+        let directory = File::from(
+            openat(
+                &parent,
+                Path::new(PENDING_DIRECTORY),
+                OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| refuse)?,
+        );
+        for actual in [&self.parent, &parent] {
+            if !same_directory(&self.parent_before, &actual.metadata().map_err(|_| refuse)?) {
+                return Err(refuse);
+            }
+        }
+        for actual in [&self.directory, &directory] {
+            if !same_directory(
+                &self.directory_before,
+                &actual.metadata().map_err(|_| refuse)?,
+            ) {
+                return Err(refuse);
+            }
+        }
+        for (name, held, before) in &self.members {
+            let current = File::from(
+                openat(
+                    &directory,
+                    Path::new(name),
+                    OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(|_| refuse)?,
+            );
+            if !same_member(before, &held.metadata().map_err(|_| refuse)?)
+                || !same_member(before, &current.metadata().map_err(|_| refuse)?)
+            {
+                return Err(refuse);
+            }
+        }
+        let mut count = 0;
+        for entry in std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))
+            .map_err(|_| refuse)?
+        {
+            let entry = entry.map_err(|_| refuse)?;
+            count += 1;
+            if count > 5
+                || !self
+                    .members
+                    .iter()
+                    .any(|(name, _, _)| entry.file_name() == *name)
+            {
+                return Err(refuse);
+            }
+        }
+        if count != self.members.len()
+            || (self.complete
+                && inspect_stage_identity(state, uid)
+                    .map_err(|_| refuse)?
+                    .digest()
+                    != self.planned.digest())
+        {
+            return Err(refuse);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn stage_owned_checked(
+    state: &Path,
+    uid: u32,
+    members: [&[u8]; 4],
+    mut check: impl FnMut(&CreatedStage) -> bool,
+) -> Result<CreatedStage, StageError> {
+    stage_owned_with_hook(state, uid, members, |created, _| check(created))
 }
 
 /// Preserve exact old and authenticated new bytes under five fixed names.
@@ -564,7 +655,16 @@ fn stage_with_hook(
     members: [&[u8]; 4],
     mut proceed: impl FnMut(Step) -> bool,
 ) -> Result<(), StageError> {
-    let _planned = planned_stage_identity(members)?;
+    stage_owned_with_hook(state_directory, uid, members, |_, step| proceed(step)).map(drop)
+}
+
+fn stage_owned_with_hook(
+    state_directory: &Path,
+    uid: u32,
+    members: [&[u8]; 4],
+    mut proceed: impl FnMut(&CreatedStage, Step) -> bool,
+) -> Result<CreatedStage, StageError> {
+    let planned = planned_stage_identity(members)?;
     if crate::restore_disposition_ticket_model::pending_at(state_directory)
         || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
@@ -583,12 +683,6 @@ fn stage_with_hook(
     // Once the fixed name exists, every failure is ambiguous. Keep the
     // directory, even if it is partial, so nothing retries over it blindly.
     parent.sync_all().map_err(|_| StageError::Ambiguous)?;
-    if !proceed(Step::Directory)
-        || crate::restore_disposition_ticket_model::pending_at(state_directory)
-        || crate::restore_disposition_complete_model::pending_at(state_directory)
-    {
-        return Err(StageError::Ambiguous);
-    }
     let directory = File::from(
         openat(
             &parent,
@@ -602,26 +696,55 @@ fn stage_with_hook(
     if !exact_directory(&directory_before, uid) {
         return Err(StageError::Ambiguous);
     }
-    for (index, bytes) in members.iter().enumerate() {
-        write_member(&directory, MEMBERS[index], uid, bytes)?;
-        if !proceed(Step::Member(index))
-            || crate::restore_disposition_ticket_model::pending_at(state_directory)
-            || crate::restore_disposition_complete_model::pending_at(state_directory)
-        {
-            return Err(StageError::Ambiguous);
-        }
-    }
-    directory.sync_all().map_err(|_| StageError::Ambiguous)?;
-    let ready = ready_bytes(members);
-    write_member(&directory, READY_MEMBER, uid, &ready)?;
-    if !proceed(Step::Ready)
+    let mut created = CreatedStage {
+        parent,
+        parent_before,
+        directory,
+        directory_before,
+        members: Vec::with_capacity(5),
+        planned,
+        complete: false,
+    };
+    if !proceed(&created, Step::Directory)
         || crate::restore_disposition_ticket_model::pending_at(state_directory)
         || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
         return Err(StageError::Ambiguous);
     }
-    directory.sync_all().map_err(|_| StageError::Ambiguous)?;
-    if !proceed(Step::Complete)
+    created.recheck(state_directory, uid)?;
+    for (index, bytes) in members.iter().enumerate() {
+        let file = write_member(&created.directory, MEMBERS[index], uid, bytes)?;
+        let metadata = file.metadata().map_err(|_| StageError::Ambiguous)?;
+        created.members.push((MEMBERS[index], file, metadata));
+        if !proceed(&created, Step::Member(index))
+            || crate::restore_disposition_ticket_model::pending_at(state_directory)
+            || crate::restore_disposition_complete_model::pending_at(state_directory)
+        {
+            return Err(StageError::Ambiguous);
+        }
+        created.recheck(state_directory, uid)?;
+    }
+    created
+        .directory
+        .sync_all()
+        .map_err(|_| StageError::Ambiguous)?;
+    let ready = ready_bytes(members);
+    let file = write_member(&created.directory, READY_MEMBER, uid, &ready)?;
+    let metadata = file.metadata().map_err(|_| StageError::Ambiguous)?;
+    created.members.push((READY_MEMBER, file, metadata));
+    created.complete = true;
+    if !proceed(&created, Step::Ready)
+        || crate::restore_disposition_ticket_model::pending_at(state_directory)
+        || crate::restore_disposition_complete_model::pending_at(state_directory)
+    {
+        return Err(StageError::Ambiguous);
+    }
+    created.recheck(state_directory, uid)?;
+    created
+        .directory
+        .sync_all()
+        .map_err(|_| StageError::Ambiguous)?;
+    if !proceed(&created, Step::Complete)
         || crate::restore_disposition_ticket_model::pending_at(state_directory)
         || crate::restore_disposition_complete_model::pending_at(state_directory)
     {
@@ -629,7 +752,7 @@ fn stage_with_hook(
     }
     let current = File::from(
         openat(
-            &parent,
+            &created.parent,
             Path::new(PENDING_DIRECTORY),
             OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
             Mode::empty(),
@@ -637,10 +760,10 @@ fn stage_with_hook(
         .map_err(|_| StageError::Ambiguous)?,
     );
     if !same_directory(
-        &directory_before,
+        &created.directory_before,
         &current.metadata().map_err(|_| StageError::Ambiguous)?,
     ) || !same_directory(
-        &parent_before,
+        &created.parent_before,
         &open_private_directory(state_directory, uid)
             .map_err(|_| StageError::Ambiguous)?
             .metadata()
@@ -648,9 +771,13 @@ fn stage_with_hook(
     ) {
         return Err(StageError::Ambiguous);
     }
-    parent.sync_all().map_err(|_| StageError::Ambiguous)?;
+    created
+        .parent
+        .sync_all()
+        .map_err(|_| StageError::Ambiguous)?;
     inspect_staged_pair(state_directory, uid).map_err(|_| StageError::Ambiguous)?;
-    Ok(())
+    created.recheck(state_directory, uid)?;
+    Ok(created)
 }
 
 #[cfg(test)]

@@ -323,10 +323,6 @@ mod tests {
             ("connection", include_str!("connection_transaction.rs")),
             ("coordinator", include_str!("native_coordinator.rs")),
             ("batch", include_str!("native_coordinator/batch.rs")),
-            (
-                "restore-admission",
-                include_str!("native_coordinator/restore_candidate.rs"),
-            ),
             ("backup", include_str!("backup_source_candidate.rs")),
             ("cutover", include_str!("production_cutover.rs")),
             ("owner-review", include_str!("production_owner.rs")),
@@ -337,6 +333,41 @@ mod tests {
             );
             assert!(!source.contains("restore_disposition_model"), "{name}");
         }
+        // Ordinary restore admission delegates through the retained-stage helper.
+        // Protect the complete None -> conservative predicate chain, not merely
+        // the presence of that predicate somewhere in the helper's source.
+        let restore = include_str!("native_coordinator/restore_candidate.rs");
+        let execution = include_str!("native_coordinator/restore_first_execution.rs");
+        for source in [restore, execution] {
+            assert!(!source.contains("restore_disposition_model"));
+        }
+        let ordinary = restore
+            .split("fn restore_readiness_locked(")
+            .nth(1)
+            .unwrap()
+            .split("fn restore_readiness_with_created_stage(")
+            .next()
+            .unwrap();
+        assert!(ordinary.contains("self.restore_readiness_with_created_stage(lock, None)"));
+        let readiness = restore
+            .split("fn restore_readiness_with_created_stage(")
+            .nth(1)
+            .unwrap();
+        let guard = "!first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)";
+        let observation = readiness.find(".fresh_observation(&desired)").unwrap();
+        assert!(readiness[..observation].contains(guard));
+        assert!(readiness[observation..].contains(guard));
+        let pending = execution
+            .split("fn pending_allowed(")
+            .nth(1)
+            .unwrap()
+            .split("struct PinnedMember")
+            .next()
+            .unwrap();
+        let compact: String = pending.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(compact.contains(
+            "letSome(created)=createdelse{return!crate::pending_private_transaction::pending(paths);};"
+        ));
     }
 
     #[test]

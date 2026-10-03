@@ -496,6 +496,13 @@ the fixed v1 pair. Do not interpret synthetic PASS as T4 completion.
 
 ## Inactive restore-finalization receipt
 
+The later [private first-restore owner composition](../development/T4_FIRST_RESTORE_OWNER_EXECUTION.md)
+connects authenticated native-owner staging to this executor under one lease,
+retaining the staging writer's original descriptors and exact owner gates.
+It returns only Commit-still-fenced and blocks the owner after the operation;
+explicit Abort recovery and product registration remain separate. This is an
+inactive implementation bridge, not installed restore or historical adoption.
+
 The internal `restore_retirement_candidate` can publish a single exclusive,
 fixed-size `restore-finalization.pending` receipt only after a committed or
 aborted terminal pair has been reopened and verified. The receipt binds the

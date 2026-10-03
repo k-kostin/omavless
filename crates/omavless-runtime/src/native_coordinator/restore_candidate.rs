@@ -14,6 +14,9 @@ use crate::restore_staging_candidate::{StageError, stage_private_pair};
 use omavless_domain::private_backup::OpenedBackup;
 use zeroize::Zeroizing;
 
+#[path = "restore_first_execution.rs"]
+mod first_execution;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RestoreAdmissionError {
     OwnershipUnavailable,
@@ -222,6 +225,16 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         &mut self,
         lock: &MigrationLock,
     ) -> Result<RestoreReadiness, RestoreAdmissionError> {
+        self.restore_readiness_with_created_stage(lock, None)
+    }
+
+    // Private typed exception, only for this still-running writer's retained
+    // exclusive creations. The ordinary presence predicate is unchanged.
+    fn restore_readiness_with_created_stage(
+        &mut self,
+        lock: &MigrationLock,
+        created: Option<&crate::restore_staging_candidate::CreatedStage>,
+    ) -> Result<RestoreReadiness, RestoreAdmissionError> {
         let fence = self
             .required_ownership
             .filter(|fence| fence.phase == OwnershipPhase::Rust)
@@ -235,8 +248,11 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::OwnershipUnavailable);
         }
-        if self.transaction.blocked()
-            || self.auxiliary_recovery_required
+        if (if created.is_some() {
+            self.transaction.independently_blocked()
+        } else {
+            self.transaction.blocked()
+        }) || self.auxiliary_recovery_required
             || self.batch.as_ref().is_some_and(|batch| batch.stopped)
         {
             return Err(RestoreAdmissionError::RecoveryRequired);
@@ -255,7 +271,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::Busy);
         }
-        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
+        if !first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)
+        {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         let desired =
@@ -286,7 +303,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         {
             return Err(RestoreAdmissionError::OwnershipUnavailable);
         }
-        if crate::pending_private_transaction::pending(self.transaction.desired_paths()) {
+        if !first_execution::pending_allowed(self.transaction.desired_paths(), self.uid(), created)
+        {
             return Err(RestoreAdmissionError::RecoveryRequired);
         }
         Ok(RestoreReadiness {
