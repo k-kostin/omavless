@@ -46,6 +46,101 @@ fn favorite(f: &Fixture, operation: &str, revision: u64) -> serde_json::Value {
 }
 
 #[test]
+fn historical_profile_foreign_owner_refusal_preserves_original_replay_and_next_write_abort() {
+    profile_foreign_owner_replay_and_next_write(false);
+}
+
+#[test]
+fn historical_profile_foreign_owner_refusal_preserves_original_replay_and_next_write_commit() {
+    profile_foreign_owner_replay_and_next_write(true);
+}
+
+fn profile_foreign_owner_replay_and_next_write(commit: bool) {
+    use crate::native_coordinator::{NativeMutationOutcome, NativeOwnerExecution};
+    {
+        let (f, lock) = prepared(commit);
+        ordinary_edit(&f);
+        receipt(&f);
+        let mut context = witness(&f, &lock)
+            .research(proof(&f, &lock), || true)
+            .unwrap()
+            .into_profile()
+            .unwrap();
+        let mut a = profile_owner(&f);
+        let mut b = profile_owner(&f); // Same paths/generation, distinct actual owner.
+        let first = favorite(&f, "original-favorite", 0);
+        let NativeOwnerExecution::Applied {
+            cached,
+            outcome: Ok(NativeMutationOutcome::Profile(result)),
+        } = a.execute_profile_research(&first, &mut context).unwrap()
+        else {
+            panic!("expected actual original-owner favorite write");
+        };
+        assert!(result.changed);
+        let before = Snapshot::read_policy(
+            &f.config,
+            &f.paths,
+            f.uid,
+            2,
+            &lock,
+            LivePolicy::ValidCurrentBundled,
+        )
+        .unwrap();
+        assert!(
+            b.execute_profile_research(&favorite(&f, "misrouted-favorite", 0), &mut context,)
+                .is_err()
+        );
+        assert_eq!(b.revision(), 0);
+        assert_eq!(a.revision(), 1);
+        assert!(
+            before.same(
+                &Snapshot::read_policy(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    LivePolicy::ValidCurrentBundled,
+                )
+                .unwrap()
+            )
+        );
+        // Return the exact same retained context to A, without recapture.
+        assert_eq!(
+            a.execute_profile_research(&first, &mut context).unwrap(),
+            NativeOwnerExecution::Replay(cached),
+        );
+        assert!(context.current.is_some());
+        assert!(
+            before.same(
+                &Snapshot::read_policy(
+                    &f.config,
+                    &f.paths,
+                    f.uid,
+                    2,
+                    &lock,
+                    LivePolicy::ValidCurrentBundled,
+                )
+                .unwrap()
+            )
+        );
+        let second = favorite(&f, "original-next-favorite", 1);
+        assert!(matches!(
+            a.execute_profile_research(&second, &mut context).unwrap(),
+            NativeOwnerExecution::Applied {
+                outcome: Ok(NativeMutationOutcome::Profile(
+                    crate::profile_transaction::ProfileMutationOutcome { changed: true }
+                )),
+                ..
+            }
+        ));
+        assert_eq!(a.revision(), 2);
+        assert_eq!(b.revision(), 0);
+        assert_fenced(&f, &lock);
+    }
+}
+
+#[test]
 fn historical_profile_real_write_replay_and_second_edit_keep_history() {
     use crate::native_coordinator::{NativeMutationOutcome, NativeOwnerExecution};
     for commit in [false, true] {
@@ -388,12 +483,23 @@ fn historical_profile_noop_unsupported_and_new_owner_are_fenced() {
             .execute_profile_research(&request, &mut context)
             .is_err()
     );
-    assert!(context.current.is_none());
+    assert!(context.current.is_some());
     assert_eq!(fresh.revision(), 0);
     assert!(same_member(
         &before,
         &fs::metadata(f.config.join(LIVE[0])).unwrap()
     ));
+    assert!(matches!(
+        owner
+            .execute_profile_research(&request, &mut context)
+            .unwrap(),
+        crate::native_coordinator::NativeOwnerExecution::Replay(_)
+    ));
+    // The lower-level binding primitive still permanently poisons a direct
+    // misbinding attempt. Only the actual caller's foreign-owner boundary is
+    // nonmutating; this is not rebinding or a generic poison exception.
+    assert!(context.bind_owner(&Arc::new(())).is_err());
+    assert!(context.current.is_none());
     assert!(
         owner
             .execute_profile_research(&request, &mut context)

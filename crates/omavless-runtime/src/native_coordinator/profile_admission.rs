@@ -74,6 +74,14 @@ impl<'a, 'b> ProfileAdmission<'a, 'b> {
             }
             #[cfg(test)]
             Self::Historical(context) => {
+                // A foreign-bound context belongs to another actual owner.
+                // Misrouting is not loss of its retained source evidence.
+                // Receiver-side new-intent close revocation already ran.
+                if context.owner_identity().is_some_and(|original| {
+                    !std::sync::Arc::ptr_eq(original, &owner.research_identity)
+                }) {
+                    return Err(NativeOwnerError::OwnershipUnavailable);
+                }
                 context
                     .bind_owner(&owner.research_identity)
                     .map_err(|_| NativeOwnerError::ManualRecoveryRequired)?;

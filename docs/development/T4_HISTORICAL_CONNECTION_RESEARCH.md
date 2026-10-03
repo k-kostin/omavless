@@ -136,3 +136,9 @@ Only validated task-owned guest scratch/binaries/private snapshots/logs were
 removed, and the exclusive VM lease was explicitly returned. No installed
 service/package action, host DNS/route authorization, or private-profile
 Connect/Disconnect was performed.
+
+Later typed research admission refuses an already foreign-bound context without
+poisoning its original owner or independently latching the receiving coordinator.
+Direct binding/proof-loss poison and receiving-owner new-intent close revocation
+remain intact. See
+[the bounded foreign-owner correction and exact evidence](../testing/T4_FOREIGN_OWNER_CONTEXT_ACCEPTANCE_2026-10-03.md).

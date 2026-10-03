@@ -111,3 +111,8 @@ Both architecture package jobs passed on corrected code. Final documentation-hea
 workspace/package CI status is recorded on Draft #557; these local and VM results
 do not substitute for that exact-head CI. Product historical-policy adoption,
 normal mutation availability and T4 completion are not claimed.
+
+Later typed research admission preserves a genuinely bound original-owner context
+when a different actual coordinator refuses it, without weakening direct binding
+poison or any same-owner proof check. See
+[the bounded foreign-owner correction and exact evidence](../testing/T4_FOREIGN_OWNER_CONTEXT_ACCEPTANCE_2026-10-03.md).
