@@ -63,7 +63,7 @@ Dedicated offline/locked HOME builds produced immutable test executable copies
 outside Cargo; the full suite and focused tests never rebuild a running self-exec
 artifact. Build caches and branch writes remained task-local.
 After all local builds and test invocations settled, only the dedicated task
-Cargo target was cleaned (3.0 GiB reported). Immutable executables/source archives
+Cargo target was cleaned (3.4 GiB reported). Immutable executables/source archives
 and private successful/failed receipts remain retained outside Cargo.
 
 | Artifact | SHA-256 |
