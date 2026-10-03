@@ -47,7 +47,7 @@ The first combined full Rust/source/frontend and strict-clippy run passes on
 `eba24b957ebb7eaab452156a51201583a87c7470`: runtime 1,084 PASS, 31 ignored,
 plus its separately isolated helper test; source 503 PASS and two opt-in skips.
 These results are not acceptance of the subsequent late-fence correction.
-Repeat the complete gates and exact-head CI on its new frozen head. Any
+The later frozen acceptance below supersedes that intermediate result. Any
 combined VM fixture has its own frozen
 artifact, exclusive VM lease and before/after preservation checks; prior
 standalone VM results are not carried forward silently.
@@ -92,3 +92,59 @@ state. Three further cases publish a disposition fence after an actual POST;
 they retain `Unknown`, advance the revision once, and replay the exact receipt
 without a second effect. Both focused aggregates PASS. This is not normal
 conditional-package adoption or permission to retry an ambiguous operation.
+
+## Frozen combined acceptance
+
+Executed source: `a4dabb202768d73e0dbc36d33ca62b19aa1a5d69`. Later changes to
+this report are documentation-only; do not silently move its executed SHA.
+
+- Complete `tests/run-rust.sh`: PASS, including runtime 1,086 PASS/31 ignored
+  plus the separately isolated helper, workspace tests, strict clippy, TUI
+  feature checks, terminal tests and parity. Inactive opt-in returns in ordinary
+  tests are not real-core acceptance; the selected VM opt-ins run separately.
+- Source suite: 503 PASS/two existing opt-in skips. Navigation 93, frontend
+  contracts, all shipped QML with installed Omarchy imports, manifest/plugin
+  validation and tracked shell syntax: PASS. No tracked symlinks.
+- Independent read-only Astra review of the scheduler/startup and canonical
+  late-fence corrections found no additional actionable defect. It ran no
+  tests or VM effects and does not replace the execution results.
+- Exclusive x86_64 Omarchy Dev VM: 20 actual-owner tests, 23 transport tests,
+  nine historical connection tests, one ordinary separate-path refusal and one
+  actual no-TUN core rollback/cleanup test PASS. Both actual composed-core
+  opt-ins execute, rather than returning because the environment is absent.
+- The combined netguard artifact repeats actual creator/lifecycle (13 scenarios)
+  and real receive truncation (three scenarios), each aggregate PASS.
+- Twenty repetitions each of late fences, shared scheduling, admitted startup,
+  proof-lease drain, publication ordering and actual composed-core owner close
+  PASS: 160 further test results. Together the invocation has 216 PASS test
+  results; scenario aggregates are not miscounted as independent unit tests.
+
+Frozen SHA-256:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Runtime test executable | `e5fca7a32f187b693ed3994a247d898407e2e0c84bbaa6c63c60786ef9dcd6e8` |
+| Netguard test executable | `d7b09b9f01bcb44c765652b2f3981adbe37f83a6e9ac65740f5e3652bfe83274` |
+| Developer composed core | `3b1da75d3c9fd8440216f9c256c6c59da812faae88debc936f3c72fef9724544` |
+| Executed-source archive | `d1f725b3fbb4c06573aa84151ba252026b53c3351e81aaa554deb245ea7b7fd0` |
+
+Actual normal-core cleanup uses installed Mihomo hash
+`ba7a74ed6bbc3098930e6e172fa9b7d4ef7e42a77f7a516046d61fbeb3bfcfe6`.
+Artifacts have no file capabilities. These are retained research executables,
+not immutable native release packages or a companion-package attestation.
+
+Before/after private-state fingerprints, active/running user service PID,
+executable, core/TUN inventory, resolver files/status and parent namespace all
+match. Address/routes/rules (IPv4 and IPv6) match except numeric decreases of
+the two exact `addr_info` lifetime fields under the original K1 comparator.
+There is no one-address restriction or allowance for increasing/other fields.
+Raw private snapshots/logs remain outside Git. Generated guest scratch was
+removed only after retaining binaries and receipts on the host; no fixture
+process remains. The VM lease was explicitly released for the next K1 writer.
+
+At report preparation, all four executed-head architecture/package CI checks
+PASS and Test is still pending. Final live status belongs to Draft
+[#564](https://github.com/k-kostin/omavless/pull/564); neither an older green
+head nor these local/VM results should be substituted for pending CI.
+No installed service, runtime package, main/RC or normal product permission
+was changed. The separate product gates above still apply.
