@@ -18,13 +18,14 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const MAX_ROWS: usize = 128;
 const MAX_SNAPSHOT: usize = 256 * 1024;
 const MAX_REPLY: usize = 16 * 1024;
 const BUDGET: Duration = Duration::from_secs(3);
+const PROOF_DRAIN_BUDGET: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
@@ -305,6 +306,7 @@ struct Reservation {
     phase: Phase,
     cancelled: bool,
     stream: Option<UnixStream>,
+    proofs: usize,
 }
 struct Gate {
     live: bool,
@@ -328,6 +330,7 @@ impl Gate {
 pub(crate) struct Lifetime {
     pid: u32,
     gate: Mutex<Gate>,
+    proof_released: Condvar,
 }
 impl Lifetime {
     pub(crate) fn new(pid: u32) -> Self {
@@ -337,6 +340,7 @@ impl Lifetime {
                 live: true,
                 reservation: None,
             }),
+            proof_released: Condvar::new(),
         }
     }
     pub(crate) fn revoke(&self) {
@@ -389,6 +393,73 @@ impl Cancellation {
             }
         }
     }
+
+    /// Owner admission only: drain this exact session's short durable-proof
+    /// lease, never a socket wait, thread exit or another session. The CV wait
+    /// releases the gate. A timeout leaves cancellation permanent and permits
+    /// the ordinary migration-lock admission to return honest Busy.
+    pub(crate) fn cancel_and_drain(&self) -> bool {
+        self.cancel();
+        let deadline = Instant::now() + PROOF_DRAIN_BUDGET;
+        let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if !gate
+                .reservation
+                .as_ref()
+                .is_some_and(|r| Arc::ptr_eq(&r.identity, &self.identity) && r.proofs != 0)
+            {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, _) = self
+                .lifetime
+                .proof_released
+                .wait_timeout(gate, remaining)
+                .unwrap_or_else(|e| e.into_inner());
+            gate = next;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.lifetime
+            .gate
+            .lock()
+            .unwrap()
+            .reservation
+            .as_ref()
+            .is_none_or(|r| !Arc::ptr_eq(&r.identity, &self.identity) || r.cancelled)
+    }
+}
+
+/// Count begins under the same gate as cancellation, before any durable lease
+/// acquisition. Clearing it acknowledges that the REAL lease is already gone.
+struct ProofFlight {
+    lifetime: Arc<Lifetime>,
+    identity: Arc<()>,
+}
+impl Drop for ProofFlight {
+    fn drop(&mut self) {
+        let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(r) = &mut gate.reservation
+            && Arc::ptr_eq(&r.identity, &self.identity)
+        {
+            r.proofs = r.proofs.saturating_sub(1);
+        }
+        self.lifetime.proof_released.notify_all();
+    }
+}
+struct EffectLease {
+    lease: Option<crate::cutover::MigrationLock>,
+    flight: Option<ProofFlight>,
+}
+impl Drop for EffectLease {
+    fn drop(&mut self) {
+        drop(self.lease.take());
+        drop(self.flight.take());
+    }
 }
 
 /// Owned descriptors and a permanently revocable retained child identity.
@@ -406,6 +477,8 @@ pub(crate) struct Session {
     executable: Option<ExecutableEvidence>,
     owned_observation: Option<crate::native_host::CloseFacts>,
     expected_display: Option<serde_json::Value>,
+    #[cfg(test)]
+    proof_pause: Option<(usize, Arc<std::sync::Barrier>)>,
     #[cfg(test)]
     panic_after_write: bool,
     #[cfg(test)]
@@ -469,6 +542,8 @@ impl Session {
             owned_observation: None,
             expected_display: None,
             #[cfg(test)]
+            proof_pause: None,
+            #[cfg(test)]
             panic_after_write: false,
             #[cfg(test)]
             before_finish: None,
@@ -493,6 +568,7 @@ impl Session {
                 phase: Phase::BeforeEffect,
                 cancelled: false,
                 stream: None,
+                proofs: 0,
             });
         }
         session.check()?;
@@ -506,6 +582,58 @@ impl Session {
             .lock()
             .map_err(|_| Outcome::RefusedBeforeWrite)?;
         self.check_locked(&mut gate)
+    }
+
+    fn effect_lease(&mut self) -> Result<Option<EffectLease>, Outcome> {
+        let Some(proof) = self.effect_proof.as_ref() else {
+            return Ok(None);
+        };
+        let flight = {
+            let mut gate = self
+                .lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            self.check_locked(&mut gate)?;
+            let r = gate
+                .reservation
+                .as_mut()
+                .ok_or(Outcome::RefusedBeforeWrite)?;
+            if r.proofs != 0 {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+            r.proofs = 1;
+            ProofFlight {
+                lifetime: Arc::clone(&self.lifetime),
+                identity: Arc::clone(&self.identity),
+            }
+        };
+        // Disk reads and try-lock are OUTSIDE the lifetime gate. On error,
+        // proof.lease drops its own acquired lease before `flight` unwinds.
+        let lease = proof.lease().map_err(|_| Outcome::RefusedBeforeWrite)?;
+        let guarded = EffectLease {
+            lease: Some(lease),
+            flight: Some(flight),
+        };
+        #[cfg(test)]
+        if let Some((skip, _)) = self.proof_pause.as_mut() {
+            if *skip != 0 {
+                *skip -= 1;
+            } else if let Some((_, barrier)) = self.proof_pause.take() {
+                barrier.wait();
+                barrier.wait();
+            }
+        }
+        Ok(Some(guarded))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_proof_after(&mut self, skip: usize, barrier: Arc<std::sync::Barrier>) {
+        self.proof_pause = Some((skip, barrier));
+    }
+    #[cfg(test)]
+    pub(crate) fn partial_effect_chunks(&mut self, bytes: usize) {
+        self.effect_chunk = bytes;
     }
 
     fn check_locked(&self, gate: &mut Gate) -> Result<(), Outcome> {
@@ -623,15 +751,7 @@ impl Session {
             // Durable proof is rechecked outside the child gate for EVERY
             // chunk. Retain a nonblocking migration lease for exactly one
             // syscall, never a readiness wait or owner callback.
-            let effect_lease = if effect {
-                self.effect_proof
-                    .as_ref()
-                    .map(|proof| proof.lease())
-                    .transpose()
-                    .map_err(|_| Outcome::RefusedBeforeWrite)?
-            } else {
-                None
-            };
+            let effect_lease = if effect { self.effect_lease()? } else { None };
             let result = {
                 let mut gate = self.lifetime.gate.lock().map_err(|_| Outcome::Unknown)?;
                 self.check_locked(&mut gate)?;
@@ -730,10 +850,7 @@ impl Session {
         let effect_lease = if matches!(candidate, Outcome::Unknown | Outcome::RefusedBeforeWrite) {
             Ok(None)
         } else {
-            self.effect_proof
-                .as_ref()
-                .map(|proof| proof.lease())
-                .transpose()
+            self.effect_lease()
         };
         let lifetime = Arc::clone(&self.lifetime);
         let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
@@ -973,13 +1090,16 @@ impl Drop for Session {
 }
 
 /// Inactive scheduler seam: reserve under the owner's short scheduling section,
-/// then move only the retained transport out. One worker is admitted until its
-/// real exit, even when the result handle is dropped. No public method uses it.
+/// then move only the retained transport out. Capacity remains reserved until
+/// all transport/proof cleanup is complete, before result publication. No
+/// public method uses it.
 #[derive(Default)]
 pub(crate) struct Scheduler {
     active: Arc<std::sync::atomic::AtomicBool>,
     #[cfg(test)]
     fail_next_spawn: bool,
+    #[cfg(test)]
+    after_publish: Option<Arc<std::sync::Barrier>>,
 }
 struct Slot(Arc<std::sync::atomic::AtomicBool>);
 impl Drop for Slot {
@@ -1011,6 +1131,8 @@ impl Scheduler {
         let cancellation = session.cancellation();
         let (sender, result) = std::sync::mpsc::sync_channel(1);
         #[cfg(test)]
+        let after_publish = self.after_publish.take();
+        #[cfg(test)]
         if std::mem::take(&mut self.fail_next_spawn) {
             drop(slot);
             return Err(Outcome::RefusedBeforeWrite);
@@ -1020,7 +1142,6 @@ impl Scheduler {
         let thread = std::thread::Builder::new()
             .name("omavless-close-research".into())
             .spawn(move || {
-                let _slot = slot;
                 let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     session.close(selected, permit)
                 })) {
@@ -1030,7 +1151,13 @@ impl Scheduler {
                 // Release retained descriptors and this exact reservation
                 // before result publication or worker-slot release.
                 drop(session);
+                drop(slot);
                 let _ = sender.try_send(outcome);
+                #[cfg(test)]
+                if let Some(barrier) = after_publish {
+                    barrier.wait();
+                    barrier.wait();
+                }
             })
             .map_err(|_| Outcome::RefusedBeforeWrite)?;
         Ok(Worker {
@@ -1187,6 +1314,34 @@ mod tests {
         }
         assert!(targets(json!({"connections":[{"id":ID,"omavlessCloseToken":"42"},{"id":ID,"omavlessCloseToken":"43"}]}).to_string().as_bytes()).is_err());
     }
+    #[test]
+    fn strict_same_row_projection_rejects_all_known_duplicate_keys_before_value_collapse() {
+        let valid = format!(
+            r#"{{"connections":[{{"id":"{ID}","omavlessCloseToken":"42","metadata":{{"host":"same.invalid","destinationIP":"192.0.2.1","destinationPort":"443","network":"tcp"}},"chains":["DIRECT"]}}]}}"#
+        );
+        let rows = snapshot_rows(valid.as_bytes()).unwrap();
+        assert_eq!(rows.len(), 1);
+        for (needle, duplicate) in [
+            ("\"metadata\":{", "\"metadata\":{},\"metadata\":{"),
+            ("\"chains\":[", "\"chains\":[],\"chains\":["),
+            ("\"host\":", "\"host\":\"foreign.invalid\",\"ho\\u0073t\":"),
+            (
+                "\"destinationIP\":",
+                "\"destinationIP\":\"192.0.2.2\",\"destinationIP\":",
+            ),
+            (
+                "\"destinationPort\":",
+                "\"destinationPort\":\"80\",\"destinationPort\":",
+            ),
+            ("\"network\":", "\"network\":\"udp\",\"network\":"),
+        ] {
+            assert!(
+                snapshot_rows(valid.replace(needle, duplicate).as_bytes()).is_err(),
+                "{needle}"
+            );
+        }
+    }
+
     #[test]
     fn response_framing_rejects_ambiguous_and_partial_receipts() {
         assert_eq!(
@@ -1744,6 +1899,35 @@ while True:
         assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n");
         core.stop(Duration::from_secs(2)).unwrap();
         drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn published_receipt_releases_session_and_capacity_before_thread_exit() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("ok");
+        let (session, target) = prepared(&mut core);
+        let published = Arc::new(std::sync::Barrier::new(2));
+        let mut scheduler = Scheduler {
+            after_publish: Some(Arc::clone(&published)),
+            ..Scheduler::default()
+        };
+        let mut first = scheduler
+            .start(session, target, CandidateEffectPermit::owned_fixture())
+            .unwrap();
+        published.wait(); // result sent, old thread deliberately still alive
+        assert_eq!(first.poll(), Some(Outcome::Closed));
+        assert!(!first.thread.as_ref().unwrap().is_finished());
+        let (session, target) = prepared(&mut core);
+        let mut successor = scheduler
+            .start(session, target, CandidateEffectPermit::owned_fixture())
+            .unwrap();
+        assert_eq!(worker_result(&mut successor), Outcome::Closed);
+        published.wait();
+        assert_eq!(fs::read(root.join("effects")).unwrap(), b"1\n1\n");
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(first);
+        drop(successor);
         fs::remove_dir_all(root).unwrap();
     }
 
