@@ -24,6 +24,10 @@ responses or table/generation drift poison the session. Every kind is drained
 even after another kind establishes nonempty inventory.
 
 This closes the missing object-kind inventory prerequisite, **not ownership**.
+The later [retained-session observation fence](K1_SESSION_GENERATION_OBSERVATION.md)
+also rejects lower GETGEN observations across reader and conditional-delete
+paths. It preserves this reader's equal-generation bracket and untrusted result;
+monotonic observations do not establish nft-subsystem continuity.
 Socket-port agreement alone is not exclusive-create history; generation and
 handle checks are not canonical namespace identity. The result cannot construct
 an effect identity, verified-owned table or executor receipt. Existing JSON and
