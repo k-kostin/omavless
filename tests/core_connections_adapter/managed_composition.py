@@ -8,6 +8,9 @@ core, DNS, TUN, runtime, provider or credentials are accessed or modified.
 import argparse
 import hashlib
 import os
+import sys
+
+_BUILDER_CODE = sys._getframe().f_code
 from pathlib import Path
 import subprocess
 import tarfile
@@ -81,6 +84,9 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
     fixture_bytes = None if fixture is None else dns_interop.snapshot_fixture(fixture, fixture_sha)
     if developer_export is not None and (fixture_bytes is None or not udp):
         raise RuntimeError("Developer export requires wire and UDP execution")
+    modules = (globals(), vars(artifact_export), vars(dns_interop), vars(review),
+               vars(loopback), vars(udp_loopback))
+    builder = artifact_export.builder_snapshot(modules) if developer_export is not None else None
     patches = dns_patches(repository)  # Refuse unknown patch bytes before compilation.
     if hashlib.sha256(SOCKET_TEST_PATCH.read_bytes()).hexdigest() != SOCKET_TEST_SHA256:
         raise RuntimeError("Composition test overlay identity refused")
@@ -146,7 +152,7 @@ def exercise(mihomo, sing_tun, repository, scratch, *, udp=False,
                 udp_loopback.exercise(core, root)
         if bundle is not None:
             artifact_export.complete(bundle, root, repository, env, core_sha,
-                                     conditional, dns, wire, fixture_sha, metadata, tools)
+                                     conditional, dns, wire, fixture_sha, metadata, tools, builder, modules)
         return hashlib.sha256(core.read_bytes()).hexdigest()
 
 

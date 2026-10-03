@@ -186,6 +186,51 @@ class ArtifactExportTests(unittest.TestCase):
             patches.assert_not_called()
         self.assertFalse((root / "bundle").exists())
 
+    def test_builder_binds_loaded_code_and_rejects_late_head_or_stale_bytecode(self):
+        modules = [vars(module) for module in (COMPOSITION, EXPORT, support.INTEROP,
+                   support.REVIEW, support.LIVE, support.UDP)]
+        revision = "a" * 40
+        def git(args, **kwargs):
+            if "status" in args:
+                return b""
+            if "rev-parse" in args:
+                return revision.encode() + b"\n"
+            return (support.ROOT / args[-1].split(":", 1)[1]).read_bytes()
+        with patch.object(EXPORT.review, "run", side_effect=git):
+            first = EXPORT.builder_snapshot(modules)
+            self.assertEqual(len(first["modules"]), 6)
+            revision = "b" * 40
+            self.assertNotEqual(EXPORT.builder_snapshot(modules), first)
+            # Simulate an executing stale pyc while disk matches the Git object.
+            with patch.dict(modules[0], {"_BUILDER_CODE": compile("pass", "old.py", "exec")}):
+                with self.assertRaisesRegex(RuntimeError, "loaded builder"):
+                    EXPORT.builder_snapshot(modules)
+            with patch.object(EXPORT, "read_object", return_value=b"changed"):
+                with self.assertRaisesRegex(RuntimeError, "loaded builder"):
+                    EXPORT.builder_snapshot(modules)
+
+    def test_cargo_hardlink_is_only_accepted_for_exclusive_non_executed_copy(self):
+        root = self.root()
+        source = root / "cargo-binary"
+        source.write_bytes(b"synthetic ELF stand-in, never executed")
+        source.chmod(0o700)
+        os.link(source, root / "deps-binary")
+        with self.assertRaises(RuntimeError):
+            EXPORT.read_object(source)
+        def verify(path, expected, **kwargs):
+            self.assertEqual(path.stat().st_nlink, 1)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(EXPORT.digest(path.read_bytes()), expected)
+            self.assertNotEqual(path.stat().st_ino, source.stat().st_ino)
+            return path.read_bytes()
+        with patch.object(EXPORT.dns_interop, "snapshot_fixture", side_effect=verify):
+            self.assertEqual(EXPORT.freeze_broker(source, root / "frozen"), source.read_bytes())
+            with self.assertRaises(FileExistsError):
+                EXPORT.freeze_broker(source, root / "frozen")
+        os.link(source, root / "unexpected-third")
+        with self.assertRaises(RuntimeError):
+            EXPORT.freeze_broker(source, root / "refused")
+
 
 if __name__ == "__main__":
     unittest.main()

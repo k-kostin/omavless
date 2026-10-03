@@ -7,6 +7,9 @@ import hashlib
 import http.client
 import json
 import os
+import sys
+
+_BUILDER_CODE = sys._getframe().f_code
 from pathlib import Path
 import secrets
 import socket

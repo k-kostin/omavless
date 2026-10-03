@@ -23,6 +23,14 @@ and a bounded corresponding-source archive. Sources comprise the actual
 patched/vendored core, sing-tun, exact c4 Rust source and exact committed clean
 developer-builder source. Cargo output and temporary controllers/profiles are
 not source-archive members. Original licenses remain inside each source tree.
+Before composition, the six contributing Python modules are bound to a clean
+Git revision: retained executing module code is compared with compilation of
+that object's bytes under the current interpreter, filename and optimization.
+Disk bytes, HEAD and module identity are checked again before export/completion.
+This detects stale loaded code and mid-run revision changes; it is not trusted
+interpreter attestation. Cargo's generated binary may have its one `deps/`
+hardlink; only that private build output admits one or two links before an
+exclusive no-xattr copy, which then passes the strict single-link ELF check.
 
 The separate `omavless-composed-developer-artifacts-v1` manifest records source,
 artifact, lockfile and observed toolchain hashes, architecture and build options.
@@ -65,6 +73,12 @@ output refusal, private ancestry, member/directory replacement, symlink/FIFO
 refusal and archive bounds. These tests do not prove compilation or wire effects.
 Actual full-composition export and exact source/CI results are recorded on the
 owning Draft PR after execution; they are not inferred from #575's earlier runs.
+The first `17a0e33` actual export refused generically and is retained as NONPASS.
+A diagnostic `012f04c` run reached the post-build broker-object shape check and
+refused there, also NONPASS. Neither produced a completed manifest. Its initial
+CI failure was independently traced to test fixtures assuming an existing HOME
+`.cache`; the fixture-only correction passed CI. These failures are not erased
+by subsequent successful checks.
 
 No normal ManagedPair, package stager/receipt schema, release pins, selector,
 service, broker enrollment, private runtime state or conditional-close admission

@@ -12,6 +12,9 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import sys
+
+_BUILDER_CODE = sys._getframe().f_code
 
 import dns_interop
 import review
@@ -44,12 +47,12 @@ def toolchains(env):
     return result
 
 
-def read_object(path, maximum=MAX_BINARY, *, root_owned=False):
+def read_object(path, maximum=MAX_BINARY, *, root_owned=False, cargo_output=False):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         before = os.fstat(fd)
         if (not stat.S_ISREG(before.st_mode) or before.st_uid not in ((0, os.getuid()) if root_owned else (os.getuid(),))
-                or before.st_nlink != 1 or before.st_mode & 0o7022
+                or before.st_nlink not in ((1, 2) if cargo_output else (1,)) or before.st_mode & 0o7022
                 or not 0 < before.st_size <= maximum):
             raise RuntimeError("Developer input object refused")
         with os.fdopen(os.dup(fd), "rb") as stream:
@@ -60,6 +63,50 @@ def read_object(path, maximum=MAX_BINARY, *, root_owned=False):
         return data
     finally:
         os.close(fd)
+
+
+def builder_snapshot(modules):
+    """Bind this fixed recipe's executing code to an early clean Git object.
+
+    Code equality uses the running interpreter/optimization and the executing
+    filename. This is not interpreter authenticity or general Python attestation.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    def git(*args):
+        return review.run(["/usr/bin/git", "-C", str(repo), *args], env=review.git_environment())
+    if git("status", "--porcelain"):
+        raise RuntimeError("Developer builder source must be committed and clean")
+    revision = git("rev-parse", "HEAD").decode("ascii").strip()
+    expected = {"managed_composition.py", "artifact_export.py", "dns_interop.py",
+                "review.py", "loopback.py", "udp_loopback.py"}
+    hashes = {}
+    for namespace in modules:
+        path = Path(namespace["__file__"]).resolve()
+        if path.parent != repo / "tests/core_connections_adapter" or path.name not in expected:
+            raise RuntimeError("Developer builder module refused")
+        relative = str(path.relative_to(repo))
+        data = git("show", revision + ":" + relative)
+        code = namespace["_BUILDER_CODE"]
+        if (len(data) > 256 * 1024 or read_object(path, 256 * 1024) != data
+                or code != compile(data, code.co_filename, "exec", dont_inherit=True,
+                                   optimize=sys.flags.optimize)):
+            raise RuntimeError("Developer loaded builder differs from Git object")
+        if relative in hashes:
+            raise RuntimeError("Developer duplicate builder module")
+        hashes[relative] = digest(data)
+    if {Path(path).name for path in hashes} != expected or git("rev-parse", "HEAD").decode().strip() != revision:
+        raise RuntimeError("Developer builder identity changed")
+    return {"revision": revision, "modules": hashes}
+
+
+def freeze_broker(source, target):
+    # Cargo commonly hardlinks its top-level binary to deps/. This exception
+    # applies only to our just-built private output, never admitted input.
+    data = read_object(source, cargo_output=True)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+    return dns_interop.snapshot_fixture(target, digest(data), maximum=MAX_BINARY)
 
 
 def file_digest(path, maximum):
@@ -303,16 +350,16 @@ def source_archive(root, directories):
     return target
 
 
-def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fixture_sha, core_metadata, tools):
+def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fixture_sha, core_metadata, tools, builder, modules):
     # Import here to avoid an import cycle and keep the default gate unchanged.
     import managed_composition as composition
     review.matrix_receipt(conditional, composition.CONDITIONAL_TESTS)
     review.matrix_receipt(dns, composition.DNS_TESTS, (composition.DNS_INTEROP_SKIP,))
     dns_interop.receipt(wire)
     own_repo = Path(__file__).resolve().parents[2]
-    if review.run(["/usr/bin/git", "-C", str(own_repo), "status", "--porcelain"], env=review.git_environment()):
-        raise RuntimeError("Developer builder source must be committed and clean")
-    revision = review.run(["/usr/bin/git", "-C", str(own_repo), "rev-parse", "HEAD"], env=review.git_environment()).decode().strip()
+    if builder_snapshot(modules) != builder:
+        raise RuntimeError("Developer builder changed during execution")
+    revision = builder["revision"]
     # The actual broker recipe is the already existing release-package build;
     # compiling that feature here does not issue its release receipt or execute it.
     review.export(repository, composition.DNS_REVISION, root / "omavless")
@@ -323,9 +370,7 @@ def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fi
                "omavless-dns-broker", "--bin", "omavless-dns-broker", "--features", "release-package"]
     log = build_command(command, root / "omavless", cargo_env)
     broker = root / "cargo-target/release/omavless-dns-broker"
-    broker.chmod(0o700)
-    broker_data = read_object(broker)
-    dns_interop.snapshot_fixture(broker, digest(broker_data), maximum=MAX_BINARY)
+    broker_data = freeze_broker(broker, root / "broker-frozen")
     core = root / "combined-core"
     core_data = dns_interop.snapshot_fixture(core, core_sha, maximum=MAX_BINARY)
     fixture_data = dns_interop.snapshot_fixture(root / "dns-interop-fixture", fixture_sha)
@@ -347,7 +392,9 @@ def complete(bundle, root, repository, env, core_sha, conditional, dns, wire, fi
                        ("mihomo", "sing-tun", "omavless", "developer-builder")]))
     if toolchains(env) != tools:
         raise RuntimeError("Developer toolchains changed during build")
-    bundle.finish({"builder_source": revision, "dns_source": composition.DNS_REVISION,
+    if builder_snapshot(modules) != builder:
+        raise RuntimeError("Developer builder changed before completion")
+    bundle.finish({"builder_source": revision, "builder_modules": builder["modules"], "dns_source": composition.DNS_REVISION,
                    "mihomo_source": review.PIN, "sing_tun_source": composition.SING_TUN,
                    "architecture": os.uname().machine, "toolchains": tools,
                    "cargo_lock_sha256": file_digest(root / "omavless/Cargo.lock", 4 * 1024 * 1024),

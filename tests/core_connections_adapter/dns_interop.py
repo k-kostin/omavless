@@ -5,6 +5,9 @@ import errno
 import hashlib
 import json
 import os
+import sys
+
+_BUILDER_CODE = sys._getframe().f_code
 from pathlib import Path
 import platform
 import re
