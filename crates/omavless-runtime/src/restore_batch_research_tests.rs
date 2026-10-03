@@ -109,6 +109,14 @@ fn fixture(
 fn request(method: &str, id: &str) -> Value {
     json!({"api":"omavless.control","version":1,"id":"fixed-batch","method":method,"params":{"instanceId":"batch-research","operationId":id}})
 }
+
+/// Genuine retained Off evidence from a different owner, solely for testing
+/// rejection at the shared typed-batch entry while an actual close is pending.
+/// No witness/permit constructor or injected proof Boolean is introduced.
+pub(crate) fn foreign_empty_context_fixture() -> (Fixture, DetachedHistoricalBatch) {
+    let (fixture, _owner, context) = fixture(false, None);
+    (fixture, context)
+}
 fn status(owner: &OfflineNativeCoordinator<OffHost>, id: &str) -> Value {
     owner
         .subscription_batch_status(&request("operations.get", id))

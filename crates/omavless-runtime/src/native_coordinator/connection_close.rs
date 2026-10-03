@@ -361,6 +361,108 @@ while True:
     }
 
     #[test]
+    fn actual_owner_typed_batch_entry_revokes_capture_but_known_retry_preserves_successor() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::batch_tests::foreign_empty_context_fixture;
+        let (_foreign, mut context) = foreign_empty_context_fixture();
+        let mut fixture = fixture("ok");
+        let request = |id: &str| json!({"api":"omavless.control","version":1,"id":"fixed-batch-entry","method":"subscriptions.refresh_all","params":{"instanceId":"actual-owner-close-fixture","operationId":id}});
+        let rows = snapshot(&mut fixture);
+        fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        // The genuine foreign Off witness must refuse. Nevertheless this new
+        // mutation intent revokes old close authority BEFORE typed lock/proof
+        // admission, through the same body as ordinary batch entry.
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&request("new-typed-batch"), &mut context)
+                .is_err()
+        );
+        assert!(fixture.owner.connection_close.pending.is_none());
+        assert!(fixture.owner.connection_close.snapshot.is_none());
+        assert!(!fixture.root.join("r/effects").exists());
+
+        // A real ordinary empty batch creates a retained terminal registry
+        // entry. A later exact ID retry must not revoke newer confirmation,
+        // even when the supplied typed historical proof itself refuses.
+        let known = request("known-empty-batch");
+        let job = fixture
+            .owner
+            .start_subscription_batch(&known)
+            .unwrap()
+            .unwrap();
+        fixture
+            .owner
+            .complete_subscription_batch(job, || panic!("empty batch must not read clock"))
+            .unwrap();
+        let successor = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(successor[1].handle)
+            .unwrap();
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&known, &mut context)
+                .is_err()
+        );
+        let pending = fixture.owner.connection_close.pending.as_ref().unwrap();
+        assert_eq!(pending.handle, successor[1].handle);
+        assert_eq!(pending.ticket, confirmation.ticket);
+        assert!(!fixture.root.join("r/effects").exists());
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+    }
+
+    #[test]
+    fn actual_owner_typed_batch_entry_cancels_detached_close_before_proof_refusal() {
+        let _fixtures = FIXTURES.lock().unwrap();
+        use crate::restore_executor_candidate::successor::rotation::final_review::disposition::recovery::completion::historical::batch_tests::foreign_empty_context_fixture;
+        let (_foreign, mut context) = foreign_empty_context_fixture();
+        let mut fixture = fixture("ok");
+        let rows = snapshot(&mut fixture);
+        let confirmation = fixture
+            .owner
+            .prepare_connection_close(rows[0].handle)
+            .unwrap();
+        write(&fixture.root.join("r/stall-read"), b"fixed", 0o600);
+        fixture
+            .owner
+            .confirm_connection_close(
+                "close-before-typed-batch",
+                0,
+                rows[0].handle,
+                confirmation.ticket,
+            )
+            .unwrap();
+        marker(&fixture.root.join("r/read-entered"));
+        let cancellation = fixture
+            .owner
+            .connection_close
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .clone();
+        let request = json!({"api":"omavless.control","version":1,"id":"fixed-batch-entry","method":"subscriptions.refresh_all","params":{"instanceId":"actual-owner-close-fixture","operationId":"new-typed-after-close"}});
+        assert!(
+            fixture
+                .owner
+                .start_subscription_batch_research(&request, &mut context)
+                .is_err()
+        );
+        assert!(cancellation.is_cancelled());
+        assert_eq!(
+            receipt(&mut fixture).outcome,
+            ExternalCloseOutcome::RefusedBeforeWrite
+        );
+        assert!(!fixture.root.join("r/effects").exists());
+        assert!(fixture.owner.desired().unwrap().connected);
+        assert_eq!(fixture.owner.actual(), ActualState::Connected);
+    }
+
+    #[test]
     fn actual_owner_admitted_startup_invalidates_capture_before_pending_refusal() {
         let _fixtures = FIXTURES.lock().unwrap();
         let mut fixture = fixture("ok");

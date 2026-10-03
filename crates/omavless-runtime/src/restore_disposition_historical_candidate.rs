@@ -1339,7 +1339,7 @@ mod connection_tests;
 
 #[cfg(test)]
 #[path = "restore_batch_research_tests.rs"]
-mod batch_tests;
+pub(crate) mod batch_tests;
 
 #[cfg(test)]
 mod tests {
