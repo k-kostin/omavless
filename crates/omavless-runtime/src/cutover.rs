@@ -947,6 +947,76 @@ mod tests {
     }
 
     #[test]
+    fn migration_lease_concurrent_absent_creator_never_reopens_or_repairs_winner() {
+        let (runtime, state, uid) = roots("lease-concurrent-create");
+        let paths = CutoverPaths::below(&runtime, &state, uid);
+        let mut winner = None;
+        let mut winner_metadata = None;
+        let loser =
+            MigrationLock::acquire_checked(&paths, uid, LockOpen::CreateIfAbsent, |checkpoint| {
+                if checkpoint == LockCheckpoint::PriorChecked {
+                    // The loser already observed absence. A genuine competing
+                    // constructor now creates and retains the actual lease;
+                    // no injected errno, alternate opener or permission repair.
+                    let lease = MigrationLock::acquire(&paths, uid).unwrap();
+                    winner_metadata = Some(lease._file.metadata().unwrap());
+                    winner = Some(lease);
+                }
+                true
+            });
+        assert!(matches!(loser, Err(CutoverError::UnsafeRuntimeDirectory)));
+        let winner = winner.unwrap();
+        assert!(winner.authorizes(&paths, uid));
+
+        // Independently establish the kernel's actual EEXIST for the same
+        // fixed exclusive-create operation against the retained winner inode.
+        let exclusive = nix::fcntl::openat(
+            &winner.runtime,
+            Path::new(paths.operation_lock.file_name().unwrap()),
+            OFlag::O_RDWR
+                | OFlag::O_NOFOLLOW
+                | OFlag::O_CLOEXEC
+                | OFlag::O_NONBLOCK
+                | OFlag::O_CREAT
+                | OFlag::O_EXCL,
+            nix::sys::stat::Mode::from_bits_truncate(0o600),
+        );
+        assert!(matches!(exclusive, Err(Errno::EEXIST)));
+        let identity = |m: &fs::Metadata| {
+            (
+                m.dev(),
+                m.ino(),
+                m.uid(),
+                m.mode(),
+                m.nlink(),
+                m.len(),
+                m.mtime(),
+                m.mtime_nsec(),
+                m.ctime(),
+                m.ctime_nsec(),
+            )
+        };
+        let expected = winner_metadata.unwrap();
+        assert_eq!(
+            identity(&winner._file.metadata().unwrap()),
+            identity(&expected)
+        );
+        assert_eq!(
+            identity(&fs::symlink_metadata(&paths.operation_lock).unwrap()),
+            identity(&expected)
+        );
+        assert_eq!(expected.mode() & 0o7777, 0o600);
+        assert_eq!(expected.uid(), uid);
+        assert_eq!(expected.nlink(), 1);
+        assert!(fs::read(&paths.operation_lock).unwrap().is_empty());
+        assert!(!paths.state_directory.exists());
+        assert!(!paths.runtime_base.join("omavless").exists());
+        assert!(winner.authorizes(&paths, uid));
+        drop(winner);
+        fs::remove_dir_all(runtime.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn migration_lease_constructor_substitution_never_repairs_foreign_path() {
         for existing in [false, true] {
             for point in [
