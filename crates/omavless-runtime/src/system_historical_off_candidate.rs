@@ -41,6 +41,12 @@ fn current() -> Result<Review, ProductionOwnerError> {
     run_under_lease(host, desired, &store, paths.clone(), uid, (&lock, evidence))
 }
 
+/// Fixed opt-in VM driver only; the normal entry remains private/unregistered.
+#[cfg(test)]
+pub(crate) fn current_for_vm_test() -> Result<Review, ProductionOwnerError> {
+    current()
+}
+
 /// Internal shared body, not a general normal-admission API. Tests can supply
 /// a deterministic host, but the only non-test caller above supplies the fixed
 /// observation-only native host and genuine System witness. The owner never escapes.
