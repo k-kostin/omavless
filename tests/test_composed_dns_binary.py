@@ -3,6 +3,7 @@
 import importlib.util
 import hashlib
 import os
+import stat
 from pathlib import Path
 import tempfile
 import time
@@ -17,6 +18,38 @@ SPEC.loader.exec_module(probe)
 
 
 class Guards(unittest.TestCase):
+    def test_public_modes_survive_umask_077_without_relaxing_private_exceptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            previous = os.umask(0o077)
+            try:
+                legacy = root / "requested-0755-only"
+                legacy.mkdir(mode=0o755)
+                self.assertEqual(stat.S_IMODE(legacy.stat().st_mode), 0o700)
+                public = root / "public"
+                probe.public_directory(public)
+                inert = public / "passwd"
+                probe.public_file(inert, "synthetic-account-file\n")
+                private = root / "private"
+                probe.public_directory(private)
+                private.chmod(0o700)
+                temporary = root / "tmp"
+                probe.public_directory(temporary)
+                temporary.chmod(0o700)
+                enrollment = private / "release-enrollment.json"
+                enrollment.write_text(probe.RELEASE_ENROLLMENT)
+                enrollment.chmod(0o600)
+                core = root / "core"
+                core.mkdir(mode=0o700)
+                current = os.umask(0o077)
+                self.assertEqual(current, 0o077)
+                for path, mode in ((root, 0o700), (public, 0o755), (inert, 0o644),
+                                   (private, 0o700), (temporary, 0o700),
+                                   (enrollment, 0o600), (core, 0o700)):
+                    self.assertEqual(stat.S_IMODE(path.stat().st_mode), mode)
+            finally:
+                os.umask(previous)
+
     def test_fixed_enrollment_matches_exact_release_package_policy(self):
         self.assertEqual(probe.decode(probe.RELEASE_ENROLLMENT),
                          {"schema": 1, "uid": 1000, "policy": "meta-ipv4-release-v1"})

@@ -178,6 +178,24 @@ def no_directory_fds():
         require(not stat.S_ISDIR(value.st_mode), "outside_directory_fd")
 
 
+def public_directory(path):
+    """Fixed private-root traversal, independent of the retained umask 077."""
+    path.mkdir(exist_ok=True, mode=0o755)
+    path.chmod(0o755)
+    value = path.lstat()
+    require(stat.S_ISDIR(value.st_mode) and value.st_uid == os.geteuid()
+            and stat.S_IMODE(value.st_mode) == 0o755, "public_directory_mode")
+
+
+def public_file(path, content):
+    """Inert synthetic account/NSS files only, never enrollment or credentials."""
+    path.write_text(content)
+    path.chmod(0o644)
+    value = path.lstat()
+    require(stat.S_ISREG(value.st_mode) and value.st_uid == os.geteuid()
+            and stat.S_IMODE(value.st_mode) == 0o644, "public_file_mode")
+
+
 def isolate(original, root, inputs):
     # ALL these checks precede mount, device/config creation or ELF execution.
     require(set(original) == set(NS) and all(namespace(name) != original[name] for name in NS),
@@ -195,7 +213,7 @@ def isolate(original, root, inputs):
     for name in ("usr", "proc", "dev", "dev/net", "etc", "etc/omavless-dns",
                  "run", "run/dbus", "run/systemd", "run/omavless-dns",
                  "run/omavless-dns/private", "tmp", "home", "artifacts"):
-        (root / name).mkdir(exist_ok=True, mode=0o755)
+        public_directory(root / name)
     for source, target in (("/usr", "usr"), (str(inputs), "artifacts")):
         command(["/usr/bin/mount", "--bind", source, str(root / target)])
         command(["/usr/bin/mount", "-o", "remount,bind,ro,nosuid,nodev", str(root / target)])
@@ -218,10 +236,10 @@ def isolate(original, root, inputs):
     Path("/tmp").chmod(0o700)
     Path("/etc/omavless-dns/release-enrollment.json").write_text(RELEASE_ENROLLMENT)
     Path("/etc/omavless-dns/release-enrollment.json").chmod(0o600)
-    Path("/etc/passwd").write_text("root:x:0:0:fixture:/tmp:/usr/bin/false\ncore:x:1000:1000:fixture:/home/core:/usr/bin/false\n")
-    Path("/etc/group").write_text("root:x:0:\ncore:x:1000:\n")
-    Path("/etc/nsswitch.conf").write_text("passwd: files\ngroup: files\nhosts: files\n")
-    Path("/etc/machine-id").write_text("0123456789abcdef0123456789abcdef\n")
+    public_file(Path("/etc/passwd"), "root:x:0:0:fixture:/tmp:/usr/bin/false\ncore:x:1000:1000:fixture:/home/core:/usr/bin/false\n")
+    public_file(Path("/etc/group"), "root:x:0:\ncore:x:1000:\n")
+    public_file(Path("/etc/nsswitch.conf"), "passwd: files\ngroup: files\nhosts: files\n")
+    public_file(Path("/etc/machine-id"), "0123456789abcdef0123456789abcdef\n")
     command(["/usr/bin/ip", "link", "set", "dev", "lo", "up"])
 
 
