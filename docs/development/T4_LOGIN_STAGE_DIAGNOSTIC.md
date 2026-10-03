@@ -1,5 +1,9 @@
 # Fixed disposable login-stage diagnostic
 
+The [exact-source real System mechanism report](../testing/T4_SYSTEM_PROVIDER_MECHANISM_2026-10-03.md)
+records the later successful v4 invocation without relabeling prior negatives
+or adopting normal historical policy.
+
 This test-only continuation of #583 retains its real System-provider NONPASS:
 the exact seed selector passed, but the genuine packaged login unit returned
 the public Validation category before the historical review selector ran.
