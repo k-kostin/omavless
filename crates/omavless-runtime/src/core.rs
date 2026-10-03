@@ -311,20 +311,11 @@ mod tests {
     use super::*;
     use std::io;
     use std::os::unix::fs::PermissionsExt;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn root(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "omavless-core-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-        root
+    fn root(_label: &str) -> PathBuf {
+        // The scenario remains in the test name; putting its long description
+        // and a nanosecond timestamp into the controller's Unix-socket pathname
+        // exhausts SUN_LEN even with an ordinary HOME-based TMPDIR.
+        crate::test_temp::directory("core").unwrap()
     }
 
     fn script(root: &Path, body: &str) -> PathBuf {
