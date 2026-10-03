@@ -10,6 +10,10 @@ tests. An [offline fixed renderer candidate](../development/K1_RENDERER.md) now
 adds JSON creation and strict readback with independently supplied ownership
 facts; it has no executor or production caller. K1 implementation,
 host acceptance and product availability remain incomplete.
+The [current-RC creator lifecycle research](../development/K1_CREATOR_LIFECYCLE_RESEARCH.md)
+selectively composes those inactive mechanisms with actual kernel effects only
+under test compilation. It does not provide a production EffectPort or activate
+an installed kill switch.
 The next [isolated packet-policy harness](../development/K1_PACKET_GATE.md)
 tests synthetic egress and near-miss exceptions without a production service;
 its results do not replace this contract's host/physical acceptance matrix.

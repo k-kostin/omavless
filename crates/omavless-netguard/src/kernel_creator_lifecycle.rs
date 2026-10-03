@@ -54,7 +54,7 @@ struct BatchReplies {
 }
 impl BatchReplies {
     fn new(requests: Vec<Vec<u8>>, port: u32) -> Result<Self> {
-        require(port != 0 && matches!(requests.len(), 14 | 15))?;
+        require(port != 0 && matches!(requests.len(), 3 | 14 | 15))?;
         Ok(Self {
             acks: vec![false; requests.len()],
             requests,
@@ -143,6 +143,9 @@ struct FixtureCreator {
     created: Option<u64>,
     effects: usize,
     lose_reply: bool,
+    cut_after_effect: bool,
+    change_generation_before_send: bool,
+    last_generation: Option<u32>,
     state_parent: std::path::PathBuf,
 }
 impl FixtureCreator {
@@ -160,6 +163,9 @@ impl FixtureCreator {
             created: None,
             effects: 0,
             lose_reply: false,
+            cut_after_effect: false,
+            change_generation_before_send: false,
+            last_generation: None,
             state_parent,
         })
     }
@@ -176,7 +182,16 @@ impl FixtureCreator {
         EffectError::UnavailableOrUncertain
     }
     fn inspect(&mut self) -> Result<(LocalPolicyInventory, u32, Option<TableMetadata>)> {
-        let result = self.session.inspect_policy_inventory_once();
+        let result = self
+            .session
+            .inspect_policy_inventory_once()
+            .and_then(|value| {
+                // Regression/wrap is terminal even if policy still matches. This
+                // does not prove nft-subsystem continuity after reinitialization.
+                require(value.1 != 0 && self.last_generation.is_none_or(|old| value.1 >= old))?;
+                self.last_generation = Some(value.1);
+                Ok(value)
+            });
         if result.is_err() {
             self.session.poisoned = true;
             self.created = None;
@@ -188,6 +203,13 @@ impl FixtureCreator {
         let bytes = std::fs::read(root.join("table-receipt-v1.json")).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["phase"], phase);
+        if phase == "pending_delete" {
+            let marker: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(root.join("armed-v1.json")).unwrap())
+                    .unwrap();
+            assert_eq!(marker["armed"], false);
+            assert_eq!(marker["generation"], 7);
+        }
         let meta = std::fs::metadata(&self.state_parent).unwrap();
         assert!(matches!(
             crate::root_state::RootStateStore::open_test_parent(
@@ -198,8 +220,34 @@ impl FixtureCreator {
             Err(crate::root_state::StateError::Busy)
         ));
     }
+    fn cut(&self) {
+        if self.cut_after_effect {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(self.state_parent.join(".effect-cut.next"))
+                .unwrap();
+            file.write_all(b"K1_EFFECT_CUT\n").unwrap();
+            file.sync_all().unwrap();
+            std::fs::rename(
+                self.state_parent.join(".effect-cut.next"),
+                self.state_parent.join("effect-cut"),
+            )
+            .unwrap();
+            // The holder kills/reaps this exact process; timeout is a failing
+            // fallback, never a successful crash receipt or normal retry.
+            std::thread::sleep(Duration::from_secs(10));
+            panic!("isolated crash checkpoint was not killed");
+        }
+    }
     fn send_full(&mut self, generation: u32, old: Option<u64>, deadline: Instant) -> Result<()> {
         let requests = full_batch(generation, self.session.next_sequence, old)?;
+        self.send_batch(requests, deadline)
+    }
+    fn send_batch(&mut self, requests: Vec<Vec<u8>>, deadline: Instant) -> Result<()> {
         self.session.next_sequence = self
             .session
             .next_sequence
@@ -265,12 +313,16 @@ impl FixtureCreator {
             } else {
                 "pending_create"
             });
+            if self.change_generation_before_send {
+                tests::fixed_foreign_change();
+            }
             self.send_full(generation, old.map(|id| id.table_handle), deadline)?;
             let (inventory, _, table) = self.inspect()?;
             require(inventory == LocalPolicyInventory::ExactUntrusted(Policy::FullVpn))?;
             let handle = table.ok_or(REFUSE)?.handle;
             require(old.is_none_or(|id| id.table_handle != handle))?;
             self.created = Some(handle);
+            self.cut();
             // Deliberately withhold the adapter result AFTER real ACK/readback;
             // this models upper-layer loss, not dropped raw kernel ACK packets.
             require(!self.lose_reply)?;
@@ -299,10 +351,7 @@ impl EffectPort for FixtureCreator {
                         identity: Some(self.id(table.ok_or(REFUSE)?.handle)),
                     }
                 }
-                _ => EffectSnapshot {
-                    table: Table::Foreign,
-                    identity: None,
-                },
+                _ => return Err(REFUSE),
             })
         })();
         result.map_err(|_| self.fail())
@@ -335,6 +384,7 @@ impl EffectPort for FixtureCreator {
             self.effects += 1;
             require(witness.consume() == conditional_delete::DeleteOutcome::AcknowledgedAndAbsent)?;
             self.created = None;
+            self.cut();
             require(!self.lose_reply)
         })();
         result.map_err(|_| self.fail())
