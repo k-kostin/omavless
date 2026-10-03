@@ -77,3 +77,18 @@ mutation. Further source diagnosis should retain safely typed public refusal
 facts before rejection; any additional actual invocation needs separate review
 and an exclusive lease. This attempt establishes neither a usable inventory nor
 actual resolved compatibility.
+# Source-only public refusal diagnostics (not executed)
+
+The next diagnostic retains one bounded public `/usr/lib` or `/usr/bin` pathname,
+expected maps device/inode, and original-open-FD device/inode/uid/gid/mode/nlink/size
+when `mapped_object_identity` refuses. Individual boolean predicates explain the
+grouped refusal without changing any identity acceptance condition. This record
+is explicitly **not** proof of loaded ELF identity, reads no content, contains no
+digest, and cannot admit an object to the allowlist. Private, malformed, deleted,
+traversal and overlong paths are refused without opening or recording them.
+
+`vm-guard-diagnostic2.sh` is a separate immutable proposal using fresh create-only
+stage `t3-resolved-loader-inventory-review-2` and the new exact source hash. The
+original `vm-guard.sh` and first-attempt archive remain unchanged. No second VM
+invocation is authorized by these source changes; separate full review and an
+exclusive lease remain mandatory.

@@ -71,14 +71,38 @@ def stable_identity(value):
             value.st_gid, value.st_mtime_ns, value.st_ctime_ns, value.st_nlink)
 
 
+class ObjectIdentityRefused(base.Refused):
+    """Public original-open-FD metadata only; never a loaded-object measurement."""
+
+    def __init__(self, diagnostic):
+        super().__init__("mapped_object_identity")
+        self.diagnostic = diagnostic
+
+
 def measure_object(path, identity, deadline):
+    base.require(isinstance(path, str) and len(path) <= 4096
+                 and PUBLIC_PATH.fullmatch(path) is not None and ".." not in Path(path).parts,
+                 "nonpublic_or_deleted_mapping")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         before = os.fstat(fd)
-        base.require(stat.S_ISREG(before.st_mode) and before.st_uid == 65534
-                     and before.st_mode & 0o022 == 0 and 0 < before.st_size <= MAX_ELF
-                     and (before.st_dev, before.st_ino) == identity,
-                     "mapped_object_identity")
+        predicates = {"regular_file": stat.S_ISREG(before.st_mode),
+                      "unmapped_root_uid": before.st_uid == 65534,
+                      "not_group_or_other_writable": before.st_mode & 0o022 == 0,
+                      "positive_size": before.st_size > 0,
+                      "bounded_size": before.st_size <= MAX_ELF,
+                      "device_matches_maps": before.st_dev == identity[0],
+                      "inode_matches_maps": before.st_ino == identity[1]}
+        if not all(predicates.values()):
+            raise ObjectIdentityRefused({
+                "schema": "public-mapped-object-identity-refusal-v1", "path": path,
+                "expected_maps": {"device": identity[0], "inode": identity[1]},
+                "original_open_fd": {"device": before.st_dev, "inode": before.st_ino,
+                                     "uid": before.st_uid, "gid": before.st_gid,
+                                     "mode": before.st_mode, "nlink": before.st_nlink,
+                                     "size": before.st_size},
+                "predicates": predicates, "loaded_elf_identity_proven": False,
+                "content_read": False, "allowlist_adoption": False})
         digest = hashlib.sha256()
         size = 0
         while True:
@@ -146,6 +170,8 @@ def observe(inventory):
         receipt["outcome"] = "OBSERVED_INVENTORY_ONLY"
     except Exception as error:
         receipt["reason"] = str(error) if isinstance(error, base.Refused) else type(error).__name__
+        if isinstance(error, ObjectIdentityRefused):
+            receipt["object_identity_refusal"] = error.diagnostic
     finally:
         for child in reversed(children):
             if base.UNSETTLED:
