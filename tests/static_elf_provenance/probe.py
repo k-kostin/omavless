@@ -52,10 +52,7 @@ def bounded_file(path, limit, expected=None):
         os.close(fd)
 
 
-def load_containment():
-    path = Path(__file__).with_name("containment.py")
-    if not path.exists():
-        path = Path(__file__).parent.parent / "real_resolved_binary/probe.py"
+def load_containment(path):
     source = bounded_file(path, 131072)
     require(hashlib.sha256(source).hexdigest() == CONTAINMENT_SHA, "containment_pin")
     module = types.ModuleType("static_closure_containment")
@@ -64,7 +61,7 @@ def load_containment():
     return module
 
 
-base = load_containment()
+base = None  # Tests load their exact repository helper explicitly; main is fixed.
 
 
 def public_path(path):
@@ -355,6 +352,9 @@ def capture():
 
 
 if __name__ == "__main__":
+    stage = Path("/home/kdk_vm/.cache/t3-static-elf-empty-record-review-1")
+    require(Path(__file__) == stage / "probe.py", "fixed_static_probe_path")
+    base = load_containment(stage / "containment.py")
     require(sys.argv[1:] == ["--capture-static-public-provenance"], "explicit_capture_opt_in")
     os.umask(0o077)
     base.limits()

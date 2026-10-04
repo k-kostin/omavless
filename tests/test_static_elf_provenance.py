@@ -12,6 +12,8 @@ ROOT = Path(__file__).parent / "static_elf_provenance"
 SPEC = importlib.util.spec_from_file_location("static_elf_provenance", ROOT / "probe.py")
 probe = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(probe)
+assert probe.base is None
+probe.base = probe.load_containment(ROOT.parent / "real_resolved_binary/probe.py")
 RAW = (ROOT.parent / "real_resolved_binary/guest-inventory.json").read_bytes()
 INVENTORY = json.loads(RAW)
 DYNAMIC = b"Dynamic section at offset 0x1000 contains 2 entries:\n 0x0000000000000001 (NEEDED) Shared library: [libc.so.6]\n"
@@ -24,6 +26,13 @@ def meta(**changes):
 
 
 class StaticElfTests(unittest.TestCase):
+    def test_actual_static_loader_missing_stage_helper_never_falls_back(self):
+        path = Path("/home/kdk_vm/.cache/t3-static-elf-empty-record-review-1/containment.py")
+        with patch.object(probe, "bounded_file", side_effect=FileNotFoundError) as read:
+            with self.assertRaises(FileNotFoundError):
+                probe.load_containment(path)
+        read.assert_called_once_with(path, 131072)
+
     def package_index(self, contents):
         with patch.object(probe.Path, "is_dir", return_value=True), \
              patch.object(probe.Path, "is_symlink", return_value=False), \

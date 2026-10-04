@@ -219,3 +219,30 @@ its original measured `b5f9c965…` probe pin. **No wrapper currently authorizes
 corrected static probe.** A separate terminal-unknown-safe supervisor/wrapper and
 exact-pin full review are required before any new capture; the historical GNU
 timeout/continuation path must not be reused as new execution authority.
+
+### New supervised static-capture proposal (source only)
+
+`static_capture_supervisor.py` and `vm-guard-empty-record.sh` propose the fresh
+fixed stage `t3-static-elf-empty-record-review-1`. They do not replace or modify
+historical wrappers. The new wrapper pins the corrected probe, supervisor,
+original containment, manifest and independently reviewed readelf bytes. Both
+supervisor and probe imports are inert; actual mains require exact stage paths
+and their exact staged helper, with no repository fallback. Tests explicitly
+load their own frozen helper. Candidate ELF files remain data, never executed.
+
+The supervisor uses only the original frozen OwnedProcess/raw-wait supervisor
+for its one fixed Python capture child, with a 75-second bound. Result/stderr and
+receipt files are exclusive creates; stage admission requires private ancestry,
+UID/GID 1000 and mode 0700. The shell enables umask 077 and noclobber. Any failed,
+timed-out or unknown supervision exits the wrapper immediately without result
+reads, after-state queries, quiescence scans, retry or cleanup. Before evidence
+is retained and after-state preservation is unproven on that branch. Only known
+successful child completion proceeds to typed receipt and baseline checks.
+The unchanged frozen supervisor's known anchored group cleanup is not a claim
+that arbitrary descendants or separately sessioned children have been recovered.
+
+Pure tests exercise actual fixed argv/input pin ordering, known success/nonzero,
+unknown/timeout, no fallback, prelaunch pin/existing-output refusal and the exact
+shell terminal branch. Historical evidence remains immutable. This proposal
+still requires complete root/independent review and a separate exclusive VM
+lease; source tests neither invoke readelf nor establish closure or admission.
