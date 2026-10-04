@@ -45,6 +45,9 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((lineage.UID, lineage.HOME, lineage.ARTIFACTS, lineage.RUNTIME),
                          (guard.UID, guard.HOME, guard.ARTIFACTS, guard.RUNTIME / 'omavless'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
+        loader_source = Path(loader.__file__).read_text()
+        self.assertEqual(re.findall(r"value\['native_head'\] == '([0-9a-f]{40})'", loader_source),
+                         [guard.NATIVE_HEAD])
         self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v7'))
         self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7'))
         for source in (cli, diagnostic, fixture):
