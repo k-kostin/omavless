@@ -2,6 +2,7 @@
 # Capture-only developer fixture. Never start, install, enable or package.
 [Unit]
 Description=OmaVLESS K1 effective configuration reference capture only
+RefuseManualStart=yes
 
 [Service]
 Type=oneshot

@@ -21,6 +21,45 @@ const MAX_REPLY: usize = 1024 * 1024;
 const REFUSE: &str = "K1_CONFIG_REFERENCE_UNCERTAIN_RETAINED";
 type Result<T> = std::result::Result<T, &'static str>;
 
+struct Properties(HashMap<String, OwnedValue>);
+
+impl Type for Properties {
+    const SIGNATURE: &'static zbus::zvariant::Signature = <HashMap<String, OwnedValue>>::SIGNATURE;
+}
+
+impl<'de> serde::Deserialize<'de> for Properties {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        struct Unique;
+        impl<'de> serde::de::Visitor<'de> for Unique {
+            type Value = Properties;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("bounded unique D-Bus property dictionary")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<Properties, M::Error> {
+                let mut values = HashMap::new();
+                while let Some((key, value)) = map.next_entry::<String, OwnedValue>()? {
+                    if values.len() >= 512
+                        || key.is_empty()
+                        || key.len() > 128
+                        || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                        || values.contains_key(&key)
+                    {
+                        return Err(serde::de::Error::custom("invalid property dictionary"));
+                    }
+                    values.insert(key, value);
+                }
+                Ok(Properties(values))
+            }
+        }
+        deserializer.deserialize_map(Unique)
+    }
+}
+
 fn require(ok: bool) -> Result<()> {
     if ok { Ok(()) } else { Err(REFUSE) }
 }
@@ -181,10 +220,11 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
     zbus::names::UniqueName::try_from(owner.as_str()).map_err(|_| REFUSE)?;
     let reference = held.connection.request(&owner, Request::Ref)?;
     decode::<()>(&reference)?;
-    let unit = identity(&decode(&held.connection.request(&owner, Request::Unit)?)?)?;
-    let service = selected_service(&decode(
-        &held.connection.request(&owner, Request::Service)?,
-    )?)?;
+    let unit =
+        identity(&decode::<Properties>(&held.connection.request(&owner, Request::Unit)?)?.0)?;
+    let service = selected_service(
+        &decode::<Properties>(&held.connection.request(&owner, Request::Service)?)?.0,
+    )?;
     let reply = held.connection.request(&owner, Request::Dump)?;
     let dump: String = decode(&reply)?;
     require(!dump.is_empty() && dump.len() <= MAX_REPLY && !dump.contains('\0'))?;
@@ -447,6 +487,45 @@ mod controls {
         );
         assert!(!path.join("reference-unref-ack.json").exists());
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn duplicate_and_oversized_property_dictionary_refuse() {
+        struct Entries(Vec<(String, u64)>);
+        impl Type for Entries {
+            const SIGNATURE: &'static zbus::zvariant::Signature = Properties::SIGNATURE;
+        }
+        impl serde::Serialize for Entries {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> std::result::Result<S::Ok, S::Error> {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(Some(self.0.len()))?;
+                for (key, value) in &self.0 {
+                    map.serialize_entry(key, &OwnedValue::from(*value))?;
+                }
+                map.end()
+            }
+        }
+        for entries in [
+            vec![
+                ("WatchdogUSec".to_owned(), 0),
+                ("WatchdogUSec".to_owned(), u64::MAX),
+            ],
+            (0..513).map(|i| (format!("Field{i}"), 0)).collect(),
+            vec![("x".repeat(129), 0)],
+            vec![("wrong.name".to_owned(), 0)],
+        ] {
+            assert!(decode::<Properties>(&reply(&Entries(entries))).is_err());
+        }
+        assert_eq!(
+            decode::<Properties>(&reply(&Entries(vec![("Field".to_owned(), 7)])))
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
     }
 
     #[test]

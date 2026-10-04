@@ -34,8 +34,8 @@ creator/ownership APIs and production dependencies are unchanged.
 
 ## Capture, not configured admission
 
-The distinct unit is deliberately inert (`ExecStart=/usr/bin/false`) and must
-never be started. It explicitly configures WatchdogSec=0 and append-mode paths
+The distinct unit is deliberately inert (`ExecStart=/usr/bin/false`), refuses
+manual starts with `RefuseManualStart=yes`, and must never be started. It explicitly configures WatchdogSec=0 and append-mode paths
 under the new private `/run/omavless-k1-effective-config-reference` stage.
 No parser for the manager's debug-dump text is assumed or admitted here.
 The typed identity must be the exact loaded, inactive/dead, no-drop-in unit,
