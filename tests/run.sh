@@ -34,6 +34,7 @@ python3 -m unittest -v \
   "$here/test_k1_manager_private_fixture.py" \
   "$here/test_k1_config_reference_fixture.py" \
   "$here/test_k1_version_reference_fixture.py" \
+  "$here/test_k1_configured_reference_fixture.py" \
   "$here/test_native_service_acceptance.py" \
   "$here/test_native_live_protocol_validation.py" \
   "$here/test_native_dns_readback.py" \
