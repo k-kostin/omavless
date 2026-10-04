@@ -91,6 +91,31 @@ class GuardTests(unittest.TestCase):
             with self.assertRaises(guard.Refused):guard.admission_trace(bad)
             self.assertTrue(self.core.UNCERTAIN)
 
+    def test_manager_executable_errno_uses_only_existing_failed_open_result(self):
+        native = Path(__file__).resolve().parents[1] / 'crates/omavless-runtime/src'
+        source = (native / 'restore_abort_stopped_owner.rs').read_text()
+        diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
+        body = source.split('fn magic_file(', 1)[1].split('\nfn proc_link(', 1)[0]
+        self.assertEqual(body.count('openat('), 1)
+        self.assertIn('OFlag::O_PATH | OFlag::O_CLOEXEC', body)
+        self.assertNotIn('O_NOFOLLOW', body)
+        self.assertIn('.map_err(|error| {', body)
+        self.assertIn('#[cfg(test)]\n        crate::restore_abort_cli::diagnostic::manager_executable_open_error(error);', body)
+        self.assertIn('#[cfg(not(test))]\n        let _ = error;', body)
+        latch = diagnostic.split('fn manager_executable_open_error(&mut self,', 1)[1].split('\n    fn manager_capture_before(', 1)[0]
+        self.assertIn('self.last != Some(Phase::ManagerProcess)', latch)
+        self.assertIn('self.manager_capture_step != Some(ManagerCaptureStep::ExecutableOpen)', latch)
+        self.assertIn('self.sealed = true', latch)
+        for forbidden in ('write(', 'format!', 'File', 'read(', 'Instant', 'clock', 'budget', 'open('):
+            self.assertNotIn(forbidden, latch)
+        categories = re.findall(r'Self::\w+ => "([a-z]+)",',
+            diagnostic.split('impl ManagerExecutableOpenError {', 1)[1].split('\n}', 1)[0])
+        self.assertEqual(categories, ['eacces', 'eperm', 'enoent', 'other'])
+        terminal = diagnostic.split('fn finish(', 1)[1].split('\nthread_local!', 1)[0]
+        self.assertLess(terminal.index('T4_STOPPED_FAILED_AT_V1'), terminal.index('T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1'))
+        self.assertLess(terminal.index('T4_STOPPED_MANAGER_CAPTURE_BEFORE_V1'), terminal.index('T4_STOPPED_MANAGER_EXECUTABLE_OPEN_ERROR_V1'))
+        self.assertIn('raw.len() > 256', terminal)
+
     def test_diagnostic_failure_never_calls_normal_cli_or_reentry(self):
         obj=guard.Guard.__new__(guard.Guard)
         obj.typed_case=Mock();obj.evidence=Mock()
