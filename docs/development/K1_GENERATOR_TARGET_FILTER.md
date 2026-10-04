@@ -52,3 +52,32 @@ and one exclusive VM lease are required before a new paired invocation.
 Until that happens this correction is source-only, not observed filter or
 canonical namespace-provenance acceptance. No main, installed package or host
 network change is authorized by it.
+
+## First corrected invocation — retained NONPASS
+
+Source `4fb3f810980734e3af757491d4a9783388655cee` passed 558 source tests, two skips,
+JS/QML/navigation; focused new tests 15 PASS. Independent Astra review of the
+seven implementation files found no scoped blocker. One reviewed loader then
+staged and invoked this generation in the dedicated VM. It returned exit 2,
+without a complete result or either case PASS receipt. The control unit/link
+remains retained, loaded/inactive with both manager PIDs zero and no cgroup;
+the exact probe is absent. Canonical PID 938/epoch/executable remains unchanged.
+Full original before/after preservation is UNPROVEN, not retrospectively PASS.
+
+Read-only effective-property inspection found an additional fixture mismatch:
+systemctl omits empty structure-array Exec and EnvironmentFiles properties,
+even with --all, and renders an empty denylist SystemCallFilter as `~`.
+The guard correctly refuses missing output; the offline mocks had represented
+those arrays as empty strings. A fixed read-only typed D-Bus property query
+independently confirmed all six Exec arrays are `a(sasbttttuii) 0`, environment
+files are `a(sb) 0`, and the filter is `(bas) false 0`. No unit start/retry,
+property modification, stop/reset or cleanup occurred during diagnosis.
+
+The private six-member archive is retained on guest and host, SHA256
+`9b4371ad4cb7bba7a1b621f9cfaaaecd7ec71764aad9ef22eef86deef086b64c`.
+Loader SHA256 `ba97a5c4a5f182394f691b039d44631540d8a7898507ee93148685256a1a936b`;
+runner `32638562be557f4a568da906f93b9b0e22b904132a4045396a993ddc7ef69f81`;
+guard `c5f54f38909c674d5dc30791cab4d624ef7cfa384e879be97efd7915957a24d2`.
+The actual failed invocation is not changed by later diagnostics. Typed empty
+properties need a new generation and realistic omission/error counterexamples
+before another invocation. No filter/kernel or namespace authority was proven.
