@@ -120,6 +120,12 @@ class LoaderTests(unittest.TestCase):
             receipt_sha = hashlib.sha256(data['receipt.json']).hexdigest()
             directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
             self.addCleanup(os.close, directory)
+            real_fstat, real_stat = os.fstat, os.stat
+            def synthetic_uid(s):
+                # Only credentials are synthetic; actual native FD/path inode,
+                # timestamps, mode, size and link count remain unchanged.
+                names = ('st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                return SimpleNamespace(**{name: getattr(s, name) for name in names}, st_uid=1000, st_gid=1000)
             for fault in ('mode', 'hash', 'same-byte-inode'):
                 for name, raw in data.items():
                     path = root / name
@@ -147,13 +153,20 @@ class LoaderTests(unittest.TestCase):
                     return real_recheck(parent, name, row)
                 held = []
                 try:
+                    # Each synthetic invocation gets a fresh enumeration offset.
+                    os.lseek(directory, 0, os.SEEK_SET)
                     with patch.object(loader, 'HELD', held), \
-                         patch.object(loader, 'parents', return_value=[(root, directory, root.stat())]), \
+                         patch.object(loader, 'parents', return_value=[(root, directory, synthetic_uid(root.stat()))]), \
+                         patch.object(loader.os, 'fstat', side_effect=lambda fd: synthetic_uid(real_fstat(fd))), \
+                         patch.object(loader.os, 'stat', side_effect=lambda *a, **k: synthetic_uid(real_stat(*a, **k))), \
+                         patch.object(loader, 'admit', wraps=loader.admit) as admit, \
                          patch.object(loader, 'recheck', side_effect=check), \
                          patch.object(loader.os, 'mkdir') as publish:
                         with self.assertRaises(RuntimeError):
                             loader.deliver(receipt_sha)
                         publish.assert_not_called()
+                        self.assertEqual([call.args[1] for call in admit.call_args_list],
+                                         ['receipt.json', *loader.CODE, *loader.ELFS])
                 finally:
                     for fd in held:
                         os.close(fd)
