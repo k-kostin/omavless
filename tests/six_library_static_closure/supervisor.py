@@ -10,7 +10,7 @@ import types
 STAGE = Path('/home/kdk_vm/.cache/t3-six-library-static-closure-review-1')
 PINS = {
     'owned.py': '473547131f72ac768b168370fb31f551b64a428520828ca47e200cd46885eefa',
-    'probe.py': 'ab7699f6df898bba9aade8a951ac76725a6203b8e03a310b24626a0e98c804a0',
+    'probe.py': '50c3ecb552fe9232d0bb8803d12e1f4eb618d7328cdda32c9a95aa4aed176fff',
     'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
     'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
     'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87',

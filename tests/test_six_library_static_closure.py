@@ -258,7 +258,7 @@ class ClosureTests(unittest.TestCase):
                 self.assertEqual(sources.state, 'refused')
 
     def test_final_full_typed_write_flush_deadline_and_permanent_success_seal(self):
-        for fault in ('none','short','float','bool','write','flush','late','success'):
+        for fault in ('none','short','float','bool','write','flush','late_write','late','success'):
             obj = probe.Sources({})
             stream = Mock()
             stream.buffer.write.side_effect = lambda raw: len(raw)
@@ -269,6 +269,11 @@ class ClosureTests(unittest.TestCase):
                 stream.buffer.write.side_effect = OSError('inert')
             elif fault == 'flush':
                 stream.buffer.flush.side_effect = OSError('inert')
+            elif fault == 'late_write':
+                def late_write(raw):
+                    obj.deadline = 0
+                    return len(raw)
+                stream.buffer.write.side_effect = late_write
             elif fault == 'late':
                 stream.buffer.flush.side_effect = lambda: setattr(obj,'deadline',0)
             events = probe.Events()
@@ -281,6 +286,8 @@ class ClosureTests(unittest.TestCase):
                     with self.assertRaises((RuntimeError,OSError)):
                         probe.emit_result({},obj)
                     self.assertEqual(obj.state,'refused')
+                    if fault == 'late_write':
+                        stream.buffer.flush.assert_not_called()
                 self.assertTrue(events.sealed)
                 calls = stream.buffer.write.call_count
                 with self.assertRaises(RuntimeError):

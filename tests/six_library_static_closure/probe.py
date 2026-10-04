@@ -473,6 +473,7 @@ def emit_result(result, sources):
         sources.available()
         written = sys.stdout.buffer.write(raw)
         require(type(written) is int and written == len(raw))
+        sources.available()
         sys.stdout.buffer.flush()
         sources.available()
         sources.state = 'sealed'
