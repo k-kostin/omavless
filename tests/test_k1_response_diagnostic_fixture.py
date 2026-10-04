@@ -546,6 +546,9 @@ class Flow(unittest.TestCase):
                           'fixture.service': SUPPORT.parent / 'fixtures' / guard.UNIT}.items():
             self.assertEqual(stage.MEMBERS[name][0], hashlib.sha256(path.read_bytes()).hexdigest())
         self.assertEqual(stage.MEMBERS['probe'][0], guard.PROBE_SHA)
+        self.assertEqual(guard.PROBE_SHA,
+                         'b9b07d98dfcfdbe13b9bbedc033769d5590327b4ea51770f46c165eb4385e5f5')
+        self.assertEqual(guard.NATIVE_SOURCE, '4c8e0c9f3b7aab2b7387f58c711220d9dd4a20f6')
         self.assertEqual(stage.DESTINATION, guard.STAGE)
 
     def lifecycle(self):

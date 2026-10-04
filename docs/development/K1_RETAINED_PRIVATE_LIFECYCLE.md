@@ -202,3 +202,32 @@ module was renamed rather than weakening that assertion. Primary-source review
 also corrected the initial synthetic sixteen-zero-byte InvocationID hypothesis
 to the exact empty-array wire representation before any freeze or guest run.
 These intermediate results do not replace corrected-head verification.
+
+## Reviewed native freeze checkpoint
+
+Corrected native source `4c8e0c9f3b7aab2b7387f58c711220d9dd4a20f6`
+passed the full source gate (667 tests, two skips, frontend/QML) and full Rust
+gate (129 suites, 2,158 passed, zero failed, 85 ignored, formatting, strict
+workspace/TUI Clippy, terminal and parity). Parent and independent source
+review found no blocker in the retained lifecycle and reached graph.
+
+A fresh exclusive host build used locked offline Cargo, the library test
+target and `--no-run`; the actual build completed with exit zero. The native
+ELF is 78,128,704 bytes, SHA-256
+`b9b07d98dfcfdbe13b9bbedc033769d5590327b4ea51770f46c165eb4385e5f5`.
+The separately reviewed fixed host freeze completed with exit zero. It retained
+the original single-link mode-0700 build ELF without modification and published
+one exclusive single-link mode-0500 frozen ELF through original descriptors.
+Strict build JSON, known-zero terminal receipt, original/frozen metadata,
+ancestor continuity, hashes, no-xattrs and complete two-member readback were
+checked. The private frozen receipt SHA-256 is
+`3a7292ebfb58c63076e9fec220a0a6dddf55ee406303a4bce3980f73b9297172`.
+Nine inert freeze controls passed; checked elapsed budgets are not a promise
+to cancel blocked filesystem syscalls. The original host artifacts and receipts
+remain outside Git.
+
+The guard now pins that exact native source and frozen ELF; the staging guard
+hash is recomputed in acyclic order. Native source bytes and fixture behavior
+are unchanged. This is host build provenance, not guest execution, lifecycle
+acceptance or a production kill-switch claim. Private delivery and any VM
+invocation still require their separate review and exclusive authorization.

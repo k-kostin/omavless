@@ -10,10 +10,10 @@ import sys
 SOURCE = Path('/home/kdk_vm/.cache/k1-retained-private-stage-v1')
 DESTINATION = Path('/run/omavless-k1-retained-private-lifecycle')
 MEMBERS = {
-    'probe': ('0000000000000000000000000000000000000000000000000000000000000000', 0o500, 0o500, 128 * 1024 * 1024),
+    'probe': ('b9b07d98dfcfdbe13b9bbedc033769d5590327b4ea51770f46c165eb4385e5f5', 0o500, 0o500, 128 * 1024 * 1024),
     'query-guard.py': ('69d840b5a014f501b0246c78a4e9fa486ad31b86dea31f72eb8ad64e0bcb8f45', 0o400, 0o600, 256 * 1024),
     'fixture.service': ('198730a79751ccee045c6173d4cbb75db7ece33a784f5390f255cb65aa5e72b5', 0o400, 0o600, 16384),
-    'guard.py': ('fb2199aeaeb07e79e3093874b74f7d22ef7178efb88a1d6259dbd5e67699941e', 0o400, 0o500, 256 * 1024),
+    'guard.py': ('f2f126446ceb7f3611b2e67c7f51ffd91c0c7b35365a03fb2567ee8064021bd2', 0o400, 0o500, 256 * 1024),
 }
 
 
