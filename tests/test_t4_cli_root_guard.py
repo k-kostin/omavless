@@ -15,6 +15,46 @@ from tests.first_abort_process import vm_guard as owned_core
 
 
 class GuardTests(unittest.TestCase):
+    def test_mail_defaults_requires_one_exact_no_never_override_or_warning(self):
+        for raw in (b'CREATE_MAIL_SPOOL=no\n', b'# comment\nGROUP=100\nCREATE_MAIL_SPOOL=no\n'):
+            guard.mail_spool_disabled(raw)
+        for raw in (b'', b'GROUP=100\n', b'CREATE_MAIL_SPOOL=yes\n',
+                    b'CREATE_MAIL_SPOOL=no\nCREATE_MAIL_SPOOL=no\n',
+                    b'CREATE_MAIL_SPOOL=no\nCREATE_MAIL_SPOOL=yes\n',
+                    b' CREATE_MAIL_SPOOL=no\n', b'CREATE_MAIL_SPOOL="no"\n',
+                    b'CREATE_MAIL_SPOOL=no # ignored?\n', b'CREATE_MAIL_SPOOL=no\r\n',
+                    b'CREATE_MAIL_SPOOL=no\0', b'x'*65537):
+            self.core.UNCERTAIN = False
+            with self.subTest(raw=raw[:32]), self.assertRaises(guard.Refused):
+                guard.mail_spool_disabled(raw)
+        self.core.UNCERTAIN = False
+
+    def test_fresh_instance_absence_rechecks_before_effect(self):
+        obj = guard.Guard.__new__(guard.Guard)
+        parent = SimpleNamespace(rows=[(Path('/fixed'), 17, None)], recheck=Mock())
+        with patch.object(guard.os, 'stat', side_effect=FileNotFoundError) as read:
+            obj.check_fresh_instances(parent, None)
+            self.assertEqual(read.call_count, 4)
+            self.assertEqual(parent.recheck.call_count, 2)
+        with patch.object(guard.os, 'stat', return_value=object()), self.assertRaises(guard.Refused):
+            obj.check_fresh_instances(parent, 'missing-root')
+
+    def test_account_argv_no_unsupported_mail_key_and_no_effect_after_failure(self):
+        obj = guard.Guard.__new__(guard.Guard)
+        obj.source_recheck = Mock()
+        obj.run_child = Mock(side_effect=[(0,b'',b''), RuntimeError('known refusal')])
+        with patch.object(guard.os,'mkdir') as mkdir, self.assertRaises(RuntimeError):
+            obj.create_account()
+        mkdir.assert_not_called()
+        argv = obj.run_child.call_args_list[1].args[0]
+        self.assertIn('--no-create-home',argv)
+        self.assertIn('--no-log-init',argv)
+        self.assertNotIn('CREATE_MAIL_SPOOL=no',argv)
+        self.assertIn('SUB_UID_COUNT=0',argv)
+        self.assertIn('SUB_GID_COUNT=0',argv)
+        self.assertIn('48045',argv)
+        self.assertNotIn('48044',argv)
+
     def setUp(self):
         self.core = SimpleNamespace(UNCERTAIN=False, snapshot=Mock(return_value={'network': {}}),
                                     network_equal=Mock(return_value=True))
@@ -276,11 +316,11 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v2'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v3'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v2'))
-        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v1'))
-        self.assertEqual(guard.RUNTIME, Path('/run/user/48044'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v3'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v2'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48045'))
 
     def test_loader_capacity_separate_and_shared_devices(self):
         for devices, amounts, accepted in (
@@ -305,7 +345,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v2',
+            value = {'schema': 't4-disposable-cli-delivery-v3',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

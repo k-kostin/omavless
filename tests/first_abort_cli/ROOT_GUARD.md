@@ -1,5 +1,10 @@
 # Fixed disposable UID normal-CLI guard
 
+The [fresh-account successor](FRESH_ACCOUNT.md) records #624's actual NONPASS
+and the new fixed generation/defaults gate. The cache-generation identities
+below are preserved historical context, not permission to reuse UID48044 or
+its old helper for the successor.
+
 ## Cache-delivery successor
 
 This source-only generation follows immutable #617
