@@ -54,6 +54,9 @@ This diagnostic checkpoint is not a VM-ready build. The fresh source proposal
 uses UID/GID48049, account `ov-t4-abort-v6`, HOME `/home/ov-t4-abort-v6`, runtime
 `/run/user/48049`, delivery `/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v8`,
 root stage `/run/ov-t4-cli-guard-v8` and receipt schema v8. Absence is not asserted.
+Native source checkpoint is `bf650713ed6daa066b38bbe8c1ed608f8a36534c`;
+both the guard and trusted loader admit only that native pin. Their later source
+checkpoint must be source-equivalent for Rust/Cargo, not relabeled as that build.
 The inherited v7 receipts are historical only: exact new source/native/build
 pins, full source/Rust gates, new
 frozen originals and reviewed HOST/guest proposals are mandatory before ROOT's
