@@ -34,9 +34,12 @@ class AtomicAckBoundaryTests(unittest.TestCase):
         ]:
             self.assertNotIn(forbidden, source)
         self.assertRegex(source, r"#\[cfg\(test\)\]\s+pub\(super\) fn drift_batch")
-        # All construction sites are the two normal fixed encoders and one
-        # fixed test-only negative fixture, never an arbitrary-message adapter.
-        self.assertEqual(len(re.findall(r"Ok\(AtomicBatch\(", source)), 3)
+        self.assertRegex(source, r"#\[cfg\(test\)\]\s+pub\(super\) fn lease_generation_cut_batch")
+        # Two normal fixed encoders and two literal test-only negative fixtures;
+        # neither negative constructor accepts a table, rule or raw message.
+        self.assertEqual(len(re.findall(r"Ok\(AtomicBatch\(", source)), 4)
+        self.assertIn('fn lease_generation_cut_batch(generation: u32, first: u32)', source)
+        self.assertIn('b"k1_retained_lease_cut\\0"', source)
 
     def test_observer_loss_prefixes_and_distinct_legacy_contract_are_preserved(self):
         source = (SRC / "kernel_creator_lifecycle_tests.rs").read_text()

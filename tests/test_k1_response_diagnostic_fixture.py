@@ -342,7 +342,9 @@ class Flow(unittest.TestCase):
         src = ROOT / 'crates/omavless-netguard/src'
         new = (src / 'kernel_response_diagnostic_fixture.rs').read_text()
         self.assertNotIn('File::open("/proc/1/ns/net")', new)
-        self.assertIn('Witness::read(host_id)', new)
+        self.assertIn('Self::capture_using(Witness::read)', new)
+        self.assertIn('let witness = read(host_id)', new)
+        self.assertIn('Self::capture_using(Witness::read_lease_regression)', new)
         self.assertIn('self.witness.recheck(self.host_id)', new)
         run = new.split('fn run(held: &mut Held)')[1]
         self.assertLess(run.index('held.isolation.recheck()?'),run.index('FixtureCreator::open'))
@@ -368,7 +370,12 @@ class Flow(unittest.TestCase):
         self.assertIn('"StopUnit"', adapter)
         for forbidden in ('SetProperties', 'StartTransientUnit', 'RestartUnit', 'KillUnit'):
             self.assertNotIn(forbidden, adapter)
-        self.assertIn('&(UNIT, "fail")', adapter)
+        self.assertIn('&(self.fixture.unit(), "fail")', adapter)
+        identities = (src / 'manager_fixture_identity.rs').read_text()
+        self.assertIn('pub(crate) enum Fixture', identities)
+        self.assertIn('PrivateLifecycle,', identities)
+        self.assertIn('RetainedLease,', identities)
+        self.assertNotIn('Deserialize', identities)
 
     def fixture(self):
         obj = object.__new__(guard.Observer)

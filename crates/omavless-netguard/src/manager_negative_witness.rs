@@ -59,11 +59,19 @@ struct Receipt {
 }
 impl Receipt {
     fn decode(raw: &[u8], stage: (u64, u64), namespace: (u64, u64)) -> Result<Self> {
+        Self::decode_unit(raw, stage, namespace, UNIT)
+    }
+    fn decode_unit(
+        raw: &[u8],
+        stage: (u64, u64),
+        namespace: (u64, u64),
+        unit: &str,
+    ) -> Result<Self> {
         require(!raw.is_empty() && raw.len() <= LIMIT)?;
         let value: Self = serde_json::from_slice(raw).map_err(|_| ())?;
         require(
             value.schema == 1
-                && value.fixture_unit == UNIT
+                && value.fixture_unit == unit
                 && (value.stage_device, value.stage_inode) == stage
                 && (value.namespace_device, value.namespace_inode) == namespace
                 && stage.0 != 0
@@ -126,6 +134,7 @@ pub(crate) struct Witness {
     initial: Metadata,
     hash: [u8; 32],
     namespace: (u64, u64),
+    unit: &'static str,
 }
 impl Witness {
     fn directories() -> Result<Vec<Directory>> {
@@ -134,10 +143,32 @@ impl Witness {
             .map(|p| Directory::open(Path::new(p), p == STAGE, (0, 0)))
             .collect()
     }
+    fn directories_for(
+        fixture: crate::manager_fixture_identity::Fixture,
+    ) -> Result<Vec<Directory>> {
+        let stage = fixture.stage();
+        ["/", "/run", stage]
+            .into_iter()
+            .map(|p| Directory::open(Path::new(p), p == stage, (0, 0)))
+            .collect()
+    }
     pub(crate) fn read(namespace: (u64, u64)) -> Result<Self> {
         Self::from_dirs(Self::directories()?, namespace, (0, 0))
     }
+    pub(crate) fn read_lease_regression(namespace: (u64, u64)) -> Result<Self> {
+        let fixture = crate::manager_fixture_identity::Fixture::RetainedLease;
+        let dirs = Self::directories_for(fixture)?;
+        Self::from_dirs_unit(dirs, namespace, (0, 0), fixture.unit())
+    }
     fn from_dirs(dirs: Vec<Directory>, namespace: (u64, u64), owner: (u32, u32)) -> Result<Self> {
+        Self::from_dirs_unit(dirs, namespace, owner, UNIT)
+    }
+    fn from_dirs_unit(
+        dirs: Vec<Directory>,
+        namespace: (u64, u64),
+        owner: (u32, u32),
+        unit: &'static str,
+    ) -> Result<Self> {
         let stage = dirs.last().ok_or(())?;
         let file: File = openat(
             &stage.file,
@@ -162,6 +193,7 @@ impl Witness {
             initial,
             hash: [0; 32],
             namespace,
+            unit,
         };
         value.hash = Sha256::digest(value.bytes()?).into();
         value.recheck(namespace)?;
@@ -196,7 +228,12 @@ impl Witness {
         check()?;
         let raw = self.bytes()?;
         require(<[u8; 32]>::from(Sha256::digest(&raw)) == self.hash)?;
-        Receipt::decode(&raw, (stage.initial.dev(), stage.initial.ino()), namespace)?;
+        Receipt::decode_unit(
+            &raw,
+            (stage.initial.dev(), stage.initial.ino()),
+            namespace,
+            self.unit,
+        )?;
         check()?;
         for dir in &self.dirs {
             dir.recheck()?;
@@ -213,15 +250,18 @@ pub(crate) struct RootWitness {
 }
 impl RootWitness {
     pub(crate) fn capture() -> Result<Self> {
+        Self::capture_for(crate::manager_fixture_identity::Fixture::PrivateLifecycle)
+    }
+    pub(crate) fn capture_for(fixture: crate::manager_fixture_identity::Fixture) -> Result<Self> {
         let host = File::open("/proc/1/ns/net").map_err(|_| ())?;
         let own = File::open("/proc/thread-self/ns/net").map_err(|_| ())?;
         let namespace = identity(&host)?;
         require(namespace == identity(&own)?)?;
-        let dirs = Witness::directories()?;
+        let dirs = Witness::directories_for(fixture)?;
         let stage = dirs.last().ok_or(())?;
         let value = Receipt {
             schema: 1,
-            fixture_unit: UNIT.into(),
+            fixture_unit: fixture.unit().into(),
             stage_device: stage.initial.dev(),
             stage_inode: stage.initial.ino(),
             namespace_device: namespace.0,
@@ -230,7 +270,12 @@ impl RootWitness {
             canonical_authority: false,
         };
         let raw = serde_json::to_vec(&value).map_err(|_| ())?;
-        Receipt::decode(&raw, (stage.initial.dev(), stage.initial.ino()), namespace)?;
+        Receipt::decode_unit(
+            &raw,
+            (stage.initial.dev(), stage.initial.ino()),
+            namespace,
+            fixture.unit(),
+        )?;
         // Validate all witnesses before exclusive publication, not afterwards only.
         for dir in &dirs {
             dir.recheck()?;
@@ -252,7 +297,7 @@ impl RootWitness {
         file.sync_all().map_err(|_| ())?;
         stage.file.sync_all().map_err(|_| ())?;
         // Compare publication FD to newly retained read FD before releasing writer.
-        let receipt = Witness::from_dirs(dirs, namespace, (0, 0))?;
+        let receipt = Witness::from_dirs_unit(dirs, namespace, (0, 0), fixture.unit())?;
         require(meta(&file.metadata().map_err(|_| ())?) == meta(&receipt.initial))?;
         let value = Self { host, own, receipt };
         value.recheck()?;
@@ -419,5 +464,15 @@ mod tests {
         std::fs::write(path.join("file"), b"net:[9]").unwrap();
         assert!(identity(&File::open(path.join("file")).unwrap()).is_err());
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn retained_lease_identity_never_accepts_the_old_lifecycle_receipt() {
+        const NEW: &str = "omavless-k1-retained-lease-regression.service";
+        let old = sample((2, 3));
+        assert!(Receipt::decode_unit(&old, (2, 3), (5, 9), NEW).is_err());
+        let new = String::from_utf8(old).unwrap().replace(UNIT, NEW);
+        assert!(Receipt::decode(new.as_bytes(), (2, 3), (5, 9)).is_err());
+        assert!(Receipt::decode_unit(new.as_bytes(), (2, 3), (5, 9), NEW).is_ok());
     }
 }

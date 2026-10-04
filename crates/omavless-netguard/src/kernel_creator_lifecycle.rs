@@ -23,6 +23,8 @@ struct FixtureCreator {
     send_cut: send_return_cut::OneShotSendCut,
     cut_after_effect: bool,
     change_generation_before_send: bool,
+    retained_generation_cut: Option<Box<FixtureCreator>>,
+    generation_refused: bool,
     state_parent: std::path::PathBuf,
 }
 impl FixtureCreator {
@@ -46,6 +48,8 @@ impl FixtureCreator {
             send_cut: send_return_cut::OneShotSendCut::default(),
             cut_after_effect: false,
             change_generation_before_send: false,
+            retained_generation_cut: None,
+            generation_refused: false,
             state_parent,
         })
     }
@@ -125,6 +129,7 @@ impl FixtureCreator {
             end_ack_loss: &mut self.end_ack_loss,
             prefix_ack_loss: &mut self.prefix_ack_loss,
             send_cut: &mut self.send_cut,
+            generation_refused: &mut self.generation_refused,
         }
         .send_batch(requests, deadline)
     }
@@ -160,6 +165,18 @@ impl FixtureCreator {
             if self.change_generation_before_send {
                 tests::fixed_foreign_change();
             }
+            if let Some(cut) = &mut self.retained_generation_cut {
+                // Fixed cfg(test)-only second socket, retained even on failure.
+                // No subprocess, arbitrary rule, cleanup or receipt adoption.
+                require(cut.effects == 0 && cut.retained_generation_cut.is_none())?;
+                cut.send_batch(
+                    atomic_batch::lease_generation_cut_batch(
+                        lease.generation,
+                        cut.session.next_sequence,
+                    )?,
+                    deadline.min(lease.deadline),
+                )?;
+            }
             lease.recheck()?;
             let requests = full_batch(
                 lease.generation,
@@ -173,6 +190,7 @@ impl FixtureCreator {
                 end_ack_loss: &mut self.end_ack_loss,
                 prefix_ack_loss: &mut self.prefix_ack_loss,
                 send_cut: &mut self.send_cut,
+                generation_refused: &mut self.generation_refused,
             }
             .send_batch(requests, deadline.min(lease.deadline))?;
             let (inventory, _, table) = self.inspect()?;
@@ -270,6 +288,9 @@ mod private_admission;
 #[path = "kernel_response_diagnostic_fixture.rs"]
 mod response_diagnostic;
 
+#[path = "kernel_retained_lease_fixture.rs"]
+mod retained_lease;
+
 /// Split borrows keep the real readback's exclusive session borrow across the
 /// conditional send; fault injection and counters remain fixture-only.
 struct BatchSender<'a> {
@@ -279,6 +300,7 @@ struct BatchSender<'a> {
     end_ack_loss: &'a mut end_ack_loss::OneShotEndAckLoss,
     prefix_ack_loss: &'a mut prefix_ack_loss::OneShotPrefixAckLoss,
     send_cut: &'a mut send_return_cut::OneShotSendCut,
+    generation_refused: &'a mut bool,
 }
 impl BatchSender<'_> {
     fn send_batch(&mut self, requests: AtomicBatch, deadline: Instant) -> Result<()> {
@@ -375,6 +397,8 @@ impl BatchSender<'_> {
             }
         }
         self.session.check(deadline)?;
-        require(Instant::now() < deadline && !replies.changed())
+        require(Instant::now() < deadline)?;
+        *self.generation_refused = replies.changed();
+        require(!replies.changed())
     }
 }

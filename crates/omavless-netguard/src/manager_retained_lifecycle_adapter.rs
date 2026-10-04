@@ -1,5 +1,6 @@
 //! Fixed developer-only bus/file adapter; no production IPC or caller paths.
 use super::*;
+use crate::manager_fixture_identity::Fixture;
 use crate::manager_response_diagnostic_fixture as admission;
 use crate::manager_response_diagnostic_permissions as permissions;
 use serde_json::{Value, json};
@@ -204,19 +205,23 @@ struct Execution {
 }
 
 fn execution(f: &Facts, finished: bool) -> Result<Execution> {
+    execution_for(Fixture::PrivateLifecycle, f, finished)
+}
+
+fn execution_for(fixture: Fixture, f: &Facts, finished: bool) -> Result<Execution> {
     let value = f.get("ExecStart").ok_or(())?;
     ensure(value.value_signature() == Vec::<Exec>::SIGNATURE)?;
     let values = Vec::<Exec>::try_from(value.try_clone().map_err(|_| ())?).map_err(|_| ())?;
     ensure(values.len() == 1)?;
     let e = &values[0];
-    let probe = format!("{STAGE}/probe");
+    let probe = format!("{}/probe", fixture.stage());
     ensure(
         e.0 == probe
             && e.1
                 == [
                     probe,
                     "--exact".into(),
-                    WRITER.into(),
+                    fixture.writer().into(),
                     "--ignored".into(),
                     "--nocapture".into(),
                     "--test-threads=1".into(),
@@ -278,10 +283,14 @@ fn execution(f: &Facts, finished: bool) -> Result<Execution> {
 }
 
 fn common_phase(f: &Facts, job: &Job) -> Result<bool> {
-    permissions::check_lifecycle_stable(f)?;
+    common_phase_for(Fixture::PrivateLifecycle, f, job)
+}
+
+fn common_phase_for(fixture: Fixture, f: &Facts, job: &Job) -> Result<bool> {
+    permissions::check_lifecycle_stable_for(fixture, f)?;
     ensure(string(f, "Result")? == "success" && u32_field(f, "NRestarts")? == 0)?;
     let cg = string(f, "ControlGroup")?;
-    ensure(cg.is_empty() || cg == format!("/system.slice/{UNIT}"))?;
+    ensure(cg.is_empty() || cg == format!("/system.slice/{}", fixture.unit()))?;
     let current = job_field(f)?;
     if current == (0, "/".into()) {
         Ok(false)
@@ -292,7 +301,11 @@ fn common_phase(f: &Facts, job: &Job) -> Result<bool> {
 }
 
 fn never_started(f: &Facts) -> Result<()> {
-    permissions::check(f, f)?;
+    never_started_for(Fixture::PrivateLifecycle, f)
+}
+
+fn never_started_for(fixture: Fixture, f: &Facts) -> Result<()> {
+    permissions::check_for(fixture, f, f)?;
     ensure(
         string(f, "Result")? == "success"
             && u32_field(f, "NRestarts")? == 0
@@ -309,23 +322,27 @@ fn never_started(f: &Facts) -> Result<()> {
 }
 
 fn start_phase(f: &Facts, job: &Job) -> Result<Option<Execution>> {
-    let pending_job = common_phase(f, job)?;
+    start_phase_for(Fixture::PrivateLifecycle, f, job)
+}
+
+fn start_phase_for(fixture: Fixture, f: &Facts, job: &Job) -> Result<Option<Execution>> {
+    let pending_job = common_phase_for(fixture, f, job)?;
     match (
         string(f, "ActiveState")?.as_str(),
         string(f, "SubState")?.as_str(),
     ) {
         ("inactive", "dead") => {
             ensure(pending_job)?;
-            never_started(f)?;
+            never_started_for(fixture, f)?;
             Ok(None)
         }
         ("activating", "start") => {
             ensure(pending_job)?;
-            execution(f, false)?;
+            execution_for(fixture, f, false)?;
             Ok(None)
         }
         ("active", "exited") => {
-            let complete = execution(f, true)?;
+            let complete = execution_for(fixture, f, true)?;
             if pending_job {
                 Ok(None)
             } else {
@@ -337,8 +354,12 @@ fn start_phase(f: &Facts, job: &Job) -> Result<Option<Execution>> {
 }
 
 fn stop_phase(f: &Facts, job: &Job, prior: &Execution) -> Result<bool> {
-    let pending_job = common_phase(f, job)?;
-    ensure(execution(f, true)? == *prior)?;
+    stop_phase_for(Fixture::PrivateLifecycle, f, job, prior)
+}
+
+fn stop_phase_for(fixture: Fixture, f: &Facts, job: &Job, prior: &Execution) -> Result<bool> {
+    let pending_job = common_phase_for(fixture, f, job)?;
+    ensure(execution_for(fixture, f, true)? == *prior)?;
     match (
         string(f, "ActiveState")?.as_str(),
         string(f, "SubState")?.as_str(),
@@ -357,8 +378,9 @@ fn stop_phase(f: &Facts, job: &Job, prior: &Execution) -> Result<bool> {
 }
 
 struct Real {
+    fixture: Fixture,
     witness: Option<crate::manager_negative_witness::RootWitness>,
-    admitted: admission::Held,
+    admitted: admission::Held<admission::FixedConnection>,
     dirs: Vec<Directory>,
     pins: Vec<Pin>,
     link: Metadata,
@@ -381,6 +403,20 @@ struct NativeReceipt {
     full_inventory: bool,
     second_socket_untrusted: bool,
     absent: bool,
+}
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct LeaseReceipt {
+    schema: u32,
+    synthetic_epoch: bool,
+    effects: u32,
+    replacement: bool,
+    full_inventory: bool,
+    absent: bool,
+    generation_refused: bool,
+    refused_send_attempts: u32,
+    generation_cut_effects: u32,
+    pending_retained: bool,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -407,12 +443,22 @@ struct RetiredReceipt {
 }
 
 fn native_json(index: usize, raw: &[u8]) -> Result<Value> {
+    native_json_for(Fixture::PrivateLifecycle, index, raw)
+}
+
+fn native_json_for(fixture: Fixture, index: usize, raw: &[u8]) -> Result<Value> {
     // Struct deserialization rejects duplicate and unknown fields, wrong
     // integer/boolean types and malformed fixed-size epoch arrays.
     match index {
+        0 if fixture == Fixture::RetainedLease => {
+            serde_json::to_value(serde_json::from_slice::<LeaseReceipt>(raw).map_err(|_| ())?)
+        }
         0 => serde_json::to_value(serde_json::from_slice::<NativeReceipt>(raw).map_err(|_| ())?),
         1 => serde_json::to_value(serde_json::from_slice::<ArmedReceipt>(raw).map_err(|_| ())?),
         2 => serde_json::to_value(serde_json::from_slice::<RetiredReceipt>(raw).map_err(|_| ())?),
+        3 if fixture == Fixture::RetainedLease => {
+            serde_json::to_value(serde_json::from_slice::<RetiredReceipt>(raw).map_err(|_| ())?)
+        }
         _ => return Err(()),
     }
     .map_err(|_| ())
@@ -430,9 +476,10 @@ impl Real {
             pin.recheck(deep)?;
         }
         ensure(
-            meta(&self.link) == meta(&std::fs::symlink_metadata(LINK).map_err(|_| ())?)
-                && std::fs::read_link(LINK).map_err(|_| ())?
-                    == Path::new(STAGE).join("fixture.service"),
+            meta(&self.link)
+                == meta(&std::fs::symlink_metadata(self.fixture.fragment()).map_err(|_| ())?)
+                && std::fs::read_link(self.fixture.fragment()).map_err(|_| ())?
+                    == Path::new(self.fixture.stage()).join("fixture.service"),
         )
     }
     fn write(&self, name: &str, value: &Value) -> Result<()> {
@@ -458,6 +505,7 @@ impl Real {
         )?;
         self.admitted
             .connection
+            .connection
             .call_method(
                 Some(self.owner.as_str()),
                 path,
@@ -470,7 +518,7 @@ impl Real {
     fn snapshot(&mut self, label: &'static str) -> Result<Facts> {
         let reply = self.rpc(
             label,
-            UNIT_PATH,
+            self.fixture.unit_path(),
             "org.freedesktop.DBus.Properties",
             "GetAll",
             &("",),
@@ -511,6 +559,7 @@ impl Real {
         Ok(fields)
     }
     fn empty_cgroup(&self) -> Result<()> {
+        let cgroup = self.fixture.cgroup();
         let parents = [
             "/sys",
             "/sys/fs",
@@ -520,22 +569,22 @@ impl Real {
         .iter()
         .map(|p| Directory::open(Path::new(p), false))
         .collect::<Result<Vec<_>>>()?;
-        match std::fs::symlink_metadata(CGROUP) {
+        match std::fs::symlink_metadata(cgroup) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 for dir in &parents {
                     dir.recheck()?;
                 }
                 ensure(
-                    matches!(std::fs::symlink_metadata(CGROUP), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
+                    matches!(std::fs::symlink_metadata(cgroup), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
                 )
             }
             Err(_) => Err(()),
             Ok(_) => {
-                let directory = Directory::open(Path::new(CGROUP), false)?;
+                let directory = Directory::open(Path::new(cgroup), false)?;
                 for _ in 0..2 {
                     for (name, require_empty) in [("cgroup.procs", true), ("cgroup.events", false)]
                     {
-                        let path = Path::new(CGROUP).join(name);
+                        let path = Path::new(cgroup).join(name);
                         let file = OpenOptions::new()
                             .read(true)
                             .custom_flags(
@@ -573,62 +622,93 @@ impl Real {
         }
     }
     fn native(&mut self) -> Result<()> {
-        for directory in [
-            format!("{STAGE}/state"),
-            format!("{STAGE}/state/omavless-netguard"),
-        ] {
+        let stage = self.fixture.stage();
+        let mut directories = vec![
+            format!("{stage}/state"),
+            format!("{stage}/state/omavless-netguard"),
+        ];
+        if self.fixture == Fixture::RetainedLease {
+            directories.extend([
+                format!("{stage}/generation-state"),
+                format!("{stage}/generation-state/omavless-netguard"),
+            ]);
+        }
+        for directory in directories {
             self.dirs
                 .push(Directory::open(Path::new(&directory), true)?);
         }
-        let names = [
+        let mut names = vec![
             "native-result.json",
             "state/omavless-netguard/armed-v1.json",
             "state/omavless-netguard/table-receipt-v1.json",
         ];
+        if self.fixture == Fixture::RetainedLease {
+            names.push("generation-state/omavless-netguard/table-receipt-v1.json");
+        }
         let mut values = Vec::new();
         for (index, name) in names.into_iter().enumerate() {
             self.pins
-                .push(Pin::open(Path::new(STAGE).join(name), 0o600, 16384)?);
+                .push(Pin::open(Path::new(stage).join(name), 0o600, 16384)?);
             let raw = self.pins.last().ok_or(())?.bytes()?;
-            values.push(native_json(index, &raw)?);
+            values.push(native_json_for(self.fixture, index, &raw)?);
         }
-        ensure(
-            values[0]
-                == json!({"schema":1,"synthetic_epoch":true,"effects":2,"full_inventory":true,"second_socket_untrusted":true,"absent":true}),
-        )?;
-        ensure(
-            values[1]
-                == json!({"version":1,"policy_version":1,"enrolled_uid":1001,"generation":7,"armed":false,"flags":0}),
-        )?;
-        let receipt = values[2].as_object().ok_or(())?;
-        ensure(
-            receipt.len() == 9
-                && receipt.get("version") == Some(&json!(1))
-                && receipt.get("enrolled_uid") == Some(&json!(1001))
-                && receipt.get("boot") == Some(&json!(vec![0x31; 16]))
-                && receipt.get("host_netns_epoch") == Some(&json!(vec![0x32; 16]))
-                && receipt.get("operation") == Some(&json!(2))
-                && receipt.get("phase") == Some(&json!("retired"))
-                && receipt.get("table_handle") == Some(&json!(0))
-                && receipt
-                    .get("netns_device")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|v| v > 0)
-                && receipt
-                    .get("netns_inode")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|v| v > 0),
-        )?;
+        validate_native(self.fixture, &values)?;
         self.empty_cgroup()?;
         self.recheck(true)
     }
+}
+
+fn validate_native(fixture: Fixture, values: &[Value]) -> Result<()> {
+    let lease = fixture == Fixture::RetainedLease;
+    ensure(values.len() == if lease { 4 } else { 3 })?;
+    let expected = if lease {
+        json!({"schema":1,"synthetic_epoch":true,"effects":3,"replacement":true,"full_inventory":true,"absent":true,"generation_refused":true,"refused_send_attempts":1,"generation_cut_effects":1,"pending_retained":true})
+    } else {
+        json!({"schema":1,"synthetic_epoch":true,"effects":2,"full_inventory":true,"second_socket_untrusted":true,"absent":true})
+    };
+    ensure(values[0] == expected)?;
+    ensure(
+        values[1]
+            == json!({"version":1,"policy_version":1,"enrolled_uid":1001,"generation":7,"armed":false,"flags":0}),
+    )?;
+    let receipt = values[2].as_object().ok_or(())?;
+    ensure(
+        receipt.len() == 9
+            && receipt.get("version") == Some(&json!(1))
+            && receipt.get("enrolled_uid") == Some(&json!(1001))
+            && receipt.get("boot") == Some(&json!(vec![0x31; 16]))
+            && receipt.get("host_netns_epoch") == Some(&json!(vec![0x32; 16]))
+            && receipt.get("operation") == Some(&json!(if lease { 3 } else { 2 }))
+            && receipt.get("phase") == Some(&json!("retired"))
+            && receipt.get("table_handle") == Some(&json!(0))
+            && receipt
+                .get("netns_device")
+                .and_then(Value::as_u64)
+                .is_some_and(|v| v > 0)
+            && receipt
+                .get("netns_inode")
+                .and_then(Value::as_u64)
+                .is_some_and(|v| v > 0),
+    )?;
+    if lease {
+        let mut pending = values[2].clone();
+        pending["operation"] = json!(1);
+        pending["phase"] = json!("pending_create");
+        ensure(values[3] == pending)?;
+    }
+    Ok(())
 }
 
 impl FixedLifecycle for Real {
     fn admit_retaining_reference(&mut self) -> Result<()> {
         self.recheck(true)?;
         ensure(self.witness.is_none())?;
-        self.witness = Some(crate::manager_negative_witness::RootWitness::capture()?);
+        self.witness = Some(match self.fixture {
+            Fixture::PrivateLifecycle => crate::manager_negative_witness::RootWitness::capture()?,
+            Fixture::RetainedLease => {
+                crate::manager_negative_witness::RootWitness::capture_for(self.fixture)?
+            }
+        });
         self.recheck(true)?;
         self.owner = admission::admit_retaining_reference(&self.admitted, || self.recheck(true))
             .map_err(|_| ())?;
@@ -637,7 +717,7 @@ impl FixedLifecycle for Real {
     fn start_once(&mut self) -> Result<Job> {
         self.recheck(true)?;
         let current = self.snapshot("pre-start")?;
-        never_started(&current)?;
+        never_started_for(self.fixture, &current)?;
         ensure(job_field(&current)? == (0, "/".into()))?;
         self.recheck(true)?;
         let reply = self.rpc(
@@ -645,7 +725,7 @@ impl FixedLifecycle for Real {
             "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager",
             "StartUnit",
-            &(UNIT, "fail"),
+            &(self.fixture.unit(), "fail"),
         )?;
         let path: OwnedObjectPath = admission::decode(&reply).map_err(|_| ())?;
         let job = Job::from_path(path.as_str())?;
@@ -654,11 +734,11 @@ impl FixedLifecycle for Real {
     }
     fn observe_start(&mut self, job: &Job) -> Result<StartObservation> {
         let current = self.snapshot("observe-start")?;
-        let completed = start_phase(&current, job)?;
+        let completed = start_phase_for(self.fixture, &current, job)?;
         let observed = if string(&current, "ActiveState")? == "activating" {
-            Some(execution(&current, false)?)
+            Some(execution_for(self.fixture, &current, false)?)
         } else if string(&current, "ActiveState")? == "active" {
-            Some(execution(&current, true)?)
+            Some(execution_for(self.fixture, &current, true)?)
         } else {
             None
         };
@@ -685,24 +765,30 @@ impl FixedLifecycle for Real {
     fn prove_native_completion(&mut self) -> Result<()> {
         self.native()?;
         self.native_verified = true;
-        self.write(
-            "lifecycle-native-proof.json",
-            &json!({"schema":1,"execution":self.completed,
-            "effects":2,"closed_retired":true,"absent":true,"synthetic_epoch":true}),
-        )
+        let mut proof = json!({"schema":1,"execution":self.completed,
+            "effects":if self.fixture == Fixture::RetainedLease {3} else {2},"closed_retired":true,"absent":true,"synthetic_epoch":true});
+        if self.fixture == Fixture::RetainedLease {
+            proof["replacement"] = json!(true);
+            proof["generation_refused"] = json!(true);
+            proof["pending_retained"] = json!(true);
+        }
+        self.write("lifecycle-native-proof.json", &proof)
     }
     fn stop_once(&mut self) -> Result<Job> {
         ensure(self.native_verified)?;
         self.recheck(true)?;
         let current = self.snapshot("pre-stop")?;
-        ensure(start_phase(&current, self.start.as_ref().ok_or(())?)? == self.completed)?;
+        ensure(
+            start_phase_for(self.fixture, &current, self.start.as_ref().ok_or(())?)?
+                == self.completed,
+        )?;
         self.empty_cgroup()?;
         let reply = self.rpc(
             "stop",
             "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager",
             "StopUnit",
-            &(UNIT, "fail"),
+            &(self.fixture.unit(), "fail"),
         )?;
         let path: OwnedObjectPath = admission::decode(&reply).map_err(|_| ())?;
         let job = Job::from_path(path.as_str())?;
@@ -712,7 +798,12 @@ impl FixedLifecycle for Real {
     }
     fn observe_stop(&mut self, job: &Job) -> Result<StopObservation> {
         let current = self.snapshot("observe-stop")?;
-        if stop_phase(&current, job, self.completed.as_ref().ok_or(())?)? {
+        if stop_phase_for(
+            self.fixture,
+            &current,
+            job,
+            self.completed.as_ref().ok_or(())?,
+        )? {
             Ok(StopObservation::Completed)
         } else {
             Ok(StopObservation::Pending)
@@ -735,17 +826,23 @@ impl FixedLifecycle for Real {
             "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager",
             "UnrefUnit",
-            &(UNIT,),
+            &(self.fixture.unit(),),
         )?;
         admission::decode::<()>(&reply).map_err(|_| ())
     }
     fn publish_terminal_receipt(&mut self) -> Result<()> {
         self.recheck(true)?;
-        self.write("lifecycle-result.json", &json!({"schema":1,"unit":UNIT,"unique_owner":self.owner,
+        let mut result = json!({"schema":1,"unit":self.fixture.unit(),"unique_owner":self.owner,
             "start_job":{"id":self.start.as_ref().ok_or(())?.id,"path":self.start.as_ref().ok_or(())?.path},
             "stop_job":{"id":self.stop.as_ref().ok_or(())?.id,"path":self.stop.as_ref().ok_or(())?.path},
-            "execution":self.completed,"effects":2,"closed_retired":true,"absent":true,
-            "stopped":true,"unref_acknowledged":true,"synthetic_epoch":true,"production_admission":false}))
+            "execution":self.completed,"effects":if self.fixture == Fixture::RetainedLease {3} else {2},"closed_retired":true,"absent":true,
+            "stopped":true,"unref_acknowledged":true,"synthetic_epoch":true,"production_admission":false});
+        if self.fixture == Fixture::RetainedLease {
+            result["replacement"] = json!(true);
+            result["generation_refused"] = json!(true);
+            result["pending_retained"] = json!(true);
+        }
+        self.write("lifecycle-result.json", &result)
     }
     fn now(&mut self) -> Instant {
         Instant::now()
@@ -758,15 +855,30 @@ impl FixedLifecycle for Real {
 #[test]
 #[ignore = "fixed private manager lifecycle; root review and exclusive VM lease required"]
 fn run_private_lifecycle() {
-    assert_eq!(
-        std::env::var("OMAVLESS_K1_RETAINED_LIFECYCLE").as_deref(),
-        Ok("1")
+    run_fixed(
+        Fixture::PrivateLifecycle,
+        TEST,
+        "OMAVLESS_K1_RETAINED_LIFECYCLE",
     );
+}
+
+#[test]
+#[ignore = "fixed fresh retained lease regression; root review and exclusive VM lease required"]
+fn run_retained_lease() {
+    run_fixed(
+        Fixture::RetainedLease,
+        "manager_retained_lifecycle::adapter::run_retained_lease",
+        "OMAVLESS_K1_RETAINED_LEASE",
+    );
+}
+
+fn run_fixed(fixture: Fixture, test: &'static str, environment: &'static str) {
+    assert_eq!(std::env::var(environment).as_deref(), Ok("1"));
     assert_eq!(
         std::env::args().skip(1).collect::<Vec<_>>(),
         [
             "--exact",
-            TEST,
+            test,
             "--ignored",
             "--nocapture",
             "--test-threads=1"
@@ -775,16 +887,27 @@ fn run_private_lifecycle() {
     assert_eq!(nix::unistd::getuid().as_raw(), 0);
     assert_eq!(nix::unistd::geteuid().as_raw(), 0);
     let build = || -> Result<Real> {
+        let stage_path = fixture.stage();
         let mut dirs = Vec::new();
-        for path in ["/", "/run", "/run/systemd", "/run/systemd/system", STAGE] {
-            dirs.push(Directory::open(Path::new(path), path == STAGE)?);
+        for path in [
+            "/",
+            "/run",
+            "/run/systemd",
+            "/run/systemd/system",
+            stage_path,
+        ] {
+            dirs.push(Directory::open(Path::new(path), path == stage_path)?);
         }
-        let unit = Pin::open(Path::new(STAGE).join("fixture.service"), 0o600, 16384)?;
-        ensure(unit.bytes()? == UNIT_BYTES)?;
-        let probe = Pin::open(Path::new(STAGE).join("probe"), 0o500, 128 * 1024 * 1024)?;
+        let unit = Pin::open(Path::new(stage_path).join("fixture.service"), 0o600, 16384)?;
+        ensure(unit.bytes()? == fixture.unit_bytes())?;
+        let probe = Pin::open(
+            Path::new(stage_path).join("probe"),
+            0o500,
+            128 * 1024 * 1024,
+        )?;
         let own = File::open("/proc/self/exe").map_err(|_| ())?;
         ensure(meta(&own.metadata().map_err(|_| ())?) == meta(&probe.initial))?;
-        let link = std::fs::symlink_metadata(LINK).map_err(|_| ())?;
+        let link = std::fs::symlink_metadata(fixture.fragment()).map_err(|_| ())?;
         ensure(
             link.file_type().is_symlink()
                 && link.uid() == 0
@@ -800,8 +923,15 @@ fn run_private_lifecycle() {
                 .build()
                 .map_err(|_| ())?;
         Ok(Real {
+            fixture,
             witness: None,
-            admitted: admission::Held { connection, stage },
+            admitted: admission::Held {
+                connection: admission::FixedConnection {
+                    connection,
+                    fixture,
+                },
+                stage,
+            },
             dirs,
             pins: vec![unit, probe],
             link,
@@ -824,12 +954,24 @@ fn run_private_lifecycle() {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| held.once())),
         Ok(Ok(()))
     ) {
-        eprintln!("K1_RETAINED_PRIVATE_UNCERTAIN_PARKED");
+        eprintln!(
+            "{}",
+            match fixture {
+                Fixture::PrivateLifecycle => "K1_RETAINED_PRIVATE_UNCERTAIN_PARKED",
+                Fixture::RetainedLease => "K1_RETAINED_LEASE_UNCERTAIN_PARKED",
+            }
+        );
         loop {
             std::thread::park();
         }
     }
-    println!("K1_RETAINED_PRIVATE_STOPPED_UNREF_NOT_PRODUCTION");
+    println!(
+        "{}",
+        match fixture {
+            Fixture::PrivateLifecycle => "K1_RETAINED_PRIVATE_STOPPED_UNREF_NOT_PRODUCTION",
+            Fixture::RetainedLease => "K1_RETAINED_LEASE_STOPPED_UNREF_NOT_PRODUCTION",
+        }
+    );
 }
 
 #[cfg(test)]
@@ -837,6 +979,90 @@ mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
     use zbus::zvariant::Value as BusValue;
+
+    #[test]
+    fn original_identity_constants_stay_byte_exact() {
+        let f = Fixture::PrivateLifecycle;
+        assert_eq!(
+            (
+                f.stage(),
+                f.unit(),
+                f.fragment(),
+                f.unit_path(),
+                f.cgroup(),
+                f.writer(),
+                f.unit_bytes()
+            ),
+            (STAGE, UNIT, LINK, UNIT_PATH, CGROUP, WRITER, UNIT_BYTES)
+        );
+        let job = Job::from_path("/org/freedesktop/systemd1/job/17").unwrap();
+        assert_eq!(
+            common_phase(&queued(&job), &job),
+            common_phase_for(f, &queued(&job), &job)
+        );
+        assert_eq!(
+            permissions::check_lifecycle_stable(&queued(&job)),
+            permissions::check_lifecycle_stable_for(f, &queued(&job))
+        );
+    }
+
+    #[test]
+    fn fresh_native_receipts_require_three_effects_and_same_namespace_pending() {
+        let fixture = Fixture::RetainedLease;
+        let native = br#"{"schema":1,"synthetic_epoch":true,"effects":3,"replacement":true,"full_inventory":true,"absent":true,"generation_refused":true,"refused_send_attempts":1,"generation_cut_effects":1,"pending_retained":true}"#;
+        let retired = json!({"version":1,"enrolled_uid":1001,"boot":vec![0x31;16],"host_netns_epoch":vec![0x32;16],"netns_device":7,"netns_inode":8,"operation":3,"phase":"retired","table_handle":0});
+        let mut pending = retired.clone();
+        pending["operation"] = json!(1);
+        pending["phase"] = json!("pending_create");
+        let values = vec![
+            native_json_for(fixture, 0, native).unwrap(),
+            json!({"version":1,"policy_version":1,"enrolled_uid":1001,"generation":7,"armed":false,"flags":0}),
+            retired,
+            pending,
+        ];
+        assert_eq!(validate_native(fixture, &values), Ok(()));
+        assert!(native_json(0, native).is_err());
+        assert!(validate_native(Fixture::PrivateLifecycle, &values).is_err());
+        for index in 0..4 {
+            for key in values[index].as_object().unwrap().keys() {
+                let mut missing = values.clone();
+                missing[index].as_object_mut().unwrap().remove(key);
+                assert!(
+                    native_json_for(
+                        fixture,
+                        index,
+                        &serde_json::to_vec(&missing[index]).unwrap()
+                    )
+                    .is_err(),
+                    "missing {index}/{key}"
+                );
+            }
+        }
+        for (index, key, value) in [
+            (0, "effects", json!(2)),
+            (0, "generation_refused", json!(false)),
+            (0, "pending_retained", json!(false)),
+            (2, "operation", json!(2)),
+            (3, "netns_inode", json!(9)),
+            (3, "operation", json!(2)),
+            (3, "phase", json!("live")),
+            (3, "table_handle", json!(1)),
+        ] {
+            let mut wrong = values.clone();
+            wrong[index][key] = value;
+            assert!(validate_native(fixture, &wrong).is_err());
+        }
+        for bad in [
+            String::from_utf8(native.to_vec())
+                .unwrap()
+                .replace("\"effects\":3", "\"effects\":true"),
+            String::from_utf8(native.to_vec())
+                .unwrap()
+                .replace("\"effects\":3", "\"effects\":3,\"effects\":3"),
+        ] {
+            assert!(native_json_for(fixture, 0, bad.as_bytes()).is_err());
+        }
+    }
 
     macro_rules! field {
         ($facts:expr, $key:expr, $value:expr) => {
@@ -956,6 +1182,62 @@ mod tests {
         assert!(start_phase(&wrong, &job).is_err());
         let foreign = Job::from_path("/org/freedesktop/systemd1/job/18").unwrap();
         assert!(start_phase(&running(&foreign, false), &job).is_err());
+    }
+
+    #[test]
+    fn fresh_start_and_stop_refuse_old_execution_unit_and_cgroup() {
+        let fixture = Fixture::RetainedLease;
+        let job = Job::from_path("/org/freedesktop/systemd1/job/17").unwrap();
+        let mut fresh = completed(&job);
+        for key in ["Id", "Names", "FragmentPath"] {
+            fresh.insert(
+                key.into(),
+                permissions::expected_unit_for(fixture).remove(key).unwrap(),
+            );
+        }
+        fresh.insert(
+            "Environment".into(),
+            permissions::expected_service_for(fixture)
+                .remove("Environment")
+                .unwrap(),
+        );
+        let original = fresh.get("ExecStart").unwrap().try_clone().unwrap();
+        let mut commands = Vec::<Exec>::try_from(original).unwrap();
+        commands[0].0 = format!("{}/probe", fixture.stage());
+        commands[0].1[0] = commands[0].0.clone();
+        commands[0].1[2] = fixture.writer().into();
+        field!(fresh, "ExecStart", commands);
+        field!(
+            fresh,
+            "ControlGroup",
+            format!("/system.slice/{}", fixture.unit())
+        );
+        let completed = start_phase_for(fixture, &fresh, &job).unwrap().unwrap();
+        assert!(start_phase(&fresh, &job).is_err());
+        for key in ["Id", "Names", "FragmentPath", "Environment", "ExecStart"] {
+            let mut crossed = fresh
+                .iter()
+                .map(|(k, v)| (k.clone(), v.try_clone().unwrap()))
+                .collect::<Facts>();
+            let old = if matches!(key, "Id" | "Names" | "FragmentPath") {
+                permissions::expected_unit().remove(key).unwrap()
+            } else {
+                permissions::expected_service().remove(key).unwrap()
+            };
+            crossed.insert(key.into(), old);
+            assert!(
+                start_phase_for(fixture, &crossed, &job).is_err(),
+                "crossed {key}"
+            );
+        }
+        field!(fresh, "ControlGroup", format!("/system.slice/{UNIT}"));
+        assert!(start_phase_for(fixture, &fresh, &job).is_err());
+        field!(fresh, "ControlGroup", "");
+        field!(fresh, "ActiveState", "inactive");
+        field!(fresh, "SubState", "dead");
+        let stop = Job::from_path("/org/freedesktop/systemd1/job/23").unwrap();
+        assert_eq!(stop_phase_for(fixture, &fresh, &stop, &completed), Ok(true));
+        assert!(stop_phase(&fresh, &stop, &completed).is_err());
     }
 
     #[test]
