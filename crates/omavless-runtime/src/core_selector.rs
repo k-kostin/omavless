@@ -24,6 +24,7 @@ enum Request<'a> {
     Proxies,
     Rules,
     Providers,
+    Connections,
     Profile(&'a str),
     Global,
 }
@@ -75,6 +76,7 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
         Request::Proxies => ("GET", "/proxies", String::new()),
         Request::Rules => ("GET", "/rules", String::new()),
         Request::Providers => ("GET", "/providers/rules", String::new()),
+        Request::Connections => ("GET", "/connections", String::new()),
         Request::Profile(name) => {
             if name.is_empty() || name.len() > 1024 || name.chars().any(char::is_control) {
                 return None;
@@ -146,6 +148,7 @@ pub(crate) fn read_configuration(
         ReadOnlyEndpoint::Proxies => Request::Proxies,
         ReadOnlyEndpoint::Rules => Request::Rules,
         ReadOnlyEndpoint::RuleProviders => Request::Providers,
+        ReadOnlyEndpoint::Connections => Request::Connections,
         _ => return None,
     };
     exchange(path, pid, request, deadline)
@@ -285,6 +288,8 @@ mod tests {
                         json!({"rules":[]})
                     } else if request.starts_with("GET /providers/rules ") {
                         json!({"providers":{}})
+                    } else if request.starts_with("GET /connections ") {
+                        json!({"connections":[{"metadata":{"host":"private.invalid"}}]})
                     } else if request.starts_with("GET /proxies ") {
                         proxies.clone()
                     } else {
@@ -347,6 +352,32 @@ mod tests {
             self.worker.take().unwrap().join().unwrap();
             fs::remove_dir_all(&self.root).unwrap();
         }
+    }
+
+    #[test]
+    fn count_read_uses_only_fixed_get_and_same_owned_peer() {
+        let controller = Controller::new("global", "Synthetic", "");
+        let read = |pid, deadline| {
+            read_configuration(
+                &controller.root.join("mihomo.sock"),
+                pid,
+                omavless_mihomo::ReadOnlyEndpoint::Connections,
+                deadline,
+            )
+        };
+        let value = read(std::process::id(), Instant::now() + Duration::from_secs(1)).unwrap();
+        assert_eq!(crate::connections_summary::count(&value), Some(1));
+        assert!(
+            read(
+                std::process::id() + 1,
+                Instant::now() + Duration::from_secs(1)
+            )
+            .is_none()
+        );
+        assert!(read(std::process::id(), Instant::now()).is_none());
+        fs::set_permissions(&controller.root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read(std::process::id(), Instant::now() + Duration::from_secs(1)).is_none());
+        assert!(controller.puts.lock().unwrap().is_empty());
     }
 
     #[test]

@@ -1326,3 +1326,165 @@ slice needs them:
 
 These choices do not reopen Python versus Rust. The accepted target remains one
 Rust runtime/control plane and, after R6, a Rust Ratatui client.
+
+## 15. T2 candidate additions — bounded probes and count-only reads
+
+Development contract, 2026-09-24. These additive v1 methods belong to the
+[T2 MVP candidate](../development/T2_MVP.md), not released 0.8.2. Clients must
+negotiate capabilities rather than infer method availability from an unchanged
+API version. Native ownership, private socket/peer checks, frame bounds and
+shared mutation/operation collision rules are unchanged. This is not a new
+runtime, a privileged IPC channel or a full C1 connection-list API.
+
+### `profiles.probe` and `profiles.probe_results`
+
+`profiles.probe` accepts exactly required `instanceId`, `operationId`, optional
+`expectedRevision`, and optional `profileId`. An explicit profile ID means
+exactly one current non-missing stored record; omitted ID means all current
+non-missing profiles, including standalone and subscription-managed profiles.
+IDs retain canonical store validation. A client cannot supply an arbitrary
+list, URL, credentials, resolver, address, configuration, command, concurrency
+or deadline. The runtime snapshots the selected private set under its ownership
+lease, with the existing 256-profile cap.
+
+The new method is a discriminant of the existing instance-bound long-operation
+registry and supervised probe scheduler. It shares the one-active-job limit
+with subscription/provider work, operation-ID collision/replay rules,
+`operations.get`, and `operations.cancel`. Start acknowledges scheduling rather
+than waiting for probe I/O. Projection fields/states are unchanged; `method`
+is `profiles.probe`, progress total is at most 256, and successful measurement
+does **not** increment the canonical revision. Empty all-profile selection is
+a zero-target result, not a fabricated successful server measurement. A TUI may
+decline to offer a start when no eligible rows exist.
+
+The executor reuses the existing subscription-probe machinery: canonical
+private profiles, bounded trusted-config resolver policy, at most four pinned
+addresses per endpoint, at most 64 generated probe targets per chunk and one
+owned auxiliary Mihomo child at a time. Its generated configuration has no
+TUN and no TCP controller; the primary requested tunnel is not replaced.
+Three fixed public HTTPS endpoints are tested through the private auxiliary
+Unix controller. Each controller round has a ten-second exchange budget and a
+fixed five-second core delay timeout; the enclosing DNS/permit/core job has a
+30-minute ceiling. No caller can extend those limits. Existing shared work
+admission and cancellation/cleanup fencing remain mandatory.
+
+The per-profile delay is the median of accepted successful samples, rounded
+to integral milliseconds with ties to even. It is not ICMP, packet loss,
+system-DNS health or a complete connectivity verdict. `resolved:false` is
+distinct from resolution succeeding but all HTTPS checks failing/timing out.
+Progress may remain zero until completion because this adapter publishes its
+collected profile results at the final fence; clients must not invent progress.
+Terminal job success does not assert that each row is reachable.
+
+`profiles.probe_results` accepts exactly `instanceId` and `operationId`.
+Success is the explicitly private UI projection:
+
+```text
+{version: 1, profileId: ID_OR_NULL,
+ results: [{id: RECORD_ID, resolved: BOOL, reachable: BOOL, latencyMs: INTEGER}]}
+```
+
+`profileId` is the requested ID or null for all profiles. At most 256 rows are
+returned; each contains only those four fields, no name, endpoint, URI,
+credential, controller path or raw error. Reachable means resolved with
+`latencyMs` in 0..60000; an unreachable row has `latencyMs:-1`. A selected-ID
+response has exactly that one target. IDs are private same-user correlation
+data, not public diagnostic/log content.
+
+The owner retains only the latest 16 successful probe-result batches in
+memory, separate from the bounded terminal-operation receipts. Results do not
+survive daemon restart. Before release, the owner rechecks exact instance,
+revision, desired state and store/template/active-config digests; stale results
+are refused rather than attached to a changed profile. The result method must
+match the retained job kind: a subscription-result read cannot expose a
+profile-probe result, or vice versa. Cancellation and uncertain auxiliary
+cleanup retain the existing hard recovery barrier. Closing a TUI does not
+cancel the owner job or remove that barrier.
+
+### `runtime.connections`
+
+This count-only semantic read accepts exactly empty `params`; the TUI calls it
+directly through the private control client. The versioned result is:
+
+```text
+{schemaVersion: 1, scope: "owned_core_active_connection_count",
+ availability: "observed" | "unavailable", count: INTEGER_OR_NULL}
+```
+
+An observed count is 0..4096. Unavailable always has `count:null`; disconnected,
+missing/changed/unproven core, malformed/oversized response and failed host
+observation are not converted into zero. An authenticated core response with
+an empty list (or its supported null empty-list encoding) yields observed zero.
+
+Only a committed owner with connected desired/actual state may attempt the
+fixed `/connections` GET. It verifies current owned PID/configuration/profile
+and managed-TUN facts before and after reading, authenticates the exact child
+over the existing private Unix controller, and rechecks durable desired state
+before returning. Controller data retains the 512-KiB response cap and a
+750-ms read deadline alongside the existing bounded host observations. More
+than 4096 rows, or non-object rows, fail closed; no partial count is reported.
+
+Raw objects exist only within the owner-side count projection and are dropped
+without logging or IPC release. The reply has no destinations, hostnames,
+process names, chains, connection IDs, traffic content or credentials. It does
+not mutate revision/store/core state, prove Internet access, or allow connection
+closing, filtering or arbitrary controller forwarding. TUI traffic reads also
+fence the result to the current instance/revision and show unavailable when
+that context cannot be established.
+
+### `runtime.connection_overview` (T3 development)
+
+This additional exact-empty-params read retains `runtime.connections` unchanged
+for older clients. The owned-core `/connections` response is projected inside
+the Rust host to a small, versioned aggregate: total (0..4096), TCP/UDP/other
+network counts, and conservative DIRECT/REJECT/PROXY/unclassified chain counts.
+Each category set must sum to total. Unknown chains are **unclassified**, never
+assumed VPN. No connection ID, destination, hostname, process, profile name,
+raw chain, per-connection transfer or query-controlled filter crosses IPC.
+Malformed or oversized controller data yields unavailable, not a partial zero.
+
+The read shares the same authenticated owned PID/controller, 750-ms deadline,
+pre/post fresh observation, desired-state and revision fences as the count-only
+method. It makes no route or Internet-protection claim and has no close action.
+The TUI prefers it only when advertised, otherwise retains the count-only read;
+neither method runs on a hidden page.
+
+### `runtime.connection_rows` (private T3 development)
+
+This separate exact-empty-params read is requested only while the terminal's
+Connections page is open. It uses the same owned PID/controller, 750-ms read
+deadline, pre/post observation, desired-state and revision fences as the two
+reads above. The response is bounded to at most 128 of 4096 owned-core rows,
+with explicit total, shown and truncated fields; unavailable is never shown
+as zero. Each row contains only a validated destination host and/or parsed IP,
+numeric port, TCP/UDP/other category and conservative
+DIRECT/REJECT/PROXY/unclassified category. Unknown or conflicting chains are
+unclassified. Process/source addresses, raw chain names, IDs, credentials and
+traffic payloads are discarded in Rust before IPC. Malformed row, network or
+chain structure fails closed for the whole response; unsafe destination fields
+are omitted from their individual row rather than echoed or guessed.
+
+Destinations remain **private**, unlike the aggregate overview: this method
+must not enter ordinary status, support exports or shareable diagnostics. The
+TUI brackets the result by the same instance and revision and discards it when
+the page is left. It has no filtering or close-connection mutation and does not
+prove that the rest of the system uses the same route. Installed and live T3
+acceptance is still pending.
+
+The [inactive close admission model](../development/T3_CLOSE_ADMISSION.md)
+tests private owner-memory identity, opaque confirmation and stale/replay refusal
+without changing this read or adding a mutation. Its valid-confirmation outcome
+is still refusal: core ID non-reuse or atomic conditional-close semantics must be
+verified separately before any executable close permit or transport exists.
+
+### Existing details read in the TUI
+
+`profiles.details` remains the explicit same-user private method documented
+above; its wire schema is unchanged. The terminal's new reader pins the target
+to the selected profile and checks instance/revision freshness before display.
+It keeps only allowlisted protocol, transport and security tokens, discarding
+the private endpoint, SNI and returned name fields. Missing/unknown categories
+are unavailable, not guessed. Displayed core/capability facts describe the
+current Mihomo implementation and negotiated APIs, not protocol maturity or
+server interoperability. The standalone `profiles.details` CLI retains its
+existing sensitive-output classification.

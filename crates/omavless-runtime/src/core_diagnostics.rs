@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -15,6 +16,7 @@ use std::time::Duration;
 const MAX_LINE: usize = 4096;
 const DRAIN_READS: usize = 16;
 const IDLE: Duration = Duration::from_millis(10);
+const HINT_CAPACITY: usize = 24;
 
 #[derive(Clone, Copy)]
 enum Counter {
@@ -24,11 +26,80 @@ enum Counter {
     Connection,
     OtherWarning,
     Oversized,
+    TunSetup,
+    FirewallSetup,
+    SetupPermission,
+}
+
+impl Counter {
+    fn token(self) -> &'static str {
+        match self {
+            Self::Dns => "dns",
+            Self::Tls => "tls",
+            Self::Timeout => "timeout",
+            Self::Connection => "connection",
+            Self::OtherWarning => "other",
+            Self::Oversized => "oversized",
+            Self::TunSetup => "tun_setup",
+            Self::FirewallSetup => "firewall_setup",
+            Self::SetupPermission => "setup_permission",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Hint {
+    sequence: u32,
+    category: Counter,
+}
+
+struct HintRing {
+    values: [Option<Hint>; HINT_CAPACITY],
+    next: usize,
+    count: usize,
+    sequence: u32,
+}
+
+impl Default for HintRing {
+    fn default() -> Self {
+        Self {
+            values: [None; HINT_CAPACITY],
+            next: 0,
+            count: 0,
+            sequence: 0,
+        }
+    }
+}
+
+impl HintRing {
+    fn push(&mut self, category: Counter) {
+        if self.sequence == u32::MAX {
+            self.values = [None; HINT_CAPACITY];
+            self.next = 0;
+            self.count = 0;
+            self.sequence = 0;
+        }
+        self.sequence = self.sequence.saturating_add(1);
+        self.values[self.next] = Some(Hint {
+            sequence: self.sequence,
+            category,
+        });
+        self.next = (self.next + 1) % HINT_CAPACITY;
+        self.count = (self.count + 1).min(HINT_CAPACITY);
+    }
+
+    fn ordered(&self) -> Vec<Hint> {
+        let start = (self.next + HINT_CAPACITY - self.count) % HINT_CAPACITY;
+        (0..self.count)
+            .filter_map(|offset| self.values[(start + offset) % HINT_CAPACITY])
+            .collect()
+    }
 }
 
 #[derive(Default)]
 struct Counts {
-    values: [AtomicU32; 6],
+    values: [AtomicU32; 9],
+    hints: Mutex<HintRing>,
     read_failed: AtomicBool,
     finished: AtomicBool,
     incomplete: AtomicBool,
@@ -40,6 +111,37 @@ impl Counts {
             self.values[counter as usize].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
                 Some(v.saturating_add(1))
             });
+    }
+
+    fn record_hint(&self, category: Counter) {
+        if let Ok(mut hints) = self.hints.lock() {
+            hints.push(category);
+        } else {
+            self.incomplete.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Fixed classifications of recent warning/error lines. No raw text, host,
+/// URI, profile, timestamp, or destination survives the collector.
+pub struct CoreLogHints {
+    hints: Vec<Hint>,
+    incomplete: bool,
+}
+
+impl CoreLogHints {
+    pub(crate) fn projection(value: Option<Self>) -> serde_json::Value {
+        use serde_json::json;
+        json!({
+            "schemaVersion":1,
+            "scope":"latest_owned_core_log_categories",
+            "availability":if value.is_some() {"observed"} else {"unavailable"},
+            "items":value.as_ref().map(|v| v.hints.iter().map(|hint| {
+                json!({"sequence":hint.sequence,"category":hint.category.token()})
+            }).collect::<Vec<_>>()),
+            "incomplete":value.map(|v| v.incomplete),
+            "interpretation":"log_hints_not_health",
+        })
     }
 }
 
@@ -57,6 +159,29 @@ pub struct CoreDiagnostics {
     read_failed: bool,
     finished: bool,
     incomplete: bool,
+    // Separate versioned diagnostic read; keep the existing observation shape
+    // byte-compatible with older frontend parsers.
+    #[serde(skip)]
+    tun_setup: u32,
+    #[serde(skip)]
+    firewall_setup: u32,
+    #[serde(skip)]
+    setup_permission: u32,
+}
+
+impl CoreDiagnostics {
+    pub(crate) fn setup_projection(value: Option<Self>) -> serde_json::Value {
+        use serde_json::json;
+        json!({"schemaVersion":1,"scope":"latest_owned_core_setup_log_hints",
+            "availability":if value.is_some() {"observed"} else {"unavailable"},
+            "counts":value.map(|v| json!({"tunSetup":v.tun_setup,
+                "firewallSetup":v.firewall_setup,"setupPermission":v.setup_permission,
+                "otherWarnings":v.other_warnings,"oversizedLines":v.oversized_lines})),
+            "incomplete":value.map(|v| v.incomplete || v.read_failed),
+            "finished":value.map(|v| v.finished),
+            "interpretation":"log_hints_not_cause_or_health",
+            "remediation":"inspect_host_setup_no_automatic_repair"})
+    }
 }
 
 #[derive(Clone, Default)]
@@ -79,6 +204,23 @@ impl DiagnosticReader {
             read_failed: self.0.read_failed.load(Ordering::Relaxed),
             finished,
             incomplete: self.0.incomplete.load(Ordering::Relaxed),
+            tun_setup: value(Counter::TunSetup),
+            firewall_setup: value(Counter::FirewallSetup),
+            setup_permission: value(Counter::SetupPermission),
+        }
+    }
+
+    pub(crate) fn hints(&self) -> CoreLogHints {
+        match self.0.hints.lock() {
+            Ok(hints) => CoreLogHints {
+                hints: hints.ordered(),
+                incomplete: self.0.incomplete.load(Ordering::Relaxed)
+                    || self.0.read_failed.load(Ordering::Relaxed),
+            },
+            Err(_) => CoreLogHints {
+                hints: Vec::new(),
+                incomplete: true,
+            },
         }
     }
 }
@@ -111,12 +253,32 @@ impl Lines {
     fn finish(&mut self, counts: &Counts) {
         if self.oversized {
             counts.increment(Counter::Oversized);
+            counts.record_hint(Counter::Oversized);
         } else if let Some(category) = classify(&self.bytes) {
             counts.increment(category);
+            counts.record_hint(category);
+            classify_setup(&self.bytes, counts);
         }
         self.bytes.fill(0);
         self.bytes.clear();
         self.oversized = false;
+    }
+}
+
+fn classify_setup(line: &[u8], counts: &Counts) {
+    let has = |token: &[u8]| line.windows(token.len()).any(|part| part == token);
+    // Caller already required a warning/error/fatal record. Require TUN-start
+    // context before interpreting generic errno words; never prescribe repairs
+    // from a bare EEXIST, a destination name or a normal connection failure.
+    if !has(b"start tun listening error:") {
+        return;
+    }
+    counts.increment(Counter::TunSetup);
+    if has(b"initialize auto redirect:") && (has(b"nftables") || has(b"iptables")) {
+        counts.increment(Counter::FirewallSetup);
+    }
+    if has(b"operation not permitted") || has(b"permission denied") {
+        counts.increment(Counter::SetupPermission);
     }
 }
 
@@ -275,6 +437,66 @@ mod tests {
     use std::time::Instant;
 
     #[test]
+    fn setup_hints_require_tun_context_and_never_change_legacy_shape() {
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        for line in [
+            "level=error msg=Start TUN listening error: initialize auto redirect: missing nftables support: netlink receive: invalid argument\n",
+            "level=error msg=Start TUN listening error: operation not permitted private-secret\n",
+            "level=error msg=Start TUN listening error: initialize auto redirect: iptables permission denied\n",
+            "level=warning msg=EEXIST private-secret\n",
+            "level=warning msg=permission denied while reading private file\n",
+            "level=warning msg=connection refused nftables.invalid\n",
+            "level=info msg=Start TUN listening error: operation not permitted\n",
+        ] {
+            for chunk in line.as_bytes().chunks(3) {
+                lines.push(chunk, &counts);
+            }
+        }
+        let snapshot = DiagnosticReader(Arc::new(counts)).snapshot();
+        let legacy = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(legacy.as_object().unwrap().len(), 10);
+        assert_eq!(legacy["otherWarnings"], 5);
+        assert_eq!(legacy["connectionErrors"], 1);
+        let hints = CoreDiagnostics::setup_projection(Some(snapshot));
+        assert_eq!(hints["counts"]["tunSetup"], 3);
+        assert_eq!(hints["counts"]["firewallSetup"], 2);
+        assert_eq!(hints["counts"]["setupPermission"], 2);
+        assert_eq!(hints["interpretation"], "log_hints_not_cause_or_health");
+        let encoded = hints.to_string();
+        assert!(encoded.len() < 1024);
+        for secret in [
+            "private-secret",
+            "nftables.invalid",
+            "EEXIST",
+            "permission denied",
+        ] {
+            assert!(!encoded.contains(secret));
+        }
+        assert!(hints.get("healthy").is_none());
+        assert!(hints.get("cause").is_none());
+    }
+
+    #[test]
+    fn absent_capture_and_oversized_lines_do_not_fabricate_setup_evidence() {
+        let absent = CoreDiagnostics::setup_projection(None);
+        assert_eq!(absent["availability"], "unavailable");
+        assert!(absent["counts"].is_null());
+        assert!(absent["incomplete"].is_null());
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        lines.push(&vec![b'x'; MAX_LINE + 1], &counts);
+        lines.push(
+            b"level=error msg=Start TUN listening error: permission denied\n",
+            &counts,
+        );
+        let snapshot = DiagnosticReader(Arc::new(counts)).snapshot();
+        let hints = CoreDiagnostics::setup_projection(Some(snapshot));
+        assert_eq!(hints["counts"]["tunSetup"], 0);
+        assert_eq!(hints["counts"]["oversizedLines"], 1);
+    }
+
+    #[test]
     fn categories_are_bounded_private_and_not_a_health_claim() {
         let counts = Counts::default();
         let mut lines = Lines::default();
@@ -389,5 +611,33 @@ mod tests {
         }
         assert!(reader.snapshot().finished);
         assert_eq!(reader.snapshot().connection_errors, 1);
+    }
+
+    #[test]
+    fn recent_hint_ring_is_bounded_ordered_and_never_contains_log_payloads() {
+        let counts = Counts::default();
+        let mut lines = Lines::default();
+        for index in 0..40 {
+            let line = format!(
+                "level=warning msg=DNS resolve failed private-token-{index} at 192.0.2.1\n"
+            );
+            lines.push(line.as_bytes(), &counts);
+        }
+        let view = DiagnosticReader(Arc::new(counts));
+        let projected = CoreLogHints::projection(Some(view.hints()));
+        let items = projected["items"].as_array().unwrap();
+        assert_eq!(items.len(), HINT_CAPACITY);
+        assert_eq!(items[0]["sequence"], 17);
+        assert_eq!(items[23]["sequence"], 40);
+        assert!(items.iter().all(|item| item["category"] == "dns"));
+        assert_eq!(projected["interpretation"], "log_hints_not_health");
+        let encoded = projected.to_string();
+        for private in ["private-token", "192.0.2.1", "failed at"] {
+            assert!(!encoded.contains(private));
+        }
+        assert!(encoded.len() < 1600);
+        let absent = CoreLogHints::projection(None);
+        assert_eq!(absent["availability"], "unavailable");
+        assert!(absent["items"].is_null());
     }
 }

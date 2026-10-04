@@ -2,6 +2,23 @@
 
 All notable changes to OmaVLESS are documented here.
 
+## 0.9.0-rc.1 — unpublished development candidate
+
+- Add the terminal application: browse profiles/subscriptions, control the
+  shared connection, refresh subscriptions, inspect traffic and diagnostics,
+  run profile HTTPS checks, and choose a window-local language/theme.
+- Open or focus the same application window from the plugin's main footer;
+  closing the terminal leaves the requested VPN connection running.
+- Clarify ICMP versus HTTPS results and avoid confirming a mode visually while
+  its transition is pending, unknown or requires recovery.
+- Add bounded native setup diagnostics and a Rust-owned experimental-protocol
+  acceptance harness, with live evidence for the available XHTTP representative.
+
+This candidate is not a published update. DNS authorization/cancellation and
+exact release-package host acceptance remain open. Missing experimental-protocol
+fixtures are not promoted to supported/live-validated status. Stable 0.8.2 and
+its release assets/marketplace snapshot are unchanged.
+
 ## 0.8.2 — 2026-09-22
 
 - Fix Full Quit preflight: query the same four installation properties that

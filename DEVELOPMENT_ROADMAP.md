@@ -2,6 +2,13 @@
 
 Status: active delivery ledger; stable release updated 2026-09-22.
 
+**Development candidate, not a main update:** the next `rc/0.9.0` includes
+the accepted T2 MVP and reconciled workflow/triage documentation. Its
+[constituent ledger](docs/development/RC_090.md) records exact source PRs and
+excluded work. T2 is accepted as a development checkpoint, not released 0.9.0;
+published 0.8.2 tags/assets are unchanged. Main remains frozen at the submitted marketplace SHA until
+another explicit owner instruction, including for documentation-only changes.
+
 **Current release checkpoint:** 0.8.2 is the stable/latest GitHub release,
 promoted from the reviewed prerelease without changing its tag or asset bytes.
 It has verified native packages and frontend pins. Its clean x86_64 plugin-first installation,
@@ -110,9 +117,14 @@ Where older wording says Arch/AUR is the only future host,
 
 ### One source of truth
 
-`main` is the only long-lived development source of truth. Runtime/network/
-security/migration changes merge only after their declared exact-head gates.
-Documentation-only changes do not invent a live VPN test.
+`main` is the stable owner-approved release snapshot, including documentation.
+Daily work and roadmap updates live in `dev/*` PRs and named `rc/<version>`
+candidates; issues/PRs carry live status. No automatic docs-only main merges:
+the September 22 decision supersedes the former standing permission. Every
+authorized main update includes the applicable roadmap/docs reconciliation;
+see the [release checklist](docs/roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
+Runtime/network/security/migration changes retain their exact-head gates.
+Documentation-only changes do not invent a live VPN test or permission to publish.
 
 The published marketplace 0.7.0 snapshot remains exact reviewed commit
 `69fe05b03129a23664fff3f8289821a7b7f80095`. Moving `main` is not automatically
@@ -332,6 +344,55 @@ Rust runtime so they are not immediately rewritten.
 The practical next sessions may therefore be heavily Rust-focused without
 abandoning the plugin.
 
+### Native follow-up triage — review and scope the issues
+
+State: **mandatory RC 0.9.0 work under owner direction, 2026-09-24**.
+
+T2 completion is not RC readiness. Work through #272 → #271 → #270, reconcile
+#135 against the native #132 scenario, and adapt #30 to Rust before proposing
+0.9.0 promotion. See the [mandatory gate ledger](docs/development/RC_090.md#additional-mandatory-owner-gates--september-24).
+Do not close these gates merely by recording a plan. Implement justified fixes
+and retain applicable installed/security evidence. V0 unavailable families remain
+explicitly unvalidated; native harness acceptance does not invent credentials.
+
+September 24 outcomes: #272/#286 and #271/#287 are accepted in RC and their
+issues closed. Native #289 corrects unconfirmed-mode presentation; Python #135
+is closed as superseded, while #132's actual DNS cancellation gate remains open.
+Native #290 adapts V0 and passes the available XHTTP representative with cleanup
+and original Routing restoration; original #30 remains Draft for broader fixture
+coverage. #288 records the gated #270 DNS design, not installed policy or a
+passwordless implementation. These are concrete checkpoints, not blanket RC
+readiness. Versioned packaging and the remaining host/security decision stay
+explicit in the linked RC ledger.
+
+The unpublished `0.9.0-rc.1` package/frontend checkpoint (#292) now has both native
+architecture builds and offline artifact/identity checks. Its [package record](docs/testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md)
+separates artifact preparation from public release. The local ARM64 package and
+common frontend subsequently passed [attended replacement/restoration](docs/testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md).
+That installed head also reproduced #132: cancelling resolved authorization
+leaves a connected claim with DNS unconfigured. DNS/security remains a real
+implementation blocker, not a password-entry checkbox. Stable promotion and
+main still require separate owner authorization.
+
+Review these three issues against current native main and record an
+implement/defer/reject decision with a bounded scope and applicable gates.
+They adapt observations from the JaguarKovalev legacy fork to the Rust-owned
+0.8.2 baseline; fork reports are not native host acceptance. This queue does
+not reopen R6 or close AUTO-1/V0/network follow-ups by association. It now
+precedes RC readiness; the earlier read-only T2a scope is historical.
+
+| Issue to review | Existing track | Expected triage output |
+| --- | --- | --- |
+| [#270 — scoped DNS authorization without repeated password prompts](https://github.com/k-kostin/omavless/issues/270) | T4 DNS/host authorization; coordinate with K0 security boundary and AUTO-1 | Compare interface-scoped policy and a fixed-purpose system helper; define caller/TUN ownership, provisioning, revocation and cleanup. No account-wide passwordless rule or helper adoption is approved by this entry. |
+| [#271 — native TUN/firewall setup diagnostics and routing compatibility](https://github.com/k-kostin/omavless/issues/271) | D1/native diagnostics; T3 observability direction | Reproduce applicable failures, identify bounded diagnostic gaps and separately decide whether an auto-redirect experiment is warranted. Preserve LAN exclusions and routing defaults pending evidence. |
+| [#272 — distinguish tunnel state, ICMP and HTTPS results](https://github.com/k-kostin/omavless/issues/272) | D1/T3 diagnostics; P-U1 presentation | Audit existing labels/probe policy and assess a separately attributed HTTPS mode only if needed. Existing current-route HTTPS is not TUN-egress proof; retain native ICMP ownership and stale-result safeguards. |
+
+Full VPN selector readiness and owned-TUN verification are already implemented
+in Rust. Reuse their accepted contracts and tests rather than importing the
+fork's Python shim or treating these as missing native features. Small
+diagnostic/presentation follow-ups need their own scope; this queue does not
+start the full T3 workspace or the K1 kill switch.
+
 ### P-I1 — finish remaining plugin localization/surface batches
 
 State: **active independent plugin work**.
@@ -360,8 +421,9 @@ The [2026-09-04 audit](docs/testing/CLOUD_UI_ROADMAP_AUDIT_2026-09-04.md)
 records the earlier hidden-search-filter, control/gutter and modal/focus risks.
 It is a historical audit, not a request to recreate the now accepted UI.
 #238 integrates the corrected native layout and evidence; #240 adds the
-requested subscription server-list refresh without redesign. Keep #135's
-mode-confirmation fix and its acceptance gates separate.
+requested subscription server-list refresh without redesign. Native #289 adds
+confirmed-mode presentation without layout changes. It supersedes old Python
+#135, but does not close #132's asynchronous DNS authorization/rollback gate.
 
 This plugin lane is independent of R5. Exit requires exact-head English/Russian
 review of pointer/keyboard/disabled states, scrolling and constrained-height
@@ -379,7 +441,11 @@ State: **partially live-validated; fixture constrained**.
 - Do not ceremonially rebase solely because unrelated `main` docs/Rust work
   advances. Rebase only when the harness/runtime relationship materially needs
   it or remaining evidence becomes available.
-- V0 continues in parallel with R0-R2.
+- The native successor #290 uses Rust-owned IPC and canonical classification;
+  available XHTTP `stream-one` passed Full VPN/TUN/HTTPS and original-state
+  restoration on September 24. See the [native report](docs/testing/NATIVE_LIVE_PROTOCOL_VALIDATION.md).
+  This is not a relabelled Python PASS or broader protocol maturity. V0 continues
+  alongside independent native development; R0–R6 are already complete.
 
 ### R0 — Rust workspace and differential infrastructure
 
@@ -1113,7 +1179,38 @@ native R6 closure.
 
 ### T2 — Rust + Ratatui TUI MVP
 
-State: **planned; native R6 prerequisite satisfied, separate client scope required**.
+State: **bounded MVP accepted for rc/0.9.0; stable publication separate**.
+See [combined acceptance and limits](docs/testing/T2_MVP_2026-09-24.md).
+The [initial bounded client scope](docs/development/T2_READONLY_CLIENT.md)
+adds no mutations, plugin launcher, default package feature or new runtime owner.
+The dependent [T2b candidate](docs/development/T2_CONNECTION_ACTIONS.md) adds
+confirmed connection/mode commands through the existing owner. Both checkpoints
+were opt-in development work; their original evidence is retained below.
+[T2c browsing](docs/development/T2_GROUPED_BROWSING.md) adds grouped subscription
+profiles and a local favorites filter on top, without additional runtime methods.
+The subsequent RC includes traffic/details/diagnostics, theme following and
+attended single-subscription refresh. A read-only Subscriptions overview now
+adds empty-feed visibility and saved-list age without provider I/O; see the
+[current TUI contract](docs/roadmap/TUI_APP.md). These slices are now completed
+by the combined MVP checkpoint below, not independently relabelled releases.
+The integrated client includes bounded session-only activity without raw daemon
+logs or persistence; current health stays separate from historical events.
+Session Settings adds in-window language/theme overrides and reset, with no
+runtime mutations or persistence. Startup/environment defaults remain intact.
+
+[PR #284](https://github.com/k-kostin/omavless/pull/284), targeting RC rather
+than main, implements the remaining [MVP operations and package boundary](docs/development/T2_MVP.md):
+selected/all profile checks, direct empty-feed and batch refresh, attempt state,
+allowlisted profile categories, active-connection count, default TUI packaging
+and Open app. Exact source `02a5a13b807aab8d984f37cc49e20eab71374942`
+passed 1,098 Rust tests (11 ignored), both package CI architectures and the
+attended ARM64 package update with matching frontend. The final frontend source
+`4e9960f1badf13f4426a4f49a4a7447d604d48f0` fixes first-window launch and keeps
+Open app in the main footer below Profile actions. Combined connection/job,
+cross-client conflict, cancellation, restart, rendering and launch/focus gates
+passed within the limits of the linked acceptance report. **T2 MVP is accepted;
+main promotion is not authorized.** The VM uses a local developer package;
+published 0.8.2 packages and release metadata remain unchanged.
 
 The first full application UI is Rust + Ratatui, using a reviewed terminal
 backend such as Crossterm. It is a client of the already accepted Rust runtime;

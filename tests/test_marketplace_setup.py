@@ -42,7 +42,7 @@ curl() { printf 'UNEXPECTED_NETWORK_EFFECT' >&2; return 99; }
 
     def pins(self, **updates):
         entry = {"sha256": "a" * 64, "sourceCommit": "b" * 40}
-        data = {"schemaVersion": 1, "version": "0.8.2",
+        data = {"schemaVersion": 1, "version": "0.9.0",
                 "packages": {"aarch64": entry, "x86_64": entry}}
         data.update(updates)
         (self.directory / "runtime-release.json").write_text(json.dumps(data))
@@ -132,7 +132,7 @@ ensure_core_dependency
         self.assertNotEqual(self.run_shell('release_fields').returncode, 0)
 
     def test_unknown_metadata_keys_or_version_refused(self):
-        for updates in [{"version": "latest"}, {"version": "0.8.0"},
+        for updates in [{"version": "latest"}, {"version": "0.8.0"}, {"version": "0.8.2"},
                         {"schemaVersion": 2}, {"url": "https://example.invalid"}]:
             self.pins(**updates)
             self.assertNotEqual(self.run_shell('release_fields').returncode, 0)
@@ -140,13 +140,16 @@ ensure_core_dependency
     def test_committed_pins_use_the_frontend_version_and_supported_architectures(self):
         metadata = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         self.assertEqual(metadata['version'], json.loads((ROOT / 'manifest.json').read_text())['version'])
-        self.assertEqual(metadata['version'], '0.8.2')
+        self.assertEqual(metadata['version'], '0.9.0-rc.1')
+        self.assertEqual(metadata['packages'], {})
         self.assertLessEqual(set(metadata['packages']), {'aarch64', 'x86_64'})
         self.pins(**metadata)
-        for arch in metadata['packages']:
+        for arch in ('aarch64','x86_64'):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
-            self.assertEqual(result.returncode, 0)
-            self.assertEqual(result.stdout.split('\t')[0], metadata['version'])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, '')
+            status = self.run_shell(f'uname() {{ echo {arch}; }}; setup_status')
+            self.assertEqual(status.stdout, 'release_unavailable\n')
 
     def test_headless_install_and_unknown_arguments_have_no_effect(self):
         for arguments in ["install", "install ru", "install-core", "install-core ru", "components en", "status en", "download", "install zz", "status extra more"]:

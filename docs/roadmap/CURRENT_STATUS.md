@@ -1,10 +1,118 @@
 # Current delivery status
 
-Updated 2026-09-22. This is the compact current-state entry point; the detailed
+Updated 2026-09-25. This is the compact current-state entry point; the detailed
 [delivery roadmap](../../DEVELOPMENT_ROADMAP.md) preserves the implementation
 history. GitHub's actual main/PR state is authoritative for publication.
 
 ## Main and open work
+
+- **0.9.0-rc.1 installed on Try Omarchy ARM64, not published:** #292 aligns the candidate
+  version and fail-closed bootstrap metadata. Native ARM64/x86_64 package CI and
+  combined tests passed; the common frontend matches both build records. See
+  [artifact identities and remaining attended gate](../testing/RC_090_PACKAGE_PREPARATION_2026-09-24.md).
+  No public pins/assets or main changes. The exact local ARM64 package and common
+  frontend passed attended replacement, private-state preservation and original
+  Routing/profile restoration. New [DNS authorization evidence](../testing/RC_090_DNS_AUTHORIZATION_2026-09-24.md)
+  reproduces #132: cancelled DNS prompts leave an incorrect connected claim.
+  Following a PAM lockout/backoff, final original-state recovery passed with
+  matching DNS readback and TUN-bound HTTPS; Open app/focus/close also passed.
+  #288 remains investigation, not issue #270/#132 closure or RC readiness.
+
+- **Owner-required RC completion gates, September 24:** T2 acceptance alone
+  does not make 0.9.0 ready. Work through #272, #271, #270, the native disposition
+  of #135/#132 and Rust adaptation of #30 before proposing main promotion.
+  See [mandatory gates](../development/RC_090.md#additional-mandatory-owner-gates--september-24).
+  #272/#286 is accepted in RC with installed EN/RU
+  [probe presentation](../development/PROBE_SEMANTICS.md).
+  #271/#287 is accepted in RC with installed bounded
+  [setup diagnostics](../development/SETUP_DIAGNOSTICS.md).
+  Native [mode confirmation](../development/NATIVE_MODE_CONFIRMATION.md), #289,
+  supersedes the now-closed Python PR #135; DNS cancellation issue #132 remains.
+  The native #30 successor [#290](../testing/NATIVE_LIVE_PROTOCOL_VALIDATION.md)
+  passed available XHTTP `stream-one` Full VPN/TUN/HTTPS, private controller and
+  original-state restoration. The original Draft #30 and historical evidence stay
+  unchanged; its body links the native successor. A preceding admission refusal
+  remains unexplained; a delay before `ready` is not its cause.
+  DNS contract #288 remains a gated proposal, not installed/prompt-free behavior.
+  #270/#132 and exact versioned-package host gates are not closed by T2 or V0.
+  Missing V0 fixtures remain gaps, not a protocol-maturity promotion.
+
+- **Next TUI RC, not main:** `rc/0.9.0` integrates T2a–f (#269/#274/#275/#277/#279/#280),
+  the read-only subscription overview (#281), local session activity (#282),
+  session-local language/theme settings (#283), the accepted T2 MVP (#284),
+  the release-snapshot workflow (#276), and #270–272 triage docs (#273).
+  See the [exact constituent ledger and release checklist](../development/RC_090.md).
+  The name is a planning label; released package version/assets and
+  stable main `d620c300020d3acfa9c00418da7f6cded485ffdb` are unchanged.
+  Marketplace request [#8093](https://github.com/omacom/omarchy-plugin-marketplace/issues/8093)
+  targets that stable SHA and awaits external review, not RC verification.
+  T2d/e passed [combined ARM64 inspection](../testing/T2_INSPECTION_THEME_2026-09-22.md):
+  live traffic, details, diagnostics and theme presentation; closing the client
+  preserved the tunnel. T2f passed [attended single-subscription refresh](../testing/T2_SUBSCRIPTION_REFRESH_2026-09-22.md)
+  without changing the active profile/mode. The integrated read-only overview shows
+  empty subscriptions, saved/missing profile counts and saved-list age through
+  the existing snapshot. The original read-only scope did not implicitly accept
+  mutations; empty-feed refresh, refresh-all, attempt history and probes now
+  have separate combined evidence in #284.
+  The integrated TUI-only checkpoint #282 adds a 32-event in-memory session history,
+  without private targets/raw logs, persistence or new runtime methods.
+  The integrated session-settings slice #283 adds immediate window-local language/theme
+  choices, including offline use; installed package/plugin settings stay unchanged.
+
+- **T2 MVP accepted for RC, #284:** `dev/t2-mvp-completion` targets RC and
+  implements the remaining operations, selected/all profile HTTPS checks,
+  count-only connections, allowlisted details, default package feature and
+  main-panel Open app below Profile actions (not Settings).
+  Source `02a5a13b807aab8d984f37cc49e20eab71374942`
+  passed 1,098 Rust tests / 11 ignored, developer/QML gates and test/x86_64/ARM64
+  CI. The exact ARM64 developer package and matching frontend are installed in
+  Try Omarchy; private data, disabled service enablement and startup Off were
+  preserved. Stable restoration artifacts are retained outside Git. Installed
+  lifecycle, refresh, read-side and close checks passed; connected profile-check
+  jobs completed but their observed measurements were negative. The frontend
+  follow-up moves Open app to the main footer and fixes first-window launch;
+  launch/focus/close passed without changing the tunnel. The final combined pass
+  confirmed cross-client stale-command rejection, cancellation, same-client
+  runtime restart, original connection restoration and a positive profile HTTPS
+  measurement with the main tunnel disconnected. Private Unix-only controller
+  and PID-attributed absence of a TCP controller passed. EN/RU rendering and
+  both-architecture package CI passed on implementation head
+  `4e9960f1badf13f4426a4f49a4a7447d604d48f0`.
+  See [combined acceptance and limits](../testing/T2_MVP_2026-09-24.md).
+  **The bounded T2 MVP is complete as a development checkpoint**, not published
+  0.9.0; AUTO-1, DNS/provider follow-ups and other host/protocol gates stay separate.
+  This replaces only the VM's test installation, not any public 0.8.2 artifact,
+  stable-main snapshot or marketplace submission.
+
+- **September 22 release-snapshot workflow:** main stays at the owner-approved
+  release snapshot until another explicit main-update instruction, including
+  for docs-only work. The former automatic documentation merge permission is
+  revoked. Daily decisions/status remain visible in issues and `dev/*` PRs;
+  completed checkpoints and their docs may join a named `rc/<version>`.
+  Every proposed main update must reconcile roadmap/current status/contracts
+  and pending documentation PRs through the
+  [release checklist](DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
+  This policy candidate does not itself update main or the marketplace request.
+
+- **Historical constituent T2c:** the dependent `dev/t2-grouped-browsing` branch
+  adds subscription grouping, local favorites filtering and subscription-name
+  search. Local suites, EN/RU terminal review and no-effect installed-runtime
+  checks passed; no default package or main update. See
+  [scope and evidence](../development/T2_GROUPED_BROWSING.md).
+
+- **Historical constituent T2b:** `dev/t2-connection-actions` adds confirmed
+  Connect/Disconnect/mode requests through the existing runtime, retaining exact
+  requests on unknown outcomes. It depends on the T2a branch; neither is a main
+  update or packaged MVP. Local automated/EN-RU rendering and attended ARM64
+  connection/mode gates passed on the [recorded candidate](../testing/T2_CONNECTION_ACTIONS_2026-09-22.md).
+  See [scope and gates](../development/T2_CONNECTION_ACTIONS.md).
+
+- **Historical constituent T2a:** `dev/t2-readonly-client` adds an opt-in
+  read-only terminal client using the existing Rust runtime. Main/installed
+  0.8.2 remain unchanged while marketplace review targets the submitted SHA.
+  Status, profile/source browsing, name search and safe close are this slice;
+  mutations, packaging and Open app are not. See the
+  [development boundary](../development/T2_READONLY_CLIENT.md).
 
 - **September 22 stable release:** the owner authorized completing publication
   after the preparation checkpoint. `v0.8.2` is now stable/latest on GitHub;
@@ -206,8 +314,8 @@ replay, not a supported fallback or second native lifecycle owner.
 1. Retain the completed four-step reference retirement, native-only default and
    scoped R6 evidence. Do not reintroduce the Python runtime or rerun unchanged
    migration gates merely because test/docs cleanup merged.
-2. Submit the owner-authorized exact-current-main marketplace update using the published
-   0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not rebuild
+2. Follow the submitted exact-main marketplace update #8093 using the published
+   0.8.2 artifacts/pins and accepted clean x86_64 provisioning. Do not resubmit or rebuild
    them or repeat R6 merely because documentation/images change. Follow the
    [publication preparation](../marketing/MARKETPLACE_080.md), rerun official
    compatibility/security checks on the final exact commit, and retain the
@@ -217,9 +325,16 @@ replay, not a supported fallback or second native lifecycle owner.
 3. Address [AUTO-1](LOGIN_AUTOCONNECT_FOLLOWUP.md) and the
    [network investigation](../testing/R6_NETWORK_DIAGNOSIS_2026-09-13.md) with
    their actual reproducible host scenarios; no repeated password/dialog loops.
-4. Scope a small T2 client checkpoint or another explicitly selected roadmap
-   task on the existing Rust owner. Preserve accepted UI unless the task
+4. Prepare the 0.9.0 RC release/package/pairing checks from the accepted T2
+   checkpoint, reconciling constituent PRs and docs before any main proposal.
+   Do not silently bump/publish packages or main. Preserve accepted UI unless the task
    deliberately changes it under the [UI/UX contract](UI_UX_CONTRACT.md).
+
+Additional mandatory RC work: [review the three native follow-up issues](../../DEVELOPMENT_ROADMAP.md#native-follow-up-triage--review-and-scope-the-issues)
+for scoped DNS authorization (#270), network-setup diagnostics/compatibility
+(#271), and ICMP/HTTPS result semantics (#272). The September 24 owner direction
+makes their disposition and applicable implementation/acceptance mandatory
+before RC readiness. Existing native readiness checks remain accepted.
 
 Historical acceptance reports retain their original heads and outcomes. Their
 old "Python still owns production", "R5 incomplete" or "publication withheld"
