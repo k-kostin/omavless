@@ -29,6 +29,9 @@ class ManagerPrivateFixture(unittest.TestCase):
         self.assertEqual(stage_loader.MEMBERS['query-guard.py'][0], guard.QUERY_SHA)
         self.assertEqual(stage_loader.MEMBERS['fixture.service'][0], guard.UNIT_SHA)
         self.assertEqual(stage_loader.DESTINATION, guard.STAGE)
+        source = (CRATE / 'tests/support/manager_private_stage.py').read_text()
+        self.assertIn("['/usr/bin/python3', '-I', '-B', str(DESTINATION / 'guard.py')]", source)
+        self.assertIn("{'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_MANAGER_PRIVATE_GUARD': '1'}", source)
 
     def test_loader_retained_exact_fd_bytes_refuse_hash_mode_symlink_and_hardlink(self):
         # Actual ordinary uid1000 files: no privileged staging or manager calls.

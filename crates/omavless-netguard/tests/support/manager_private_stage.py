@@ -68,7 +68,7 @@ def main():
             stream.flush()
             os.fsync(stream.fileno())
     os.fsync(destination_fd)
-    os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', str(DESTINATION / 'guard.py')],
+    os.execve('/usr/bin/python3', ['/usr/bin/python3', '-I', '-B', str(DESTINATION / 'guard.py')],
               {'PATH': '/usr/bin', 'LC_ALL': 'C', 'OMAVLESS_K1_MANAGER_PRIVATE_GUARD': '1'})
 
 
