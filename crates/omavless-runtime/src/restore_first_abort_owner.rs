@@ -20,6 +20,10 @@ use zeroize::Zeroizing;
 
 const REFUSE: ProductionOwnerError = ProductionOwnerError::ManualRecoveryRequired;
 
+#[cfg(test)]
+#[path = "restore_first_abort_process_tests.rs"]
+mod process_reentry;
+
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     AbortedStillFenced,
@@ -302,7 +306,7 @@ fn run<H: LifecycleHost>(
             .is_ok()
     };
     let mut gate = || {
-        stable()
+        let admitted = stable()
             && host.fresh_observation(&desired).is_ok_and(|o| {
                 !o.owned_core_running
                     && o.owned_auxiliary_mihomo_count == 0
@@ -310,7 +314,12 @@ fn run<H: LifecycleHost>(
                     && !o.owned_controller_config_verified
                     && !o.desired_profile_matches_owned
             })
-            && stable()
+            && stable();
+        #[cfg(test)]
+        if admitted {
+            process_reentry::checkpoint(process_reentry::Point::Gate);
+        }
+        admitted
     };
     let mut preparing = || {
         gate()
@@ -376,6 +385,8 @@ fn run<H: LifecycleHost>(
     if let Some(created) = &created {
         created.recheck(&paths, uid).map_err(|_| REFUSE)?;
     }
+    #[cfg(test)]
+    process_reentry::checkpoint(process_reentry::Point::Final);
     Ok(Outcome::AbortedStillFenced)
 }
 

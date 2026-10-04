@@ -107,7 +107,7 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
 
     def test_abort_recovery_constructor_is_private_fixed_and_retains_original_pair(self):
         text = (SRC / "restore_first_abort_owner.rs").read_text()
-        body = text.split("#[cfg(test)]", 1)[0]
+        body = text.split("\nmod tests {", 1)[0]
         self.assertIn("fn current(source: &Path, passphrase: &[u8])", body)
         self.assertNotRegex(body, r"pub(?:\([^)]*\))?\s+fn\s+(?:current|run)")
         for token in ("ObservationOnlyNativeHost::new", "RuntimePaths::current",
@@ -126,6 +126,22 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
                      "first_abort_owner_slots_are_pinned_before_admission_and_owned_link_callbacks",
                      "first_abort_owner_commit_refuses_before_host_or_sync"):
             self.assertIn(name, text)
+
+    def test_abort_process_loss_fixture_is_ignored_fixed_current_and_frozen(self):
+        owner = (SRC / "restore_first_abort_owner.rs").read_text()
+        self.assertIn('#[cfg(test)]\n#[path = "restore_first_abort_process_tests.rs"]', owner)
+        text = (SRC / "restore_first_abort_process_tests.rs").read_text()
+        for token in ('fn process_worker()', 'fn fixed_current_process_loss_and_fresh_reentry()',
+                      'current(&root.join("archive.ovb"), &passphrase)',
+                      'OMAVLESS_ABORT_FROZEN_SHA256', 'OMAVLESS_ABORT_BUILD_TARGET',
+                      'safe_ancestry(&base, uid)', '.create_new(true)', 'status.signal() == Some(9)',
+                      'wait_bounded', 'Point::Final'):
+            self.assertIn(token, text)
+        self.assertEqual(text.count('#[ignore ='), 2)
+        self.assertNotIn('remove_dir_all', text)
+        self.assertNotIn('.env("HOME"', text)
+        self.assertNotIn('NativeHostPaths::new', text)
+        self.assertNotIn('run(', text)
 
     def test_abort_created_identity_counterexamples_retained(self):
         text = (SRC / "restore_executor_candidate.rs").read_text()
