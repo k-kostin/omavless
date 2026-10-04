@@ -3,8 +3,8 @@
 This is a fresh developer fixture stacked on the reviewed
 [borrowed original-session lease](K1_BORROWED_INVENTORY_LEASE.md).
 It does not reuse #631's stage, unit, frozen ELF or acceptance evidence.
-No native fixture, manager operation or VM action has been executed for this
-checkpoint. Normal runtime ownership, package dependencies and K1 availability
+The exact fresh fixture execution described below completed successfully.
+Normal runtime ownership, package dependencies and K1 availability
 remain unchanged. Every actual effect remains under `cfg(test)`.
 
 The source supplies the restricted native writer and its fixed unit, sharing
@@ -27,10 +27,9 @@ zero cannot start reap; a late reap cannot become accepted completion.
 The outer guard separately validates three-effect and PendingCreate evidence,
 then permits only the same known-zero lifecycle's stopped/cgroup-empty cleanup.
 
-This is not yet a complete runnable delivery. Independently reviewed
-trusted transport and explicit executor authorization are still required.
-Missing delivery pieces
-must not be filled with #631's identity or an arbitrary unit/source path.
+The separately reviewed fixed transport and ROOT's explicit execution authority
+were used only for the recorded fresh invocation below. This does not authorize
+a replay, another scope or substitution of #631's identity or an arbitrary path.
 
 ## Fixed identity and sequence
 
@@ -75,6 +74,21 @@ a restart permit or canonical authority. The outer Stop is allowed only after
 strict receipts, the exact original helper's known zero and an empty cgroup.
 
 ## Evidence boundaries
+
+ROOT's sole fresh VM invocation used exact source
+`084742fe33626507efb729237a1b2d8a212379f0`, after full source gates and full
+parent/independent transport review. Create and five fixed puts completed zero;
+the root loader and whole guard then completed authoritative zero (`d2f046`).
+The private mode-0600 HOST capture was exactly 54 bytes, the fixed
+`K1_RETAINED_LEASE_REGRESSION_PRESERVED_NOT_PRODUCTION` marker and newline;
+SHA-256 `6d0d73d9b1d82731fbb63ade385083071b61eadd07ca580522956b8c502a208d`.
+The whole guard requires the actual primary create/replace/delete, generation
+refusal with retained PendingCreate, typed manager lifecycle proofs and strict
+before/after preservation including the network baseline. This success belongs
+only to that restricted fixture and exact graph. A separately reviewed semantic
+fixed-file evidence collection remains pending; raw private evidence is not
+included here. No canonical production authority, orphan recovery, product K1
+completion, cleanup permission or replay authorization follows from this result.
 
 Native source `90bed8477bbc1eb6127f5e4d0072743b40902a21` completed full Rust gates
 with terminal zero (`fb0efc`). Python-only `74cc373902cfeb4312fa29d6b54045c7b368de01`
