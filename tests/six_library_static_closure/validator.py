@@ -9,7 +9,7 @@ import re
 import stat
 import sys
 
-STAGE = Path("/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1")
+STAGE = Path("/home/kdk_vm/.cache/t3-six-library-exact-package-review-1")
 MANIFEST_SHA = "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87"
 READELF_SHA = "a72f12f3dd8c560554a3ba818bcecbda9178db5befbcc64d91bbb6a241fc21bc"
 SEARCH = ["/usr/lib", "/usr/lib/systemd"]

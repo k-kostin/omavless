@@ -5,16 +5,16 @@ import os
 import stat
 import sys
 
-PARTS = ("home", "kdk_vm", ".cache", "t3-six-library-catalog-diagnostic-review-1")
+PARTS = ("home", "kdk_vm", ".cache", "t3-six-library-exact-package-review-1")
 PINS = {
-    'probe.py': 'e9d34befea298f2b8c4dc3e840f7790ac402bdd4248a15e9ead360c07e96abde',
-    'supervisor.py': 'a3104e7e4733e1a4fc6d65e1f719ae2bb1348350163bcae07ecf484ac8acd300',
-    'validator.py': 'f2b60ad2ffa25b3fce4591f51157b0b69d7ae501a0f8bd759999c3114c9482c5',
-    'owned.py': '2068087b00aa6e2cb47b850f98e7696e3d83403f4d3ae5bc3c180267794212f6',
+    'probe.py': '740374d92fd20c051a8f1432caf40271a16b3402cdb30b363c8b306c9080ee65',
+    'supervisor.py': '895c73750e5c2f80a9fd9cf5230c9313be3d380ac6f3bcccd486ebd39a4904a0',
+    'validator.py': '6d9b46ae23e3d16e1c23579513070b94906289efbb733c60b06f95f5c37787ea',
+    'owned.py': 'fe33819270686b54fff5608cbc4db1a6dc7252f3e884c7d0b4e3f9cad123769a',
     "containment.py": "2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592",
     "helpers.py": "cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00",
     "copy-manifest.json": "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87",
-    'vm-guard.sh': 'e1e064016514c3279e5491a967b16ddfeb6252aef06239e657d23b98101cdbf7'
+    'vm-guard.sh': 'fb9b3dfb739a62c9ba58265eac80807df0322e167a8ae497033150cd74225be3'
 }
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 

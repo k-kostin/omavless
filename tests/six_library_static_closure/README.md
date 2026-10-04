@@ -1,6 +1,61 @@
 # Six recorded public candidates: bounded static closure
 
-## Separate catalog diagnostic generation
+## Parent-recorded invocation of exact source checkpoint
+
+The sole VM observer recorded all ten preparation actions at known zero and
+one #644 wrapper at known zero (`d56c91`, 0.746 seconds), against exact source
+`45feb7e13ea71485d032b8d6a1e2319edcedacc7`. Its private stdout receipt hash is
+`9da582bd73653be2ade11907d5f8852cf569b78cf3e82cac984b2c8cd4c6f3b0`.
+It contains the typed static-only and same-invocation canonical/private-file,
+service, executable, namespace, core, TUN, resolver and non-timer network
+baseline markers. This paragraph is a separate documentation follow-up, not
+the tested code head. The author performed no guest action.
+
+The previous #640/#642 failures remain NONPASS; no cause is inferred from the
+passing successor. A separately reviewed file-only collector is still needed
+to export and revalidate the measured package/ELF data. No copy allowlist,
+candidate execution, loaded-object identity or compatibility acceptance is
+adopted by this static invocation or its receipt. Scoped R6 is unchanged.
+
+## Exact package-directory selection successor
+
+This developer-only successor starts at #642
+`98e79ac079b9cf0a53287edba7af3cd49d31061b`. Its one wrapper returned
+NONPASS; a separately reviewed fixed-file observer recorded `catalog_names`,
+`catalog_sort` and `RuntimeError`. These are last-entered diagnostic labels,
+not proof of a scan/sort failure or its cause. The stopped parent scope is
+not queried, retried or reused here.
+
+A deterministic synthetic catalog reproduced a concrete source bug: the old
+prefix selector treats the distinct package `openssl-1.1` as another version
+of `openssl`. The successor splits each measured component at its last two
+hyphens and selects only the exact five literal package names. It keeps the
+same version grammar, exactly-one requirement, ten selected `desc`/`files`
+records, complete original-FD catalog rechecks and all ELF/tool bounds.
+No sibling package content is opened. Malformed selected versions, missing
+packages and two versions of the same exact package still refuse permanently.
+
+This delimiter rule follows the primary
+[PKGBUILD(5) manual](https://man.archlinux.org/man/PKGBUILD.5.en.html): package
+names permit hyphens, while pkgver does not; full versions include pkgrel and
+an optional epoch. At the inspected official pacman source commit
+`a6f7467d8c7c4d7e9cc846884e74c0ab7215c48d`,
+[libalpm `_alpm_splitname`](https://gitlab.archlinux.org/pacman/pacman/-/blob/a6f7467d8c7c4d7e9cc846884e74c0ab7215c48d/lib/libalpm/util.c#L1336)
+splits from the back across two hyphens, and
+[the local database path builder](https://gitlab.archlinux.org/pacman/pacman/-/blob/a6f7467d8c7c4d7e9cc846884e74c0ab7215c48d/lib/libalpm/be_local.c#L669)
+joins NAME and full VERSION. The existing bounded version subset is retained;
+this is not a general pacman parser or package authenticity claim.
+
+Six new inert controls cover old-failing/new-passing canonical sibling names,
+numeric and alphanumeric versions, duplicate/missing/malformed exact packages,
+ten-content-only reads, original directory-FD scans/rescans and terminal whole
+catalog mutation refusal. The rescan control passes without seeking/resetting
+the original FD; its handling is unchanged. No test reads an actual catalog,
+executes readelf or enters a guest. The regression does not establish the
+cause of either prior VM failure. Fresh stage and acyclic repins below require
+full gates and independent/parent review before any separate VM authorization.
+
+## Retained catalog diagnostic generation
 
 This narrow successor starts at #640
 `2906f8f1fb19fdb3815c7cd023b4696196cf61f0`. The parent's single #640
@@ -127,7 +182,7 @@ maximum graph would need more. Result bytes are at most 262,144.
 ## Fresh scope and acceptance boundary
 
 Fixed new stage:
-`/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1`.
+`/home/kdk_vm/.cache/t3-six-library-exact-package-review-1`.
 Create-only transfer refuses reuse. The same-invocation wrapper keeps the
 canonical runtime/private-file/service/executable/namespace/core/TUN/resolver
 and network comparisons; only the retained address lifetime countdown
