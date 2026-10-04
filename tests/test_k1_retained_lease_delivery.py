@@ -20,7 +20,7 @@ class DeliveryControls(unittest.TestCase):
         query.UNCERTAIN=False
         query.RETAINED.clear()
 
-    def test_new_pins_are_acyclic_and_native_zero_until_separate_freeze(self):
+    def test_new_pins_are_acyclic_and_exact_separately_frozen_native(self):
         paths={'guard.py':baseline.SUPPORT/'retained_lease_guard.py',
             'query-guard.py':baseline.SUPPORT/'retained_lease_query.py',
             'fixture.service':baseline.SUPPORT.parent/'fixtures'/guard.UNIT}
@@ -28,8 +28,9 @@ class DeliveryControls(unittest.TestCase):
             self.assertEqual(stage.MEMBERS[name][0],hashlib.sha256(path.read_bytes()).hexdigest())
         self.assertEqual(guard.QUERY_SHA,stage.MEMBERS['query-guard.py'][0])
         self.assertEqual(guard.PROBE_SHA,stage.MEMBERS['probe'][0])
-        self.assertEqual(guard.PROBE_SHA,'0'*64)
-        self.assertEqual(guard.NATIVE_SOURCE,'0'*40)
+        self.assertEqual(guard.PROBE_SHA,'bc9157a785b93735211f4f96e28d12bb2014db1d22932f012db5845d5fa92c0a')
+        self.assertEqual(guard.NATIVE_SOURCE,'90bed8477bbc1eb6127f5e4d0072743b40902a21')
+        self.assertNotEqual(guard.PROBE_SHA,baseline.guard.PROBE_SHA)
         self.assertNotEqual(guard.STAGE,baseline.guard.STAGE)
         self.assertEqual(guard.STAGE,stage.DESTINATION)
         self.assertEqual(guard.STAGE,query.STAGE)

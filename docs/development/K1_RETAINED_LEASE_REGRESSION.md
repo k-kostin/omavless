@@ -17,8 +17,8 @@ and the separately retained same-namespace PendingCreate receipt before Stop.
 The legacy entry keeps its own two-effect schema and fixed identity.
 
 Fresh fixed guard/query/loader sources are prepared beside the unchanged #631
-sources. Their native SHA and source fields remain zero until a separately
-reviewed original-artifact freeze; the graph is deliberately not runnable.
+sources. Their native pins now identify the separately reviewed original-artifact
+freeze described below; no guest execution is implied by those pins.
 The loader holds original input descriptors through publication and checks
 full typed writes, original metadata and exact destination bytes before exec.
 The query preserves an exact child on delayed spawn, initial await failure,
@@ -28,8 +28,8 @@ The outer guard separately validates three-effect and PendingCreate evidence,
 then permits only the same known-zero lifecycle's stopped/cgroup-empty cleanup.
 
 This is not yet a complete runnable delivery. Independently reviewed
-build/freeze provenance, final acyclic pins, trusted transport and explicit
-executor authorization are still required. Missing delivery pieces
+trusted transport and explicit executor authorization are still required.
+Missing delivery pieces
 must not be filled with #631's identity or an arbitrary unit/source path.
 
 ## Fixed identity and sequence
@@ -75,6 +75,19 @@ a restart permit or canonical authority. The outer Stop is allowed only after
 strict receipts, the exact original helper's known zero and an empty cgroup.
 
 ## Evidence boundaries
+
+Native source `90bed8477bbc1eb6127f5e4d0072743b40902a21` completed full Rust gates
+with terminal zero (`fb0efc`). Python-only `74cc373902cfeb4312fa29d6b54045c7b368de01`
+completed full source gates (`9e8da9`) and has identical native/Cargo inputs.
+The later metadata invocation completed zero (`17f372`) and honestly reported
+the cached native artifact, not a recompilation. After full parent and independent
+freeze review, the sole operator completed the fresh HOST freeze (`e8f870`):
+79,868,328 bytes, one mode-0500 original frozen file, SHA-256
+`bc9157a785b93735211f4f96e28d12bb2014db1d22932f012db5845d5fa92c0a`.
+Its private original-FD provenance receipt hashes to
+`d46938a6010662366aa97e5c81996483ba746684ca8eb23223713a95c15feaaf`.
+This establishes frozen build provenance only, not guest acceptance. The pins
+form an acyclic graph: native/query/unit to guard, then guard to fixed loader.
 
 Ordinary controls validate strict pending JSON, disjoint receipt identities and
 the literal generation-cut wire. They perform no nftables effects. Compilation

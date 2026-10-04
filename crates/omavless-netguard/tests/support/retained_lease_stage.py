@@ -11,10 +11,10 @@ import time
 SOURCE = Path('/home/kdk_vm/.cache/k1-retained-lease-stage-v1')
 DESTINATION = Path('/run/omavless-k1-retained-lease-regression')
 MEMBERS = {
-    'probe': ('0000000000000000000000000000000000000000000000000000000000000000', 0o500, 0o500, 128*1024*1024),
+    'probe': ('bc9157a785b93735211f4f96e28d12bb2014db1d22932f012db5845d5fa92c0a', 0o500, 0o500, 128*1024*1024),
     'query-guard.py': ('8485879b68937c15908add274d61edcd569a4940685cc9ff201cb718f3f7d85a', 0o400, 0o600, 256*1024),
     'fixture.service': ('f5d461381beeaf4846cc6113b2d81d2131ef28441cb33f6ee15362725527c78e', 0o400, 0o600, 16384),
-    'guard.py': ('9bd1f44bca9592880c912bfe22eeb90e92783095e300ddc5e84c8e47b33c5413', 0o400, 0o500, 256*1024),
+    'guard.py': ('c1f63a4a5e886c1dfaeae34e4a4f6970981ba5f7cbaba364d501b82a0167d6dc', 0o400, 0o500, 256*1024),
 }
 HELD = []
 DEADLINE = float('inf')
