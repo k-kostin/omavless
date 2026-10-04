@@ -16,10 +16,10 @@ python3 - "$task_stage" <<'PY'
 import hashlib, os, pathlib, stat, sys
 root = pathlib.Path(sys.argv[1])
 pins = {
-    'probe.py': 'df951f71b3554a5314384866f931a25e3b6aa67dd5cbd98735c382aab7db5ca3',
-    'supervisor.py': 'cf4a1f089d00755ac3a151ce5cd4ef2fdedc723d011fec3408139ca7a1bb7097',
+    'probe.py': '35d550b5f03ce9c471b3f0565756188b90644e55966e9b7a5b482a8d02c940cf',
+    'supervisor.py': '880dc03a381d73e7be5c1b13cfd65aace63ffaaa38f2d497b1e8d18b3ba79871',
     'validator.py': 'f68d1db1cb085d5c5bdd07a49b2607504c831e862d4e460af3850dab4d167f98',
-    'owned.py': '660ba21ef096c9f1325511c1b721e93afc49765b8603f570cbd0ebf13e23a243',
+    'owned.py': 'f5e57d69a7b3ba0f7a41e9cf07df9f8f86d203c8728401204d3a2a1c4a48fa89',
     "containment.py": "2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592",
     "helpers.py": "cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00",
     "copy-manifest.json": "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87"

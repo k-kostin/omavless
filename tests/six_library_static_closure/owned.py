@@ -17,6 +17,8 @@ def child_status(base, child):
                      and status.si_code in (os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED)
                      and type(status.si_status) is int and 0 <= status.si_status <= 255,
                      'fixed_raw_wait_shape')
+        base.require(status.si_code == os.CLD_EXITED or 1 <= status.si_status <= 64,
+                     'fixed_raw_signal_shape')
         return status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
     except BaseException:
         base.quarantine(child, 'fixed_raw_wait_unknown_preserve')
@@ -43,7 +45,7 @@ def settle(base, child, seconds):
             # Only the exact observed-zero child may be reaped once. No group
             # inventory, signal, cancellation cleanup, poll or wait fallback.
             pid, status = os.waitpid(child.pid, os.WNOHANG)
-            if (type(pid) is not int or type(status) is not int or pid != child.pid
+            if (type(pid) is not int or type(status) is not int or pid != child.pid or status != 0
                     or not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0):
                 base.quarantine(child, 'owned_exact_zero_reap_unknown')
             if time.monotonic() >= deadline:

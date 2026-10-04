@@ -22,7 +22,7 @@ PACKAGES = {
     'zlib': (CANDIDATES[4],), 'zstd': (CANDIDATES[5],)}
 CATALOG = Path('/var/lib/pacman/local')
 PINS = {'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
-        'owned.py': '660ba21ef096c9f1325511c1b721e93afc49765b8603f570cbd0ebf13e23a243',
+        'owned.py': 'f5e57d69a7b3ba0f7a41e9cf07df9f8f86d203c8728401204d3a2a1c4a48fa89',
         'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
         'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87'}
 # Catalog names only are measured. No package version/hash is guessed.

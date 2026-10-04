@@ -466,6 +466,9 @@ class OwnershipTests(unittest.TestCase):
                     self.assertIsNone(child.returncode)
         for status in (SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=1),
                        SimpleNamespace(si_pid=123, si_code=os.CLD_KILLED, si_status=15),
+                       SimpleNamespace(si_pid=123, si_code=os.CLD_KILLED, si_status=0),
+                       SimpleNamespace(si_pid=123, si_code=os.CLD_DUMPED, si_status=0),
+                       SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=256),
                        OSError('inert')):
             child = SimpleNamespace(pid=123, returncode=None)
             with patch.object(base_module,'UNSETTLED',[]), \
@@ -476,7 +479,8 @@ class OwnershipTests(unittest.TestCase):
                 self.assertEqual(query.call_count,1); reap.assert_not_called()
 
     def test_known_zero_exact_single_typed_reap_and_no_after_unknown(self):
-        for outcome in ((123,0),(123.0,0),(123,False),(124,0),(123,256),OSError('inert')):
+        for outcome in ((123,0),(123.0,0),(123,False),(124,0),(123,256),
+                        (123,65536),(123,-65536),OSError('inert')):
             child = SimpleNamespace(pid=123, returncode=None)
             status = SimpleNamespace(si_pid=123, si_code=os.CLD_EXITED, si_status=0)
             with patch.object(base_module,'UNSETTLED',[]), patch.object(owned.os,'waitid',return_value=status) as query, \
