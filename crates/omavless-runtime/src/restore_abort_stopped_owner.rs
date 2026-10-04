@@ -806,6 +806,13 @@ fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
         let mut fields = Vec::new();
         for index in 0..7 {
             let start = cursor;
+            if index == 6 {
+                // unix_seq_show uses width-five decimal: leading spaces belong to the
+                // inode field, not to the following pathname separator.
+                while line.get(cursor) == Some(&b' ') {
+                    cursor += 1;
+                }
+            }
             while cursor < line.len() && line[cursor] != b' ' {
                 cursor += 1;
             }
@@ -826,7 +833,10 @@ fn no_listener(bytes: &[u8], own: &[String; 2]) -> Result<()> {
             || fields[1..6]
                 .iter()
                 .any(|field| u64::from_str_radix(field, 16).is_err())
-            || fields[6].parse::<u64>().is_err()
+            || !fields[6]
+                .trim_start_matches(' ')
+                .parse::<u64>()
+                .is_ok_and(|inode| fields[6] == format!("{inode:5}"))
         {
             return Err(());
         }
@@ -1227,14 +1237,16 @@ mod tests {
         let own = listener_paths(1001, Path::new("/removed/omavless/control.sock")).unwrap();
         assert!(
             no_listener(
-                format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /unrelated/socket\n")
-                    .as_bytes(),
+                format!(
+                    "{HEADER}0000: 00000002 00000000 00010000 0001 01    42 /unrelated/socket\n"
+                )
+                .as_bytes(),
                 &own
             )
             .is_ok()
         );
         // There is deliberately no pathname-existence check.
-        assert!(no_listener(format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 /removed/omavless/control.sock\n").as_bytes(), &own).is_err());
+        assert!(no_listener(format!("{HEADER}0000: 00000002 00000000 00010000 0001 01    42 /removed/omavless/control.sock\n").as_bytes(), &own).is_err());
         assert!(no_listener(b"malformed\n", &own).is_err());
         assert!(no_listener(format!("{HEADER}missing fields\n").as_bytes(), &own).is_err());
     }
@@ -1245,7 +1257,7 @@ mod tests {
         const HEADER: &str = "Num       RefCount Protocol Flags    Type St Inode Path\n";
         let own = listener_paths(1001, Path::new("/private path/omavless/control.sock")).unwrap();
         for name in [&own[0], &own[1]] {
-            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 {name}\n");
+            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01    42 {name}\n");
             assert!(no_listener(row.as_bytes(), &own).is_err());
         }
         for name in [
@@ -1258,7 +1270,7 @@ mod tests {
             "/private  path/omavless/control.sock",
             "/private\tpath/omavless/control.sock",
         ] {
-            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01 42 {name}\n");
+            let row = format!("{HEADER}0000: 00000002 00000000 00010000 0001 01    42 {name}\n");
             assert!(no_listener(row.as_bytes(), &own).is_ok());
         }
         for invalid in [
@@ -1282,12 +1294,83 @@ mod tests {
         );
         assert!(
             no_listener(
-                format!("{HEADER}0000:  00000002 00000000 00010000 0001 01 42 /unrelated\n")
+                format!("{HEADER}0000:  00000002 00000000 00010000 0001 01    42 /unrelated\n")
                     .as_bytes(),
                 &own
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn listener_inode_kernel_width_preserves_exact_path_bytes() {
+        const HEADER: &str = "Num       RefCount Protocol Flags    Type St Inode Path\n";
+        const PREFIX: &str = "0000000000000000: 00000002 00000000 00010000 0001 01 ";
+        let own = listener_paths(1001, Path::new("/private path/omavless/control.sock")).unwrap();
+        for inode in [0_u64, 42, 9999, 10000, u64::MAX] {
+            for suffix in [
+                "",
+                " /unrelated",
+                "  /private path/omavless/control.sock",
+                " /private path/omavless/control.sock ",
+            ] {
+                assert!(
+                    no_listener(
+                        format!("{HEADER}{PREFIX}{inode:5}{suffix}\n").as_bytes(),
+                        &own
+                    )
+                    .is_ok()
+                );
+            }
+            for path in &own {
+                assert!(
+                    no_listener(
+                        format!("{HEADER}{PREFIX}{inode:5} {path}\n").as_bytes(),
+                        &own
+                    )
+                    .is_err()
+                );
+            }
+        }
+        for inode in [
+            "0",
+            "42",
+            "9999",
+            "     0",
+            "  42",
+            "    42",
+            " 0000",
+            "00042",
+            "010000",
+            "+0042",
+            "\t  42",
+            "   4\t",
+            "18446744073709551616",
+            "     ",
+        ] {
+            assert!(
+                no_listener(
+                    format!("{HEADER}{PREFIX}{inode} /unrelated\n").as_bytes(),
+                    &own
+                )
+                .is_err(),
+                "malformed inode field"
+            );
+        }
+        for prefix in [
+            "0000:  00000002 00000000 00010000 0001 01 ",
+            "0000:\t00000002 00000000 00010000 0001 01 ",
+            "0000: 00000002 00000000 00010000 0001 01\t",
+            "0000: 00000002 00000000 00010000 0001 GG ",
+        ] {
+            assert!(
+                no_listener(
+                    format!("{HEADER}{prefix}   42 /unrelated\n").as_bytes(),
+                    &own
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

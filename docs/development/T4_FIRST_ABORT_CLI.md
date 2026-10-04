@@ -59,6 +59,14 @@ known OmaVLESS executable/argv0/comm identities refuse, including renamed,
 deleted or mixed-version daemons and daemons in another network namespace.
 Only the original exact recovery invocation may exempt itself. Local kernel
 Unix-listener observation supplements, never replaces, that process inventory.
+The inode column follows the kernel's minimum-width-five decimal formatting:
+leading spaces are admitted only as that field's exact canonical padding.
+The following single pathname separator is removed without trimming any
+pathname bytes. Wrong padding, leading zeroes, tabs and overflow refuse.
+This matches [`unix_seq_show` in Linux v6.16](https://github.com/torvalds/linux/blob/v6.16/net/unix/af_unix.c#L3305),
+whose separate pathname separator follows the formatted inode. This parser
+correction is not evidence of which admission predicate rejected any prior
+CLI invocation.
 It matches only the exact retained caller socket path and the fixed
 `/run/user/UID/omavless/control.sock`; another UID's listener is not evidence of
 this user's ownership. Encoded spaces are preserved, not split or normalized;
