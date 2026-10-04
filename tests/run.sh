@@ -4,6 +4,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
   "$here/test_six_library_static_closure.py" \
+  "$here/test_six_library_catalog_diagnostic.py" \
   "$here/test_encoder_libm_mapping_boundaries_bridge.py" \
   "$here/test_encoder_libm_mapping_boundaries_transport.py" \
   "$here/test_encoder_libm_mapping_boundaries_fixture.py" \

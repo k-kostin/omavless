@@ -11,7 +11,7 @@ import sys
 import time
 import types
 
-STAGE = Path('/home/kdk_vm/.cache/t3-six-library-static-closure-review-1')
+STAGE = Path('/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1')
 CANDIDATES = (
     '/usr/lib/libcrypto.so.3', '/usr/lib/libidn2.so.0.4.0',
     '/usr/lib/libssl.so.3', '/usr/lib/libunistring.so.5.2.1',
@@ -22,7 +22,7 @@ PACKAGES = {
     'zlib': (CANDIDATES[4],), 'zstd': (CANDIDATES[5],)}
 CATALOG = Path('/var/lib/pacman/local')
 PINS = {'containment.py': '2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592',
-        'owned.py': '473547131f72ac768b168370fb31f551b64a428520828ca47e200cd46885eefa',
+        'owned.py': '2068087b00aa6e2cb47b850f98e7696e3d83403f4d3ae5bc3c180267794212f6',
         'helpers.py': 'cccc171213f4631f54d906652aeaf7954230949a7de40b2093c8ab587f86aa00',
         'copy-manifest.json': 'b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87'}
 # Catalog names only are measured. No package version/hash is guessed.
@@ -48,6 +48,16 @@ PHASES = frozenset(('entry', 'input_ancestry', 'input_open', 'input_shape',
     'source_open', 'source_shape', 'source_read', 'source_hash',
     'source_path', 'source_pin', 'sources_recheck', 'recheck_file',
     'recheck_parent', 'output', 'catalog_open', 'catalog_names', 'catalog_recheck', 'package_membership'))
+CATALOG_PHASES = frozenset(('catalog_iterator_open',
+    'catalog_next_entry', 'catalog_entry_name', 'catalog_name_type',
+    'catalog_name_cap', 'catalog_name_shape', 'catalog_name_duplicate',
+    'catalog_iterator_close', 'catalog_sort'))
+EXCEPTION_CLASSES = {
+    PermissionError: 'PermissionError', FileNotFoundError: 'FileNotFoundError',
+    NotADirectoryError: 'NotADirectoryError', OSError: 'OSError',
+    RuntimeError: 'RuntimeError', TypeError: 'TypeError', ValueError: 'ValueError',
+    OverflowError: 'OverflowError', MemoryError: 'MemoryError',
+}
 EVENTS = None  # Inert imports have no observer; fixed main installs one.
 FINAL_SCOPE = None
 
@@ -58,6 +68,13 @@ class Events:
         self.reported = False
         self.last = 'entry'
         self.count = self.total = 0
+        self.catalog_phase = None
+
+    def catalog_before(self, phase):
+        # Private finite latch only: avoid multiplying the existing event cap
+        # for every entry in the unchanged 4096-name catalog.
+        require(not self.sealed and type(phase) is str and phase in CATALOG_PHASES)
+        self.catalog_phase = phase
 
     def before(self, phase):
         if self.sealed:
@@ -76,20 +93,36 @@ class Events:
             self.reported = True  # A failed event write is never retried.
             raise
 
-    def failure(self):
+    def failure(self, error=None):
         # Authorized finite output only, no post-failure observation or cleanup.
         self.sealed = True
         if self.reported:
             return
         self.reported = True
         raw = ('T3_SIX_LIBRARY_STATIC_FAILED_AT_V1 ' + self.last + '\n').encode('ascii')
+        if error is not None and self.last == 'catalog_names' and self.catalog_phase is not None:
+            # Only a literal category, never exception text, repr or class name.
+            category = EXCEPTION_CLASSES.get(type(error), 'OtherBaseException')
+            require(self.catalog_phase in CATALOG_PHASES)
+            raw += ('T3_SIX_LIBRARY_STATIC_CATALOG_FAILED_AT_V1 ' + self.catalog_phase + '\n').encode('ascii')
+            raw += ('T3_SIX_LIBRARY_STATIC_EXCEPTION_V1 ' + category + '\n').encode('ascii')
+        require(len(raw) <= 256)
+        if FINAL_SCOPE is not None:
+            require(time.monotonic() < FINAL_SCOPE.deadline)
         written = os.write(2, raw)
         require(type(written) is int and written == len(raw))
+        if FINAL_SCOPE is not None:
+            require(time.monotonic() < FINAL_SCOPE.deadline)
 
 
 def boundary(phase):
     if EVENTS is not None:
         EVENTS.before(phase)
+
+
+def catalog_boundary(phase):
+    if EVENTS is not None:
+        EVENTS.catalog_before(phase)
 
 
 def require(value):
@@ -187,15 +220,37 @@ class Sources:
         self.available()
         boundary('catalog_names')
         names = []
-        with os.scandir(fd) as entries:
-            for entry in entries:
-                self.available()
-                name = entry.name
-                require(type(name) is str and len(names) < 4096
-                        and re.fullmatch(r'[A-Za-z0-9_+.@~:-]{1,320}', name)
-                        and name not in ('.', '..') and name not in names)
-                names.append(name)
-        return tuple(sorted(names))
+        try:
+            catalog_boundary('catalog_iterator_open')
+            self.available()
+            with os.scandir(fd) as entries:
+                while True:
+                    catalog_boundary('catalog_next_entry')
+                    self.available()
+                    try:
+                        entry = next(entries)
+                    except StopIteration:
+                        break
+                    catalog_boundary('catalog_entry_name')
+                    self.available()
+                    name = entry.name
+                    catalog_boundary('catalog_name_type')
+                    require(type(name) is str)
+                    catalog_boundary('catalog_name_cap')
+                    require(len(names) < 4096)
+                    catalog_boundary('catalog_name_shape')
+                    require(re.fullmatch(r'[A-Za-z0-9_+.@~:-]{1,320}', name)
+                            and name not in ('.', '..'))
+                    catalog_boundary('catalog_name_duplicate')
+                    require(name not in names)
+                    names.append(name)
+                catalog_boundary('catalog_iterator_close')
+            catalog_boundary('catalog_sort')
+            self.available()
+            return tuple(sorted(names))
+        except BaseException:
+            self.state = 'refused'
+            raise
 
     def select_packages(self):
         self.available()
@@ -502,10 +557,10 @@ if __name__ == '__main__':
     os.umask(0o077)
     try:
         main()
-    except BaseException:
+    except BaseException as error:
         try:
             if EVENTS is not None:
-                EVENTS.failure()
+                EVENTS.failure(error)
         except BaseException:
             pass  # Unknown diagnostic write is terminal, never echo its context.
         if FINAL_SCOPE is not None:
