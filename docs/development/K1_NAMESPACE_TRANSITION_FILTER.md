@@ -188,3 +188,7 @@ failure. This diagnostic cannot read an escaped private regular file, relax
 the guard, retry either unit case, or heal the first missing preservation
 receipt. New create-only staging, full root review and a fresh exclusive VM
 lease are prerequisites to execution; it remains source-only.
+
+The separately scoped [user-generator target correction](K1_GENERATOR_TARGET_FILTER.md)
+retains these artifacts and failures, rather than relaxing the original guard
+or retrying its stage. New fixture bytes and authority gates remain distinct.

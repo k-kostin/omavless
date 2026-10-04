@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Non-installed developer fixture; no canonical authority or protection.
+[Unit]
+Description=OmaVLESS K1 namespace syscall filter fixture
+
+[Service]
+Type=exec
+User=root
+ExecStart=/run/omavless-k1-generator-filter-fixture/probe
+Environment=OMAVLESS_K1_NAMESPACE_FILTER_FIXTURE=control
+PrivateUsers=no
+PrivatePIDs=no
+PrivateNetwork=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=no
+RuntimeMaxSec=10s
+TimeoutStopSec=2s
