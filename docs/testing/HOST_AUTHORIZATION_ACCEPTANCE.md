@@ -34,6 +34,25 @@ errors. Never script `ready`/`settled`, make a pseudo-terminal to bypass the
 barrier, reset PAM counters, change polkit rules, or kill arbitrary auth agents.
 Do not infer successful authorization from disappearance of a dialog/process.
 
+### Rejection testing and account lockout
+
+The [RC DNS cancellation test](RC_090_DNS_AUTHORIZATION_2026-09-24.md) exposed a
+second acceptance hazard: repeated polkit/PAM failures can temporarily lock the
+desktop account, so even a correct password is subsequently refused. Before a
+negative authorization case, inspect the effective PAM policy and available
+failure counters read-only. Do not assume Cancel is exempt from accounting.
+Prefer one deliberate rejected action followed by separately attended accepted
+recovery, rather than asking the human to reject a whole chain of dialogs.
+If the core continues with more authorization requests, handle that explicitly
+in the case instructions; do not start another negative case blindly.
+
+On wrong-password/lockout reports, stop new authorizing effects, inspect safely
+and wait for the configured recovery interval with the human. Never reset PAM,
+kill the auth agent, alter policy or try the password on the human's behalf.
+An empty dialog queue is still not success: verify managed-link DNS readback
+after restoration as well as native process/controller state. Record only
+aggregate classifications, not passwords, PAM conversation input or raw logs.
+
 The isolated service gate guards fixture Start, Connect, Disconnect and Stop;
 every repetition requires new human acknowledgements. The installed gate also
 guards explicit socket-inspection authorization and mode restoration. Human

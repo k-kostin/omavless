@@ -1,0 +1,36 @@
+{
+  "schema": "real-resolved-read-only-epoch-inventory-v1",
+  "source_code": "cb87a55b296e265022e509220921a07b43b62144",
+  "prior_preflight": "refused_expected_pid_86349_observed_938_no_staging_no_execution",
+  "boot_id": "9cdd6950-1655-495b-a52e-0f8f14200d19",
+  "uptime_seconds_observed": 1699.08,
+  "canonical_pid": 938,
+  "canonical_starttime_ticks": 1901,
+  "canonical_service": {"ActiveState": "active", "SubState": "running"},
+  "canonical_executable": {
+    "path": "/usr/bin/omavless",
+    "device": 31,
+    "inode": 292400,
+    "size": 8140776,
+    "mode": "0755",
+    "uid": 0,
+    "gid": 0,
+    "sha256": "76abb574f611c11c2513436ac4be48d2fb07a69ba35f56127c93c21c6205921c",
+    "loaded_installed_object_identical": true,
+    "package": "omavless 0.9.7rc1-1",
+    "package_files_checked": 17,
+    "package_files_altered": 0
+  },
+  "unit": {
+    "fragment": "/usr/lib/systemd/user/omavless-runtime.service",
+    "dropins": [],
+    "sha256": "438df1a83ff636b662c2422c522124ccdc1a37c195dc4076834ec0f522cb250f"
+  },
+  "network_namespace": "5:4026531833",
+  "original_loader_inventory_sha256": "4f1b92aeaff78f5f376576fc1da722cf9077735ff5c36d8674ff92581342ada4",
+  "loader_objects_revalidated": 16,
+  "subordinate_maps_revalidated": true,
+  "fixture_executed": false,
+  "guest_files_written": false,
+  "old_boot_id_available_for_comparison": false
+}

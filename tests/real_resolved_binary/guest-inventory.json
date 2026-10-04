@@ -1,0 +1,143 @@
+{
+  "canonical_pid": 86349,
+  "canonical_preserved": true,
+  "capabilities": "/usr/bin/newgidmap cap_setgid=ep\n/usr/bin/newuidmap cap_setuid=ep",
+  "dependencies": {
+    "/usr/bin/dbus-daemon": [
+      "/lib64/ld-linux-x86-64.so.2",
+      "/usr/lib/libaudit.so.1",
+      "/usr/lib/libc.so.6",
+      "/usr/lib/libcap-ng.so.0",
+      "/usr/lib/libdbus-1.so.3",
+      "/usr/lib/libexpat.so.1",
+      "/usr/lib/libgcc_s.so.1",
+      "/usr/lib/libsystemd.so.0",
+      "/usr/lib64/ld-linux-x86-64.so.2"
+    ],
+    "/usr/lib/systemd/systemd-resolved": [
+      "/lib64/ld-linux-x86-64.so.2",
+      "/usr/lib/libc.so.6",
+      "/usr/lib/libgcc_s.so.1",
+      "/usr/lib/systemd/libsystemd-shared-261.2-1.so",
+      "/usr/lib64/ld-linux-x86-64.so.2"
+    ]
+  },
+  "elfs": {
+    "/lib64/ld-linux-x86-64.so.2": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/ld-linux-x86-64.so.2",
+      "sha256": "d011113b7054c641c8ca064f58bcc23804fd2654a3dff2444dad06ddeda61bfb",
+      "uid": 0
+    },
+    "/usr/bin/dbus-daemon": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/dbus-daemon",
+      "sha256": "e9ffeaea83965fa53077f716e352d3038794200bacb8eee043fe55117ce2c7d7",
+      "uid": 0
+    },
+    "/usr/bin/newgidmap": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/newgidmap",
+      "sha256": "326370106ae7d202a21216d75eb74dfc38ba93ac81d0fe9dc3ddd19bd68efa2f",
+      "uid": 0
+    },
+    "/usr/bin/newuidmap": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/newuidmap",
+      "sha256": "85099fcbafde31fe5f27dbca529e3da1531f9b97f899db84758132313445af36",
+      "uid": 0
+    },
+    "/usr/bin/setpriv": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/setpriv",
+      "sha256": "3bc16fb066583cbdce19af898ada51014de1352695f5463003b156924d4b766b",
+      "uid": 0
+    },
+    "/usr/bin/unshare": {
+      "mode": "0o755",
+      "resolved_path": "/usr/bin/unshare",
+      "sha256": "1fd26966b5ef37a3021e00059a00afb4ddc3fcee181ba2431001f08a372e5179",
+      "uid": 0
+    },
+    "/usr/lib/libaudit.so.1": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libaudit.so.1.0.0",
+      "sha256": "16813308197ab091526836d4d9ee79b7780a49e63a0ee1d7e01da2b662d057c3",
+      "uid": 0
+    },
+    "/usr/lib/libc.so.6": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libc.so.6",
+      "sha256": "e221b10fee9ee4776d8f0f1701253bc06817f7a4dbe6c5292487277d0bf8ffff",
+      "uid": 0
+    },
+    "/usr/lib/libcap-ng.so.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libcap-ng.so.0.0.0",
+      "sha256": "583c413d5a6d6dbe43fbcb7e1d41eb347fc68b0afe8d48dd4a8022af12ec32e9",
+      "uid": 0
+    },
+    "/usr/lib/libdbus-1.so.3": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libdbus-1.so.3.38.3",
+      "sha256": "61be5c82b1d494a3690ad38abd756691bc129a51ba3fb7d5b9074016861b7d60",
+      "uid": 0
+    },
+    "/usr/lib/libexpat.so.1": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libexpat.so.1.12.4",
+      "sha256": "516a880ec607ee15f664d92eeb587deeb609f6ef6d05c947e9bfeb781a9debaf",
+      "uid": 0
+    },
+    "/usr/lib/libgcc_s.so.1": {
+      "mode": "0o644",
+      "resolved_path": "/usr/lib/libgcc_s.so.1",
+      "sha256": "e618cb9c90c2eb3a1dad1cfea5b6c1eebcf2e799ad805976f4ae47bdd61c716a",
+      "uid": 0
+    },
+    "/usr/lib/libsystemd.so.0": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/libsystemd.so.0.44.0",
+      "sha256": "2e971237c56af98844a847344edeae0f59ae2e3437de84162b37f308f82c1615",
+      "uid": 0
+    },
+    "/usr/lib/systemd/libsystemd-shared-261.2-1.so": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/systemd/libsystemd-shared-261.2-1.so",
+      "sha256": "a9138b761996fb49bb45511b2a3f365e5bfac26c461d23d93788c58a5fb6d6f5",
+      "uid": 0
+    },
+    "/usr/lib/systemd/systemd-resolved": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/systemd/systemd-resolved",
+      "sha256": "feb36cd417f4e6a065222be0f88ce25933244bc22a9f5dd54030f0fa6ac5cfcd",
+      "uid": 0
+    },
+    "/usr/lib64/ld-linux-x86-64.so.2": {
+      "mode": "0o755",
+      "resolved_path": "/usr/lib/ld-linux-x86-64.so.2",
+      "sha256": "d011113b7054c641c8ca064f58bcc23804fd2654a3dff2444dad06ddeda61bfb",
+      "uid": 0
+    }
+  },
+  "maps": {
+    "gid_map": "         0          0 4294967295\n",
+    "setgroups": "allow\n",
+    "uid_map": "         0          0 4294967295\n"
+  },
+  "packages": [
+    "systemd 261.2-1",
+    "systemd-libs 261.2-1",
+    "dbus 1.16.2-1",
+    "glibc 2.44+r24+g16be1518495f-1",
+    "util-linux 2.42.3-1",
+    "shadow 4.20.0.arch1-1"
+  ],
+  "resolved_account": "systemd-resolve:x:974:974:systemd Resolver:/:/usr/bin/nologin",
+  "subgid": [
+    "kdk_vm:100000:65536"
+  ],
+  "subuid": [
+    "kdk_vm:100000:65536"
+  ]
+}

@@ -962,6 +962,16 @@ mod tests {
         path
     }
 
+    fn stop_fixture_listener(listener: UnixListener) {
+        // A parallel process-spawning test can briefly inherit this descriptor
+        // between fork and exec, even with CLOEXEC. Dropping our fd alone is not
+        // proof that the endpoint has stopped listening. Shut down the test-only
+        // endpoint for every descriptor copy; production cleanup remains strict
+        // and must still refuse a listener that could be live.
+        nix::sys::socket::shutdown(listener.as_raw_fd(), nix::sys::socket::Shutdown::Both).unwrap();
+        drop(listener);
+    }
+
     #[test]
     fn orphan_cleanup_removes_only_marked_dead_private_fixed_members() {
         let fixture = Fixture::new("success");
@@ -972,7 +982,7 @@ mod tests {
             fs::Permissions::from_mode(0o666),
         )
         .unwrap();
-        drop(socket);
+        stop_fixture_listener(socket);
         fs::write(fixture.scratch.join("owner.lock"), "unrelated").unwrap();
         assert_eq!(cleanup_orphans(&fixture.scratch, || true).unwrap(), 1);
         assert!(!orphan.exists());
@@ -1006,7 +1016,13 @@ mod tests {
         .unwrap();
         assert!(cleanup_orphans(&fixture.scratch, || true).is_err());
         assert!(orphan.join("config.yaml").exists());
+        // Deterministically model an outstanding descriptor copy: dropping the
+        // original must not authorize deleting a still-listening orphan.
+        let held_copy = listener.try_clone().unwrap();
         drop(listener);
+        assert!(cleanup_orphans(&fixture.scratch, || true).is_err());
+        assert!(orphan.join("config.yaml").exists());
+        stop_fixture_listener(held_copy);
         assert_eq!(cleanup_orphans(&fixture.scratch, || true).unwrap(), 1);
     }
 
