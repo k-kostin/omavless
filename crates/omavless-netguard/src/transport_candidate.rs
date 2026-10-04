@@ -48,15 +48,27 @@ fn write_all_before(
     bytes: &[u8],
     deadline: Instant,
 ) -> Result<(), TransportError> {
+    write_all_before_with_clock(stream, bytes, deadline, Instant::now)
+}
+
+fn write_all_before_with_clock(
+    stream: &UnixStream,
+    bytes: &[u8],
+    deadline: Instant,
+    mut now: impl FnMut() -> Instant,
+) -> Result<(), TransportError> {
     let mut cursor = 0;
     while cursor < bytes.len() {
         let remaining = deadline
-            .checked_duration_since(Instant::now())
+            .checked_duration_since(now())
             .filter(|value| !value.is_zero())
             .ok_or(TransportError::Unavailable)?;
         stream
             .set_write_timeout(Some(remaining))
             .map_err(|_| TransportError::Unavailable)?;
+        if now() >= deadline {
+            return Err(TransportError::Unavailable);
+        }
         match (&*stream).write(&bytes[cursor..]) {
             Ok(0) => return Err(TransportError::Unavailable),
             Ok(n) => cursor += n,
@@ -64,7 +76,13 @@ fn write_all_before(
             Err(_) => return Err(TransportError::Unavailable),
         }
     }
-    Ok(())
+    // A final write may have delivered every byte and still returned late.
+    // Refuse known-success, without claiming delivery was rolled back.
+    if now() >= deadline {
+        Err(TransportError::Unavailable)
+    } else {
+        Ok(())
+    }
 }
 
 /// UID comes from SO_PEERCRED, never the request. Verify it before reading
@@ -152,6 +170,40 @@ mod tests {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn final_write_after_deadline_is_delivery_unknown_not_known_success() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(1);
+        let mut reads = 0;
+        let result = write_all_before_with_clock(&server, b"complete", deadline, || {
+            reads += 1;
+            if reads < 3 { start } else { deadline }
+        });
+        assert_eq!(result, Err(TransportError::Unavailable));
+        let mut received = [0; 8];
+        client.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"complete");
+    }
+
+    #[test]
+    fn timeout_setup_returning_late_never_starts_write() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(1);
+        let mut reads = 0;
+        assert_eq!(
+            write_all_before_with_clock(&server, b"refused", deadline, || {
+                reads += 1;
+                if reads == 1 { start } else { deadline }
+            }),
+            Err(TransportError::Unavailable)
+        );
+        drop(server);
+        let mut received = [0; 1];
+        assert_eq!(client.read(&mut received).unwrap(), 0);
+    }
 
     struct EnrollmentFixture {
         root: PathBuf,

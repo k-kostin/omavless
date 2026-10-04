@@ -32,6 +32,17 @@ pub enum EffectError {
     UnavailableOrUncertain,
 }
 
+/// Inactive composition fences, not evidence of namespace or creator authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExchangeBoundary {
+    BeforeAccept,
+    AfterAccept,
+    BeforeReceive,
+    AfterReceive,
+    BeforeReply,
+    AfterReply,
+}
+
 /// Kernel effects only; `LockedState` is the sole marker/receipt writer.
 ///
 /// A future implementation must exclusively create, condition replacement and
@@ -61,6 +72,13 @@ pub enum EffectError {
 /// }
 /// ```
 pub trait EffectPort: sealed::Sealed {
+    /// Legacy/model ports have no authority provider. The default preserves
+    /// their old behavior and must never be interpreted as authentication.
+    /// The separate authority composition overrides this with its retained
+    /// provider. No production implementation exists.
+    fn exchange_boundary(&mut self, _: ExchangeBoundary) -> Result<(), EffectError> {
+        Ok(())
+    }
     fn observe(&mut self) -> Result<EffectSnapshot, EffectError>;
     fn create_if_absent(&mut self, policy: Policy) -> Result<EffectIdentity, EffectError>;
     fn replace_owned(

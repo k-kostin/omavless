@@ -3,6 +3,8 @@
 //! No production runtime depends on this crate. A future host adapter must
 //! authenticate peers, serialize transactions and verify every acknowledged effect.
 
+#[allow(dead_code)] // Inactive composition; no canonical provider or product caller.
+mod authority_composition;
 pub mod coordinator;
 pub mod effect_port;
 pub mod emergency_wire;

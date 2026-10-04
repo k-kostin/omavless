@@ -1,12 +1,13 @@
 //! Inactive, single-client-at-a-time owner for an already bound Unix listener.
 //! This is not a socket publisher, installed helper, or kernel authority.
 
-use crate::effect_port::EffectPort;
+use crate::effect_port::{EffectPort, ExchangeBoundary};
 use crate::listener_admission::AdmittedListener;
 use crate::locked_state::{ExchangeError, LockedState};
 use crate::receipt::NamespaceObservation;
 use crate::transport_candidate::TransportError;
 use std::io::{self, ErrorKind};
+use std::mem::ManuallyDrop;
 use std::os::unix::net::{UnixListener, UnixStream};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,14 +42,41 @@ impl<K: EffectPort> SessionOwner<K> {
         namespace: NamespaceObservation,
     ) -> io::Result<Self> {
         listener.listener().set_nonblocking(true)?;
-        Ok(Self {
+        Ok(Self::from_parts(listener, state, kernel, namespace))
+    }
+
+    fn from_parts(
+        listener: AdmittedListener,
+        state: LockedState,
+        kernel: K,
+        namespace: NamespaceObservation,
+    ) -> Self {
+        Self {
             listener,
             state,
             kernel,
             namespace,
             authority_lost: false,
             listener_lost: false,
-        })
+        }
+    }
+
+    /// Separate inactive entry: preserve all owners even on setup error.
+    pub(crate) fn from_admitted_retaining(
+        listener: AdmittedListener,
+        state: LockedState,
+        kernel: K,
+        namespace: impl FnOnce(&mut K) -> NamespaceObservation,
+    ) -> io::Result<ManuallyDrop<Self>> {
+        let mut owner = ManuallyDrop::new(Self::from_parts(
+            listener,
+            state,
+            kernel,
+            NamespaceObservation::Unproven,
+        ));
+        owner.listener.listener().set_nonblocking(true)?;
+        owner.namespace = namespace(&mut owner.kernel);
+        Ok(owner)
     }
 
     #[cfg(test)]
@@ -77,6 +105,15 @@ impl<K: EffectPort> SessionOwner<K> {
         &mut self,
         accept: impl FnOnce(&UnixListener) -> io::Result<UnixStream>,
     ) -> SessionProgress {
+        if self.authority_lost
+            || self
+                .kernel
+                .exchange_boundary(ExchangeBoundary::BeforeAccept)
+                .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
         if self.listener_lost || self.listener.validate().is_err() {
             self.listener_lost = true;
             return SessionProgress::ListenerLost;
@@ -90,6 +127,14 @@ impl<K: EffectPort> SessionOwner<K> {
             Err(error) if error.kind() == ErrorKind::WouldBlock => return SessionProgress::Idle,
             Err(_) => return SessionProgress::AcceptUnavailable,
         };
+        if self
+            .kernel
+            .exchange_boundary(ExchangeBoundary::AfterAccept)
+            .is_err()
+        {
+            self.authority_lost = true;
+            return SessionProgress::AuthorityLost;
+        }
         if self.listener.validate().is_err() {
             self.listener_lost = true;
             return SessionProgress::ListenerLost;
@@ -106,6 +151,7 @@ impl<K: EffectPort> SessionOwner<K> {
                 if matches!(
                     error,
                     ExchangeError::NoEnrollment
+                        | ExchangeError::AuthorityUnavailable
                         | ExchangeError::Receive(TransportError::EnrollmentChanged)
                         | ExchangeError::ReplyDeliveryUnknown(TransportError::EnrollmentChanged)
                 ) {
