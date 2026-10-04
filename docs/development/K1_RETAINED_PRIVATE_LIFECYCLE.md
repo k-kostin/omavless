@@ -4,9 +4,9 @@ Source-only successor to #625 `76f2c73a7cff7eafbb280eda0e4bf769d55d02aa`.
 It reuses the existing #604 creator composition, not a second nft writer.
 The first checkpoint `bc1a642395b4fbc418ceb183d498eba84b543951` contained only
 a cfg(test) coordinator and deterministic ordering controls. The successor
-implementation adds its fixed bus/file adapter and outer guard. **It remains
-source-only until sealed full gates, fresh executable pins and complete review;
-no VM invocation is authorized by this document.**
+implementation adds its fixed bus/file adapter and outer guard. The reviewed
+exact-head private lifecycle has now completed as recorded below. **This is
+not production authority or authorization for another VM invocation.**
 
 ## Evidence and remaining boundary
 
@@ -231,3 +231,47 @@ hash is recomputed in acyclic order. Native source bytes and fixture behavior
 are unchanged. This is host build provenance, not guest execution, lifecycle
 acceptance or a production kill-switch claim. Private delivery and any VM
 invocation still require their separate review and exclusive authorization.
+
+## Exact-head private lifecycle observation — 2026-10-04
+
+Tracked delivery graph `b1074a75f4a6ff019035b0d97751ab82ce3fe50f`
+passed the full source gate (667 tests, two skips, frontend/QML) and full Rust
+gate (129 suites, 2,158 passed, zero failed, 85 ignored, formatting, strict
+workspace/TUI Clippy, terminal and parity). It uses the unchanged native source
+and frozen ELF identified above. Complete parent and independent review preceded
+the separately authorized sole private VM invocation.
+
+Fixed delivery creation and all five payload transfers completed with known
+zero. The root loader and whole tracked guard then completed with known zero
+and the exact `K1_RETAINED_PRIVATE_LIFECYCLE_PRESERVED_NOT_PRODUCTION` marker.
+This establishes the bounded fixture's retained-reference Start/completion,
+native transaction, Stop/Unref and outer preservation sequence, under the
+exclusive trusted-root assumptions stated above. Older failed generations and
+their retained evidence were not adopted, retried or cleaned up.
+
+A separately reviewed fixed-file-only collector subsequently completed with
+known zero. It performed no process, manager, unit, namespace or kernel query,
+no signal and no cleanup. It admitted 60 original files, including all twelve
+root phase receipts, seven typed admission RPC receipts, lifecycle/native/
+stopped proofs, Closed/Retired state and before/after preservation evidence.
+The recorded lifecycle contained two start observations and one stop
+observation. Fixed source hashes and the original native ELF hash matched.
+The strict private report is 1,088 bytes, single-link mode 0600, SHA-256
+`e5a8acfac0d6db37aad0be2b99ae0b2dab05bd9f5370fde60de553ed51a66e0f`;
+its internal evidence manifest SHA-256 is
+`51880c966aa9559b611d58dffbf11eb4d3f44392afe9beadb891fbb257c053e6`.
+Raw private values, baselines and logs remain outside Git and shareable output.
+
+Thirteen inert collector controls and seven inert transport controls passed,
+with full parent and independent review of both sealed sources. The collector
+checks recorded evidence; it does not independently replay runtime predicates,
+create an atomic snapshot, re-observe a live manager, establish canonical
+namespace authority or grant cleanup permission. Parent-known whole-guard zero
+and the independently checked success marker are mandatory external premises,
+not conclusions drawn merely from an invocation argument or partial files.
+
+This exact private fixture result does not close K1. Production namespace and
+creator authority, installed listener/session lifetime, package/enrollment and
+recovery integration, real runtime arm-before-start/disarm-after-cleanup
+ordering, the failure matrix and bare-metal NIC/suspend/boot acceptance remain
+separate requirements of the [owning contract](../roadmap/KILL_SWITCH.md).
