@@ -6,13 +6,13 @@ export LC_ALL=C
 umask 077
 [[ ${OMAVLESS_K1_NAMESPACE_FILTER_VM:-} == 1 && $EUID == 0 && $# == 0 ]] || exit 2
 [[ $(systemd-detect-virt --vm) == kvm ]] || exit 2
-stage=/run/omavless-k1-typed-filter-fixture
+stage=/run/omavless-k1-typed-order-filter-fixture
 probe=$stage/probe
-unit=omavless-k1-typed-filter-fixture.service
+unit=omavless-k1-typed-order-filter-fixture.service
 link=/run/systemd/system/$unit
 cgroup=/sys/fs/cgroup/system.slice/$unit
 probe_sha=b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332
-query_sha=2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e
+query_sha=de1ee66fa76d6faa53d4606d1486653ecf19a9746200fc2d997c0101a68f9eda
 query_guard_sha=c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40
 # A property missing from this systemd must not look like an expected empty one.
 property() {
@@ -73,10 +73,10 @@ trap finish EXIT
 for mode in control filtered; do
     case $mode in
         control) source_unit=$stage/control.service
-            digest=b7adcf6e33b3f2f03308285c0a93ec31110a8f0e6955bf3a8376cc2ab3f4dc57
+            digest=a5f705b74081dacd086e3baa528afc4693474af0fb5da4d181e40b3b2fcfcaad
             restriction=no ;;
         filtered) source_unit=$stage/filtered.service
-            digest=f3274fb882364e2ec1dc62000192642481f65ab16e650b8147e2435ae300408a
+            digest=867c1a64eb5b8a5de25364d2493c7fa54dc2fc1838c771e210a6512db484f2f2
             restriction=yes ;;
     esac
     check_probe
@@ -86,7 +86,6 @@ for mode in control filtered; do
     systemctl daemon-reload
     [[ $(property LoadState) == loaded ]] || exit 2
     [[ $(property FragmentPath) == "$link" ]] || exit 2
-    [[ $(property Requires) == 'sysinit.target system.slice' ]] || exit 2
     [[ $(property Conflicts) == shutdown.target ]] || exit 2
     expected="{ path=$probe ; argv[]=$probe ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
     [[ $(property ExecStart) == "$expected" ]] || exit 2
@@ -98,7 +97,8 @@ for mode in control filtered; do
         value=$(property "$name") || exit 2
         [[ -z $value ]] || exit 2
     done
-    # Structured empty arrays have no reliable systemctl text representation.
+    # Typed empty arrays and exact unordered Requires names; no text omission
+    # or manager-dependent dependency order is interpreted as authority.
     # Fixed typed query failure/uncertainty exits before any start or cleanup.
     check_probe
     python3 -I "$stage/typed-properties.py"

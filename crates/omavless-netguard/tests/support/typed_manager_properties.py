@@ -6,14 +6,19 @@ from pathlib import Path
 import stat
 import sys
 
-STAGE = Path('/run/omavless-k1-typed-filter-fixture')
+STAGE = Path('/run/omavless-k1-typed-order-filter-fixture')
 ORIGINAL_SHA = 'c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40'
 PROPERTIES = ('ExecCondition', 'ExecStartPre', 'ExecStartPost', 'ExecReload',
               'ExecStop', 'ExecStopPost', 'EnvironmentFiles', 'SystemCallFilter')
 ARGV = ['/usr/bin/busctl', '--system', 'get-property', 'org.freedesktop.systemd1',
-        '/org/freedesktop/systemd1/unit/omavless_2dk1_2dtyped_2dfilter_2dfixture_2eservice',
+        '/org/freedesktop/systemd1/unit/omavless_2dk1_2dtyped_2dorder_2dfilter_2dfixture_2eservice',
         'org.freedesktop.systemd1.Service', *PROPERTIES]
 EXPECTED = (('a(sasbttttuii) 0\n' * 6) + 'a(sb) 0\n(bas) false 0\n').encode('ascii')
+REQUIRES_ARGV = [*ARGV[:5], 'org.freedesktop.systemd1.Unit', 'Requires']
+REQUIRES_EXPECTED = {
+    b'as 2 "sysinit.target" "system.slice"\n',
+    b'as 2 "system.slice" "sysinit.target"\n',
+}
 
 
 def require(value):
@@ -34,6 +39,10 @@ def fixed_query(namespace):
     require(not namespace['UNCERTAIN'])
     data = namespace['command'](list(ARGV))
     require(not namespace['UNCERTAIN'] and data == EXPECTED)
+    # Dependency order is not manager semantics. Require exactly the two
+    # approved names, typed count/signature and byte framing, with no extras.
+    dependencies = namespace['command'](list(REQUIRES_ARGV))
+    require(not namespace['UNCERTAIN'] and dependencies in REQUIRES_EXPECTED)
 
 
 def main():

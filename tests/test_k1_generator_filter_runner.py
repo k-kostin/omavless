@@ -100,7 +100,7 @@ class NamespaceFilterRunnerTests(unittest.TestCase):
             source = RUNNER.read_text()
             changes = {
                 " && $EUID == 0": "",
-                "stage=/run/omavless-k1-typed-filter-fixture": f"stage={stage}",
+                "stage=/run/omavless-k1-typed-order-filter-fixture": f"stage={stage}",
                 "link=/run/systemd/system/$unit": f"link={base / 'unit-link'}",
                 "cgroup=/sys/fs/cgroup/system.slice/$unit": f"cgroup={base / 'cgroup'}",
                 "probe_sha=b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332":

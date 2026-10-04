@@ -14,13 +14,13 @@ import sys
 import tempfile
 import time
 
-STAGE = Path("/run/omavless-k1-typed-filter-fixture")
-UNIT = "omavless-k1-typed-filter-fixture.service"
+STAGE = Path("/run/omavless-k1-typed-order-filter-fixture")
+UNIT = "omavless-k1-typed-order-filter-fixture.service"
 LINK = Path("/run/systemd/system") / UNIT
 CGROUP = Path("/sys/fs/cgroup/system.slice") / UNIT
 PROBE_SHA = "b7dc81b89045c591efd375765ddf4fc4792afedf86cbc73c18fd94d1227d7332"
 # Filled only from reviewed, frozen runner bytes; an unset pin refuses.
-RUNNER_SHA = "4b4c8bcb9535a26339efa7c0e483fb93827c863fa836b85f0169dee837a80cc3"
+RUNNER_SHA = "d573b198ea685495399475732dd84cd1cbd687c12404966cb9eccb8ed69d8637"
 SERVICE_FIELDS = ["ActiveState", "SubState", "MainPID"]
 NETWORK_COMMANDS = {
     "address": ["/usr/bin/ip", "-j", "address", "show"],
@@ -296,7 +296,7 @@ def main():
     require(not LINK.exists() and not LINK.is_symlink() and not CGROUP.exists())
     probe_identity = pinned_file(STAGE / "probe", PROBE_SHA, 0o700)
     runner_identity = pinned_file(STAGE / "runner.sh", RUNNER_SHA, 0o600)
-    query_identity = pinned_file(STAGE / "typed-properties.py", "2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e", 0o600)
+    query_identity = pinned_file(STAGE / "typed-properties.py", "de1ee66fa76d6faa53d4606d1486653ecf19a9746200fc2d997c0101a68f9eda", 0o600)
     query_guard_identity = pinned_file(STAGE / "query-guard.py", "c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40", 0o600)
     before = snapshot()
     # All output is private and create-only. Failure/timeout never removes evidence.
@@ -317,7 +317,7 @@ def main():
         "cgroup_absent": not CGROUP.exists() and not CGROUP.is_symlink(),
         "probe_unchanged": pinned_file(STAGE / "probe", PROBE_SHA, 0o700) == probe_identity,
         "runner_unchanged": pinned_file(STAGE / "runner.sh", RUNNER_SHA, 0o600) == runner_identity,
-        "query_unchanged": pinned_file(STAGE / "typed-properties.py", "2aef0c278a1510af8ed6d1800c963b07bcc7fbf6bbd1bf7071d9ec1986529c2e", 0o600) == query_identity,
+        "query_unchanged": pinned_file(STAGE / "typed-properties.py", "de1ee66fa76d6faa53d4606d1486653ecf19a9746200fc2d997c0101a68f9eda", 0o600) == query_identity,
         "query_guard_unchanged": pinned_file(STAGE / "query-guard.py", "c4a688875037f1d990ee93f0018108ab82bceb211090f61f77c64b83a4c7cc40", 0o600) == query_guard_identity,
         "exact_receipts": (STAGE / "runner.log").read_text().splitlines() == [
             "K1_NAMESPACE_FILTER_control_PASS", "K1_NAMESPACE_FILTER_filtered_PASS",
