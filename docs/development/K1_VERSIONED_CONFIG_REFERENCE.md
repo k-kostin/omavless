@@ -53,8 +53,23 @@ version preservation, byte bounds/control characters, second-version drift,
 create-only output collision, typed current state and no post-failure calls.
 No ordinary test opens a bus or invokes the ignored capture entry.
 
-This checkpoint is not executable acceptance. New fixed outer observer and
-trusted-stdin loader, exact source/build pins, full affected gates, complete
+The new fixed `version_reference_guard.py` and `version_reference_stage.py`
+retain the complete previous observer/loader protections under distinct paths,
+markers, schema-2 receipts and pins. The observer requires the separate strict
+version receipt before post-state evidence can admit exact own-link cleanup.
+It does not interpret an unknown version as an approved one. The raw snapshot
+definitions remain pinned to the original query guard, loaded as definitions
+only with the new fixed stage for private temporary files.
+
+The frozen native build identifies
+`b0c3ed886cf7d51851b0f4586d12c914166e613d`, SHA-256
+`346eb5ce4f9a92a1fbb889923e71e65217dc1c9b831c983b4e39986df2e50af5`.
+It is not the old b0af build. Native focused controls passed 11 with the actual
+entry ignored; formatting and netguard all-target strict Clippy passed. The
+native checkpoint source gate passed 589 Python tests with two skips and the
+frontend/QML checks. Later outer/loader gates belong to their own exact head.
+
+This checkpoint is not executable acceptance. Full affected gates, complete
 root and independent source reviews and an explicit exclusive VM lease are
 still required. Outer behavior must retain the reviewed one-invocation full
 baseline and known-success-only own-link teardown contract. Unknown/nonzero or
