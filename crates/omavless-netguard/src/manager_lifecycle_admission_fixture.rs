@@ -16,7 +16,7 @@ const UNIT_PATH: &str =
     "/org/freedesktop/systemd1/unit/omavless_2dk1_2dprivate_2dlifecycle_2dadmission_2eservice";
 const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
 const MANAGER: &str = "org.freedesktop.systemd1.Manager";
-const TEST: &str = "manager_private_admission_fixture::capture_effective_config";
+const TEST: &str = "manager_lifecycle_admission_fixture::capture_effective_config";
 const MAX_REPLY: usize = 1024 * 1024;
 const REFUSE: &str = "K1_PRIVATE_ADMISSION_UNCERTAIN_RETAINED";
 type Result<T> = std::result::Result<T, &'static str>;
@@ -272,11 +272,11 @@ fn capture(held: &Held<impl FixedBus>) -> Result<()> {
     require(!dump.is_empty() && dump.len() <= MAX_REPLY && !dump.contains('\0'))?;
     let version_after = manager_version(&held.connection.request(&owner, Request::VersionAfter)?)?;
     require(version_before == version_after)?;
-    crate::manager_private_admission_dump::proposed_text_matches(
+    crate::manager_lifecycle_admission_dump::proposed_text_matches(
         &version_before,
         UNIT,
         FRAGMENT,
-        crate::manager_private_admission_dump::UNIT_SHA,
+        crate::manager_lifecycle_admission_dump::UNIT_SHA,
         &dump,
     )
     .map_err(|_| REFUSE)?;
@@ -684,7 +684,7 @@ mod controls {
                     all.extend(service_values());
                     reply(&all)
                 }
-                Request::Dump => reply(&crate::manager_private_admission_dump::tests::synthetic()),
+                Request::Dump => reply(&crate::manager_lifecycle_admission_dump::tests::synthetic()),
             })
         }
     }

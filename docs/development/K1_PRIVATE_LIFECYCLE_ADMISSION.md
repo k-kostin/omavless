@@ -83,6 +83,14 @@ its first socket and at every effect boundary. No canonical namespace authority,
 ownership continuity, installed enforcement, full K1 or kill-switch acceptance
 is claimed here.
 
+Checkpoint `9c579b4` completed its full Rust gate successfully. Its source gate
+ran 635 tests (two skipped) and refused one old #604 boundary assertion: the new
+metadata-module name contained `manager_private` in `lib.rs`. The old assertion
+was preserved; only the NEW metadata helper/parser modules were renamed to
+`manager_lifecycle_admission_*`. The nested writer module and all older fixture
+files were unchanged. This required a new frozen ELF and fresh artifact pins;
+the earlier native freeze is retained as superseded source evidence.
+
 The first new RPC negative test failed before exercising capture because its
 synthetic temporary-directory label exceeded the existing helper bound. The
 label was shortened; the bound and capture policies were not changed. Corrected
