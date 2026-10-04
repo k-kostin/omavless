@@ -88,19 +88,25 @@ fn distinct(host: (u64, u64), own: (u64, u64)) -> Result<()> {
     require(host.1 != 0 && own.1 != 0 && own != host)
 }
 
-struct Isolation {
+pub(super) struct Isolation {
     host: File,
     own: File,
     host_id: (u64, u64),
-    own_id: (u64, u64),
+    pub(super) own_id: (u64, u64),
     witness: Witness,
 }
 impl Isolation {
     fn capture() -> Result<Self> {
+        Self::capture_using(Witness::read)
+    }
+    pub(super) fn capture_lease_regression() -> Result<Self> {
+        Self::capture_using(Witness::read_lease_regression)
+    }
+    fn capture_using(read: fn((u64, u64)) -> std::result::Result<Witness, ()>) -> Result<Self> {
         // First open: missing FD3 cannot accidentally become our own ns opener.
         let host = File::open("/proc/self/fd/3").map_err(|_| REFUSE)?;
         let host_id = namespace_identity(&host)?;
-        let witness = Witness::read(host_id).map_err(|_| REFUSE)?;
+        let witness = read(host_id).map_err(|_| REFUSE)?;
         let own = namespace_file()?;
         let value = Self {
             host_id,
@@ -112,7 +118,7 @@ impl Isolation {
         value.recheck()?;
         Ok(value)
     }
-    fn recheck(&self) -> Result<()> {
+    pub(super) fn recheck(&self) -> Result<()> {
         credentials(&bounded("/proc/thread-self/status")?)?;
         require(
             namespace_identity(&self.host)? == self.host_id
@@ -141,7 +147,7 @@ impl Isolation {
     }
 }
 
-fn root_directory(path: &Path) -> Result<File> {
+pub(super) fn root_directory(path: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)

@@ -245,3 +245,27 @@ pub(super) fn drift_batch(generation: u32, first: u32) -> Result<AtomicBatch> {
     let end = message(17, 5, first + 2, 0, &[0, 0, 0, 10]);
     Ok(AtomicBatch(vec![begin, append, end]))
 }
+
+/// One literal empty foreign table in the isolated retained-lease fixture only.
+/// It exists solely to advance the real kernel generation between read/send.
+#[cfg(test)]
+pub(super) fn lease_generation_cut_batch(generation: u32, first: u32) -> Result<AtomicBatch> {
+    require(generation != 0 && first != 0 && first.checked_add(3).is_some())?;
+    Ok(AtomicBatch(vec![
+        message(
+            16,
+            5,
+            first,
+            0,
+            &[vec![0, 0, 0, 10], attribute(1, &generation.to_be_bytes())].concat(),
+        ),
+        message(
+            NFT,
+            0x605,
+            first + 1,
+            0,
+            &[vec![1, 0, 0, 0], attribute(1, b"k1_retained_lease_cut\0")].concat(),
+        ),
+        message(17, 5, first + 2, 0, &[0, 0, 0, 10]),
+    ]))
+}
