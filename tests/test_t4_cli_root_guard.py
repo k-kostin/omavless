@@ -15,6 +15,55 @@ from tests.first_abort_process import vm_guard as owned_core
 
 
 class GuardTests(unittest.TestCase):
+    def test_only_fixed_root_defaults_accept_exact_safe_mode_tuple(self):
+        for actual in (0o600, 0o644):
+            parent = SimpleNamespace(rows=[(Path('/etc/default'), 17, None)])
+            meta = SimpleNamespace(st_mode=0o100000 | actual, st_uid=0, st_gid=0,
+                                   st_nlink=1, st_size=24)
+            with patch.object(guard, 'Parents', return_value=parent), \
+                 patch.object(guard.os, 'open', return_value=123), \
+                 patch.object(guard.os, 'fstat', return_value=meta), \
+                 patch.object(guard.os, 'listxattr', return_value=[]), \
+                 patch.object(guard.File, 'hash', return_value='a'*64), \
+                 patch.object(guard.File, 'recheck') as checked, \
+                 patch.object(guard, 'RETAINED', []):
+                guard.File(Path('/etc/default/useradd'), 0, (0o600, 0o644), 65536)
+                checked.assert_called_once()
+
+    def test_mode_tuple_wrong_scope_type_order_or_bound_refuses_before_open(self):
+        cases = [(Path('/elsewhere'),0,(0o600,0o644),65536,None),
+                 (Path('/etc/default/useradd'),False,(0o600,0o644),65536,None),
+                 (Path('/etc/default/useradd'),1000,(0o600,0o644),65536,None),
+                 (Path('/etc/default/useradd'),0,(0o600,0o644),65535,None),
+                 (Path('/etc/default/useradd'),0,(0o600,0o644),65536,'a'*64)]
+        for mode in (True, [0o600,0o644], (), (0o600,), (0o644,0o600),
+                     (0o600,0o666), (False,0o644), (0o600,0o644,0o600), '0600'):
+            cases.append((Path('/etc/default/useradd'),0,mode,65536,None))
+        for args in cases:
+            self.core.UNCERTAIN=False
+            with patch.object(guard, 'Parents') as parent, patch.object(guard.os,'open') as opened:
+                with self.assertRaises(guard.Refused): guard.File(*args)
+                parent.assert_not_called(); opened.assert_not_called()
+
+    def test_scalar_mode_gate_and_unsafe_defaults_metadata_remain_exact(self):
+        cases = [(Path('/other'),0o644,0o600,0,1,[]),
+                 (Path('/etc/default/useradd'),(0o600,0o644),0o666,0,1,[]),
+                 (Path('/etc/default/useradd'),(0o600,0o644),0o600,1000,1,[]),
+                 (Path('/etc/default/useradd'),(0o600,0o644),0o600,0,2,[]),
+                 (Path('/etc/default/useradd'),(0o600,0o644),0o600,0,1,['user.test'])]
+        for path,mode,actual,owner,links,attrs in cases:
+            self.core.UNCERTAIN=False
+            parent=SimpleNamespace(rows=[(path.parent,17,None)])
+            meta=SimpleNamespace(st_mode=0o100000|actual,st_uid=owner,st_gid=owner,
+                                 st_nlink=links,st_size=24)
+            with patch.object(guard,'Parents',return_value=parent), \
+                 patch.object(guard.os,'open',return_value=123), \
+                 patch.object(guard.os,'fstat',return_value=meta), \
+                 patch.object(guard.os,'listxattr',return_value=attrs), \
+                 patch.object(guard.File,'hash') as hashed, patch.object(guard,'RETAINED',[]):
+                with self.assertRaises(guard.Refused): guard.File(path,0,mode,65536)
+                hashed.assert_not_called()
+
     def test_mail_defaults_requires_one_exact_no_never_override_or_warning(self):
         for raw in (b'CREATE_MAIL_SPOOL=no\n', b'# comment\nGROUP=100\nCREATE_MAIL_SPOOL=no\n'):
             guard.mail_spool_disabled(raw)
@@ -316,9 +365,9 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v3'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v4'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v3'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v4'))
         self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v2'))
         self.assertEqual(guard.RUNTIME, Path('/run/user/48045'))
 
@@ -345,7 +394,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v3',
+            value = {'schema': 't4-disposable-cli-delivery-v4',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

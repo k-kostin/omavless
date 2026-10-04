@@ -12,7 +12,7 @@ import sys
 import types
 import time
 
-ROOT = Path('/run/ov-t4-cli-guard-v3')
+ROOT = Path('/run/ov-t4-cli-guard-v4')
 UID = 48045
 NAME = 'ov-t4-abort-v2'
 HOME = Path('/home/ov-t4-abort-v2')
@@ -152,12 +152,23 @@ class Parents:
 class File:
     def __init__(self, path, uid, mode, maximum, expected=None):
         available()
+        if type(mode) is tuple:
+            # Only this fixed root-owned OS defaults file admits both safe
+            # installed permission variants; all other file gates stay exact.
+            require(path == Path('/etc/default/useradd') and type(uid) is int and uid == 0
+                    and type(maximum) is int and maximum == 65536 and expected is None
+                    and len(mode) == 2 and all(type(value) is int for value in mode)
+                    and mode == (0o600, 0o644))
+            modes = mode
+        else:
+            require(type(mode) is int)
+            modes = (mode,)
         self.path, self.parents = path, Parents(path.parent, uid)
         self.fd = os.open(path.name, FLAGS, dir_fd=self.parents.rows[-1][1])
         RETAINED.append(self.fd)
         self.before = os.fstat(self.fd)
         require(stat.S_ISREG(self.before.st_mode) and self.before.st_uid == self.before.st_gid == uid
-                and stat.S_IMODE(self.before.st_mode) == mode and self.before.st_nlink == 1
+                and stat.S_IMODE(self.before.st_mode) in modes and self.before.st_nlink == 1
                 and 0 < self.before.st_size <= maximum and not os.listxattr(self.fd))
         self.sha = self.hash()
         require(expected is None or expected == self.sha)
@@ -200,7 +211,7 @@ def module(pin):
 def receipt(data):
     value = decode(data)
     require(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'})
-    require(value['schema'] == 't4-disposable-cli-delivery-v3' and value['native_head'] == NATIVE_HEAD
+    require(value['schema'] == 't4-disposable-cli-delivery-v4' and value['native_head'] == NATIVE_HEAD
             and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head']))
     require(type(value['code']) is dict and set(value['code']) == set(CODE)
             and type(value['elfs']) is dict and set(value['elfs']) == {'helper', 'omavless'})
@@ -324,7 +335,7 @@ class Guard:
         return code, out
 
     def source_admission(self):
-        self.mail_defaults = File(Path('/etc/default/useradd'), 0, 0o644, 65536)
+        self.mail_defaults = File(Path('/etc/default/useradd'), 0, (0o600, 0o644), 65536)
         mail_spool_disabled(self.mail_defaults.bytes())
         # Old catalogs retain original48044 observations. Explicitly cover the
         # new instance names without relabelling that old catalog as new proof.
