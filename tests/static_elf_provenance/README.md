@@ -94,8 +94,8 @@ process forms absent and canonical PID 938/boot unchanged. The exclusive lease
 was returned without retry, signal, adaptation or cleanup.
 
 The complete private stage remains archived as
-`t3-static-elf-3d4b7d5-nonpass.tar.gz`, host directory
-`/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/` and guest `/home/kdk_vm/.cache/`,
+`t3-static-elf-3d4b7d5-nonpass.tar.gz`, retained in private host evidence storage
+and guest `/home/kdk_vm/.cache/`,
 matching SHA-256
 `a93d533de69a13cc372317f49c80b22929eb090726721df26fad84aafa39dd21`.
 No candidate closure, loaded-object proof, admission or compatibility acceptance
@@ -196,8 +196,7 @@ network fields matched except confirmed decreasing address lifetimes. Independen
 read-only quiescence found the exact probe/supervisor forms absent and canonical
 PID/boot unchanged. The exclusive VM lease was returned with no retry or cleanup.
 The complete private stage is retained as `t3-alpm-files-512ce77-observed.tar.gz`
-in guest `/home/kdk_vm/.cache/` and host
-`/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/`, matching SHA-256
+in guest `/home/kdk_vm/.cache/` and private host evidence storage, matching SHA-256
 `c38c211826c04b4a9c3c05eeef99966f5ec02bfc61b7bf1162a15be696a3b62d`.
 The host retains the separate `alpm-files-512ce77-invocation.log` preservation
 receipt and `alpm-files-512ce77-quiescence.log`. These are metadata-only evidence,
@@ -290,7 +289,7 @@ known completed child with integer returncode 1 and reason `static_child_nonpass
 the capture retained zero records, no readelf record, and `bounded_file_shape`.
 The private read receipt `static-fef0989-retained-files-diagnosis.json`, SHA-256
 `70d39d74f764425de5b0ebcad53c8126fc5688a715997f89855c0749f2ab9fa5`,
-is held in `/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/`. It establishes only
+is held in private host evidence storage. It establishes only
 per-file stable reads, not an atomic snapshot, process absence or preservation.
 The actual failing package, file type and size were not recorded. An oversized
 package file is a hypothesis, not an established cause.
@@ -314,3 +313,48 @@ success-only preservation queries. No readelf, ELF, daemon or runtime operation
 is part of this proposal. Real replacement/change/reversion, duplicate desc,
 nonregular/bound/deadline/race, privacy and shell-terminal controls are source
 tests only. A separate full review and exclusive lease are still required.
+
+### Measured package-bound metadata at `22db3dd`
+
+One approved invocation of sealed
+`22db3dded97cd8257a794ef81cb064fb5770e57c` completed with
+`OBSERVED_PACKAGE_FILE_BOUND`, strict typed validation, and known integer child
+returncode 0. The first current size counterexample was public package
+`breeze-icons` version `6.29.0-1`: its original retained `files` FD was a regular
+root-owned 0644 single-link file of **2,484,429 bytes**, exceeding 2 MiB. Its
+SHA-256 was `76563f4c9aa915342d70d6a317aaf0daa32f9e8497a74b4ee4591a429dfcf95a`.
+The separately retained description FD was 408 bytes, SHA-256
+`09090e78b5e9747ba0f2dee6adeccb0cd0abcfb84ece1137ae7c95aeb419a479`.
+Forty records were scanned (3,038,384 bytes); reads including verification totaled
+5,523,629 bytes. Both original FDs survived through final verification.
+
+All canonical/baseline categories and full IPv4/IPv6 non-timer network fields
+were preserved; only confirmed decreasing address lifetimes differed. Independent
+exact diagnostic process-form absence and canonical PID/boot checks passed. The
+lease was returned without retry or cleanup. The retained private archive
+`t3-package-bound-22db3dd-observed.tar.gz` has matching guest/host SHA-256
+`d885d70cdf43b76516f12a9eb4c4725bf9071bb81f7eb3c63824aeff0aa0271e`.
+Public documentation names the receipt/archive identifiers, not host session
+cache paths. No readelf, candidate ELF, allowance change or compatibility claim
+was part of this diagnostic. This current predicate reproduction does not prove
+the unrecorded exact cause of the historical `fef0989` refusal or repair its
+unproven after-state preservation.
+
+### Separate four-MiB static source proposal (not executed)
+
+The measured `probe.py`, supervisor, validator and `vm-guard-empty-record.sh`
+remain byte-for-byte unchanged. New `probe_four_mib.py` changes only package
+`files` reads to a **4 MiB** per-file ceiling; `desc` reads keep their existing
+2 MiB ceiling. The 64 MiB package aggregate, 4096-directory count, deadline,
+section parser, fixed paths/search, unique ownership, queued-edge identities,
+ELF/tool pins and admission boundaries are unchanged. The diagnostic's 8 MiB
+ceiling is not adopted by static capture.
+
+`static_capture_supervisor_four_mib.py`, `validate_static_receipt_four_mib.py` and
+`vm-guard-four-mib.sh` are separately pinned copies for the unused fixed stage
+`t3-static-elf-four-mib-review-1`, with only stage/pin substitutions. Exact-delta
+tests enforce those limits on the change, alongside a 2,484,429-byte valid
+synthetic file-list control, exact 4 MiB/4 MiB-plus-one cases, oversized-description
+refusal, aggregate bounds and inherited provenance/uncertainty/strict-receipt
+counterexamples. Source gates do not authorize execution: full root/independent
+review and a new exclusive one-invocation lease remain necessary.
