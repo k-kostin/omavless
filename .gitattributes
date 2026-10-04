@@ -1,0 +1,2 @@
+# Unified patch context prefixes a source tab with a literal space by design.
+tests/core_connections_adapter/mihomo-dns-interop-sockets.patch whitespace=-space-before-tab

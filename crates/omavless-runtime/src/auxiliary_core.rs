@@ -137,6 +137,8 @@ impl AuxiliarySlot {
             if signal.finished.load(Ordering::Acquire) {
                 return Ok(());
             }
+            #[cfg(test)]
+            tests::after_unfinished_check();
             let mut state = self.0.lock().map_err(|_| AuxiliaryError::Cleanup)?;
             if state.failed {
                 return Err(AuxiliaryError::Cleanup);
@@ -438,7 +440,47 @@ fn process_identity(pid: u32) -> Option<(u32, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    thread_local! {
+        static AFTER_UNFINISHED: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn after_unfinished_check() {
+        let hook = AFTER_UNFINISHED.with(|slot| slot.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    struct ChunkWorker {
+        thread: Option<std::thread::JoinHandle<Result<(), AuxiliaryError>>>,
+        resume: Option<std::sync::mpsc::SyncSender<()>>,
+    }
+
+    impl ChunkWorker {
+        fn resume(&mut self) {
+            if let Some(resume) = self.resume.take() {
+                let _ = resume.send(());
+            }
+        }
+        fn join(mut self) -> Result<(), AuxiliaryError> {
+            self.resume();
+            self.thread.take().unwrap().join().unwrap()
+        }
+    }
+
+    impl Drop for ChunkWorker {
+        fn drop(&mut self) {
+            // An assertion/handshake failure must still unblock and reap the
+            // worker before Fixture removes its private child inputs.
+            self.resume();
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
 
     struct Fixture {
         root: PathBuf,
@@ -586,21 +628,71 @@ mod tests {
 
     #[test]
     fn revoke_during_chunk_cleanup_never_reopens_stale_lease() {
+        revoke_during_chunk_cleanup(false);
+    }
+
+    #[test]
+    fn quiesce_between_unfinished_read_and_slot_lock_returns_cancelled_safely() {
+        revoke_during_chunk_cleanup(true);
+    }
+
+    fn revoke_during_chunk_cleanup(force_interleave: bool) {
         let fixture = Fixture::new();
         let slot = Arc::<AuxiliarySlot>::default();
         let lease = Arc::new(slot.reserve().unwrap());
         fixture.spawn(&lease).unwrap();
+        let original_pid = lease.pid().unwrap();
         let worker_lease = Arc::clone(&lease);
-        let worker = std::thread::spawn(move || worker_lease.stop_chunk());
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (resume_tx, resume_rx) = std::sync::mpsc::sync_channel(1);
+        let thread = std::thread::spawn(move || {
+            if force_interleave {
+                AFTER_UNFINISHED.with(|slot| {
+                    *slot.borrow_mut() = Some(Box::new(move || {
+                        reached_tx.send(()).unwrap();
+                        resume_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }));
+                });
+            }
+            worker_lease.stop_chunk()
+        });
+        let mut worker = ChunkWorker {
+            thread: Some(thread),
+            resume: Some(resume_tx),
+        };
+        if force_interleave {
+            reached_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(!lease.signal.finished.load(Ordering::Acquire));
+        }
         let guard = slot.quiesce().unwrap();
-        worker.join().unwrap().unwrap();
+        assert!(lease.signal.finished.load(Ordering::Acquire));
+        assert!(!Path::new(&format!("/proc/{original_pid}")).exists());
+        assert_eq!(slot.verified_pid(), Ok(None));
+        assert!(matches!(slot.reserve(), Err(AuxiliaryError::Busy)));
+        if force_interleave {
+            worker.resume();
+        }
+        let outcome = worker.join();
         assert!(lease.cancelled());
         assert_eq!(fixture.spawn(&lease), Err(AuxiliaryError::Cancelled));
         drop(guard);
         let next = slot.reserve().unwrap();
-        drop(lease);
         fixture.spawn(&next).unwrap();
+        let successor_pid = next.pid().unwrap();
+        assert_eq!(fixture.spawn(&lease), Err(AuxiliaryError::Cancelled));
+        drop(lease);
+        assert_eq!(slot.verified_pid(), Ok(Some(successor_pid)));
+        assert!(next.running().unwrap());
         next.finish().unwrap();
+        assert!(!Path::new(&format!("/proc/{successor_pid}")).exists());
+        assert_eq!(slot.verified_pid(), Ok(None));
+        // Quiesce may finish after the worker's atomic read but before its
+        // reservation check. Only successful cleanup or that stale-identity
+        // refusal is valid; Cleanup/Busy/Invalid must never be hidden.
+        assert!(matches!(outcome, Ok(()) | Err(AuxiliaryError::Cancelled)));
+        if force_interleave {
+            assert_eq!(outcome, Err(AuxiliaryError::Cancelled));
+        }
     }
 
     #[test]

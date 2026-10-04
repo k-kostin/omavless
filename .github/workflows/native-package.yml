@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/native-package.yml'
       - 'packaging/release/build-native-ci.sh'
+      - 'packaging/release/version-mode.sh'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
