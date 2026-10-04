@@ -9,12 +9,12 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const UID: u32 = 48044;
-const HOME: &str = "/home/ov-t4-abort-v1";
-const RUNTIME: &str = "/run/user/48044";
-const ARTIFACTS: &str = "/home/ov-t4-abort-v1/.t4-first-abort";
-const HELPER: &str = "/home/ov-t4-abort-v1/.t4-first-abort/helper";
-const CLI: &str = "/home/ov-t4-abort-v1/.t4-first-abort/omavless";
+const UID: u32 = 48045;
+const HOME: &str = "/home/ov-t4-abort-v2";
+const RUNTIME: &str = "/run/user/48045";
+const ARTIFACTS: &str = "/home/ov-t4-abort-v2/.t4-first-abort";
+const HELPER: &str = "/home/ov-t4-abort-v2/.t4-first-abort/helper";
+const CLI: &str = "/home/ov-t4-abort-v2/.t4-first-abort/omavless";
 const LAUNCH: &str = "production_owner::first_abort::cli_vm_fixture::launch_normal_cli";
 const SETUP: &str = "production_owner::first_abort::cli_vm_fixture::setup_mixed_intent";
 const VERIFY_FIRST: &str = "production_owner::first_abort::cli_vm_fixture::verify_first_abort";
@@ -62,7 +62,7 @@ fn credentials(status: &str) -> bool {
         };
         values.next().is_none()
             && match *key {
-                "Uid" | "Gid" => value.split_whitespace().collect::<Vec<_>>() == ["48044"; 4],
+                "Uid" | "Gid" => value.split_whitespace().collect::<Vec<_>>() == ["48045"; 4],
                 "Groups" => value.is_empty(),
                 "NoNewPrivs" => value == "1",
                 _ => value == "0000000000000000",
@@ -588,14 +588,14 @@ fn launch_normal_cli() {
 
 #[test]
 fn credential_parser_requires_all_saved_ids_empty_groups_zero_caps_and_nnp() {
-    let good = "Uid:\t48044\t48044\t48044\t48044\nGid:\t48044\t48044\t48044\t48044\nGroups:\t\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n";
+    let good = "Uid:\t48045\t48045\t48045\t48045\nGid:\t48045\t48045\t48045\t48045\nGroups:\t\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n";
     assert!(credentials(good));
     for bad in [
         good.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"),
-        good.replacen("48044\t48044\t48044\t48044", "48044\t48044\t0\t48044", 1),
-        good.replace("Gid:\t48044", "Gid:\t0"),
-        good.replace("Groups:\t", "Groups:\t48044"),
-        format!("{good}Uid:\t48044\t48044\t48044\t48044\n"),
+        good.replacen("48045\t48045\t48045\t48045", "48045\t48045\t0\t48045", 1),
+        good.replace("Gid:\t48045", "Gid:\t0"),
+        good.replace("Groups:\t", "Groups:\t48045"),
+        format!("{good}Uid:\t48045\t48045\t48045\t48045\n"),
         good.replace("CapAmb:", "Missing:"),
     ] {
         assert!(!credentials(&bad));
