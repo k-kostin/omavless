@@ -18,6 +18,7 @@ python3 -m unittest -v \
   "$here/test_real_resolved_binary.py" \
   "$here/test_real_resolved_inventory.py" \
   "$here/test_private_tmpfs_elf.py" \
+  "$here/test_static_elf_provenance.py" \
   "$here/test_core_artifact_export.py" \
   "$here/test_installed_native_acceptance.py" \
   "$here/test_installed_native_domain.py" \
