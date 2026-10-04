@@ -16,9 +16,20 @@ and dumps refuse. The new adapter requires three acknowledged primary effects
 and the separately retained same-namespace PendingCreate receipt before Stop.
 The legacy entry keeps its own two-effect schema and fixed identity.
 
-This is not yet a complete runnable delivery. A fresh root guard, source pins,
-independently reviewed build/freeze provenance and explicit executor
-authorization are still required. Missing delivery pieces
+Fresh fixed guard/query/loader sources are prepared beside the unchanged #631
+sources. Their native SHA and source fields remain zero until a separately
+reviewed original-artifact freeze; the graph is deliberately not runnable.
+The loader holds original input descriptors through publication and checks
+full typed writes, original metadata and exact destination bytes before exec.
+The query preserves an exact child on delayed spawn, initial await failure,
+late zero or unknown reap, with no signal/retry/compensating query. A late
+zero cannot start reap; a late reap cannot become accepted completion.
+The outer guard separately validates three-effect and PendingCreate evidence,
+then permits only the same known-zero lifecycle's stopped/cgroup-empty cleanup.
+
+This is not yet a complete runnable delivery. Independently reviewed
+build/freeze provenance, final acyclic pins, trusted transport and explicit
+executor authorization are still required. Missing delivery pieces
 must not be filled with #631's identity or an arbitrary unit/source path.
 
 ## Fixed identity and sequence
@@ -58,6 +69,10 @@ retained. The fixture never spawns nft, timeout or other children, calls a
 namespace transition using a namespace FD, signals, reaps or removes files.
 The expected refusal is not a recovery ticket; its pending state and deliberate
 foreign table remain for the separately reviewed whole-lifetime retirement.
+Their namespace/socket owners remain held until the original native process
+exits. The pending files are retained evidence, not production orphan recovery,
+a restart permit or canonical authority. The outer Stop is allowed only after
+strict receipts, the exact original helper's known zero and an empty cgroup.
 
 ## Evidence boundaries
 
