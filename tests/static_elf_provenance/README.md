@@ -72,3 +72,31 @@ An unchanged positive edge remains accepted as static evidence only.
 
 `vm-guard-queued-edge.sh` is the separately pinned replacement proposal. No VM
 capture has occurred and none is authorized by this source correction alone.
+
+## First approved static capture: package-index refusal
+
+One separately reviewed invocation measured source
+`3d4b7d5f6b5f31b77f0c4e31d80f4750dcae7a4f`, probe SHA-256
+`b5f9c9651c9469e70f2d290252c897de62f11410228701c47d270fefa33831ec`,
+queued-edge wrapper SHA-256
+`4726bf496706e0518265cd09618afc2bc2a64ba16e5175290a46d89fb884485b`.
+Its source gate passed 434 Python tests (2 skips), JS/QML and 13 focused tests.
+
+The invocation returned **NONPASS**, reason `package_file_list_shape`, during
+the initial package-index phase. No tool record or candidate record was emitted;
+the failure precedes readelf execution. No cleanup reason was reported. The
+failing package/path was not retained, so no particular package or underlying
+format condition is established. No manifest or allowlist changed.
+
+The canonical epoch, all eight baseline categories and all IPv4/IPv6 fields were
+preserved. Independent read-only checks found the exact diagnostic/readelf
+process forms absent and canonical PID 938/boot unchanged. The exclusive lease
+was returned without retry, signal, adaptation or cleanup.
+
+The complete private stage remains archived as
+`t3-static-elf-3d4b7d5-nonpass.tar.gz`, host directory
+`/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/` and guest `/home/kdk_vm/.cache/`,
+matching SHA-256
+`a93d533de69a13cc372317f49c80b22929eb090726721df26fad84aafa39dd21`.
+No candidate closure, loaded-object proof, admission or compatibility acceptance
+was obtained. Any source correction requires separate review and a new lease.
