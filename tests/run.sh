@@ -3,6 +3,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 python3 -m unittest -v \
+  "$here/test_k1_namespace_api_validation.py" \
   "$here/test_k1_retained_lease_delivery.py" \
   "$here/test_frozen_reference.py" \
   "$here/test_backend_launcher.py" \

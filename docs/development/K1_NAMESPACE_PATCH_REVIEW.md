@@ -1,5 +1,10 @@
 # Proposed upstream namespace API patch — not adopted
 
+The [v2 external validation follow-up](K1_NAMESPACE_API_VALIDATION.md) preserves
+this original artifact and adds inert syscall-boundary tests, borrowed-owner
+compile failures and real Rust 1.69 x86_64/AArch64 compile checks. It remains
+unadopted and does not manufacture canonical namespace authority.
+
 The [patch artifact](patches/nix-readonly-namespace.patch) targets nix upstream
 `e35c00891f52468979f92b795de2dc1f3dd58a87`. It is a concrete review proposal,
 not a Cargo dependency, vendored implementation, upstream submission or safe
