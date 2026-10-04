@@ -48,3 +48,24 @@ before any start/unlink. The older artifact source and old failure archives are
 unchanged. Source gates, independent full review, frozen hashes, new create-only
 staging and an exclusive VM lease are required before actual execution. No
 installed/filter/canonical namespace authority or complete K1 acceptance follows.
+
+## Retained actual invocation: NONPASS before start
+
+Measured head `b1dd6dc3a046faf2dbf5b7d567166cf9b9f378d2` was invoked once
+in the dedicated VM. It stopped before either probe case: **0/2 case PASS**, no
+`result.json`, and complete before/after preservation was not established.
+An independently scoped read-only diagnosis verified the owned unit was
+inactive/dead with zero PIDs, no cgroup and no probe process. All inspected
+pre-start properties matched except the order-sensitive text `Requires` check.
+A separate fixed typed query returned exactly two dependencies, `system.slice`
+and `sysinit.target`, in the reverse order. Typed eight-property emptiness matched.
+
+The private eight-member evidence archive SHA-256 is
+`6cc85fc06ef21c59f8ee360cb69ed2a7badc92b1f9133faf713146dc93744044`.
+After independent source review, a separate conditional cleanup verified all
+seven original staged hashes, exact owned inactive control link, zero start
+timestamp, absent cgroup and stable process observations. It removed only that
+link and verified manager not-found. Every staged file, log and archive remains;
+this cleanup does not convert the failed paired invocation into PASS. A new
+immutable generation must treat dependency sets as sets without accepting
+extra/duplicate/unknown entries or performing failure cleanup.
