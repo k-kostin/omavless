@@ -5,7 +5,7 @@ use std::io::Write;
 
 pub(crate) const ENTRY: &str =
     "production_owner::first_abort::cli_vm_fixture::diagnose_stopped_admission";
-const HELPER: &[u8] = b"/home/ov-t4-abort-v3/.t4-first-abort/helper";
+const HELPER: &[u8] = b"/home/ov-t4-abort-v4/.t4-first-abort/helper";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Phase {
