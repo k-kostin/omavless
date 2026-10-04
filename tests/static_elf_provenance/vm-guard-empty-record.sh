@@ -16,6 +16,7 @@ test "$(stat -c %u:%g "$task_stage")" = 1000:1000
 test "$(stat -c %a "$task_stage")" = 700
 test "$(sha256sum "$task_stage/probe.py" | cut -d' ' -f1)" = edbe782db2863b49187f3ee9b6c0e65d20fa951038c2c3e04834965f286bf641
 test "$(sha256sum "$task_stage/supervisor.py" | cut -d' ' -f1)" = bb99bc31eb71ca027919bd800364d1e3eb02dd01b2ef5dce0ba7f74bcc3a7d3f
+test "$(sha256sum "$task_stage/validator.py" | cut -d' ' -f1)" = 74bb19cf0063992a2332d1781545027ff68445ebe3eb2fc52a8637ce3901013e
 test "$(sha256sum "$task_stage/containment.py" | cut -d' ' -f1)" = 2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592
 test "$(sha256sum "$task_stage/guest-inventory.json" | cut -d' ' -f1)" = 4f1b92aeaff78f5f376576fc1da722cf9077735ff5c36d8674ff92581342ada4
 test "$(sha256sum /usr/bin/readelf | cut -d' ' -f1)" = a72f12f3dd8c560554a3ba818bcecbda9178db5befbcc64d91bbb6a241fc21bc
@@ -63,21 +64,9 @@ if ! env -i HOME=/home/kdk_vm PATH=/usr/bin LANG=C /usr/bin/python3 "$task_stage
   # Unknown or failed capture is terminal: retain before snapshots, no after queries.
   exit 1
 fi
-if ! python3 - "$task_stage/result.json" <<'PY'
-import json, pathlib, sys
-value = json.loads(pathlib.Path(sys.argv[1]).read_text())
-owned = json.loads(pathlib.Path(sys.argv[1]).with_name('supervisor-receipt.json').read_text())
-assert owned['schema'] == 'elf-static-owned-child-v1'
-assert owned['outcome'] == 'KNOWN_COMPLETED' and owned['returncode'] == 0
-assert value['schema'] == 'public-static-elf-provenance-v1'
-assert value['outcome'] == 'OBSERVED_STATIC_CANDIDATE_CLOSURE' and 'cleanup_reason' not in value
-assert all(value[key] is False for key in ('candidate_elf_executed','loaded_elf_identity_proven','allowlist_adoption','compatibility_acceptance'))
-assert value['readelf']['sha256'] == 'a72f12f3dd8c560554a3ba818bcecbda9178db5befbcc64d91bbb6a241fc21bc'
-assert value['search_policy'] == ['/usr/lib','/usr/lib/systemd']
-assert 16 <= len(value['records']) <= 64 and 17 <= len(value['aliases']) <= 512
-print('STATIC_ELF_CANDIDATE_CLOSURE_OBSERVED_NOT_ALLOWLIST_OR_ACCEPTANCE')
-PY
-then exit 1; fi
+if ! env -i HOME=/home/kdk_vm PATH=/usr/bin LANG=C /usr/bin/python3 "$task_stage/validator.py" --validate-static-receipt; then
+  exit 1
+fi
 check_category() {
   if [[ "$2" == "$3" ]]; then printf 'STATIC_ELF_PRESERVED_%s\n' "$1"; else printf 'STATIC_ELF_CHANGED_%s\n' "$1"; task_failed=1; fi
 }

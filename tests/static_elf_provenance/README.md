@@ -215,8 +215,8 @@ selected-package hash mutation. Manifest, candidate paths, fixed dependency
 search, queued-edge identity and tool/ELF authority are unchanged.
 
 All historical wrappers remain frozen, including `vm-guard-queued-edge.sh` with
-its original measured `b5f9c965…` probe pin. **No wrapper currently authorizes the
-corrected static probe.** A separate terminal-unknown-safe supervisor/wrapper and
+its original measured `b5f9c965…` probe pin. At the `e1d91b6` checkpoint, **no
+wrapper authorized the corrected static probe.** A separate terminal-unknown-safe supervisor/wrapper and
 exact-pin full review are required before any new capture; the historical GNU
 timeout/continuation path must not be reused as new execution authority.
 
@@ -246,3 +246,29 @@ unknown/timeout, no fallback, prelaunch pin/existing-output refusal and the exac
 shell terminal branch. Historical evidence remains immutable. This proposal
 still requires complete root/independent review and a separate exclusive VM
 lease; source tests neither invoke readelf nor establish closure or admission.
+
+### Strict receipt gate correction (source only)
+
+`c4ae3ad` was source-review NONPASS and never executed: its inline receipt gate
+accepted duplicate JSON keys and confused Python boolean/integer equality, and
+length checks alone did not establish array or nested record types. The separate
+inert `validate_static_receipt.py`, hash-pinned in the new wrapper, replaces that
+gate. Actual execution requires the fixed staged validator path and bounded,
+stable original no-follow receipt/manifest reads; the original manifest hash is
+checked before interpreting its table. There is no import or pathname fallback.
+
+JSON duplicate keys and nonfinite constants refuse. Supervisor and capture
+receipts require exact key sets/schema/outcome/types; booleans are never numeric
+identities or exit statuses. Nested packages, readelf identity, links and their
+numeric identities, public paths, hashes/modes/sizes, sources/depths, dynamic
+dependencies and aliases are validated and cross-checked against one another
+and the original immutable manifest. Object/byte/edge/link/depth bounds remain
+finite. This checks evidence structure, not new candidate admission or loaded
+ELF identity. Unknown objects cannot enter the allowlist through the validator.
+
+Actual-shell branch tests feed duplicate keys, false returncode, string records,
+string aliases and malformed nested package data through the real decoder and
+validator and prove no later action occurs. A valid synthetic receipt is the
+positive branch control. Additional nested-type, key-set, hash, path, link,
+ownership, mode, size and dependency-edge counterexamples refuse. Any validator
+failure exits before all after-state queries; preservation then remains unproven.
