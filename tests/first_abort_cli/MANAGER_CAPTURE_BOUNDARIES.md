@@ -13,8 +13,9 @@ sealed deliveries, original build files and retained evidence remain untouched.
 Only the new source generation uses UID/GID48048, account `ov-t4-abort-v5`,
 HOME `/home/ov-t4-abort-v5`, runtime `/run/user/48048`, delivery
 `/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v7`, root stage
-`/run/ov-t4-cli-guard-v7` and delivery schema v7. Native checkpoint and all
-source pins require resealing after this material native test-only change.
+`/run/ov-t4-cli-guard-v7` and delivery schema v7. Native source checkpoint is
+`c338449e5c7c9706a34620a663966e1b78c3229b`; source pins and build receipts still
+require resealing after this material native test-only change.
 Old checkpoint285 and actual buildb69 are historical provenance, not builds
 of this generation. No native build, freeze or guest action is performed by
 this source proposal. Separate explicit builds, original frozen single-link
