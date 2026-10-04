@@ -327,3 +327,7 @@ mod tests;
 
 #[path = "kernel_manager_private_fixture.rs"]
 mod manager_private;
+
+// Literal-only new developer tuple. Same existing creator, never a second API.
+#[path = "kernel_private_admission_fixture.rs"]
+mod private_admission;
