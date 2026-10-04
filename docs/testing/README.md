@@ -20,6 +20,10 @@ release work. Dated reports below retain their original pre-merge wording.
 
 ## Evidence groups
 
+- [K1 manager-private lifecycle attempt](../development/K1_MANAGER_PRIVATE_LIFECYCLE.md#exact-head-attempt-and-retained-nonpass--2026-10-04):
+  effective-property admission NONPASS before native start, separate empty-dump
+  diagnosis and cleanup NONPASS; bounded own-link removal/absence is not original
+  baseline preservation or whole K1 PASS.
 - [0.9.7 RC ledger](../development/RC_097.md): maintenance selection and
   explicit package, installed-rendering and publication gates; not a new
   installed or public acceptance claim.

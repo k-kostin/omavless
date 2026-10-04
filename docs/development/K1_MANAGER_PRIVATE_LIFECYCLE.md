@@ -1,9 +1,11 @@
 # K1 manager-created private lifecycle fixture
 
-Source-only developer candidate, based on #603 documentation head
+Developer-only candidate, based on #603 documentation head
 `a8a82d2dbdb1ca01b9753c88dd9b5ee723c3d73c`. The actual paired filter
 result on `b6ab5b6` is preserved; it is not execution evidence for this fixture.
-No VM, installed service, package, production caller or main/RC change occurs.
+The separately authorized VM attempts and their NONPASS outcomes are recorded
+below. No installed production service, package, production caller or main/RC
+change is supplied by this fixture.
 
 ## Native composition
 
@@ -58,9 +60,9 @@ automatic restart, start/runtime/stop deadline, ExecStop or automatic kill.
 Successful completion leaves the unit active/exited through RemainAfterExit.
 These intentional retention semantics require an exclusive development VM.
 
-**Not ready for invocation:** the new `manager_private_guard.py` and
-`manager_private_stage.py` require complete root review and an explicitly
-transferred VM lease before publication or start. The create-only loader admits
+The `manager_private_guard.py` and `manager_private_stage.py` require complete
+parent-agent review and an explicitly transferred VM lease before publication or
+start. The attempt below grants no authority to retry. The create-only loader admits
 all four fixed artifacts into memory from stable original user-owned FDs before
 creating any root artifact. Its literal source directory has exactly those four
 members plus the loader; no caller path, argv, environment dispatch or generic
@@ -114,4 +116,61 @@ from cargo, or without the reviewed observer and explicit VM lease.
 Primary manager representation references: systemd v261
 [Service properties](https://github.com/systemd/systemd/blob/v261/src/core/dbus-service.c)
 and [execution properties](https://github.com/systemd/systemd/blob/v261/src/core/dbus-execute.c).
-No actual result for this new fixture is recorded here.
+
+## Exact-head attempt and retained NONPASS — 2026-10-04
+
+Tested source: `c54697a9a3ffb7af082cd33ea43b87a19da2acdd`, Draft #604,
+in the x86_64 Omarchy development VM. The documentation follow-up changes no
+guard, loader, unit or native source and claims no execution on its later head.
+The ordinary source gate passed 578 tests / 2 existing skips plus frontend,
+JS/QML checks; ten pure observer/loader/boundary tests, two pure native tests and
+the full Rust gate passed. The actual native fixture is ignored by ordinary
+gates. Native source and the frozen ELF above remain tied to `28bdba2`, not a
+new native build at the later Python-source head. The first source-gate
+generated-pycache path false-positive and its failed private log remain retained.
+
+After independent source review and separate authorization, the original guard
+exited 2: **NONPASS, native lifecycle not started**. Effective-property admission
+refused before native execution. The scalar observation exposed `WatchdogUSec`
+as `infinity`, rather than the guard's expected `0`; the expected
+`StandardOutputFile` and `StandardErrorFile` getters were absent. These are
+representation/admission failures, not proof of the requested effective I/O or
+watchdog configuration. No native create/delete lifecycle or packet protection
+PASS follows from publication of the fixture unit.
+
+A separately reviewed read-only diagnosis (`8a2…`) retained those observations.
+A subsequent reviewed exact-matching manager dump (`aad803…`) exited 0 but
+returned a typed empty string. It supplied no effective configuration facts.
+Unit garbage collection is a possible explanation only, not an established
+cause or permission to reconstruct absent facts from the unit source.
+
+A separately authorized exact known-never-started cleanup (`04e15…`) then
+exited 2 in the after-baseline phase: **cleanup NONPASS**. Its retained evidence
+confirms that the exact own link was unlinked, the fixture unit was not found,
+and the exact probe executable was absent from the observed UID-0 and UID-1000
+process inventories. That bounded removal/absence evidence is not whole-run
+preservation or a successful native lifecycle. The removed link is not retained
+in place; all prior staged artifacts, logs and archives remain retained.
+
+The parent agent (Codex) compared the retained original before-baseline with
+the later after-baseline offline. All categories matched except the activation
+inventory's transient session change (`153` to `183`) and four address-lifetime
+deltas: two decreases and two IPv6 router-advertisement lifetime increases of
+21 seconds. The increases are not approved countdowns; these differences must
+not be normalized into preservation PASS. There is no claim of complete
+original-baseline preservation.
+
+Private archive SHA-256 identities (raw paths, logs and contents stay outside Git):
+
+| Capture | SHA-256 |
+| --- | --- |
+| Read-only diagnosis | `fc788c3bff81d8601c298e1e0a88b17de1ffb3c03c9c8116069dd86c3affa53f` |
+| Exact-matching empty dump | `7a72817d1666761e0b74ab87124d07f85d7f34412d9e60efc67836ccfad3f53b` |
+| Exact-inode cleanup evidence | `37d84d798446f086b47b0e43c8f4a92bd3f1284276629cdfadcabb971570d5c5` |
+| Retained original before-baseline capture | `07413cb12d02c8c2532eca0813dc8e62c1e81cfca578b359a6cf1b333c5b17d4` |
+
+Original invocation NONPASS and separate cleanup NONPASS remain independent,
+immutable outcomes. Neither diagnosis nor removal repairs either invocation;
+there was no automatic retry. Further research needs separate reviewed source
+and authorization. No whole K1 PASS, installed protection, release, main merge,
+or completion of the owning K1 contract is claimed.
