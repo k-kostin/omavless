@@ -1,0 +1,24 @@
+diff --git a/libc-test/semver/linux.txt b/libc-test/semver/linux.txt
+index eeec882..ef1c7ac 100644
+--- a/libc-test/semver/linux.txt
++++ b/libc-test/semver/linux.txt
+@@ -2183,6 +2183,7 @@ NLM_F_REQUEST
+ NLM_F_ROOT
+ NOEXPR
+ NOSTR
++NS_GET_ID
+ NS_GET_MNTNS_ID
+ NS_GET_NSTYPE
+ NS_GET_OWNER_UID
+diff --git a/src/unix/linux_like/linux/mod.rs b/src/unix/linux_like/linux/mod.rs
+index a64bcf9..9d14467 100644
+--- a/src/unix/linux_like/linux/mod.rs
++++ b/src/unix/linux_like/linux/mod.rs
+@@ -1248,6 +1248,7 @@ pub const MNT_NS_INFO_SIZE_VER0: Ioctl = 16;
+ pub const NS_MNT_GET_INFO: Ioctl = _IOR::<mnt_ns_info>(NSIO, 10);
+ pub const NS_MNT_GET_NEXT: Ioctl = _IOR::<mnt_ns_info>(NSIO, 11);
+ pub const NS_MNT_GET_PREV: Ioctl = _IOR::<mnt_ns_info>(NSIO, 12);
++pub const NS_GET_ID: Ioctl = _IOR::<__u64>(NSIO, 13);
+ 
+ pub const PR_SET_MDWE: c_int = 65;
+ pub const PR_GET_MDWE: c_int = 66;
