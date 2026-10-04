@@ -1264,6 +1264,7 @@ dependencies = [
  "nix",
  "serde",
  "serde_json",
+ "zbus",
 ]
 
 [[package]]

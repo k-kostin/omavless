@@ -16,6 +16,10 @@ mod listener_admission;
 #[allow(dead_code)] // Inactive first publication candidate; no installed service.
 mod listener_publisher_candidate;
 pub mod locked_state;
+#[cfg(test)]
+mod manager_config_dump_proposal;
+#[cfg(all(test, target_os = "linux"))]
+mod manager_config_reference_fixture;
 pub mod nft;
 #[allow(dead_code)] // Inactive local package-group identity candidate.
 mod package_group_candidate;
