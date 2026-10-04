@@ -42,9 +42,35 @@ or authority to force-close ambiguous objects. Trusted-stdin staging is byte
 bounded, not elapsed bounded; exclusive ROOT-controlled host path gaps remain
 explicit limitations. Source pins alone do not prove actual original identity.
 
-No guest invocation has yet been made for this proposal. Full source/Rust
-gates and ROOT plus independent full review precede ROOT's sole fresh fixture
-invocation and separately reviewed fixed-file result collection. Even a passing
+## Exact tested source and stopped whole-wrapper attempt
+
+Sealed code `7e2408a73ab0a3d412e1a19943c536ec5e86459b` passed 83 focused
+inert controls, full source 937 tests (two existing skips), JS/QML and full Rust
+gates. ROOT and an independent agent read the full changed/reached graph and
+private preparation sources before ROOT's sole fresh fixture invocation.
+Preflight, creation and nine transfers returned known zero. The ONE whole
+wrapper returned NONPASS exit 1, retained unchanged. Captured public stdout
+contained only 13 fixed typed/baseline markers and lacked the final whole-PASS
+marker. This is recorded progress, not whole-wrapper preservation acceptance
+or a proven failure cause. No retry or follow-up process query was performed.
+
+A separately FULL-reviewed fixed-file-only observer (source SHA256
+`9816bd8168f4e11e357949a814df097daa0ac6b31b1a7681f278fbe4253c06f3`)
+then returned known zero. Its filtered private report SHA256 is
+`887dd5a14a567b09fecbade21f65079aab4df8e7ed2c47c1f9ef587588b766b0`.
+All nine source pins matched; the exact pure validator accepted the recorded
+25-copy rows, two mapping passes including all six additions, and zero-only
+daemon shutdown fields. This validates a bounded immutable-file semantic
+partial only, not current process state or external whole-wrapper zero.
+Parent-whole-zero, current identity, preservation, adoption, compatibility and
+historical-NONPASS-upgrade flags remained FALSE. No staged execution, raw logs,
+network content, process/namespace/service query or cleanup was performed by
+the observer. Staging remains stopped and preserved. Future fresh ownership
+checks must bind the exact retained child/namespace graph rather than infer
+absence from global shared argv/UID inventories; no actual confounding cause is
+claimed. This documentation continuation changes no tested source/native pin.
+
+Even a passing
 bus/resolved mapping gate is not broker/core execution, DNS setter approval,
 controller/connections compatibility, arbitrary dlopen closure, production
 adoption, marketplace approval or completed T3. A later composed acceptance
