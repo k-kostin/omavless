@@ -134,3 +134,33 @@ The old measured probe and both existing wrappers remain unchanged. New
 whole-command timeout and independent process quiescence. It requires separate
 full review and a new exclusive lease. No follow-up has run; the actual first
 package-index failure remains unclassified until safely retained observations.
+
+### Retained-FD review correction (source only)
+
+`acdc601a18dd3246fc95ccaeb77b9963ce7c15a7` was source-review NONPASS and
+was **never executed**: its selected-file recheck reopened the pathname, and its
+wrapper used an unreviewed automatic timeout signal path. That old wrapper is
+retained unchanged; it is not eligible for execution.
+
+The corrected diagnostic retains the selected `files` FD across the description
+read and final reread/hash. Original FD, pathname and parent identity checks
+include mtime/ctime; replacement, in-place change/reversion and rename/reversion
+are refused. Real temporary-file tests exercise these mutations and an unchanged
+positive control; the selected file is opened exactly once. No raw file list is
+retained and the parser proposal remains unwired into closure capture.
+
+`alpm_files_supervisor.py` pins the original reviewed containment helper and uses
+its OwnedProcess plus single raw-wait/WNOWAIT supervisor call. Unknown child
+ownership remains terminal without fallback poll/wait/signal/reap or synthesized
+status; the frozen destructor prevents hidden process queries. Known anchored
+timeout handling is inherited unchanged, not delegated to GNU timeout. Tests
+cover known completion, unknown observation, incomplete completion and existing
+output refusal before launch.
+
+The new `vm-guard-alpm-retained-fd.sh` pins diagnostic, supervisor and containment,
+requires the fresh non-symlink UID/GID 1000 mode-0700 stage
+`t3-alpm-files-retained-fd-review-1`, and enables umask 077 plus shell noclobber.
+The runner creates result, stderr and supervisor receipt exclusively. All original
+canonical and baseline/network checks remain; quiescence checks both fixed child
+and supervisor forms. Full source review and a separate exclusive lease are
+required before **one** invocation. No VM diagnosis or ELF admission is claimed.

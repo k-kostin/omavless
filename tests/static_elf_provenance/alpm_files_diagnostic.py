@@ -28,34 +28,54 @@ def identity(value):
             value.st_mode, value.st_nlink, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def measure(path, deadline):
+def root_owned(value):
+    return value.st_uid == value.st_gid == 0 and value.st_mode & 0o022 == 0
+
+
+def read_record(record, deadline):
+    fd, path, before, parent = record
+    require(identity(os.fstat(fd)) == identity(before), "selected_original_fd_changed")
+    os.lseek(fd, 0, os.SEEK_SET)
+    chunks, size, digest = [], 0, hashlib.sha256()
+    while True:
+        require(time.monotonic() < deadline, "metadata_deadline")
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        size += len(chunk)
+        require(size <= before.st_size, "package_file_read_bound")
+        chunks.append(chunk)
+        digest.update(chunk)
+    require(size == before.st_size and identity(before) == identity(os.fstat(fd))
+            == identity(path.lstat()) and identity(parent) == identity(path.parent.lstat()),
+            "package_file_or_directory_changed")
+    return b"".join(chunks), {"device": before.st_dev, "inode": before.st_ino,
+            "size": before.st_size, "uid": before.st_uid, "gid": before.st_gid,
+            "mode": before.st_mode, "nlink": before.st_nlink,
+            "mtime_ns": before.st_mtime_ns, "ctime_ns": before.st_ctime_ns,
+            "sha256": digest.hexdigest()}
+
+
+def open_record(path):
     parent = path.parent.lstat()
-    require(stat.S_ISDIR(parent.st_mode) and parent.st_uid == parent.st_gid == 0
-            and parent.st_mode & 0o022 == 0, "package_directory_shape")
+    require(stat.S_ISDIR(parent.st_mode) and root_owned(parent), "package_directory_shape")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
         before = os.fstat(fd)
-        require(stat.S_ISREG(before.st_mode) and before.st_uid == before.st_gid == 0
-                and before.st_mode & 0o022 == 0 and before.st_nlink > 0
+        require(stat.S_ISREG(before.st_mode) and root_owned(before) and before.st_nlink > 0
                 and 0 <= before.st_size <= MAX_FILE, "package_file_shape")
-        chunks, size, digest = [], 0, hashlib.sha256()
-        while True:
-            require(time.monotonic() < deadline, "metadata_deadline")
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                break
-            size += len(chunk)
-            require(size <= before.st_size, "package_file_read_bound")
-            chunks.append(chunk)
-            digest.update(chunk)
-        require(size == before.st_size and identity(before) == identity(os.fstat(fd))
-                == identity(path.lstat()) and identity(parent) == identity(path.parent.lstat()),
-                "package_file_or_directory_changed")
-        return b"".join(chunks), {"device": before.st_dev, "inode": before.st_ino,
-                "size": before.st_size, "uid": before.st_uid, "gid": before.st_gid,
-                "mode": before.st_mode, "nlink": before.st_nlink, "sha256": digest.hexdigest()}
-    finally:
+        return fd, path, before, parent
+    except BaseException:
         os.close(fd)
+        raise
+
+
+def measure(path, deadline):
+    record = open_record(path)
+    try:
+        return read_record(record, deadline)
+    finally:
+        os.close(record[0])
 
 
 def proposed_file_entries(raw):
@@ -124,8 +144,7 @@ def capture():
     try:
         require(os.getuid() == os.geteuid() == 1000, "metadata_uid")
         value = ROOT.lstat()
-        require(stat.S_ISDIR(value.st_mode) and value.st_uid == value.st_gid == 0
-                and value.st_mode & 0o022 == 0, "database_root_shape")
+        require(stat.S_ISDIR(value.st_mode) and root_owned(value), "database_root_shape")
         names = sorted(os.listdir(ROOT))
         require(len(names) <= 4096, "package_count_bound")
         deadline, total, scanned = time.monotonic() + 10, 0, 0
@@ -133,23 +152,27 @@ def capture():
             if name == "ALPM_DB_VERSION":
                 continue
             require(PACKAGE.fullmatch(name), "package_directory_name")
-            raw, metadata = measure(ROOT / name / "files", deadline)
-            total += len(raw)
-            scanned += 1
-            require(total <= 64 * 1024 * 1024, "package_bytes_bound")
-            if raw.decode("utf-8", "strict").splitlines().count("%FILES%") == 1:
-                continue
-            summary = shape(raw)
-            if not summary["legacy_exactly_one_files_marker"]:
+            record = open_record(ROOT / name / "files")
+            try:
+                raw, metadata = read_record(record, deadline)
+                total += len(raw)
+                scanned += 1
+                require(total <= 64 * 1024 * 1024, "package_bytes_bound")
+                if raw.decode("utf-8", "strict").splitlines().count("%FILES%") == 1:
+                    continue
+                summary = shape(raw)
                 description, desc_metadata = measure(ROOT / name / "desc", deadline)
-                # Repeat the same fixed file; never retry a failed observation.
-                again, final_metadata = measure(ROOT / name / "files", deadline)
+                # Re-read the STILL-OPEN original FD across the description read.
+                # Any failed observation is terminal, never retried.
+                again, final_metadata = read_record(record, deadline)
                 require(again == raw and final_metadata == metadata, "selected_file_changed")
                 result.update({"outcome": "OBSERVED_ALPM_FILELIST_SHAPE", "package_directory": name,
                                "package": package_name_version(description), "original_open_fd": metadata,
                                "description_sha256": desc_metadata["sha256"], "shape": summary,
                                "scanned_count": scanned, "scanned_bytes": total})
                 break
+            finally:
+                os.close(record[0])
         else:
             raise Refused("original_predicate_failure_not_reproduced")
     except Exception as error:

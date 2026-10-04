@@ -2,15 +2,20 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).parent / "static_elf_provenance"
 SPEC = importlib.util.spec_from_file_location("alpm_files_diagnostic", ROOT / "alpm_files_diagnostic.py")
 probe = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(probe)
+SUPERVISOR_SPEC = importlib.util.spec_from_file_location("alpm_files_supervisor", ROOT / "alpm_files_supervisor.py")
+supervisor = importlib.util.module_from_spec(SUPERVISOR_SPEC)
+SUPERVISOR_SPEC.loader.exec_module(supervisor)
 
 
 def meta(**changes):
@@ -21,8 +26,15 @@ def meta(**changes):
 
 class AlpmFilesTests(unittest.TestCase):
     def test_wrapper_pins_metadata_only_source_and_preservation(self):
-        guard = (ROOT / "vm-guard-alpm-shape.sh").read_text()
+        guard = (ROOT / "vm-guard-alpm-retained-fd.sh").read_text()
         self.assertIn(hashlib.sha256((ROOT / "alpm_files_diagnostic.py").read_bytes()).hexdigest(), guard)
+        self.assertIn(hashlib.sha256((ROOT / "alpm_files_supervisor.py").read_bytes()).hexdigest(), guard)
+        self.assertIn(supervisor.CONTAINMENT_SHA, guard)
+        self.assertIn("set -o noclobber", guard)
+        self.assertIn("umask 077", guard)
+        self.assertIn('test ! -L "$task_stage"', guard)
+        self.assertIn('stat -c %u:%g', guard)
+        self.assertNotIn("timeout --", guard)
         for category in ("CANONICAL_EPOCH", "PRIVATE_FILES", "USER_SERVICE", "EXECUTABLE",
                          "NAMESPACE", "CORE_INVENTORY", "TUN_INVENTORY", "RESOLVER", "RESOLVCONF"):
             self.assertIn("check_category " + category, guard)
@@ -63,6 +75,7 @@ class AlpmFilesTests(unittest.TestCase):
         with patch.object(probe.Path, "lstat", side_effect=[parent, file_stat, parent]), \
              patch.object(probe.os, "open", return_value=99) as opened, patch.object(probe.os, "close") as closed, \
              patch.object(probe.os, "fstat", return_value=file_stat), patch.object(probe.os, "read", return_value=b""), \
+             patch.object(probe.os, "lseek"), \
              patch.object(probe.time, "monotonic", return_value=0):
             raw, record = probe.measure(Path("/var/lib/pacman/local/meta-1-1/files"), 1)
         self.assertEqual(raw, b"")
@@ -77,6 +90,7 @@ class AlpmFilesTests(unittest.TestCase):
             with patch.object(probe.Path, "lstat", side_effect=[parent, final, parent]), \
                  patch.object(probe.os, "open", return_value=99), patch.object(probe.os, "close") as closed, \
                  patch.object(probe.os, "fstat", return_value=actual), patch.object(probe.os, "read", return_value=b""), \
+                 patch.object(probe.os, "lseek"), \
                  patch.object(probe.time, "monotonic", return_value=now):
                 with self.assertRaises(probe.Refused):
                     probe.measure(Path("/var/lib/pacman/local/meta-1-1/files"), 1)
@@ -87,18 +101,113 @@ class AlpmFilesTests(unittest.TestCase):
         with patch.object(probe.os, "getuid", return_value=1000), patch.object(probe.os, "geteuid", return_value=1000), \
              patch.object(probe.Path, "lstat", return_value=meta(st_mode=0o40755)), \
              patch.object(probe.os, "listdir", return_value=["meta-1-1", "later-1-1"]), \
-             patch.object(probe, "measure", side_effect=[(b"", metadata),
-                  (b"%NAME%\nexample-meta\n%VERSION%\n1-1\n", {"sha256": "description"}), (b"", metadata)]) as measure:
+             patch.object(probe, "open_record", return_value=(99, None, None, None)), \
+             patch.object(probe.os, "close"), \
+             patch.object(probe, "read_record", return_value=(b"", metadata)) as read, \
+             patch.object(probe, "measure", return_value=
+                  (b"%NAME%\nexample-meta\n%VERSION%\n1-1\n", {"sha256": "description"})) as measure:
             result = probe.capture()
         self.assertEqual(result["outcome"], "OBSERVED_ALPM_FILELIST_SHAPE")
         self.assertEqual(result["scanned_count"], 1)
-        self.assertEqual(measure.call_count, 3)
+        self.assertEqual(measure.call_count, 1)
+        self.assertEqual(read.call_count, 2)
         self.assertEqual(result["package"]["name"], "example-meta")
         self.assertIs(result["readelf_executed"], False)
         self.assertIs(result["allowlist_adoption"], False)
         source = (ROOT / "alpm_files_diagnostic.py").read_text()
         for forbidden in ("subprocess", "os.exec", "os.system", "capture_static", "base.command"):
             self.assertNotIn(forbidden, source)
+
+    def test_real_original_fd_retained_across_description_and_mutations(self):
+        for mutation in ("unchanged", "replace", "inplace_revert", "rename_revert"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(dir="/var/tmp") as temporary:
+                root = Path(temporary)
+                package = root / "meta-1-1"
+                package.mkdir()
+                selected = package / "files"
+                selected.write_bytes(b"")
+                (package / "desc").write_bytes(b"%NAME%\nexample-meta\n%VERSION%\n1-1\n")
+                original = selected.stat()
+                real_measure, real_open = probe.measure, os.open
+                file_opens = []
+
+                def opened(path, *args, **kwargs):
+                    fd = real_open(path, *args, **kwargs)
+                    if path == selected:
+                        file_opens.append(fd)
+                    return fd
+
+                def description(path, deadline):
+                    self.assertEqual(os.fstat(file_opens[0]).st_ino, original.st_ino)
+                    if mutation in ("replace", "rename_revert"):
+                        selected.rename(package / "saved")
+                        selected.write_bytes(b"")
+                        if mutation == "rename_revert":
+                            selected.unlink()
+                            (package / "saved").rename(selected)
+                    elif mutation == "inplace_revert":
+                        selected.write_bytes(b"changed")
+                        selected.write_bytes(b"")
+                        os.utime(selected, ns=(original.st_atime_ns, original.st_mtime_ns))
+                    return real_measure(path, deadline)
+
+                with patch.object(probe, "ROOT", root), patch.object(probe, "root_owned", return_value=True), \
+                     patch.object(probe.os, "getuid", return_value=1000), \
+                     patch.object(probe.os, "geteuid", return_value=1000), \
+                     patch.object(probe.os, "open", side_effect=opened), \
+                     patch.object(probe, "measure", side_effect=description):
+                    result = probe.capture()
+                self.assertEqual(len(file_opens), 1)
+                with self.assertRaises(OSError):
+                    os.fstat(file_opens[0])
+                if mutation == "unchanged":
+                    self.assertEqual(result["outcome"], "OBSERVED_ALPM_FILELIST_SHAPE")
+                    self.assertEqual(result["original_open_fd"]["mtime_ns"], original.st_mtime_ns)
+                    self.assertEqual(result["original_open_fd"]["ctime_ns"], original.st_ctime_ns)
+                else:
+                    self.assertEqual(result["outcome"], "NONPASS")
+                    self.assertNotIn("original_open_fd", result)
+
+    def test_supervisor_unknown_is_single_terminal_call_without_fallback(self):
+        for status in ("known", "unknown", "incomplete"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory(dir="/var/tmp") as temporary:
+                stage = Path(temporary)
+                child = Mock(returncode=0 if status == "known" else None)
+                def observed(process, seconds):
+                    self.assertIs(process, child)
+                    self.assertEqual(seconds, 15)
+                    if status == "unknown":
+                        raise supervisor.base.Refused("owned_wait_unknown_preserve")
+                    return status == "known"
+                with patch.object(supervisor, "STAGE", stage), \
+                     patch.object(supervisor.os, "getuid", return_value=1000), \
+                     patch.object(supervisor.os, "geteuid", return_value=1000), \
+                     patch.object(supervisor.base, "private_parent"), \
+                     patch.object(supervisor.base, "object_bytes"), \
+                     patch.object(supervisor.base, "OwnedProcess", return_value=child) as spawn, \
+                     patch.object(supervisor.base, "supervise", side_effect=observed) as observed_call:
+                    result = supervisor.run_child(stage)
+                spawn.assert_called_once()
+                observed_call.assert_called_once()
+                self.assertEqual(child.mock_calls, [])
+                self.assertEqual(result["outcome"], "KNOWN_COMPLETED" if status == "known" else "NONPASS")
+                if status != "known":
+                    self.assertNotIn("returncode", result)
+
+    def test_existing_child_output_refuses_before_launch(self):
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as temporary:
+            stage = Path(temporary)
+            (stage / "result.json").write_bytes(b"retained")
+            with patch.object(supervisor, "STAGE", stage), \
+                 patch.object(supervisor.os, "getuid", return_value=1000), \
+                 patch.object(supervisor.os, "geteuid", return_value=1000), \
+                 patch.object(supervisor.base, "private_parent"), \
+                 patch.object(supervisor.base, "object_bytes"), \
+                 patch.object(supervisor.base, "OwnedProcess") as spawn:
+                result = supervisor.run_child(stage)
+            self.assertEqual(result["outcome"], "NONPASS")
+            spawn.assert_not_called()
+            self.assertEqual((stage / "result.json").read_bytes(), b"retained")
 
 
 if __name__ == "__main__":
