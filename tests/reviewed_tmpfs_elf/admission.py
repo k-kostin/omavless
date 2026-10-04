@@ -67,8 +67,9 @@ class Sources:
     """
 
     def __init__(self, data, deadline):
+        self._state = "open"
         self.table = manifest(data)["source_provenance"]
-        self.parents, self.files = {}, {}
+        self._parents, self._files = {}, {}
         try:
             self._parent("/")
             total = 0
@@ -99,7 +100,21 @@ class Sources:
             self.close()
             raise
 
+    def _usable(self):
+        require(self._state == "open", "sources_sealed")
+
+    @property
+    def files(self):
+        self._usable()
+        return self._files
+
+    @property
+    def parents(self):
+        self._usable()
+        return self._parents
+
     def _parent(self, path):
+        self._usable()
         if path in self.parents:
             return self.parents[path]
         if path == "/":
@@ -120,6 +135,16 @@ class Sources:
         return self.parents[path]
 
     def recheck(self, deadline):
+        self._usable()
+        try:
+            self._recheck(deadline)
+        except BaseException:
+            # First uncertainty is terminal even if metadata/clock later recover.
+            self._state = "refused"
+            raise
+
+    def _recheck(self, deadline):
+        self._usable()
         for path, (fd, before) in self.files.items():
             parent, name = path.rsplit("/", 1)
             require(identity(before) == identity(os.fstat(fd))
@@ -138,12 +163,22 @@ class Sources:
                     "source_parent_replaced")
 
     def close(self):
-        for values in (self.files, self.parents):
-            for fd, _ in values.values():
-                os.close(fd)
-            values.clear()
+        self._state = "closed"
+        error = None
+        for values in (self._files, self._parents):
+            while values:
+                _, (fd, _) = values.popitem()
+                try:
+                    os.close(fd)
+                except BaseException as exc:
+                    # Never retry an ambiguous close (the number may be reused).
+                    if error is None:
+                        error = exc
+        if error is not None:
+            raise error
 
     def __enter__(self):
+        self._usable()
         return self
 
     def __exit__(self, *_):

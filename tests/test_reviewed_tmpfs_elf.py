@@ -114,9 +114,10 @@ class ReviewedCopyTests(unittest.TestCase):
         parent = os.open(directory, admission.FLAGS | os.O_DIRECTORY)
         fd = os.open("object", admission.FLAGS, dir_fd=parent)
         obj = admission.Sources.__new__(admission.Sources)
+        obj._state = "open"
         obj.table = {"/usr/lib/object": {"sha256": hashlib.sha256(BLOCK).hexdigest()}}
-        obj.files = {"/usr/lib/object": (fd, os.fstat(fd))}
-        obj.parents = {"/usr/lib": (parent, os.fstat(parent))}
+        obj._files = {"/usr/lib/object": (fd, os.fstat(fd))}
+        obj._parents = {"/usr/lib": (parent, os.fstat(parent))}
         return obj, path
 
     def test_same_original_fd_hash_control(self):
@@ -128,6 +129,69 @@ class ReviewedCopyTests(unittest.TestCase):
                                  hashlib.sha256(BLOCK).hexdigest())
             finally:
                 obj.close()
+
+    def assert_sealed_without_io(self, obj):
+        with patch.object(admission.os, "fstat") as fstat, \
+             patch.object(admission.os, "stat") as pathstat, \
+             patch.object(admission.os, "open") as opened, \
+             patch.object(admission.os, "read") as read, \
+             patch.object(admission, "digest") as hashed:
+            for action in (lambda: obj.recheck(time.monotonic() + 100),
+                           lambda: obj._recheck(time.monotonic() + 100),
+                           obj.__enter__, lambda: obj.files, lambda: obj.parents,
+                           lambda: obj._parent("/usr/lib")):
+                with self.assertRaisesRegex(admission.Refused, "sources_sealed"):
+                    action()
+            for operation in (fstat, pathstat, opened, read, hashed):
+                operation.assert_not_called()
+
+    def test_deadline_then_valid_clock_stays_permanently_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            obj, _ = self.held(directory)
+            try:
+                with self.assertRaisesRegex(admission.Refused, "source_deadline"):
+                    obj.recheck(0)
+                self.assertEqual(obj._state, "refused")
+                self.assert_sealed_without_io(obj)
+            finally:
+                obj.close()
+
+    def test_unknown_fstat_then_restored_metadata_stays_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            obj, _ = self.held(directory)
+            try:
+                with patch.object(admission.os, "fstat", side_effect=OSError("unknown")), \
+                     self.assertRaises(OSError):
+                    obj.recheck(time.monotonic() + 1)
+                self.assertEqual(obj._state, "refused")
+                self.assert_sealed_without_io(obj)
+            finally:
+                obj.close()
+
+    def test_closed_sources_never_admit_and_close_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            obj, _ = self.held(directory)
+            obj.close()
+            self.assertEqual(obj._state, "closed")
+            self.assert_sealed_without_io(obj)
+            with patch.object(admission.os, "close") as closed:
+                obj.close()
+                closed.assert_not_called()
+
+    def test_unknown_close_never_retries_fd_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            obj, _ = self.held(directory)
+            original_close = os.close
+            def close_then_unknown(fd):
+                original_close(fd)
+                raise OSError("close status unknown")
+            with patch.object(admission.os, "close", side_effect=close_then_unknown) as closed:
+                with self.assertRaises(OSError):
+                    obj.close()
+                self.assertEqual(closed.call_count, 2)
+                obj.close()
+                self.assertEqual(closed.call_count, 2)
+            self.assert_sealed_without_io(obj)
 
     def test_real_same_bytes_replacement_refuses_before_parent_walk(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -170,9 +234,10 @@ class ReviewedCopyTests(unittest.TestCase):
                       st_nlink=2, st_size=4, st_mtime_ns=1, st_ctime_ns=1)
         before = SimpleNamespace(**fields)
         obj = admission.Sources.__new__(admission.Sources)
-        obj.files = {}
-        obj.parents = {"/": (1, before)}
+        obj._files = {}
+        obj._parents = {"/": (1, before)}
         for change in ({"st_ino": 2}, {"st_ctime_ns": 2}, {"st_mode": 0o40777}):
+            obj._state = "open"
             after = SimpleNamespace(**dict(fields, **change))
             with patch.object(admission.os, "fstat", return_value=before), \
                  patch.object(admission.os, "stat", return_value=after), \

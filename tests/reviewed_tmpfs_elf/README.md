@@ -25,6 +25,14 @@ through this helper: admission failure closes only its own FDs and returns no
 usable source set. Namespace validation remains a required caller precondition,
 not something this inert module claims to establish.
 
+The first recheck error permanently seals the source set before propagation.
+Recovering metadata or advancing the deadline cannot permit another read/hash,
+entry, or FD accessor call. Closing also seals before cleanup and cannot turn an
+empty set into a successful admission. Cleanup attempts each owned FD number
+only once, including an ambiguous close error; repeated close is inert. This
+corrects the retry/empty-after-close gap in source-only checkpoint `60c8265`,
+which was never executable or VM-eligible.
+
 ## Remaining integration contract (not implemented or executable here)
 
 A separately reviewed fixture must validate the frozen containment first, then
