@@ -12,6 +12,9 @@ mod authority_composition_controls {
         checks: Vec<Boundary>,
         drops: usize,
         effects: usize,
+        effect_error: bool,
+        effect_panic: bool,
+        post_effect_observe: bool,
     }
     struct Provider { kernel: Kernel, control: Rc<RefCell<Control>> }
     impl Drop for Provider {
@@ -24,23 +27,36 @@ mod authority_composition_controls {
             let mut c = self.control.borrow_mut();
             c.checks.push(point);
             assert_ne!(c.panic, Some(point), "synthetic authority panic");
+            if c.post_effect_observe && c.effects > 0 && point == Boundary::AfterObserve {
+                return Err(EffectError::UnavailableOrUncertain);
+            }
             if c.fail == Some(point) { return Err(EffectError::UnavailableOrUncertain); }
             Ok(if c.changed { HostEpoch { namespace_epoch: [9; 16], ..EPOCH } } else { EPOCH })
+        }
+    }
+    impl Provider {
+        fn returned<T>(&self, value: Result<T, EffectError>) -> Result<T, EffectError> {
+            let control = self.control.borrow();
+            assert!(!control.effect_panic, "synthetic effect panic after execution");
+            if control.effect_error { Err(EffectError::UnavailableOrUncertain) } else { value }
         }
     }
     impl EffectPort for Provider {
         fn observe(&mut self) -> Result<EffectSnapshot, EffectError> { self.kernel.observe() }
         fn create_if_absent(&mut self, policy: Policy) -> Result<EffectIdentity, EffectError> {
             self.control.borrow_mut().effects += 1;
-            self.kernel.create_if_absent(policy)
+            let result = self.kernel.create_if_absent(policy);
+            self.returned(result)
         }
         fn replace_owned(&mut self, id: EffectIdentity, policy: Policy) -> Result<EffectIdentity, EffectError> {
             self.control.borrow_mut().effects += 1;
-            self.kernel.replace_owned(id, policy)
+            let result = self.kernel.replace_owned(id, policy);
+            self.returned(result)
         }
         fn delete_owned(&mut self, id: EffectIdentity) -> Result<(), EffectError> {
             self.control.borrow_mut().effects += 1;
-            self.kernel.delete_owned(id)
+            let result = self.kernel.delete_owned(id);
+            self.returned(result)
         }
     }
     fn owner(f: &Fixture, control: Rc<RefCell<Control>>) -> (AuthoritySession<Provider>, PathBuf) {
@@ -158,5 +174,106 @@ mod authority_composition_controls {
         assert!(path.exists());
         assert!(matches!(open_fixture(&f.0), Err(StateError::Busy)));
         assert_eq!(f.bytes(), (None, None));
+    }
+
+    #[test]
+    fn replacement_and_delete_cuts_preserve_actual_pending_and_close_order() {
+        for (request, before, after, pending) in [
+            (ARM, Boundary::BeforeReplace,
+             Boundary::AfterReplace, ReceiptState::PendingReplace { old_handle: 5 }),
+            (DISARM, Boundary::BeforeDelete, Boundary::AfterDelete,
+             ReceiptState::PendingDelete { old_handle: 5 }),
+        ] {
+            for cut in [before, after] {
+                let f = Fixture::new();
+                let control = Rc::new(RefCell::new(Control::default()));
+                let (mut owner, path) = owner(&f, control.clone());
+                let mut stream = client(&path, ARM);
+                assert_eq!(owner.poll_one(), SessionProgress::Served);
+                receive(&mut stream);
+                control.borrow_mut().fail = Some(cut);
+                let _stream = client(&path, request);
+                assert_ne!(owner.poll_one(), SessionProgress::Served);
+                assert_eq!(record(owner.test_state()).state(), pending);
+                assert_eq!(control.borrow().effects, 1 + usize::from(cut == after));
+                if request == DISARM {
+                    let marker: serde_json::Value = serde_json::from_slice(&f.bytes().0.unwrap()).unwrap();
+                    assert_eq!(marker["armed"], false);
+                    assert_eq!(marker["generation"], 7);
+                }
+                assert_sealed(&mut owner, &control);
+                owner.release_synthetic();
+            }
+        }
+    }
+
+    #[test]
+    fn effect_error_or_panic_after_actual_effect_never_commits_or_compensates() {
+        for kind in 0..3 {
+            let request = if kind == 2 { DISARM } else { ARM };
+            for panic in [false, true] {
+                let f = Fixture::new();
+                let control = Rc::new(RefCell::new(Control::default()));
+                let (mut owner, path) = owner(&f, control.clone());
+                if kind != 0 {
+                    let mut first = client(&path, ARM);
+                    assert_eq!(owner.poll_one(), SessionProgress::Served);
+                    receive(&mut first);
+                }
+                control.borrow_mut().effect_error = !panic;
+                control.borrow_mut().effect_panic = panic;
+                let _stream = client(&path, request);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| owner.poll_one()));
+                if panic { assert!(result.is_err()); }
+                else { assert_ne!(result.unwrap(), SessionProgress::Served); }
+                let pending = if kind == 0 { ReceiptState::PendingCreate }
+                    else if kind == 2 { ReceiptState::PendingDelete { old_handle: 5 } }
+                    else { ReceiptState::PendingReplace { old_handle: 5 } };
+                assert_eq!(record(owner.test_state()).state(), pending);
+                assert_eq!(control.borrow().effects, if kind == 0 { 1 } else { 2 });
+                control.borrow_mut().effect_error = false;
+                control.borrow_mut().effect_panic = false;
+                assert_sealed(&mut owner, &control);
+                owner.release_synthetic();
+            }
+        }
+    }
+
+    #[test]
+    fn post_effect_observation_refusal_retains_pending_before_terminal_write() {
+        let f = Fixture::new();
+        let control = Rc::new(RefCell::new(Control { post_effect_observe: true, ..Control::default() }));
+        let (mut owner, path) = owner(&f, control.clone());
+        let _stream = client(&path, ARM);
+        assert_ne!(owner.poll_one(), SessionProgress::Served);
+        assert_eq!(record(owner.test_state()).state(), ReceiptState::PendingCreate);
+        assert_eq!(control.borrow().effects, 1);
+        assert_sealed(&mut owner, &control);
+        owner.release_synthetic();
+    }
+
+    #[test]
+    fn constructor_panic_retains_original_listener_provider_and_lock() {
+        let f = Fixture::new();
+        let control = Rc::new(RefCell::new(Control { panic: Some(Boundary::Admission), ..Control::default() }));
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| owner(&f, control.clone()))).is_err());
+        assert_eq!(control.borrow().drops, 0);
+        assert_eq!(control.borrow().effects, 0);
+        assert!(matches!(open_fixture(&f.0), Err(StateError::Busy)));
+        assert!(f.0.join("run/omavless-netguard/control.sock").exists());
+        assert_eq!(f.bytes(), (None, None));
+    }
+
+    #[test]
+    fn listener_replacement_seals_stronger_owner_before_any_followup_provider_call() {
+        let f = Fixture::new();
+        let control = Rc::new(RefCell::new(Control::default()));
+        let (mut owner, path) = owner(&f, control.clone());
+        fs::rename(&path, path.with_extension("original")).unwrap();
+        let _replacement = UnixListener::bind(&path).unwrap();
+        assert_eq!(owner.poll_one(), SessionProgress::ListenerLost);
+        assert_sealed(&mut owner, &control);
+        assert_eq!(control.borrow().effects, 0);
+        owner.release_synthetic();
     }
 }

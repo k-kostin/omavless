@@ -61,8 +61,21 @@ from the trusted bind-before-access lifetime, not merely a matching path.
 Deterministic controls use the real private listener publisher, authenticated
 Unix exchange and actual LockedState writers with a synthetic provider. They
 cover successful arm/disarm, admission/accept/receive/observe/effect/reply cuts,
-unchanged-inode epoch replacement, panic sealing and retained drop. Their fake
+actual same-generation replacement and delete cuts, errors/panics after actual
+synthetic effects, post-effect observation loss, constructor panic retention,
+listener replacement, unchanged-inode epoch replacement and retained drop. Their fake
 namespace/kernel facts cannot be relabelled as installed or kernel acceptance.
+
+The existing inactive socket writer additionally checks its elapsed budget
+after timeout setup and after its final write. Deterministic real-socket tests
+show that a late write may deliver complete bytes yet must return delivery
+unknown, while a late timeout-setup return starts no write. This does not cancel
+a blocked syscall or retract bytes. No new product caller is added.
+
+The first expanded test run correctly rejected a proposed replacement request
+using a different generation while already armed; two new tests had mistakenly
+expected an effect there. The controls now use the contract's explicit
+same-generation Arm replacement. The production planner was not weakened.
 
 Installed service/package/enrollment/recovery, runtime protected connect and
 disconnect sequencing, core-mark/DNS/firewall integration and all host/physical
