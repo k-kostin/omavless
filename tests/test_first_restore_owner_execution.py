@@ -107,7 +107,7 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
 
     def test_abort_recovery_constructor_is_private_fixed_and_retains_original_pair(self):
         text = (SRC / "restore_first_abort_owner.rs").read_text()
-        body = text.split("#[cfg(test)]", 1)[0]
+        body = text.split("\nmod tests {", 1)[0]
         self.assertIn("fn current(source: &Path, passphrase: &[u8])", body)
         self.assertNotRegex(body, r"pub(?:\([^)]*\))?\s+fn\s+(?:current|run)")
         for token in ("ObservationOnlyNativeHost::new", "RuntimePaths::current",
@@ -126,6 +126,31 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
                      "first_abort_owner_slots_are_pinned_before_admission_and_owned_link_callbacks",
                      "first_abort_owner_commit_refuses_before_host_or_sync"):
             self.assertIn(name, text)
+
+    def test_abort_process_loss_fixture_is_ignored_fixed_current_and_frozen(self):
+        owner = (SRC / "restore_first_abort_owner.rs").read_text()
+        self.assertIn('#[cfg(test)]\n#[path = "restore_first_abort_process_tests.rs"]', owner)
+        text = (SRC / "restore_first_abort_process_tests.rs").read_text()
+        for token in ('fn process_worker()', 'fn fixed_current_process_loss_and_fresh_reentry()',
+                      'current(&root.join("archive.ovb"), &passphrase)',
+                      'OMAVLESS_ABORT_FROZEN_SHA256', 'OMAVLESS_ABORT_BUILD_TARGET',
+                      'safe_ancestry(&base, uid)', '.create_new(true)', 'WaitStatus::Signaled(_, Signal::SIGKILL, false)',
+                      'FrozenElf::capture()', 'Point::Final', 'File::open("/proc/self/exe")',
+                      'metadata.mode() & 0o7777 == 0o500', 'self.file.read_at', 'quarantine.set(true)'):
+            self.assertIn(token, text)
+        self.assertEqual(text.count('#[ignore ='), 2)
+        self.assertNotIn('remove_dir_all', text)
+        self.assertNotIn('.env("HOME"', text)
+        self.assertNotIn('NativeHostPaths::new', text)
+        self.assertNotIn('run(', text)
+        support = (SRC / "restore_abort_process_support_tests.rs").read_text()
+        for token in ('WaitPidFlag::WNOWAIT', 'WaitPidFlag::WNOHANG', 'self.quarantine.set(true)',
+                      'std::mem::forget(child)', 'first_unknown_observation_permanently_blocks_every_followup_call',
+                      'reap_unknown_or_mismatch_never_becomes_success_or_retry',
+                      'timeout_quarantine_is_shared_by_other_owned_children_and_stays_permanent'):
+            self.assertIn(token, support)
+        for forbidden in ('.try_wait(', '.kill()', '.wait()', '.wait_with_output('):
+            self.assertNotIn(forbidden, text + support)
 
     def test_abort_created_identity_counterexamples_retained(self):
         text = (SRC / "restore_executor_candidate.rs").read_text()

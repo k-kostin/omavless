@@ -93,6 +93,10 @@ hooks and empty/full terminal write/sync boundaries. These are synthetic local
 checks, not positive installed execution of the fixed-current constructor.
 Process death/re-entry and power-loss acceptance remain separate.
 
+The next [fixed-current process-loss fixture](T4_FIRST_ABORT_PROCESS_REENTRY.md)
+is explicitly ignored pending review and separate execution authorization;
+its presence does not turn process-death or installed acceptance green.
+
 The first strict-helper test run preserved an earlier refusal: terminal swap was
 detected before its old fixture expected the Terminal hook. The corrected fixture
 deliberately waits for full terminal bytes and requires hook reach only for the
