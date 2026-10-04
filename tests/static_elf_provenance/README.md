@@ -175,3 +175,30 @@ regression executes the exact failed-supervisor branch with a synthetic failure
 and verifies no later action occurs. Supervisor import is inert; actual main
 requires the exact fixed stage script and helper, while tests explicitly load
 the hash-pinned repository helper. A missing staged helper has no fallback.
+
+### Measured metadata-only result at `512ce77`
+
+One reviewed invocation of sealed
+`512ce77f228d7e6be9ec56be7962782d719d6357` completed with
+`OBSERVED_ALPM_FILELIST_SHAPE` and supervisor `KNOWN_COMPLETED`, returncode 0.
+The first current failure of the legacy marker predicate was package `base`
+version `3-3`: its retained original `files` FD was a zero-byte regular file,
+root UID/GID 0, mode 0644, one link, with empty-content SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+The selected FD remained open through description reading and final identity/hash
+verification. No file list, readelf execution, candidate execution or admission
+was involved. This reproduces the old predicate failure in the current database;
+the earlier `3d4b7d5` attempt did not record package identity and remains NONPASS,
+not retrospectively diagnosed or repaired by this observation.
+
+Canonical epoch and all eight preservation categories matched. Full IPv4/IPv6
+network fields matched except confirmed decreasing address lifetimes. Independent
+read-only quiescence found the exact probe/supervisor forms absent and canonical
+PID/boot unchanged. The exclusive VM lease was returned with no retry or cleanup.
+The complete private stage is retained as `t3-alpm-files-512ce77-observed.tar.gz`
+in guest `/home/kdk_vm/.cache/` and host
+`/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/`, matching SHA-256
+`c38c211826c04b4a9c3c05eeef99966f5ec02bfc61b7bf1162a15be696a3b62d`.
+The host retains the separate `alpm-files-512ce77-invocation.log` preservation
+receipt and `alpm-files-512ce77-quiescence.log`. These are metadata-only evidence,
+not static closure, loaded ELF proof, compatibility or installed acceptance.
