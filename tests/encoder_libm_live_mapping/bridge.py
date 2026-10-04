@@ -66,31 +66,37 @@ def breadcrumb(phase):
     _breadcrumb_refused = False
 
 
-def mapped_candidate(daemon, path, identity):
+def mapped_candidates(daemon, objects):
     """Pre-decision recorded PUBLIC map text, not admitted or proven identity.
 
-    Called only in the first initial pass, after strict map parsing and BEFORE
-    membership/identity checks or target open. Never called on a caught error.
+    Validate and encode the ENTIRE bounded initial inventory before one write,
+    then return only after a known full write. No target membership, identity,
+    open or hash occurs until this batch completes. Never called on an error.
     """
     global _candidate_bytes, _candidate_refused
     require(not _candidate_refused, "candidate_sealed")
     _candidate_refused = True
     require(type(daemon) is str and daemon in _candidate_counts
-            and _candidate_counts[daemon] < 64, "candidate_count")
-    require(type(path) is str and len(path) <= 4096 and PUBLIC.fullmatch(path)
-            and all(part not in ("", ".", "..") for part in path.split("/")[1:]),
-            "candidate_public_path")
-    require(type(identity) is tuple and len(identity) == 2
-            and all(type(value) is int for value in identity)
-            and 0 <= identity[0] < 2**64 and 0 < identity[1] < 2**64,
-            "candidate_identity_shape")
-    record = {"schema": "public-map-candidate-before-admission-v1", "daemon": daemon,
-              "pass": "initial", "path": path, "mapped_device": identity[0],
-              "mapped_inode": identity[1], "identity_proven": False, "adoption": False}
-    data = ("T3_MAP_CANDIDATE_V1 " + json.dumps(record, sort_keys=True) + "\n").encode("ascii")
-    require(_candidate_bytes + len(data) <= 1024 * 1024, "candidate_byte_bound")
-    require(os.write(2, data) == len(data), "candidate_short_write")
-    _candidate_counts[daemon] += 1
+            and _candidate_counts[daemon] == 0
+            and type(objects) is dict and 0 < len(objects) <= 64, "candidate_count")
+    for path, identity in objects.items():
+        require(type(path) is str and len(path) <= 4096 and PUBLIC.fullmatch(path)
+                and all(part not in ("", ".", "..") for part in path.split("/")[1:]),
+                "candidate_public_path")
+        require(type(identity) is tuple and len(identity) == 2
+                and all(type(value) is int for value in identity)
+                and 0 <= identity[0] < 2**64 and 0 < identity[1] < 2**64,
+                "candidate_identity_shape")
+    data = b""
+    for path, identity in sorted(objects.items()):
+        record = {"schema": "public-map-candidate-before-admission-v1", "daemon": daemon,
+                  "pass": "initial", "path": path, "mapped_device": identity[0],
+                  "mapped_inode": identity[1], "identity_proven": False, "adoption": False}
+        data += ("T3_MAP_CANDIDATE_V1 " + json.dumps(record, sort_keys=True) + "\n").encode("ascii")
+        require(_candidate_bytes + len(data) <= 1024 * 1024, "candidate_byte_bound")
+    written = os.write(2, data)
+    require(type(written) is int and written == len(data), "candidate_short_write")
+    _candidate_counts[daemon] = len(objects)
     _candidate_bytes += len(data)
     _candidate_refused = False
 
@@ -391,9 +397,9 @@ class Bridge:
         first = map_objects(text)
         result = []
         before("membership_and_targets")
+        if context in ("initial_bus", "initial_resolved"):
+            mapped_candidates(context.removeprefix("initial_"), first)
         for path, identity in sorted(first.items()):
-            if context in ("initial_bus", "initial_resolved"):
-                mapped_candidate(context.removeprefix("initial_"), path, identity)
             if path not in self.records:
                 raise UnknownMapping(path)  # Grammar-checked public path, no object open/hash.
             row = self.records[path]

@@ -11,14 +11,14 @@ import sys
 import time
 import types
 
-STAGE = Path("/home/kdk_vm/.cache/t3-encoder-libm-mapping-review-1")
+STAGE = Path("/home/kdk_vm/.cache/t3-encoder-libm-mapping-review-2")
 ROOT = STAGE / "scratch/inventory/root"
 INPUTS = STAGE / "scratch/inventory/inputs"
 PINS = {
     "lifecycle.py": "deb8836caf1f31e94ab91a3ccba7eefd219678c9343acd68803986ad46e2df3a",
     "containment.py": "2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592",
     "admission.py": "e6b0e8386e14e96d1111e8de22733b16990140e6b4f67497f18463436c4fb36a",
-    "bridge.py": "7f0d95a5c75b84367421c860dc8b437a70ed92f7611e9e181e0315614f6a46dc",
+    "bridge.py": "1b146bc8097de4251015adf171861275ac68676a8e32641c553772e7c8bb8985",
     "copy-manifest.json": "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87",
     "guest-inventory.json": "4f1b92aeaff78f5f376576fc1da722cf9077735ff5c36d8674ff92581342ada4",
 }
@@ -203,7 +203,7 @@ def main():
         require(type(child.returncode) is int and child.returncode == 0,
                 "isolated_child_nonpass")
     receipt = base.decode(read_input(STAGE / "child.stdout"))
-    result = {"schema": "encoder-libm-mapping-inventory-v1", "outcome": "OBSERVED_INVENTORY_ONLY",
+    result = {"schema": "encoder-libm-mapping-batch-inventory-v1", "outcome": "OBSERVED_INVENTORY_ONLY",
               "source_sha256": source_sha, "pins": PINS, "receipt": receipt,
               "known_outer_returncode": 0, "broker_executed": False, "core_executed": False,
               "dns_mutations": False, "compatibility_acceptance": False}

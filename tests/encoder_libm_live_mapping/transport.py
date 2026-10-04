@@ -5,17 +5,17 @@ import os
 import stat
 import sys
 
-PARTS = ("home", "kdk_vm", ".cache", "t3-encoder-libm-mapping-review-1")
+PARTS = ("home", "kdk_vm", ".cache", "t3-encoder-libm-mapping-review-2")
 PINS = {
-    "probe.py": "2c05c470257877d685931f468d4c54cf37027f76fe31a08bd59a8d7d4b938511",
+    "probe.py": "3c45317ce2587ae973bccb3f4635e80e0a0b7838a3c2657162ec190495dec76e",
     "lifecycle.py": "deb8836caf1f31e94ab91a3ccba7eefd219678c9343acd68803986ad46e2df3a",
     "containment.py": "2b9980266bd467c0684ee489167aadb4b53495340d26c6389aed723d67736592",
     "admission.py": "e6b0e8386e14e96d1111e8de22733b16990140e6b4f67497f18463436c4fb36a",
-    "bridge.py": "7f0d95a5c75b84367421c860dc8b437a70ed92f7611e9e181e0315614f6a46dc",
+    "bridge.py": "1b146bc8097de4251015adf171861275ac68676a8e32641c553772e7c8bb8985",
     "copy-manifest.json": "b914dece6cb3c58f74bb4cdea8b19ade7b3b032e1b12d112d7524a2c47ca6c87",
     "guest-inventory.json": "4f1b92aeaff78f5f376576fc1da722cf9077735ff5c36d8674ff92581342ada4",
-    "validate_receipt.py": "f0b19ad69b26806f36d3a81d860a004e56215138737d591d55fc80f19e17f43d",
-    "vm-guard.sh": "610a36e4f3575dd906954c2bdaf25950eacf415c96da965dac6757c97ed50764"
+    "validate_receipt.py": "1585c0c4a3882cc4834b11ffe50062549e2672981d1a68383acd5fad52a57534",
+    "vm-guard.sh": "ff0b49b4279d94d4bd1864412a5e0685715395d384fe85e66493ae37da510319"
 }
 FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 

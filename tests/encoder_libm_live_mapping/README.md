@@ -1,8 +1,8 @@
-# T3 encoder/libm live-mapping generation
+# T3 bounded initial public-map candidate batch
 
-This new developer-only generation combines the exact source proposal #635
-`d39a6e2d8220d00842d71fcbe28083d0c21285d9` with the retained, zero-only
-mapping protocol from #622 `b3a44c8f90d733e3975f06236b3d5e4e789afbab`.
+This developer-only successor starts from #636
+`a086188f17c54c9eea7e235ad4b447c16cfc0702`, retaining its exact #635
+copy proposal and the zero-only #622 mapping/lifecycle protocol.
 It does not retry or clean any predecessor's unresolved namespace.
 
 ## Immutable scope
@@ -15,16 +15,43 @@ original FD and ancestor before any copy and keeps all identity/hash/mode/owner
 checks. Observed loader/SONAME aliases are not new targets or fallback paths.
 
 The fresh fixed stage is
-`/home/kdk_vm/.cache/t3-encoder-libm-mapping-review-1`.
+`/home/kdk_vm/.cache/t3-encoder-libm-mapping-review-2`.
 Probe, strict validator, wrapper and trusted-stdin create-only transport bind
 all nine fixed inputs transitively. Containment, original guest inventory and
 owned daemon lifecycle bytes are unchanged from their reviewed predecessors.
 
-The copy bridge changes only the exact source/copy count (17 to 19). It retains
+The copy bridge retains the exact 19-source/copy count. It retains
 original sources, read-only copied objects and store/proc/namespace anchors.
 The 128-label cap is unchanged: a successful fixed path uses at most 107 labels
 (101 predecessor labels plus two copies and four bind operations). Initial map
 candidate records remain pre-decision public text, not admitted identity.
+
+## Diagnostic-only delta and historical NONPASS
+
+#636's one wrapper returned NONPASS. Its separately reviewed fixed-file observer
+completed known zero; filtered report SHA-256
+`4786ca489f6d175aec4ce8af29c5209848694aa1be1a1584dc620a84b5a3c6e9`
+recorded nine initial bus candidates and six initial resolved candidates. The
+last recorded resolved row was `/usr/lib/libcrypto.so.3` with mapped device29 /
+inode8710 rather than copied device93. The outer probe recorded `Refused` /
+`owned_deadline`. Neither the recorded text nor this proposal proves the actual
+failure cause, object identity, preservation or successful cleanup. The old
+failure and its stopped scope remain unchanged; no old stage is read or retried.
+
+After the first strict maps parse, each initial daemon now gets exactly one
+finite batch before the FIRST membership/identity check or target open/hash.
+Every row is privacy-validated and the entire batch encoded before the first
+write. One exact-integer full write to the existing private stderr is required;
+partial/unknown write or validation refusal permanently seals emission and the
+bridge. Sorting gives canonical public row order without consulting the copy
+table. There are 1–64 rows per daemon, paths at most4096 ASCII bytes and at most
+1MiB total encoded candidate bytes across both daemons. Initial-only per-row
+schema/grammar and false identity/adoption flags remain unchanged. The strict
+receipt generation is `encoder-libm-mapping-batch-inventory-v1`.
+
+This avoids truncating recorded candidate text at the first membership refusal.
+It is not a successful maps reread, a complete final inventory, or permission to
+open, copy, admit or auto-adopt any observed unknown path. No library is added.
 
 ## Actual observation required
 
@@ -49,7 +76,10 @@ mutation, installed package approval, arbitrary-dlopen safety or complete T3.
 ## Review and controls
 
 All predecessor bridge, lifecycle, strict receipt, transport and pre-decision
-controls are instantiated against the new graph. The 19-copy ordering check
+controls are instantiated against the new graph. New controls prove whole-batch
+ordering before unknown membership and before known target opens, all-row privacy
+validation before any output, one batch per daemon, exact count/byte boundaries,
+typed full writes and permanent refusal. The 19-copy ordering check
 retains all-source admission and all-original rechecks before overlays. Focused
 controls use synthetic bytes only and do not launch a daemon, mount or guest.
 
