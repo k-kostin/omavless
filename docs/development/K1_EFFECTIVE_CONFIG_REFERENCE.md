@@ -44,6 +44,9 @@ the nonempty bounded string dump are emitted privately with
 `OBSERVED_CONFIG_DATA_NOT_ADMISSION`. Missing, wrongly typed, empty or oversized
 evidence refuses. In particular an empty array's element signature is checked
 explicitly, not inferred from successful conversion to an empty Rust vector.
+Both `a{sv}` dictionaries reject duplicate names before insertion and permit at
+most 512 entries with bounded ASCII property names. Unknown properties are not
+reported or treated as configuration admission.
 
 In v261 the Service WatchdogUSec getter reflects the runtime original/override
 state, initialized to infinity before a start. The dump reports configured
@@ -82,14 +85,42 @@ message before the helper's 1 MiB check, with a 128 MiB upstream message limit.
 The smaller bound limits decoding/output, not initial allocation. Queue size
 is eight; output JSON is bounded to 2 MiB. No ordinary test opens a system bus.
 
-**Not ready for execution:** root outer observer/create-only loader, sealed
-probe pins, full source review and explicit VM lease are required. The outer
+**Not ready for execution:** complete root review and explicit VM lease are
+required. `config_reference_guard.py` and `config_reference_stage.py` implement
+the separate fixed outer observer and create-only loader. The probe is the
+ordinary test build of `4db6d601afb0130118498238c9b15559e803e286`, SHA-256
+`b98c1290d2a6d522e8ef5e47476c07ae8d7c2a23366850dc071fe254fe9efb07`.
+The loader admits all four artifacts into memory from stable original FDs
+before root publication; only its ELF bound is 128 MiB. The loader itself must
+arrive through the trusted host/root delivery channel (`python -I -B`), never
+be sudo-executed from the user-writable staging directory. The pin graph is
+acyclic: loader → outer guard → original read-side definitions/unit/ELF.
+All older guards are loaded as definitions only; their main is never called.
+
+The outer
 must stop without subsequent queries/effects on helper nonzero, uncertainty,
 malformed evidence or timeout. It must not kill/reap a live or unknown child,
 release its reference, or use Popen's destructor as a hidden wait path.
 Any eventual whole-host preservation comparison must use a before and after
 snapshot inside the same invocation. Cross-PAM-session evidence, session-scope
 masking or a new allowance for IPv6 RA lifetime renewals is not acceptable.
+
+The observer launches the helper directly from the retained original ELF FD,
+with fixed argv/environment, root credentials and no supplementary groups.
+No claim is made that this root helper has a zero capability set. Its only
+manager mutations are the fixed RefUnit/UnrefUnit pair; it cannot run a unit.
+No initial daemon-reload occurs: the RefUnit call loads the freshly published
+own unit. Any unfamiliar cache/load result refuses rather than retrying.
+Only known helper exit zero, the separate acknowledged-Unref record, strict
+bounded typed metadata, never-started zero-PID/no-job/no-cgroup state, unchanged
+original unit link/parent FD identity and point-in-time original ELF inode
+absence permit removing that exact own link through the retained parent FD.
+Only then may the outer issue its fixed daemon-reload, verify not-found and
+compare the same-invocation full after-baseline. No stop, signal, reset, source
+cleanup or failure compensation exists. All private output/artifacts remain.
+The narrow proc check reads UID/stat/executable metadata, not command lines;
+twice-stable zombies and all-root PF_KTHREAD processes are the only accepted
+no-executable exceptions. It is not global descendant quiescence.
 
 Pure controls exercise the actual capture sequence against synthetic typed
 replies, including every call failing/malformed, output collision, wrong unit,
