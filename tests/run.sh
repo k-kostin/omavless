@@ -22,6 +22,7 @@ python3 -m unittest -v \
   "$here/test_static_capture_supervisor.py" \
   "$here/test_static_receipt_validator.py" \
   "$here/test_alpm_files_diagnostic.py" \
+  "$here/test_package_bound_diagnostic.py" \
   "$here/test_core_artifact_export.py" \
   "$here/test_installed_native_acceptance.py" \
   "$here/test_installed_native_domain.py" \

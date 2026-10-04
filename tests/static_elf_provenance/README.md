@@ -272,3 +272,45 @@ validator and prove no later action occurs. A valid synthetic receipt is the
 positive branch control. Additional nested-type, key-set, hash, path, link,
 ownership, mode, size and dependency-edge counterexamples refuse. Any validator
 failure exits before all after-state queries; preservation then remains unproven.
+
+### Measured `fef0989` refusal and separate bounded metadata proposal
+
+One approved static capture at sealed
+`fef098995f05d3a0516534d9840329b2715d90f5` returned only
+`STATIC_ELF_DIAGNOSTIC_NONPASS`; the wrapper stopped before validation or after
+queries. The new stage and outputs were retained without retry or cleanup, and
+the exclusive lease was returned. Host invocation log
+`static-elf-fef0989-invocation.log` has SHA-256
+`0e3bcb79a79c693fe3fb223ff7748c1ad24064b5fe427418926c6e5417abddd3`.
+After-state preservation remains **unproven**, and no archive was created by that
+invocation. It did not establish any candidate closure or admission.
+
+The parent's separately reviewed, independent read of retained files found a
+known completed child with integer returncode 1 and reason `static_child_nonpass`;
+the capture retained zero records, no readelf record, and `bounded_file_shape`.
+The private read receipt `static-fef0989-retained-files-diagnosis.json`, SHA-256
+`70d39d74f764425de5b0ebcad53c8126fc5688a715997f89855c0749f2ab9fa5`,
+is held in `/home/kk/.cache/t3-real-resolved-build.XVxwu8AF/`. It establishes only
+per-file stable reads, not an atomic snapshot, process absence or preservation.
+The actual failing package, file type and size were not recorded. An oversized
+package file is a hypothesis, not an established cause.
+
+`package_bound_diagnostic.py` is a new source-only read-only proposal, with a new
+`t3-package-file-bound-review-1` stage, supervisor, typed validator and wrapper.
+It scans fixed public package `files` records in sorted order, bounded to 4096
+entries, 15 seconds and 64 MiB total reads **including** final rereads. Regular
+root-owned files exceeding the unchanged static 2 MiB limit may be diagnosed up
+to a separate 8 MiB metadata-only ceiling; nonregular/unsafe/larger inputs refuse
+before content reads. Nothing changes the static probe's limit or admission.
+
+At the first eligible size counterexample, both original `files` and bounded
+64-KiB `desc` FDs stay open through repeated hashes and final FD/path/parent/root
+identity checks, including mtime/ctime. Output is only public package name/version
+and numeric original-FD metadata/hashes/counts; no file list or description text.
+If no eligible counterexample exists, or any observation is unknown, it refuses.
+The 20-second frozen owned-child supervisor and exact-pin wrapper stop on first
+failure before after queries. Duplicate-key/type-strict validation precedes any
+success-only preservation queries. No readelf, ELF, daemon or runtime operation
+is part of this proposal. Real replacement/change/reversion, duplicate desc,
+nonregular/bound/deadline/race, privacy and shell-terminal controls are source
+tests only. A separate full review and exclusive lease are still required.
