@@ -100,3 +100,37 @@ matching SHA-256
 `a93d533de69a13cc372317f49c80b22929eb090726721df26fad84aafa39dd21`.
 No candidate closure, loaded-object proof, admission or compatibility acceptance
 was obtained. Any source correction requires separate review and a new lease.
+
+## Narrow metadata follow-up and primary-format proposal (not executed)
+
+The primary [ALPM local files format](https://alpm.archlinux.page/specifications/alpm-db-files.5.html)
+permits packages with no tracked files to have an empty `files` record. Empty
+lines are ignored. Nonempty records use one FILES section and optionally a
+BACKUP section whose entries refer to files in that FILES section. Thus the
+unconditional old marker check rejects a valid empty form. This is a source
+defect and a possible explanation, **not** identification of the earlier guest
+file: that attempt retained no package or raw shape.
+
+`alpm_files_diagnostic.py` is a separate no-subprocess/no-ELF-execution proposal.
+It scans the same fixed local package database in sorted order, with bounded
+count/bytes/time and stable root-owned original-FD metadata, stopping at the first
+failure of the old exactly-one-FILES-marker condition. It retains only the
+validated public package name/version/directory, original file numeric metadata
+and hash, description hash, and bounded format counts/booleans. No file list,
+backup pathname, raw marker text, description or private log is emitted. The
+selected file is measured again for equality; a failed observation is not retried.
+
+The isolated `proposed_file_entries` parser is exercised by pure tests but is
+**not wired into the static closure capture**. Empty data/empty lines produce
+zero ownership edges. Malformed nonempty data, unsupported/duplicate sections,
+empty sections, traversal/absolute paths, duplicate file entries and invalid
+backup relationships still refuse. Synthetic privacy tests ensure metadata
+summaries contain no input filenames or unknown section text. Empty-format
+acceptance does not identify an owner for any ELF and cannot admit a dependency.
+
+The old measured probe and both existing wrappers remain unchanged. New
+`vm-guard-alpm-shape.sh` pins only this metadata diagnostic, using fresh stage
+`t3-alpm-files-shape-review-1`, all original canonical/baseline/network checks,
+whole-command timeout and independent process quiescence. It requires separate
+full review and a new exclusive lease. No follow-up has run; the actual first
+package-index failure remains unclassified until safely retained observations.
