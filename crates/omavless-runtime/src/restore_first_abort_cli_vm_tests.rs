@@ -9,12 +9,12 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const UID: u32 = 48045;
-const HOME: &str = "/home/ov-t4-abort-v2";
-const RUNTIME: &str = "/run/user/48045";
-const ARTIFACTS: &str = "/home/ov-t4-abort-v2/.t4-first-abort";
-const HELPER: &str = "/home/ov-t4-abort-v2/.t4-first-abort/helper";
-const CLI: &str = "/home/ov-t4-abort-v2/.t4-first-abort/omavless";
+const UID: u32 = 48046;
+const HOME: &str = "/home/ov-t4-abort-v3";
+const RUNTIME: &str = "/run/user/48046";
+const ARTIFACTS: &str = "/home/ov-t4-abort-v3/.t4-first-abort";
+const HELPER: &str = "/home/ov-t4-abort-v3/.t4-first-abort/helper";
+const CLI: &str = "/home/ov-t4-abort-v3/.t4-first-abort/omavless";
 const LAUNCH: &str = "production_owner::first_abort::cli_vm_fixture::launch_normal_cli";
 const SETUP: &str = "production_owner::first_abort::cli_vm_fixture::setup_mixed_intent";
 const VERIFY_FIRST: &str = "production_owner::first_abort::cli_vm_fixture::verify_first_abort";
@@ -62,7 +62,7 @@ fn credentials(status: &str) -> bool {
         };
         values.next().is_none()
             && match *key {
-                "Uid" | "Gid" => value.split_whitespace().collect::<Vec<_>>() == ["48045"; 4],
+                "Uid" | "Gid" => value.split_whitespace().collect::<Vec<_>>() == ["48046"; 4],
                 "Groups" => value.is_empty(),
                 "NoNewPrivs" => value == "1",
                 _ => value == "0000000000000000",
@@ -566,6 +566,20 @@ fn setup_mixed_intent() {
 }
 
 #[test]
+#[ignore = "fixed fresh disposable-UID read-only admission observation; root review and VM lease required"]
+fn diagnose_stopped_admission() {
+    let result = (|| {
+        let _pins = admit(crate::restore_abort_cli::diagnostic::ENTRY)?;
+        crate::restore_abort_cli::diagnose_current_stopped()
+    })();
+    if result.is_err() {
+        // In particular, a failed diagnostic sink must never trigger another
+        // stderr write through the generic fixture result or test harness.
+        std::process::exit(2);
+    }
+}
+
+#[test]
 #[ignore = "fixed disposable-UID read-only pair verification and exclusive receipt"]
 fn verify_first_abort() {
     fixed_result(verify(VERIFY_FIRST, "after-first.json"));
@@ -588,14 +602,14 @@ fn launch_normal_cli() {
 
 #[test]
 fn credential_parser_requires_all_saved_ids_empty_groups_zero_caps_and_nnp() {
-    let good = "Uid:\t48045\t48045\t48045\t48045\nGid:\t48045\t48045\t48045\t48045\nGroups:\t\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n";
+    let good = "Uid:\t48046\t48046\t48046\t48046\nGid:\t48046\t48046\t48046\t48046\nGroups:\t\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n";
     assert!(credentials(good));
     for bad in [
         good.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"),
-        good.replacen("48045\t48045\t48045\t48045", "48045\t48045\t0\t48045", 1),
-        good.replace("Gid:\t48045", "Gid:\t0"),
-        good.replace("Groups:\t", "Groups:\t48045"),
-        format!("{good}Uid:\t48045\t48045\t48045\t48045\n"),
+        good.replacen("48046\t48046\t48046\t48046", "48046\t48046\t0\t48046", 1),
+        good.replace("Gid:\t48046", "Gid:\t0"),
+        good.replace("Groups:\t", "Groups:\t48046"),
+        format!("{good}Uid:\t48046\t48046\t48046\t48046\n"),
         good.replace("CapAmb:", "Missing:"),
     ] {
         assert!(!credentials(&bad));

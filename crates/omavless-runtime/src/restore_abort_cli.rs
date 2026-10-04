@@ -200,6 +200,31 @@ pub fn abort_from_private_input(input: impl Read) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[path = "restore_abort_diagnostic.rs"]
+pub(crate) mod diagnostic;
+
+/// Fixed ignored VM entry only: never calls recovery or returns an owner permit.
+#[cfg(test)]
+pub(crate) fn diagnose_current_stopped() -> Result<(), ()> {
+    diagnostic::run(|| {
+        diagnostic::before(diagnostic::Phase::CurrentPaths)?;
+        let uid = Uid::current();
+        if uid.as_raw() != 48046 || uid != Uid::effective() {
+            return Err(());
+        }
+        let paths = RuntimePaths::current().map_err(|_| ())?;
+        diagnostic::before(diagnostic::Phase::ExistingLock)?;
+        let stopped = StoppedRuntime::acquire(paths, uid.as_raw()).map_err(|_| ())?;
+        let _owner = stopped_owner::StoppedOwner::capture_for_diagnostic(
+            uid.as_raw(),
+            &stopped.paths.socket,
+        )?;
+        diagnostic::before(diagnostic::Phase::FinalLock)?;
+        stopped.recheck().then_some(()).ok_or(())
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::{self, OpenOptions};

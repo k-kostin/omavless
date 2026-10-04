@@ -20,6 +20,20 @@ use zeroize::Zeroizing;
 
 type Result<T> = std::result::Result<T, ()>;
 
+// The ordinary binary has no trace code, flag, sink or runtime override.
+macro_rules! checkpoint {
+    ($phase:ident) => {
+        #[cfg(test)]
+        super::diagnostic::before(super::diagnostic::Phase::$phase)?;
+    };
+}
+
+enum SelfInvocation {
+    Recovery,
+    #[cfg(test)]
+    Diagnostic,
+}
+
 #[cfg(test)]
 #[path = "restore_abort_cached_owner_tests.rs"]
 mod cached_owner_tests;
@@ -869,6 +883,16 @@ pub(super) struct StoppedOwner {
 
 impl StoppedOwner {
     pub(super) fn capture(uid: u32, socket: &Path) -> Result<Self> {
+        Self::capture_inner(uid, socket, SelfInvocation::Recovery)
+    }
+
+    #[cfg(test)]
+    pub(super) fn capture_for_diagnostic(uid: u32, socket: &Path) -> Result<Self> {
+        Self::capture_inner(uid, socket, SelfInvocation::Diagnostic)
+    }
+
+    fn capture_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
+        checkpoint!(ProcRoot);
         let listeners = listener_paths(uid, socket)?;
         let root = File::from(
             open(
@@ -883,24 +907,37 @@ impl StoppedOwner {
         }
         let root_identity = root.metadata().map_err(|_| ())?;
         let mut budget = Budget::new();
+        checkpoint!(SelfProcess);
         let myself = Process::capture(&root, std::process::id(), &mut budget)?;
-        recovery_self(&myself.command)?;
+        checkpoint!(SelfArguments);
+        match invocation {
+            SelfInvocation::Recovery => recovery_self(&myself.command)?,
+            #[cfg(test)]
+            SelfInvocation::Diagnostic => {
+                super::diagnostic::exact_self(&arguments(&myself.command)?)?
+            }
+        }
         if myself.status.uids != [uid; 4] || myself.status.namespace_pids != [myself.pid] {
             return Err(());
         }
+        checkpoint!(ProcVisibility);
         proc_visibility(&root, &myself, &mut budget)?;
         let mut namespaces = Vec::new();
+        checkpoint!(NamespaceHandles);
         for name in ["ns/pid", "ns/user", "ns/mnt", "ns/net"] {
             let file = magic_file(&myself.directory, name)?;
             let metadata = file.metadata().map_err(|_| ())?;
             namespaces.push((name, file, metadata));
         }
-        let pid = service_record(
-            &query(uid, &format!("user@{uid}.service"), true, &mut budget)?,
-            true,
-        )?;
+        checkpoint!(ManagerQuery);
+        let reply = query(uid, &format!("user@{uid}.service"), true, &mut budget)?;
+        checkpoint!(ManagerRecord);
+        let pid = service_record(&reply, true)?;
+        checkpoint!(ManagerProcess);
         let manager = Process::capture(&root, pid, &mut budget)?;
+        checkpoint!(ManagerExecutable);
         let manager_executable = TrustedExecutable::capture("/usr/lib/systemd/systemd")?;
+        checkpoint!(ManagerIdentity);
         if !executable_identity(&manager_executable.metadata, &manager.executable_identity)
             || manager.status.uids != [uid; 4]
             || manager.status.namespace_pids != [pid]
@@ -959,35 +996,56 @@ impl StoppedOwner {
 
     fn observe(&self) -> Result<()> {
         let mut budget = Budget::new();
+        checkpoint!(NamespaceBoundary);
         self.namespace_boundary()?;
+        checkpoint!(ProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
+        checkpoint!(ManagerRecheck);
         self.manager.recheck(&self.root, &mut budget)?;
-        let pid = service_record(
-            &query(
-                self.uid,
-                &format!("user@{}.service", self.uid),
-                true,
-                &mut budget,
-            )?,
+        checkpoint!(ManagerQuery);
+        let reply = query(
+            self.uid,
+            &format!("user@{}.service", self.uid),
             true,
+            &mut budget,
         )?;
+        checkpoint!(ManagerRecord);
+        let pid = service_record(&reply, true)?;
         if pid != self.manager.pid {
             return Err(());
         }
+        checkpoint!(ManagerIdentityRecheck);
         self.manager_executable.recheck()?;
         for unit in ["omavless.service", "omavless-runtime.service"] {
-            service_record(&query(self.uid, unit, false, &mut budget)?, false)?;
+            if unit == "omavless.service" {
+                checkpoint!(LegacyUnitQuery);
+            } else {
+                checkpoint!(RuntimeUnitQuery);
+            }
+            let reply = query(self.uid, unit, false, &mut budget)?;
+            if unit == "omavless.service" {
+                checkpoint!(LegacyUnitRecord);
+            } else {
+                checkpoint!(RuntimeUnitRecord);
+            }
+            service_record(&reply, false)?;
         }
+        checkpoint!(Inventory);
         inventory(&self.root, self.uid, &self.myself, &mut budget).map_err(|_| ())?;
+        checkpoint!(UnixTable);
         let net = directory(&self.myself.directory, "net")?;
-        no_listener(
-            &proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?,
-            &self.listeners,
-        )?;
+        let table = proc_bytes(&net, "unix", 4 * 1024 * 1024, &mut budget)?;
+        checkpoint!(UnixParser);
+        no_listener(&table, &self.listeners)?;
+        checkpoint!(FinalManager);
         self.manager.recheck(&self.root, &mut budget)?;
+        checkpoint!(FinalSelf);
         self.myself.recheck(&self.root, &mut budget)?;
+        checkpoint!(FinalNamespaces);
         self.namespace_boundary()?;
+        checkpoint!(FinalProcVisibility);
         proc_visibility(&self.root, &self.myself, &mut budget)?;
+        checkpoint!(FinalBudget);
         budget.check()
     }
 }
