@@ -38,6 +38,7 @@ python3 -m unittest -v \
   "$here/test_dns_core_packet_probe.py" \
   "$here/test_dns_core_broker_probe.py" \
   "$here/test_dns_broker_composition_probe.py" \
+  "$here/test_journal_fork_lock.py" \
   "$here/dns_broker_host/test_unit.py" \
   "$here/dns_broker_host/package/test_package.py" \
   "$here/test_staged_native_unit_acceptance.py" \

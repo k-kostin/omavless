@@ -1166,6 +1166,7 @@ version = "0.9.7-rc.1"
 dependencies = [
  "async-io",
  "futures-lite",
+ "nix",
  "omavless-dns-channel",
  "omavless-dns-resolved",
  "omavless-dns-retention",

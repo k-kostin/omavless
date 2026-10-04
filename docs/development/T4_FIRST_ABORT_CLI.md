@@ -92,6 +92,17 @@ Only explicit finish plus successfully written/flushed acknowledgment consumes
 and drops it. Pure lifecycle controls test these failure branches without
 launching intentionally parked children. Prior evidence is not reclassified.
 
+The separate journal-test follow-up isolates the unchanged singleton lifecycle
+assertions in one exact filtered test worker, with an original executable FD,
+HOME-private retained artifacts and raw matching WNOWAIT/waitpid completion.
+It does not add a production unlock or eventual-success retry. A failing final
+reacquisition records its typed error and a separate diagnostic flock errno.
+A controlled HOME-private fork test demonstrates that even a CLOEXEC descriptor
+can retain the lock between fork and exec after the parent closes it; this
+establishes a possible mechanism, not the cause of the original 525 failure.
+Unknown worker completion retains artifacts without signals or automatic
+cleanup. The added nix dependency is test-only and reuses the locked version.
+
 Limits per observation are 4096 numeric PIDs, 64 KiB status/stat or query output,
 128 KiB command line, 4 MiB Unix table, 16 MiB aggregate proc/query bytes and a
 two-second deadline. Permission errors (including unrelated same-UID nondumpable
