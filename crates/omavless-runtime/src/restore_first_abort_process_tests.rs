@@ -504,7 +504,7 @@ fn frozen_original_fd_refuses_same_bytes_new_inode_or_executed_identity() {
     for fault in 0..4 {
         let root = tempfile::Builder::new()
             .prefix("ov-abort-elf-unit-")
-            .tempdir()
+            .tempdir_in(std::env::var_os("HOME").unwrap())
             .unwrap();
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let path = root.path().join("frozen");

@@ -198,3 +198,23 @@ not repair or reinterpret them.
 This is bounded synthetic volatile process-loss/re-entry evidence only. Normal
 backup/restore registration, installed product acceptance, reboot, durability,
 power-loss, full product T4 completion, main merge and release remain unclaimed.
+
+## Ordinary-test scratch correction
+
+GitHub Test run `37172026843` on documentation head
+`9148ff591ea046de968ab923ab68fb880f93237d` failed the ordinary
+`frozen_original_fd_refuses_same_bytes_new_inode_or_executed_identity` test:
+its default temporary directory was below world-writable `/tmp`, so the real
+private-ancestor check correctly returned `UnsafeSource` before fault injection.
+The unchanged frozen test ELF reproduced this with `TMPDIR=/tmp`: exit 101,
+zero passed / one failed. That failure remains retained, not reclassified.
+
+The correction changes only that pure test's allocation to the established
+`tempdir_in(HOME)` pattern. Its four original inode/executed-identity/mode/hash
+counterexamples remain unchanged and the targeted test passes with
+`TMPDIR=/tmp`. No production ancestry predicate or CI environment is relaxed.
+The corrected local source suite passes 558 tests / two skips plus JS/QML;
+formatting and strict workspace/all-targets and TUI Clippy pass. The complete
+Rust suite and VM matrix were not rerun for this pure fixture-path correction.
+The ignored matrix, guard and actual `a2eeb423` execution evidence above remain
+unchanged; this test-path correction is not a new process-loss invocation.
