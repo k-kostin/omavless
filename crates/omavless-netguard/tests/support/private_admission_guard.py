@@ -15,9 +15,9 @@ LINK = PARENT / UNIT
 CGROUP = Path('/sys/fs/cgroup/system.slice') / UNIT
 QUERY_SHA = 'f189dec0e3c525d72ed75a27e63553d2688ff81b180c8d7755872a99d13c348d'
 UNIT_SHA = '7912c3204829773d7b5598fbd7bfb9174e14674d69ef5c30579631324a180f85'
-PROBE_SHA = 'b506a8dcf2604a3a2b932e4985d0be72a9377d49cf59499680b082545ad5235d'
-NATIVE_SOURCE = 'e1c729f55235b277858706b5b7bdb1d3ca883657'
-TEST = 'manager_private_admission_fixture::capture_effective_config'
+PROBE_SHA = 'fcbabf0dc55f69fcf5dae3f02db029965b3b58a2a7094aca70cceedc15cbc1c0'
+NATIVE_SOURCE = 'c0d7773ef8a4bb5a22e3af0dc6f6eca2f424e56c'
+TEST = 'manager_lifecycle_admission_fixture::capture_effective_config'
 MARKER = 'OBSERVED_CONFIGURED_FACTS_NOT_LIFECYCLE_ADMISSION'
 PHASES = ('preflight', 'before-baseline', 'publish-link', 'native-helper',
           'validate-evidence', 'cleanup-admission', 'unlink-own-link',

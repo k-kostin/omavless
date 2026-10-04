@@ -2,7 +2,9 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -23,6 +25,30 @@ stage = load('private_admission_stage')
 
 
 class Flow(unittest.TestCase):
+    def test_loader_real_retained_fd_refuses_hash_mode_bounds_and_aliases(self):
+        if os.getuid() != 1000 or os.getgid() != 1000:
+            self.skipTest('ordinary uid1000 source-file control only')
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            artifact = directory / 'probe'
+            artifact.write_bytes(b'SYNTHETIC')
+            artifact.chmod(0o500)
+            digest = hashlib.sha256(b'SYNTHETIC').hexdigest()
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                self.assertEqual(stage.retained(fd, 'probe', digest, 0o500, 9), b'SYNTHETIC')
+                for sha, mode, maximum in [('0'*64, 0o500, 9), (digest, 0o400, 9), (digest, 0o500, 8)]:
+                    with self.assertRaises(RuntimeError):
+                        stage.retained(fd, 'probe', sha, mode, maximum)
+                (directory / 'alias').symlink_to(artifact)
+                with self.assertRaises(OSError):
+                    stage.retained(fd, 'alias', digest, 0o500, 9)
+                os.link(artifact, directory / 'hardlink')
+                with self.assertRaises(RuntimeError):
+                    stage.retained(fd, 'probe', digest, 0o500, 9)
+            finally:
+                os.close(fd)
+
     def test_typed_permission_receipt_strict_values_types_and_scope(self):
         expected = guard.expected_permissions()
         guard.validate_permissions(expected)
@@ -56,12 +82,12 @@ class Flow(unittest.TestCase):
             'OMAVLESS_K1_PRIVATE_ADMISSION_WRITER')
         self.assertEqual(new, expected.replace('const TEST: &str = "', 'const TEST: &str =\n    "'))
         outer = (SUPPORT / 'private_admission_guard.py').read_text()
-        native = (src / 'manager_private_admission_fixture.rs').read_text()
+        native = (src / 'manager_lifecycle_admission_fixture.rs').read_text()
         for forbidden in ('StartUnit', 'StopUnit', 'SetProperties', 'ReloadUnit'):
             self.assertNotIn(forbidden, native)
         self.assertNotIn("'start'", outer)
         self.assertNotIn("'stop'", outer)
-        self.assertIn("manager_private_admission_fixture::capture_effective_config", outer)
+        self.assertIn("manager_lifecycle_admission_fixture::capture_effective_config", outer)
 
     def fixture(self):
         obj = object.__new__(guard.Observer)

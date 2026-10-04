@@ -58,9 +58,9 @@ parser controls are not an observation of this new unit's actual dump.
 
 ## Remaining gate
 
-The native checkpoint is `e1c729f55235b277858706b5b7bdb1d3ca883657`;
+The native checkpoint is `c0d7773ef8a4bb5a22e3af0dc6f6eca2f424e56c`;
 the frozen test ELF SHA-256 is
-`b506a8dcf2604a3a2b932e4985d0be72a9377d49cf59499680b082545ad5235d`.
+`fcbabf0dc55f69fcf5dae3f02db029965b3b58a2a7094aca70cceedc15cbc1c0`.
 The outer, query and create-only loader have distinct new files; the latter
 requires trusted host-to-root source delivery, never execution of user-staged
 loader code. Its fixed input directory contains four pinned artifacts plus the
