@@ -28,6 +28,12 @@ mod manager_configured_dump;
 #[cfg(all(test, target_os = "linux"))]
 mod manager_configured_reference_fixture;
 #[cfg(test)]
+mod manager_lifecycle_permissions;
+#[cfg(test)]
+mod manager_private_admission_dump;
+#[cfg(test)]
+mod manager_private_admission_fixture;
+#[cfg(test)]
 mod manager_retained_dump;
 #[cfg(test)]
 mod manager_retained_reference_fixture;
