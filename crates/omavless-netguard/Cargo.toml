@@ -12,5 +12,8 @@ nix = { version = "0.30", features = ["fs", "sched", "socket", "uio", "user"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+[dev-dependencies]
+zbus = "=5.19.0"
+
 [lints]
 workspace = true
