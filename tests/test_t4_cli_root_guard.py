@@ -126,7 +126,7 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('CREATE_MAIL_SPOOL=no',argv)
         self.assertIn('SUB_UID_COUNT=0',argv)
         self.assertIn('SUB_GID_COUNT=0',argv)
-        self.assertIn('48046',argv)
+        self.assertIn('48047',argv)
         self.assertNotIn('48044',argv)
 
     def setUp(self):
@@ -390,11 +390,11 @@ class GuardTests(unittest.TestCase):
 
 class LoaderTests(unittest.TestCase):
     def test_fixed_v2_cache_source_never_uses_user_runtime_tmpfs(self):
-        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v5'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v6'))
         self.assertEqual(loader.DESTINATION, guard.ROOT)
-        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v5'))
-        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v3'))
-        self.assertEqual(guard.RUNTIME, Path('/run/user/48046'))
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v6'))
+        self.assertEqual(guard.HOME, Path('/home/ov-t4-abort-v4'))
+        self.assertEqual(guard.RUNTIME, Path('/run/user/48047'))
 
     def test_loader_capacity_separate_and_shared_devices(self):
         for devices, amounts, accepted in (
@@ -419,7 +419,7 @@ class LoaderTests(unittest.TestCase):
             root.chmod(0o700)
             data = {name: b'pass\n' for name in loader.CODE}
             data.update({name: b'\x7fELFsynthetic' for name in loader.ELFS})
-            value = {'schema': 't4-disposable-cli-delivery-v5',
+            value = {'schema': 't4-disposable-cli-delivery-v6',
                      'native_head': guard.NATIVE_HEAD, 'guard_head': 'a' * 40,
                      'code': {name: hashlib.sha256(data[name]).hexdigest() for name in loader.CODE},
                      'elfs': {name: {'sha256': hashlib.sha256(data[name]).hexdigest(), 'size': len(data[name]),

@@ -12,13 +12,13 @@ import sys
 import types
 import time
 
-ROOT = Path('/run/ov-t4-cli-guard-v5')
-UID = 48046
-NAME = 'ov-t4-abort-v3'
-HOME = Path('/home/ov-t4-abort-v3')
-RUNTIME = Path('/run/user/48046')
+ROOT = Path('/run/ov-t4-cli-guard-v6')
+UID = 48047
+NAME = 'ov-t4-abort-v4'
+HOME = Path('/home/ov-t4-abort-v4')
+RUNTIME = Path('/run/user/48047')
 ARTIFACTS = HOME / '.t4-first-abort'
-NATIVE_HEAD = '05802344789fc7b80450534dd7e234ba45167ba0'
+NATIVE_HEAD = '9cbd757160835cd050ea31bad22db895fda7d573'
 LIMIT = 8 * 1024 * 1024
 ELF_LIMIT = 512 * 1024 * 1024
 FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
@@ -229,7 +229,7 @@ def module(pin):
 def receipt(data):
     value = decode(data)
     require(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'})
-    require(value['schema'] == 't4-disposable-cli-delivery-v5' and value['native_head'] == NATIVE_HEAD
+    require(value['schema'] == 't4-disposable-cli-delivery-v6' and value['native_head'] == NATIVE_HEAD
             and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head']))
     require(type(value['code']) is dict and set(value['code']) == set(CODE)
             and type(value['elfs']) is dict and set(value['elfs']) == {'helper', 'omavless'})
@@ -397,8 +397,8 @@ class Guard:
     def check_fresh_instances(self, parent, missing):
         parent.recheck()
         names = ((missing,) if missing is not None else
-                 ('user@48046.service', 'user@48046.service.d',
-                  'user-runtime-dir@48046.service', 'user-runtime-dir@48046.service.d'))
+                 ('user@48047.service', 'user@48047.service.d',
+                  'user-runtime-dir@48047.service', 'user-runtime-dir@48047.service.d'))
         for name in names:
             try:
                 os.stat(name, dir_fd=parent.rows[-1][1], follow_symlinks=False)
@@ -468,10 +468,10 @@ class Guard:
             if own:
                 parts = own[0].rstrip(b'\n').split(b':')
                 if name == 'passwd':
-                    require(len(parts) == 7 and parts[2:4] == [b'48046', b'48046']
+                    require(len(parts) == 7 and parts[2:4] == [b'48047', b'48047']
                             and parts[5:] == [str(HOME).encode(), b'/usr/bin/nologin'])
                 elif name == 'group':
-                    require(len(parts) == 4 and parts[2:] == [b'48046', b''])
+                    require(len(parts) == 4 and parts[2:] == [b'48047', b''])
                 elif name == 'shadow':
                     require(len(parts) == 9 and parts[1].startswith((b'!', b'*')))
                 else:
@@ -482,9 +482,9 @@ class Guard:
 
     def create_account(self):
         self.source_recheck()
-        self.run_child(['/usr/bin/groupadd', '--gid', '48046', NAME], 0, 'group-create')
+        self.run_child(['/usr/bin/groupadd', '--gid', '48047', NAME], 0, 'group-create')
         self.source_recheck()
-        self.run_child(['/usr/bin/useradd', '--uid', '48046', '--gid', '48046', '--no-user-group',
+        self.run_child(['/usr/bin/useradd', '--uid', '48047', '--gid', '48047', '--no-user-group',
             '--no-create-home', '--home-dir', str(HOME), '--shell', '/usr/bin/nologin', '--no-log-init',
             '--key', 'SUB_UID_COUNT=0', '--key', 'SUB_GID_COUNT=0', NAME],
             0, 'account-create')
@@ -502,11 +502,11 @@ class Guard:
 
     def manager_start(self):
         self.source_recheck()
-        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user-runtime-dir@48046.service'],
+        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user-runtime-dir@48047.service'],
                        0, 'runtime-dir-start', seconds=45)
         self.source_recheck()
         self.home_pin.recheck()
-        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user@48046.service'],
+        self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'start', 'user@48047.service'],
                        0, 'manager-start', seconds=45)
         self.runtime_pin = Parents(RUNTIME, UID)
         require(RUNTIME.lstat().st_uid == RUNTIME.lstat().st_gid == UID
@@ -516,7 +516,7 @@ class Guard:
     def manager_stopped_app(self):
         self.home_pin.recheck()
         args = [arg for key in core.FIELDS for arg in ('-p', key)]
-        _, out, _ = self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'show', 'user@48046.service', *args],
+        _, out, _ = self.run_child(['/usr/bin/systemctl', '--system', '--no-pager', 'show', 'user@48047.service', *args],
                                    0, 'manager-observe')
         data = fields(out, core.FIELDS)
         require(data['LoadState'] == 'loaded' and data['ActiveState'] == 'active'
@@ -529,7 +529,7 @@ class Guard:
         status = (proc / 'status').read_bytes()
         require(len(status) <= 65536)
         values = pairs(line.split(b':', 1) for line in status.splitlines() if b':' in line)
-        require(values[b'Uid'].split() == values[b'Gid'].split() == [b'48046'] * 4)
+        require(values[b'Uid'].split() == values[b'Gid'].split() == [b'48047'] * 4)
         loaded = os.open(proc / 'exe', FLAGS & ~os.O_NOFOLLOW)
         RETAINED.append(loaded)
         installed = self.catalogs[1][1].nodes[Path('/usr/lib/systemd/systemd')][2]
@@ -668,7 +668,7 @@ class Guard:
                 values = pairs(line.split(b':', 1) for line in status.splitlines() if b':' in line)
                 ids = values[b'Uid'].split()
                 require(len(ids) == 4 and all(v.isdigit() for v in ids))
-                if b'48046' not in ids:
+                if b'48047' not in ids:
                     continue
                 require(before_stat[0] not in (b'Z', b'X'))
                 fd = os.open(proc / 'exe', os.O_RDONLY | os.O_CLOEXEC)

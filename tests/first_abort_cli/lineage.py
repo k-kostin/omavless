@@ -5,11 +5,11 @@ from pathlib import Path
 import stat
 import time
 
-UID = 48046
-HOME = Path('/home/ov-t4-abort-v3')
+UID = 48047
+HOME = Path('/home/ov-t4-abort-v4')
 CONFIG = HOME / '.config/omavless'
 STATE = HOME / '.local/state/omavless'
-RUNTIME = Path('/run/user/48046/omavless')
+RUNTIME = Path('/run/user/48047/omavless')
 ARTIFACTS = HOME / '.t4-first-abort'
 STAGE = STATE / 'restore-pair.pending'
 LIMIT = 64 * 1024 * 1024

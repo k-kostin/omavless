@@ -1,5 +1,9 @@
 # Fixed disposable UID normal-CLI guard
 
+The fresh quoted-delivery UID48047/v4/v6 successor is scoped in
+[DELIVERY_TRANSPORT.md](DELIVERY_TRANSPORT.md). The generation identities and
+source-only statements below retain their historical checkpoint meaning.
+
 The current source-only UID48046 generation adds the bounded read-only helper
 entry in [ADMISSION_BOUNDARIES.md](ADMISSION_BOUNDARIES.md). Its fresh paths
 and rebuilt native artifacts govern that generation; the older identities
