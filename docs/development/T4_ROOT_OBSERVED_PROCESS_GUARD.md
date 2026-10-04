@@ -35,7 +35,8 @@ new root guard hash and original host build/frozen ELF provenance. Guest lexical
 host provenance is not a fabricated guest build directory.
 
 The corresponding new UID/GID-1000 0700 directory under `/run/user/1000` has the
-same basename and contains only the 0500 UID/GID-1000 frozen `fixture` ELF. Root
+same basename and contains the 0500 UID/GID-1000 frozen `fixture` ELF and original
+guard/legacy/receipt staging inputs. No input code is executed from that directory. Root
 holds original no-follow read-only descriptors, parent identities and bounded
 hashes for every admitted artifact, rejects xattrs/hardlinks and rechecks them.
 It creates root-owned 0700 `evidence` using the held root directory descriptor;
@@ -99,3 +100,28 @@ checks Linux FD-exec path resolution, without root or changed credentials. The
 ignored five-case matrix is not executed by ordinary gates. This remains
 volatile synthetic process-loss evidence, never durability, reboot, power-loss,
 installed acceptance or full product T4 PASS.
+
+## Separate create-only root staging
+
+`stage_root_guard.py` is independently reviewed source supplied over trusted stdin
+to isolated, no-bytecode root Python, never invoked as a user-writable script.
+This trusted bootstrap is an owner-controlled operation, not an automatic sudo
+request. Its only inputs are the exact lower-hex nonce and reviewed receipt SHA;
+source and destination paths are derived from the fixed paired locations above.
+It opens and holds all four user-stage files through their original parent FD,
+checks private ownership/modes, single link, absence of xattrs, bounded lengths,
+stable path/descriptor metadata and expected hashes, including the fixed legacy
+hash. Only then may it exclusively create the root destination. It copies only
+the root guard, legacy definitions and receipt into new files, rechecks source
+identity, verifies each copied hash through the original output FD, and fsyncs
+files and directories. Existing targets or any uncertainty refuse without retry,
+cleanup, chown, fallback or executing either the guard or ELF. Partial stages stay
+retained. Staging success is not permission to invoke the guard.
+
+Additional main-orchestration tests inject original-baseline write/fsync failure
+and prove no matrix starts; case receipt, root observation, after-baseline write
+and comparison failures prove no final result/PASS or hidden retry. Loader tests
+cover credential/stdin admission, original source replacement, fixed names,
+receipt syntax, hash mismatch before privileged creation, existing destination
+and partial-copy failures. These controls do not change the reviewed guard's
+behavior or convert its pure success control into an executed VM claim.
