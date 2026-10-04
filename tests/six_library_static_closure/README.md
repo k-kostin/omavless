@@ -1,5 +1,41 @@
 # Six recorded public candidates: bounded static closure
 
+## Separate catalog diagnostic generation
+
+This narrow successor starts at #640
+`2906f8f1fb19fdb3815c7cd023b4696196cf61f0`. The parent's single #640
+invocation returned NONPASS and its stage is stopped, not queried or reused.
+The parent separately authorized a reviewed file-only observer; its filtered
+public report SHA-256 is
+`2863b938776163bfacdd1fd8fb25aa16262c575db01650595caa600ea37d15a0`.
+That report recorded `catalog_names` as the last BEFORE/FAILED_AT phase and
+an empty result. It does not prove the cause, baseline preservation or a fix.
+
+The only new diagnostic behavior is a finite private catalog sub-boundary latch:
+iterator open, next entry, entry-name access, type, count cap, component shape,
+duplicate, iterator close and sorting. It performs no extra filesystem query.
+On a catalog exception, the one existing terminal write additionally records
+the literal sub-boundary and one exact-type whitelisted exception category.
+Unknown exception types become `OtherBaseException`, never their class name,
+message, repr, filename, entry names or raw catalog snapshots. These labels are
+recorded text, not proof that an operation completed or that it caused failure.
+
+No per-entry output multiplies the retained 4096-record/130816-byte BEFORE
+budget. The terminal record remains at most 256 bytes and uses a single typed
+full write, checked original source deadline before/after, and permanent
+reported/sealed latch. An expired/unknown/short/throwing final write receives
+no retry or further output. Deadline checks after the private latch precede
+iterator creation, next-entry operation and entry-name access. The original
+catalog grammar, 4096-name cap, package selection/membership, whole original-FD
+catalog rechecks and six-plus-nineteen ELF scope are unchanged. In particular,
+this proposal does not seek/reset the catalog FD or claim to fix its offset.
+
+The fresh diagnostic stage below and all transitive source pins are new;
+successful static receipt schema and negative adoption/compatibility flags are
+unchanged. No old NONPASS becomes PASS. Full source gates and parent/independent
+review precede any separately authorized fresh invocation; this author has no
+VM lease. The retained parent proposal description follows.
+
 Developer-only successor to #637
 `d00dff5a506bf6df349c6e106b795b308b6e79ca`. That invocation remains NONPASS;
 its scope is stopped and is neither queried nor reused by this source.
@@ -91,7 +127,7 @@ maximum graph would need more. Result bytes are at most 262,144.
 ## Fresh scope and acceptance boundary
 
 Fixed new stage:
-`/home/kdk_vm/.cache/t3-six-library-static-closure-review-1`.
+`/home/kdk_vm/.cache/t3-six-library-catalog-diagnostic-review-1`.
 Create-only transfer refuses reuse. The same-invocation wrapper keeps the
 canonical runtime/private-file/service/executable/namespace/core/TUN/resolver
 and network comparisons; only the retained address lifetime countdown
