@@ -16,13 +16,16 @@ scopes and original evidence remain retained.
 - HOME `/home/ov-t4-abort-v4`; runtime `/run/user/48047`.
 - Delivery `/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v6`.
 - Root stage `/run/ov-t4-cli-guard-v6`; delivery schema v6.
-- Native source checkpoint `9cbd757160835cd050ea31bad22db895fda7d573`.
+- Native source checkpoint `285233049bc6c5e1356de0ffcc167185c9e1761d`.
 
 The fixed native credentials, paths and exact diagnostic self path change only
 under cfg(test). The existing 31-record success transcript, stopped-owner
 predicates, budgets and terminal refusal behavior are unchanged. No production
 trace, override, permit or changed recovery rule is added. Old UID48046/v3/v5
 identities describe their historical generation and cannot authorize this one.
+A source-only consistency regression ties the diagnostic UID and exact helper
+self path, native fixture credentials/paths, lineage and loader generation to
+the root guard's fixed identity. It never executes an ignored native fixture.
 
 ## Pure transport construction
 

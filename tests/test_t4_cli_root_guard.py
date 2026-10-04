@@ -4,6 +4,7 @@ import errno
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -11,10 +12,45 @@ from unittest.mock import Mock, patch
 
 from tests.first_abort_cli import root_guard as guard
 from tests.first_abort_cli import stage_loader as loader
+from tests.first_abort_cli import lineage
 from tests.first_abort_process import vm_guard as owned_core
 
 
 class GuardTests(unittest.TestCase):
+    def test_fresh_generation_native_and_delivery_identity_is_consistent(self):
+        # Source-only: no ignored fixture, native ELF, account or guest execution.
+        root = Path(__file__).resolve().parents[1]
+        native = root / 'crates/omavless-runtime/src'
+        cli = (native / 'restore_abort_cli.rs').read_text()
+        diagnostic = (native / 'restore_abort_diagnostic.rs').read_text()
+        fixture = (native / 'restore_first_abort_cli_vm_tests.rs').read_text()
+        self.assertEqual(guard.UID, 48047)
+        self.assertEqual(guard.NAME, 'ov-t4-abort-v4')
+        self.assertEqual(guard.HOME, Path('/home') / guard.NAME)
+        self.assertEqual(guard.RUNTIME, Path('/run/user') / str(guard.UID))
+        self.assertEqual(guard.ARTIFACTS, guard.HOME / '.t4-first-abort')
+        diagnostic_body = cli.split('pub(crate) fn diagnose_current_stopped()', 1)[1]
+        self.assertEqual(re.findall(r'uid\.as_raw\(\) != (\d+)', diagnostic_body),
+                         [str(guard.UID)])
+        self.assertEqual(re.findall(r'const HELPER: &\[u8\] = b"([^"]+)";', diagnostic),
+                         [str(guard.ARTIFACTS / 'helper')])
+        self.assertEqual(re.findall(r'const UID: u32 = (\d+);', fixture), [str(guard.UID)])
+        for name, expected in {'HOME': guard.HOME, 'RUNTIME': guard.RUNTIME,
+                               'ARTIFACTS': guard.ARTIFACTS,
+                               'HELPER': guard.ARTIFACTS / 'helper',
+                               'CLI': guard.ARTIFACTS / 'omavless'}.items():
+            self.assertEqual(re.findall(r'const '+name+r': &str = "([^"]+)";', fixture),
+                             [str(expected)])
+        self.assertIn('["'+str(guard.UID)+'"; 4]', fixture)
+        self.assertEqual((lineage.UID, lineage.HOME, lineage.ARTIFACTS, lineage.RUNTIME),
+                         (guard.UID, guard.HOME, guard.ARTIFACTS, guard.RUNTIME / 'omavless'))
+        self.assertEqual(loader.DESTINATION, guard.ROOT)
+        self.assertEqual(guard.ROOT, Path('/run/ov-t4-cli-guard-v6'))
+        self.assertEqual(loader.SOURCE, Path('/home/kdk_vm/.cache/t4-first-abort-cli-delivery-v6'))
+        for source in (cli, diagnostic, fixture):
+            for stale in ('48046', 'ov-t4-abort-v3', 'guard-v5', 'delivery-v5'):
+                self.assertNotIn(stale, source)
+
     def test_diagnostic_trace_is_exact_success_only(self):
         before=b''.join(('T4_STOPPED_BEFORE_V1 '+phase+'\n').encode() for phase in guard.ADMISSION_PHASES)
         good=before+b'T4_STOPPED_READONLY_OBSERVATION_NOT_ADMISSION\n'

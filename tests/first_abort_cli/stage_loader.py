@@ -130,7 +130,7 @@ def deliver(expected):
                        parse_constant=lambda _: need(False))
     need(type(value) is dict and set(value) == {'schema', 'native_head', 'guard_head', 'code', 'elfs'}
          and value['schema'] == 't4-disposable-cli-delivery-v6'
-         and value['native_head'] == '9cbd757160835cd050ea31bad22db895fda7d573'
+         and value['native_head'] == '285233049bc6c5e1356de0ffcc167185c9e1761d'
          and type(value['guard_head']) is str and re.fullmatch('[0-9a-f]{40}', value['guard_head'])
          and type(value['code']) is dict and set(value['code']) == set(CODE)
          and type(value['elfs']) is dict and set(value['elfs']) == set(ELFS))
