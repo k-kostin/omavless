@@ -30,19 +30,29 @@ This volatile fixture proves neither reboot persistence nor power-loss durabilit
 
 Before execution, build the reviewed exact head once and copy its test ELF to an
 exclusive private location outside Cargo's target tree. Record commit and SHA-256,
-chmod 0700, and invoke only that frozen executable with the exact ignored matrix
+chmod 0500, and invoke only that frozen executable with the exact ignored matrix
 name. The harness and every child verify current executable path, ELF magic,
-private mode, single link, bounded size, SHA-256 and exclusion from the declared
-build-target tree. Do not run the matrix from Cargo or while changing its frozen
+read-only private mode, single link, bounded size, SHA-256 and exclusion from the declared
+build-target tree. Original O_NOFOLLOW descriptor and parent identity stay held;
+path/descriptor metadata are checked before and after the bounded streamed hash.
+A retained /proc/self/exe descriptor must match that same inode, including in
+each worker, rather than accepting a same-byte replacement as executed identity.
+Do not run the matrix from Cargo or while changing its frozen
 artifact. The synthetic passphrase travels only over inherited stdin.
 
 The five requested SIGKILL checkpoints are: OLD store slot linked, first member
 renamed to OLD while template is NEW, empty terminal created, full Abort terminal
 written, and final wrapper observation before return. Parent and child both
-verify the requested phase. The parent signals only its exact owned child, waits
-for raw signal 9 and refuses an early exit/missed checkpoint. Recovery children
-have a bounded deadline; timeout kills only that known child and preserves all
-artifacts. Four cases must freshly reopen to AbortedStillFenced and exact OLD;
+verify the requested phase. The parent signals only after raw WNOWAIT proves its
+exact unreaped child still live. Final exact WNOHANG waitpid must match the
+previous observed terminal PID and status, including raw signal 9 for crash.
+No Child polling/waiting/signalling convenience API participates. Any unknown
+observation, EINTR/ECHILD, mismatched PID/status, failed signal/reap, missing
+checkpoint or timeout permanently quarantines the whole matrix: no further
+spawn/query/signal/reap/cleanup. The original Child handle/pipes are retained
+even on unwind, without hidden destructor reaping. Recovery timeouts therefore
+preserve potentially live children for explicit owner diagnosis, never silently
+kill them. Four cases must freshly reopen to AbortedStillFenced and exact OLD;
 the empty-terminal case must refuse before observer/checkpoint and retain the
 same empty inode. Existing Abort re-entry must retain terminal identity. Archive
 identity, ordinary startup refusal and pending fence are checked independently.
@@ -53,3 +63,10 @@ first failure and its phase disposition rather than silently rerunning. Root
 code review and exact source/Rust/clippy gates are required before the matrix is
 authorized. Installed acceptance, power-loss testing, product registration and
 merge/release remain separate.
+
+The initial `5860c4f` fixture passed its ordinary source (521/2 skipped) and full
+Rust (2051 aggregate passing executions) gates but FAILED root source review:
+Child convenience supervision and writable/path-only ELF provenance were not
+adequate. Its process matrix was never executed. Those gate results do not
+authorize the fixture or erase this review NONPASS. Corrections require a new
+exact head, pure uncertainty/FD-substitution tests and repeated full gates.

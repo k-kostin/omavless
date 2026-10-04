@@ -5,15 +5,21 @@ use super::*;
 use crate::desired::{DesiredState, write_desired};
 use crate::restore_executor_candidate::{EffectStep, execute_with_hook};
 use crate::restore_successor_publication_candidate::tests::{OLD, backup};
+use nix::sys::signal::Signal;
+use nix::sys::wait::WaitStatus;
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::FileExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink};
-use std::os::unix::process::ExitStatusExt;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[path = "restore_abort_process_support_tests.rs"]
+mod support;
+use support::{OwnedProcess, Quarantine};
 
 const PASS: &[u8] = b"synthetic first Abort process fixture";
 const WORKER: &str = "production_owner::first_abort::process_reentry::process_worker";
@@ -216,7 +222,7 @@ fn reached(root: &Path, case: &str, point: Point) -> bool {
 #[test]
 #[ignore = "private subprocess worker; only reviewed frozen-ELF harness"]
 fn process_worker() {
-    frozen_elf();
+    let _frozen = FrozenElf::capture();
     let root = PathBuf::from(
         std::env::var_os("OMAVLESS_ABORT_PROCESS_ROOT").expect("explicit fixture required"),
     );
@@ -263,14 +269,16 @@ fn process_worker() {
     }
 }
 
-fn launch(elf: &Path, root: &Path, mode: &str) -> Child {
+fn launch(elf: &FrozenElf, root: &Path, mode: &str, quarantine: &Quarantine) -> OwnedProcess {
+    assert!(!quarantine.get(), "no commands after uncertainty");
+    elf.recheck();
     let log = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(root.join(format!("stderr-{mode}-{}.log", nonce())))
         .unwrap();
-    let mut child = Command::new(elf)
+    let child = Command::new(&elf.path)
         .args([
             "--exact",
             WORKER,
@@ -289,81 +297,172 @@ fn launch(elf: &Path, root: &Path, mode: &str) -> Child {
         .stderr(log)
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(PASS).unwrap();
+    let mut child = OwnedProcess::new(child, quarantine);
+    elf.recheck();
+    child.stdin().write_all(PASS).unwrap();
     child
 }
 
-fn frozen_elf() -> PathBuf {
-    let elf = fs::canonicalize(
-        std::env::var_os("OMAVLESS_ABORT_FROZEN_ELF").expect("explicit frozen ELF"),
-    )
-    .unwrap();
-    assert_eq!(
-        fs::canonicalize(std::env::current_exe().unwrap()).unwrap(),
-        elf
-    );
-    assert!(!elf.components().any(|c| c.as_os_str() == "target"));
-    let build_target = fs::canonicalize(
-        std::env::var_os("OMAVLESS_ABORT_BUILD_TARGET").expect("explicit build target provenance"),
-    )
-    .unwrap();
-    assert!(
-        !elf.starts_with(build_target),
-        "worker executable must be frozen outside Cargo"
-    );
-    let metadata = fs::symlink_metadata(&elf).unwrap();
-    assert!(
-        metadata.is_file()
-            && metadata.uid() == Uid::current().as_raw()
-            && metadata.nlink() == 1
-            && metadata.mode() & 0o7777 == 0o700
-    );
-    let expected = std::env::var("OMAVLESS_ABORT_FROZEN_SHA256").unwrap();
-    assert!(metadata.len() > 4 && metadata.len() <= 1024 * 1024 * 1024);
-    let mut file = File::open(&elf).unwrap();
-    let mut magic = [0; 4];
-    file.read_exact(&mut magic).unwrap();
-    assert_eq!(&magic, b"\x7fELF");
-    let mut digest = Sha256::new();
-    digest.update(magic);
-    let mut buffer = [0; 65536];
-    loop {
-        let count = file.read(&mut buffer).unwrap();
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    assert_eq!(format!("{:x}", digest.finalize()), expected);
-    elf
+struct FrozenElf {
+    path: PathBuf,
+    file: File,
+    metadata: Metadata,
+    parent: File,
+    parent_metadata: Metadata,
+    executed: File,
+    expected: String,
 }
 
-fn wait_bounded(mut child: Child) -> std::process::ExitStatus {
-    let deadline = Instant::now() + Duration::from_secs(45);
-    loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            return status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("re-entry exceeded bound; exact child killed, artifacts preserved");
-        }
-        std::thread::sleep(Duration::from_millis(10));
+impl FrozenElf {
+    fn capture() -> Self {
+        let elf = fs::canonicalize(
+            std::env::var_os("OMAVLESS_ABORT_FROZEN_ELF").expect("explicit frozen ELF"),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::canonicalize(std::env::current_exe().unwrap()).unwrap(),
+            elf
+        );
+        assert!(!elf.components().any(|c| c.as_os_str() == "target"));
+        let build_target = fs::canonicalize(
+            std::env::var_os("OMAVLESS_ABORT_BUILD_TARGET")
+                .expect("explicit build target provenance"),
+        )
+        .unwrap();
+        assert!(
+            !elf.starts_with(build_target),
+            "worker executable must be frozen outside Cargo"
+        );
+        let metadata = fs::symlink_metadata(&elf).unwrap();
+        assert!(
+            metadata.is_file()
+                && metadata.uid() == Uid::current().as_raw()
+                && metadata.nlink() == 1
+                && metadata.mode() & 0o7777 == 0o500
+        );
+        let expected = std::env::var("OMAVLESS_ABORT_FROZEN_SHA256").unwrap();
+        assert!(metadata.len() > 4 && metadata.len() <= 1024 * 1024 * 1024);
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK | nix::libc::O_CLOEXEC)
+            .open(&elf)
+            .unwrap();
+        assert!(same_member(&metadata, &file.metadata().unwrap()));
+        let parent =
+            open_private_directory(elf.parent().unwrap(), Uid::current().as_raw()).unwrap();
+        let parent_metadata = parent.metadata().unwrap();
+        // This descriptor names the actual executed inode, not a same-byte pathname.
+        let executed = File::open("/proc/self/exe").unwrap();
+        let frozen = Self {
+            path: elf,
+            file,
+            metadata,
+            parent,
+            parent_metadata,
+            executed,
+            expected,
+        };
+        frozen.recheck();
+        frozen
     }
+    fn recheck(&self) {
+        let check = || {
+            let current = OpenOptions::new()
+                .read(true)
+                .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK | nix::libc::O_CLOEXEC)
+                .open(&self.path)
+                .unwrap();
+            let parent =
+                open_private_directory(self.path.parent().unwrap(), Uid::current().as_raw())
+                    .unwrap();
+            assert!(same_directory(
+                &self.parent_metadata,
+                &parent.metadata().unwrap()
+            ));
+            assert!(same_directory(
+                &self.parent_metadata,
+                &self.parent.metadata().unwrap()
+            ));
+            for file in [&self.file, &self.executed, &current] {
+                let metadata = file.metadata().unwrap();
+                assert!(same_member(&self.metadata, &metadata));
+                assert_eq!(self.metadata.gid(), metadata.gid());
+            }
+        };
+        check();
+        let mut digest = Sha256::new();
+        let mut offset = 0;
+        let mut buffer = [0; 65536];
+        while offset < self.metadata.len() {
+            let count = self.file.read_at(&mut buffer, offset).unwrap();
+            assert!(count > 0 && offset + count as u64 <= self.metadata.len());
+            if offset == 0 {
+                assert!(buffer[..count].starts_with(b"\x7fELF"));
+            }
+            digest.update(&buffer[..count]);
+            offset += count as u64;
+        }
+        assert_eq!(self.file.read_at(&mut buffer[..1], offset).unwrap(), 0);
+        assert_eq!(format!("{:x}", digest.finalize()), self.expected);
+        check();
+    }
+}
+
+#[test]
+fn frozen_original_fd_refuses_same_bytes_new_inode_or_executed_identity() {
+    for fault in 0..4 {
+        let root = tempfile::Builder::new()
+            .prefix("ov-abort-elf-unit-")
+            .tempdir()
+            .unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.path().join("frozen");
+        let bytes = b"\x7fELFsynthetic source-only bytes, never executed";
+        private_create(&path, bytes);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o500)).unwrap();
+        let file = File::open(&path).unwrap();
+        let parent = open_private_directory(root.path(), Uid::current().as_raw()).unwrap();
+        let mut frozen = FrozenElf {
+            path: path.clone(),
+            metadata: file.metadata().unwrap(),
+            executed: file.try_clone().unwrap(),
+            file,
+            parent_metadata: parent.metadata().unwrap(),
+            parent,
+            expected: format!("{:x}", Sha256::digest(bytes)),
+        };
+        frozen.recheck();
+        let replacement = root.path().join("replacement");
+        private_create(&replacement, bytes);
+        fs::set_permissions(&replacement, fs::Permissions::from_mode(0o500)).unwrap();
+        match fault {
+            0 => fs::rename(replacement, &path).unwrap(),
+            1 => frozen.executed = File::open(replacement).unwrap(),
+            2 => fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap(),
+            3 => frozen.expected = "0".repeat(64),
+            _ => unreachable!(),
+        }
+        assert!(std::panic::catch_unwind(|| frozen.recheck()).is_err());
+    }
+}
+
+fn success(status: WaitStatus) -> bool {
+    matches!(status, WaitStatus::Exited(_, 0))
 }
 
 #[test]
 #[ignore = "requires root-reviewed frozen executable; process loss, not power loss"]
 fn fixed_current_process_loss_and_fresh_reentry() {
-    let elf = frozen_elf();
+    let elf = FrozenElf::capture();
+    let quarantine = std::rc::Rc::new(std::cell::Cell::new(false));
     for case in CASES {
-        let root = fixture(&elf, case);
+        assert!(!quarantine.get());
+        let root = fixture(&elf.path, case);
         eprintln!("private-fixture-root={}", root.display());
         let archive_before = fs::metadata(root.join("archive.ovb")).unwrap();
         let archive_bytes = fs::read(root.join("archive.ovb")).unwrap();
-        let mut child = launch(&elf, &root, case);
-        let stdout = child.stdout.take().unwrap();
+        let mut child = launch(&elf, &root, case, &quarantine);
+        let stdout = child.stdout();
         let (tx, rx) = mpsc::channel();
         let reader = std::thread::spawn(move || {
             // libtest headings precede the bounded fixture token.
@@ -387,23 +486,36 @@ fn fixed_current_process_loss_and_fresh_reentry() {
                     Point::Gate
                 },
             );
+        if !reached || !disk_matches {
+            quarantine.set(true);
+            panic!("checkpoint uncertainty; preserve child and artifacts without further calls");
+        }
         // Only the exact child we spawned is signalled; preserve every artifact.
-        let killed = child.kill();
-        let status = child.wait().unwrap();
+        child
+            .kill_live()
+            .expect("fresh nonreaped live ownership required before signal");
+        let status = child
+            .finish()
+            .expect("exact observed and reaped raw status required");
         reader.join().unwrap();
         assert!(
-            reached && disk_matches && killed.is_ok() && status.signal() == Some(9),
+            reached
+                && disk_matches
+                && matches!(status, WaitStatus::Signaled(_, Signal::SIGKILL, false)),
             "checkpoint not reached or wrong death: {case}"
         );
         let (_, paths, _) = fixture_paths(&root, Uid::current().as_raw());
         let terminal = paths.state_directory.join("restore-decision.terminal");
         let terminal_before = fs::metadata(&terminal).ok();
-        let recover = wait_bounded(launch(
+        let recover = launch(
             &elf,
             &root,
             if case == "empty" { "refuse" } else { "recover" },
-        ));
-        assert!(recover.success(), "fresh recovery failed: {case}");
+            &quarantine,
+        )
+        .finish()
+        .unwrap();
+        assert!(success(recover), "fresh recovery failed: {case}");
         assert!(same_member(
             &archive_before,
             &fs::metadata(root.join("archive.ovb")).unwrap()
@@ -424,7 +536,11 @@ fn fixed_current_process_loss_and_fresh_reentry() {
                 OLD[1]
             );
             let before = fs::metadata(&terminal).unwrap();
-            assert!(wait_bounded(launch(&elf, &root, "recover")).success());
+            assert!(success(
+                launch(&elf, &root, "recover", &quarantine)
+                    .finish()
+                    .unwrap()
+            ));
             assert!(same_member(&before, &fs::metadata(&terminal).unwrap()));
         }
         let lock = MigrationLock::acquire_existing(&paths, Uid::current().as_raw()).unwrap();

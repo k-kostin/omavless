@@ -134,14 +134,23 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
         for token in ('fn process_worker()', 'fn fixed_current_process_loss_and_fresh_reentry()',
                       'current(&root.join("archive.ovb"), &passphrase)',
                       'OMAVLESS_ABORT_FROZEN_SHA256', 'OMAVLESS_ABORT_BUILD_TARGET',
-                      'safe_ancestry(&base, uid)', '.create_new(true)', 'status.signal() == Some(9)',
-                      'wait_bounded', 'Point::Final'):
+                      'safe_ancestry(&base, uid)', '.create_new(true)', 'WaitStatus::Signaled(_, Signal::SIGKILL, false)',
+                      'FrozenElf::capture()', 'Point::Final', 'File::open("/proc/self/exe")',
+                      'metadata.mode() & 0o7777 == 0o500', 'self.file.read_at', 'quarantine.set(true)'):
             self.assertIn(token, text)
         self.assertEqual(text.count('#[ignore ='), 2)
         self.assertNotIn('remove_dir_all', text)
         self.assertNotIn('.env("HOME"', text)
         self.assertNotIn('NativeHostPaths::new', text)
         self.assertNotIn('run(', text)
+        support = (SRC / "restore_abort_process_support_tests.rs").read_text()
+        for token in ('WaitPidFlag::WNOWAIT', 'WaitPidFlag::WNOHANG', 'self.quarantine.set(true)',
+                      'std::mem::forget(child)', 'first_unknown_observation_permanently_blocks_every_followup_call',
+                      'reap_unknown_or_mismatch_never_becomes_success_or_retry',
+                      'timeout_quarantine_is_shared_by_other_owned_children_and_stays_permanent'):
+            self.assertIn(token, support)
+        for forbidden in ('.try_wait(', '.kill()', '.wait()', '.wait_with_output('):
+            self.assertNotIn(forbidden, text + support)
 
     def test_abort_created_identity_counterexamples_retained(self):
         text = (SRC / "restore_executor_candidate.rs").read_text()
