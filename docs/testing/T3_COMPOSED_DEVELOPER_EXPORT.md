@@ -122,3 +122,31 @@ receipt. Root-stated provenance, trusted issuance/distribution, both-architectur
 build/acceptance, installed DNS/TUN lifecycle, normal permission and UI/IPC
 adoption remain separate. No main/RC merge, installation, VM action, tag, release
 or marketplace publication is authorized by this developer artifact.
+
+### Six initial candidates: separately scoped static measurement
+
+The developer-only `tests/six_library_static_closure/` successor to #637
+`d00dff5a506bf6df349c6e106b795b308b6e79ca` proposes one fresh static
+measurement of six public candidate library paths, not a retry of its stopped
+NONPASS scope. Its fixed nineteen-object copy manifest remains unchanged.
+The separate filtered file observation recorded candidate paths only; it did
+not prove mapped identity or the failure cause.
+
+Missing package pins are not guessed. A separately approved read-only catalog
+of at most 4,096 original-FD local package directory names selects exactly one
+canonical version directory for each of five fixed package names. Only those
+ten desc/files records may be opened. Exact NAME/VERSION/directory agreement
+and all six explicit file memberships must pass and the whole catalog/records
+must recheck before candidate ELF opens. Public hashes and original identities
+are measured; signatures and global package-owner uniqueness are not proven.
+
+The six roots' finite static dependency closure may reach only those six and
+the existing nineteen reviewed objects. Only original-FD pinned readelf
+executes; no candidate/loader execution, process observation, namespace reuse,
+copy admission, allowlist adoption or production ownership change occurs.
+All four negative authority/acceptance flags remain literal false. Strict
+zero-only owned-child completion, terminal unknowns, fixed fresh staging and
+same-invocation canonical inventory comparisons remain required. Bounds and
+inert counterexamples are documented with the fixture. Full parent and
+independent review plus sealed gates precede a separately authorized fresh VM
+invocation; any later measured-pin adoption requires a distinct reviewed step.
