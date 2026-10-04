@@ -358,3 +358,31 @@ synthetic file-list control, exact 4 MiB/4 MiB-plus-one cases, oversized-descrip
 refusal, aggregate bounds and inherited provenance/uncertainty/strict-receipt
 counterexamples. Source gates do not authorize execution: full root/independent
 review and a new exclusive one-invocation lease remain necessary.
+
+### Measured four-MiB capture at `9c71ecd`
+
+After separate full reviews and authorization, exactly one invocation of sealed
+`9c71ecdbb90b3b93748a7549c8873ee804532ba9` returned
+`OBSERVED_STATIC_CANDIDATE_CLOSURE`, a strictly validated known integer child
+returncode 0, 16 canonical records and 18 observed aliases. Fifteen canonical
+objects matched the original manifest. No candidate ELF was executed; no loaded
+ELF identity, allowlist adoption or runtime compatibility was claimed.
+
+The typed result SHA-256 is
+`38dcbd17f3062ec642ef9376382cd22a0ff04fdedb07be6a5803a41f0862b76a`.
+The retained private archive `t3-static-four-mib-9c71ecd-observed.tar.gz` has
+SHA-256 `de62fd8b60eafd862c0affbfd041792d2b2de2ea3ed51eee6ee627696b3899e9`.
+Independent review verified its 21 members, exact pins, typed receipt, eight
+baseline categories and canonical epoch, all five network JSON pairs (only two
+decreasing address lifetimes), and independent exact fixture-form absence.
+The exclusive lease was returned. Earlier refusals and their distinct evidence
+boundaries remain unchanged, including the unproven historical `fef0989`
+after-state and unrecorded exact cause.
+
+The only new canonical object was public
+`/usr/lib/libbrotlicommon.so.1.2.0`, package `brotli` `1.2.0-1`, SHA-256
+`4f895094b7b6ff9c82909e6516bc9cf212e2ec5af451d39bf1bcbc5e5fa225b2`.
+Following manual review of every record and dependency, a separate source-only
+[copy manifest proposal](../reviewed_tmpfs_elf/README.md) adds exactly that object.
+The observed 18-alias list is not blanket-adopted. Static package provenance is
+not runtime compatibility or permission to execute a new fixture.
