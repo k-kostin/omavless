@@ -7,13 +7,13 @@ import pwd
 import stat
 import sys
 
-SOURCE = Path('/home/kdk_vm/.cache/k1-config-reference-4db6d60-stage-1')
+SOURCE = Path('/home/kdk_vm/.cache/k1-config-reference-6be4d75-stage-1')
 DESTINATION = Path('/run/omavless-k1-effective-config-reference')
 MEMBERS = {
-    'probe': ('b98c1290d2a6d522e8ef5e47476c07ae8d7c2a23366850dc071fe254fe9efb07', 0o500, 0o500, 128 * 1024 * 1024),
+    'probe': ('0585efaa8116b242654e20d58ebb34e861d85e4c911c749b00de3760105f8551', 0o500, 0o500, 128 * 1024 * 1024),
     'query-guard.py': ('67e541ea5c764a05b669267b248d3df77ca3402569df5116bfff9346ff9ea0bd', 0o400, 0o600, 256 * 1024),
     'fixture.service': ('01464f072443481b5f45893e39c52ae801b3e60739201f58a307c0dec9e316f1', 0o400, 0o600, 16384),
-    'guard.py': ('868acdfc676e4539df7819caac6d5ed8aeb1391c11745a1d3b574bfef985874d', 0o400, 0o500, 256 * 1024),
+    'guard.py': ('acd2a92ab12c63cf948bc3c64339fa8364b14b243a976a90168ab3e75342ba6f', 0o400, 0o500, 256 * 1024),
 }
 
 

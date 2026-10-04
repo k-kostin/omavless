@@ -14,10 +14,9 @@ LINK = PARENT / UNIT
 CGROUP = Path('/sys/fs/cgroup/system.slice') / UNIT
 QUERY_SHA = '67e541ea5c764a05b669267b248d3df77ca3402569df5116bfff9346ff9ea0bd'
 UNIT_SHA = '01464f072443481b5f45893e39c52ae801b3e60739201f58a307c0dec9e316f1'
-PROBE_SHA = 'b98c1290d2a6d522e8ef5e47476c07ae8d7c2a23366850dc071fe254fe9efb07'
-NATIVE_SOURCE = '4db6d601afb0130118498238c9b15559e803e286'
+PROBE_SHA = '0585efaa8116b242654e20d58ebb34e861d85e4c911c749b00de3760105f8551'
+NATIVE_SOURCE = '6be4d75e9f0d4b99e1533446ff6269d5e392cda1'
 TEST = 'manager_config_reference_fixture::capture_effective_config'
-OBJECT = '/org/freedesktop/systemd1/unit/omavless_2dk1_2deffective_2dconfig_2dreference_2eservice'
 MARKER = 'OBSERVED_CONFIG_DATA_NOT_ADMISSION'
 
 
@@ -87,21 +86,26 @@ def load_query(pin):
     return ns
 
 
-def validate_capture(value, ack):
-    require(type(value) is dict and set(value) == {'schema', 'marker', 'unit', 'service', 'dump'}
-            and type(value['schema']) is int and value['schema'] == 1 and value['marker'] == MARKER)
-    require(value['unit'] == {'Id': UNIT, 'LoadState': 'loaded', 'FragmentPath': str(LINK),
-            'ActiveState': 'inactive', 'SubState': 'dead', 'DropInPaths': []})
-    service = value['service']
+def validate_state(unit, service):
+    require(type(unit) is dict and unit == {'Id': UNIT, 'LoadState': 'loaded', 'FragmentPath': str(LINK),
+            'ActiveState': 'inactive', 'SubState': 'dead', 'DropInPaths': [],
+            'Job': {'type': '(uo)', 'data': [0, '/']}})
+    require(type(unit['Job']['data'][0]) is int)
     require(type(service) is dict and set(service) == {'StandardOutput', 'StandardError',
             'Type', 'User', 'Group', 'WatchdogUSec', 'ExecMainStartTimestampMonotonic',
-            'MainPID', 'ControlPID', 'ExecMainPID'})
+            'MainPID', 'ControlPID', 'ExecMainPID', 'ControlGroup'})
     for name, expected in {'StandardOutput': 'append', 'StandardError': 'append',
-                           'Type': 'oneshot', 'User': 'root', 'Group': 'root'}.items():
+                           'Type': 'oneshot', 'User': 'root', 'Group': 'root', 'ControlGroup': ''}.items():
         require(type(service[name]) is str and service[name] == expected)
     for name in ('MainPID', 'ControlPID', 'ExecMainPID', 'ExecMainStartTimestampMonotonic'):
         require(type(service[name]) is int and service[name] == 0)
     require(type(service['WatchdogUSec']) is int and 0 <= service['WatchdogUSec'] < 2**64)
+
+
+def validate_capture(value, ack):
+    require(type(value) is dict and set(value) == {'schema', 'marker', 'unit', 'service', 'dump'}
+            and type(value['schema']) is int and value['schema'] == 1 and value['marker'] == MARKER)
+    validate_state(value['unit'], value['service'])
     dump = value['dump']
     require(type(dump) is dict and set(dump) == {'type', 'data'} and dump['type'] == 's'
             and type(dump['data']) is list and len(dump['data']) == 1
@@ -110,6 +114,13 @@ def validate_capture(value, ack):
     require(type(ack) is dict and set(ack) == {'schema', 'unref_acknowledged', 'admission'}
             and type(ack['schema']) is int and ack['schema'] == 1
             and ack['unref_acknowledged'] is True and ack['admission'] is False)
+
+
+def validate_post_state(value):
+    require(type(value) is dict and set(value) == {'schema', 'phase', 'unit', 'service', 'admission'}
+            and type(value['schema']) is int and value['schema'] == 1
+            and value['phase'] == 'post-unref-single-getall' and value['admission'] is False)
+    validate_state(value['unit'], value['service'])
 
 
 def bounded(path, maximum):
@@ -167,6 +178,7 @@ class Observer:
         self.ns, self.pins, self.directory_fd, self.parent_fd = ns, pins, directory_fd, parent_fd
         self.directory, self.parent = os.fstat(directory_fd), os.fstat(parent_fd)
         self.sealed, self.link_identity = False, None
+        self.post_validated = False
 
     def available(self):
         require(not self.sealed and not self.ns['UNCERTAIN'])
@@ -238,18 +250,18 @@ class Observer:
     def evidence(self):
         data = Pin(STAGE / 'reference-config-data.json', 0o600, 2 * 1024 * 1024)
         ack = Pin(STAGE / 'reference-unref-ack.json', 0o600, 4096)
+        post = Pin(STAGE / 'reference-post-unref-state.json', 0o600, 16384)
         validate_capture(json.loads(data.data(), object_pairs_hook=pairs),
                          json.loads(ack.data(), object_pairs_hook=pairs))
-        self.pins.extend([data, ack])
+        validate_post_state(json.loads(post.data(), object_pairs_hook=pairs))
+        self.pins.extend([data, ack, post])
+        self.post_validated = True
 
     def cleanup_known_success(self):
+        require(self.post_validated)
         self.recheck(linked=True)
-        expected = {'LoadState': 'loaded', 'FragmentPath': str(LINK), 'ActiveState': 'inactive',
-                    'SubState': 'dead', 'MainPID': '0', 'ControlPID': '0', 'ExecMainPID': '0',
-                    'ExecMainStartTimestampMonotonic': '0', 'ControlGroup': ''}
-        require(self.properties(expected) == expected)
-        require(self.call(['/usr/bin/busctl', '--system', 'get-property', 'org.freedesktop.systemd1',
-                          OBJECT, 'org.freedesktop.systemd1.Unit', 'Job']) == b'(uo) 0 "/"\n')
+        # All current manager cleanup facts come from the helper's one typed
+        # post-Unref GetAll("") reply, not separate clients racing unit GC.
         require(not CGROUP.exists() and not CGROUP.is_symlink())
         exact_inode_absent(self.pins[2])
         self.recheck(linked=True)

@@ -35,11 +35,13 @@ creator/ownership APIs and production dependencies are unchanged.
 ## Capture, not configured admission
 
 The distinct unit is deliberately inert (`ExecStart=/usr/bin/false`), refuses
-manual starts with `RefuseManualStart=yes`, and must never be started. It explicitly configures WatchdogSec=0 and append-mode paths
+manual starts with `RefuseManualStart=yes`, and must never be started. It
+explicitly configures WatchdogSec=0 and append-mode paths
 under the new private `/run/omavless-k1-effective-config-reference` stage.
 No parser for the manager's debug-dump text is assumed or admitted here.
 The typed identity must be the exact loaded, inactive/dead, no-drop-in unit,
-with all three process IDs and start timestamp zero. Selected typed values and
+with all three process IDs and start timestamp zero, typed Job `(uo)` equal to
+`(0, "/")`, and an empty ControlGroup. Selected typed values and
 the nonempty bounded string dump are emitted privately with
 `OBSERVED_CONFIG_DATA_NOT_ADMISSION`. Missing, wrongly typed, empty or oversized
 evidence refuses. In particular an empty array's element signature is checked
@@ -75,8 +77,38 @@ in an exclusive development VM, not production recovery.
 
 After the complete capture is written create-only through the retained stage
 directory FD and synchronized, one UnrefUnit is sent on the same connection.
-Only its acknowledged empty reply permits a separate create-only acknowledgment
-record and successful helper exit. A data file alone is not a success receipt.
+Only its acknowledged empty reply permits one further fixed `GetAll("")` on
+the same connection and original unique manager owner. That one reply must
+contain the complete current loaded/inactive/dead, exact unit/fragment,
+zero-PID/start, no-job and empty-ControlGroup facts. A separate create-only
+`reference-post-unref-state.json` is synchronized, followed by the acknowledged
+Unref record; only then may the helper exit successfully. The combined
+dictionary rejects duplicates, permits at most 1024 entries and retains the
+same 1 MiB whole-message bound. Earlier interface-specific bounds remain 512.
+No extra Ref, retry, reconnection or absent/missing-property success is added.
+A failed/uncertain post-Unref query parks with the connection retained, but
+does not claim the already-released manager reference is still held. A data
+file or even the earlier acknowledged Unref alone is not a success receipt.
+
+This removes a predictable race from the unexecuted `013908c` observer: its
+separate post-Unref systemctl/property clients could lose the inactive unit to
+GC between calls. v261
+[GetAll dispatch](https://github.com/systemd/systemd/blob/v261/src/libsystemd/sd-bus/bus-objects.c#L1475)
+treats an empty interface as all interfaces, collecting the vtables in one
+reply without returning to the event loop between them. The
+[exact-path fallback](https://github.com/systemd/systemd/blob/v261/src/core/dbus.c#L250)
+loads the requested unit if GC occurred before dispatch; the response must
+still explicitly prove loaded, never-started state, not merely absence.
+This is a point-in-time manager observation, not exclusion of concurrent
+trusted-root actors; the exclusive VM/unchanged pinned-unit assumptions remain.
+
+The [registered Service tables](https://github.com/systemd/systemd/blob/v261/src/core/dbus.c#L488)
+plus Unit have 471 visible expanded property names in the inspected v261
+source and no duplicates. Obsolete cross-interface aliases are marked hidden
+in [dbus-service.c](https://github.com/systemd/systemd/blob/v261/src/core/dbus-service.c#L438);
+[GetAll skips hidden/explicit properties](https://github.com/systemd/systemd/blob/v261/src/libsystemd/sd-bus/bus-objects.c#L884).
+This source check justifies strict duplicate refusal, not broad duplicate
+normalization or a claim that private VM output was already observed.
 
 Each reply wait has a five-second library timeout. The library timeout does
 not cover connection setup or the initial send; the outer observer's direct
@@ -88,8 +120,8 @@ is eight; output JSON is bounded to 2 MiB. No ordinary test opens a system bus.
 **Not ready for execution:** complete root review and explicit VM lease are
 required. `config_reference_guard.py` and `config_reference_stage.py` implement
 the separate fixed outer observer and create-only loader. The probe is the
-ordinary test build of `4db6d601afb0130118498238c9b15559e803e286`, SHA-256
-`b98c1290d2a6d522e8ef5e47476c07ae8d7c2a23366850dc071fe254fe9efb07`.
+ordinary test build of `6be4d75e9f0d4b99e1533446ff6269d5e392cda1`, SHA-256
+`0585efaa8116b242654e20d58ebb34e861d85e4c911c749b00de3760105f8551`.
 The loader admits all four artifacts into memory from stable original FDs
 before root publication; only its ELF bound is 128 MiB. The loader itself must
 arrive through the trusted host/root delivery channel (`python -I -B`), never
@@ -97,8 +129,7 @@ be sudo-executed from the user-writable staging directory. The pin graph is
 acyclic: loader → outer guard → original read-side definitions/unit/ELF.
 All older guards are loaded as definitions only; their main is never called.
 
-The outer
-must stop without subsequent queries/effects on helper nonzero, uncertainty,
+The outer must stop without subsequent queries/effects on helper nonzero, uncertainty,
 malformed evidence or timeout. It must not kill/reap a live or unknown child,
 release its reference, or use Popen's destructor as a hidden wait path.
 Any eventual whole-host preservation comparison must use a before and after
@@ -111,10 +142,13 @@ No claim is made that this root helper has a zero capability set. Its only
 manager mutations are the fixed RefUnit/UnrefUnit pair; it cannot run a unit.
 No initial daemon-reload occurs: the RefUnit call loads the freshly published
 own unit. Any unfamiliar cache/load result refuses rather than retrying.
-Only known helper exit zero, the separate acknowledged-Unref record, strict
-bounded typed metadata, never-started zero-PID/no-job/no-cgroup state, unchanged
+Only known helper exit zero, the separate acknowledged-Unref and post-Unref
+state records, strict bounded typed metadata, never-started
+zero-PID/no-job/no-cgroup state, unchanged
 original unit link/parent FD identity and point-in-time original ELF inode
 absence permit removing that exact own link through the retained parent FD.
+The outer makes no split manager state/Job queries between helper success and
+unlink; all those facts come from the one typed post-Unref reply.
 Only then may the outer issue its fixed daemon-reload, verify not-found and
 compare the same-invocation full after-baseline. No stop, signal, reset, source
 cleanup or failure compensation exists. All private output/artifacts remain.

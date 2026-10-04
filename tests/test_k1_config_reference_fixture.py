@@ -22,11 +22,12 @@ stage_spec.loader.exec_module(stage)
 def observed():
     return {'schema': 1, 'marker': guard.MARKER,
             'unit': {'Id': guard.UNIT, 'LoadState': 'loaded', 'FragmentPath': str(guard.LINK),
-                     'ActiveState': 'inactive', 'SubState': 'dead', 'DropInPaths': []},
+                     'ActiveState': 'inactive', 'SubState': 'dead', 'DropInPaths': [],
+                     'Job': {'type': '(uo)', 'data': [0, '/']}},
             'service': {'StandardOutput': 'append', 'StandardError': 'append', 'Type': 'oneshot',
                         'User': 'root', 'Group': 'root', 'WatchdogUSec': 2**64 - 1,
                         'MainPID': 0, 'ControlPID': 0, 'ExecMainPID': 0,
-                        'ExecMainStartTimestampMonotonic': 0},
+                        'ExecMainStartTimestampMonotonic': 0, 'ControlGroup': ''},
             'dump': {'type': 's', 'data': ['SYNTHETIC_OPAQUE_CAPTURE_NOT_GRAMMAR']}}
 
 
@@ -34,6 +35,30 @@ ACK = {'schema': 1, 'unref_acknowledged': True, 'admission': False}
 
 
 class Metadata(unittest.TestCase):
+    def test_post_state_is_required_typed_and_not_an_absence_fallback(self):
+        def post():
+            data = observed()
+            return {'schema': 1, 'phase': 'post-unref-single-getall', 'unit': data['unit'],
+                    'service': data['service'], 'admission': False}
+        guard.validate_post_state(post())
+        for edit in [lambda v: v.update(schema=True),
+                     lambda v: v['unit'].update(LoadState='not-found'),
+                     lambda v: v['unit']['Job'].update(data=[False, '/']),
+                     lambda v: v['unit']['Job'].update(data=[1, '/']),
+                     lambda v: v['service'].update(ControlGroup='/system.slice/other.service'),
+                     lambda v: v['service'].update(ExecMainStartTimestampMonotonic=1),
+                     lambda v: v.update(phase='before-unref')]:
+            value = post()
+            edit(value)
+            with self.assertRaises(RuntimeError):
+                guard.validate_post_state(value)
+        obj = object.__new__(guard.Observer)
+        obj.post_validated = False
+        obj.call = Mock(side_effect=AssertionError('unexpected query'))
+        with self.assertRaises(RuntimeError):
+            obj.cleanup_known_success()
+        obj.call.assert_not_called()
+
     def test_strict_capture_envelope_not_grammar(self):
         guard.validate_capture(observed(), ACK)
         for edit in [lambda v: v.update(schema=True),
@@ -147,6 +172,35 @@ class ActualObserverFlow(unittest.TestCase):
         self.assertEqual(kwargs['extra_groups'], [])
         self.assertEqual(set(kwargs['env']), {'PATH', 'LC_ALL', 'OMAVLESS_K1_CONFIG_REFERENCE'})
         wait.assert_called_once_with(child, seconds=45)
+
+    def test_cleanup_has_no_manager_query_before_exact_own_unlink(self):
+        for fail_absence in (False, True):
+            trace = []
+            obj = object.__new__(guard.Observer)
+            obj.post_validated, obj.parent_fd = True, 18
+            obj.pins = [None, None, object()]
+            obj.recheck = lambda **kwargs: trace.append('pin-check')
+            obj.call = lambda argv: trace.append(tuple(argv))
+            obj.properties = lambda names: (trace.append('not-found') or {'LoadState': 'not-found'})
+
+            def absence(probe):
+                trace.append('inode-absence')
+                if fail_absence:
+                    raise RuntimeError()
+
+            with patch.object(Path, 'exists', return_value=False), \
+                 patch.object(Path, 'is_symlink', return_value=False), \
+                 patch.object(guard, 'exact_inode_absent', side_effect=absence), \
+                 patch.object(guard.os, 'unlink', side_effect=lambda *a, **k: trace.append('unlink')), \
+                 patch.object(guard.os, 'fsync'):
+                if fail_absence:
+                    with self.assertRaises(RuntimeError):
+                        obj.cleanup_known_success()
+                    self.assertEqual(trace, ['pin-check', 'inode-absence'])
+                else:
+                    obj.cleanup_known_success()
+                    self.assertEqual(trace, ['pin-check', 'inode-absence', 'pin-check', 'unlink',
+                                            ('/usr/bin/systemctl', 'daemon-reload'), 'not-found'])
 
 
 class ExactInode(unittest.TestCase):
