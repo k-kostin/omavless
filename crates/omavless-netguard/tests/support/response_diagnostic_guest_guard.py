@@ -116,6 +116,15 @@ RETAINED_FRAGMENT = Path('/run/omavless-k1-versioned-config-reference/fixture.se
 RETAINED_SHA = '8916ea57f66461fcc1096c74589388221a7826e65bf64e97ea77c3b3809de81c'
 RETAINED_ACTIVATION = None
 ACTIVATION_REFUSED = False
+FAILED_LINK = Path('/run/systemd/system/omavless-k1-private-lifecycle-admission.service')
+FAILED_STAGE = Path('/run/omavless-k1-private-lifecycle-admission')
+FAILED_PINS = {
+    'guard.py': (0o500, 256 * 1024, '67c65f37e22dc8418108a86832416a70084fd28f105a799ed72132a9e3abe45c'),
+    'query-guard.py': (0o600, 256 * 1024, 'c6a0bed9b6572effc2b445416b356c62d0ec64788906792e0a9af6b5b326eedd'),
+    'fixture.service': (0o600, 16384, '7912c3204829773d7b5598fbd7bfb9174e14674d69ef5c30579631324a180f85'),
+    'probe': (0o500, 128 * 1024 * 1024, '803f7959df873660d262da02b19a7676cb00f36ef16ec0709120ff03582ad242'),
+}
+FAILED_ACTIVATION = None
 
 
 def exact_identity(m):
@@ -125,6 +134,93 @@ def exact_identity(m):
 
 def parent_identity(m):
     return (m.st_dev, m.st_ino, m.st_mode, m.st_uid, m.st_gid)
+
+
+class RetainedFailedActivation:
+    """Exact old #615 files only; never process/reference state or recovery."""
+    def __init__(self):
+        self.sealed = False
+        self.parents, self.files = [], {}
+        try:
+            for path in (Path('/'), Path('/run'), FAILED_STAGE,
+                         Path('/run/systemd'), FAILED_LINK.parent):
+                fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                info = os.fstat(fd)
+                self.parents.append((path, fd, info))
+                require(info.st_uid == info.st_gid == 0 and not info.st_mode & 0o022
+                        and parent_identity(info) == parent_identity(path.lstat()))
+            require(stat.S_IMODE(self.parents[2][2].st_mode) == 0o700)
+            self.link_fd = os.open(FAILED_LINK.name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                   dir_fd=self.parents[4][1])
+            self.link = os.fstat(self.link_fd)
+            require(stat.S_ISLNK(self.link.st_mode) and self.link.st_uid == self.link.st_gid == 0
+                    and self.link.st_nlink == 1)
+            for name, (mode, maximum, sha) in FAILED_PINS.items():
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                             dir_fd=self.parents[2][1])
+                info = os.fstat(fd)
+                self.files[name] = (fd, info, sha)
+                require(stat.S_ISREG(info.st_mode) and info.st_uid == info.st_gid == 0
+                        and stat.S_IMODE(info.st_mode) == mode and info.st_nlink == 1
+                        and 0 < info.st_size <= maximum and not os.listxattr(fd))
+            self.recheck()
+        except BaseException:
+            self.sealed = True
+            raise
+
+    def recheck(self):
+        require(not self.sealed)
+        try:
+            for path, fd, info in self.parents:
+                require(parent_identity(info) == parent_identity(os.fstat(fd)) == parent_identity(path.lstat()))
+            require(exact_identity(self.parents[2][2]) == exact_identity(os.fstat(self.parents[2][1])))
+            require(exact_identity(self.link) == exact_identity(os.fstat(self.link_fd))
+                    == exact_identity(os.stat(FAILED_LINK.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
+            require(os.readlink(FAILED_LINK.name, dir_fd=self.parents[4][1]) == str(FAILED_STAGE / 'fixture.service'))
+            for name, (fd, info, sha) in self.files.items():
+                require(exact_identity(info) == exact_identity(os.fstat(fd))
+                        == exact_identity(os.stat(name, dir_fd=self.parents[2][1], follow_symlinks=False))
+                        and not os.listxattr(fd))
+                hashed, offset = hashlib.sha256(), 0
+                while offset < info.st_size:
+                    block = os.pread(fd, min(65536, info.st_size - offset), offset)
+                    require(block); hashed.update(block); offset += len(block)
+                require(os.pread(fd, 1, offset) == b'' and hashed.hexdigest() == sha
+                        and exact_identity(info) == exact_identity(os.fstat(fd))
+                        == exact_identity(os.stat(name, dir_fd=self.parents[2][1], follow_symlinks=False)))
+            require(exact_identity(self.link) == exact_identity(os.fstat(self.link_fd))
+                    == exact_identity(os.stat(FAILED_LINK.name, dir_fd=self.parents[4][1], follow_symlinks=False)))
+            require(os.readlink(FAILED_LINK.name, dir_fd=self.parents[4][1]) == str(FAILED_STAGE / 'fixture.service'))
+            for path, fd, info in self.parents:
+                require(parent_identity(info) == parent_identity(os.fstat(fd)) == parent_identity(path.lstat()))
+            require(exact_identity(self.parents[2][2]) == exact_identity(os.fstat(self.parents[2][1])))
+        except BaseException:
+            self.sealed = True
+            raise
+
+    def admits(self, link, target):
+        self.recheck()
+        return link == FAILED_LINK and target == FAILED_STAGE / 'fixture.service'
+
+    def file_record(self, path, info):
+        self.recheck()
+        require(path.parent == FAILED_STAGE and path.name in self.files)
+        _, original, sha = self.files[path.name]
+        require(exact_identity(info) == exact_identity(original))
+        return ["file", sha]
+
+
+def retained_failed_activation():
+    global FAILED_ACTIVATION, ACTIVATION_REFUSED
+    require(not ACTIVATION_REFUSED)
+    try:
+        if FAILED_ACTIVATION is None:
+            FAILED_ACTIVATION = RetainedFailedActivation()
+        FAILED_ACTIVATION.recheck()
+        return FAILED_ACTIVATION
+    except BaseException:
+        ACTIVATION_REFUSED = True
+        raise
 
 
 class RetainedActivation:
@@ -209,6 +305,7 @@ def inventory():
 def _inventory():
     """Complete path/type/mode/owner/link/content inventory; never follow links."""
     retained = retained_activation()
+    failed = retained_failed_activation()
     records = {}
     total = 0
 
@@ -232,6 +329,8 @@ def _inventory():
                 raw = retained.recheck()
                 require(exact_identity(info) == exact_identity(retained.fragment))
                 row += ["file", digest(raw)]
+            elif path.parent == FAILED_STAGE and path.name in FAILED_PINS:
+                row += failed.file_record(path, info)
             else:
                 row += ["file", digest(path.read_bytes())]
         elif stat.S_ISDIR(info.st_mode):
@@ -245,7 +344,7 @@ def _inventory():
         if stat.S_ISLNK(info.st_mode):
             target = path.resolve(strict=True)
             require(target == Path("/dev/null") or any(target.is_relative_to(Path(prefix))
-                    for prefix in TARGET_ROOTS) or retained.admits(path, target))
+                    for prefix in TARGET_ROOTS) or retained.admits(path, target) or failed.admits(path, target))
             visit(target)
         if stat.S_ISDIR(info.st_mode):
             for child in sorted(path.iterdir()):
@@ -254,7 +353,9 @@ def _inventory():
     for root in ACTIVATION_ROOTS:
         visit(Path(root))
     retained.recheck()
+    failed.recheck()
     require(str(RETAINED_LINK) in records and str(RETAINED_FRAGMENT) in records)
+    require(str(FAILED_LINK) in records and str(FAILED_STAGE / 'fixture.service') in records)
     return records
 
 

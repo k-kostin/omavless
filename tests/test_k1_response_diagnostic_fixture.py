@@ -26,6 +26,109 @@ query = load('response_diagnostic_guest_guard')
 
 
 class Flow(unittest.TestCase):
+    def test_retained_615_pins_are_the_original_four_not_current_candidate(self):
+        self.assertEqual(set(query.FAILED_PINS),{'guard.py','query-guard.py','fixture.service','probe'})
+        for name, path in {
+            'guard.py': SUPPORT/'private_admission_guard.py',
+            'query-guard.py': SUPPORT/'private_admission_guest_guard.py',
+            'fixture.service': SUPPORT.parent/'fixtures'/'omavless-k1-private-lifecycle-admission.service',
+        }.items():
+            self.assertEqual(query.FAILED_PINS[name][2],hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertEqual(query.FAILED_PINS['probe'][2],'803f7959df873660d262da02b19a7676cb00f36ef16ec0709120ff03582ad242')
+        self.assertNotEqual(query.FAILED_PINS['probe'][2],guard.PROBE_SHA)
+        self.assertNotIn(str(query.FAILED_STAGE),query.TARGET_ROOTS)
+
+    def test_retained_615_exact_files_no_query_and_same_byte_swaps_refuse(self):
+        # Real FDs/inodes; only ownership is normalized for ordinary CI UID.
+        original_fstat, original_stat = os.fstat, os.stat
+        original_lstat = Path.lstat
+        def root_meta(info):
+            return SimpleNamespace(**{name: (0 if name in ('st_uid','st_gid') else getattr(info,name))
+                for name in ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')})
+        for swap in ('none','link','fragment','source','metadata'):
+            with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
+                root = Path(temp); stage_dir = root / 'stage'; stage_dir.mkdir(mode=0o700)
+                links = root / 'links'; links.mkdir(mode=0o700)
+                link = links / 'fixture.service'; link.symlink_to(stage_dir / 'fixture.service')
+                pins = {}
+                for name in query.FAILED_PINS:
+                    raw = ('synthetic-'+name).encode(); file = stage_dir / name
+                    file.write_bytes(raw); file.chmod(0o600)
+                    pins[name] = (0o600,4096,hashlib.sha256(raw).hexdigest())
+                held = None
+                with patch.object(query,'FAILED_STAGE',stage_dir), patch.object(query,'FAILED_LINK',link), \
+                     patch.object(query,'FAILED_PINS',pins), patch.object(query,'command',side_effect=AssertionError('query')) as command, \
+                     patch.object(query.os,'fstat',side_effect=lambda fd:root_meta(original_fstat(fd))), \
+                     patch.object(query.os,'stat',side_effect=lambda *a,**kw:root_meta(original_stat(*a,**kw))), \
+                     patch.object(Path,'lstat',lambda p:root_meta(original_lstat(p))):
+                    held = query.RetainedFailedActivation()
+                    self.assertTrue(held.admits(link,stage_dir/'fixture.service'))
+                    self.assertFalse(held.admits(links/'other.service',stage_dir/'fixture.service'))
+                    self.assertFalse(held.admits(link,stage_dir/'guard.py'))
+                    if swap == 'link':
+                        link.unlink(); link.symlink_to(stage_dir/'fixture.service')
+                    elif swap in ('fragment','source'):
+                        file=stage_dir/('fixture.service' if swap=='fragment' else 'guard.py')
+                        raw=file.read_bytes(); file.unlink(); file.write_bytes(raw);file.chmod(0o600)
+                    elif swap == 'metadata':
+                        (stage_dir/'probe').chmod(0o400)
+                    if swap == 'none':
+                        held.recheck()
+                        self.assertEqual(held.file_record(stage_dir/'fixture.service',root_meta(original_stat(stage_dir/'fixture.service'))),
+                                         ['file',pins['fixture.service'][2]])
+                    else:
+                        with self.assertRaises(query.Refused): held.recheck()
+                        self.assertTrue(held.sealed)
+                        with patch.object(query.os,'pread',side_effect=AssertionError('late read')) as read:
+                            with self.assertRaises(query.Refused): held.recheck()
+                            read.assert_not_called()
+                    command.assert_not_called()
+                # No process/manager owns these synthetic local files.
+                if held is not None:
+                    for _,fd,_ in held.parents: os.close(fd)
+                    os.close(held.link_fd)
+                    for fd,_,_ in held.files.values(): os.close(fd)
+
+    def test_failed_activation_refusal_latches_before_second_constructor(self):
+        with patch.object(query,'ACTIVATION_REFUSED',False), patch.object(query,'FAILED_ACTIVATION',None), \
+             patch.object(query,'RetainedFailedActivation',side_effect=query.Refused) as constructor:
+            for _ in range(2):
+                with self.assertRaises(query.Refused): query.retained_failed_activation()
+            constructor.assert_called_once()
+
+    def test_inventory_allows_only_exact_retained_615_pair_without_prefix_exception(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as temp:
+            root=Path(temp); links=root/'links'; links.mkdir()
+            old_stage=root/'old609'; old_stage.mkdir(); new_stage=root/'old615'; new_stage.mkdir()
+            old_fragment=old_stage/'fixture.service'; old_fragment.write_bytes(b'old609')
+            new_fragment=new_stage/'fixture.service'; new_fragment.write_bytes(b'old615')
+            old_link=links/'old609.service'; old_link.symlink_to(old_fragment)
+            new_link=links/'old615.service'; new_link.symlink_to(new_fragment)
+            unrelated=new_stage/'other.service'; unrelated.write_bytes(b'old615')
+            old=SimpleNamespace(fragment=old_fragment.stat(),recheck=Mock(return_value=b'old609'),
+                admits=lambda link,target:link==old_link and target==old_fragment)
+            failed=SimpleNamespace(recheck=Mock(),admits=lambda link,target:link==new_link and target==new_fragment,
+                file_record=lambda path,info:['file',hashlib.sha256(b'old615').hexdigest()])
+            with patch.object(query,'ACTIVATION_ROOTS',(str(links),)), patch.object(query,'TARGET_ROOTS',()), \
+                 patch.object(query,'RETAINED_LINK',old_link),patch.object(query,'RETAINED_FRAGMENT',old_fragment), \
+                 patch.object(query,'FAILED_LINK',new_link),patch.object(query,'FAILED_STAGE',new_stage), \
+                 patch.object(query,'retained_activation',return_value=old), \
+                 patch.object(query,'retained_failed_activation',return_value=failed), \
+                 patch.object(query,'command',side_effect=AssertionError('query')) as command:
+                records=query._inventory()
+                self.assertIn(str(new_fragment),records)
+                self.assertNotIn(str(unrelated),records)
+                failed.recheck.assert_called()
+                # Same stage directory is not a general target exception.
+                (links/'unrelated.service').symlink_to(unrelated)
+                with patch.object(query,'ACTIVATION_REFUSED',False):
+                    with self.assertRaises(query.Refused):query.inventory()
+                    self.assertTrue(query.ACTIVATION_REFUSED)
+                    with patch.object(query,'_inventory',side_effect=AssertionError('late inventory')) as again:
+                        with self.assertRaises(query.Refused):query.inventory()
+                        again.assert_not_called()
+                command.assert_not_called()
+
     def test_complete_rpc_receipts_are_diagnostic_and_exact_typed(self):
         before = {'schema': 1, 'diagnostic': True, 'boundary': 'before-rpc', 'admission': False}
         version = {'unique_owner': ':1.77'}

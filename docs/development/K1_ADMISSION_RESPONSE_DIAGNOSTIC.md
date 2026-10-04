@@ -27,7 +27,9 @@ and bounded. Diagnostic schema explicitly states `admission: false`.
 The old permission and Dump predicates are not relaxed. Only the new fixed
 unit/stage/writer identities differ. A response mismatch, transport/decoding
 failure, receipt collision/write failure or panic is terminal: preserve the
-connection/reference and all original descriptors; no next RPC, compensating
+connection and all original descriptors; before acknowledged Unref, the
+reference is retained too, but after acknowledged Unref it is not claimed;
+no next RPC, compensating
 Unref, signal, cleanup or retry. A failed receipt write is not retried. The
 outer raw-owned observer admits only an exact zero WNOWAIT outcome before its
 single matching reap; all other outcomes preserve the stage and stop queries.
@@ -82,3 +84,18 @@ identity and complete hashes were checked before and after copying. Subsequent
 outer artifact-pin changes do not relabel this native build's source head.
 The old #615 helper/reference remains uncertain and retained; this new capture
 does not query its unit/process state or claim its quiescence or recovery.
+
+Independent review of `65c7713` found a predictable before-baseline refusal:
+the old #615 retained link points outside the inherited target-root inventory.
+The correction admits only that exact link to its exact fragment after binding
+the four known old source/artifact hashes through original read-only FDs,
+root-owned parents, unchanged stage metadata and exact symlink identity/target.
+It neither adds a general `/run` prefix nor skips the old entry. The baseline
+still records the exact link and fragment content; original source descriptors
+remain held and rechecked. This is file metadata/content continuity only, not
+an old-unit, process, reference, quiescence or recovery observation. No old
+service query, Ref/Unref, Start/Stop or cleanup is added. The old NONPASS remains.
+Real-FD synthetic controls cover same-byte link/fragment/source replacement,
+metadata drift and permanent refusal; inventory controls reject another target
+in the same directory and prove no external query or repeated inventory.
+The native source and frozen ELF above are unchanged by this query-only fix.

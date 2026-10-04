@@ -11,9 +11,9 @@ SOURCE = Path('/home/kdk_vm/.cache/k1-response-diagnostic-stage-v1')
 DESTINATION = Path('/run/omavless-k1-admission-response-diagnostic')
 MEMBERS = {
     'probe': ('a2b8dd3b7cc1658c536fd81bd25a74ae55255cb2159624cfe8f548c162ad0e9a', 0o500, 0o500, 128 * 1024 * 1024),
-    'query-guard.py': ('660f55e20b2c4e3b3bb1b4f9616b6176c739db7798bc6013bd936f032843665e', 0o400, 0o600, 256 * 1024),
+    'query-guard.py': ('ee277f747c3e654e21606a228172606cfc39d839ec7091074b778268566f2ec0', 0o400, 0o600, 256 * 1024),
     'fixture.service': ('a3b03103bbd8c43f6e6ca6755c063a7e851f40a006303c93028be80aec411e58', 0o400, 0o600, 16384),
-    'guard.py': ('f1e8bdb4c6e8e8bf1d05ac99b76a629accec887d798e9ff7aac22a966655b317', 0o400, 0o500, 256 * 1024),
+    'guard.py': ('cc19409a109393f11f1328bfa41d951a185276c5e202eb9f3bc069213cf10565', 0o400, 0o500, 256 * 1024),
 }
 
 
