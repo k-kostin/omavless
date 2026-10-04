@@ -2,8 +2,16 @@
 
 Status: security/product design with an inactive Rust envelope primitive, **not
 approved for activation**. There is no backup command, IPC method, picker,
-scheduler, file publisher or restore authority. A backup file contains reusable
+scheduler, file publisher or first-Restore authority; the development-only
+first-Abort recovery command is scoped separately below. A backup file contains reusable
 VPN credentials and subscription bearer URLs; it is not a support report.
+
+Development-only follow-up: the [explicit first-Abort CLI slice](../development/T4_FIRST_ABORT_CLI.md)
+adds a normal command for the already authenticated, first-cycle rollback path,
+not first Restore/Commit or normal-owner admission. It requires a stopped
+runtime's existing singleton lock and retains all recovery fences. Its new
+caller still needs exact-head source and separately authorized CLI-binary VM
+acceptance; earlier private-composition process-loss evidence does not accept it.
 
 ## User task and scope
 

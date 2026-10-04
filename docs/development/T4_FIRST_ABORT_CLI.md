@@ -5,12 +5,27 @@ Approved bounded implementation plan, based on #605
 evidence remains tied to `a2eeb423`; the later ordinary-test HOME correction
 does not rerun or replace it. All previous NONPASS outcomes remain retained.
 
-The proposed normal command is `omavless restore abort --confirm-rollback`.
+The normal command under development is `omavless restore abort --confirm-rollback`.
 It accepts one bounded private stdin document containing the archive path and
 passphrase, with strict field/type/duplicate/trailing-input checks. Secrets do
 not travel in argv, environment, output or ordinary semantic request logging.
 Input storage is zeroized on drop; no claim covers every allocator/internal
 parser copy or hostile same-user memory observation.
+
+The v1 private stdin object has exactly `schema` (integer `1`), `archive`
+(absolute path string, at most 4096 bytes), and `passphrase` (12–1024 UTF-8
+bytes). The entire input is at most 32768 bytes; duplicate/unknown fields,
+wrong types, a second JSON value, parent traversal and NUL paths refuse.
+Prepare this input through a private channel: do not put passphrases in shell
+arguments, command history, environment, shareable examples or logs. Only fixed
+public errors and the still-fenced success message are printed.
+
+The existing singleton file must be empty, single-link, caller-owned `0600`
+inside the proven original private directory. Admission checks the original
+held descriptor and pathname; any failed check poisons that invocation rather
+than accepting a later restored pathname. The ordinary daemon lock writer is
+unchanged. The checked recovery constructor remains module-private; there is
+no caller-supplied host/path override or generic IPC method.
 
 This is explicit recovery while the runtime is stopped, not a new dispatcher
 or an alternative live owner. Before the migration lease, retain an existing

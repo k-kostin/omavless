@@ -109,7 +109,9 @@ class FirstRestoreOwnerExecution(unittest.TestCase):
         text = (SRC / "restore_first_abort_owner.rs").read_text()
         body = text.split("\nmod tests {", 1)[0]
         self.assertIn("fn current(source: &Path, passphrase: &[u8])", body)
-        self.assertNotRegex(body, r"pub(?:\([^)]*\))?\s+fn\s+(?:current|run)")
+        self.assertNotRegex(body, r"pub(?:\([^)]*\))?\s+fn\s+(?:current|run)\b")
+        self.assertIn("pub(super) fn current_checked(", body)
+        self.assertIn("admitted()\n            && lock.authorizes", body)
         for token in ("ObservationOnlyNativeHost::new", "RuntimePaths::current",
                       "DesiredPaths::current", "CutoverPaths::current", "NativeHostPaths::current",
                       "MigrationLock::acquire_existing", "recovered.check(uid)",

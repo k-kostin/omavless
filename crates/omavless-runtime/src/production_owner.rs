@@ -42,6 +42,14 @@ mod final_restore_review;
 #[path = "restore_first_abort_owner.rs"]
 mod first_abort;
 
+pub(crate) fn abort_first_restore_current(
+    source: &Path,
+    passphrase: &[u8],
+    admitted: impl Fn() -> bool,
+) -> Result<(), ProductionOwnerError> {
+    first_abort::current_checked(source, passphrase, admitted)
+}
+
 #[path = "system_historical_off_candidate.rs"]
 pub(crate) mod system_historical_off;
 

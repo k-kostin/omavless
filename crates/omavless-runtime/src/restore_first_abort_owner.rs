@@ -249,14 +249,53 @@ fn current(source: &Path, passphrase: &[u8]) -> Result<Outcome, ProductionOwnerE
     run(host, desired, &store, paths, uid, &backup)
 }
 
+pub(super) fn current_checked(
+    source: &Path,
+    passphrase: &[u8],
+    admitted: impl Fn() -> bool,
+) -> Result<(), ProductionOwnerError> {
+    if !admitted() {
+        return Err(REFUSE);
+    }
+    let uid = Uid::current().as_raw();
+    let backup = crate::backup_destination_candidate::open_existing(source, uid, passphrase)
+        .map_err(|_| REFUSE)?;
+    if !admitted() {
+        return Err(REFUSE);
+    }
+    let runtime = RuntimePaths::current().map_err(|_| REFUSE)?;
+    let desired = DesiredPaths::current().map_err(|_| REFUSE)?;
+    let paths = CutoverPaths::current(uid).map_err(|_| REFUSE)?;
+    let host_paths = NativeHostPaths::current(&runtime.directory).map_err(|_| REFUSE)?;
+    let store = host_paths.store.clone();
+    let host =
+        crate::native_host::ObservationOnlyNativeHost::new(host_paths, uid).map_err(|_| REFUSE)?;
+    run_checked(host, desired, &store, paths, uid, &backup, admitted).map(drop)
+}
+
 fn run<H: LifecycleHost>(
-    mut host: H,
+    host: H,
     desired_paths: DesiredPaths,
     store: &Path,
     paths: CutoverPaths,
     uid: u32,
     backup: &omavless_domain::private_backup::OpenedBackup,
 ) -> Result<Outcome, ProductionOwnerError> {
+    run_checked(host, desired_paths, store, paths, uid, backup, || true)
+}
+
+fn run_checked<H: LifecycleHost>(
+    mut host: H,
+    desired_paths: DesiredPaths,
+    store: &Path,
+    paths: CutoverPaths,
+    uid: u32,
+    backup: &omavless_domain::private_backup::OpenedBackup,
+    admitted: impl Fn() -> bool,
+) -> Result<Outcome, ProductionOwnerError> {
+    if !admitted() {
+        return Err(REFUSE);
+    }
     if desired_paths.directory != paths.state_directory
         || desired_paths.file != paths.state_directory.join("desired.json")
         || paths.ownership_marker != paths.state_directory.join("ownership.json")
@@ -288,7 +327,8 @@ fn run<H: LifecycleHost>(
         return Err(REFUSE);
     }
     let stable = || {
-        lock.authorizes(&paths, uid)
+        admitted()
+            && lock.authorizes(&paths, uid)
             && recovered.check(uid).is_ok()
             && retained
                 .try_borrow()
@@ -501,6 +541,60 @@ mod tests {
         fs::write(&replacement, bytes).unwrap();
         fs::set_permissions(&replacement, fs::Permissions::from_mode(0o600)).unwrap();
         fs::rename(replacement, path).unwrap();
+    }
+
+    #[test]
+    fn first_abort_owner_external_admission_is_retained_at_every_checkpoint() {
+        let reference = ready(EffectStep::Renamed(1));
+        let calls = Cell::new(0);
+        assert_eq!(
+            run_checked(
+                Host(|| true),
+                desired(&reference),
+                &reference.config.join("profiles.json"),
+                reference.paths.clone(),
+                reference.uid,
+                backup(),
+                || {
+                    calls.set(calls.get() + 1);
+                    true
+                }
+            ),
+            Ok(Outcome::AbortedStillFenced)
+        );
+        assert!(calls.get() > 10);
+        for fail_at in 1..=calls.get() {
+            let f = ready(EffectStep::Renamed(1));
+            let seen = Cell::new(0);
+            let host_calls = Cell::new(0);
+            assert!(
+                run_checked(
+                    Host(|| {
+                        host_calls.set(host_calls.get() + 1);
+                        true
+                    }),
+                    desired(&f),
+                    &f.config.join("profiles.json"),
+                    f.paths.clone(),
+                    f.uid,
+                    backup(),
+                    || {
+                        seen.set(seen.get() + 1);
+                        seen.get() < fail_at
+                    }
+                )
+                .is_err()
+            );
+            assert_eq!(
+                seen.get(),
+                fail_at,
+                "no retry after failed external admission"
+            );
+            if fail_at == 1 {
+                assert_eq!(host_calls.get(), 0);
+            }
+            fenced(&f);
+        }
     }
 
     #[test]
